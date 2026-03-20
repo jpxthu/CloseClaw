@@ -427,24 +427,42 @@ closeclaw/
 
 ---
 
-## 10. 开发阶段计划
+## 10. 团队角色定义
+
+| 角色 | 职责 |
+|------|------|
+| **主 agent**（我） | 统筹全局、决策拍板、对外沟通、最终审核交付 |
+| **PM agent** | 需求分析、SPEC.md 撰写和维护、设计文档 review |
+| **Dev agent × N** | 并行开发各模块代码 |
+| **QA agent** | 对需求和设计文档找茬提问、写足够的测试用例、验证测试覆盖率 |
+| **Code Reviewer** | 交叉 code review、安全审计、确保实现符合设计 |
+
+**三角制约关系：**
+```
+Dev agent ←→ Code Reviewer
+    ↑              ↑
+    └──  QA agent ──┘
+```
+
+## 11. 开发阶段计划
 
 | Phase | 内容 | 产出 | Agent 分工 |
 |-------|------|------|-----------|
 | **Phase 1** | 需求确认 + 架构设计 | 完善 SPEC.md | 全部由主 agent 完成 |
-| **Phase 2** | Permission Engine 核心实现 | `src/permission/` 代码 | Sub-agent A：PE engine + sandbox |
-| **Phase 2b** | 配置系统实现 | `src/config/` 代码 | Sub-agent B：配置加载和验证 |
-| **Phase 2c** | Agent Runtime 骨架 | `src/agent/` 骨架代码 | Sub-agent C：runtime 骨架 |
-| **Phase 3** | Gateway + IM 适配器 | `src/gateway/` + `src/im/` | Sub-agent D：gateway + 飞书 adapter |
-| **Phase 4** | Skill 系统基础实现 | `src/skills/` | Sub-agent A：file_ops skill |
-| **Phase 5** | 集成测试 + 修正 | 可运行的最小闭环 | Sub-agent B：测试 + review |
-| **Phase 6** | 代码审核 + 安全审计 | 审核报告 | 主 agent 主导，sub-agent 交叉 review |
+| **Phase 2** | Permission Engine 核心实现 | `src/permission/` 代码 | Dev agent A：PE engine + sandbox |
+| **Phase 2b** | 配置系统实现 | `src/config/` 代码 | Dev agent B：配置加载和验证 |
+| **Phase 2c** | Agent Runtime 骨架 | `src/agent/` 骨架代码 | Dev agent C：runtime 骨架 |
+| **Phase 3** | Gateway + IM 适配器 | `src/gateway/` + `src/im/` | Dev agent D：gateway + 飞书 adapter |
+| **Phase 4** | Skill 系统基础实现 | `src/skills/` | Dev agent A：file_ops skill |
+| **Phase 5** | 集成测试 + 修正 | 可运行的最小闭环 | QA agent：测试 + coverage report |
+| **Phase 6** | 代码审核 + 安全审计 | 审核报告 | Code Reviewer：交叉 review + PE 重点审计 |
 | **Phase 7** | 文档完善 + 交付 | 最终版本 | 主 agent 完成 |
 
 **开发过程中的监督机制：**
-- Sub-agent 之间交叉 code review（防止自己写自己审）
-- PE 代码由两个 sub-agent 共同审
-- 测试覆盖率作为合并标准
+- Dev agent 之间交叉 code review（防止自己写自己审）
+- QA agent 在 Phase 1 结束后就开始 review 设计文档，提前找茬
+- PE 代码必须经过 Code Reviewer + QA agent 双重审核
+- 测试覆盖率作为合并标准（目标：核心模块 > 80%）
 
 ---
 
@@ -452,11 +470,15 @@ closeclaw/
 
 | 术语 | 定义 |
 |------|------|
-| PE | Permission Engine，权限引擎 |
+| PE | Permission Engine，权限引擎，独立进程运行，不可被篡改 |
 | Agent | 具有 LLM 能力的执行单元，可理解指令并通过工具行动 |
 | Skill | 封装好的工具能力，可被 agent 调用 |
 | IM Adapter | 即时通讯后端适配器，负责协议转换 |
 | Rule | 权限规则，声明式定义某 agent 能做什么 |
+| seccomp | Linux 内核安全机制，锁定进程可使用的系统调用（syscall），防止提权 |
+| landlock | Linux 内核安全机制，细粒度文件系统权限控制，限制进程对指定目录/文件的访问 |
+| O(1) 查表 | 规则评估复杂度为常数时间，与规则数量无关 |
+| 异步评估 | 权限判断不阻塞 agent 并发执行，PE 通过 async channel 接收/响应请求 |
 
 ---
 
