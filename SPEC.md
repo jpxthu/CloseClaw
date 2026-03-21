@@ -6,7 +6,7 @@
 
 ## 状态
 
-🟢 **开发中** — Phase 1-7 完成，Phase 8 集成测试中
+🟢 **开发中** — Phase 1-9 完成，Phase 10 集成中
 
 | Phase | 状态 | 分支 |
 |-------|------|------|
@@ -18,6 +18,7 @@
 | Phase 6: LLM 接口抽象 | ✅ 完成 | master |
 | Phase 7: CLI + 主程序 | ✅ 完成 | master |
 | Phase 8: 测试覆盖率 | ✅ 完成（107 tests） | master |
+| Phase 9: Daemon + Graceful Shutdown | ✅ 完成 | master |
 
 ---
 
