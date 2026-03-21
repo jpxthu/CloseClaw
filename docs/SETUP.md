@@ -83,3 +83,44 @@ cargo update
 ### Compilation errors
 - Ensure Rust version is >= 1.85
 - Run `cargo update` to update dependencies
+
+---
+
+## Deployment (Pull → Rebuild → Restart)
+
+### Standard Deployment Flow
+
+> **No `cargo clean` needed** for routine code pulls — Cargo's incremental build handles updates automatically.
+
+```bash
+cd /home/admin/code/closeclaw
+
+# 1. Stop running instance (if any)
+pkill closeclaw   # or Ctrl+C if running in foreground
+
+# 2. Pull latest code
+git pull
+
+# 3. Rebuild (release mode)
+cargo build --release
+
+# 4. Restart
+./target/release/closeclaw run --config-dir ./configs
+```
+
+### When You DO Need `cargo clean`
+- Rust version was upgraded (e.g., 1.75 → 1.85)
+- Dependencies changed fundamentally (not just updated)
+- Build cache is corrupted (symptoms: cryptic/unexplainable errors)
+- After `Cargo.toml` dependency changes
+
+### Health Check After Deploy
+```bash
+# Verify binary runs
+./target/release/closeclaw --version
+
+# Check it starts without errors
+./target/release/closeclaw run --config-dir ./configs &
+sleep 2
+# If no crash/error output, it's healthy
+```

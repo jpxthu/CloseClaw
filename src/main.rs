@@ -117,10 +117,10 @@ async fn main() -> Result<()> {
             std::fs::write(&pid_path, std::process::id().to_string())?;
             println!("PID {} written to {}", std::process::id(), pid_path.display());
 
-            println!("Starting CloseClaw daemon with config dir: {}", config_dir);
-            // TODO: Start the daemon
-            println!("Daemon not yet implemented — remove PID file manually if needed");
-            let _ = std::fs::remove_file(&pid_path);
+            // Start the daemon
+            let daemon = closeclaw::daemon::Daemon::start(&config_dir).await?;
+            daemon.run().await?;
+            println!("CloseClaw daemon stopped.");
         }
         Commands::Stop {} => {
             handle_stop().await?;

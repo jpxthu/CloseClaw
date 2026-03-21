@@ -14,6 +14,7 @@ pub mod im;
 pub mod skills;
 pub mod llm;
 pub mod cli;
+pub mod daemon;
 
 use tracing::info;
 
