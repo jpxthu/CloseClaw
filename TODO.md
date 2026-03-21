@@ -7,21 +7,29 @@
   - JSON over TCP 协议
   - `closeclaw chat` CLI 客户端
   - 默认启动 guide agent
-  - 验证核心架构可行
+  - **必须配套写测试**
 
 - [ ] **Permission Engine 用户维度支持** — 权限配置
   - `subject: user_id` 规则类型
   - 用户级别权限（完整权限 vs 咨询权限）
   - 架构要模块化，方便后续细化
+  - **必须配套写测试**
 
 ## Later（待讨论/低优）
 
+- [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs`
 - [ ] **Feishu webhook server** — 让 daemon 能接收飞书消息
 - [ ] **Graceful shutdown drain 逻辑** — 等 agent 任务完成再退出
 - [ ] **`closeclaw stop -f`** — 强制关闭模式
 - [ ] **Agent 间通信** — 群聊中互相 @ 对话（低优，需进一步讨论）
 - [ ] **Hot config reload** — `agents.json` 变更热重载
 - [ ] **接入 LLM provider** — OpenAI / Anthropic / MiniMax 实际调用
+
+## 测试规范
+
+- 每个功能改动必须写测试，不能只写实现
+- 测试按模块分散到 `src/<module>/tests.rs`，不允许全部堆在 `tests/` 根目录
+- `tests/` 根目录只放集成测试和冒烟测试
 
 ## 功能体验（来自用户反馈）
 

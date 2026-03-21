@@ -83,6 +83,47 @@ gh issue create --title "Issue title" --body "Description" --label "bug"
    - Tag appropriately (bug/enhancement/question/documentation)
 3. Update issue status as resolved
 
+## Feature Development Workflow
+
+每个功能改动都必须经过测试，不能只写实现：
+
+```
+需求确认
+   ↓
+测试用例设计（test agent 或开发者）
+   ↓
+实现代码
+   ↓
+写测试（UT）
+   ↓
+运行测试，确保通过
+   ↓
+提交 + Close issue
+```
+
+### 测试文件结构
+
+测试按模块分散到对应目录，不允许全部堆在 `tests/` 根目录：
+
+```
+src/
+  ├── permission/
+  │   ├── mod.rs
+  │   └── tests.rs      ← permission 模块的单元测试
+  ├── agent/
+  │   ├── mod.rs
+  │   └── tests.rs      ← agent 模块的单元测试
+  └── gateway/
+      ├── mod.rs
+      └── tests.rs      ← gateway 模块的单元测试
+
+tests/
+  ├── integration_tests.rs  ← 跨模块集成测试
+  └── smoke_tests.rs       ← 冒烟测试
+```
+
+> 禁止在 `tests/` 根目录创建新的针对单个模块的测试文件。
+
 ## Issue Reply Rules
 
 - **署名**：`— Vibe虾 🦐` 或 `— CloseClaw Bot`
