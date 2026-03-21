@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "rules": [
+    {
+      "name": "guide-can-read-source-code",
+      "subject": { "agent": "guide" },
+      "effect": "allow",
+      "actions": [
+        {
+          "type": "file",
+          "operations": ["read"],
+          "paths": ["src/**", "tests/**", "docs/**", "*.md", "*.rs", "*.toml"]
+        }
+      ]
+    },
+    {
+      "name": "guide-can-read-public-files",
+      "subject": { "agent": "guide" },
+      "effect": "allow",
+      "actions": [
+        {
+          "type": "file",
+          "operations": ["read"],
+          "paths": ["README*", "LICENSE*", "CHANGELOG*"]
+        }
+      ]
+    },
+    {
+      "name": "guide-can-use-search-skill",
+      "subject": { "agent": "guide" },
+      "effect": "allow",
+      "actions": [
+        {
+          "type": "tool_call",
+          "tools": ["search"]
+        }
+      ]
+    },
+    {
+      "name": "guide-denied-write-anywhere",
+      "subject": { "agent": "guide" },
+      "effect": "deny",
+      "actions": [
+        {
+          "type": "file",
+          "operations": ["write", "delete"]
+        }
+      ]
+    },
+    {
+      "name": "guide-denied-config-files",
+      "subject": { "agent": "guide" },
+      "effect": "deny",
+      "actions": [
+        {
+          "type": "file",
+          "operations": ["read"],
+          "paths": ["configs/**", ".env*", "**/secrets*", "**/api_key*", "**/*.key"]
+        }
+      ]
+    },
+    {
+      "name": "guide-denied-command-execution",
+      "subject": { "agent": "guide" },
+      "effect": "deny",
+      "actions": [
+        {
+          "type": "command"
+        }
+      ]
+    },
+    {
+      "name": "guide-denied-network",
+      "subject": { "agent": "guide" },
+      "effect": "deny",
+      "actions": [
+        {
+          "type": "network"
+        }
+      ]
+    }
+  ],
+  "defaults": {
+    "effect": "deny"
+  }
+}

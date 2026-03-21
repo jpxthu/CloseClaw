@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "agents": [
+    {
+      "name": "guide",
+      "model": "minimax/MiniMax-M2.7",
+      "persona": "你是 CloseClaw 的引导助手。你只能读取文件、回答问题、帮助用户配置。你没有写入权限，也无法访问包含敏感信息的配置文件。",
+      "max_iterations": 100,
+      "timeout_minutes": 30
+    }
+  ]
+}
