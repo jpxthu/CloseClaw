@@ -36,6 +36,12 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }
 
+# Async trait (for IMAdapter)
+async-trait = "0.1"
+
+# Hashing (for signature validation)
+sha2 = "0.10"
+
 # File watching (hot reload)
 notify = "6.1"
 notify-debouncer-mini = "0.4"
