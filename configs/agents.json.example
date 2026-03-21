@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "agents": [
+    {
+      "name": "vibe",
+      "model": "minimax-cn-coding-plan/MiniMax-M2.7-highspeed",
+      "persona": "Vibe Coding 开发专家，活泼严谨",
+      "max_iterations": 100,
+      "timeout_minutes": 60
+    }
+  ]
+}
