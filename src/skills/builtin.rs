@@ -1,0 +1,281 @@
+//! Built-in skills - file_ops, git_ops, search, etc.
+
+use async_trait::async_trait;
+use std::sync::Arc;
+use crate::skills::{Skill, SkillManifest, SkillError};
+
+/// File operations skill
+pub struct FileOpsSkill;
+
+impl FileOpsSkill {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Skill for FileOpsSkill {
+    fn manifest(&self) -> SkillManifest {
+        SkillManifest {
+            name: "file_ops".to_string(),
+            version: "1.0.0".to_string(),
+            description: "File system operations: read, write, list, delete".to_string(),
+            author: Some("CloseClaw Team".to_string()),
+            dependencies: vec![],
+        }
+    }
+
+    fn methods(&self) -> Vec<&str> {
+        vec!["read", "write", "list", "delete", "exists"]
+    }
+
+    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        match method {
+            "read" => {
+                let path = args.get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
+                std::fs::read_to_string(path)
+                    .map(|content| serde_json::json!({ "content": content }))
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))
+            }
+            "write" => {
+                let path = args.get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
+                let content = args.get("content")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("content required".to_string()))?;
+                std::fs::write(path, content)
+                    .map(|_| serde_json::json!({ "success": true }))
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))
+            }
+            "exists" => {
+                let path = args.get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
+                Ok(serde_json::json!({ "exists": std::path::Path::new(path).exists() }))
+            }
+            "delete" => {
+                let path = args.get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
+                std::fs::remove_file(path)
+                    .map(|_| serde_json::json!({ "success": true }))
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))
+            }
+            "list" => {
+                let path = args.get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(".");
+                let entries: Vec<_> = std::fs::read_dir(path)
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))?
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .collect();
+                Ok(serde_json::json!({ "entries": entries }))
+            }
+            _ => Err(SkillError::MethodNotFound {
+                skill: "file_ops".to_string(),
+                method: method.to_string(),
+            })
+        }
+    }
+}
+
+/// Git operations skill
+pub struct GitOpsSkill;
+
+impl GitOpsSkill {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Skill for GitOpsSkill {
+    fn manifest(&self) -> SkillManifest {
+        SkillManifest {
+            name: "git_ops".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Git operations: status, commit, push, pull".to_string(),
+            author: Some("CloseClaw Team".to_string()),
+            dependencies: vec![],
+        }
+    }
+
+    fn methods(&self) -> Vec<&str> {
+        vec!["status", "commit", "push", "pull", "log"]
+    }
+
+    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        match method {
+            "status" => {
+                let output = std::process::Command::new("git")
+                    .args(["status", "--porcelain"])
+                    .output()
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))?;
+                Ok(serde_json::json!({
+                    "output": String::from_utf8_lossy(&output.stdout)
+                }))
+            }
+            "log" => {
+                let output = std::process::Command::new("git")
+                    .args(["log", "--oneline", "-10"])
+                    .output()
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))?;
+                Ok(serde_json::json!({
+                    "output": String::from_utf8_lossy(&output.stdout)
+                }))
+            }
+            "commit" => {
+                let message = args.get("message")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("message required".to_string()))?;
+                let output = std::process::Command::new("git")
+                    .args(["commit", "-m", message])
+                    .output()
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))?;
+                Ok(serde_json::json!({
+                    "success": output.status.success(),
+                    "output": String::from_utf8_lossy(&output.stdout),
+                    "error": String::from_utf8_lossy(&output.stderr)
+                }))
+            }
+            "push" => {
+                let output = std::process::Command::new("git")
+                    .args(["push"])
+                    .output()
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))?;
+                Ok(serde_json::json!({
+                    "success": output.status.success(),
+                    "output": String::from_utf8_lossy(&output.stdout),
+                    "error": String::from_utf8_lossy(&output.stderr)
+                }))
+            }
+            "pull" => {
+                let output = std::process::Command::new("git")
+                    .args(["pull"])
+                    .output()
+                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))?;
+                Ok(serde_json::json!({
+                    "success": output.status.success(),
+                    "output": String::from_utf8_lossy(&output.stdout),
+                    "error": String::from_utf8_lossy(&output.stderr)
+                }))
+            }
+            _ => Err(SkillError::MethodNotFound {
+                skill: "git_ops".to_string(),
+                method: method.to_string(),
+            })
+        }
+    }
+}
+
+/// Search skill (web search)
+pub struct SearchSkill;
+
+impl SearchSkill {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Skill for SearchSkill {
+    fn manifest(&self) -> SkillManifest {
+        SkillManifest {
+            name: "search".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Web search capabilities".to_string(),
+            author: Some("CloseClaw Team".to_string()),
+            dependencies: vec![],
+        }
+    }
+
+    fn methods(&self) -> Vec<&str> {
+        vec!["search"]
+    }
+
+    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        match method {
+            "search" => {
+                let query = args.get("query")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("query required".to_string()))?;
+                // Stub - would integrate with search API
+                Ok(serde_json::json!({
+                    "query": query,
+                    "results": [],
+                    "message": "Search skill stub - integrate with search API"
+                }))
+            }
+            _ => Err(SkillError::MethodNotFound {
+                skill: "search".to_string(),
+                method: method.to_string(),
+            })
+        }
+    }
+}
+
+/// Built-in skills registry
+pub struct BuiltinSkills;
+
+impl BuiltinSkills {
+    pub fn all() -> Vec<Arc<dyn Skill>> {
+        vec![
+            Arc::new(FileOpsSkill::new()) as Arc<dyn Skill>,
+            Arc::new(GitOpsSkill::new()),
+            Arc::new(SearchSkill::new()),
+        ]
+    }
+}
+
+/// Get all built-in skills
+pub fn builtin_skills() -> Vec<Arc<dyn Skill>> {
+    BuiltinSkills::all()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_file_ops_read() {
+        let skill = FileOpsSkill::new();
+        let result = skill.execute("read", serde_json::json!({"path": "Cargo.toml"})).await;
+        assert!(result.is_ok());
+        let value = result.unwrap();
+        assert!(value.get("content").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_file_ops_exists() {
+        let skill = FileOpsSkill::new();
+        let result = skill.execute("exists", serde_json::json!({"path": "Cargo.toml"})).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_git_ops_status() {
+        let skill = GitOpsSkill::new();
+        let result = skill.execute("status", serde_json::json!({})).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_search() {
+        let skill = SearchSkill::new();
+        let result = skill.execute("search", serde_json::json!({"query": "rust programming"})).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_builtin_skills() {
+        let skills = BuiltinSkills::all();
+        assert_eq!(skills.len(), 3);
+        assert_eq!(skills[0].manifest().name, "file_ops");
+        assert_eq!(skills[1].manifest().name, "git_ops");
+        assert_eq!(skills[2].manifest().name, "search");
+    }
+}
