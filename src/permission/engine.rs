@@ -308,7 +308,7 @@ impl PermissionEngine {
     /// Check if command arguments match
     /// For Allowed: returns true if ALL request args are in the allowed list
     /// For Blocked: returns true if ANY request arg is in the blocked list (i.e., should be blocked)
-    fn args_match(&self, rule_args: &CommandArgs, request_args: &[String]) -> bool {
+    pub fn args_match(&self, rule_args: &CommandArgs, request_args: &[String]) -> bool {
         match rule_args {
             CommandArgs::Any => true,
             CommandArgs::Allowed { allowed } => {
@@ -338,7 +338,7 @@ impl PermissionRequest {
 }
 
 /// Simple glob matching (supports * and **)
-fn glob_match(pattern: &str, text: &str) -> bool {
+pub fn glob_match(pattern: &str, text: &str) -> bool {
     if pattern == "**" || pattern == "*" {
         return true;
     }

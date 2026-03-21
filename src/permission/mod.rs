@@ -9,5 +9,9 @@ pub mod sandbox;
 
 pub use engine::{
     PermissionEngine, PermissionRequest, PermissionResponse, Rule, RuleSet,
-    Effect, Subject, MatchType, Action, CommandArgs, Defaults,
+    Effect, Subject, MatchType, Action, CommandArgs, Defaults, glob_match,
+};
+pub use rules::{
+    RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError,
+    validation,
 };

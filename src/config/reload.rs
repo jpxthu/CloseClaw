@@ -41,7 +41,6 @@ pub enum ReloadResult {
 ///
 /// # Type Parameters
 /// * `P` - The ConfigProvider implementation type
-#[derive(Debug)]
 pub struct ConfigReloadManager<P> {
     /// Inner provider (wrapped in Arc<Mutex> for interior mutability)
     provider: Arc<std::sync::Mutex<P>>,
@@ -55,6 +54,16 @@ pub struct ConfigReloadManager<P> {
     debounce_duration: Duration,
     /// Parsing function for the config provider
     parse_fn: Arc<dyn Fn(&str) -> Result<P, ConfigError> + Send + Sync>,
+}
+
+impl<P> std::fmt::Debug for ConfigReloadManager<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConfigReloadManager")
+            .field("watched_paths", &self.watched_paths)
+            .field("backup_manager", &self.backup_manager)
+            .field("debounce_duration", &self.debounce_duration)
+            .finish()
+    }
 }
 
 impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
@@ -179,7 +188,7 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
     }
 }
 
-impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
+impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
     /// Start watching config files for changes using notify.
     /// This spawns a background task that handles file change events.
     /// Returns a handle that can be used to stop watching.
@@ -188,12 +197,10 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
 
         let provider = Arc::clone(&self.provider);
         let backup_manager = SafeBackupManager::new(
-            std::sync::Mutex::new(
-                super::backup::BackupManager::new(
-                    std::env::temp_dir().join("closeclaw_backups"),
-                    5,
-                ).unwrap()
-            )
+            super::backup::BackupManager::new(
+                std::env::temp_dir().join("closeclaw_backups"),
+                5,
+            ).unwrap()
         );
         let debounce = self.debounce_duration;
         let event_sender = self.event_sender.clone();
