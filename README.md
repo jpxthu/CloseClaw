@@ -42,10 +42,13 @@ git clone git@github.com:jpxthu/CloseClaw.git
 cd CloseClaw
 
 # 编译
-cargo build
+cargo build                  # Debug build (fast)
 
 # 运行测试
 cargo test
+
+# Release build (for production)
+cargo build --release
 
 # 运行
 cargo run

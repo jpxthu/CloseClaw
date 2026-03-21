@@ -9,7 +9,7 @@ This skill helps agents understand how to develop, test, and maintain CloseClaw 
 | Task | Command | Tool |
 |------|---------|------|
 | Run tests | `cargo test` | git_ops |
-| Build | `cargo build` | git_ops |
+| Build | `cargo build --release` | git_ops |
 | Commit | `git commit -m "..."` | git_ops |
 | Push | `git push` | git_ops |
 

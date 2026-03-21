@@ -4,10 +4,10 @@
 
 ### Build
 ```bash
-# Debug build (fast)
+# Debug build (fast compilation, slower execution) - for development
 cargo build
 
-# Release build (optimized)
+# Release build (optimized) - for production/testing
 cargo build --release
 ```
 

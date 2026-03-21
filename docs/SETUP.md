@@ -46,14 +46,15 @@ cargo check
 
 ### Basic Build
 ```bash
+# Debug build - fast compilation, slower execution
+cargo build
+
+# Release build - slower compilation, faster execution (recommended for production)
 cargo build --release
 ```
 
 ### Build with Specific Cores
 ```bash
-# Use all available cores (automatic)
-cargo build --release
-
 # Use specific number of cores
 CARGO_BUILD_JOBS=16 cargo build --release
 ```
