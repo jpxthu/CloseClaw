@@ -4,7 +4,15 @@
 
 ## 项目状态
 
-🟡 **架构设计中** — 参见 [SPEC.md](./SPEC.md)
+🟢 **开发中** — Phase 4: Gateway + IM 适配器
+
+| Phase | 状态 | 分支 |
+|-------|------|------|
+| Phase 1: 架构设计 | ✅ 完成 | master |
+| Phase 2: Permission Engine | ✅ 完成 | phase2-permission-engine |
+| Phase 3: Config System + Agent Runtime | ✅ 完成 | phase3-config-agent |
+| Phase 4: Gateway + IM | ✅ 完成 | phase4-gateway-im |
+| Phase 5: Skill System | 🚧 规划中 | - |
 
 ## 核心特性
 
@@ -25,11 +33,34 @@
 ## 快速开始
 
 ```bash
+# 克隆
+git clone git@github.com:jpxthu/CloseClaw.git
+cd CloseClaw
+
 # 编译
-cargo build --release
+cargo build
+
+# 运行测试
+cargo test
 
 # 运行
-cargo run --release
+cargo run
+```
+
+## 开发
+
+```bash
+# 查看所有分支
+git branch -a
+
+# 切换到最新开发分支
+git checkout phase4-gateway-im
+
+# 运行所有测试
+cargo test
+
+# 运行带日志
+RUST_LOG=debug cargo test
 ```
 
 ## 目录结构
@@ -37,16 +68,22 @@ cargo run --release
 ```
 closeclaw/
 ├── src/
-│   ├── gateway/      # 网关模块
-│   ├── agent/        # agent 运行时
+│   ├── gateway/      # 网关模块（消息路由、Session 管理）
+│   ├── agent/        # agent 运行时（状态机、进程管理）
 │   ├── permission/   # 权限引擎（核心）
-│   ├── config/       # 配置系统
+│   ├── config/       # 配置系统（热重载、备份回滚）
 │   ├── im/           # IM 适配器
 │   ├── skills/       # 内置 skills
 │   └── llm/          # LLM 接口抽象
-└── tests/            # 测试
+├── tests/            # 集成测试
+└── docs/             # 设计文档
 ```
+
+## 设计文档
+
+- [SPEC.md](./SPEC.md) - 完整架构设计
+- [docs/permission/](docs/permission/) - 权限系统文档
 
 ## License
 
-TBD
+MIT
