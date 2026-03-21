@@ -6,7 +6,18 @@
 
 ## 状态
 
-🟡 **需求收集完成 / 架构设计中** — 待详细设计文档填充
+🟢 **开发中** — Phase 1-7 完成，Phase 8 集成测试中
+
+| Phase | 状态 | 分支 |
+|-------|------|------|
+| Phase 1 | ✅ 完成 | master |
+| Phase 2: Permission Engine | ✅ 完成 | master |
+| Phase 3: Config + Agent Runtime | ✅ 完成 | master |
+| Phase 4: Gateway + IM | ✅ 完成 | master |
+| Phase 5: Skill System | ✅ 完成 | master |
+| Phase 6: LLM 接口抽象 | ✅ 完成 | master |
+| Phase 7: CLI + 主程序 | ✅ 完成 | master |
+| Phase 8 | 🚧 开发中 | - |
 
 ---
 

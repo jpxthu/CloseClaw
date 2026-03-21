@@ -4,15 +4,17 @@
 
 ## 项目状态
 
-🟢 **开发中** — Phase 4: Gateway + IM 适配器
+🟢 **开发中** — Phase 8: 集成测试
 
 | Phase | 状态 | 分支 |
 |-------|------|------|
 | Phase 1: 架构设计 | ✅ 完成 | master |
-| Phase 2: Permission Engine | ✅ 完成 | phase2-permission-engine |
-| Phase 3: Config System + Agent Runtime | ✅ 完成 | phase3-config-agent |
-| Phase 4: Gateway + IM | ✅ 完成 | phase4-gateway-im |
-| Phase 5: Skill System | 🚧 规划中 | - |
+| Phase 2: Permission Engine | ✅ 完成 | master |
+| Phase 3: Config System + Agent Runtime | ✅ 完成 | master |
+| Phase 4: Gateway + IM | ✅ 完成 | master |
+| Phase 5: Skill System | ✅ 完成 | master |
+| Phase 6: LLM 接口抽象 | ✅ 完成 | master |
+| Phase 7: CLI + 主程序 | ✅ 完成 | master |
 
 ## 核心特性
 
