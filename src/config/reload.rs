@@ -309,6 +309,7 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
 
 /// Handle to stop the watcher when dropped.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct WatcherHandle {
     watcher: RecommendedWatcher,
 }

@@ -3,7 +3,6 @@
 //! This skill wraps OpenCode or Claude Code to handle complex coding tasks.
 
 use async_trait::async_trait;
-use std::sync::Arc;
 use crate::skills::{Skill, SkillManifest, SkillError};
 
 pub struct CodingAgentSkill {
@@ -52,7 +51,7 @@ impl Skill for CodingAgentSkill {
                 }))
             }
             "review" => {
-                let code = args.get("code")
+                let _code = args.get("code")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
                 
@@ -63,7 +62,7 @@ impl Skill for CodingAgentSkill {
                 }))
             }
             "refactor" => {
-                let code = args.get("code")
+                let _code = args.get("code")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
                 let goal = args.get("goal")
@@ -77,7 +76,7 @@ impl Skill for CodingAgentSkill {
                 }))
             }
             "test" => {
-                let code = args.get("code")
+                let _code = args.get("code")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
                 

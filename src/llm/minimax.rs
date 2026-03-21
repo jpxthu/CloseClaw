@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
 
+#[allow(dead_code)]
 pub struct MiniMaxProvider {
     api_key: String,
     base_url: String,

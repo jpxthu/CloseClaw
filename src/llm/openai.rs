@@ -1,9 +1,9 @@
 //! OpenAI LLM Provider
 
 use async_trait::async_trait;
-use std::sync::Arc;
 use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
 
+#[allow(dead_code)]
 pub struct OpenAIProvider {
     api_key: String,
     base_url: String,

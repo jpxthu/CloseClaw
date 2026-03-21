@@ -11,6 +11,7 @@ use super::{IMAdapter, AdapterError};
 
 /// Feishu webhook event payload
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FeishuEvent {
     schema: String,
     header: FeishuHeader,
@@ -18,6 +19,7 @@ struct FeishuEvent {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FeishuHeader {
     event_id: String,
     event_type: String,
@@ -27,6 +29,7 @@ struct FeishuHeader {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FeishuMessageEvent {
     sender: FeishuSender,
     content: String,
@@ -35,6 +38,7 @@ struct FeishuMessageEvent {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FeishuSender {
     sender_id: FeishuSenderId,
     sender_type: String,
@@ -54,6 +58,7 @@ struct FeishuOutgoingPayload {
 
 /// Feishu adapter implementation
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FeishuAdapter {
     app_id: String,
     app_secret: String,
@@ -100,7 +105,7 @@ impl IMAdapter for FeishuAdapter {
     }
 
     async fn send_message(&self, message: &Message) -> Result<(), AdapterError> {
-        let payload = FeishuOutgoingPayload {
+        let _payload = FeishuOutgoingPayload {
             open_id: message.to.clone(),
             msg_type: "text".to_string(),
             content: serde_json::json!({ "text": message.content }).to_string(),
