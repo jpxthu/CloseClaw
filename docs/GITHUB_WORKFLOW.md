@@ -13,10 +13,9 @@ This workflow defines how Vibe虾 handles GitHub issues during development.
 
 ### Authorization Rules
 
-| Issue Author | Action Allowed |
-|--------------|---------------|
-| **jpxthu** (owner) | Full: evaluate, reply, tag, close/open, **make code changes** |
-| **Anyone else** | Reply only. For code changes: must @mention jpxthu for review |
+| Issue 作者 | 操作 |
+|-----------|------|
+| **任何人** | 发现 → 评估 → 发给你 review → 确认后才实施 |
 
 ### Agent Identity
 - All agent replies must be signed: `— Vibe虾 🦐` or `— CloseClaw Bot`
