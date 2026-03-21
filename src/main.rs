@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "closeclaw")]
@@ -40,6 +41,8 @@ enum Commands {
         #[arg(short, long, default_value = "./configs")]
         config_dir: String,
     },
+    /// Stop the CloseClaw daemon
+    Stop {},
 }
 
 #[derive(Subcommand)]
@@ -106,9 +109,21 @@ async fn main() -> Result<()> {
         Commands::Rule { action } => handle_rule(action).await?,
         Commands::Skill { action } => handle_skill(action).await?,
         Commands::Run { config_dir } => {
+            // Write PID file so `closeclaw stop` can find us
+            let pid_path = pid_file_path();
+            if let Some(parent) = pid_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            std::fs::write(&pid_path, std::process::id().to_string())?;
+            println!("PID {} written to {}", std::process::id(), pid_path.display());
+
             println!("Starting CloseClaw daemon with config dir: {}", config_dir);
             // TODO: Start the daemon
-            println!("Daemon not yet implemented");
+            println!("Daemon not yet implemented — remove PID file manually if needed");
+            let _ = std::fs::remove_file(&pid_path);
+        }
+        Commands::Stop {} => {
+            handle_stop().await?;
         }
     }
 
@@ -178,5 +193,47 @@ async fn handle_skill(action: SkillAction) -> Result<()> {
             // TODO: Install skill
         }
     }
+    Ok(())
+}
+
+/// Path to the daemon PID file: ~/.closeclaw/daemon.pid
+fn pid_file_path() -> PathBuf {
+    let home = std::env::var("HOME").expect("Cannot determine home directory (HOME not set)");
+    PathBuf::from(home).join(".closeclaw").join("daemon.pid")
+}
+
+async fn handle_stop() -> Result<()> {
+    let pid_path = pid_file_path();
+
+    let pid: u32 = if pid_path.exists() {
+        let content = std::fs::read_to_string(&pid_path)?;
+        content.trim().parse().map_err(|_| anyhow::anyhow!("Invalid PID in {}: {}", pid_path.display(), content))?
+    } else {
+        anyhow::bail!(
+            "PID file not found at {}.\nIs the daemon running? (Hint: use `closeclaw run --config-dir ./configs` to start)",
+            pid_path.display()
+        );
+    };
+
+    // Prevent killing self
+    if pid == std::process::id() {
+        anyhow::bail!("Refusing to kill self. Use `pkill closeclaw` from another terminal instead.");
+    }
+
+    match std::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(pid.to_string())
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let _ = std::fs::remove_file(&pid_path);
+            println!("✅ Daemon (PID {}) stopped.", pid);
+        }
+        Ok(output) => {
+            anyhow::bail!("kill returned status {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+        }
+        Err(e) => anyhow::bail!("Failed to send TERM to PID {}: {}", pid, e),
+    }
+
     Ok(())
 }
