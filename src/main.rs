@@ -212,15 +212,19 @@ fn pid_file_path() -> PathBuf {
 }
 
 async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
-    use dialoguer::{MultiSelect, Input, Confirm};
+    use dialoguer::{MultiSelect, Password, Confirm};
 
     println!();
     println!("╔══════════════════════════════════════════════════════════╗");
     println!("║           CloseClaw 交互式配置向导                      ║");
     println!("╚══════════════════════════════════════════════════════════╝");
     println!();
-    println!("本向导将帮助你配置 API Key 和其他设置。");
+    println!("本向导将帮助你配置 API Key。");
     println!("所有配置将写入 configs/.env 文件（不会提交到 Git）。");
+    println!();
+    println!("操作说明：");
+    println!("  空格键 = 切换选择    回车键 = 确认/下一步");
+    println!("  方向键 = 导航选项");
     println!();
 
     // Step 1: Select providers
@@ -249,48 +253,37 @@ async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
     let has_openai = selection.contains(&1);
     let has_anthropic = selection.contains(&2);
 
-    // Step 2: Collect API keys
+    // Step 2: Collect API keys (using Password to hide input)
     let mut minimax_key = String::new();
     let mut openai_key = String::new();
     let mut anthropic_key = String::new();
 
     println!();
     println!("【第 2 步】输入 API Key");
-    println!("提示：API Key 不会显示在屏幕上，输入时注意不要复制多余的空格。");
+    println!("注意：输入时 API Key 不会显示（完全隐藏），输入完成后直接按回车。");
     println!();
 
     if has_minimax {
-        minimax_key = Input::new()
+        minimax_key = Password::new()
             .with_prompt("MiniMax API Key（必填）")
-            .interact_text()?;
+            .interact()?;
     }
 
     if has_openai {
-        openai_key = Input::new()
+        openai_key = Password::new()
             .with_prompt("OpenAI API Key（必填）")
-            .interact_text()?;
+            .interact()?;
     }
 
     if has_anthropic {
-        anthropic_key = Input::new()
+        anthropic_key = Password::new()
             .with_prompt("Anthropic API Key（必填）")
-            .interact_text()?;
+            .interact()?;
     }
 
-    // Step 3: Optional Feishu webhook
+    // Step 3: Preview
     println!();
-    println!("【第 3 步】飞书 Webhook（可选）");
-    println!("如果你需要接收通知，可以配置飞书机器人 Webhook。");
-    println!("留空跳过。");
-
-    let feishu_webhook: String = Input::new()
-        .with_prompt("飞书 Webhook URL（可选）")
-        .allow_empty(true)
-        .interact_text()?;
-
-    // Step 4: Preview
-    println!();
-    println!("【第 4 步】配置预览");
+    println!("【第 3 步】配置预览");
     println!();
 
     let mut env_content = String::from("# CloseClaw 环境配置\n");
@@ -298,30 +291,30 @@ async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
     env_content.push_str("# .env 文件会被 .gitignore 忽略，不会提交到 Git\n\n");
 
     if has_minimax {
-        env_content.push_str(&format!("# MiniMax API Key（必填）\n"));
+        env_content.push_str("# MiniMax API Key\n");
         env_content.push_str(&format!("MINIMAX_API_KEY={}\n\n", minimax_key));
     }
     if has_openai {
-        env_content.push_str(&format!("# OpenAI API Key（可选）\n"));
+        env_content.push_str("# OpenAI API Key\n");
         env_content.push_str(&format!("OPENAI_API_KEY={}\n\n", openai_key));
     }
     if has_anthropic {
-        env_content.push_str(&format!("# Anthropic API Key（可选）\n"));
+        env_content.push_str("# Anthropic API Key\n");
         env_content.push_str(&format!("ANTHROPIC_API_KEY={}\n\n", anthropic_key));
     }
-    if !feishu_webhook.trim().is_empty() {
-        env_content.push_str(&format!("# 飞书 Webhook（可选）\n"));
-        env_content.push_str(&format!("FEISHU_WEBHOOK={}\n", feishu_webhook.trim()));
-    }
+    env_content.push_str("# 飞书 Webhook（可选）\n");
+    env_content.push_str("# FEISHU_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/xxx\n");
 
     println!("{}", env_content);
+    println!("提示：如需配置飞书 Webhook，编辑 configs/.env 取消注释最后一行。");
+    println!();
 
-    // Step 5: Confirm
+    // Step 4: Confirm
     if skip_confirm {
         println!("（--yes 标志已设置，跳过确认）");
     } else {
         let confirmed = Confirm::new()
-            .with_prompt("确认写入 configs/.env？")
+            .with_prompt("确认写入 configs/.env？（Y/n）")
             .default(true)
             .interact()?;
 

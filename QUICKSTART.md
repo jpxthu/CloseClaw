@@ -8,8 +8,7 @@
 
 ```bash
 cd /home/admin/code/closeclaw
-cp configs/.env.example configs/.env
-# 编辑 configs/.env，填入你的 API Key
+closeclaw config setup
 ```
 
 ### 2. 启动引导模式
