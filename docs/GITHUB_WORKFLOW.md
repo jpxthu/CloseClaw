@@ -78,10 +78,14 @@ gh issue create --title "Issue title" --body "Description" --label "bug"
 
 1. Fetch open issues from GitHub
 2. For each issue:
-   - If from jpxthu and has code change request → implement, test, push
-   - If from others → reply (with @jpxthu mention if code change needed)
-   - Tag appropriately (bug/feature/question/docs)
+   - **评估**：值不值得做、对现有计划的影响
+   - **发计划给你 review**：等确认后再实施
+   - **确认后**才实施，实施完要加 Labels、Close
+   - Tag appropriately (bug/enhancement/question/documentation)
 3. Update issue status as resolved
 
-## Security Constraint
-**Code changes only for jpxthu's issues.** All other issues: reply only, @jpxthu for review.
+## Issue Reply Rules
+
+- **署名**：`— Vibe虾 🦐` 或 `— CloseClaw Bot`
+- **Labels 必须加**：每个 issue 都要打标签（enhancement / bug / documentation / question 等）
+- **Close 时机**：需求已实施 → Close；不打算现在改 → 只回复不 Close
