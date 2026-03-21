@@ -1,0 +1,43 @@
+[package]
+name = "closeclaw"
+version = "0.1.0"
+edition = "2021"
+authors = ["CloseClaw Team"]
+description = "Lightweight, rule-driven multi-agent execution framework"
+license = "MIT"
+repository = "https://github.com/jpxthu/CloseClaw"
+rust-version = "1.75"
+
+[dependencies]
+# Async runtime - pinned to older version to avoid edition2024 issues
+tokio = { version = "=1.35.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging - pinned to older versions
+tracing = "=0.1.43"
+tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Linux system APIs (seccomp, landlock)
+libc = "0.2"
+
+# Async channels
+flume = "=0.11"
+
+[dev-dependencies]
+# Testing
+proptest = "=1.4"
+
+[lib]
+name = "closeclaw"
+path = "src/lib.rs"
+
+[[bin]]
+name = "closeclaw"
+path = "src/main.rs"
