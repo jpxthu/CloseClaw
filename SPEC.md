@@ -17,7 +17,7 @@
 | Phase 5: Skill System | ✅ 完成 | master |
 | Phase 6: LLM 接口抽象 | ✅ 完成 | master |
 | Phase 7: CLI + 主程序 | ✅ 完成 | master |
-| Phase 8 | 🚧 开发中 | - |
+| Phase 8: 测试覆盖率 | ✅ 完成（107 tests） | master |
 
 ---
 
