@@ -98,7 +98,9 @@ gh issue create --title "Issue title" --body "Description" --label "bug"
    ↓
 运行自动化测试，确保通过
    ↓
-测试专员 agent **手动验收测试**
+测试专员 agent **手动验收测试**（按测试用例操作、观察 stdout/log/调试接口）
+   ↓
+添加测试项目（将手动测试用例也沉淀为可自动化运行的测试脚本）
    ↓
 提交 + Close issue
 ```
@@ -111,7 +113,7 @@ gh issue create --title "Issue title" --body "Description" --label "bug"
 | 集成测试 | 开发者 / sub-agent | 跑 `cargo test` |
 | **用户验收测试** | **测试专员 agent** | **按测试用例手动操作、看 stdout/log/调试接口、以用户方式体验** |
 
-> ⚠️ 测试专员 agent 不跑自动化脚本，而是模拟用户操作、观察实际输出、验证体验是否符合预期。
+> ⚠️ 测试专员 agent 不仅手动验证，还要将测试用例沉淀为自动化脚本，两者缺一不可。
 
 测试按模块分散到对应目录，不允许全部堆在 `tests/` 根目录：
 
