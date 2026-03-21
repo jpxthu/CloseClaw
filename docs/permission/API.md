@@ -1,8 +1,8 @@
-# Permission Engine — API Reference
+# 权限引擎 — API 参考
 
-## `use closeclaw::permission::{...}` — Re-exports
+## `use closeclaw::permission::{...}` — 重新导出
 
-All public types are re-exported from `closeclaw::permission`:
+所有公共类型都从 `closeclaw::permission` 重新导出：
 
 ```rust
 use closeclaw::permission::{
@@ -19,11 +19,11 @@ use closeclaw::permission::{
 
 ## `PermissionEngine`
 
-Main rule evaluation engine. All methods are async.
+主要规则评估引擎。所有方法都是异步的。
 
 ### `PermissionEngine::new(rules: RuleSet) -> Self`
 
-Creates a new engine from a parsed `RuleSet`. Pre-builds the agent→rule-index for O(1) lookup.
+从解析后的 `RuleSet` 创建新引擎。预构建 agent→rule 索引以实现 O(1) 查找。
 
 ```rust
 let engine = PermissionEngine::new(rules);
@@ -31,7 +31,7 @@ let engine = PermissionEngine::new(rules);
 
 ### `engine.evaluate(request: PermissionRequest) -> PermissionResponse`
 
-Evaluate a single permission request against the loaded ruleset.
+根据加载的规则集评估单个权限请求。
 
 ```rust
 let response = engine.evaluate(request).await;
@@ -49,17 +49,17 @@ match response {
 
 ## `PermissionRequest`
 
-The input to `evaluate()`. Each variant represents a different action category.
+`evaluate()` 的输入。每个变体代表不同的操作类别。
 
-Variants are tagged with `"type"` in JSON:
+在 JSON 中变体用 `"type"` 标记：
 
 ```json
 { "type": "file_op", "agent": "...", "path": "...", "op": "..." }
 ```
 
-### Variants
+### 变体
 
-| Variant | Fields | Category |
+| 变体 | 字段 | 类别 |
 |---|---|---|
 | `FileOp` | `agent`, `path`, `op` | `defaults.file` |
 | `CommandExec` | `agent`, `cmd`, `args` | `defaults.command` |
@@ -70,7 +70,7 @@ Variants are tagged with `"type"` in JSON:
 
 ### `request.agent_id() -> &str`
 
-Extract the agent identifier from a request.
+从请求中提取 agent 标识符。
 
 ```rust
 let agent = request.agent_id();
@@ -80,17 +80,17 @@ let agent = request.agent_id();
 
 ## `PermissionResponse`
 
-The output of `evaluate()`.
+`evaluate()` 的输出。
 
-### Variants
+### 变体
 
 ```rust
 PermissionResponse::Allowed { token: String }
-// token is a short-lived, opaque string e.g. "perm_1710000000_a1b2c3d4"
+// token 是一个短生命周期的 opaque 字符串，例如 "perm_1710000000_a1b2c3d4"
 
 PermissionResponse::Denied { reason: String, rule: String }
-// reason describes why the action was denied
-// rule is the name of the matching deny rule or "default"
+// reason 描述操作被拒绝的原因
+// rule 是匹配的拒绝规则的名称或 "default"
 ```
 
 ---
@@ -105,7 +105,7 @@ pub struct RuleSet {
 }
 ```
 
-Deserializable from JSON:
+可以从 JSON 反序列化：
 
 ```json
 {
@@ -134,12 +134,12 @@ pub struct Rule {
 
 ```rust
 pub enum Effect {
-    Deny,  // default
+    Deny,  // 默认
     Allow,
 }
 ```
 
-Controls whether matching rules allow or deny the action.
+控制匹配的规则是允许还是拒绝操作。
 
 ---
 
@@ -154,7 +154,7 @@ pub struct Subject {
 
 ### `subject.matches(agent_id: &str) -> bool`
 
-Returns `true` if the subject matches the given agent ID.
+如果该主体匹配给定的 agent ID，则返回 `true`。
 
 ```rust
 let subject = Subject {
@@ -171,12 +171,12 @@ assert!(!subject.matches("prod-agent"));
 
 ```rust
 pub enum MatchType {
-    Exact,  // default
-    Glob,   // supports * and ** glob patterns
+    Exact,  // 默认
+    Glob,   // 支持 * 和 ** glob 模式
 }
 ```
 
-Controls how the `agent` field in a subject is matched.
+控制主体中 `agent` 字段的匹配方式。
 
 ---
 
@@ -193,7 +193,7 @@ pub enum Action {
 }
 ```
 
-Each action type corresponds to a `PermissionRequest` variant.
+每种操作类型对应一个 `PermissionRequest` 变体。
 
 ---
 
@@ -201,9 +201,9 @@ Each action type corresponds to a `PermissionRequest` variant.
 
 ```rust
 pub enum CommandArgs {
-    Any,                           // any arguments allowed
-    Allowed { allowed: Vec<String> },   // all request args must be in this list
-    Blocked { blocked: Vec<String> },   // deny if any arg is in this list
+    Any,                           // 允许任意参数
+    Allowed { allowed: Vec<String> },   // 所有请求参数必须在此列表中
+    Blocked { blocked: Vec<String> },   // 如果任何参数在列表中则拒绝
 }
 ```
 
@@ -221,17 +221,17 @@ pub struct Defaults {
 }
 ```
 
-Applied when no rule matches an incoming request. All fields default to `Effect::Deny`.
+当没有规则匹配传入请求时应用。默认所有字段为 `Effect::Deny`。
 
 ---
 
 ## `Sandbox`
 
-Manages the engine subprocess lifecycle.
+管理引擎子进程生命周期。
 
 ### `Sandbox::new(ipc_path: impl Into<PathBuf>) -> Self`
 
-Create a new sandbox at the given Unix socket path.
+在给定的 Unix socket 路径创建一个新的沙箱。
 
 ```rust
 let sandbox = Sandbox::new("/tmp/closeclaw-engine.sock");
@@ -239,7 +239,7 @@ let sandbox = Sandbox::new("/tmp/closeclaw-engine.sock");
 
 ### `sandbox.with_policy(policy: SecurityPolicy) -> Self`
 
-Chainable builder to set the security policy.
+可链式调用的构建器，用于设置安全策略。
 
 ```rust
 let sandbox = Sandbox::new("/tmp/engine.sock")
@@ -248,7 +248,7 @@ let sandbox = Sandbox::new("/tmp/engine.sock")
 
 ### `sandbox.spawn() -> Result<(), SandboxError>`
 
-Spawn the engine subprocess. Blocks until the engine is responsive.
+生成引擎子进程。阻塞直到引擎响应。
 
 ```rust
 let mut sandbox = Sandbox::new("/tmp/engine.sock");
@@ -257,15 +257,15 @@ sandbox.spawn().await?;
 
 ### `sandbox.restart() -> Result<(), SandboxError>`
 
-Shutdown and re-spawn the engine.
+关闭并重新生成引擎。
 
 ### `sandbox.shutdown() -> Result<(), SandboxError>`
 
-Cleanly terminate the engine process.
+干净地终止引擎进程。
 
 ### `sandbox.evaluate(request: PermissionRequest) -> Result<PermissionResponse, SandboxError>`
 
-Send a permission request to the engine over IPC. Returns an error if the engine is not running or times out.
+通过 IPC 发送权限请求到引擎。如果引擎未运行或超时则返回错误。
 
 ```rust
 let response = sandbox.evaluate(request).await?;
@@ -273,7 +273,7 @@ let response = sandbox.evaluate(request).await?;
 
 ### `sandbox.reload_rules(rules: RuleSet) -> Result<(), SandboxError>`
 
-Hot-reload the engine's ruleset without restarting the process.
+无需重启进程即可热重载引擎的规则集。
 
 ```rust
 sandbox.reload_rules(new_rules).await?;
@@ -281,7 +281,7 @@ sandbox.reload_rules(new_rules).await?;
 
 ### `sandbox.state() -> SandboxState`
 
-Returns the current engine state (`Unstarted`, `Running`, `Crashed`, `Shutdown`).
+返回当前引擎状态（`Unstarted`、`Running`、`Crashed`、`Shutdown`）。
 
 ---
 
@@ -309,7 +309,7 @@ pub enum SandboxError {
 }
 ```
 
-Implements `std::error::Error` via `thiserror`.
+通过 `thiserror` 实现 `std::error::Error`。
 
 ---
 
@@ -324,15 +324,15 @@ pub struct SecurityPolicy {
 }
 ```
 
-Security policies applied inside the engine subprocess.
+在引擎子进程中应用的安全策略。
 
 ### `SecurityPolicy::default_restrictive() -> Self`
 
-Creates a policy with `seccomp = true` and `landlock = true` on Linux; `false` on other platforms.
+创建一个在 Linux 上 `seccomp = true` 和 `landlock = true` 的策略；在其他平台上为 `false`。
 
 ### `policy.apply() -> anyhow::Result<()>`
 
-Applies the policy inside the engine subprocess. Called automatically by `run_engine_subprocess`.
+在引擎子进程内部应用策略。由 `run_engine_subprocess` 自动调用。
 
 ---
 
@@ -342,15 +342,15 @@ Applies the policy inside the engine subprocess. Called automatically by `run_en
 pub struct IpcChannel { path: PathBuf }
 ```
 
-Low-level Unix socket IPC channel. Use `Sandbox` for full lifecycle management.
+低级 Unix socket IPC 通道。使用 `Sandbox` 进行完整的生命周期管理。
 
 ---
 
 ## `run_engine_subprocess(ipc_path, rules)`
 
-Starts the engine in subprocess mode. Called automatically when the binary is started with `SANDBOX_ENGINE=1`.
+以子进程模式启动引擎。当二进制文件以 `SANDBOX_ENGINE=1` 启动时自动调用。
 
 ```rust
-// Called by main.rs when SANDBOX_ENGINE=1
+// 当 SANDBOX_ENGINE=1 时由 main.rs 调用
 run_engine_subprocess(ipc_path, rules).await?;
 ```

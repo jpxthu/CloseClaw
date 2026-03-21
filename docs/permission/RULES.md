@@ -1,10 +1,10 @@
-# Permission Rules Reference
+# 权限规则参考
 
-## Overview
+## 概述
 
-Permission rules are defined in a JSON file (conventionally `permissions.json`) and loaded by the `PermissionEngine` at startup. The engine evaluates every action against the rules in the order they appear in the file.
+权限规则定义在 JSON 文件中（通常为 `permissions.json`），在 `PermissionEngine` 启动时加载。引擎按照规则在文件中出现的顺序对每个操作进行评估。
 
-## File Format
+## 文件格式
 
 ```json
 {
@@ -17,24 +17,24 @@ Permission rules are defined in a JSON file (conventionally `permissions.json`) 
     "config": "deny"
   },
   "rules": [
-    { /* rule object */ }
+    { /* 规则对象 */ }
   ]
 }
 ```
 
-## Top-Level Fields
+## 顶层字段
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 描述 |
 |---|---|---|---|
-| `version` | `string` | Yes | Rule file format version. Currently `1.0`. |
-| `rules` | `array` | Yes | List of rule objects (may be empty). |
-| `defaults` | `object` | No | Default effect per action category when no rule matches. Defaults to all `deny`. |
+| `version` | `string` | 是 | 规则文件格式版本。当前为 `1.0`。 |
+| `rules` | `array` | 是 | 规则对象列表（可以为空）。 |
+| `defaults` | `object` | 否 | 没有规则匹配时各类操作的默认效果。默认为全部 `deny`。 |
 
 ## `defaults`
 
-Each key is an action category. Valid values are `"allow"` and `"deny"`.
+每个键是一个操作类别。有效值为 `"allow"` 和 `"deny"`。
 
-| Category | Applies to |
+| 类别 | 应用于 |
 |---|---|
 | `file` | `PermissionRequest::FileOp` |
 | `command` | `PermissionRequest::CommandExec` |
@@ -42,7 +42,7 @@ Each key is an action category. Valid values are `"allow"` and `"deny"`.
 | `inter_agent` | `PermissionRequest::InterAgentMsg` |
 | `config` | `PermissionRequest::ConfigWrite` |
 
-**Example** — allow all network by default but deny everything else:
+**示例** — 默认允许所有网络请求，拒绝其他：
 
 ```json
 {
@@ -56,7 +56,7 @@ Each key is an action category. Valid values are `"allow"` and `"deny"`.
 }
 ```
 
-## Rule Object
+## 规则对象
 
 ```json
 {
@@ -67,19 +67,19 @@ Each key is an action category. Valid values are `"allow"` and `"deny"`.
   },
   "effect": "allow",
   "actions": [
-    { /* action object */ }
+    { /* 操作对象 */ }
   ]
 }
 ```
 
-### Fields
+### 字段
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 描述 |
 |---|---|---|---|
-| `name` | `string` | Yes | Unique rule name. Used in denial messages. |
-| `subject` | `object` | Yes | Defines which agents this rule applies to. |
-| `effect` | `string` | Yes | `"allow"` or `"deny"`. |
-| `actions` | `array` | Yes | List of action objects that this rule covers. |
+| `name` | `string` | 是 | 唯一规则名称。用于拒绝消息中。 |
+| `subject` | `object` | 是 | 定义此规则适用于哪些 agents。 |
+| `effect` | `string` | 是 | `"allow"` 或 `"deny"`。 |
+| `actions` | `array` | 是 | 此规则覆盖的操作对象列表。 |
 
 ### `subject`
 
@@ -90,23 +90,23 @@ Each key is an action category. Valid values are `"allow"` and `"deny"`.
 }
 ```
 
-| Field | Type | Default | Description |
+| 字段 | 类型 | 默认值 | 描述 |
 |---|---|---|---|
-| `agent` | `string` | — | Agent identifier or glob pattern. |
-| `match` | `string` | `"exact"` | `"exact"` or `"glob"`. Glob supports `*` (single path segment) and `**` (recursive). |
+| `agent` | `string` | — | Agent 标识符或 glob 模式。 |
+| `match` | `string` | `"exact"` | `"exact"`（精确匹配）或 `"glob"`（glob 匹配）。Glob 支持 `*`（单路径段）和 `**`（递归）。 |
 
-### Glob Patterns
+### Glob 模式
 
-| Pattern | Matches | Does not match |
+| 模式 | 匹配 | 不匹配 |
 |---|---|---|
 | `dev-agent-01` | `dev-agent-01` | `dev-agent-02` |
 | `dev-agent-*` | `dev-agent-01`, `dev-agent-42` | `dev-agent` |
-| `**` | anything | — |
+| `**` | 任意内容 | — |
 | `/home/admin/**` | `/home/admin/code/main.rs` | `/home/other/file` |
 
-## Action Types
+## 操作类型
 
-### `file` — File Operations
+### `file` — 文件操作
 
 ```json
 {
@@ -116,13 +116,15 @@ Each key is an action category. Valid values are `"allow"` and `"deny"`.
 }
 ```
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 描述 |
 |---|---|---|---|
-| `type` | string | Yes | Must be `"file"`. |
-| `operation` | `string` | Yes | One of: `read`, `write`, `list`, `delete`, `execute`. |
-| `paths` | `array<string>` | No | Glob patterns for allowed paths. Empty means all paths (within the allowed scope). |
+| `type` | string | 是 | 必须为 `"file"`。 |
+| `operation` | `string` | 是 | 之一：`read`、`write`、`list`、`delete`、`execute`。 |
+| `paths` | `array<string>` | 否 | 允许路径的 glob 模式列表。空表示所有路径（在允许范围内）。 |
 
-### `command` — Shell Commands
+### `command` — Shell 命令
+
+允许特定参数的示例：
 
 ```json
 {
@@ -134,7 +136,7 @@ Each key is an action category. Valid values are `"allow"` and `"deny"`.
 }
 ```
 
-Or to block specific arguments:
+阻止特定参数的示例：
 
 ```json
 {
@@ -146,15 +148,15 @@ Or to block specific arguments:
 }
 ```
 
-**`args` variants:**
+**`args` 变体：**
 
-| Variant | Meaning |
+| 变体 | 含义 |
 |---|---|
-| `{}` or omitted | Any arguments allowed |
-| `{"allowed": ["a", "b"]}` | Only these arguments (and their glob suffixes) allowed |
-| `{"blocked": ["x", "y"]}` | These arguments are denied; all others allowed |
+| `{}` 或省略 | 允许任意参数 |
+| `{"allowed": ["a", "b"]}` | 仅允许这些参数（及其 glob 后缀） |
+| `{"blocked": ["x", "y"]}` | 这些参数被拒绝；其他允许 |
 
-### `network` — Network Connections
+### `network` — 网络连接
 
 ```json
 {
@@ -164,12 +166,12 @@ Or to block specific arguments:
 }
 ```
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 描述 |
 |---|---|---|---|
-| `hosts` | `array<string>` | No | Allowed host glob patterns. Empty = allow all. |
-| `ports` | `array<number>` | No | Allowed port numbers. Empty = allow all. |
+| `hosts` | `array<string>` | 否 | 允许的主机 glob 模式列表。空 = 允许所有。 |
+| `ports` | `array<number>` | 否 | 允许的端口号列表。空 = 允许所有。 |
 
-### `tool_call` — Skill / Tool Invocation
+### `tool_call` — Skill / 工具调用
 
 ```json
 {
@@ -179,12 +181,12 @@ Or to block specific arguments:
 }
 ```
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 描述 |
 |---|---|---|---|
-| `skill` | `string` | Yes | Skill identifier. |
-| `methods` | `array<string>` | No | Allowed method names. Empty = all methods allowed. |
+| `skill` | `string` | 是 | Skill 标识符。 |
+| `methods` | `array<string>` | 否 | 允许的方法名列表。空 = 允许所有方法。 |
 
-### `inter_agent` — Inter-Agent Messaging
+### `inter_agent` — 跨 Agent 消息
 
 ```json
 {
@@ -193,11 +195,11 @@ Or to block specific arguments:
 }
 ```
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 描述 |
 |---|---|---|---|
-| `agents` | `array<string>` | No | Allowed recipient agent IDs (glob patterns). Empty = allow all. |
+| `agents` | `array<string>` | 否 | 允许的目标 Agent ID 列表（glob 模式）。空 = 允许所有。 |
 
-### `config_write` — Configuration File Modifications
+### `config_write` — 配置文件修改
 
 ```json
 {
@@ -206,11 +208,11 @@ Or to block specific arguments:
 }
 ```
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 描述 |
 |---|---|---|---|
-| `files` | `array<string>` | No | Allowed file paths (glob patterns). Empty = allow all. |
+| `files` | `array<string>` | 否 | 允许的文件路径（glob 模式）。空 = 允许所有。 |
 
-## Complete Example
+## 完整示例
 
 ```json
 {
@@ -286,16 +288,16 @@ Or to block specific arguments:
 }
 ```
 
-## Rule Evaluation Algorithm
+## 规则评估算法
 
-1. Extract the **agent ID** from the incoming `PermissionRequest`.
-2. Look up rule indices for that agent in O(1) via the pre-built HashMap index.
-3. If no exact match, fall back to scanning all rules for glob pattern matches.
-4. If still no match, apply the **default** for the request's category.
-5. Among matching rules, the first **deny** wins (AWS IAM style).
-6. If only allows are found, the action is allowed and a short-lived token is returned.
+1. 从传入的 `PermissionRequest` 中提取 **Agent ID**。
+2. 通过预建的 HashMap 索引在 O(1) 时间内查找该 Agent 的规则索引。
+3. 如果没有精确匹配，回退到扫描所有规则进行 glob 模式匹配。
+4. 如果仍然没有匹配，应用请求类别的 **默认规则**。
+5. 在匹配的规则中，第一个 **deny** 获胜（AWS IAM 风格）。
+6. 如果只找到 allow，则操作被允许并返回一个短生命周期 token。
 
-## Loading a Ruleset
+## 加载规则集
 
 ```rust
 use closeclaw::permission::{PermissionEngine, RuleSet};
@@ -305,9 +307,9 @@ let rules: RuleSet = serde_json::from_str(&json)?;
 let engine = PermissionEngine::new(rules);
 ```
 
-## Hot Reload
+## 热重载
 
-To reload rules without restarting the engine process:
+无需重启引擎进程即可重载规则：
 
 ```rust
 let json = std::fs::read_to_string("permissions.json")?;

@@ -1,126 +1,148 @@
-# Environment Setup
+# 环境配置
 
-## Rust Version
+## Rust 版本
 
-CloseClaw requires **Rust 1.85 or later** (recommended: latest stable).
+CloseClaw 需要 **Rust 1.85 或更高版本**（推荐：最新版 stable）。
 
 ```bash
 rustc --version
-# Should be >= 1.85.0
+# 应该 >= 1.85.0
 ```
 
-### Upgrading Rust
+### 升级 Rust
 
-If you have an older Rust version (e.g., 1.75), upgrade via rustup:
+如果已有旧版 Rust（如 1.75），通过 rustup 升级：
 
 ```bash
-# If rustup is installed
+# 如果已安装 rustup
 rustup update stable
 
-# If rustup is not installed, install it first
+# 如果没有安装，先安装 rustup
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-## Cargo Registry Mirror (China)
+## Cargo 镜像加速（中国）
 
-For faster downloads in China, configure the Aliyun mirror:
+为加速在中国地区的下载，配置 Tuna 镜像：
 
 ```bash
 mkdir -p ~/.cargo
 cat > ~/.cargo/config.toml << 'EOF'
 [source.crates-io]
-replace-with = "aliyun"
+replace-with = "tuna"
 
-[source.aliyun]
-registry = "sparse+https://mirrors.aliyun.com/crates.io-index/"
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
 EOF
 ```
 
-Then clear the old index and download fresh:
+然后清除旧索引并重新下载：
 ```bash
 rm -rf ~/.cargo/registry/index/*
 cargo check
 ```
 
-## Build Commands
+## 构建命令
 
-### Basic Build
+### 基础构建
 ```bash
-# Debug build - fast compilation, slower execution
+# Debug 构建 - 编译快，执行慢
 cargo build
 
-# Release build - slower compilation, faster execution (recommended for production)
-cargo build --release
-```
-
-### Build with Specific Cores
-```bash
-# Use specific number of cores
-CARGO_BUILD_JOBS=16 cargo build --release
-```
-
-### Check Cores Available
-```bash
-nproc  # Linux
-sysctl -n hw.ncpu  # macOS
-```
-
-## Common Issues
-
-### "failed to fetch `https://mirrors.aliyun.com/crates.io-index/`"
-- Registry index is outdated. Clear and re-fetch:
-```bash
-rm -rf ~/.cargo/registry/index/*
-cargo update
-```
-
-### "Unable to update crates.io index"
-- Network issue. Try switching to a different mirror or use VPN.
-
-### "file not found for module"
-- Run `cargo check` from the project root, not from a subdirectory.
-
-### Compilation errors
-- Ensure Rust version is >= 1.85
-- Run `cargo update` to update dependencies
-
----
-
-## Deployment (Pull → Rebuild → Restart)
-
-### Standard Deployment Flow
-
-> **No `cargo clean` needed** for routine code pulls — Cargo's incremental build handles updates automatically.
-
-```bash
-cd /home/admin/code/closeclaw
-
-# 1. Stop running instance (if any)
-pkill closeclaw   # or Ctrl+C if running in foreground
-
-# 2. Pull latest code
-git pull
-
-# 3. Rebuild (release mode)
+# Release 构建 - 编译慢，执行快
 cargo build --release
 
-# 4. Restart
-./target/release/closeclaw run --config-dir ./configs
+# 运行测试
+cargo test
+
+# 运行并显示输出
+cargo run -- [args]
 ```
 
-### When You DO Need `cargo clean`
-- Rust version was upgraded (e.g., 1.75 → 1.85)
-- Dependencies changed fundamentally (not just updated)
-- Build cache is corrupted (symptoms: cryptic/unexplainable errors)
-- After `Cargo.toml` dependency changes
+## 目录结构
 
-### Health Check After Deploy
+```
+closeclaw/
+├── src/
+│   ├── main.rs           # CLI 入口
+│   ├── permission/       # 权限引擎
+│   ├── config/           # 配置系统
+│   ├── agent/            # Agent 运行时
+│   ├── gateway/          # 网关 + IM 适配器
+│   ├── skills/           # 内置 Skills
+│   └── llm/              # LLM 接口抽象
+├── configs/
+│   ├── agents.json       # Agent 配置
+│   ├── permissions.json  # 权限规则
+│   └── .env              # API Key（不提交到 Git）
+├── docs/
+│   ├── SETUP.md          # 本文件
+│   ├── cli/README.md     # CLI 文档
+│   └── permission/       # 权限文档
+└── tests/                # 集成测试
+```
+
+## 配置步骤
+
+### 1. 复制环境配置示例
+
 ```bash
-# Verify binary runs
-./target/release/closeclaw --version
-
-# Check it starts without errors
-./target/release/closeclaw run --config-dir ./configs &
-sleep 2
-# If no crash/error output, it's healthy
+cp configs/.env.example configs/.env
+# 然后编辑 configs/.env 填入你的 API Key
 ```
+
+### 2. 配置 Agent
+
+编辑 `configs/agents.json`：
+
+```json
+{
+  "version": "1.0",
+  "agents": [
+    {
+      "name": "guide",
+      "model": "minimax/MiniMax-M2.7",
+      "persona": "你是 CloseClaw 的引导助手。",
+      "max_iterations": 100,
+      "timeout_minutes": 30
+    }
+  ]
+}
+```
+
+### 3. 配置权限规则
+
+编辑 `configs/permissions.json`。详见 [permission/RULES.md](permission/RULES.md)。
+
+### 4. 启动 Daemon
+
+```bash
+# 启动 daemon
+cargo run --release -- run
+
+# 停止 daemon
+cargo run --release -- stop
+```
+
+## 快速验证
+
+```bash
+# 检查代码是否通过编译检查
+cargo check
+
+# 运行所有测试
+cargo test
+
+# 查看所有内置 skills
+cargo run -- skill list
+```
+
+## 常见问题
+
+### 编译报错：link for cretonofound
+
+确保 Rust 版本 >= 1.85，或者降级相关依赖版本。
+
+### 测试失败
+
+检查是否有环境变量未配置（部分测试需要 MINIMAX_API_KEY）。
