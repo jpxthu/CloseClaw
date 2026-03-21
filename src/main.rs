@@ -73,6 +73,12 @@ enum ConfigAction {
     },
     /// List config files
     List,
+    /// Interactive setup wizard
+    Setup {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -160,6 +166,9 @@ async fn handle_config(action: ConfigAction) -> Result<()> {
             println!("Config files:");
             println!("  (not implemented)");
         }
+        ConfigAction::Setup { yes } => {
+            handle_config_setup(yes).await?;
+        }
     }
     Ok(())
 }
@@ -200,6 +209,146 @@ async fn handle_skill(action: SkillAction) -> Result<()> {
 fn pid_file_path() -> PathBuf {
     let home = std::env::var("HOME").expect("Cannot determine home directory (HOME not set)");
     PathBuf::from(home).join(".closeclaw").join("daemon.pid")
+}
+
+async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
+    use dialoguer::{MultiSelect, Input, Confirm};
+
+    println!();
+    println!("╔══════════════════════════════════════════════════════════╗");
+    println!("║           CloseClaw 交互式配置向导                      ║");
+    println!("╚══════════════════════════════════════════════════════════╝");
+    println!();
+    println!("本向导将帮助你配置 API Key 和其他设置。");
+    println!("所有配置将写入 configs/.env 文件（不会提交到 Git）。");
+    println!();
+
+    // Step 1: Select providers
+    let providers = vec![
+        "MiniMax (推荐 / Recommended)",
+        "OpenAI",
+        "Anthropic",
+    ];
+
+    println!("【第 1 步】选择要配置的 LLM Provider");
+    println!("提示：至少选择一个 Provider。你可以选择多个。");
+    println!();
+
+    let selection = MultiSelect::new()
+        .with_prompt("选择要配置的 Provider（空格选择，回车确认）")
+        .items(&providers)
+        .defaults(&[true, false, false]) // MiniMax selected by default
+        .interact()?;
+
+    if selection.is_empty() {
+        println!("你没有选择任何 Provider，取消配置。");
+        return Ok(());
+    }
+
+    let has_minimax = selection.contains(&0);
+    let has_openai = selection.contains(&1);
+    let has_anthropic = selection.contains(&2);
+
+    // Step 2: Collect API keys
+    let mut minimax_key = String::new();
+    let mut openai_key = String::new();
+    let mut anthropic_key = String::new();
+
+    println!();
+    println!("【第 2 步】输入 API Key");
+    println!("提示：API Key 不会显示在屏幕上，输入时注意不要复制多余的空格。");
+    println!();
+
+    if has_minimax {
+        minimax_key = Input::new()
+            .with_prompt("MiniMax API Key（必填）")
+            .interact_text()?;
+    }
+
+    if has_openai {
+        openai_key = Input::new()
+            .with_prompt("OpenAI API Key（必填）")
+            .interact_text()?;
+    }
+
+    if has_anthropic {
+        anthropic_key = Input::new()
+            .with_prompt("Anthropic API Key（必填）")
+            .interact_text()?;
+    }
+
+    // Step 3: Optional Feishu webhook
+    println!();
+    println!("【第 3 步】飞书 Webhook（可选）");
+    println!("如果你需要接收通知，可以配置飞书机器人 Webhook。");
+    println!("留空跳过。");
+
+    let feishu_webhook: String = Input::new()
+        .with_prompt("飞书 Webhook URL（可选）")
+        .allow_empty(true)
+        .interact_text()?;
+
+    // Step 4: Preview
+    println!();
+    println!("【第 4 步】配置预览");
+    println!();
+
+    let mut env_content = String::from("# CloseClaw 环境配置\n");
+    env_content.push_str("# 由 closeclaw config setup 生成\n");
+    env_content.push_str("# .env 文件会被 .gitignore 忽略，不会提交到 Git\n\n");
+
+    if has_minimax {
+        env_content.push_str(&format!("# MiniMax API Key（必填）\n"));
+        env_content.push_str(&format!("MINIMAX_API_KEY={}\n\n", minimax_key));
+    }
+    if has_openai {
+        env_content.push_str(&format!("# OpenAI API Key（可选）\n"));
+        env_content.push_str(&format!("OPENAI_API_KEY={}\n\n", openai_key));
+    }
+    if has_anthropic {
+        env_content.push_str(&format!("# Anthropic API Key（可选）\n"));
+        env_content.push_str(&format!("ANTHROPIC_API_KEY={}\n\n", anthropic_key));
+    }
+    if !feishu_webhook.trim().is_empty() {
+        env_content.push_str(&format!("# 飞书 Webhook（可选）\n"));
+        env_content.push_str(&format!("FEISHU_WEBHOOK={}\n", feishu_webhook.trim()));
+    }
+
+    println!("{}", env_content);
+
+    // Step 5: Confirm
+    if skip_confirm {
+        println!("（--yes 标志已设置，跳过确认）");
+    } else {
+        let confirmed = Confirm::new()
+            .with_prompt("确认写入 configs/.env？")
+            .default(true)
+            .interact()?;
+
+        if !confirmed {
+            println!("取消配置。");
+            return Ok(());
+        }
+    }
+
+    // Write to file
+    let config_dir = PathBuf::from("./configs");
+    let env_path = config_dir.join(".env");
+
+    // Create configs dir if needed
+    std::fs::create_dir_all(&config_dir)?;
+
+    std::fs::write(&env_path, &env_content)?;
+
+    println!();
+    println!("✅ 配置已写入 {}", env_path.display());
+    println!();
+    println!("下一步：");
+    println!("  1. 编辑 configs/agents.json 配置你的 Agent");
+    println!("  2. 运行 cargo run --release -- run 启动 Daemon");
+    println!();
+
+    Ok(())
 }
 
 async fn handle_stop() -> Result<()> {

@@ -49,6 +49,9 @@ notify-debouncer-mini = "0.4"
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }
 
+# Interactive prompts for setup wizard
+dialoguer = "0.11"
+
 [dev-dependencies]
 # Testing
 proptest = "=1.4"
