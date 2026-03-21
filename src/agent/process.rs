@@ -1,0 +1,310 @@
+//! Agent Process - manages the OS process for an agent
+//!
+//! Handles spawning, communication, and monitoring of agent child processes.
+
+use std::sync::Arc;
+use thiserror::Error;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, Command};
+use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
+
+/// Errors that can occur during process management
+#[derive(Error, Debug)]
+pub enum ProcessError {
+    #[error("failed to spawn process: {0}")]
+    SpawnError(#[from] std::io::Error),
+    #[error("process not found: {0}")]
+    ProcessNotFound(String),
+    #[error("process already running: {0}")]
+    ProcessAlreadyRunning(String),
+    #[error("process communication error: {0}")]
+    CommunicationError(String),
+    #[error("process exited unexpectedly: {0}")]
+    UnexpectedExit(i32),
+}
+
+/// JSON message envelope for inter-process communication
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProcessMessage {
+    /// Message type (e.g., "heartbeat", "task", "result", "error")
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    /// Source agent ID
+    pub from: String,
+    /// Target agent ID (optional for broadcasts)
+    pub to: Option<String>,
+    /// Message payload
+    pub payload: serde_json::Value,
+}
+
+/// Handle to a running agent process
+#[derive(Debug, Clone)]
+pub struct AgentProcessHandle {
+    /// The child process
+    child: Arc<RwLock<Child>>,
+    /// Process ID for logging
+    pid: u32,
+    /// Agent ID this process belongs to
+    agent_id: String,
+}
+
+impl AgentProcessHandle {
+    /// Send a JSON message to the agent via stdin
+    pub async fn send_message(&mut self, message: &str) -> Result<(), ProcessError> {
+        let mut child = self.child.write().await;
+        if let Some(ref mut stdin) = child.stdin {
+            stdin
+                .write_all(message.as_bytes())
+                .await
+                .map_err(|e| ProcessError::CommunicationError(e.to_string()))?;
+            stdin
+                .write_all(b"\n")
+                .await
+                .map_err(|e| ProcessError::CommunicationError(e.to_string()))?;
+            debug!(agent_id = %self.agent_id, "sent message to agent stdin");
+        } else {
+            return Err(ProcessError::CommunicationError(
+                "stdin not available".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Send a structured message to the agent
+    pub async fn send_json(&mut self, msg: &ProcessMessage) -> Result<(), ProcessError> {
+        let json = serde_json::to_string(msg)
+            .map_err(|e| ProcessError::CommunicationError(e.to_string()))?;
+        self.send_message(&json).await
+    }
+
+    /// Kill the process
+    pub async fn kill(&mut self) -> Result<(), ProcessError> {
+        debug!(agent_id = %self.agent_id, pid = %self.pid, "killing agent process");
+        let mut child = self.child.write().await;
+        child
+            .kill()
+            .await
+            .map_err(|e| ProcessError::CommunicationError(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Wait for the process to exit
+    pub async fn wait(&mut self) -> Result<i32, ProcessError> {
+        let status = self.child.write().await
+            .wait()
+            .await
+            .map_err(|e| ProcessError::CommunicationError(e.to_string()))?;
+        match status.code() {
+            Some(code) => {
+                debug!(agent_id = %self.agent_id, code = code, "process exited");
+                Ok(code)
+            }
+            None => Err(ProcessError::CommunicationError("process terminated by signal".to_string())),
+        }
+    }
+
+    /// Get the process ID
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// Get the agent ID
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+}
+
+/// Agent process manager
+#[derive(Debug)]
+pub struct AgentProcess;
+
+impl AgentProcess {
+    /// Spawn a new agent process
+    ///
+    /// # Arguments
+    /// * `binary_path` - Path to the agent binary to execute
+    /// * `agent_id` - ID to pass to the agent process via environment
+    ///
+    /// # Returns
+    /// A handle to the spawned process
+    pub async fn spawn(binary_path: &str, agent_id: &str) -> Result<AgentProcessHandle, ProcessError> {
+        info!(binary = %binary_path, agent_id = %agent_id, "spawning agent process");
+
+        let child = Command::new(binary_path)
+            .env("AGENT_ID", agent_id)
+            .env("RUST_LOG", "info")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
+
+        let pid = child.id().unwrap_or(0);
+        info!(agent_id = %agent_id, pid = %pid, "agent process spawned");
+
+        Ok(AgentProcessHandle {
+            child: Arc::new(RwLock::new(child)),
+            pid,
+            agent_id: agent_id.to_string(),
+        })
+    }
+
+    /// Spawn with custom arguments
+    pub async fn spawn_with_args(
+        binary_path: &str,
+        agent_id: &str,
+        args: &[&str],
+    ) -> Result<AgentProcessHandle, ProcessError> {
+        info!(binary = %binary_path, agent_id = %agent_id, args = ?args, "spawning agent process with args");
+
+        let mut cmd = Command::new(binary_path);
+        cmd.env("AGENT_ID", agent_id)
+            .env("RUST_LOG", "info")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+
+        for arg in args {
+            cmd.arg(arg);
+        }
+
+        let child = cmd.spawn()?;
+
+        let pid = child.id().unwrap_or(0);
+        info!(agent_id = %agent_id, pid = %pid, "agent process spawned with args");
+
+        Ok(AgentProcessHandle {
+            child: Arc::new(RwLock::new(child)),
+            pid,
+            agent_id: agent_id.to_string(),
+        })
+    }
+
+    /// Create a message for inter-agent communication
+    pub fn create_message(
+        from: &str,
+        to: Option<&str>,
+        msg_type: &str,
+        payload: impl serde::Serialize,
+    ) -> Result<String, ProcessError> {
+        let msg = ProcessMessage {
+            msg_type: msg_type.to_string(),
+            from: from.to_string(),
+            to: to.map(|s| s.to_string()),
+            payload: serde_json::to_value(payload)
+                .map_err(|e| ProcessError::CommunicationError(e.to_string()))?,
+        };
+        serde_json::to_string(&msg)
+            .map_err(|e| ProcessError::CommunicationError(e.to_string()))
+    }
+
+    /// Parse a message from JSON
+    pub fn parse_message(raw: &str) -> Result<ProcessMessage, ProcessError> {
+        serde_json::from_str(raw)
+            .map_err(|e| ProcessError::CommunicationError(format!("failed to parse message: {}", e)))
+    }
+}
+
+/// Spawn a background task to read stdout from a process
+pub async fn spawn_output_reader(
+    handle: AgentProcessHandle,
+) -> Result<tokio::sync::mpsc::Receiver<ProcessMessage>, ProcessError> {
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+    let agent_id = handle.agent_id.clone();
+    let mut child = handle.child.write().await;
+
+    if let Some(stdout) = child.stdout.take() {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                match AgentProcess::parse_message(&line) {
+                    Ok(msg) => {
+                        debug!(agent_id = %agent_id, msg_type = %msg.msg_type, "received message from agent");
+                        if tx.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(agent_id = %agent_id, error = %e, "failed to parse agent message");
+                    }
+                }
+            }
+            debug!(agent_id = %agent_id, "output reader task ended");
+        });
+    }
+
+    Ok(rx)
+}
+
+/// Spawn a background task to read stderr from a process
+pub async fn spawn_error_reader(
+    handle: AgentProcessHandle,
+) -> Result<tokio::sync::mpsc::Receiver<String>, ProcessError> {
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+    let agent_id = handle.agent_id.clone();
+    let mut child = handle.child.write().await;
+
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if tx.send(line).await.is_err() {
+                    break;
+                }
+            }
+            debug!(agent_id = %agent_id, "error reader task ended");
+        });
+    }
+
+    Ok(rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_message() {
+        let msg = AgentProcess::create_message(
+            "agent1",
+            Some("agent2"),
+            "task",
+            &serde_json::json!({"data": "test"}),
+        )
+        .unwrap();
+
+        let parsed: ProcessMessage = serde_json::from_str(&msg).unwrap();
+        assert_eq!(parsed.from, "agent1");
+        assert_eq!(parsed.to, Some("agent2".to_string()));
+        assert_eq!(parsed.msg_type, "task");
+    }
+
+    #[test]
+    fn test_parse_message() {
+        let json = r#"{"type":"heartbeat","from":"agent1","to":null,"payload":{"seq":1}}"#;
+        let msg = AgentProcess::parse_message(json).unwrap();
+        assert_eq!(msg.msg_type, "heartbeat");
+        assert_eq!(msg.from, "agent1");
+        assert!(msg.to.is_none());
+    }
+
+    #[test]
+    fn test_parse_invalid_message() {
+        let result = AgentProcess::parse_message("not valid json");
+        assert!(result.is_err());
+    }
+}
