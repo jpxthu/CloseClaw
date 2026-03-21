@@ -1,0 +1,96 @@
+//! Coding Agent Skill - Delegate coding tasks to AI coding agents
+//!
+//! This skill wraps OpenCode or Claude Code to handle complex coding tasks.
+
+use async_trait::async_trait;
+use std::sync::Arc;
+use crate::skills::{Skill, SkillManifest, SkillError};
+
+pub struct CodingAgentSkill {
+    model: String,
+}
+
+impl CodingAgentSkill {
+    pub fn new(model: Option<String>) -> Self {
+        Self {
+            model: model.unwrap_or_else(|| "minimax/MiniMax-M2.7".to_string()),
+        }
+    }
+}
+
+#[async_trait]
+impl Skill for CodingAgentSkill {
+    fn manifest(&self) -> SkillManifest {
+        SkillManifest {
+            name: "coding_agent".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Delegate complex coding tasks to AI coding agents (OpenCode, Claude Code)".to_string(),
+            author: Some("CloseClaw Team".to_string()),
+            dependencies: vec![],
+        }
+    }
+
+    fn methods(&self) -> Vec<&str> {
+        vec!["delegate", "review", "refactor", "test"]
+    }
+
+    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        match method {
+            "delegate" => {
+                let task = args.get("task")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("task required".to_string()))?;
+                let language = args.get("language").and_then(|v| v.as_str()).unwrap_or("rust");
+                
+                // Stub - would spawn OpenCode or Claude Code
+                Ok(serde_json::json!({
+                    "status": "delegated",
+                    "task": task,
+                    "language": language,
+                    "model": self.model,
+                    "message": "Coding task delegated - implementation stub"
+                }))
+            }
+            "review" => {
+                let code = args.get("code")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
+                
+                Ok(serde_json::json!({
+                    "status": "review_complete",
+                    "issues": [],
+                    "message": "Code review - implementation stub"
+                }))
+            }
+            "refactor" => {
+                let code = args.get("code")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
+                let goal = args.get("goal")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("improve readability");
+                
+                Ok(serde_json::json!({
+                    "status": "refactored",
+                    "goal": goal,
+                    "message": "Refactoring - implementation stub"
+                }))
+            }
+            "test" => {
+                let code = args.get("code")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
+                
+                Ok(serde_json::json!({
+                    "status": "tests_generated",
+                    "test_count": 0,
+                    "message": "Test generation - implementation stub"
+                }))
+            }
+            _ => Err(SkillError::MethodNotFound {
+                skill: "coding_agent".to_string(),
+                method: method.to_string(),
+            })
+        }
+    }
+}

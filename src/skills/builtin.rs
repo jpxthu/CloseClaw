@@ -227,6 +227,8 @@ impl BuiltinSkills {
             Arc::new(FileOpsSkill::new()) as Arc<dyn Skill>,
             Arc::new(GitOpsSkill::new()),
             Arc::new(SearchSkill::new()),
+            Arc::new(super::CodingAgentSkill::new(None)),
+            Arc::new(super::SkillCreatorSkill::new()),
         ]
     }
 }
@@ -273,9 +275,11 @@ mod tests {
     #[test]
     fn test_builtin_skills() {
         let skills = BuiltinSkills::all();
-        assert_eq!(skills.len(), 3);
+        assert_eq!(skills.len(), 5);
         assert_eq!(skills[0].manifest().name, "file_ops");
         assert_eq!(skills[1].manifest().name, "git_ops");
         assert_eq!(skills[2].manifest().name, "search");
+        assert_eq!(skills[3].manifest().name, "coding_agent");
+        assert_eq!(skills[4].manifest().name, "skill_creator");
     }
 }
