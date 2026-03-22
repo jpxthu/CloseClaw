@@ -4,13 +4,13 @@
 
 ## Next（当前 Sprint）
 
-- [🚧 进行中] **Permission Engine 用户维度支持** — 权限配置
+- [ ] **Permission Engine 用户维度支持** — 权限配置
   - 设计文档：`docs/permission/PERMISSION_USER_SCOPE.md` ✅ review ✅
-  - 子 agent 正在实现（spawned）
+  - ✅ 实现完成 (commit 245d3f1)
   - `Subject::UserAndAgent` 双重匹配
   - 权限模板系统（`templates/` 目录）
   - Creator Rule 短路逻辑
-  - **必须配套写测试**
+  - 144 tests 全部通过
 
 ## Later（低优，可直接开动）
 
@@ -78,6 +78,7 @@
 | 功能 | Commit |
 |------|--------|
 | Permission Engine | b1279e6 |
+| Permission Engine 用户维度支持（Subject::UserAndAgent, Creator Rule, Template 系统） | — |
 | Agent Registry + Process | a5a247b |
 | Gateway + Feishu Adapter | 24c6f4d |
 | CLI: stop 命令 | 51d7976 |
@@ -87,8 +88,9 @@
 | Issue #1 文档中文化 | 06f5f63 |
 | Issue #2 API Key 向导 | 170942e |
 | Issue #3 config setup 修复 | 1c86cc5 |
-| `closeclaw chat` 框架（TCP server + protocol + CLI + tests） | — |
-| `closeclaw stop -f`（强制关闭模式） | — |
+| `closeclaw chat` 框架（TCP server + protocol + CLI + tests） | bdd0572 |
+| `closeclaw stop -f`（强制关闭模式） | 5e82c75 |
+| Permission Engine 用户维度（Subject::UserAndAgent + templates + Caller） | 245d3f1 |
 | Skill 列表精简（allowBundled 配置） | — |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
