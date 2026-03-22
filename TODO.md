@@ -22,10 +22,12 @@
   → 需要重新开发（之前代码已丢弃）
 
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs`
+- [ ] **测试流程规范化** — UT + 集成测试 + 测试员手动验收 + 自动化测试沉淀，流程写入 GITHUB_WORKFLOW.md
 - [ ] **`closeclaw stop -f`** — 强制关闭模式
 - [ ] **Hot config reload** — `agents.json` 变更热重载
 - [ ] **Streaming 逐条渲染** — CLI 输出时 streaming 响应要逐条显示，不能等全部完成才看到
 - [ ] **代码块 markdown 渲染** — CLI 和 IM 输出中代码块要正确渲染，不是普通文字
+- [ ] **Phase 11 日志与审计系统** — 所有权限判断、agent 操作、错误均有日志记录，支持查询和导出
 
 ## 待细化（需先和你对清楚）
 
