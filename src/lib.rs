@@ -15,6 +15,7 @@ pub mod skills;
 pub mod llm;
 pub mod cli;
 pub mod daemon;
+pub mod chat;
 
 use tracing::info;
 

@@ -43,6 +43,11 @@ enum Commands {
     },
     /// Stop the CloseClaw daemon
     Stop {},
+    /// Chat with the CloseClaw agent via TCP
+    Chat {
+        #[command(flatten)]
+        chat_opts: closeclaw::cli::chat::ChatCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -130,6 +135,9 @@ async fn main() -> Result<()> {
         }
         Commands::Stop {} => {
             handle_stop().await?;
+        }
+        Commands::Chat { chat_opts } => {
+            chat_opts.run().await?;
         }
     }
 

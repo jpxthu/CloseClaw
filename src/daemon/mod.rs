@@ -5,6 +5,7 @@
 
 pub mod shutdown;
 
+use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::providers::ConfigProvider;
 use crate::gateway::{Gateway, GatewayConfig};
@@ -20,6 +21,8 @@ pub struct Daemon {
     pub agent_registry: Arc<RwLock<crate::agent::registry::AgentRegistry>>,
     pub permission_engine: Arc<PermissionEngine>,
     pub shutdown: shutdown::ShutdownHandle,
+    /// Chat TCP server (runs as background task)
+    pub chat_server: Arc<ChatServer>,
 }
 
 impl Daemon {
@@ -59,6 +62,17 @@ impl Daemon {
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
 
+        // Initialize and spawn chat TCP server
+        let chat_server = Arc::new(ChatServer::new());
+        let chat_server_for_task = Arc::clone(&chat_server);
+        let shutdown_rx = shutdown.subscribe_drain();
+        tokio::spawn(async move {
+            if let Err(e) = chat_server_for_task.run(shutdown_rx).await {
+                tracing::warn!(error = %e, "chat server exited with error");
+            }
+        });
+        info!(addr = "127.0.0.1:18889", "chat TCP server spawned");
+
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -69,6 +83,7 @@ impl Daemon {
             agent_registry,
             permission_engine,
             shutdown,
+            chat_server,
         })
     }
 

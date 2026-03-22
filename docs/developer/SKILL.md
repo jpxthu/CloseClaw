@@ -32,14 +32,14 @@ closeclaw run --config-dir ./configs
 
 | Phase | 内容 | 状态 |
 |-------|------|------|
-| 1-4 | PE / Config / Agent Runtime / Gateway + Feishu | ✅ |
-| 5 | Skill System | ❌ |
-| 6 | 测试覆盖率（107 tests） | ✅ |
-| 7 | CLI + Daemon + Graceful Shutdown + `closeclaw chat` | 进行中 |
-| 8 | Inter-agent 通信 | ❌ |
-| 9 | 配置热重载 | ❌ |
-| 10 | 多 IM 适配器 | ❌ |
-| 11 | 日志与审计系统 | ❌ |
+| 1-4 | PE / Config / Agent Runtime / Gateway + Feishu | ✅ 完成 |
+| 5 | Skill System | ✅ 完成 |
+| 6 | LLM 接口抽象（OpenAI / Anthropic / MiniMax） | ✅ 完成 |
+| 7 | CLI + Daemon + Graceful Shutdown | ✅ 完成 |
+| 8 | Inter-agent 通信 + `closeclaw chat` | 🔜 规划中 |
+| 9 | 配置热重载 | 🔜 规划中 |
+| 10 | 多 IM 适配器 | 🔜 规划中 |
+| 11 | 日志与审计系统 | 🔜 规划中 |
 
 ---
 
@@ -114,14 +114,15 @@ Agent 组件 API 详见 `docs/agent/README.md`。详细层级继承、inter-agen
 closeclaw agent list              # 列出所有 agent
 closeclaw agent create <name>    # 创建新 agent
 closeclaw config validate <file> # 验证配置文件
+closeclaw config setup           # 交互式配置向导（配置 API Key）
 closeclaw rule check <rule>      # 检查权限规则
 closeclaw skill list             # 列出已安装 skill
 closeclaw skill install <name>   # 安装 skill
-closeclaw chat                   # 本地 CLI 直连 daemon（REPL 模式）
-closeclaw chat -m "hello"       # 单消息模式
 closeclaw run --config-dir ./configs  # 启动 daemon
 closeclaw stop                   # 停止 daemon
 ```
+
+> ⚠️ `closeclaw chat`（本地 CLI 直连 daemon）当前有编译 bug，暂不可用。详情见 [QUICKSTART.md](../QUICKSTART.md)。
 
 完整命令列表见 `docs/cli/README.md`。
 

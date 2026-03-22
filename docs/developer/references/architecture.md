@@ -55,10 +55,11 @@
 | **Agent Registry** | 管理 agent 生命周期（创建、销毁、查询）。支持 parent→child 层级，权限可继承 |
 | **Agent Runtime** | 每只 agent 独立进程（可配置）。持 LLM 会话 + skill 实例 + 本地工具。所有操作必须经 PE |
 | **Permission Engine** | 独立 OS 进程，规则评估 + OS 沙盒（seccomp/landlock）。接口：Unix Domain Socket + async channel |
-| **Scheduler** | Cron 定时任务、Heartbeat 心跳、Idle 超时管理、Lifecycle Hooks |
-| **Skill System** | 可插拔 skill，与 OpenClaw 兼容，file_ops/git_ops 等内置 skill |
+| **Skill System** | 可插拔 skill，与 OpenClaw 兼容，coding_agent / skill_creator 等内置 skill |
 | **Config System** | JSON 模块分离，`agents.json`/`permissions.json`/`im.json`/`skills.json` 分立，支持热重载和容错回滚 |
 | **CLI Tool** | `closeclaw <command>`，包括 agent/config/rule/skill 子命令，以及 `closeclaw chat` 本地 CLI |
+| **Daemon** | 长期运行进程框架，支持 Graceful Shutdown 状态机 |
+| **Scheduler** | ⏳ 规划中 — Cron 定时任务、Heartbeat 心跳、Idle 超时管理、Lifecycle Hooks |
 
 ## Skill 安全 Review 机制（可选）
 
@@ -81,16 +82,16 @@
 src/
 ├── main.rs                  # 入口
 ├── lib.rs                   # 库入口
-├── cli/                     # CLI 命令（mod.rs + 子命令）
+├── cli/                     # CLI 命令
+│   ├── mod.rs
+│   └── chat.rs            # closeclaw chat 子命令
 ├── gateway/                 # 网关：消息路由、协议抽象
 │   ├── mod.rs
-│   ├── router.rs
-│   └── protocol.rs
+│   └── message.rs
 ├── agent/                   # Agent Runtime + Registry
 │   ├── mod.rs
-│   ├── runtime.rs          # agent 生命周期
-│   ├── registry.rs         # agent 注册表
-│   └── process.rs          # OS 进程管理
+│   ├── process.rs          # OS 进程管理
+│   └── registry.rs         # agent 注册表
 ├── permission/             # Permission Engine（核心）
 │   ├── mod.rs
 │   ├── engine.rs          # 规则评估器
@@ -100,29 +101,31 @@ src/
 ├── config/                 # 配置系统
 │   ├── mod.rs
 │   ├── agents.rs           # agents.json
-│   ├── permissions.rs      # permissions.json
-│   ├── im.rs             # im.json
 │   ├── providers/          # ConfigProvider trait 实现
 │   ├── reload.rs         # 热重载
 │   └── backup.rs          # 备份与回滚
 ├── im/                     # IM 适配器
 │   ├── mod.rs
-│   ├── adapter.rs          # IMAdapter trait
 │   └── feishu.rs         # 飞书实现
 ├── skills/                 # 内置 skill
 │   ├── mod.rs
 │   ├── builtin.rs
 │   ├── coding_agent.rs
-│   └── skill_creator.rs
+│   ├── skill_creator.rs
+│   └── registry.rs
 ├── llm/                    # LLM 接口抽象
 │   ├── mod.rs
-│   ├── client.rs
 │   ├── openai.rs
 │   ├── anthropic.rs
 │   └── minimax.rs
+├── chat/                   # TCP Chat Server（closeclaw chat 命令）
+│   ├── mod.rs
+│   ├── protocol.rs        # JSON 协议
+│   ├── server.rs          # TCP 服务器
+│   └── session.rs         # 会话管理
 └── daemon/                 # Daemon 框架 + Graceful Shutdown
     ├── mod.rs
-    └── shutdown.rs
+    └── shutdown.rs         # Graceful Shutdown 状态机
 tests/
 ├── engine_test.rs
 ├── smoke_test.rs

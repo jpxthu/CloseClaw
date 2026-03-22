@@ -4,19 +4,26 @@
 
 ## 项目状态
 
-🟢 **开发中** — Phase 8: 测试覆盖率完成
+🟢 **开发中** — Phase 1-7 完成，Phase 8-11 规划中
 
-**测试：107 tests 全部通过**
+<details>
+<summary><b>Phase 进展（点击展开）</b></summary>
 
-| Phase | 状态 | 分支 |
+| Phase | 内容 | 状态 |
 |-------|------|------|
-| Phase 1: 架构设计 | ✅ 完成 | master |
-| Phase 2: Permission Engine | ✅ 完成 | master |
-| Phase 3: Config System + Agent Runtime | ✅ 完成 | master |
-| Phase 4: Gateway + IM | ✅ 完成 | master |
-| Phase 5: Skill System | ✅ 完成 | master |
-| Phase 6: LLM 接口抽象 | ✅ 完成 | master |
-| Phase 7: CLI + 主程序 | ✅ 完成 | master |
+| Phase 1 | 架构设计 + Permission Engine | ✅ 完成 |
+| Phase 2 | Permission Engine 完善 | ✅ 完成 |
+| Phase 3 | Config System + Agent Runtime | ✅ 完成 |
+| Phase 4 | Gateway + Feishu IM Adapter | ✅ 完成 |
+| Phase 5 | Skill System | ✅ 完成 |
+| Phase 6 | LLM 接口抽象（OpenAI / Anthropic / MiniMax） | ✅ 完成 |
+| Phase 7 | CLI + Daemon + Graceful Shutdown | ✅ 完成 |
+| Phase 8 | Inter-agent 通信 | 🔜 规划中 |
+| Phase 9 | 配置热重载 | 🔜 规划中 |
+| Phase 10 | 多 IM 适配器（企业微信/QQ/钉钉） | 🔜 规划中 |
+| Phase 11 | 日志与审计系统 | 🔜 规划中 |
+
+</details>
 
 ## 核心特性
 
@@ -60,8 +67,8 @@ cargo run
 # 查看所有分支
 git branch -a
 
-# 切换到最新开发分支
-git checkout phase4-gateway-im
+# 切换到主分支（所有 Phase 1-7 功能已合并）
+git checkout master
 
 # 运行所有测试
 cargo test
@@ -88,7 +95,8 @@ closeclaw/
 
 ## 设计文档
 
-- [SPEC.md](./SPEC.md) - 完整架构设计
+- [docs/developer/SKILL.md](docs/developer/SKILL.md) - 完整架构设计（开发指南）
+- [docs/developer/references/architecture.md](docs/developer/references/architecture.md) - 核心设计原则与组件详解
 - [docs/permission/](docs/permission/) - 权限系统文档
 
 ## License
