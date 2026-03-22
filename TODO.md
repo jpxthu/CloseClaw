@@ -55,6 +55,9 @@
 | Issue #1 文档中文化 | 06f5f63 |
 | Issue #2 API Key 向导 | 170942e |
 | Issue #3 config setup 修复 | 1c86cc5 |
+| Skill 列表精简（allowBundled 配置） | — |
+| Workspace skill code-dev 创建 | — |
+| docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
 
 ---
 
