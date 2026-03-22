@@ -86,7 +86,7 @@ pub fn load_templates_from_dir(config_dir: &Path) -> Result<HashMap<String, Temp
 
 /// Resolve a template by name, recursively expanding its inheritance chain.
 /// Returns the fully-expanded template with all inherited actions merged.
-fn expand_inheritance(templates: &mut HashMap<String, Template>) -> Result<(), TemplateLoadError> {
+pub(crate) fn expand_inheritance(templates: &mut HashMap<String, Template>) -> Result<(), TemplateLoadError> {
     // Topological sort to detect cycles and resolve in correct order
     let names: Vec<String> = templates.keys().cloned().collect();
     let mut resolved: HashMap<String, Template> = HashMap::new();

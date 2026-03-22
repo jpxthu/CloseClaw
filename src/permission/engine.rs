@@ -474,11 +474,6 @@ impl PermissionEngine {
         self.user_agent_rule_index = user_agent_index;
     }
 
-    /// Rebuild the lookup indices from the current ruleset.
-    fn rebuild_indices(&mut self) {
-        self.rebuild_indices_with_rules(&self.rules.clone());
-    }
-
     /// Reload rules from a new RuleSet
     pub fn reload_rules(&mut self, rules: RuleSet) {
         self.rebuild_indices_with_rules(&rules);
@@ -583,7 +578,7 @@ impl PermissionEngine {
     fn expand_templates_sync(
         &self,
         candidates: &[usize],
-        ruleset: &RuleSet,
+        _ruleset: &RuleSet,
     ) -> Vec<usize> {
         let mut expanded: Vec<usize> = Vec::new();
 
@@ -673,7 +668,7 @@ fn resolve_template_actions(
 }
 
 /// Check if a single action matches the request.
-fn action_matches_request(action: &Action, request: &PermissionRequestBody) -> bool {
+pub(crate) fn action_matches_request(action: &Action, request: &PermissionRequestBody) -> bool {
     if matches!(action, Action::All) {
         return true;
     }
