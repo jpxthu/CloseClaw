@@ -16,6 +16,8 @@
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs`
 - [ ] **`closeclaw stop -f`** — 强制关闭模式
 - [ ] **Hot config reload** — `agents.json` 变更热重载
+- [ ] **Streaming 逐条渲染** — CLI 输出时 streaming 响应要逐条显示，不能等全部完成才看到
+- [ ] **代码块 markdown 渲染** — CLI 和 IM 输出中代码块要正确渲染，不是普通文字
 
 ## 待细化（需先和你对清楚）
 
