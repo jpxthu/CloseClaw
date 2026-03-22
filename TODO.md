@@ -45,6 +45,23 @@
 - [ ] **`/new` 开新会话** — thread 隔离上下文
 - [ ] **配置版本管理** — OpenClaw workspace 配置（skills、agent settings）导出、Git 跟踪、跨机器同步
 
+## 多层级 Agent 架构设计（已完成）✅
+
+| 文档 | 说明 |
+|------|------|
+| `docs/agent/MULTI_AGENT_ARCHITECTURE.md` | 层级架构、权限系统、通讯机制、经验共享完整设计 |
+| `docs/agent/README.md` | Agent 模块文档索引（已更新） |
+
+**已确认设计：**
+- Agent 权限配置在各自目录下，Agent 可读不可改
+- 通讯名单由 CloseClaw 中央仲裁
+- 经验类型由父 Agent 最终判定
+- max_depth 由 CloseClaw 逻辑校验
+
+**TODO（后续再定）：**
+- 经验推送机制（父→子的下行推送实现）
+- 通讯延迟处理（消息队列/长连接/拉取策略）
+
 ## 已完成 ✅
 
 | 功能 | Commit |
@@ -64,6 +81,7 @@
 | Skill 列表精简（allowBundled 配置） | — |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
+| 多层级 Agent 架构设计文档 | — |
 
 ---
 
