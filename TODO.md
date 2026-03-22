@@ -62,6 +62,16 @@
 - 经验推送机制（父→子的下行推送实现）
 - 通讯延迟处理（消息队列/长连接/拉取策略）
 
+## 待实现（设计明确，可自行开始）
+
+- [ ] **Agent 配置文件结构** — 定义 `config.json` 和 `permissions.json` 的完整字段和类型
+- [ ] **Agent 配置文件加载/保存** — Config System 扩展支持 agents 子目录
+- [ ] **Permission Check API** — `PermissionEngine.check(agent_id, action)` 接口定义
+- [ ] **Communication List 检查** — CloseClaw 中央仲裁逻辑实现
+- [ ] **max_depth 校验逻辑** — Agent 创建时检查层级深度
+- [ ] **Agent Registry 扩展** — 支持 parent_id 层级关系
+- [ ] **permission_skill 内置 SKILL** — 让 Agent 能查询自己的权限
+
 ## 已完成 ✅
 
 | 功能 | Commit |
