@@ -42,7 +42,11 @@ enum Commands {
         config_dir: String,
     },
     /// Stop the CloseClaw daemon
-    Stop {},
+    Stop {
+        /// Force kill the daemon (SIGKILL instead of SIGTERM)
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Chat with the CloseClaw agent via TCP
     Chat {
         #[command(flatten)]
@@ -133,8 +137,8 @@ async fn main() -> Result<()> {
             daemon.run().await?;
             println!("CloseClaw daemon stopped.");
         }
-        Commands::Stop {} => {
-            handle_stop().await?;
+        Commands::Stop { force } => {
+            handle_stop(force).await?;
         }
         Commands::Chat { chat_opts } => {
             chat_opts.run().await?;
@@ -352,7 +356,7 @@ async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
     Ok(())
 }
 
-async fn handle_stop() -> Result<()> {
+async fn handle_stop(force: bool) -> Result<()> {
     let pid_path = pid_file_path();
 
     let pid: u32 = if pid_path.exists() {
@@ -370,20 +374,75 @@ async fn handle_stop() -> Result<()> {
         anyhow::bail!("Refusing to kill self. Use `pkill closeclaw` from another terminal instead.");
     }
 
+    let sig = if force { "KILL" } else { "TERM" };
     match std::process::Command::new("kill")
-        .arg("-TERM")
+        .arg(format!("-{}", sig))
         .arg(pid.to_string())
         .output()
     {
         Ok(output) if output.status.success() => {
             let _ = std::fs::remove_file(&pid_path);
-            println!("✅ Daemon (PID {}) stopped.", pid);
+            println!("✅ Daemon (PID {}) stopped ({}).", pid, if force { "SIGKILL" } else { "SIGTERM" });
         }
         Ok(output) => {
             anyhow::bail!("kill returned status {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
         }
-        Err(e) => anyhow::bail!("Failed to send TERM to PID {}: {}", pid, e),
+        Err(e) => anyhow::bail!("Failed to send {} to PID {}: {}", sig, pid, e),
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn test_pid_file_path_contains_daemon_pid() {
+        let path = pid_file_path();
+        assert!(path.to_str().unwrap().contains(".closeclaw"));
+        assert!(path.to_str().unwrap().contains("daemon.pid"));
+    }
+
+    #[test]
+    fn test_stop_command_force_flag_default() {
+        // Test that force defaults to false when parsing "closeclaw stop"
+        let cmd = Cli::command();
+        let matches = cmd.try_get_matches_from(["closeclaw", "stop"]).unwrap();
+        let sub = matches.subcommand().unwrap();
+        assert_eq!(sub.0, "stop");
+        let stop_matches = sub.1;
+        assert!(
+            !stop_matches.contains_id("force") || !stop_matches.get_flag("force"),
+            "force flag should default to false"
+        );
+    }
+
+    #[test]
+    fn test_stop_command_force_flag_short() {
+        // Test that -f flag sets force to true
+        let cmd = Cli::command();
+        let matches = cmd.try_get_matches_from(["closeclaw", "stop", "-f"]).unwrap();
+        let sub = matches.subcommand().unwrap();
+        assert_eq!(sub.0, "stop");
+        let stop_matches = sub.1;
+        assert!(stop_matches.get_flag("force"), "force flag should be true with -f");
+    }
+
+    #[test]
+    fn test_stop_command_force_flag_long() {
+        // Test that --force flag sets force to true
+        let cmd = Cli::command();
+        let matches = cmd
+            .try_get_matches_from(["closeclaw", "stop", "--force"])
+            .unwrap();
+        let sub = matches.subcommand().unwrap();
+        assert_eq!(sub.0, "stop");
+        let stop_matches = sub.1;
+        assert!(
+            stop_matches.get_flag("force"),
+            "force flag should be true with --force"
+        );
+    }
 }
