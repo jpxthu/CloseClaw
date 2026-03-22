@@ -29,6 +29,13 @@ closeclaw skill list             # List installed skills
 closeclaw skill install <name>   # Install skill
 ```
 
+### closeclaw chat
+```bash
+closeclaw chat                    # Start interactive REPL mode
+closeclaw chat -m "hello"       # Send single message and exit
+```
+本地 CLI 直连 daemon（TCP localhost:18889），不依赖 IM 适配器。
+
 ### closeclaw run
 ```bash
 closeclaw run --config-dir ./configs  # Start daemon
