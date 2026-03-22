@@ -6,19 +6,20 @@
 
 ## 状态
 
-🟢 **开发中** — Phase 1-9 完成，Phase 10 集成中
+🟢 **开发中** — Phase 1-6 完成，Phase 7 进行中
 
-| Phase | 状态 | 分支 |
-|-------|------|------|
-| Phase 1 | ✅ 完成 | master |
-| Phase 2: Permission Engine | ✅ 完成 | master |
-| Phase 3: Config + Agent Runtime | ✅ 完成 | master |
-| Phase 4: Gateway + IM | ✅ 完成 | master |
-| Phase 5: Skill System | ✅ 完成 | master |
-| Phase 6: LLM 接口抽象 | ✅ 完成 | master |
-| Phase 7: CLI + 主程序 | ✅ 完成 | master |
-| Phase 8: 测试覆盖率 | ✅ 完成（107 tests） | master |
-| Phase 9: Daemon + Graceful Shutdown | ✅ 完成 | master |
+| Phase | 内容 | 状态 | 分支 |
+|-------|------|------|------|
+| Phase 1 | 需求确认 + 架构设计 | ✅ 完成 | master |
+| Phase 2 | Permission Engine 核心 | ✅ 完成 | master |
+| Phase 3 | Config 系统 + Agent Runtime 骨架 | ✅ 完成 | master |
+| Phase 4 | Gateway + IM 适配器（飞书） | ✅ 完成 | master |
+| Phase 5 | Skill System 基础实现 | ❌ 未开始 | — |
+| Phase 6 | 集成测试 + 覆盖率（107 tests） | ✅ 完成 | master |
+| Phase 7 | CLI 主程序 + Daemon + Graceful Shutdown | ✅ 完成 | master |
+| Phase 8 | Inter-agent 通信机制 | ❌ 未开始 | — |
+| Phase 9 | 配置热重载 | ❌ 未开始 | — |
+| Phase 10 | 多 IM 适配器（企业微信/QQ/钉钉） | ❌ 未开始 | — |
 
 ---
 
@@ -402,24 +403,33 @@ pub enum PermissionResponse {
 
 ## 6. 功能范围
 
-### 6.1 MVP（Phase 2）
+### 6.1 MVP（Phase 1-2 完成）
 
 - [x] Permission Engine 核心（文件、命令白名单）
 - [x] 规则加载和评估
 - [x] Agent Runtime 骨架（单 agent 可运行）
-- [x] Gateway 骨架（单 IM 适配器，可选飞书）
+- [x] Gateway 骨架（单 IM 适配器，飞书）
 - [x] 配置系统骨架（JSON 模块分离）
 
-### 6.2 V1（Phase 3）
+### 6.2 当前完成（Phase 3-7）
 
-- [ ] 完整的 inter-agent 通信机制
-- [ ] 多 IM 适配器框架（飞书、企业微信、QQ、钉钉、Telegram、Discord）
-- [ ] Skill 系统基础实现
-- [ ] 配置热重载
-- [ ] 日志与审计系统
-- [ ] 基础 CI/CD
+- [x] Config 系统完整实现
+- [x] Gateway + Feishu Adapter 完整实现
+- [x] CLI 主程序（`closeclaw stop`）
+- [x] Daemon 启动框架 + Graceful Shutdown 状态机
+- [x] 集成测试覆盖率（107 tests）
 
-### 6.3 未来
+### 6.3 待实现（Phase 8-10 + 额外项）
+
+- [ ] **Phase 8**：Inter-agent 通信机制（request/response、event/notification）
+- [ ] **Phase 9**：配置热重载（agents.json、im.json 等运行时重载）
+- [ ] **Phase 10**：多 IM 适配器（企业微信、QQ、钉钉、Telegram、Discord）
+- [ ] **Phase 11**：日志与审计系统
+- [ ] **Phase 5**：Skill System 基础实现（file_ops、git_ops 内置 skill）
+- [ ] **未规划**：日志与审计系统（SPEC.md 核心原则要求，但无对应 Phase）
+- [ ] **未规划**：基础 CI/CD
+
+### 6.4 未来
 
 - [ ] Web UI / Dashboard
 - [ ] 分布式 agent 支持
@@ -442,7 +452,7 @@ pub enum PermissionResponse {
 | **序列化** | serde + JSON | ✅ |
 | **日志** | tracing + tracing-subscriber | ✅ 结构化日志 |
 | **测试** | cargo test + proptest + cargo-fuzz | ✅ 单元/属性/模糊测试 |
-| **LLM 接口** | 抽象 trait，可接入 OpenAI/Anthropic/本地模型 | ✅ |
+| **LLM 接口** | 抽象 trait + OpenAI/Anthropic/MiniMax 实现 | ✅ Phase 3 |
 | **IM 适配** | 插件化 trait，每个 IM 一个实现 | ✅ |
 | **构建工具** | Cargo | ✅ |
 
@@ -551,17 +561,19 @@ OpenClaw 是 CloseClaw 的上游项目，但两者技术栈不同（Node.js vs R
 
 ## 12. 开发阶段计划
 
-| Phase | 内容 | 产出 | Agent 分工 |
-|-------|------|------|-----------|
-| **Phase 1** | 需求确认 + 架构设计 | 完善 SPEC.md | 全部由主 agent 完成 |
-| **Phase 2** | Permission Engine 核心实现 | `src/permission/` 代码 | Dev agent A：PE engine + sandbox |
-| **Phase 2b** | 配置系统实现 | `src/config/` 代码 | Dev agent B：配置加载和验证 |
-| **Phase 2c** | Agent Runtime 骨架 | `src/agent/` 骨架代码 | Dev agent C：runtime 骨架 |
-| **Phase 3** | Gateway + IM 适配器 | `src/gateway/` + `src/im/` | Dev agent D：gateway + 飞书 adapter |
-| **Phase 4** | Skill 系统基础实现 | `src/skills/` | Dev agent A：file_ops skill |
-| **Phase 5** | 集成测试 + 修正 | 可运行的最小闭环 | QA agent：测试 + coverage report |
-| **Phase 6** | 代码审核 + 安全审计 | 审核报告 | Code Reviewer：交叉 review + PE 重点审计 |
-| **Phase 7** | 文档完善 + 交付 | 最终版本 | 主 agent 完成 |
+| Phase | 内容 | 产出 | 状态 |
+|-------|------|------|------|
+| **Phase 1** | 需求确认 + 架构设计 | SPEC.md | ✅ 完成 |
+| **Phase 2** | Permission Engine 核心实现 | `src/permission/` | ✅ 完成 |
+| **Phase 3** | Config 系统 + Agent Runtime 骨架 | `src/config/` + `src/agent/` | ✅ 完成 |
+| **Phase 4** | Gateway + IM 适配器（飞书） | `src/gateway/` + `src/im/` | ✅ 完成 |
+| **Phase 5** | Skill System 基础实现 | `src/skills/` | ❌ 未开始 |
+| **Phase 6** | 集成测试 + 覆盖率 | 107 tests，覆盖率报告 | ✅ 完成 |
+| **Phase 7** | CLI 主程序 + Daemon + Graceful Shutdown | `src/cli/` + `src/daemon/` | ✅ 完成 |
+| **Phase 8** | Inter-agent 通信机制 | agent 间通信协议和实现 | ❌ 未开始 |
+| **Phase 9** | 配置热重载 | 运行时配置变更无需重启 | ❌ 未开始 |
+| **Phase 10** | 多 IM 适配器 | 企业微信/QQ/钉钉 adapter | ❌ 未开始 |
+| **Phase 11** | 日志与审计系统 | tracing + 审计事件持久化 | ❌ 未开始 |
 
 **开发过程中的监督机制：**
 - Dev agent 之间交叉 code review（防止自己写自己审）
@@ -591,4 +603,4 @@ OpenClaw 是 CloseClaw 的上游项目，但两者技术栈不同（Node.js vs R
 
 ---
 
-*最后更新：Phase 1 需求确认 + 架构设计更新完成（整合用户反馈）*
+*最后更新：2026-03-22 — Phase 状态全面校正，Phase 8-11 待规划，日志与审计系统加入 Phase 11*
