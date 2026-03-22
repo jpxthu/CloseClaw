@@ -258,7 +258,7 @@ async fn handle_connection(
         // Process request
         let response = match &request {
             SandboxRequest::Evaluate { request } => {
-                SandboxResponse::PermissionResponse(engine.evaluate(request.clone()).await)
+                SandboxResponse::PermissionResponse(engine.evaluate(request.clone()))
             }
             SandboxRequest::ReloadRules { rules: _ } => {
                 // The engine is recreated externally; we just acknowledge.

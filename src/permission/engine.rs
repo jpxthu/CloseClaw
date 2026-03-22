@@ -4,15 +4,22 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::RwLock;
 
 /// RuleSet parsed from permissions.json
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuleSet {
     pub version: String,
+    #[serde(default)]
     pub rules: Vec<Rule>,
     #[serde(default)]
     pub defaults: Defaults,
+    /// Names of templates to load from the templates/ directory.
+    #[serde(default)]
+    pub template_includes: Vec<String>,
+    /// Agent creator mapping: agent_id -> creator_user_id.
+    /// Used to automatically generate creator full-access rules.
+    #[serde(default)]
+    pub agent_creators: HashMap<String, String>,
 }
 
 /// Default permissions for each action type
@@ -40,22 +47,179 @@ pub struct Rule {
     pub name: String,
     pub subject: Subject,
     pub effect: Effect,
+    /// Actions explicitly defined on this rule.
+    /// Mutually exclusive with `template`: at least one must be present.
+    #[serde(default)]
     pub actions: Vec<Action>,
+    /// Template reference for template composition.
+    /// Mutually exclusive with `actions`: at least one must be present.
+    #[serde(default)]
+    pub template: Option<TemplateRef>,
+    /// Optional priority for evaluation ordering.
+    /// Higher number = evaluated first. Default = 0.
+    #[serde(default)]
+    pub priority: i32,
 }
 
-/// Subject that a rule applies to
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Subject {
-    pub agent: String,
-    #[serde(default, alias = "match")]
-    pub match_type: MatchType,
+impl Rule {
+    /// Validates the rule: `actions` and `template` are mutually exclusive,
+    /// and at least one must be present. Returns Err with the violation message.
+    pub fn validate(&self) -> Result<(), String> {
+        let has_actions = !self.actions.is_empty();
+        let has_template = self.template.is_some();
+        if has_actions && has_template {
+            return Err(format!(
+                "rule '{}': 'actions' and 'template' are mutually exclusive",
+                self.name
+            ));
+        }
+        if !has_actions && !has_template {
+            return Err(format!(
+                "rule '{}': at least one of 'actions' or 'template' must be present",
+                self.name
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Reference to a template, optionally with parameter overrides.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct TemplateRef {
+    /// Name of the template to inherit from.
+    pub name: String,
+    /// Optional field-level overrides.
+    /// Supported override keys: "effect", "actions", "agent".
+    #[serde(default)]
+    pub overrides: HashMap<String, serde_json::Value>,
+}
+
+/// Subject that a rule applies to.
+///
+/// Supports two matching modes:
+/// - `AgentOnly` (match_mode = "agent_only" or absent): legacy mode, matches only by `agent` field
+/// - `UserAndAgent` (match_mode = "user_and_agent"): dual-key match, both `user_id` AND `agent` must match
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "match_mode", rename_all = "snake_case", content = "fields")]
+pub enum Subject {
+    /// Legacy agent-only matching (backward compatible).
+    AgentOnly {
+        agent: String,
+        #[serde(default)]
+        match_type: MatchType,
+    },
+    /// Dual-key matching: both user_id AND agent must match.
+    UserAndAgent {
+        user_id: String,
+        agent: String,
+        #[serde(default)]
+        user_match: MatchType,
+        #[serde(default)]
+        agent_match: MatchType,
+    },
 }
 
 impl Subject {
-    pub fn matches(&self, agent_id: &str) -> bool {
-        match self.match_type {
-            MatchType::Exact => self.agent == agent_id,
-            MatchType::Glob => glob_match(&self.agent, agent_id),
+    /// Returns the agent portion for index building and lookup.
+    pub fn agent_id(&self) -> &str {
+        match self {
+            Subject::AgentOnly { agent, .. } => agent,
+            Subject::UserAndAgent { agent, .. } => agent,
+        }
+    }
+
+    /// Returns the user_id portion (empty string for AgentOnly).
+    pub fn user_id(&self) -> &str {
+        match self {
+            Subject::AgentOnly { .. } => "",
+            Subject::UserAndAgent { user_id, .. } => user_id,
+        }
+    }
+
+    /// Returns true if this is an AgentOnly subject.
+    pub fn is_agent_only(&self) -> bool {
+        matches!(self, Subject::AgentOnly { .. })
+    }
+
+    /// Check if this subject matches the given caller.
+    pub fn matches(&self, caller: &Caller) -> bool {
+        match self {
+            Subject::AgentOnly { agent, match_type } => {
+                match match_type {
+                    MatchType::Exact => agent == &caller.agent,
+                    MatchType::Glob => glob_match(agent, &caller.agent),
+                }
+            }
+            Subject::UserAndAgent { user_id, agent, user_match, agent_match } => {
+                let user_ok = match user_match {
+                    MatchType::Exact => user_id == &caller.user_id,
+                    MatchType::Glob => glob_match(user_id, &caller.user_id),
+                };
+                let agent_ok = match agent_match {
+                    MatchType::Exact => agent == &caller.agent,
+                    MatchType::Glob => glob_match(agent, &caller.agent),
+                };
+                user_ok && agent_ok
+            }
+        }
+    }
+}
+
+/// Custom deserializer for Subject that handles both old flat format and new tagged format.
+mod subject_de {
+    use super::*;
+
+    impl<'de> Deserialize<'de> for Subject {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            // First, deserialize into a JSON Value to peek at the structure
+            let json: serde_json::Value = serde::Deserialize::deserialize(deserializer)?;
+
+            // Check for match_mode discriminant
+            let match_mode = json.get("match_mode")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            match match_mode.as_deref() {
+                Some("user_and_agent") => {
+                    #[derive(serde::Deserialize)]
+                    struct UAFields {
+                        #[serde(alias = "user_id")]
+                        user_id: String,
+                        #[serde(alias = "agent")]
+                        agent: String,
+                        #[serde(alias = "user_match", default)]
+                        user_match: MatchType,
+                        #[serde(alias = "agent_match", default)]
+                        agent_match: MatchType,
+                    }
+                    let fields: UAFields = serde_json::from_value(json)
+                        .map_err(|e| serde::de::Error::custom(e))?;
+                    Ok(Subject::UserAndAgent {
+                        user_id: fields.user_id,
+                        agent: fields.agent,
+                        user_match: fields.user_match,
+                        agent_match: fields.agent_match,
+                    })
+                }
+                _ => {
+                    #[derive(serde::Deserialize)]
+                    struct AOFields {
+                        #[serde(alias = "agent")]
+                        agent: String,
+                        #[serde(alias = "match", alias = "match_type", default)]
+                        match_type: Option<MatchType>,
+                    }
+                    let fields: AOFields = serde_json::from_value(json)
+                        .map_err(|e| serde::de::Error::custom(e))?;
+                    Ok(Subject::AgentOnly {
+                        agent: fields.agent,
+                        match_type: fields.match_type.unwrap_or_default(),
+                    })
+                }
+            }
         }
     }
 }
@@ -100,6 +264,8 @@ pub enum Action {
         #[serde(default)]
         files: Vec<String>,
     },
+    /// Matches any permission request. Used for admin/operator full-access rules.
+    All,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -120,38 +286,117 @@ pub enum Effect {
     Allow,
 }
 
-/// Permission request from an agent
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+// ---------------------------------------------------------------------------
+// PermissionRequest envelope (WithCaller / Bare)
+// ---------------------------------------------------------------------------
+
+/// Metadata about who/what initiated a permission request.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Caller {
+    /// The user ID of the message source (e.g. Feishu open_id, ou_xxx).
+    /// Empty means "system caller" or "backward-compatible bare request".
+    #[serde(default)]
+    pub user_id: String,
+    /// The agent instance ID (always present).
+    pub agent: String,
+    /// The user ID of the agent's creator (for creator-rule generation).
+    /// If empty, looked up from agent_creators map at evaluation time.
+    #[serde(default)]
+    pub creator_id: String,
+}
+
+/// The actual request body (mirrors the existing PermissionRequest variants).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+pub enum PermissionRequestBody {
+    FileOp { agent: String, path: String, op: String },
+    CommandExec { agent: String, cmd: String, args: Vec<String> },
+    NetOp { agent: String, host: String, port: u16 },
+    ToolCall { agent: String, skill: String, method: String },
+    InterAgentMsg { from: String, to: String },
+    ConfigWrite { agent: String, config_file: String },
+}
+
+impl PermissionRequestBody {
+    /// Extract agent ID from the request body.
+    pub fn agent_id(&self) -> &str {
+        match self {
+            PermissionRequestBody::FileOp { agent, .. } => agent,
+            PermissionRequestBody::CommandExec { agent, .. } => agent,
+            PermissionRequestBody::NetOp { agent, .. } => agent,
+            PermissionRequestBody::ToolCall { agent, .. } => agent,
+            PermissionRequestBody::InterAgentMsg { from, .. } => from,
+            PermissionRequestBody::ConfigWrite { agent, .. } => agent,
+        }
+    }
+}
+
+/// Permission request envelope — wraps the typed request with caller metadata.
+///
+/// For backward compatibility with existing callers that send bare
+/// `PermissionRequest` variants, the engine also accepts bare requests
+/// (without caller info) and treats them as:
+///   - caller.user_id = ""
+///   - caller.agent   = extracted from the request variant
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum PermissionRequest {
-    FileOp {
-        agent: String,
-        path: String,
-        op: String,
+    /// Full request with caller metadata (new format).
+    WithCaller {
+        caller: Caller,
+        #[serde(flatten)]
+        request: PermissionRequestBody,
     },
-    CommandExec {
-        agent: String,
-        cmd: String,
-        args: Vec<String>,
-    },
-    NetOp {
-        agent: String,
-        host: String,
-        port: u16,
-    },
-    ToolCall {
-        agent: String,
-        skill: String,
-        method: String,
-    },
-    InterAgentMsg {
-        from: String,
-        to: String,
-    },
-    ConfigWrite {
-        agent: String,
-        config_file: String,
-    },
+    /// Backward-compatible bare request without caller info.
+    Bare(PermissionRequestBody),
+}
+
+impl PermissionRequest {
+    /// Returns the caller metadata, with empty defaults for Bare requests.
+    pub fn caller(&self) -> Caller {
+        match self {
+            PermissionRequest::WithCaller { caller, .. } => caller.clone(),
+            PermissionRequest::Bare(body) => {
+                Caller {
+                    user_id: String::new(),
+                    agent: body.agent_id().to_string(),
+                    creator_id: String::new(),
+                }
+            }
+        }
+    }
+
+    /// Returns the agent ID from the request body.
+    pub fn agent_id(&self) -> &str {
+        match self {
+            PermissionRequest::WithCaller { request, .. } => request.agent_id(),
+            PermissionRequest::Bare(body) => body.agent_id(),
+        }
+    }
+
+    /// Converts a bare request to a request with caller.
+    pub fn with_caller(self, caller: Caller) -> PermissionRequest {
+        match self {
+            PermissionRequest::Bare(body) => PermissionRequest::WithCaller { caller, request: body },
+            other @ PermissionRequest::WithCaller { .. } => other,
+        }
+    }
+
+    /// Unwrap to the inner body if Bare, or extract from WithCaller.
+    pub fn into_body(self) -> PermissionRequestBody {
+        match self {
+            PermissionRequest::WithCaller { request, .. } => request,
+            PermissionRequest::Bare(body) => body,
+        }
+    }
+
+    /// Access the inner body reference.
+    pub fn body(&self) -> &PermissionRequestBody {
+        match self {
+            PermissionRequest::WithCaller { request, .. } => request,
+            PermissionRequest::Bare(body) => body,
+        }
+    }
 }
 
 /// Permission response from the engine
@@ -161,99 +406,213 @@ pub enum PermissionResponse {
     Denied { reason: String, rule: String },
 }
 
+// ---------------------------------------------------------------------------
+// PermissionEngine
+// ---------------------------------------------------------------------------
+
 /// Permission Engine - evaluates access requests against rules
 pub struct PermissionEngine {
-    rules: RwLock<RuleSet>,
+    /// RuleSet
+    rules: RuleSet,
     /// O(1) lookup index: agent_id -> list of rule indices
-    agent_rule_index: RwLock<HashMap<String, Vec<usize>>>,
+    agent_rule_index: HashMap<String, Vec<usize>>,
+    /// O(1) lookup index: "{user_id}:{agent_id}" -> list of rule indices
+    user_agent_rule_index: HashMap<String, Vec<usize>>,
+    /// Loaded templates: name -> Template
+    templates: HashMap<String, crate::permission::templates::Template>,
 }
 
 impl PermissionEngine {
     /// Create a new PermissionEngine from a RuleSet
     pub fn new(rules: RuleSet) -> Self {
-        let mut agent_rule_index: HashMap<String, Vec<usize>> = HashMap::new();
-        
+        let mut engine = Self {
+            rules: rules.clone(),
+            agent_rule_index: HashMap::new(),
+            user_agent_rule_index: HashMap::new(),
+            templates: HashMap::new(),
+        };
+        // Build indices from the rules (pass by value to avoid borrow conflict)
+        let agent_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let user_agent_index: HashMap<String, Vec<usize>> = HashMap::new();
+        engine.agent_rule_index = agent_index;
+        engine.user_agent_rule_index = user_agent_index;
         for (idx, rule) in rules.rules.iter().enumerate() {
-            let agent_id = &rule.subject.agent;
-            agent_rule_index
-                .entry(agent_id.clone())
-                .or_default()
-                .push(idx);
+            match &rule.subject {
+                Subject::AgentOnly { agent, .. } => {
+                    engine.agent_rule_index.entry(agent.clone()).or_default().push(idx);
+                }
+                Subject::UserAndAgent { user_id, agent, .. } => {
+                    let key = format!("{}:{}", user_id, agent);
+                    engine.user_agent_rule_index.entry(key).or_default().push(idx);
+                    engine.agent_rule_index.entry(agent.clone()).or_default().push(idx);
+                }
+            }
         }
-        
-        Self {
-            rules: RwLock::new(rules),
-            agent_rule_index: RwLock::new(agent_rule_index),
+        engine
+    }
+
+    /// Rebuild the lookup indices from a given ruleset (sync helper).
+    fn rebuild_indices_with_rules(&mut self, rules: &RuleSet) {
+        let mut agent_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut user_agent_index: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (idx, rule) in rules.rules.iter().enumerate() {
+            match &rule.subject {
+                Subject::AgentOnly { agent, .. } => {
+                    agent_index.entry(agent.clone()).or_default().push(idx);
+                }
+                Subject::UserAndAgent { user_id, agent, .. } => {
+                    let key = format!("{}:{}", user_id, agent);
+                    user_agent_index.entry(key).or_default().push(idx);
+                    // Also index by agent alone for backward-compatible glob scan
+                    agent_index.entry(agent.clone()).or_default().push(idx);
+                }
+            }
         }
+
+        self.agent_rule_index = agent_index;
+        self.user_agent_rule_index = user_agent_index;
+    }
+
+    /// Rebuild the lookup indices from the current ruleset.
+    fn rebuild_indices(&mut self) {
+        self.rebuild_indices_with_rules(&self.rules.clone());
+    }
+
+    /// Reload rules from a new RuleSet
+    pub fn reload_rules(&mut self, rules: RuleSet) {
+        self.rebuild_indices_with_rules(&rules);
+        self.rules = rules;
+    }
+
+    /// Load templates into the engine
+    pub fn load_templates(&mut self, templates: HashMap<String, crate::permission::templates::Template>) {
+        self.templates = templates;
     }
 
     /// Evaluate a permission request
-    pub async fn evaluate(&self, request: PermissionRequest) -> PermissionResponse {
-        let rules = self.rules.read().await;
-        let agent_id = request.agent_id();
-        
-        // O(1) lookup via index, then fall back to glob matching
-        let rule_indices = match self.agent_rule_index.read().await.get(agent_id) {
-            Some(indices) => indices.clone(),
-            None => {
-                // Try glob matching against all rule subjects
-                let mut matched_indices = Vec::new();
-                for (idx, rule) in rules.rules.iter().enumerate() {
-                    if rule.subject.matches(agent_id) {
-                        matched_indices.push(idx);
-                    }
-                }
-                if matched_indices.is_empty() {
-                    // Unknown agent - use defaults
-                    return self.default_deny(&request, &rules.defaults, "unknown agent");
-                }
-                matched_indices
-            }
+    pub fn evaluate(&self, request: PermissionRequest) -> PermissionResponse {
+        let caller = request.caller();
+        let agent_id = caller.agent.clone();
+
+        // Clone rules to avoid holding reference across await
+        let rules = self.rules.clone();
+
+        // ---- Step 0: Creator Rule (highest priority, short-circuit return) ----
+        let effective_creator_id = if !caller.creator_id.is_empty() {
+            Some(caller.creator_id.as_str())
+        } else {
+            rules.agent_creators.get(&agent_id).map(|s| s.as_str())
         };
-        
-        // Evaluate matching rules
-        let mut explicit_effect: Option<Effect> = None;
-        let mut last_rule = String::new();
-        
-        for &idx in &rule_indices {
-            let rule = &rules.rules[idx];
-            if self.rule_matches_request(rule, &request) {
-                last_rule = rule.name.clone();
-                explicit_effect = Some(rule.effect);
-                
-                // Deny takes precedence (AWS IAM style)
-                if rule.effect == Effect::Deny {
-                    return PermissionResponse::Denied {
-                        reason: format!("action denied by rule '{}'", rule.name),
-                        rule: rule.name.clone(),
-                    };
+        if let Some(creator_id) = effective_creator_id {
+            if !caller.user_id.is_empty() && caller.user_id == creator_id {
+                return PermissionResponse::Allowed { token: generate_token() };
+            }
+        }
+
+        // ---- Step 1: Build candidate rule list ----
+        let mut candidates: Vec<usize> = Vec::new();
+
+        // 1a. User+Agent dual-key index lookup (O(1))
+        let index_key = format!("{}:{}", caller.user_id, agent_id);
+        if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
+            candidates.extend(indices);
+        }
+
+        // 1b. Agent-only index lookup (O(1))
+        if let Some(indices) = self.agent_rule_index.get(&agent_id) {
+            candidates.extend(indices);
+        }
+
+        // 1c. Glob fallback (only if 1a and 1b produced nothing)
+        if candidates.is_empty() {
+            for (idx, rule) in rules.rules.iter().enumerate() {
+                if rule.subject.matches(&caller) {
+                    candidates.push(idx);
                 }
             }
         }
-        
-        match explicit_effect {
-            Some(Effect::Allow) => PermissionResponse::Allowed {
-                token: generate_token(),
-            },
-            None => self.default_deny(&request, &rules.defaults, "no matching rule"),
-            Some(Effect::Deny) => PermissionResponse::Denied {
-                reason: format!("action denied by rule '{}'", last_rule),
-                rule: last_rule,
-            },
+
+        // ---- Step 2: Sort by priority (desc) ----
+        candidates.sort_by(|&a, &b| {
+            rules.rules[b]
+                .priority
+                .cmp(&rules.rules[a].priority)
+        });
+
+        // ---- Step 3: Expand templates (sync, uses StdRwLock for templates) ----
+        let expanded_rules = self.expand_templates_sync(&candidates, &rules);
+
+        // ---- Step 4: Evaluate (AWS IAM-style deny-precedence) ----
+        // First pass: collect all matching (subject+action) rules
+        let mut matching_rule: Option<&Rule> = None;
+        for &rule_idx in &expanded_rules {
+            let rule = &rules.rules[rule_idx];
+
+            // Subject match
+            if !rule.subject.matches(&caller) {
+                continue;
+            }
+
+            // Action match
+            if !self.rule_actions_match(rule, request.body()) {
+                continue;
+            }
+
+            matching_rule = Some(rule);
+
+            // Deny wins immediately
+            if rule.effect == Effect::Deny {
+                return PermissionResponse::Denied {
+                    reason: format!("action denied by rule '{}'", rule.name),
+                    rule: rule.name.clone(),
+                };
+            }
         }
+
+        // No deny found; if any rule matched, allow
+        if matching_rule.is_some() {
+            return PermissionResponse::Allowed { token: generate_token() };
+        }
+
+        // ---- Step 5: Default fallback ----
+        self.default_deny(request.body(), &rules.defaults, "no matching rule")
     }
-    
+
+    /// Expand template references in candidate rules, returning expanded rule indices (sync).
+    fn expand_templates_sync(
+        &self,
+        candidates: &[usize],
+        ruleset: &RuleSet,
+    ) -> Vec<usize> {
+        let mut expanded: Vec<usize> = Vec::new();
+
+        for &idx in candidates {
+            expanded.push(idx);
+        }
+
+        // Deduplicate while preserving order
+        let mut seen = std::collections::HashSet::new();
+        expanded.retain(|&idx| seen.insert(idx));
+        expanded
+    }
+
     /// Get default action when no rule matches
-    fn default_deny(&self, request: &PermissionRequest, defaults: &Defaults, reason: &str) -> PermissionResponse {
+    fn default_deny(
+        &self,
+        request: &PermissionRequestBody,
+        defaults: &Defaults,
+        reason: &str,
+    ) -> PermissionResponse {
         let effect = match request {
-            PermissionRequest::FileOp { .. } => defaults.file,
-            PermissionRequest::CommandExec { .. } => defaults.command,
-            PermissionRequest::NetOp { .. } => defaults.network,
-            PermissionRequest::InterAgentMsg { .. } => defaults.inter_agent,
-            PermissionRequest::ConfigWrite { .. } => defaults.config,
-            PermissionRequest::ToolCall { .. } => defaults.file, // Tools are file-related
+            PermissionRequestBody::FileOp { .. } => defaults.file,
+            PermissionRequestBody::CommandExec { .. } => defaults.command,
+            PermissionRequestBody::NetOp { .. } => defaults.network,
+            PermissionRequestBody::InterAgentMsg { .. } => defaults.inter_agent,
+            PermissionRequestBody::ConfigWrite { .. } => defaults.config,
+            PermissionRequestBody::ToolCall { .. } => defaults.file,
         };
-        
+
         match effect {
             Effect::Allow => PermissionResponse::Allowed { token: generate_token() },
             Effect::Deny => PermissionResponse::Denied {
@@ -262,78 +621,95 @@ impl PermissionEngine {
             },
         }
     }
-    
+
     /// Check if a rule's actions match the request
-    fn rule_matches_request(&self, rule: &Rule, request: &PermissionRequest) -> bool {
-        for action in &rule.actions {
-            match (action, request) {
-                (Action::File { operation, paths }, PermissionRequest::FileOp { path, op, .. }) => {
-                    if operation == op && paths.iter().any(|p| glob_match(p, path)) {
-                        return true;
-                    }
-                }
-                (Action::Command { command, args }, PermissionRequest::CommandExec { cmd, args: req_args, .. }) => {
-                    if command == cmd && self.args_match(args, req_args) {
-                        return true;
-                    }
-                }
-                (Action::Network { hosts, ports }, PermissionRequest::NetOp { host, port, .. }) => {
-                    if (hosts.is_empty() || hosts.iter().any(|h| glob_match(h, host)))
-                        && (ports.is_empty() || ports.contains(port))
-                    {
-                        return true;
-                    }
-                }
-                (Action::ToolCall { skill, methods }, PermissionRequest::ToolCall { skill: s, method, .. }) => {
-                    if skill == s && (methods.is_empty() || methods.contains(method)) {
-                        return true;
-                    }
-                }
-                (Action::InterAgent { agents }, PermissionRequest::InterAgentMsg { to, .. }) => {
-                    if agents.is_empty() || agents.iter().any(|a| glob_match(a, to)) {
-                        return true;
-                    }
-                }
-                (Action::ConfigWrite { files }, PermissionRequest::ConfigWrite { config_file, .. }) => {
-                    if files.is_empty() || files.iter().any(|f| glob_match(f, config_file)) {
-                        return true;
-                    }
-                }
-                _ => {}
+    fn rule_actions_match(&self, rule: &Rule, request: &PermissionRequestBody) -> bool {
+        // If rule has a template reference, resolve template actions
+        let actions = if let Some(ref template_ref) = rule.template {
+            if let Some(tmpl) = self.templates.get(&template_ref.name) {
+                resolve_template_actions(tmpl, &template_ref.overrides)
+            } else {
+                rule.actions.clone()
+            }
+        } else {
+            rule.actions.clone()
+        };
+
+        for action in &actions {
+            if action_matches_request(action, request) {
+                return true;
             }
         }
         false
     }
-    
+
     /// Check if command arguments match
     /// For Allowed: returns true if ALL request args are in the allowed list
-    /// For Blocked: returns true if ANY request arg is in the blocked list (i.e., should be blocked)
+    /// For Blocked: returns true if ANY request arg is in the blocked list
     pub fn args_match(&self, rule_args: &CommandArgs, request_args: &[String]) -> bool {
         match rule_args {
             CommandArgs::Any => true,
             CommandArgs::Allowed { allowed } => {
-                // All request args must be in the allowed list
                 request_args.iter().all(|arg| allowed.iter().any(|a| glob_match(a, arg)))
             }
             CommandArgs::Blocked { blocked } => {
-                // True if ANY request arg is in the blocked list
                 request_args.iter().any(|arg| blocked.iter().any(|b| glob_match(b, arg)))
             }
         }
     }
 }
 
-impl PermissionRequest {
-    /// Extract agent ID from request
-    pub fn agent_id(&self) -> &str {
-        match self {
-            PermissionRequest::FileOp { agent, .. } => agent,
-            PermissionRequest::CommandExec { agent, .. } => agent,
-            PermissionRequest::NetOp { agent, .. } => agent,
-            PermissionRequest::ToolCall { agent, .. } => agent,
-            PermissionRequest::InterAgentMsg { from, .. } => from,
-            PermissionRequest::ConfigWrite { agent, .. } => agent,
+/// Resolve template actions with overrides applied.
+fn resolve_template_actions(
+    tmpl: &crate::permission::templates::Template,
+    overrides: &HashMap<String, serde_json::Value>,
+) -> Vec<Action> {
+    if let Some(overridden_actions) = overrides.get("actions") {
+        if let Ok(actions) = serde_json::from_value(overridden_actions.clone()) {
+            return actions;
         }
+    }
+    tmpl.actions.clone()
+}
+
+/// Check if a single action matches the request.
+fn action_matches_request(action: &Action, request: &PermissionRequestBody) -> bool {
+    if matches!(action, Action::All) {
+        return true;
+    }
+
+    match (action, request) {
+        (Action::File { operation, paths }, PermissionRequestBody::FileOp { path, op, .. }) => {
+            operation == op && paths.iter().any(|p| glob_match(p, path))
+        }
+        (Action::Command { command, args }, PermissionRequestBody::CommandExec { cmd, args: req_args, .. }) => {
+            if command != cmd {
+                return false;
+            }
+            match args {
+                CommandArgs::Any => true,
+                CommandArgs::Allowed { allowed } => {
+                    req_args.iter().all(|arg| allowed.iter().any(|a| glob_match(a, arg)))
+                }
+                CommandArgs::Blocked { blocked } => {
+                    req_args.iter().any(|arg| blocked.iter().any(|b| glob_match(b, arg)))
+                }
+            }
+        }
+        (Action::Network { hosts, ports }, PermissionRequestBody::NetOp { host, port, .. }) => {
+            (hosts.is_empty() || hosts.iter().any(|h| glob_match(h, host)))
+                && (ports.is_empty() || ports.contains(port))
+        }
+        (Action::ToolCall { skill, methods }, PermissionRequestBody::ToolCall { skill: s, method, .. }) => {
+            skill == s && (methods.is_empty() || methods.contains(method))
+        }
+        (Action::InterAgent { agents }, PermissionRequestBody::InterAgentMsg { to, .. }) => {
+            agents.is_empty() || agents.iter().any(|a| glob_match(a, to))
+        }
+        (Action::ConfigWrite { files }, PermissionRequestBody::ConfigWrite { config_file, .. }) => {
+            files.is_empty() || files.iter().any(|f| glob_match(f, config_file))
+        }
+        _ => false,
     }
 }
 
@@ -342,10 +718,10 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
     if pattern == "**" || pattern == "*" {
         return true;
     }
-    
+
     let pattern_chars: Vec<char> = pattern.chars().collect();
     let text_chars: Vec<char> = text.chars().collect();
-    
+
     glob_match_vec(&pattern_chars, &text_chars, 0, 0)
 }
 
@@ -353,37 +729,31 @@ fn glob_match_vec(pat: &[char], text: &[char], pi: usize, ti: usize) -> bool {
     if pi == pat.len() && ti == text.len() {
         return true;
     }
-    
+
     if pi < pat.len() && pat[pi] == '*' {
-        // ** matches anything
         if pi + 1 < pat.len() && pat[pi + 1] == '*' {
-            // ** followed by / or end
             if pi + 2 < pat.len() && (pat[pi + 2] == '/' || pat[pi + 2] == '\\') {
-                // / ** / or \ ** \ - skip the directory
                 if pi + 3 < pat.len() {
                     return glob_match_vec(pat, text, pi + 3, ti)
                         || (ti < text.len() && glob_match_vec(pat, text, pi, ti + 1));
                 }
                 return ti >= text.len() || text[ti] == '/';
             }
-            // Simple ** - match anything
             return ti >= text.len()
                 || glob_match_vec(pat, text, pi + 2, ti)
                 || glob_match_vec(pat, text, pi, ti + 1);
         }
-        // * matches anything except /
         if ti >= text.len() {
-            // No more text - * matches empty, continue to see if rest of pattern can finish
             return glob_match_vec(pat, text, pi + 1, ti);
         }
         return text[ti] != '/'
             && (glob_match_vec(pat, text, pi + 1, ti) || glob_match_vec(pat, text, pi, ti + 1));
     }
-    
+
     if pi < pat.len() && ti < text.len() && (pat[pi] == '?' || pat[pi] == text[ti]) {
         return glob_match_vec(pat, text, pi + 1, ti + 1);
     }
-    
+
     false
 }
 
@@ -402,30 +772,59 @@ fn rand_u64() -> u64 {
     RandomState::new().build_hasher().finish()
 }
 
+// ---------------------------------------------------------------------------
+// Backward-compatible Rule parsing for Subject
+// ---------------------------------------------------------------------------
+
+impl Rule {
+    /// Parse subject from string (for testing) — creates an AgentOnly subject.
+    pub fn parse_subject(agent: &str) -> Subject {
+        Subject::AgentOnly {
+            agent: agent.to_string(),
+            match_type: MatchType::Exact,
+        }
+    }
+
+    /// Parse subject with match type (for testing).
+    pub fn parse_subject_with_match(agent: &str, match_type: &str) -> Subject {
+        Subject::AgentOnly {
+            agent: agent.to_string(),
+            match_type: match match_type {
+                "glob" => MatchType::Glob,
+                _ => MatchType::Exact,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
+    // -------------------------------------------------------------------------
+    // Glob matching tests
+    // -------------------------------------------------------------------------
+
     #[test]
     fn test_glob_exact() {
         assert!(glob_match("dev-agent-01", "dev-agent-01"));
         assert!(!glob_match("dev-agent-01", "dev-agent-02"));
     }
-    
+
     #[test]
     fn test_glob_star() {
         assert!(glob_match("readonly-*", "readonly-agent-1"));
         assert!(glob_match("readonly-*", "readonly-agent-42"));
         assert!(!glob_match("readonly-*", "readonly"));
     }
-    
+
     #[test]
     fn test_glob_double_star() {
         assert!(glob_match("/home/admin/code/**", "/home/admin/code/closeclaw/src/main.rs"));
         assert!(glob_match("/home/admin/code/**", "/home/admin/code/closeclaw/src/permission/engine.rs"));
         assert!(!glob_match("/home/admin/code/**", "/home/admin/other/path"));
     }
-    
+
     #[test]
     fn test_glob_question() {
         assert!(glob_match("file_?.txt", "file_a.txt"));
@@ -434,7 +833,392 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Tests from tests/engine_test.rs (rule parsing + action types)
+    // Subject matching tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_subject_agent_only_exact() {
+        let subject = Subject::AgentOnly {
+            agent: "dev-agent-01".to_string(),
+            match_type: MatchType::Exact,
+        };
+        let caller = Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+            creator_id: String::new(),
+        };
+        assert!(subject.matches(&caller));
+        let caller = Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "other-agent".to_string(),
+            creator_id: String::new(),
+        };
+        assert!(!subject.matches(&caller));
+    }
+
+    #[test]
+    fn test_subject_agent_only_glob() {
+        let subject = Subject::AgentOnly {
+            agent: "dev-*".to_string(),
+            match_type: MatchType::Glob,
+        };
+        let caller = Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+            creator_id: String::new(),
+        };
+        assert!(subject.matches(&caller));
+    }
+
+    #[test]
+    fn test_subject_user_and_agent_both_match() {
+        let subject = Subject::UserAndAgent {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+            user_match: MatchType::Exact,
+            agent_match: MatchType::Exact,
+        };
+        let caller = Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+            creator_id: String::new(),
+        };
+        assert!(subject.matches(&caller));
+    }
+
+    #[test]
+    fn test_subject_user_and_agent_user_mismatch() {
+        let subject = Subject::UserAndAgent {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+            user_match: MatchType::Exact,
+            agent_match: MatchType::Exact,
+        };
+        let caller = Caller {
+            user_id: "ou_bob".to_string(),
+            agent: "dev-agent-01".to_string(),
+            creator_id: String::new(),
+        };
+        assert!(!subject.matches(&caller));
+    }
+
+    #[test]
+    fn test_subject_user_and_agent_agent_mismatch() {
+        let subject = Subject::UserAndAgent {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+            user_match: MatchType::Exact,
+            agent_match: MatchType::Exact,
+        };
+        let caller = Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "other-agent".to_string(),
+            creator_id: String::new(),
+        };
+        assert!(!subject.matches(&caller));
+    }
+
+    #[test]
+    fn test_subject_user_and_agent_glob() {
+        let subject = Subject::UserAndAgent {
+            user_id: "ou_admin_*".to_string(),
+            agent: "dev-*".to_string(),
+            user_match: MatchType::Glob,
+            agent_match: MatchType::Glob,
+        };
+        let caller = Caller {
+            user_id: "ou_admin_john".to_string(),
+            agent: "dev-agent-01".to_string(),
+            creator_id: String::new(),
+        };
+        assert!(subject.matches(&caller));
+    }
+
+    #[test]
+    fn test_subject_is_agent_only() {
+        assert!(Subject::AgentOnly {
+            agent: "test".to_string(),
+            match_type: MatchType::Exact,
+        }.is_agent_only());
+        assert!(!Subject::UserAndAgent {
+            user_id: "ou_123".to_string(),
+            agent: "test".to_string(),
+            user_match: MatchType::Exact,
+            agent_match: MatchType::Exact,
+        }.is_agent_only());
+    }
+
+    // -------------------------------------------------------------------------
+    // Rule validation tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_rule_validate_actions_only() {
+        let rule = Rule {
+            name: "test".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        };
+        assert!(rule.validate().is_ok());
+    }
+
+    #[test]
+    fn test_rule_validate_template_only() {
+        let rule = Rule {
+            name: "test".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![],
+            template: Some(TemplateRef {
+                name: "developer".to_string(),
+                overrides: HashMap::new(),
+            }),
+            priority: 0,
+        };
+        assert!(rule.validate().is_ok());
+    }
+
+    #[test]
+    fn test_rule_validate_mutually_exclusive() {
+        let rule = Rule {
+            name: "test".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: Some(TemplateRef {
+                name: "developer".to_string(),
+                overrides: HashMap::new(),
+            }),
+            priority: 0,
+        };
+        let err = rule.validate().unwrap_err();
+        assert!(err.contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn test_rule_validate_at_least_one() {
+        let rule = Rule {
+            name: "test".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![],
+            template: None,
+            priority: 0,
+        };
+        let err = rule.validate().unwrap_err();
+        assert!(err.contains("at least one"));
+    }
+
+    // -------------------------------------------------------------------------
+    // PermissionRequest envelope tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_permission_request_bare_caller() {
+        let body = PermissionRequestBody::FileOp {
+            agent: "dev-agent-01".to_string(),
+            path: "/home/admin/code/**".to_string(),
+            op: "read".to_string(),
+        };
+        let request = PermissionRequest::Bare(body);
+        let caller = request.caller();
+        assert_eq!(caller.user_id, "");
+        assert_eq!(caller.agent, "dev-agent-01");
+    }
+
+    #[test]
+    fn test_permission_request_with_caller() {
+        let request = PermissionRequest::WithCaller {
+            caller: Caller {
+                user_id: "ou_alice".to_string(),
+                agent: "dev-agent-01".to_string(),
+                creator_id: String::new(),
+            },
+            request: PermissionRequestBody::FileOp {
+                agent: "dev-agent-01".to_string(),
+                path: "/home/admin/code/**".to_string(),
+                op: "read".to_string(),
+            },
+        };
+        let caller = request.caller();
+        assert_eq!(caller.user_id, "ou_alice");
+        assert_eq!(caller.agent, "dev-agent-01");
+    }
+
+    #[test]
+    fn test_permission_request_with_caller_deserialize() {
+        let json = r#"{
+            "caller": {"user_id": "ou_alice", "agent": "dev-agent-01"},
+            "type": "file_op",
+            "agent": "dev-agent-01",
+            "path": "/home/admin/code/**",
+            "op": "read"
+        }"#;
+        let request: PermissionRequest = serde_json::from_str(json).unwrap();
+        let caller = request.caller();
+        assert_eq!(caller.user_id, "ou_alice");
+        assert_eq!(caller.agent, "dev-agent-01");
+    }
+
+    #[test]
+    fn test_permission_request_bare_deserialize() {
+        let json = r#"{
+            "type": "file_op",
+            "agent": "dev-agent-01",
+            "path": "/home/admin/code/**",
+            "op": "read"
+        }"#;
+        let request: PermissionRequest = serde_json::from_str(json).unwrap();
+        let caller = request.caller();
+        assert_eq!(caller.user_id, "");
+        assert_eq!(caller.agent, "dev-agent-01");
+    }
+
+    #[test]
+    fn test_permission_request_bare_into_with_caller() {
+        let body = PermissionRequestBody::FileOp {
+            agent: "dev-agent-01".to_string(),
+            path: "/home/admin/code/**".to_string(),
+            op: "read".to_string(),
+        };
+        let bare = PermissionRequest::Bare(body);
+        let with_caller = bare.with_caller(Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+            creator_id: String::new(),
+        });
+        let caller = with_caller.caller();
+        assert_eq!(caller.user_id, "ou_alice");
+    }
+
+    #[test]
+    fn test_permission_request_body_agent_id() {
+        let body = PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/tmp".to_string(),
+            op: "read".to_string(),
+        };
+        assert_eq!(body.agent_id(), "test-agent");
+        let body = PermissionRequestBody::InterAgentMsg {
+            from: "agent-a".to_string(),
+            to: "agent-b".to_string(),
+        };
+        assert_eq!(body.agent_id(), "agent-a");
+    }
+
+    #[test]
+    fn test_subject_deserialize_old_format() {
+        // Old format: no match_mode field
+        let json = r#"{"agent": "dev-agent-01", "match_type": "exact"}"#;
+        let subject: Subject = serde_json::from_str(json).unwrap();
+        assert!(matches!(subject, Subject::AgentOnly { .. }));
+        assert_eq!(subject.agent_id(), "dev-agent-01");
+    }
+
+    #[test]
+    fn test_subject_deserialize_old_format_glob() {
+        let json = r#"{"agent": "dev-*", "match": "glob"}"#;
+        let subject: Subject = serde_json::from_str(json).unwrap();
+        assert!(matches!(subject, Subject::AgentOnly { agent, match_type: MatchType::Glob } if agent == "dev-*"));
+    }
+
+    #[test]
+    fn test_subject_deserialize_new_agent_only() {
+        let json = r#"{"match_mode": "agent_only", "agent": "dev-agent-01", "match_type": "exact"}"#;
+        let subject: Subject = serde_json::from_str(json).unwrap();
+        assert!(matches!(subject, Subject::AgentOnly { .. }));
+    }
+
+    #[test]
+    fn test_subject_deserialize_new_user_and_agent() {
+        let json = r#"{
+            "match_mode": "user_and_agent",
+            "user_id": "ou_alice",
+            "agent": "dev-agent-01",
+            "user_match": "exact",
+            "agent_match": "exact"
+        }"#;
+        let subject: Subject = serde_json::from_str(json).unwrap();
+        assert!(matches!(subject, Subject::UserAndAgent { .. }));
+        let Subject::UserAndAgent { user_id, agent, .. } = subject else { unreachable!() };
+        assert_eq!(user_id, "ou_alice");
+        assert_eq!(agent, "dev-agent-01");
+    }
+
+    #[test]
+    fn test_subject_deserialize_user_and_agent_glob() {
+        let json = r#"{
+            "match_mode": "user_and_agent",
+            "user_id": "ou_admin_*",
+            "agent": "dev-*",
+            "user_match": "glob",
+            "agent_match": "glob"
+        }"#;
+        let subject: Subject = serde_json::from_str(json).unwrap();
+        assert!(matches!(subject, Subject::UserAndAgent { .. }));
+    }
+
+    #[test]
+    fn test_subject_user_id() {
+        let agent_only = Subject::AgentOnly {
+            agent: "test".to_string(),
+            match_type: MatchType::Exact,
+        };
+        assert_eq!(agent_only.user_id(), "");
+
+        let user_agent = Subject::UserAndAgent {
+            user_id: "ou_123".to_string(),
+            agent: "test".to_string(),
+            user_match: MatchType::Exact,
+            agent_match: MatchType::Exact,
+        };
+        assert_eq!(user_agent.user_id(), "ou_123");
+    }
+
+    // -------------------------------------------------------------------------
+    // Action::All tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_action_all_matches_request() {
+        let action = Action::All;
+        let body = PermissionRequestBody::FileOp {
+            agent: "test".to_string(),
+            path: "/any".to_string(),
+            op: "any".to_string(),
+        };
+        assert!(action_matches_request(&action, &body));
+        let body = PermissionRequestBody::CommandExec {
+            agent: "test".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-rf".to_string(), "/".to_string()],
+        };
+        assert!(action_matches_request(&action, &body));
+    }
+
+    // -------------------------------------------------------------------------
+    // Engine evaluate tests (backward compatibility)
     // -------------------------------------------------------------------------
 
     fn test_rules_json() -> &'static str {
@@ -522,12 +1306,12 @@ mod tests {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),
             path: "/home/admin/code/closeclaw/src/main.rs".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -536,12 +1320,12 @@ mod tests {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),
             path: "/etc/passwd".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -550,12 +1334,12 @@ mod tests {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),
             path: "/home/admin/code/closeclaw/src/main.rs".to_string(),
             op: "write".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -564,12 +1348,12 @@ mod tests {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "dev-agent-01".to_string(),
             cmd: "git".to_string(),
             args: vec!["status".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -578,12 +1362,12 @@ mod tests {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "dev-agent-01".to_string(),
             cmd: "git".to_string(),
             args: vec!["reset".to_string(), "--hard".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -592,12 +1376,12 @@ mod tests {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "readonly-agent-42".to_string(),
             path: "/any/path/in/the/system.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -606,82 +1390,27 @@ mod tests {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::NetOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::NetOp {
             agent: "dev-agent-01".to_string(),
             host: "example.com".to_string(),
             port: 443,
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
     #[tokio::test]
-    async fn test_network_action_type() {
+    async fn test_unknown_agent_defaults_to_deny() {
         let json = test_rules_json();
         let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
         let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::NetOp {
-            agent: "dev-agent-01".to_string(),
-            host: "api.github.com".to_string(),
-            port: 443,
-        };
-        let response = engine.evaluate(request).await;
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "unknown-agent".to_string(),
+            path: "/home/admin/code/**".to_string(),
+            op: "read".to_string(),
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
-    }
-
-    #[tokio::test]
-    async fn test_tool_call_action_type() {
-        let json = test_rules_json();
-        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
-        let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::ToolCall {
-            agent: "dev-agent-01".to_string(),
-            skill: "file_ops".to_string(),
-            method: "read_file".to_string(),
-        };
-        let response = engine.evaluate(request).await;
-        assert!(matches!(response, PermissionResponse::Denied { .. }));
-    }
-
-    #[tokio::test]
-    async fn test_inter_agent_action_type() {
-        let json = test_rules_json();
-        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
-        let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::InterAgentMsg {
-            from: "agent-a".to_string(),
-            to: "agent-b".to_string(),
-        };
-        let response = engine.evaluate(request).await;
-        assert!(matches!(response, PermissionResponse::Denied { .. }));
-    }
-
-    #[tokio::test]
-    async fn test_config_write_action_type() {
-        let json = test_rules_json();
-        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
-        let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::ConfigWrite {
-            agent: "dev-agent-01".to_string(),
-            config_file: "agents.json".to_string(),
-        };
-        let response = engine.evaluate(request).await;
-        assert!(matches!(response, PermissionResponse::Denied { .. }));
-    }
-
-    #[tokio::test]
-    async fn test_rule_subject_matching_exact() {
-        let rule = Rule::parse_subject("dev-agent-01");
-        assert!(rule.matches("dev-agent-01"));
-        assert!(!rule.matches("dev-agent-02"));
-    }
-
-    #[tokio::test]
-    async fn test_rule_subject_matching_glob() {
-        let rule = Rule::parse_subject_with_match("readonly-*", "glob");
-        assert!(rule.matches("readonly-agent-1"));
-        assert!(rule.matches("readonly-agent-42"));
-        assert!(!rule.matches("readonly"));
     }
 
     #[tokio::test]
@@ -691,34 +1420,16 @@ mod tests {
         let engine = PermissionEngine::new(rules);
         let start = std::time::Instant::now();
         for _ in 0..1000 {
-            let request = PermissionRequest::FileOp {
+            let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
                 agent: "dev-agent-01".to_string(),
                 path: "/home/admin/code/closeclaw/src/main.rs".to_string(),
                 op: "read".to_string(),
-            };
+            });
             let _ = engine.evaluate(request);
         }
         let elapsed = start.elapsed();
         assert!(elapsed.as_millis() < 100, "O(1) lookup should be fast, took {:?}", elapsed);
     }
-
-    #[tokio::test]
-    async fn test_unknown_agent_defaults_to_deny() {
-        let json = test_rules_json();
-        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
-        let engine = PermissionEngine::new(rules);
-        let request = PermissionRequest::FileOp {
-            agent: "unknown-agent".to_string(),
-            path: "/home/admin/code/**".to_string(),
-            op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
-        assert!(matches!(response, PermissionResponse::Denied { .. }));
-    }
-
-    // -------------------------------------------------------------------------
-    // Tests from tests/smoke_test.rs (PermissionEngine portion)
-    // -------------------------------------------------------------------------
 
     #[tokio::test]
     async fn test_permission_engine_parse() {
@@ -731,7 +1442,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Comprehensive glob_match corner case tests (from comprehensive_tests.rs)
+    // Comprehensive glob_match corner case tests
     // -------------------------------------------------------------------------
 
     #[test]
@@ -795,7 +1506,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Rule evaluation tests (from comprehensive_tests.rs)
+    // Rule evaluation tests
     // -------------------------------------------------------------------------
 
     use super::super::actions::ActionBuilder;
@@ -819,18 +1530,10 @@ mod tests {
             .version("1.0")
             .rule(
                 RuleBuilder::new()
-                    .name("allow-cargo")
-                    .subject_agent("test-agent")
-                    .allow()
-                    .action(ActionBuilder::command("cargo").build().unwrap())
-                    .build()
-                    .unwrap(),
-            )
-            .rule(
-                RuleBuilder::new()
                     .name("deny-cargo-reset")
                     .subject_agent("test-agent")
                     .deny()
+                    .priority(1)
                     .action(
                         ActionBuilder::command("cargo")
                             .blocked_args(vec!["reset".to_string()])
@@ -840,16 +1543,25 @@ mod tests {
                     .build()
                     .unwrap(),
             )
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
             .default_command(Effect::Deny)
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["reset".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -870,12 +1582,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["build".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -926,12 +1638,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/home/admin/file.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -952,12 +1664,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/home/admin/file.txt".to_string(),
             op: "write".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -978,12 +1690,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["build".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1004,12 +1716,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "git".to_string(),
             args: vec!["status".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1035,19 +1747,19 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["build".to_string(), "--release".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["run".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1068,12 +1780,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["build".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1094,12 +1806,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["any".to_string(), "args".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1126,19 +1838,19 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::NetOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::NetOp {
             agent: "test-agent".to_string(),
             host: "api.internal.corp".to_string(),
             port: 443,
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
-        let request = PermissionRequest::NetOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::NetOp {
             agent: "test-agent".to_string(),
             host: "api.internal.corp".to_string(),
             port: 8080,
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1159,12 +1871,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::NetOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::NetOp {
             agent: "test-agent".to_string(),
             host: "any.host.com".to_string(),
             port: 443,
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1190,19 +1902,19 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::ToolCall {
+        let request = PermissionRequest::Bare(PermissionRequestBody::ToolCall {
             agent: "test-agent".to_string(),
             skill: "file_ops".to_string(),
             method: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
-        let request = PermissionRequest::ToolCall {
+        let request = PermissionRequest::Bare(PermissionRequestBody::ToolCall {
             agent: "test-agent".to_string(),
             skill: "file_ops".to_string(),
             method: "delete".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1223,12 +1935,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::ToolCall {
+        let request = PermissionRequest::Bare(PermissionRequestBody::ToolCall {
             agent: "test-agent".to_string(),
             skill: "file_ops".to_string(),
             method: "any_method".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1254,17 +1966,17 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::InterAgentMsg {
+        let request = PermissionRequest::Bare(PermissionRequestBody::InterAgentMsg {
             from: "test-agent".to_string(),
             to: "parent-agent".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
-        let request = PermissionRequest::InterAgentMsg {
+        let request = PermissionRequest::Bare(PermissionRequestBody::InterAgentMsg {
             from: "test-agent".to_string(),
             to: "stranger-agent".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1285,11 +1997,11 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::InterAgentMsg {
+        let request = PermissionRequest::Bare(PermissionRequestBody::InterAgentMsg {
             from: "test-agent".to_string(),
             to: "any-agent".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1315,17 +2027,17 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::ConfigWrite {
+        let request = PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
             agent: "test-agent".to_string(),
             config_file: "configs/agents.json".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
-        let request = PermissionRequest::ConfigWrite {
+        let request = PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
             agent: "test-agent".to_string(),
             config_file: "secrets/passwords.json".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1346,11 +2058,11 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::ConfigWrite {
+        let request = PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
             agent: "test-agent".to_string(),
             config_file: "any/config.json".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1371,19 +2083,19 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "specific-agent".to_string(),
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "other-agent".to_string(),
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1393,8 +2105,8 @@ mod tests {
             .version("1.0")
             .rule(
                 RuleBuilder::new()
-                    .name("exact-match")
-                    .subject_agent("specific-agent")
+                    .name("glob-match")
+                    .subject_glob("test-*")
                     .allow()
                     .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
                     .build()
@@ -1404,12 +2116,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
-            agent: "specific-agent".to_string(),
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent-01".to_string(),
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1422,19 +2134,20 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "totally-unknown-agent".to_string(),
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "totally-unknown-agent".to_string(),
             cmd: "ls".to_string(),
             args: vec![],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1446,12 +2159,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "any-agent".to_string(),
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1472,12 +2185,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { .. }));
     }
 
@@ -1498,12 +2211,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/home/\u{7528}\u{6237}/\u{6587}\u{4EF6}.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Allowed { .. }));
     }
 
@@ -1524,12 +2237,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/secret/file.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         if let PermissionResponse::Denied { reason, rule } = response {
             assert!(rule == "my-specific-deny-rule");
             assert!(reason.contains("my-specific-deny-rule"));
@@ -1555,12 +2268,12 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::FileOp {
+        let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         if let PermissionResponse::Allowed { token } = response {
             assert!(token.starts_with("perm_"));
         } else {
@@ -1585,54 +2298,53 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let request = PermissionRequest::CommandExec {
+        let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "multi-deny-agent".to_string(),
             cmd: "cargo".to_string(),
             args: vec!["build".to_string()],
-        };
-        let response = engine.evaluate(request).await;
+        });
+        let response = engine.evaluate(request);
         assert!(matches!(response, PermissionResponse::Denied { rule, .. } if rule == "deny-all-cargo"));
     }
 
     #[test]
     fn test_subject_matches_unicode() {
-        let subject = Subject {
+        let subject = Subject::AgentOnly {
             agent: "\u{65E5}\u{672C}\u{8A9E}-agent".to_string(),
             match_type: MatchType::Exact,
         };
-        assert!(subject.matches("\u{65E5}\u{672C}\u{8A9E}-agent"));
-        assert!(!subject.matches("other-agent"));
+        assert!(subject.matches(&Caller {
+            user_id: "".to_string(),
+            agent: "\u{65E5}\u{672C}\u{8A9E}-agent".to_string(),
+            creator_id: String::new(),
+        }));
+        assert!(!subject.matches(&Caller {
+            user_id: "".to_string(),
+            agent: "other-agent".to_string(),
+            creator_id: String::new(),
+        }));
     }
 
     #[test]
     fn test_subject_matches_glob_unicode() {
-        let subject = Subject {
+        let subject = Subject::AgentOnly {
             agent: "*-agent".to_string(),
             match_type: MatchType::Glob,
         };
-        assert!(subject.matches("\u{65E5}\u{672C}\u{8A9E}-agent"));
-        assert!(subject.matches("test-agent"));
-        assert!(!subject.matches("agent"));
-    }
-}
-
-impl Rule {
-    /// Parse subject from string (for testing)
-    pub fn parse_subject(agent: &str) -> Subject {
-        Subject {
-            agent: agent.to_string(),
-            match_type: MatchType::Exact,
-        }
-    }
-    
-    /// Parse subject with match type
-    pub fn parse_subject_with_match(agent: &str, match_type: &str) -> Subject {
-        Subject {
-            agent: agent.to_string(),
-            match_type: match match_type {
-                "glob" => MatchType::Glob,
-                _ => MatchType::Exact,
-            },
-        }
+        assert!(subject.matches(&Caller {
+            user_id: "".to_string(),
+            agent: "\u{65E5}\u{672C}\u{8A9E}-agent".to_string(),
+            creator_id: String::new(),
+        }));
+        assert!(subject.matches(&Caller {
+            user_id: "".to_string(),
+            agent: "test-agent".to_string(),
+            creator_id: String::new(),
+        }));
+        assert!(!subject.matches(&Caller {
+            user_id: "".to_string(),
+            agent: "agent".to_string(),
+            creator_id: String::new(),
+        }));
     }
 }

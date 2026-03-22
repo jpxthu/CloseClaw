@@ -4,13 +4,13 @@
 
 ## Next（当前 Sprint）
 
-- [ ] **Permission Engine 用户维度支持** — 权限配置
-  - 设计文档：`docs/permission/PERMISSION_USER_SCOPE.md` ✅
+- [🚧 进行中] **Permission Engine 用户维度支持** — 权限配置
+  - 设计文档：`docs/permission/PERMISSION_USER_SCOPE.md` ✅ review ✅
+  - 子 agent 正在实现（spawned）
   - `Subject::UserAndAgent` 双重匹配
   - 权限模板系统（`templates/` 目录）
   - Creator Rule 短路逻辑
   - **必须配套写测试**
-  → 已完成需求确认，设计文档已 review ✅
 
 ## Later（低优，可直接开动）
 

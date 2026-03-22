@@ -38,6 +38,8 @@ impl Daemon {
             version: "1.0.0".to_string(),
             rules: Vec::new(),
             defaults: Defaults::default(),
+            template_includes: Vec::new(),
+            agent_creators: std::collections::HashMap::new(),
         };
         let permission_engine = Arc::new(PermissionEngine::new(rule_set));
         info!("Permission engine initialized");

@@ -2,7 +2,7 @@
 //!
 //! Provides builder patterns and validation for [`Rule`], [`Subject`], and [`RuleSet`] types.
 
-use crate::permission::engine::{Action, Effect, MatchType, Rule, RuleSet, Subject, Defaults};
+use crate::permission::engine::{Action, Effect, MatchType, Rule, RuleSet, Subject, Defaults, TemplateRef};
 
 /// Builder for constructing [`Rule`] instances fluently.
 #[derive(Debug, Default)]
@@ -11,6 +11,8 @@ pub struct RuleBuilder {
     subject: Option<Subject>,
     effect: Effect,
     actions: Vec<Action>,
+    template: Option<TemplateRef>,
+    priority: i32,
 }
 
 impl RuleBuilder {
@@ -33,7 +35,7 @@ impl RuleBuilder {
 
     /// Set the subject using a simple agent ID (exact match).
     pub fn subject_agent(mut self, agent: impl Into<String>) -> Self {
-        self.subject = Some(Subject {
+        self.subject = Some(Subject::AgentOnly {
             agent: agent.into(),
             match_type: MatchType::Exact,
         });
@@ -42,9 +44,26 @@ impl RuleBuilder {
 
     /// Set the subject with glob matching.
     pub fn subject_glob(mut self, agent: impl Into<String>) -> Self {
-        self.subject = Some(Subject {
+        self.subject = Some(Subject::AgentOnly {
             agent: agent.into(),
             match_type: MatchType::Glob,
+        });
+        self
+    }
+
+    /// Set the subject as UserAndAgent dual-key matching.
+    pub fn subject_user_and_agent(
+        mut self,
+        user_id: impl Into<String>,
+        agent: impl Into<String>,
+        user_match: MatchType,
+        agent_match: MatchType,
+    ) -> Self {
+        self.subject = Some(Subject::UserAndAgent {
+            user_id: user_id.into(),
+            agent: agent.into(),
+            user_match,
+            agent_match,
         });
         self
     }
@@ -73,6 +92,21 @@ impl RuleBuilder {
         self
     }
 
+    /// Set a template reference for this rule.
+    pub fn template(mut self, name: impl Into<String>) -> Self {
+        self.template = Some(TemplateRef {
+            name: name.into(),
+            overrides: Default::default(),
+        });
+        self
+    }
+
+    /// Set the evaluation priority. Higher = evaluated first.
+    pub fn priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
+        self
+    }
+
     /// Finalize and return the constructed [`Rule`].
     pub fn build(self) -> Result<Rule, RuleBuilderError> {
         let name = self.name.ok_or(RuleBuilderError::MissingField("name"))?;
@@ -83,6 +117,8 @@ impl RuleBuilder {
             subject,
             effect: self.effect,
             actions: self.actions,
+            template: self.template,
+            priority: self.priority,
         })
     }
 }
@@ -100,6 +136,8 @@ pub struct RuleSetBuilder {
     version: Option<String>,
     rules: Vec<Rule>,
     defaults: Defaults,
+    template_includes: Vec<String>,
+    agent_creators: std::collections::HashMap<String, String>,
 }
 
 impl RuleSetBuilder {
@@ -170,7 +208,22 @@ impl RuleSetBuilder {
             version,
             rules: self.rules,
             defaults: self.defaults,
+            template_includes: self.template_includes,
+            agent_creators: self.agent_creators,
         })
+    }
+
+    /// Add a template include (loads the named template from templates/ directory).
+    pub fn template_include(mut self, name: impl Into<String>) -> Self {
+        self.template_includes.push(name.into());
+        self
+    }
+
+    /// Register an agent creator mapping: agent_id -> creator_user_id.
+    /// The creator automatically gets full-access to the agent.
+    pub fn agent_creator(mut self, agent_id: impl Into<String>, creator_user_id: impl Into<String>) -> Self {
+        self.agent_creators.insert(agent_id.into(), creator_user_id.into());
+        self
     }
 }
 
@@ -193,12 +246,17 @@ pub mod validation {
             errors.push(RuleValidationError::EmptyName);
         }
 
-        if rule.subject.agent.is_empty() {
+        if rule.subject.agent_id().is_empty() {
             errors.push(RuleValidationError::EmptySubjectAgent);
         }
 
-        if rule.actions.is_empty() {
+        let has_actions = !rule.actions.is_empty();
+        let has_template = rule.template.is_some();
+        if !has_actions && !has_template {
             errors.push(RuleValidationError::NoActions);
+        }
+        if has_actions && has_template {
+            errors.push(RuleValidationError::ActionsAndTemplateMutuallyExclusive);
         }
 
         errors
@@ -241,6 +299,8 @@ pub mod validation {
         EmptySubjectAgent,
         #[error("rule must have at least one action")]
         NoActions,
+        #[error("rule cannot have both 'actions' and 'template' (mutually exclusive)")]
+        ActionsAndTemplateMutuallyExclusive,
     }
 
     /// A validation error for a RuleSet.
@@ -269,7 +329,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(rule.name, "allow-read-home");
-        assert_eq!(rule.subject.agent, "dev-agent-01");
+        assert_eq!(rule.subject.agent_id(), "dev-agent-01");
         assert!(matches!(rule.effect, Effect::Allow));
         assert_eq!(rule.actions.len(), 1);
     }
@@ -308,13 +368,17 @@ mod tests {
     fn test_validation() {
         let empty_rule = Rule {
             name: String::new(),
-            subject: Subject { agent: String::new(), match_type: MatchType::Exact },
+            subject: Subject::AgentOnly { agent: String::new(), match_type: MatchType::Exact },
             effect: Effect::Allow,
             actions: vec![],
+            template: None,
+            priority: 0,
         };
 
         let errors = validation::validate_rule(&empty_rule);
-        assert_eq!(errors.len(), 3);
+        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptyName)));
+        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptySubjectAgent)));
+        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::NoActions)));
     }
 
     // Additional validation tests (from comprehensive_tests.rs)
@@ -322,12 +386,14 @@ mod tests {
     fn test_validation_empty_rule_name() {
         let rule = Rule {
             name: String::new(),
-            subject: Subject {
+            subject: Subject::AgentOnly {
                 agent: "test".to_string(),
                 match_type: MatchType::Exact,
             },
             effect: Effect::Allow,
             actions: vec![],
+            template: None,
+            priority: 0,
         };
         let errors = validation::validate_rule(&rule);
         assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptyName)));
@@ -337,12 +403,14 @@ mod tests {
     fn test_validation_empty_subject_agent() {
         let rule = Rule {
             name: "test-rule".to_string(),
-            subject: Subject {
+            subject: Subject::AgentOnly {
                 agent: String::new(),
                 match_type: MatchType::Exact,
             },
             effect: Effect::Allow,
             actions: vec![],
+            template: None,
+            priority: 0,
         };
         let errors = validation::validate_rule(&rule);
         assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptySubjectAgent)));
@@ -352,12 +420,14 @@ mod tests {
     fn test_validation_no_actions() {
         let rule = Rule {
             name: "test-rule".to_string(),
-            subject: Subject {
+            subject: Subject::AgentOnly {
                 agent: "test".to_string(),
                 match_type: MatchType::Exact,
             },
             effect: Effect::Allow,
             actions: vec![],
+            template: None,
+            priority: 0,
         };
         let errors = validation::validate_rule(&rule);
         assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::NoActions)));
@@ -369,6 +439,8 @@ mod tests {
             version: String::new(),
             rules: vec![],
             defaults: Defaults::default(),
+            template_includes: vec![],
+            agent_creators: std::collections::HashMap::new(),
         };
         let errors = validation::validate_ruleset(&ruleset);
         assert!(errors.iter().any(|e| matches!(e, validation::RuleSetValidationError::EmptyVersion)));
