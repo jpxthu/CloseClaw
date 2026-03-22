@@ -78,17 +78,26 @@ gh issue create --title "Issue title" --body "Description" --label "bug"
 1. Fetch open issues from GitHub
 2. For each issue:
    - **评估**：值不值得做、对现有计划的影响
-   - **发计划给你 review**：等确认后再实施
-   - **确认后**才实施，实施完要加 Labels、Close
+   - **需求待细化**：发计划给你 review，等确认后再实施
+   - **需求已明确**：可直接实施，实施完要加 Labels、Close
    - Tag appropriately (bug/enhancement/question/documentation)
 3. Update issue status as resolved
 
 ## Feature Development Workflow
 
+### 开发流程总则
+
+> **需求先对清楚，对清楚后直接开工。**
+
+| 情况 | 处理方式 |
+|------|---------|
+| **需求待细化/待明确** | 发计划给你确认，等回复后再实施 |
+| **需求已明确**（包括心跳中按 TODO 优先级推进） | 直接开工，无需额外确认 |
+
 每个功能改动都必须经过测试，不能只写实现：
 
 ```
-需求确认
+需求对清楚（chat 或 heartbeat）
    ↓
 测试用例设计（test agent 或开发者）
    ↓
@@ -98,7 +107,7 @@ gh issue create --title "Issue title" --body "Description" --label "bug"
    ↓
 运行自动化测试，确保通过
    ↓
-测试专员 agent **手动验收测试**（按测试用例操作、观察 stdout/log/调试接口）
+测试专员 agent **手动验收测试**（按测试用例操作、观察 stdout/log/调试接口、以用户方式体验）
    ↓
 添加测试项目（将手动测试用例也沉淀为可自动化运行的测试脚本）
    ↓
