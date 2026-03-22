@@ -282,4 +282,18 @@ mod tests {
         assert_eq!(skills[3].manifest().name, "coding_agent");
         assert_eq!(skills[4].manifest().name, "skill_creator");
     }
+
+    // From tests/smoke_test.rs
+    #[tokio::test]
+    async fn test_skill_registry_with_builtins() {
+        use crate::skills::SkillRegistry;
+        let registry = SkillRegistry::new();
+        for skill in builtin_skills() {
+            registry.register(skill).await;
+        }
+        let skills: Vec<String> = registry.list().await;
+        assert!(skills.contains(&"file_ops".to_string()));
+        assert!(skills.contains(&"git_ops".to_string()));
+        assert!(skills.contains(&"search".to_string()));
+    }
 }

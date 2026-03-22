@@ -316,4 +316,125 @@ mod tests {
         let errors = validation::validate_rule(&empty_rule);
         assert_eq!(errors.len(), 3);
     }
+
+    // Additional validation tests (from comprehensive_tests.rs)
+    #[test]
+    fn test_validation_empty_rule_name() {
+        let rule = Rule {
+            name: String::new(),
+            subject: Subject {
+                agent: "test".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![],
+        };
+        let errors = validation::validate_rule(&rule);
+        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptyName)));
+    }
+
+    #[test]
+    fn test_validation_empty_subject_agent() {
+        let rule = Rule {
+            name: "test-rule".to_string(),
+            subject: Subject {
+                agent: String::new(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![],
+        };
+        let errors = validation::validate_rule(&rule);
+        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptySubjectAgent)));
+    }
+
+    #[test]
+    fn test_validation_no_actions() {
+        let rule = Rule {
+            name: "test-rule".to_string(),
+            subject: Subject {
+                agent: "test".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![],
+        };
+        let errors = validation::validate_rule(&rule);
+        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::NoActions)));
+    }
+
+    #[test]
+    fn test_validation_ruleset_empty_version() {
+        let ruleset = RuleSet {
+            version: String::new(),
+            rules: vec![],
+            defaults: Defaults::default(),
+        };
+        let errors = validation::validate_ruleset(&ruleset);
+        assert!(errors.iter().any(|e| matches!(e, validation::RuleSetValidationError::EmptyVersion)));
+    }
+
+    #[test]
+    fn test_validation_has_deny_rules() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("deny-rule")
+                    .subject_agent("test")
+                    .deny()
+                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+        assert!(validation::has_deny_rules(&ruleset));
+        assert!(!validation::has_allow_rules(&ruleset));
+    }
+
+    #[test]
+    fn test_validation_has_allow_rules() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-rule")
+                    .subject_agent("test")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+        assert!(!validation::has_deny_rules(&ruleset));
+        assert!(validation::has_allow_rules(&ruleset));
+    }
+
+    #[test]
+    fn test_ruleset_builder_missing_version() {
+        let result = RuleSetBuilder::new()
+            .rule(
+                RuleBuilder::new()
+                    .name("test-rule")
+                    .subject_agent("test")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+        assert!(matches!(result, Err(RuleSetBuilderError::MissingField("version"))));
+    }
+
+    #[test]
+    fn test_rule_builder_missing_subject() {
+        let result = RuleBuilder::new()
+            .name("test-rule")
+            .allow()
+            .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+            .build();
+        assert!(matches!(result, Err(RuleBuilderError::MissingField("subject"))));
+    }
 }

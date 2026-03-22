@@ -130,20 +130,23 @@ gh issue create --title "Issue title" --body "Description" --label "bug"
 src/
   ├── permission/
   │   ├── mod.rs
-  │   └── tests.rs      ← permission 模块的单元测试
+  │   └── tests.rs      ← permission 模块的单元测试（含 engine + rules validation）
   ├── agent/
   │   ├── mod.rs
   │   └── tests.rs      ← agent 模块的单元测试
-  └── gateway/
-      ├── mod.rs
-      └── tests.rs      ← gateway 模块的单元测试
+  ├── config/
+  │   └── mod.rs
+  │   └── tests.rs      ← config 模块的单元测试
+  └── skills/
+      └── builtin.rs
+          └── tests.rs  ← skill 模块的单元测试（含 builtin skills + registry）
 
 tests/
-  ├── integration_tests.rs  ← 跨模块集成测试
-  └── smoke_tests.rs       ← 冒烟测试
+  └── integration_tests.rs  ← 跨模块集成测试（占位）
 ```
 
 > 禁止在 `tests/` 根目录创建新的针对单个模块的测试文件。
+> 单元测试应放在 `src/<module>/tests.rs` 或 `src/<module>/<file>.rs` 的 `#[cfg(test)] mod tests` 中。
 
 ## Issue Reply Rules
 

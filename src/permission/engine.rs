@@ -432,6 +432,1188 @@ mod tests {
         assert!(glob_match("file_?.txt", "file_1.txt"));
         assert!(!glob_match("file_?.txt", "file_12.txt"));
     }
+
+    // -------------------------------------------------------------------------
+    // Tests from tests/engine_test.rs (rule parsing + action types)
+    // -------------------------------------------------------------------------
+
+    fn test_rules_json() -> &'static str {
+        r#"{
+  "version": "1.0",
+  "rules": [
+    {
+      "name": "dev-agent-file-read",
+      "subject": { "agent": "dev-agent-01" },
+      "effect": "allow",
+      "actions": [
+        {
+          "type": "file",
+          "operation": "read",
+          "paths": ["/home/admin/code/**"]
+        }
+      ]
+    },
+    {
+      "name": "dev-agent-file-write",
+      "subject": { "agent": "dev-agent-01" },
+      "effect": "allow",
+      "actions": [
+        {
+          "type": "file",
+          "operation": "write",
+          "paths": ["/home/admin/code/closeclaw/src/**"]
+        }
+      ]
+    },
+    {
+      "name": "dev-agent-git",
+      "subject": { "agent": "dev-agent-01" },
+      "effect": "allow",
+      "actions": [
+        {
+          "type": "command",
+          "command": "git",
+          "args": { "allowed": ["status", "log", "diff", "add", "commit", "push", "pull"] }
+        }
+      ]
+    },
+    {
+      "name": "dev-agent-forbidden-git-reset",
+      "subject": { "agent": "dev-agent-01" },
+      "effect": "deny",
+      "actions": [
+        {
+          "type": "command",
+          "command": "git",
+          "args": { "blocked": ["reset", "rebase", "push", "--force"] }
+        }
+      ]
+    },
+    {
+      "name": "readonly-agent",
+      "subject": { "agent": "readonly-*", "match": "glob" },
+      "effect": "allow",
+      "actions": [
+        { "type": "file", "operation": "read", "paths": ["**"] }
+      ]
+    }
+  ],
+  "defaults": {
+    "file": "deny",
+    "command": "deny",
+    "network": "deny",
+    "inter_agent": "deny",
+    "config": "deny"
+  }
+}"#
+    }
+
+    #[tokio::test]
+    async fn test_rule_parsing() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        assert_eq!(rules.version, "1.0");
+        assert_eq!(rules.rules.len(), 5);
+        assert_eq!(rules.defaults.file, Effect::Deny);
+    }
+
+    #[tokio::test]
+    async fn test_file_read_allowed() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::FileOp {
+            agent: "dev-agent-01".to_string(),
+            path: "/home/admin/code/closeclaw/src/main.rs".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_file_read_denied_no_match() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::FileOp {
+            agent: "dev-agent-01".to_string(),
+            path: "/etc/passwd".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_file_write_allowed() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::FileOp {
+            agent: "dev-agent-01".to_string(),
+            path: "/home/admin/code/closeclaw/src/main.rs".to_string(),
+            op: "write".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_command_allowed() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::CommandExec {
+            agent: "dev-agent-01".to_string(),
+            cmd: "git".to_string(),
+            args: vec!["status".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_command_denied_blocked() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::CommandExec {
+            agent: "dev-agent-01".to_string(),
+            cmd: "git".to_string(),
+            args: vec!["reset".to_string(), "--hard".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_glob_matching() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::FileOp {
+            agent: "readonly-agent-42".to_string(),
+            path: "/any/path/in/the/system.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_default_deny() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::NetOp {
+            agent: "dev-agent-01".to_string(),
+            host: "example.com".to_string(),
+            port: 443,
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_network_action_type() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::NetOp {
+            agent: "dev-agent-01".to_string(),
+            host: "api.github.com".to_string(),
+            port: 443,
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_action_type() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::ToolCall {
+            agent: "dev-agent-01".to_string(),
+            skill: "file_ops".to_string(),
+            method: "read_file".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_inter_agent_action_type() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::InterAgentMsg {
+            from: "agent-a".to_string(),
+            to: "agent-b".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_config_write_action_type() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::ConfigWrite {
+            agent: "dev-agent-01".to_string(),
+            config_file: "agents.json".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_rule_subject_matching_exact() {
+        let rule = Rule::parse_subject("dev-agent-01");
+        assert!(rule.matches("dev-agent-01"));
+        assert!(!rule.matches("dev-agent-02"));
+    }
+
+    #[tokio::test]
+    async fn test_rule_subject_matching_glob() {
+        let rule = Rule::parse_subject_with_match("readonly-*", "glob");
+        assert!(rule.matches("readonly-agent-1"));
+        assert!(rule.matches("readonly-agent-42"));
+        assert!(!rule.matches("readonly"));
+    }
+
+    #[tokio::test]
+    async fn test_o1_lookup_performance() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            let request = PermissionRequest::FileOp {
+                agent: "dev-agent-01".to_string(),
+                path: "/home/admin/code/closeclaw/src/main.rs".to_string(),
+                op: "read".to_string(),
+            };
+            let _ = engine.evaluate(request);
+        }
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 100, "O(1) lookup should be fast, took {:?}", elapsed);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_agent_defaults_to_deny() {
+        let json = test_rules_json();
+        let rules: RuleSet = serde_json::from_str(json).expect("Failed to parse rules");
+        let engine = PermissionEngine::new(rules);
+        let request = PermissionRequest::FileOp {
+            agent: "unknown-agent".to_string(),
+            path: "/home/admin/code/**".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    // -------------------------------------------------------------------------
+    // Tests from tests/smoke_test.rs (PermissionEngine portion)
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_permission_engine_parse() {
+        let json = r#"{
+            "version": "1.0",
+            "rules": [],
+            "defaults": { "effect": "deny" }
+        }"#;
+        let _rules: RuleSet = serde_json::from_str(json).unwrap();
+    }
+
+    // -------------------------------------------------------------------------
+    // Comprehensive glob_match corner case tests (from comprehensive_tests.rs)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_glob_match_exact_match() {
+        assert!(glob_match("dev-agent-01", "dev-agent-01"));
+        assert!(!glob_match("dev-agent-01", "dev-agent-02"));
+    }
+
+    #[test]
+    fn test_glob_match_double_star_matches_anything() {
+        assert!(glob_match("**", "anything"));
+        assert!(glob_match("**", "/home/admin/secret"));
+        assert!(glob_match("**", "simple"));
+    }
+
+    #[test]
+    fn test_glob_match_single_star_matches_anything_except_slash() {
+        assert!(glob_match("*", "anything"));
+        assert!(glob_match("*", "simple"));
+        assert!(glob_match("file_*.txt", "file_read.txt"));
+        assert!(!glob_match("file_*.txt", "file_read/write.txt"));
+    }
+
+    #[test]
+    fn test_glob_match_question_matches_single_char() {
+        assert!(glob_match("file_?.txt", "file_a.txt"));
+        assert!(glob_match("file_?.txt", "file_1.txt"));
+        assert!(glob_match("file_?.txt", "file_z.txt"));
+        assert!(!glob_match("file_?.txt", "file_ab.txt"));
+        assert!(!glob_match("file_?.txt", "file_.txt"));
+    }
+
+    #[test]
+    fn test_glob_match_empty_pattern() {
+        assert!(!glob_match("", "anything"));
+        assert!(glob_match("", ""));
+    }
+
+    #[test]
+    fn test_glob_match_path_with_directory_separators() {
+        assert!(glob_match("/home/admin/**", "/home/admin/code/closeclaw/src/main.rs"));
+        assert!(glob_match("/home/admin/**", "/home/admin/code"));
+    }
+
+    #[test]
+    fn test_glob_match_directory_star_does_not_match_slash() {
+        assert!(!glob_match("*/file.txt", "dir/file.txt"));
+    }
+
+    #[test]
+    fn test_glob_match_case_sensitive() {
+        assert!(glob_match("File.txt", "File.txt"));
+        assert!(!glob_match("File.txt", "file.txt"));
+    }
+
+    #[test]
+    fn test_glob_match_nested_double_star() {
+        assert!(glob_match("**/*.rs", "main.rs"));
+        assert!(glob_match("**/*.rs", "src/main.rs"));
+        assert!(glob_match("**/*.rs", "src/deep/path/main.rs"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Rule evaluation tests (from comprehensive_tests.rs)
+    // -------------------------------------------------------------------------
+
+    use super::super::actions::ActionBuilder;
+    use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+
+    fn make_default_deny_ruleset() -> RuleSet {
+        RuleSetBuilder::new()
+            .version("1.0")
+            .default_file(Effect::Deny)
+            .default_command(Effect::Deny)
+            .default_network(Effect::Deny)
+            .default_inter_agent(Effect::Deny)
+            .default_config(Effect::Deny)
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_permission_deny_precedence_over_allow() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .rule(
+                RuleBuilder::new()
+                    .name("deny-cargo-reset")
+                    .subject_agent("test-agent")
+                    .deny()
+                    .action(
+                        ActionBuilder::command("cargo")
+                            .blocked_args(vec!["reset".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["reset".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_allow_non_blocked_args() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["build".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[test]
+    fn test_args_match_command_args_any() {
+        let engine = PermissionEngine::new(make_default_deny_ruleset());
+        assert!(engine.args_match(&CommandArgs::Any, &["any".to_string(), "args".to_string()]));
+        assert!(engine.args_match(&CommandArgs::Any, &[]));
+    }
+
+    #[test]
+    fn test_args_match_command_args_allowed() {
+        let engine = PermissionEngine::new(make_default_deny_ruleset());
+        let allowed = CommandArgs::Allowed {
+            allowed: vec!["build".to_string(), "test".to_string()],
+        };
+        assert!(engine.args_match(&allowed, &["build".to_string()]));
+        assert!(engine.args_match(&allowed, &["build".to_string(), "test".to_string()]));
+        assert!(!engine.args_match(&allowed, &["build".to_string(), "run".to_string()]));
+    }
+
+    #[test]
+    fn test_args_match_command_args_blocked() {
+        let engine = PermissionEngine::new(make_default_deny_ruleset());
+        let blocked = CommandArgs::Blocked {
+            blocked: vec!["reset".to_string(), "--force".to_string()],
+        };
+        assert!(engine.args_match(&blocked, &["reset".to_string()]));
+        assert!(engine.args_match(&blocked, &["reset".to_string(), "--hard".to_string()]));
+        assert!(engine.args_match(&blocked, &["commit".to_string(), "--force".to_string()]));
+        assert!(!engine.args_match(&blocked, &["commit".to_string(), "push".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn test_permission_file_op_read_allowed() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("read-home")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["/home/**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/home/admin/file.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_file_op_write_denied_by_operation_mismatch() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("read-only")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["/home/**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/home/admin/file.txt".to_string(),
+            op: "write".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_command_exec_allowed() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["build".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_command_exec_denied_command_mismatch() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "git".to_string(),
+            args: vec!["status".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_command_args_allowed_list() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo-build-test")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(
+                        ActionBuilder::command("cargo")
+                            .allowed_args(vec!["build".to_string(), "test".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["build".to_string(), "--release".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["run".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_command_args_blocked() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo-no-args")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["build".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_command_args_any() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-cargo-any-args")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["any".to_string(), "args".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_net_op_allowed() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-internal-https")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(
+                        ActionBuilder::network()
+                            .with_hosts(vec!["*.internal.corp".to_string()])
+                            .with_ports(vec![443])
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .default_network(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::NetOp {
+            agent: "test-agent".to_string(),
+            host: "api.internal.corp".to_string(),
+            port: 443,
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+        let request = PermissionRequest::NetOp {
+            agent: "test-agent".to_string(),
+            host: "api.internal.corp".to_string(),
+            port: 8080,
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_net_op_empty_hosts_matches_all() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-all-ports")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::network().with_ports(vec![443]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_network(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::NetOp {
+            agent: "test-agent".to_string(),
+            host: "any.host.com".to_string(),
+            port: 443,
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_tool_call_allowed() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-file-ops")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(
+                        ActionBuilder::tool_call("file_ops")
+                            .with_methods(vec!["read".to_string(), "write".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::ToolCall {
+            agent: "test-agent".to_string(),
+            skill: "file_ops".to_string(),
+            method: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+        let request = PermissionRequest::ToolCall {
+            agent: "test-agent".to_string(),
+            skill: "file_ops".to_string(),
+            method: "delete".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_tool_call_empty_methods_matches_all() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-file-ops-any-method")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::tool_call("file_ops").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::ToolCall {
+            agent: "test-agent".to_string(),
+            skill: "file_ops".to_string(),
+            method: "any_method".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_inter_agent_msg_allowed() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-to-parent")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(
+                        ActionBuilder::inter_agent()
+                            .with_agents(vec!["parent-agent".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .default_inter_agent(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::InterAgentMsg {
+            from: "test-agent".to_string(),
+            to: "parent-agent".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+        let request = PermissionRequest::InterAgentMsg {
+            from: "test-agent".to_string(),
+            to: "stranger-agent".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_inter_agent_empty_agents_matches_all() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-all-inter-agent")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::inter_agent().build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_inter_agent(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::InterAgentMsg {
+            from: "test-agent".to_string(),
+            to: "any-agent".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_config_write_allowed() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-config-write")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(
+                        ActionBuilder::config_write()
+                            .with_files(vec!["configs/*.json".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
+            )
+            .default_config(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: "configs/agents.json".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+        let request = PermissionRequest::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: "secrets/passwords.json".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_config_write_empty_files_matches_all() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-all-config-write")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::config_write().build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_config(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: "any/config.json".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_subject_exact_match() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("exact-match")
+                    .subject_agent("specific-agent")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "specific-agent".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+        let request = PermissionRequest::FileOp {
+            agent: "other-agent".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_subject_glob_match() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("exact-match")
+                    .subject_agent("specific-agent")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "specific-agent".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_unknown_agent_uses_defaults() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .default_file(Effect::Allow)
+            .default_command(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "totally-unknown-agent".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+        let request = PermissionRequest::CommandExec {
+            agent: "totally-unknown-agent".to_string(),
+            cmd: "ls".to_string(),
+            args: vec![],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_empty_ruleset() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "any-agent".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_rule_action_type_mismatch() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("command-only")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_unicode_in_path() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-unicode")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["/home/**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/home/\u{7528}\u{6237}/\u{6587}\u{4EF6}.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Allowed { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_permission_denied_reason_includes_rule_name() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("my-specific-deny-rule")
+                    .subject_agent("test-agent")
+                    .deny()
+                    .action(ActionBuilder::file("read", vec!["/secret/**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Allow)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/secret/file.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        if let PermissionResponse::Denied { reason, rule } = response {
+            assert!(rule == "my-specific-deny-rule");
+            assert!(reason.contains("my-specific-deny-rule"));
+        } else {
+            panic!("Expected Denied response");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_permission_allowed_token_format() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("allow-all")
+                    .subject_agent("test-agent")
+                    .allow()
+                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_file(Effect::Allow)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        };
+        let response = engine.evaluate(request).await;
+        if let PermissionResponse::Allowed { token } = response {
+            assert!(token.starts_with("perm_"));
+        } else {
+            panic!("Expected Allowed response");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_permission_multiple_deny_rules_first_wins() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .rule(
+                RuleBuilder::new()
+                    .name("deny-all-cargo")
+                    .subject_agent("multi-deny-agent")
+                    .deny()
+                    .action(ActionBuilder::command("cargo").build().unwrap())
+                    .build()
+                    .unwrap(),
+            )
+            .default_command(Effect::Allow)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let request = PermissionRequest::CommandExec {
+            agent: "multi-deny-agent".to_string(),
+            cmd: "cargo".to_string(),
+            args: vec!["build".to_string()],
+        };
+        let response = engine.evaluate(request).await;
+        assert!(matches!(response, PermissionResponse::Denied { rule, .. } if rule == "deny-all-cargo"));
+    }
+
+    #[test]
+    fn test_subject_matches_unicode() {
+        let subject = Subject {
+            agent: "\u{65E5}\u{672C}\u{8A9E}-agent".to_string(),
+            match_type: MatchType::Exact,
+        };
+        assert!(subject.matches("\u{65E5}\u{672C}\u{8A9E}-agent"));
+        assert!(!subject.matches("other-agent"));
+    }
+
+    #[test]
+    fn test_subject_matches_glob_unicode() {
+        let subject = Subject {
+            agent: "*-agent".to_string(),
+            match_type: MatchType::Glob,
+        };
+        assert!(subject.matches("\u{65E5}\u{672C}\u{8A9E}-agent"));
+        assert!(subject.matches("test-agent"));
+        assert!(!subject.matches("agent"));
+    }
 }
 
 impl Rule {
