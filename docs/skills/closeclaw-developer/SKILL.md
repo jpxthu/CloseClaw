@@ -35,7 +35,7 @@ closeclaw run --config-dir ./configs
 | 1-4 | PE / Config / Agent Runtime / Gateway + Feishu | ✅ |
 | 5 | Skill System | ❌ |
 | 6 | 测试覆盖率（107 tests） | ✅ |
-| 7 | CLI + Daemon + Graceful Shutdown | ✅ |
+| 7 | CLI + Daemon + Graceful Shutdown + `closeclaw chat` | 进行中 |
 | 8 | Inter-agent 通信 | ❌ |
 | 9 | 配置热重载 | ❌ |
 | 10 | 多 IM 适配器 | ❌ |

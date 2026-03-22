@@ -13,6 +13,14 @@
 
 ## Later（低优，可直接开动）
 
+- [ ] **`closeclaw chat`** — 本地 CLI 直连 daemon，TCP localhost，不依赖 IM
+  - `closeclaw chat` REPL 交互模式
+  - `closeclaw chat -m "msg"` 单消息模式
+  - JSON over TCP 协议
+  - 默认路由到 guide agent
+  - **必须配套写测试**
+  → 需要重新开发（之前代码已丢弃）
+
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs`
 - [ ] **`closeclaw stop -f`** — 强制关闭模式
 - [ ] **Hot config reload** — `agents.json` 变更热重载
