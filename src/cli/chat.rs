@@ -68,8 +68,6 @@ impl ChatCommand {
         if resp_val.get("type").and_then(|v| v.as_str()) != Some("chat.started") {
             anyhow::bail!("unexpected response to chat.start: {}", resp);
         }
-        let session_id = resp_val.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
-
         // Send chat.message
         let msg_id = uuid::Uuid::new_v4().to_string();
         let msg_json = serde_json::json!({

@@ -3,7 +3,6 @@
 use crate::chat::protocol::{ClientMessage, ServerMessage};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 /// Chat session — handles messages for a single TCP connection

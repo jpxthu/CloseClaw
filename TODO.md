@@ -19,7 +19,7 @@
   - JSON over TCP 协议
   - 默认路由到 guide agent
   - **必须配套写测试**
-  → 需要重新开发（之前代码已丢弃）
+  → ✅ 框架完成（TCP server + protocol + CLI）；echo placeholder（待接入 LLM provider）
 
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs`
 - [ ] **测试流程规范化** — UT + 集成测试 + 测试员手动验收 + 自动化测试沉淀，流程写入 GITHUB_WORKFLOW.md
@@ -59,6 +59,7 @@
 | Issue #1 文档中文化 | 06f5f63 |
 | Issue #2 API Key 向导 | 170942e |
 | Issue #3 config setup 修复 | 1c86cc5 |
+| `closeclaw chat` 框架（TCP server + protocol + CLI + tests） | — |
 | Skill 列表精简（allowBundled 配置） | — |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
