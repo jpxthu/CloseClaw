@@ -115,7 +115,7 @@ impl Subject {
 
 解析时若遇到旧的 `Subject { agent, match_type / match }` 格式（无 `match_mode` 字段），自动转换为 `Subject::AgentOnly { agent, match_type }`，确保现有规则文件无需修改即可正常工作。
 
-### 2.2 Rule（不变，新增可选字段）
+### 2.2 Rule（扩展，新增校验）
 
 ```rust
 // src/permission/engine.rs
@@ -125,16 +125,40 @@ pub struct Rule {
     pub name: String,
     pub subject: Subject,
     pub effect: Effect,
+    /// Actions explicitly defined on this rule.
+    /// Mutually exclusive with `template`: at least one must be present.
+    #[serde(default)]
     pub actions: Vec<Action>,
-    /// Optional template reference for template composition.
-    /// If present, this rule inherits from the named template and
-    /// may override specific fields.
+    /// Template reference for template composition.
+    /// Mutually exclusive with `actions`: at least one must be present.
     #[serde(default)]
     pub template: Option<TemplateRef>,
     /// Optional priority for evaluation ordering.
     /// Higher number = evaluated first. Default = 0.
     #[serde(default)]
     pub priority: i32,
+}
+
+impl Rule {
+    /// Validates the rule: `actions` and `template` are mutually exclusive,
+    /// and at least one must be present. Returns Err with the violation message.
+    pub fn validate(&self) -> Result<(), String> {
+        let has_actions = !self.actions.is_empty();
+        let has_template = self.template.is_some();
+        if has_actions && has_template {
+            return Err(format!(
+                "rule '{}': 'actions' and 'template' are mutually exclusive",
+                self.name
+            ));
+        }
+        if !has_actions && !has_template {
+            return Err(format!(
+                "rule '{}': at least one of 'actions' or 'template' must be present",
+                self.name
+            ));
+        }
+        Ok(())
+    }
 }
 ```
 
@@ -313,11 +337,10 @@ evaluate(request: PermissionRequest)
 │   └─ c) Glob 回退扫描（仅当 a/b 均无命中时）
 │       对所有 Subject 尝试匹配，结果加入候选集
 │
-├─ 3. 生成 Creator Rule（内存中，不持久化）
-│   若 caller.user_id == agent_creators[caller.agent]:
-│       构造隐式 Rule { name: "__creator__", subject: AgentOnly(agent=caller.agent),
-│                       effect: Allow, actions: [Action::All] }
-│       优先级最高（priority = i32::MAX）
+├─ 3. Creator Rule 短路检查（最高优先级，不进入规则评估）
+│   // caller.creator_id 优先于静态 agent_creators 配置
+│   若 caller.user_id == effective_creator_id：
+│       直接返回 Allowed（跳过后续所有规则）
 │
 ├─ 4. 按 priority 降序排列候选规则
 │   （priority 相等保持原顺序，即文件中出现的顺序）
@@ -507,23 +530,28 @@ load_templates(config_dir: &Path) -> HashMap<String, Template>
 ```
 evaluate(request):
     caller = request.caller
-    if !caller.creator_id.is_empty()
-       AND caller.user_id == agent_creators[caller.agent]:
-        // 生成隐式全权限规则
-        implicit_rule = Rule {
-            name: "__creator_full_access__",
-            subject: Subject::AgentOnly { agent: caller.agent, match_type: Exact },
-            effect: Allow,
-            actions: [Action::All],
-            template: None,
-            priority: i32::MAX,   // 最高优先级
+    agent_id = caller.agent
+
+    // creator_id 优先级：Caller 携带的 > 静态配置的
+    let effective_creator_id = if !caller.creator_id.is_empty() {
+        caller.creator_id.clone()                              // Caller 提供时优先使用
+    } else {
+        agent_creators.get(agent_id).cloned()                 // 否则回退到静态配置
+    };
+
+    if let Some(creator_id) = effective_creator_id {
+        if caller.user_id == creator_id {
+            // 短路返回：Creator 全权限，跳过后续所有规则评估
+            return Allowed { token: generate_token() }
         }
-        // 直接返回 Allowed（creator 全权限，无需后续评估）
-        return Allowed { token: generate_token() }
+    }
     ...
 ```
 
-**注意**：Creator Rule 的 `Action::All` 是一个新的"万能 Action"类型，用于表示"所有操作均允许"。其匹配逻辑返回 `true` for all requests。
+**说明**：
+- Creator Rule 采用**短路返回**机制，不依赖 `Action::All` 进行规则匹配评估。
+- `Caller.creator_id` 优先于 `agent_creators` 静态配置，支持动态场景（如动态创建的 session agent）。
+- 若无 `Caller.creator_id` 且 `agent_creators` 中无对应条目，视为普通用户。
 
 ### 5.4 与显式规则的优先级
 
@@ -637,9 +665,15 @@ async fn evaluate(&self, request: PermissionRequest) -> PermissionResponse {
     let agent_id = request.agent_id();
     let ruleset  = self.rules.read().await;
 
-    // ---- Step 0: Creator Rule（最高优先级）----
-    if let Some(creator_id) = ruleset.agent_creators.get(agent_id) {
-        if caller.user_id == *creator_id {
+    // ---- Step 0: Creator Rule（最高优先级，短路返回）----
+    // Caller.creator_id 优先于静态配置
+    let effective_creator_id = if !caller.creator_id.is_empty() {
+        Some(caller.creator_id.as_str())
+    } else {
+        ruleset.agent_creators.get(agent_id).map(|s| s.as_str())
+    };
+    if let Some(creator_id) = effective_creator_id {
+        if caller.user_id == creator_id {
             return PermissionResponse::Allowed { token: generate_token() };
         }
     }
@@ -796,12 +830,13 @@ docs/permission/
 // src/permission/engine.rs
 
 /// A special action that matches ALL permission requests.
-/// Used exclusively for Creator Rules to grant full access.
+/// Used for admin/operator full-access rules; NOT used by Creator Rule
+/// (Creator Rule uses short-circuit return in evaluate(), see §5.3).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Action {
     // ... existing variants ...
     
-    /// Matches any permission request. Used for admin/creator full-access rules.
+    /// Matches any permission request. Used for admin/operator full-access rules.
     All,
 }
 ```
@@ -961,6 +996,22 @@ pub enum Action {
 
 ### 10.3 Creator Rule 生效示例
 
+**路径 A — Caller 携带 creator_id（优先）**：
+
+```json
+{
+  "caller": { "user_id": "ou_john_creator", "agent": "dev-agent-01", "creator_id": "ou_john_creator" },
+  "type": "command_exec",
+  "agent": "dev-agent-01",
+  "cmd": "rm",
+  "args": ["-rf", "/"]
+}
+```
+
+→ `Caller.creator_id` 非空，优先使用 → `caller.user_id == creator_id` → **短路返回 Allowed**
+
+**路径 B — 静态配置 fallback**：
+
 ```json
 {
   "caller": { "user_id": "ou_john_creator", "agent": "dev-agent-01" },
@@ -971,7 +1022,7 @@ pub enum Action {
 }
 ```
 
-→ `agent_creators["dev-agent-01"] == "ou_john_creator"` 匹配 → Creator Rule 生效 → **Allowed**（无论其他规则如何配置）
+→ `Caller.creator_id` 为空，回退查 `agent_creators["dev-agent-01"] == "ou_john_creator"` → **Allowed**
 
 ---
 
@@ -981,14 +1032,12 @@ pub enum Action {
 - [ ] 实现 `Caller` 结构及 `PermissionRequest` 包装枚举（`WithCaller` / `Bare`）
 - [ ] 添加 `user_agent_rule_index: HashMap<String, Vec<usize>>` 到 `PermissionEngine`
 - [ ] 改造 `rebuild_indices()` 支持 User+Agent 复合索引
-- [ ] 在 `evaluate()` 中实现 Creator Rule 检测（Step 0）
+- [ ] 在 `evaluate()` 中实现 Creator Rule 短路逻辑（`Caller.creator_id` > `agent_creators` 配置，优先级递减）
 - [ ] 实现模板系统 `templates.rs`（`Template`、`load_templates`、`expand_inheritance`）
 - [ ] 实现 `apply_template_ref()`（模板组合与 overrides）
 - [ ] 在 `RuleSetBuilder` 中添加 `subject_user_and_agent()` 方法
 - [ ] 在 `RuleBuilder` 中添加相应方法
-- [ ] 添加 `Action::All` 变体
-- [ ] 更新 `rule_matches_request()` 支持 `Action::All`
-- [ ] 更新 `default_deny()` 处理新增 Action 类型
+- [ ] 在 `Rule::validate()` 中实现 `actions` / `template` 互斥校验
 - [ ] 编写 `user_scope_test.rs` 测试用例
 - [ ] 验证所有现有测试套件通过（零回归）
-- [ ] 更新 `docs/permission/OVERVIEW.md` 反映新增架构
+- [ ] 创建/更新 `docs/permission/OVERVIEW.md` 反映新增架构

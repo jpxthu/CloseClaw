@@ -5,11 +5,12 @@
 ## Next（当前 Sprint）
 
 - [ ] **Permission Engine 用户维度支持** — 权限配置
-  - `subject: user_id` 规则类型
-  - 用户级别权限（完整权限 vs 咨询权限）
-  - 架构要模块化，方便后续细化
+  - 设计文档：`docs/permission/PERMISSION_USER_SCOPE.md` ✅
+  - `Subject::UserAndAgent` 双重匹配
+  - 权限模板系统（`templates/` 目录）
+  - Creator Rule 短路逻辑
   - **必须配套写测试**
-  → **待细化**：需要找你确认权限粒度和矩阵
+  → 已完成需求确认，设计文档已 review ✅
 
 ## Later（低优，可直接开动）
 
