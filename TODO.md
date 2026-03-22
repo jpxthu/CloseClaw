@@ -28,6 +28,7 @@
 - [ ] **Streaming 逐条渲染** — CLI 输出时 streaming 响应要逐条显示，不能等全部完成才看到
 - [ ] **代码块 markdown 渲染** — CLI 和 IM 输出中代码块要正确渲染，不是普通文字
 - [ ] **Phase 11 日志与审计系统** — 所有权限判断、agent 操作、错误均有日志记录，支持查询和导出
+- [ ] **OpenClaw 配置热重载** — 改 openclaw.json 不应断开当前 session，gateway 应支持在线重载配置
 
 ## 待细化（需先和你对清楚）
 

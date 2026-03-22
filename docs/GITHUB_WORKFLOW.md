@@ -148,6 +148,17 @@ tests/
 > 禁止在 `tests/` 根目录创建新的针对单个模块的测试文件。
 > 单元测试应放在 `src/<module>/tests.rs` 或 `src/<module>/<file>.rs` 的 `#[cfg(test)] mod tests` 中。
 
+### 文档同步原则（必须遵守）
+
+> **文档与代码对齐，是必须的开发原则，不可省略。**
+
+- **Commit 前必检查**：每次代码 commit 前，必须检查对应文档是否需要同步更新
+- **改动必更新文档**：功能、架构、流程的任何改动，必须先更新文档再提交 commit
+- **定期巡检**：不定期运行 sub-agent 扫描代码库，验证文档与代码是否一致（方案 A：并行分块扫；方案 B：专用 survey skill）
+- **文档即代码**：模块的 `docs/<module>/README.md` 是该模块的档案，扫代码时同步更新
+
+违反此原则的代码提交，不符合开发规范。
+
 ## Issue Reply Rules
 
 - **署名**：`— Vibe虾 🦐` 或 `— CloseClaw Bot`
