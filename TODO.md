@@ -1,60 +1,35 @@
 # TODO — CloseClaw
 
-## Next（当前 Sprint）
+> 本文件的职责：记录 CloseClaw 项目的功能、bug、改进任务。**完成工作后立即更新此处**。
 
-- [ ] **Chat 命令** — 本地 CLI 直连 daemon，不依赖 IM
-  - TCP localhost 监听（127.0.0.1:18889）
-  - JSON over TCP 协议
-  - `closeclaw chat` CLI 客户端
-  - 默认启动 guide agent
-  - **必须配套写测试**
+## Next（当前 Sprint）
 
 - [ ] **Permission Engine 用户维度支持** — 权限配置
   - `subject: user_id` 规则类型
   - 用户级别权限（完整权限 vs 咨询权限）
   - 架构要模块化，方便后续细化
   - **必须配套写测试**
+  → **待细化**：需要找你确认权限粒度和矩阵
 
-## Later（待讨论/低优）
+## Later（低优，可直接开动）
 
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs`
-- [ ] **Feishu webhook server** — 让 daemon 能接收飞书消息
-- [ ] **Graceful shutdown drain 逻辑** — 等 agent 任务完成再退出
 - [ ] **`closeclaw stop -f`** — 强制关闭模式
-- [ ] **Agent 间通信** — 群聊中互相 @ 对话（低优，需进一步讨论）
 - [ ] **Hot config reload** — `agents.json` 变更热重载
-- [ ] **接入 LLM provider** — OpenAI / Anthropic / MiniMax 实际调用
 
-## 测试规范
+## 待细化（需先和你对清楚）
 
-- 每个功能改动必须写测试，不能只写实现
-- 测试按模块分散到 `src/<module>/tests.rs`，不允许全部堆在 `tests/` 根目录
-- `tests/` 根目录只放集成测试和冒烟测试
+- [ ] **Permission Engine 用户维度支持** — 见 Next 第一项
+- [ ] **多 IM 适配器优先级** — 企业微信/QQ/钉钉，先做哪个？
+- [ ] **Skill 系统设计** — skill review 机制要不要开？
 
-## 功能体验（来自用户反馈）
+## 待讨论（需先和你讨论）
 
-### 必须做（核心体验）
-| 功能 | 说明 |
-|------|------|
-| 私聊/群聊 @ 机器人触发对话 | CloseClaw 必须实现 |
-| "敲键盘" 状态 emoji | Feishu webhook 需要 |
-| `/new` 开新会话 | thread 隔离上下文 |
-
-### 避免踩坑（来自 OpenClaw 体验差的问题）
-| 问题 | CloseClaw 对策 |
-|------|--------------|
-| 代码块显示为普通文字 | 确认 markdown 渲染正确 |
-| 私聊和话题混在一起 | 设计好 thread 模型 |
-| 流式输出只看到最后一条 | streaming 逐条渲染 |
-| 指令执行中 restart 丢消息 | graceful shutdown |
-| 主动消息收不到 | 需要测试验证 |
-
-### 权限配置（用户维度）
-```
-员工 A → 完整权限（文件变更、配置变更、agent 管理）
-员工 B/C/D → 咨询权限（只读，不能变更）
-```
-> 硬性规则形式，不是 prompt。模块化架构预留。
+- [ ] **Feishu webhook server** — 让 daemon 能接收飞书消息（"敲键盘"状态 emoji 依赖此功能）
+- [ ] **Graceful shutdown drain 逻辑** — 等 agent 任务完成再退出
+- [ ] **Agent 间通信** — 群聊中互相 @ 对话
+- [ ] **私聊/群聊 @ 机器人触发对话** — thread 模型设计
+- [ ] **`/new` 开新会话** — thread 隔离上下文
 
 ## 已完成 ✅
 
