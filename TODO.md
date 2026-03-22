@@ -40,6 +40,7 @@
 - [ ] **Agent 间通信** — 群聊中互相 @ 对话
 - [ ] **私聊/群聊 @ 机器人触发对话** — thread 模型设计
 - [ ] **`/new` 开新会话** — thread 隔离上下文
+- [ ] **配置版本管理** — OpenClaw workspace 配置（skills、agent settings）导出、Git 跟踪、跨机器同步
 
 ## 已完成 ✅
 
