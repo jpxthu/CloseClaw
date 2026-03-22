@@ -5,6 +5,7 @@
 
 pub mod shutdown;
 
+use crate::audit::{AuditEvent, AuditEventBuilder, AuditLogger, AuditResult, AuditEventType};
 use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::providers::ConfigProvider;
@@ -13,7 +14,7 @@ use crate::im::feishu::FeishuAdapter;
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, error};
 
 /// Global daemon state
 pub struct Daemon {
@@ -23,6 +24,8 @@ pub struct Daemon {
     pub shutdown: shutdown::ShutdownHandle,
     /// Chat TCP server (runs as background task)
     pub chat_server: Arc<ChatServer>,
+    /// Audit logger for structured audit logging
+    pub audit_logger: Arc<AuditLogger>,
 }
 
 impl Daemon {
@@ -75,6 +78,38 @@ impl Daemon {
         });
         info!(addr = "127.0.0.1:18889", "chat TCP server spawned");
 
+        // Initialize audit logger
+        let audit_logger = Arc::new(AuditLogger::new());
+
+        // Log daemon start as a config reload event
+        let start_event = AuditEventBuilder::new(AuditEventType::ConfigReload)
+            .details(serde_json::json!({
+                "component": "daemon",
+                "version": env!("CARGO_PKG_VERSION"),
+                "config_dir": config_dir,
+            }))
+            .result(AuditResult::Allow)
+            .build();
+        let audit_logger_for_start = Arc::clone(&audit_logger);
+        tokio::spawn(async move {
+            audit_logger_for_start.log(start_event).await;
+            audit_logger_for_start.flush().await;
+        });
+
+        // Spawn background flush task
+        let audit_for_flush = Arc::clone(&audit_logger);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        audit_for_flush.rotate_if_needed().await;
+                        audit_for_flush.flush().await;
+                    }
+                }
+            }
+        });
+
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -86,6 +121,7 @@ impl Daemon {
             permission_engine,
             shutdown,
             chat_server,
+            audit_logger,
         })
     }
 
@@ -134,6 +170,88 @@ impl Daemon {
         tokio::signal::ctrl_c().await?;
         info!("Received Ctrl+C, initiating shutdown...");
         self.shutdown.initiate_shutdown().await;
+        // Flush audit logs before exit
+        self.shutdown_audit().await;
         Ok(())
+    }
+
+    /// Evaluate a permission request and log the result to the audit log
+    pub async fn evaluate_with_audit(
+        &self,
+        request: crate::permission::PermissionRequest,
+    ) -> crate::permission::PermissionResponse {
+        let caller = request.caller().clone();
+        let agent_id = caller.agent.clone();
+        let response = self.permission_engine.evaluate(request.clone());
+
+        let result = match &response {
+            crate::permission::PermissionResponse::Allowed { .. } => AuditResult::Allow,
+            crate::permission::PermissionResponse::Denied { .. } => AuditResult::Deny,
+        };
+
+        let event = AuditEventBuilder::new(AuditEventType::PermissionCheck)
+            .details(serde_json::json!({
+                "agent": agent_id,
+                "user_id": caller.user_id,
+                "request": request.body(),
+            }))
+            .result(result)
+            .build();
+
+        let logger = Arc::clone(&self.audit_logger);
+        tokio::spawn(async move {
+            logger.log(event).await;
+        });
+
+        response
+    }
+
+    /// Log an agent start event
+    pub async fn log_agent_start(&self, agent_id: &str, model: &str) {
+        let event = AuditEventBuilder::new(AuditEventType::AgentStart)
+            .details(serde_json::json!({
+                "agent": agent_id,
+                "model": model,
+            }))
+            .result(AuditResult::Allow)
+            .build();
+        let logger = Arc::clone(&self.audit_logger);
+        tokio::spawn(async move {
+            logger.log(event).await;
+        });
+    }
+
+    /// Log an agent stop event
+    pub async fn log_agent_stop(&self, agent_id: &str) {
+        let event = AuditEventBuilder::new(AuditEventType::AgentStop)
+            .details(serde_json::json!({
+                "agent": agent_id,
+            }))
+            .result(AuditResult::Allow)
+            .build();
+        let logger = Arc::clone(&self.audit_logger);
+        tokio::spawn(async move {
+            logger.log(event).await;
+        });
+    }
+
+    /// Log an agent error event
+    pub async fn log_agent_error(&self, agent_id: &str, error: &str) {
+        let event = AuditEventBuilder::new(AuditEventType::AgentError)
+            .details(serde_json::json!({
+                "agent": agent_id,
+                "error": error,
+            }))
+            .result(AuditResult::Error)
+            .build();
+        let logger = Arc::clone(&self.audit_logger);
+        tokio::spawn(async move {
+            logger.log(event).await;
+        });
+    }
+
+    /// Shutdown the audit logger (flush remaining events)
+    pub async fn shutdown_audit(&self) {
+        self.audit_logger.shutdown().await;
     }
 }

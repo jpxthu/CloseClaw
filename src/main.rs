@@ -52,6 +52,11 @@ enum Commands {
         #[command(flatten)]
         chat_opts: closeclaw::cli::chat::ChatCommand,
     },
+    /// Audit log query and export
+    Audit {
+        #[command(subcommand)]
+        action: AuditAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -112,6 +117,34 @@ enum SkillAction {
     },
 }
 
+#[derive(Subcommand)]
+enum AuditAction {
+    /// Query audit logs
+    Query {
+        /// Number of past days to search (default: 1)
+        #[arg(long, default_value = "1")]
+        days: u32,
+        /// Filter by event type (e.g. "permission_check", "agent_start")
+        #[arg(long)]
+        event_type: Option<String>,
+        /// Filter by agent name
+        #[arg(long)]
+        agent: Option<String>,
+        /// Maximum number of results to return
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    /// Export audit logs to a file
+    Export {
+        /// Output file path
+        #[arg(long)]
+        output: String,
+        /// Export format: json or jsonl (default: json)
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     closeclaw::init();
@@ -142,6 +175,9 @@ async fn main() -> Result<()> {
         }
         Commands::Chat { chat_opts } => {
             chat_opts.run().await?;
+        }
+        Commands::Audit { action } => {
+            handle_audit(action).await?;
         }
     }
 
@@ -212,6 +248,45 @@ async fn handle_skill(action: SkillAction) -> Result<()> {
         SkillAction::Install { name } => {
             println!("Installing skill: {}", name);
             // TODO: Install skill
+        }
+    }
+    Ok(())
+}
+
+async fn handle_audit(action: AuditAction) -> Result<()> {
+    use closeclaw::audit::{export_audit_events, query_audit_events, AuditQueryFilter};
+
+    match action {
+        AuditAction::Query { days, event_type, agent, limit } => {
+            let filter = AuditQueryFilter {
+                days,
+                event_type,
+                agent,
+                limit,
+            };
+            let events = query_audit_events(&filter);
+            if events.is_empty() {
+                println!("No audit events found.");
+            } else {
+                println!("Found {} audit event(s):", events.len());
+                for event in &events {
+                    let ts = event.timestamp.format("%Y-%m-%d %H:%M:%S");
+                    let etype = format!("{:?}", event.event_type);
+                    let result_str = format!("{:?}", event.result);
+                    let details = serde_json::to_string_pretty(&event.details).unwrap_or_default();
+                    println!("  [{}] {} — {} ({})", ts, etype, result_str, details);
+                }
+            }
+        }
+        AuditAction::Export { output, format } => {
+            let filter = AuditQueryFilter {
+                days: 30,
+                event_type: None,
+                agent: None,
+                limit: None,
+            };
+            let count = export_audit_events(&filter, &output, &format)?;
+            println!("Exported {} audit event(s) to {} ({})", count, output, format);
         }
     }
     Ok(())

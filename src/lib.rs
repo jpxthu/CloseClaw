@@ -16,6 +16,7 @@ pub mod llm;
 pub mod cli;
 pub mod daemon;
 pub mod chat;
+pub mod audit;
 
 use tracing::info;
 

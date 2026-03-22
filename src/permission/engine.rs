@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::info;
 
 /// RuleSet parsed from permissions.json
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -490,6 +491,13 @@ impl PermissionEngine {
         let caller = request.caller();
         let agent_id = caller.agent.clone();
 
+        info!(
+            agent = %agent_id,
+            user_id = %caller.user_id,
+            request_type = ?request.body(),
+            "permission check initiated"
+        );
+
         // Clone rules to avoid holding reference across await
         let rules = self.rules.clone();
 
@@ -501,6 +509,7 @@ impl PermissionEngine {
         };
         if let Some(creator_id) = effective_creator_id {
             if !caller.user_id.is_empty() && caller.user_id == creator_id {
+                info!(agent = %agent_id, result = "allowed", reason = "creator_rule", "permission check completed");
                 return PermissionResponse::Allowed { token: generate_token() };
             }
         }
@@ -558,8 +567,10 @@ impl PermissionEngine {
 
             // Deny wins immediately
             if rule.effect == Effect::Deny {
+                let reason = format!("action denied by rule '{}'", rule.name);
+                info!(agent = %agent_id, result = "denied", rule = %rule.name, "permission check completed");
                 return PermissionResponse::Denied {
-                    reason: format!("action denied by rule '{}'", rule.name),
+                    reason,
                     rule: rule.name.clone(),
                 };
             }
@@ -567,11 +578,22 @@ impl PermissionEngine {
 
         // No deny found; if any rule matched, allow
         if matching_rule.is_some() {
+            info!(agent = %agent_id, result = "allowed", reason = "matched_rule", "permission check completed");
             return PermissionResponse::Allowed { token: generate_token() };
         }
 
         // ---- Step 5: Default fallback ----
-        self.default_deny(request.body(), &rules.defaults, "no matching rule")
+        let response = self.default_deny(request.body(), &rules.defaults, "no matching rule");
+        info!(
+            agent = %agent_id,
+            result = %match &response {
+                PermissionResponse::Allowed { .. } => "allowed",
+                PermissionResponse::Denied { .. } => "denied",
+            },
+            reason = "default_fallback",
+            "permission check completed"
+        );
+        response
     }
 
     /// Expand template references in candidate rules, returning expanded rule indices (sync).
