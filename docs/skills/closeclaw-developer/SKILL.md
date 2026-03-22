@@ -93,7 +93,7 @@ CloseClaw
 }
 ```
 
-完整规则格式、评估逻辑、PE 接口定义见 [references/permission-rules.md](references/permission-rules.md)。
+完整规则格式、评估逻辑、PE 接口定义见 `docs/permission/RULES.md`。
 
 ---
 
@@ -104,7 +104,7 @@ CloseClaw
 - **通信**：不共享内存，经 Registry 中转 + PE inter_agent 规则审查
 - **配置**：agents.json 定义
 
-详细层级继承、inter-agent 通信协议、配置示例见 [references/agent-model.md](references/agent-model.md)。
+Agent 组件 API 详见 `docs/agent/README.md`。详细层级继承、inter-agent 通信协议见 [references/agent-model.md](references/agent-model.md)。
 
 ---
 
@@ -166,12 +166,17 @@ src/
 
 | 文档 | 内容 |
 |------|------|
-| [references/permission-rules.md](references/permission-rules.md) | 完整权限规则格式 + 评估逻辑 + PE 接口 |
-| [references/agent-model.md](references/agent-model.md) | Agent 模型 + 层级继承 + inter-agent 通信 |
-| [references/architecture.md](references/architecture.md) | 核心组件详解 |
-| [references/config-system.md](references/config-system.md) | 配置系统 + 热重载 + 容错机制 |
-| [references/skill-system.md](references/skill-system.md) | Skill 注册 + 安全 review 机制 |
-| [references/risk-issues.md](references/risk-issues.md) | 风险表 + 团队角色 + OpenClaw 参考 |
+| [references/architecture.md](references/architecture.md) | 核心设计原则 + 组件详解 + 源码目录结构 |
+| [references/agent-model.md](references/agent-model.md) | Agent 模型 + 层级继承 + inter-agent 通信协议 |
+| [references/risk-issues.md](references/risk-issues.md) | 风险表 + 团队角色 + 术语表 + OpenClaw 参考 |
+| `docs/permission/RULES.md` | 完整权限规则格式 + 评估逻辑 + PE 接口 |
+| `docs/permission/OVERVIEW.md` | 权限系统设计概述 |
+| `docs/permission/API.md` | Permission Engine API 参考 |
+| `docs/config/README.md` | 配置系统 + 热重载 + 容错机制 |
+| `docs/agent/README.md` | Agent 组件 API（Registry / Process / State） |
+| `docs/gateway/README.md` | Gateway + IMAdapter API |
+| `docs/llm/README.md` | LLM provider 接口 |
+| `docs/daemon-graceful-shutdown.md` | Daemon Graceful Shutdown 详解 |
 | `git.md` | Git 操作规范 |
 | `cargo.md` | Cargo 命令参考 |
 | `code-style.md` | Rust 代码规范 |
@@ -179,7 +184,6 @@ src/
 
 ## 其他文档
 
-- `SPEC.md` — 完整规格文档（Phase 状态、设计细节）
 - `docs/SETUP.md` — 环境配置指南
 - `docs/WORKFLOW.md` — 开发流程
 - `docs/GITHUB_WORKFLOW.md` — GitHub Issues 驱动流程
