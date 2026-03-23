@@ -6,6 +6,9 @@
 
 - [ ] **[Bug] Drain loop bug** — busy_count 检查缺失 → [#44](https://github.com/jpxthu/CloseClaw/issues/44) (role:builder)
 - [ ] **[Bug] audit::tests::test_query_audit_events_empty_dir 回归** → [#46](https://github.com/jpxthu/CloseClaw/issues/46) (role:builder)
+- [ ] **[Bug] Creator Rule 短路条件错误** — !caller.user_id.is_empty() 检查多余 → [#47](https://github.com/jpxthu/CloseClaw/issues/47) (role:builder)
+- [ ] **[Bug] 模板系统未集成** — template 字段规则实际无效 → [#48](https://github.com/jpxthu/CloseClaw/issues/48) (role:builder)
+- [ ] **[Bug] user_scope_test.rs 测试无法编译** — evaluate() 已改为同步但测试仍用 await → [#49](https://github.com/jpxthu/CloseClaw/issues/49) (role:builder)
 - [ ] **SIGTERM handler 缺失** — closeclaw stop 无法触发 graceful shutdown → [#43](https://github.com/jpxthu/CloseClaw/issues/43) (role:builder)
 - [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:process)
 - [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
