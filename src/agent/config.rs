@@ -27,6 +27,47 @@ impl CommunicationConfig {
             inbound: parent_list,
         }
     }
+
+    /// Check if communication to `target_id` is allowed.
+    pub fn can_send_to(&self, target_id: &str) -> bool {
+        self.outbound.iter().any(|id| id == target_id || id == "*")
+    }
+
+    /// Check if communication from `source_id` is allowed.
+    pub fn can_receive_from(&self, source_id: &str) -> bool {
+        self.inbound.iter().any(|id| id == source_id || id == "*")
+    }
+}
+
+/// Result of a communication permission check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommunicationCheckResult {
+    /// Communication is allowed.
+    Allowed,
+    /// Source agent not in target's inbound list.
+    SourceNotInTargetInbound,
+    /// Target agent not in source's outbound list.
+    TargetNotInSourceOutbound,
+}
+
+/// Check if communication from source to target is allowed.
+/// Returns the result of the central arbiter logic.
+pub fn check_communication_allowed(
+    source_config: &AgentConfig,
+    target_config: &AgentConfig,
+) -> CommunicationCheckResult {
+    // Step 1: Check if target is in source's outbound list
+    if !source_config.communication.can_send_to(&target_config.id) {
+        return CommunicationCheckResult::TargetNotInSourceOutbound;
+    }
+
+    // Step 2: Check if source is in target's inbound list
+    if !target_config.communication.can_receive_from(&source_config.id) {
+        return CommunicationCheckResult::SourceNotInTargetInbound;
+    }
+
+    // Both checks passed — communication allowed
+    CommunicationCheckResult::Allowed
 }
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
@@ -218,5 +259,105 @@ mod tests {
         let without_parent = CommunicationConfig::default_with_parent(None);
         assert!(without_parent.outbound.is_empty());
         assert!(without_parent.inbound.is_empty());
+    }
+
+    #[test]
+    fn test_communication_allowed() {
+        let parent = AgentConfig {
+            id: "parent-1".to_string(),
+            name: "Parent".to_string(),
+            parent_id: None,
+            max_child_depth: 2,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: CommunicationConfig {
+                outbound: vec!["child-1".to_string()],
+                inbound: vec!["child-1".to_string()],
+            },
+        };
+
+        let child = AgentConfig {
+            id: "child-1".to_string(),
+            name: "Child".to_string(),
+            parent_id: Some("parent-1".to_string()),
+            max_child_depth: 1,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: CommunicationConfig::default_with_parent(Some("parent-1")),
+        };
+
+        // Parent -> Child should be allowed
+        let result = check_communication_allowed(&parent, &child);
+        assert_eq!(result, CommunicationCheckResult::Allowed);
+
+        // Child -> Parent should be allowed
+        let result = check_communication_allowed(&child, &parent);
+        assert_eq!(result, CommunicationCheckResult::Allowed);
+    }
+
+    #[test]
+    fn test_communication_denied_outbound() {
+        let agent_a = AgentConfig {
+            id: "agent-a".to_string(),
+            name: "Agent A".to_string(),
+            parent_id: None,
+            max_child_depth: 2,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: CommunicationConfig {
+                outbound: vec!["agent-b".to_string()],
+                inbound: vec!["agent-b".to_string()],
+            },
+        };
+
+        let agent_c = AgentConfig {
+            id: "agent-c".to_string(),
+            name: "Agent C".to_string(),
+            parent_id: None,
+            max_child_depth: 2,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: CommunicationConfig {
+                outbound: vec![],
+                inbound: vec![],
+            },
+        };
+
+        // Agent A -> Agent C: A's outbound doesn't contain C
+        let result = check_communication_allowed(&agent_a, &agent_c);
+        assert_eq!(result, CommunicationCheckResult::TargetNotInSourceOutbound);
+    }
+
+    #[test]
+    fn test_communication_denied_inbound() {
+        let agent_a = AgentConfig {
+            id: "agent-a".to_string(),
+            name: "Agent A".to_string(),
+            parent_id: None,
+            max_child_depth: 2,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: CommunicationConfig {
+                outbound: vec!["agent-b".to_string()],
+                inbound: vec!["agent-b".to_string()],
+            },
+        };
+
+        let agent_b = AgentConfig {
+            id: "agent-b".to_string(),
+            name: "Agent B".to_string(),
+            parent_id: None,
+            max_child_depth: 2,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: CommunicationConfig {
+                outbound: vec![],
+                inbound: vec![], // B doesn't accept inbound from anyone
+            },
+        };
+
+        // Agent A -> Agent B: A's outbound contains B, but B's inbound doesn't contain A
+        let result = check_communication_allowed(&agent_a, &agent_b);
+        assert_eq!(result, CommunicationCheckResult::SourceNotInTargetInbound);
     }
 }
