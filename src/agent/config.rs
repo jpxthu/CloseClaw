@@ -70,6 +70,57 @@ pub fn check_communication_allowed(
     CommunicationCheckResult::Allowed
 }
 
+/// Result of a max_depth permission check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MaxDepthCheckResult {
+    /// Agent can spawn children at this depth.
+    Allowed { current_depth: u32, max_allowed: u32 },
+    /// Agent cannot spawn: would exceed max_child_depth.
+    ExceedsMaxDepth { current_depth: u32, max_child_depth: u32 },
+}
+
+/// Check if an agent can spawn a child at the proposed depth.
+/// 
+/// `get_parent` is a callback that returns the parent agent's config given its ID.
+/// Returns the result of the depth check.
+pub fn check_max_depth<F>(agent_config: &AgentConfig, get_parent: F) -> MaxDepthCheckResult
+where
+    F: Fn(&str) -> Option<AgentConfig>,
+{
+    // Calculate current depth by traversing up the parent chain
+    let mut current_depth = 0u32;
+    let mut current_parent_id = agent_config.parent_id.clone();
+
+    while let Some(parent_id) = current_parent_id {
+        if parent_id.is_empty() {
+            break;
+        }
+        if let Some(parent) = get_parent(&parent_id) {
+            current_depth += 1;
+            current_parent_id = parent.parent_id.clone();
+        } else {
+            break;
+        }
+    }
+
+    let max_child_depth = agent_config.max_child_depth;
+
+    if current_depth >= max_child_depth {
+        MaxDepthCheckResult::ExceedsMaxDepth {
+            current_depth,
+            max_child_depth,
+        }
+    } else {
+        // max_child_depth is the absolute maximum depth from this agent as root
+        // So the child can go up to max_child_depth - 1 more levels
+        let max_allowed = max_child_depth.saturating_sub(1);
+        MaxDepthCheckResult::Allowed {
+            current_depth,
+            max_allowed,
+        }
+    }
+}
+
 /// Agent's own configuration (stored as config.json in the agent's directory).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentConfig {
@@ -359,5 +410,77 @@ mod tests {
         // Agent A -> Agent B: A's outbound contains B, but B's inbound doesn't contain A
         let result = check_communication_allowed(&agent_a, &agent_b);
         assert_eq!(result, CommunicationCheckResult::SourceNotInTargetInbound);
+    }
+
+    #[test]
+    fn test_max_depth_allowed() {
+        // Root agent with max_child_depth=3, currently at depth 0
+        let root = AgentConfig {
+            id: "root".to_string(),
+            name: "Root".to_string(),
+            parent_id: None,
+            max_child_depth: 3,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: Default::default(),
+        };
+
+        // No parents, so depth = 0, max_child_depth = 3
+        // Can spawn (0 < 3), max_allowed for child = 2
+        let result = check_max_depth(&root, |_: &str| None);
+        match result {
+            MaxDepthCheckResult::Allowed { current_depth, max_allowed } => {
+                assert_eq!(current_depth, 0);
+                assert_eq!(max_allowed, 2); // 3 - 1
+            }
+            _ => panic!("expected Allowed"),
+        }
+    }
+
+    #[test]
+    fn test_max_depth_exceeded() {
+        // Agent at depth 3, max_child_depth=2 (already exceeded!)
+        let leaf = AgentConfig {
+            id: "leaf".to_string(),
+            name: "Leaf".to_string(),
+            parent_id: Some("parent".to_string()),
+            max_child_depth: 2,
+            created_at: Utc::now(),
+            state: AgentConfigState::Running,
+            communication: Default::default(),
+        };
+
+        // Simulate: root -> child1 -> child2 -> leaf (depth 3)
+        let get_parent = |id: &str| match id {
+            "parent" => Some(AgentConfig {
+                id: "parent".to_string(),
+                name: "Parent".to_string(),
+                parent_id: Some("grandparent".to_string()),
+                max_child_depth: 2,
+                created_at: Utc::now(),
+                state: AgentConfigState::Running,
+                communication: Default::default(),
+            }),
+            "grandparent" => Some(AgentConfig {
+                id: "grandparent".to_string(),
+                name: "Grandparent".to_string(),
+                parent_id: None,
+                max_child_depth: 3,
+                created_at: Utc::now(),
+                state: AgentConfigState::Running,
+                communication: Default::default(),
+            }),
+            _ => None,
+        };
+
+        let result = check_max_depth(&leaf, get_parent);
+        match result {
+            MaxDepthCheckResult::ExceedsMaxDepth { current_depth, max_child_depth } => {
+                // leaf has 2 ancestors (parent + grandparent) = depth 2
+                assert_eq!(current_depth, 2);
+                assert_eq!(max_child_depth, 2);
+            }
+            _ => panic!("expected ExceedsMaxDepth"),
+        }
     }
 }
