@@ -14,7 +14,7 @@
 
 ## Later（低优，可直接开动）
 
-- [ ] **`closeclaw chat`** — 本地 CLI 直连 daemon，TCP localhost，不依赖 IM
+- [x] **`closeclaw chat`** — 本地 CLI 直连 daemon，TCP localhost，不依赖 IM ✅
   - `closeclaw chat` REPL 交互模式
   - `closeclaw chat -m "msg"` 单消息模式
   - JSON over TCP 协议
@@ -65,13 +65,19 @@
 
 ## 待实现（设计明确，可自行开始）
 
-- [ ] **Agent 配置文件结构** — 定义 `config.json` 和 `permissions.json` 的完整字段和类型
-- [ ] **Agent 配置文件加载/保存** — Config System 扩展支持 agents 子目录
-- [ ] **Permission Check API** — `PermissionEngine.check(agent_id, action)` 接口定义
-- [ ] **Communication List 检查** — CloseClaw 中央仲裁逻辑实现
-- [ ] **max_depth 校验逻辑** — Agent 创建时检查层级深度
-- [ ] **Agent Registry 扩展** — 支持 parent_id 层级关系
-- [ ] **permission_skill 内置 SKILL** — 让 Agent 能查询自己的权限
+- (已全部完成 ✅ — 见下方 Commit)
+
+## 已完成（来自待实现列表）✅
+
+| 功能 | Commit |
+|------|--------|
+| Agent 配置文件结构定义 | d8a4d3f |
+| Agent 配置文件加载/保存 | 5e33754 |
+| PermissionEngine.check(agent_id, action) API | ddaa453 |
+| Communication List 中央仲裁逻辑 | 14cee8c |
+| max_depth 层级校验逻辑 | 0b88aac |
+| AgentRegistry parent_id 层级支持 | 5fa8a87 |
+| permission_query 内置 SKILL | 91a2edd |
 
 ## 已完成 ✅
 
