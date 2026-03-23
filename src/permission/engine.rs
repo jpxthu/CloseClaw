@@ -486,6 +486,60 @@ impl PermissionEngine {
         self.templates = templates;
     }
 
+    /// Simplified permission check — evaluates if `agent_id` may perform `action`.
+    ///
+    /// `action` is one of: "exec", "file_read", "file_write", "network",
+    /// "spawn", "tool_call", "config_write".
+    ///
+    /// Uses a bare request (no caller user context) and wildcard arguments
+    /// to check the coarse-grained permission.
+    pub fn check(&self, agent_id: &str, action: &str) -> PermissionResponse {
+        let body = match action {
+            "exec" => PermissionRequestBody::CommandExec {
+                agent: agent_id.to_string(),
+                cmd: "*".to_string(),
+                args: Vec::new(),
+            },
+            "file_read" => PermissionRequestBody::FileOp {
+                agent: agent_id.to_string(),
+                path: "*".to_string(),
+                op: "read".to_string(),
+            },
+            "file_write" => PermissionRequestBody::FileOp {
+                agent: agent_id.to_string(),
+                path: "*".to_string(),
+                op: "write".to_string(),
+            },
+            "network" => PermissionRequestBody::NetOp {
+                agent: agent_id.to_string(),
+                host: "*".to_string(),
+                port: 0,
+            },
+            "spawn" => PermissionRequestBody::InterAgentMsg {
+                from: agent_id.to_string(),
+                to: "*".to_string(),
+            },
+            "tool_call" => PermissionRequestBody::ToolCall {
+                agent: agent_id.to_string(),
+                skill: "*".to_string(),
+                method: "*".to_string(),
+            },
+            "config_write" => PermissionRequestBody::ConfigWrite {
+                agent: agent_id.to_string(),
+                config_file: "*".to_string(),
+            },
+            // Unknown action — deny by default
+            _ => {
+                return PermissionResponse::Denied {
+                    reason: format!("unknown action: {}", action),
+                    rule: "<check>".to_string(),
+                };
+            }
+        };
+
+        self.evaluate(PermissionRequest::Bare(body))
+    }
+
     /// Evaluate a permission request
     pub fn evaluate(&self, request: PermissionRequest) -> PermissionResponse {
         let caller = request.caller();
