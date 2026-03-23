@@ -11,6 +11,7 @@ use crate::config::agents::AgentsConfigProvider;
 use crate::config::providers::ConfigProvider;
 use crate::gateway::{Gateway, GatewayConfig};
 use crate::im::feishu::FeishuAdapter;
+use crate::llm::{LLMRegistry, MiniMaxProvider, OpenAIProvider, AnthropicProvider};
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -86,8 +87,34 @@ impl Daemon {
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
 
+        // Initialize LLM registry
+        let llm_registry = Arc::new(LLMRegistry::new());
+
+        // Register available LLM providers based on environment variables
+        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
+            if !api_key.is_empty() {
+                let provider = Arc::new(OpenAIProvider::new(api_key));
+                llm_registry.register("openai".to_string(), provider).await;
+                info!("OpenAI provider registered");
+            }
+        }
+        if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
+            if !api_key.is_empty() {
+                let provider = Arc::new(AnthropicProvider::new(api_key));
+                llm_registry.register("anthropic".to_string(), provider).await;
+                info!("Anthropic provider registered");
+            }
+        }
+        if let Ok(api_key) = std::env::var("MINIMAX_API_KEY") {
+            if !api_key.is_empty() {
+                let provider = Arc::new(MiniMaxProvider::new(api_key));
+                llm_registry.register("minimax".to_string(), provider).await;
+                info!("MiniMax provider registered");
+            }
+        }
+
         // Initialize and spawn chat TCP server
-        let chat_server = Arc::new(ChatServer::new());
+        let chat_server = Arc::new(ChatServer::new(Arc::clone(&llm_registry)));
         let chat_server_for_task = Arc::clone(&chat_server);
         let shutdown_rx = shutdown.subscribe_drain();
         tokio::spawn(async move {

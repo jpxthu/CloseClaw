@@ -1,6 +1,8 @@
 //! Chat TCP server — accepts connections and dispatches to sessions
 
 use crate::chat::session::ChatSession;
+use crate::llm::LLMRegistry;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{error, info};
@@ -12,13 +14,18 @@ const CHAT_BIND_ADDR: &str = "127.0.0.1:18889";
 pub struct ChatServer {
     /// Shutdown broadcast channel
     shutdown_tx: broadcast::Sender<()>,
+    /// LLM registry for chat completions
+    llm_registry: Arc<LLMRegistry>,
 }
 
 impl ChatServer {
-    /// Create a new ChatServer
-    pub fn new() -> Self {
+    /// Create a new ChatServer with the given LLM registry
+    pub fn new(llm_registry: Arc<LLMRegistry>) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
-        Self { shutdown_tx }
+        Self {
+            shutdown_tx,
+            llm_registry,
+        }
     }
 
     /// Run the server — accepts connections until `shutdown_rx` is triggered
@@ -33,6 +40,7 @@ impl ChatServer {
                         Ok((stream, addr)) => {
                             let session_id = uuid::Uuid::new_v4().to_string();
                             let shutdown_rx = self.shutdown_tx.subscribe();
+                            let llm_registry = Arc::clone(&self.llm_registry);
                             info!(session_id = %session_id, client = %addr, "new chat connection");
 
                             tokio::spawn(async move {
@@ -41,6 +49,7 @@ impl ChatServer {
                                     "default".to_string(),
                                     stream,
                                     shutdown_rx,
+                                    llm_registry,
                                 );
                                 session.run().await;
                             });
@@ -69,11 +78,11 @@ impl ChatServer {
 
 impl Default for ChatServer {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arc::new(LLMRegistry::new()))
     }
 }
 
 /// Spawn the chat server as a background task, returning a handle to it
-pub fn spawn_chat_server() -> ChatServer {
-    ChatServer::new()
+pub fn spawn_chat_server(llm_registry: Arc<LLMRegistry>) -> ChatServer {
+    ChatServer::new(llm_registry)
 }

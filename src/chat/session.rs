@@ -1,6 +1,8 @@
 //! Per-connection chat session state
 
 use crate::chat::protocol::{ClientMessage, ServerMessage};
+use crate::llm::{ChatRequest, LLMRegistry, Message};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{debug, error, info, warn};
@@ -19,6 +21,14 @@ pub struct ChatSession {
     active: bool,
     /// Shutdown signal receiver
     shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+    /// LLM registry for chat completions
+    llm_registry: Arc<LLMRegistry>,
+    /// Default LLM provider name
+    llm_provider: String,
+    /// Default model name
+    model: String,
+    /// Chat history for context
+    chat_history: Vec<Message>,
 }
 
 impl ChatSession {
@@ -28,6 +38,7 @@ impl ChatSession {
         agent_id: String,
         stream: TcpStream,
         shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+        llm_registry: Arc<LLMRegistry>,
     ) -> Self {
         let (reader, writer) = stream.into_split();
         let reader = BufReader::new(reader);
@@ -39,6 +50,10 @@ impl ChatSession {
             writer,
             active: true,
             shutdown_rx,
+            llm_registry,
+            llm_provider: std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "minimax".to_string()),
+            model: std::env::var("LLM_MODEL").unwrap_or_else(|_| "MiniMax-M2.5".to_string()),
+            chat_history: Vec::new(),
         }
     }
 
@@ -122,11 +137,39 @@ impl ChatSession {
             }
             ClientMessage::ChatMessage { content, id } => {
                 info!(session_id = %self.session_id, content_len = %content.len(), id = %id, "chat message received");
-                Some(ServerMessage::ChatResponse {
-                    content: format!("[echo] {}", content),
-                    done: false,
-                    id,
-                })
+
+                // Add user message to history
+                self.chat_history.push(Message {
+                    role: "user".to_string(),
+                    content: content.clone(),
+                });
+
+                // Call LLM
+                let response = self.call_llm(&content, &id).await;
+
+                // Add assistant response to history
+                if let Ok(ref resp) = response {
+                    self.chat_history.push(Message {
+                        role: "assistant".to_string(),
+                        content: resp.clone(),
+                    });
+                }
+
+                match response {
+                    Ok(content) => Some(ServerMessage::ChatResponse {
+                        content,
+                        done: false,
+                        id,
+                    }),
+                    Err(e) => {
+                        error!(session_id = %self.session_id, error = %e, "LLM call failed");
+                        Some(ServerMessage::ChatResponse {
+                            content: format!("[error] LLM call failed: {}", e),
+                            done: false,
+                            id,
+                        })
+                    }
+                }
             }
             ClientMessage::ChatStop { id } => {
                 info!(session_id = %self.session_id, id = %id, "session stop requested");
@@ -134,6 +177,47 @@ impl ChatSession {
                 Some(ServerMessage::ChatResponseDone { id })
             }
         }
+    }
+
+    /// Call the LLM with the user's message and return the response content
+    async fn call_llm(&self, _content: &str, id: &str) -> anyhow::Result<String> {
+        let provider = self.llm_registry.get(&self.llm_provider).await;
+
+        let provider = match provider {
+            Some(p) => p,
+            None => {
+                // Fallback: try any available provider
+                let providers = self.llm_registry.list().await;
+                if providers.is_empty() {
+                    return Err(anyhow::anyhow!("no LLM providers configured"));
+                }
+                self.llm_registry
+                    .get(&providers[0])
+                    .await
+                    .ok_or_else(|| anyhow::anyhow!("provider not found"))?
+            }
+        };
+
+        let request = ChatRequest {
+            model: self.model.clone(),
+            messages: self.chat_history.clone(),
+            temperature: 0.7,
+            max_tokens: Some(2048),
+        };
+
+        let response = provider
+            .chat(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
+
+        debug!(
+            session_id = %self.session_id,
+            model = %response.model,
+            usage = ?response.usage,
+            "LLM response received"
+        );
+
+        Ok(response.content)
     }
 
     /// Send a ServerMessage to the client, appending a newline
