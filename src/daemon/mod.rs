@@ -164,7 +164,34 @@ impl Daemon {
         Ok(())
     }
 
-    /// Run the daemon — blocks until shutdown
+    /// Run the daemon — blocks until shutdown signal is received.
+    ///
+    /// Handles both SIGINT (Ctrl+C) and SIGTERM (`kill` / `closeclaw stop`),
+    /// triggering graceful shutdown via [`ShutdownHandle::initiate_shutdown()`].
+    #[cfg(unix)]
+    pub async fn run(&self) -> anyhow::Result<()> {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigint = signal(SignalKind::interrupt())?;
+        let mut sigterm = signal(SignalKind::terminate())?;
+
+        tokio::select! {
+            _ = sigint.recv() => {
+                info!("Received Ctrl+C, initiating shutdown...");
+            }
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM, initiating graceful shutdown...");
+            }
+        }
+
+        self.shutdown.initiate_shutdown().await;
+        // Flush audit logs before exit
+        self.shutdown_audit().await;
+        Ok(())
+    }
+
+    /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
+    #[cfg(not(unix))]
     pub async fn run(&self) -> anyhow::Result<()> {
         // Block forever — all work is async via tokio
         tokio::signal::ctrl_c().await?;

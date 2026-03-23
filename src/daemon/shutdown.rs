@@ -194,3 +194,92 @@ impl Default for ShutdownHandle {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_shutdown_state_from_u8() {
+        assert_eq!(ShutdownState::from_u8(0), ShutdownState::Running);
+        assert_eq!(ShutdownState::from_u8(1), ShutdownState::ShuttingDown);
+        assert_eq!(ShutdownState::from_u8(2), ShutdownState::Draining);
+        assert_eq!(ShutdownState::from_u8(3), ShutdownState::Stopped);
+        // Invalid values default to Running
+        assert_eq!(ShutdownState::from_u8(99), ShutdownState::Running);
+    }
+
+    #[test]
+    fn test_coordinator_initial_state() {
+        let coordinator = ShutdownCoordinator::new();
+        assert_eq!(coordinator.state(), ShutdownState::Running);
+    }
+
+    #[test]
+    fn test_coordinator_try_start_shutdown() {
+        let coordinator = ShutdownCoordinator::new();
+
+        // First call succeeds
+        assert!(coordinator.try_start_shutdown());
+        assert_eq!(coordinator.state(), ShutdownState::ShuttingDown);
+
+        // Second call fails (already shutting down)
+        assert!(!coordinator.try_start_shutdown());
+        assert_eq!(coordinator.state(), ShutdownState::ShuttingDown);
+    }
+
+    #[test]
+    fn test_coordinator_state_transitions() {
+        let coordinator = ShutdownCoordinator::new();
+
+        coordinator.try_start_shutdown();
+        assert_eq!(coordinator.state(), ShutdownState::ShuttingDown);
+
+        coordinator.start_drain();
+        assert_eq!(coordinator.state(), ShutdownState::Draining);
+
+        coordinator.mark_stopped();
+        assert_eq!(coordinator.state(), ShutdownState::Stopped);
+    }
+
+    #[test]
+    fn test_shutdown_handle_initial_state() {
+        let handle = ShutdownHandle::new();
+        assert_eq!(handle.state(), ShutdownState::Running);
+        assert!(!handle.is_shutting_down());
+        assert!(!handle.is_stopped());
+    }
+
+    #[test]
+    fn test_shutdown_handle_subscribe_drain() {
+        let handle = ShutdownHandle::new();
+        let mut rx = handle.subscribe_drain();
+        // No message yet
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_initiate_shutdown_first_caller_wins() {
+        let handle = ShutdownHandle::new();
+
+        // First initiate succeeds
+        let handle2 = handle.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            handle2.initiate_shutdown().await;
+            let _ = tx.send(());
+        });
+
+        // Give it a moment to start
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(handle.is_shutting_down());
+    }
+
+    #[test]
+    fn test_shutdown_state_debug() {
+        assert_eq!(format!("{:?}", ShutdownState::Running), "Running");
+        assert_eq!(format!("{:?}", ShutdownState::ShuttingDown), "ShuttingDown");
+        assert_eq!(format!("{:?}", ShutdownState::Draining), "Draining");
+        assert_eq!(format!("{:?}", ShutdownState::Stopped), "Stopped");
+    }
+}
