@@ -7,7 +7,7 @@
 //!   - OpenClaw's `deferGatewayRestartUntilIdle` (src/infra/restart.ts)
 //!   - OpenClaw's `createGatewayCloseHandler` (src/gateway/server-close.ts)
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
@@ -109,6 +109,9 @@ pub struct ShutdownHandle {
     coordinator: Arc<ShutdownCoordinator>,
     /// Broadcast channel to signal all components the shutdown is done
     drain_done_tx: broadcast::Sender<()>,
+    /// Counter for in-flight operations — components increment before starting
+    /// async work and decrement when complete. Drains exits early when 0.
+    busy_count: Arc<AtomicUsize>,
 }
 
 impl ShutdownHandle {
@@ -118,6 +121,7 @@ impl ShutdownHandle {
         Self {
             coordinator: Arc::new(ShutdownCoordinator::new()),
             drain_done_tx,
+            busy_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -129,6 +133,21 @@ impl ShutdownHandle {
     /// Returns true if shutdown has been initiated (not Running)
     pub fn is_shutting_down(&self) -> bool {
         self.coordinator.state() != ShutdownState::Running
+    }
+
+    /// Increment the busy count (call before starting async work)
+    pub fn increment_busy(&self) {
+        self.busy_count.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Decrement the busy count (call after async work completes)
+    pub fn decrement_busy(&self) {
+        self.busy_count.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// Get current busy count (for debugging/monitoring)
+    pub fn busy_count(&self) -> usize {
+        self.busy_count.load(Ordering::SeqCst)
     }
 
     /// Initiate graceful shutdown — called when SIGTERM/SIGINT is received.
@@ -157,14 +176,24 @@ impl ShutdownHandle {
         let started_at = std::time::Instant::now();
         let _deadline = started_at + std::time::Duration::from_secs(DRAIN_TIMEOUT_SECS);
 
+        // Wait for busy_count to reach 0, with timeout
+        let started_at = std::time::Instant::now();
+
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(DRAIN_POLL_SECS)).await;
+            // Check if all in-flight operations are complete
+            let count = self.busy_count.load(Ordering::SeqCst);
+            if count == 0 {
+                info!("All in-flight operations complete, shutting down immediately");
+                self.coordinator.start_drain();
+                self.coordinator.mark_stopped();
+                return;
+            }
 
             let elapsed = started_at.elapsed().as_secs();
             if elapsed >= DRAIN_TIMEOUT_SECS {
                 warn!(
-                    "Drain timeout exceeded ({}s) — forcing shutdown",
-                    DRAIN_TIMEOUT_SECS
+                    "Drain timeout exceeded ({}s) — forcing shutdown (busy_count={})",
+                    DRAIN_TIMEOUT_SECS, count
                 );
                 self.coordinator.start_drain();
                 self.coordinator.mark_stopped();
@@ -172,9 +201,11 @@ impl ShutdownHandle {
             }
 
             info!(
-                "Waiting for in-flight operations to complete... ({}s / {}s)",
-                elapsed, DRAIN_TIMEOUT_SECS
+                "Waiting for in-flight operations to complete... ({}s / {}s, busy_count={})",
+                elapsed, DRAIN_TIMEOUT_SECS, count
             );
+
+            tokio::time::sleep(std::time::Duration::from_secs(DRAIN_POLL_SECS)).await;
         }
     }
 
