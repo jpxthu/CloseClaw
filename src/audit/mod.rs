@@ -507,7 +507,10 @@ mod tests {
     #[test]
     fn test_query_audit_events_empty_dir() {
         let temp_dir = TempDir::new().unwrap();
-        // Override HOME temporarily for test
+        // Override HOME to use the empty temp dir as audit base
+        let temp_home = temp_dir.path().to_str().unwrap();
+        std::env::set_var("HOME", temp_home);
+
         let filter = AuditQueryFilter {
             days: 1,
             event_type: None,
@@ -517,7 +520,7 @@ mod tests {
 
         let results = query_audit_events(&filter);
         // Should not panic even with non-existent audit dir
-        assert!(results.is_empty());
+        assert!(results.is_empty(), "Expected empty results in temp audit dir, got: {:?}", results);
     }
 
     #[test]
