@@ -2,11 +2,12 @@
 //!
 //! Implements ConfigProvider trait for extensible config management.
 
-pub mod providers;
 pub mod agents;
 pub mod backup;
+pub mod providers;
 pub mod reload;
-pub use providers::{ConfigProvider, ConfigError};
+pub use agents::{AgentDirectoryEntry, AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
+pub use providers::{ConfigError, ConfigProvider};
 
 #[cfg(test)]
 mod tests {
