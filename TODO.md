@@ -4,12 +4,7 @@
 
 ## Next（当前 Sprint）
 
-- [ ] **[Bug] Drain loop bug** — busy_count 检查缺失 → [#44](https://github.com/jpxthu/CloseClaw/issues/44) (role:builder)
-- [ ] **[Bug] audit::tests::test_query_audit_events_empty_dir 回归** → [#46](https://github.com/jpxthu/CloseClaw/issues/46) (role:builder)
-- [ ] **[Bug] Creator Rule 短路条件错误** — !caller.user_id.is_empty() 检查多余 → [#47](https://github.com/jpxthu/CloseClaw/issues/47) (role:builder)
-- [ ] **[Bug] 模板系统未集成** — template 字段规则实际无效 → [#48](https://github.com/jpxthu/CloseClaw/issues/48) (role:builder)
 - [ ] **[Bug] user_scope_test.rs 测试无法编译** — evaluate() 已改为同步但测试仍用 await → [#49](https://github.com/jpxthu/CloseClaw/issues/49) (role:builder)
-- [ ] **SIGTERM handler 缺失** — closeclaw stop 无法触发 graceful shutdown → [#43](https://github.com/jpxthu/CloseClaw/issues/43) (role:builder)
 - [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:process)
 - [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
 - [ ] **代码审计：closeclaw stop -f** → [#38](https://github.com/jpxthu/CloseClaw/issues/38) (role:builder)
@@ -18,13 +13,7 @@
 
 ## Later（低优，可直接开动）
 
-- [x] **`closeclaw chat`** — 本地 CLI 直连 daemon，TCP localhost，不依赖 IM ✅
-  - `closeclaw chat` REPL 交互模式
-  - `closeclaw chat -m "msg"` 单消息模式
-  - JSON over TCP 协议
-  - 默认路由到 guide agent
-  - **必须配套写测试**
-  → ✅ 框架完成（TCP server + protocol + CLI）；echo placeholder（待接入 LLM provider）
+- [x] **`closeclaw chat`** — 本地 CLI 直连 daemon，TCP + LLM provider ✅ (commit 2470765)
 
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs` → [#16](https://github.com/jpxthu/CloseClaw/issues/16) ⚠️ 无实现 commit
 - [ ] **测试流程规范化** — UT + 集成测试 + 测试员手动验收 + 自动化测试沉淀 → [#21](https://github.com/jpxthu/CloseClaw/issues/21) ⚠️ 无实现 commit
@@ -98,10 +87,14 @@
 | Issue #1 文档中文化 | 06f5f63 |
 | Issue #2 API Key 向导 | 170942e |
 | Issue #3 config setup 修复 | 1c86cc5 |
-| `closeclaw chat` 框架（TCP server + protocol + CLI + tests） | bdd0572 |
+| `closeclaw chat`（TCP + LLM provider 集成） | 2470765 |
 | `closeclaw stop -f`（强制关闭模式） | 5e82c75 |
 | Permission Engine 用户维度（Subject::UserAndAgent + templates + Caller） | ebbec79 |
 | 集成测试（cross-module interactions） | 86d942f |
+| SIGTERM handler（graceful shutdown 触发） | fb7cc6b |
+| Drain loop busy_count 检查 | 9967512 |
+| Permission Engine bug 修复（Creator Rule + template expansion） | f99257c |
+| Audit test isolation 修复 | 4e157b6 |
 | Skill 列表精简（allowBundled 配置） | — |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
