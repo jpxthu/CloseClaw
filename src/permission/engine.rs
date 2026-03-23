@@ -562,7 +562,7 @@ impl PermissionEngine {
             rules.agent_creators.get(&agent_id).map(|s| s.as_str())
         };
         if let Some(creator_id) = effective_creator_id {
-            if !caller.user_id.is_empty() && caller.user_id == creator_id {
+            if caller.user_id == creator_id {
                 info!(agent = %agent_id, result = "allowed", reason = "creator_rule", "permission check completed");
                 return PermissionResponse::Allowed { token: generate_token() };
             }
@@ -598,26 +598,28 @@ impl PermissionEngine {
                 .cmp(&rules.rules[a].priority)
         });
 
-        // ---- Step 3: Expand templates (sync, uses StdRwLock for templates) ----
-        let expanded_rules = self.expand_templates_sync(&candidates, &rules);
+        // ---- Step 3: Expand templates ----
+        // For template-based rules, expand them into pseudo-rules with resolved actions.
+        // Returns (expanded_rules_flat, indices_into_flat).
+        let (expanded_rules, expanded_indices) = self.expand_templates_sync(&candidates, &rules);
 
         // ---- Step 4: Evaluate (AWS IAM-style deny-precedence) ----
         // First pass: collect all matching (subject+action) rules
-        let mut matching_rule: Option<&Rule> = None;
-        for &rule_idx in &expanded_rules {
-            let rule = &rules.rules[rule_idx];
+        let mut matching_rule_name: Option<String> = None;
+        for &rule_idx in &expanded_indices {
+            let rule = &expanded_rules[rule_idx];
 
             // Subject match
             if !rule.subject.matches(&caller) {
                 continue;
             }
 
-            // Action match
+            // Action match (for template-expanded rules, actions are pre-resolved)
             if !self.rule_actions_match(rule, request.body()) {
                 continue;
             }
 
-            matching_rule = Some(rule);
+            matching_rule_name = Some(rule.name.clone());
 
             // Deny wins immediately
             if rule.effect == Effect::Deny {
@@ -631,7 +633,7 @@ impl PermissionEngine {
         }
 
         // No deny found; if any rule matched, allow
-        if matching_rule.is_some() {
+        if matching_rule_name.is_some() {
             info!(agent = %agent_id, result = "allowed", reason = "matched_rule", "permission check completed");
             return PermissionResponse::Allowed { token: generate_token() };
         }
@@ -650,22 +652,62 @@ impl PermissionEngine {
         response
     }
 
-    /// Expand template references in candidate rules, returning expanded rule indices (sync).
+    /// Expand template references in candidate rules.
+    ///
+    /// For template-based rules, replaces the rule with one pseudo-rule per resolved
+    /// template action (each pseudo-rule carries a single action, allowing precise
+    /// deny/action matching). For non-template rules, keeps the rule as-is.
+    ///
+    /// Returns `(expanded_rules_flat, indices_into_flat)` where `indices_into_flat`
+    /// are indices into `expanded_rules_flat`.
     fn expand_templates_sync(
         &self,
         candidates: &[usize],
-        _ruleset: &RuleSet,
-    ) -> Vec<usize> {
-        let mut expanded: Vec<usize> = Vec::new();
+        ruleset: &RuleSet,
+    ) -> (Vec<Rule>, Vec<usize>) {
+        let mut expanded_rules: Vec<Rule> = Vec::new();
+        let mut expanded_indices: Vec<usize> = Vec::new();
 
         for &idx in candidates {
-            expanded.push(idx);
+            let rule = &ruleset.rules[idx];
+
+            if let Some(ref template_ref) = rule.template {
+                // Template-based rule: expand into pseudo-rules, one per resolved action
+                if let Some(tmpl) = self.templates.get(&template_ref.name) {
+                    let actions =
+                        resolve_template_actions(tmpl, &template_ref.overrides);
+                    for action in actions {
+                        // Create pseudo-rule with single resolved action
+                        let pseudo_rule = Rule {
+                            name: rule.name.clone(),
+                            subject: rule.subject.clone(),
+                            effect: rule.effect,
+                            actions: vec![action],
+                            template: None,
+                            priority: rule.priority,
+                        };
+                        expanded_indices.push(expanded_rules.len());
+                        expanded_rules.push(pseudo_rule);
+                    }
+                }
+                // If template not found: skip (template resolution failed, rule won't match)
+            } else {
+                // Non-template rule: keep as-is
+                expanded_indices.push(expanded_rules.len());
+                expanded_rules.push(rule.clone());
+            }
         }
 
-        // Deduplicate while preserving order
-        let mut seen = std::collections::HashSet::new();
-        expanded.retain(|&idx| seen.insert(idx));
-        expanded
+        // Deduplicate while preserving order (by index into expanded_rules)
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut unique_indices: Vec<usize> = Vec::new();
+        for &idx in &expanded_indices {
+            if seen.insert(idx) {
+                unique_indices.push(idx);
+            }
+        }
+
+        (expanded_rules, unique_indices)
     }
 
     /// Get default action when no rule matches

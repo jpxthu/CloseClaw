@@ -44,7 +44,26 @@ impl Daemon {
             template_includes: Vec::new(),
             agent_creators: std::collections::HashMap::new(),
         };
-        let permission_engine = Arc::new(PermissionEngine::new(rule_set));
+        let mut permission_engine = PermissionEngine::new(rule_set);
+
+        // Load templates from config_dir/templates/ if directory exists
+        let templates_dir = std::path::Path::new(config_dir).join("templates");
+        if templates_dir.exists() {
+            if let Ok(templates) =
+                crate::permission::templates::load_templates_from_dir(&templates_dir)
+            {
+                let count = templates.len();
+                if count > 0 {
+                    permission_engine.load_templates(templates);
+                    info!(
+                        "Loaded {} permission templates from {}",
+                        count,
+                        templates_dir.display()
+                    );
+                }
+            }
+        }
+        let permission_engine = Arc::new(permission_engine);
         info!("Permission engine initialized");
 
         // Initialize agent registry
