@@ -4,9 +4,8 @@
 
 ## Next（当前 Sprint）
 
-- [ ] **Permission Engine 用户维度支持** — 权限配置
+- [x] **Permission Engine 用户维度支持** — 权限配置 ✅ (commit 245d3f1)
   - 设计文档：`docs/permission/PERMISSION_USER_SCOPE.md` ✅ review ✅
-  - ✅ 实现完成 (commit 245d3f1)
   - `Subject::UserAndAgent` 双重匹配
   - 权限模板系统（`templates/` 目录）
   - Creator Rule 短路逻辑
@@ -22,14 +21,14 @@
   - **必须配套写测试**
   → ✅ 框架完成（TCP server + protocol + CLI）；echo placeholder（待接入 LLM provider）
 
-- [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs`
-- [ ] **测试流程规范化** — UT + 集成测试 + 测试员手动验收 + 自动化测试沉淀，流程写入 GITHUB_WORKFLOW.md
-- [ ] **`closeclaw stop -f`** — 强制关闭模式
-- [ ] **Hot config reload** — `agents.json` 变更热重载
-- [ ] **Streaming 逐条渲染** — CLI 输出时 streaming 响应要逐条显示，不能等全部完成才看到
-- [ ] **代码块 markdown 渲染** — CLI 和 IM 输出中代码块要正确渲染，不是普通文字
-- [ ] **Phase 11 日志与审计系统** — 所有权限判断、agent 操作、错误均有日志记录，支持查询和导出
-- [ ] **OpenClaw 配置热重载** — 改 openclaw.json 不应断开当前 session，gateway 应支持在线重载配置
+- [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs` → [#16](https://github.com/jpxthu/CloseClaw/issues/16) ⚠️ 无实现 commit
+- [ ] **测试流程规范化** — UT + 集成测试 + 测试员手动验收 + 自动化测试沉淀 → [#21](https://github.com/jpxthu/CloseClaw/issues/21) ⚠️ 无实现 commit
+- [x] **`closeclaw stop -f`** — 强制关闭模式 ✅ (commit 5e82c75)
+- [ ] **Hot config reload** — `agents.json` 变更热重载 → [#17](https://github.com/jpxthu/CloseClaw/issues/17) ⚠️ 无实现 commit
+- [ ] **Streaming 逐条渲染** — CLI 输出时 streaming 响应逐条显示 → [#18](https://github.com/jpxthu/CloseClaw/issues/18) ⚠️ 无实现 commit
+- [ ] **代码块 markdown 渲染** — CLI 和 IM 输出中代码块正确渲染 → [#19](https://github.com/jpxthu/CloseClaw/issues/19) ⚠️ 无实现 commit
+- [ ] **Phase 11 日志与审计系统** — 权限判断和 agent 操作全记录 → [#20](https://github.com/jpxthu/CloseClaw/issues/20) ⚠️ 无实现 commit
+- [ ] **OpenClaw 配置热重载** — 改 openclaw.json 不应断开当前 session → [#23](https://github.com/jpxthu/CloseClaw/issues/23)
 
 ## 待细化（需先和你对清楚）
 
@@ -39,12 +38,12 @@
 
 ## 待讨论（需先和你讨论）
 
-- [ ] **Feishu webhook server** — 让 daemon 能接收飞书消息（"敲键盘"状态 emoji 依赖此功能）
-- [ ] **Graceful shutdown drain 逻辑** — 等 agent 任务完成再退出
-- [ ] **Agent 间通信** — 群聊中互相 @ 对话
-- [ ] **私聊/群聊 @ 机器人触发对话** — thread 模型设计
-- [ ] **`/new` 开新会话** — thread 隔离上下文
-- [ ] **配置版本管理** — OpenClaw workspace 配置（skills、agent settings）导出、Git 跟踪、跨机器同步
+- [ ] **Feishu webhook server** — 让 daemon 能接收飞书消息 → [#24](https://github.com/jpxthu/CloseClaw/issues/24)
+- [ ] **Graceful shutdown drain 逻辑** — 等 agent 任务完成再退出 → [#25](https://github.com/jpxthu/CloseClaw/issues/25)
+- [ ] **Agent 间通信** — 群聊中互相 @ 对话 → [#26](https://github.com/jpxthu/CloseClaw/issues/26)
+- [ ] **私聊/群聊 @ 机器人触发对话** — thread 模型设计 → [#27](https://github.com/jpxthu/CloseClaw/issues/27)
+- [ ] **`/new` 开新会话** — thread 隔离上下文 → [#28](https://github.com/jpxthu/CloseClaw/issues/28)
+- [ ] **配置版本管理** — workspace 配置导出、Git 跟踪、跨机器同步 → [#28](https://github.com/jpxthu/CloseClaw/issues/28)
 
 ## 多层级 Agent 架构设计（已完成）✅
 
