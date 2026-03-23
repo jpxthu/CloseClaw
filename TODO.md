@@ -4,12 +4,13 @@
 
 ## Next（当前 Sprint）
 
-- [x] **Permission Engine 用户维度支持** — 权限配置 ✅ (commit 245d3f1)
-  - 设计文档：`docs/permission/PERMISSION_USER_SCOPE.md` ✅ review ✅
-  - `Subject::UserAndAgent` 双重匹配
-  - 权限模板系统（`templates/` 目录）
-  - Creator Rule 短路逻辑
-  - 144 tests 全部通过
+- [ ] **Drain loop bug** — busy_count 检查缺失 → [#44](https://github.com/jpxthu/CloseClaw/issues/44) (role:builder)
+- [ ] **SIGTERM handler 缺失** — closeclaw stop 无法触发 graceful shutdown → [#43](https://github.com/jpxthu/CloseClaw/issues/43) (role:builder)
+- [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:process)
+- [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
+- [ ] **代码审计：closeclaw stop -f** → [#38](https://github.com/jpxthu/CloseClaw/issues/38) (role:builder)
+- [ ] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) (role:reviewer)
+- [ ] **代码审计：closeclaw chat TCP 框架** → [#37](https://github.com/jpxthu/CloseClaw/issues/37) (role:reviewer)
 
 ## Later（低优，可直接开动）
 
@@ -24,10 +25,10 @@
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs` → [#16](https://github.com/jpxthu/CloseClaw/issues/16) ⚠️ 无实现 commit
 - [ ] **测试流程规范化** — UT + 集成测试 + 测试员手动验收 + 自动化测试沉淀 → [#21](https://github.com/jpxthu/CloseClaw/issues/21) ⚠️ 无实现 commit
 - [x] **`closeclaw stop -f`** — 强制关闭模式 ✅ (commit 5e82c75)
-- [ ] **Hot config reload** — `agents.json` 变更热重载 → [#17](https://github.com/jpxthu/CloseClaw/issues/17) ⚠️ 无实现 commit
-- [ ] **Streaming 逐条渲染** — CLI 输出时 streaming 响应逐条显示 → [#18](https://github.com/jpxthu/CloseClaw/issues/18) ⚠️ 无实现 commit
-- [ ] **代码块 markdown 渲染** — CLI 和 IM 输出中代码块正确渲染 → [#19](https://github.com/jpxthu/CloseClaw/issues/19) ⚠️ 无实现 commit
-- [ ] **Phase 11 日志与审计系统** — 权限判断和 agent 操作全记录 → [#20](https://github.com/jpxthu/CloseClaw/issues/20) ⚠️ 无实现 commit
+- [ ] **Hot config reload** — `agents.json` 变更热重载 → [#17](https://github.com/jpxthu/CloseClaw/issues/17)
+- [ ] **Streaming 逐条渲染** — CLI 输出时 streaming 响应逐条显示 → [#18](https://github.com/jpxthu/CloseClaw/issues/18)
+- [ ] **代码块 markdown 渲染** — CLI 和 IM 输出中代码块正确渲染 → [#19](https://github.com/jpxthu/CloseClaw/issues/19)
+- [ ] **Phase 11 日志与审计系统** — 权限判断和 agent 操作全记录 → [#20](https://github.com/jpxthu/CloseClaw/issues/20)
 - [ ] **OpenClaw 配置热重载** — 改 openclaw.json 不应断开当前 session → [#23](https://github.com/jpxthu/CloseClaw/issues/23)
 
 ## 待细化（需先和你对清楚）
@@ -95,7 +96,8 @@
 | Issue #3 config setup 修复 | 1c86cc5 |
 | `closeclaw chat` 框架（TCP server + protocol + CLI + tests） | bdd0572 |
 | `closeclaw stop -f`（强制关闭模式） | 5e82c75 |
-| Permission Engine 用户维度（Subject::UserAndAgent + templates + Caller） | 245d3f1 |
+| Permission Engine 用户维度（Subject::UserAndAgent + templates + Caller） | ebbec79 |
+| 集成测试（cross-module interactions） | 86d942f |
 | Skill 列表精简（allowBundled 配置） | — |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
@@ -103,4 +105,4 @@
 
 ---
 
-*由 Vibe虾 🦐 维护 | 最后更新: 2026-03-24*
+*由 Vibe虾 🦐 维护 | 最后更新: 2026-03-24T06:32*
