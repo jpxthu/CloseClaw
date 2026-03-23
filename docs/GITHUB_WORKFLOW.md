@@ -1,11 +1,14 @@
 # 团队协作流程
 
 > 本文档已迁移至各角色的 AGENTS.md。
-> - Dispatcher（Vibe虾）：`/home/admin/.openclaw/agents/vibe/workspace/AGENTS.md`
-> - Designer：`/home/admin/.openclaw/agents/designer/workspace/AGENTS.md`
-> - Coder：`/home/admin/.openclaw/agents/coder/workspace/AGENTS.md`
-> - Tester：`/home/admin/.openclaw/agents/tester/workspace/AGENTS.md`
-> - Process Owner：`/home/admin/.openclaw/agents/process/workspace/AGENTS.md`
+> - Dispatcher（调度虾）：`/home/admin/.openclaw/agents/dispatcher/workspace/AGENTS.md`
+> - Brainstormer（脑暴虾）：`/home/admin/.openclaw/agents/braino/workspace/AGENTS.md`
+> - Planner（计划虾）：`/home/admin/.openclaw/agents/planner/workspace/AGENTS.md`
+> - Builder（编码虾）：`/home/admin/.openclaw/agents/builder/workspace/AGENTS.md`
+> - Reviewer（审核虾）：`/home/admin/.openclaw/agents/reviewer/workspace/AGENTS.md`
+> - Finisher（收尾虾）：`/home/admin/.openclaw/agents/finisher/workspace/AGENTS.md`
+> - Debugger（调试虾）：`/home/admin/.openclaw/agents/debugger/workspace/AGENTS.md`
+> - Process（流程虾）：`/home/admin/.openclaw/agents/process/workspace/AGENTS.md`
 
 ---
 
@@ -18,10 +21,13 @@ GitHub Issues 是任务的**唯一事实来源**。
 
 | Label | 用途 | 谁打 |
 |-------|------|------|
-| `role:designer` | 待 Designer 领取 | Dispatcher |
-| `role:coder` | 待 Coder 领取 | Dispatcher |
-| `role:tester` | 待 Test Specialist 领取 | Dispatcher |
-| `role:process` | 待 Process Owner 领取 | Dispatcher |
+| `role:brainstormer` | 待 Brainstormer 领取 | Dispatcher |
+| `role:planner` | 待 Planner 领取 | Dispatcher |
+| `role:builder` | 待 Builder 领取 | Dispatcher |
+| `role:reviewer` | 待 Reviewer 领取 | Dispatcher |
+| `role:finisher` | 待 Finisher 领取 | Dispatcher |
+| `role:debugger` | 待 Debugger 领取 | Dispatcher |
+| `role:process` | 待 Process 领取 | Dispatcher |
 | `status:pending` | 待分发 | Dispatcher |
 | `status:in-progress` | 进行中 | 领取者 |
 | `status:done` | 完成 | 领取者 |
@@ -33,10 +39,10 @@ GitHub Issues 是任务的**唯一事实来源**。
 
 ```
 feat(permission): add user dimension support
-— Coder: Alice
+— Builder: Alice
 
 docs: add Permission Engine design doc
-— Designer: Bob
+— Brainstormer: Bob
 ```
 
 ### 任务认领流程
@@ -49,3 +55,4 @@ docs: add Permission Engine design doc
 ---
 
 *迁移时间：2026-03-23*
+*最后更新：2026-03-24（角色名称已对齐至新架构）*
