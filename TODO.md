@@ -4,7 +4,8 @@
 
 ## Next（当前 Sprint）
 
-- [ ] **Drain loop bug** — busy_count 检查缺失 → [#44](https://github.com/jpxthu/CloseClaw/issues/44) (role:builder)
+- [ ] **[Bug] Drain loop bug** — busy_count 检查缺失 → [#44](https://github.com/jpxthu/CloseClaw/issues/44) (role:builder)
+- [ ] **[Bug] audit::tests::test_query_audit_events_empty_dir 回归** → [#46](https://github.com/jpxthu/CloseClaw/issues/46) (role:builder)
 - [ ] **SIGTERM handler 缺失** — closeclaw stop 无法触发 graceful shutdown → [#43](https://github.com/jpxthu/CloseClaw/issues/43) (role:builder)
 - [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:process)
 - [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
