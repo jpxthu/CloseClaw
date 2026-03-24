@@ -1,12 +1,19 @@
 {
-  "last_audited_commit": "a9cfcfcb9fb1197c13fa5099934ce92e6f96c494",
-  "last_audited_at": "2026-03-25T02:55:00+08:00",
+  "last_audited_commit": "7ea31db8b5f9b5c7e91e3c0a5d0e9f6b2c4a8d1e",
+  "last_audited_at": "2026-03-25T07:01:00+08:00",
   "audited_commits": [
-    "014eea9", "aafb8e9", "a9cfcfc", "218522a"
+    "014eea9", "aafb8e9", "a9cfcfc", "218522a",
+    "651ef70", "56baa39", "75e0df3", "b7d2141", "65fa8e9", "84b28e8", "7ea31db"
   ],
   "notes": [
     "aafb8e9: .env loading from config_dir (minor: no key name validation, no size limit — low risk since config_dir is user-controlled)",
     "a9cfcfc: API key masking in config setup preview — good security fix",
-    "218522a: compilation warning fixes (unused imports/variables) — all in test code, no behavior change"
+    "218522a: compilation warning fixes (unused imports/variables) — all in test code, no behavior change",
+    "651ef70: pure rename docs/developer/SKILL.md -> DEVELOPER.md — no content change",
+    "56baa39: TODO.md #30 marked closed — confirmed CLOSED on GitHub",
+    "75e0df3: docs fix — Feishu Adapter drain() description now correctly says 'serialize outbox to disk' instead of 'flush unsent messages'",
+    "b7d2141: docs: SETUP.md dir tree updated, WORKFLOW.md steps simplified, MULTI_AGENT_ARCHITECTURE.md 'permission_skill' and 'skill_discovery_skill' marked as 规划中, git.md split into guide + reference — all reasonable",
+    "65fa8e9: TODO.md cleanup — removed duplicate #61 #62 entries",
+    "84b28e8: TODO.md update — #59-62 all closed, confirmed against GitHub"
   ]
 }
