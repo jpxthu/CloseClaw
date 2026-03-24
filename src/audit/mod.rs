@@ -488,7 +488,7 @@ mod tests {
         // Rotate to new day
         logger.rotate_if_needed().await;
 
-        let new_file = temp_dir.path().join(format!("{}.jsonl", AuditLogger::current_date_string()));
+        let _new_file = temp_dir.path().join(format!("{}.jsonl", AuditLogger::current_date_string()));
         // New file may or may not exist depending on date
     }
 
@@ -555,7 +555,7 @@ mod tests {
         fs::write(&log_file, content).unwrap();
 
         // Query all
-        let filter_all = AuditQueryFilter {
+        let _filter_all = AuditQueryFilter {
             days: 7,
             event_type: None,
             agent: None,

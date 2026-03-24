@@ -6,7 +6,6 @@
 use std::time::Duration;
 use std::process::Stdio;
 use tokio::process::Command;
-use tokio::io::AsyncReadExt;
 use tokio::time::timeout;
 
 /// Returns the path to the `closeclaw` daemon binary (not the test binary).
@@ -20,7 +19,7 @@ fn closeclaw_binary() -> std::path::PathBuf {
 #[tokio::test]
 #[cfg(unix)]
 async fn test_sigterm_triggers_graceful_shutdown() {
-    use std::os::unix::process::ExitStatusExt;
+    
 
     // Build the daemon binary path (test binary != closeclaw daemon)
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));

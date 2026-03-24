@@ -295,7 +295,7 @@ mod tests {
 
         // First initiate succeeds
         let handle2 = handle.clone();
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, _rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             handle2.initiate_shutdown().await;
             let _ = tx.send(());

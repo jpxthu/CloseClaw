@@ -419,8 +419,8 @@ mod tests {
         // Create parent and children
         let parent = registry.register("parent".to_string(), None).await;
         let child1 = registry.register("child1".to_string(), Some(parent.id.clone())).await;
-        let child2 = registry.register("child2".to_string(), Some(parent.id.clone())).await;
-        let grandchild = registry.register("grandchild".to_string(), Some(child1.id.clone())).await;
+        let _child2 = registry.register("child2".to_string(), Some(parent.id.clone())).await;
+        let _grandchild = registry.register("grandchild".to_string(), Some(child1.id.clone())).await;
         
         // Get children of parent
         let children = registry.get_children(&parent.id).await;

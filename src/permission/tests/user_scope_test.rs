@@ -6,7 +6,7 @@
 
 use crate::permission::engine::{
     Action, Caller, Effect, MatchType, PermissionEngine, PermissionRequest,
-    PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
+    PermissionRequestBody, PermissionResponse, Rule, Subject, TemplateRef,
 };
 use crate::permission::rules::{validation, RuleBuilder, RuleSetBuilder};
 use crate::permission::templates::{Template, TemplateSubject};
@@ -625,7 +625,6 @@ fn test_subject_deserialize_new_user_and_agent() {
 // Template tests
 // =============================================================================
 
-use crate::permission::templates::load_templates_from_dir;
 use std::collections::HashMap;
 
 #[test]
