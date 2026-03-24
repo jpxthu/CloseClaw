@@ -57,6 +57,10 @@ pub trait LLMProvider: Send + Sync {
 
     /// List available models
     fn models(&self) -> Vec<&str>;
+
+    /// Returns true if this is a stub provider that returns fake responses.
+    /// When true, callers should treat this as a configuration error.
+    fn is_stub(&self) -> bool { false }
 }
 
 #[derive(Debug, thiserror::Error)]

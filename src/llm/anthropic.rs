@@ -24,16 +24,13 @@ impl LLMProvider for AnthropicProvider {
         vec!["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"]
     }
 
-    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
-        // Stub - would call Anthropic API
-        Ok(ChatResponse {
-            content: format!("[Anthropic stub] Response to: {}", request.messages.last().map(|m| m.content.as_str()).unwrap_or("")),
-            model: request.model,
-            usage: Usage {
-                prompt_tokens: 10,
-                completion_tokens: 20,
-                total_tokens: 30,
-            },
-        })
+    fn is_stub(&self) -> bool {
+        true
+    }
+
+    async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, LLMError> {
+        Err(LLMError::ApiError(
+            "Anthropic provider is a stub — implement real API to enable LLM calls".to_string(),
+        ))
     }
 }
