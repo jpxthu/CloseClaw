@@ -3,9 +3,13 @@
 use crate::chat::protocol::{ClientMessage, ServerMessage};
 use crate::llm::{ChatRequest, LLMRegistry, Message};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{debug, error, info, warn};
+
+/// Default LLM call timeout (60 seconds).
+const DEFAULT_LLM_TIMEOUT_SECS: u64 = 60;
 
 /// Chat session — handles messages for a single TCP connection
 pub struct ChatSession {
@@ -145,7 +149,7 @@ impl ChatSession {
                 });
 
                 // Call LLM
-                let response = self.call_llm(&content, &id).await;
+                let response = self.call_llm(&content).await;
 
                 // Add assistant response to history
                 if let Ok(ref resp) = response {
@@ -185,8 +189,16 @@ impl ChatSession {
         }
     }
 
-    /// Call the LLM with the user's message and return the response content
-    async fn call_llm(&self, _content: &str, id: &str) -> anyhow::Result<String> {
+    /// Call the LLM with the user's message and return the response content.
+    /// Includes a timeout to prevent session blocking on slow/hanging API calls.
+    async fn call_llm(&self, _content: &str) -> anyhow::Result<String> {
+        // Get timeout from env var, default to 60s
+        let timeout_secs: u64 = std::env::var("LLM_TIMEOUT_SECS")
+            .unwrap_or_else(|_| DEFAULT_LLM_TIMEOUT_SECS.to_string())
+            .parse()
+            .unwrap_or(DEFAULT_LLM_TIMEOUT_SECS);
+        let timeout = Duration::from_secs(timeout_secs);
+
         let provider = self.llm_registry.get(&self.llm_provider).await;
 
         let provider = match provider {
@@ -211,10 +223,14 @@ impl ChatSession {
             max_tokens: Some(2048),
         };
 
-        let response = provider
-            .chat(request)
-            .await
-            .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
+        // Wrap LLM call with timeout
+        let response = tokio::time::timeout(
+            timeout,
+            provider.chat(request)
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("LLM call timed out after {}s", timeout_secs))?
+        .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
 
         debug!(
             session_id = %self.session_id,
