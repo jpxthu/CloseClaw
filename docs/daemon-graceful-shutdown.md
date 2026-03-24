@@ -79,7 +79,7 @@ pub trait GracefulComponent {
 |-----------|-------------|-----------|-------------|
 | **Gateway** | Stop routing new messages | Flush pending outbound queue | Check sessions empty |
 | **AgentRegistry** | Stop spawning new agents | Wait for agent processes to complete | Check all agents Stopped/Idle |
-| **Feishu Adapter** | Stop polling / webhook receiver | Flush unsent messages | Check message queue empty |
+| **Feishu Adapter** | Stop polling / webhook receiver | Serialize outbox to disk (deliver on restart) | Check message queue empty |
 | **Config Reloader** | Stop watching config files | Persist any dirty config | Always idle |
 
 ### 4. SIGTERM / SIGINT Handling
