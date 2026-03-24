@@ -7,7 +7,8 @@
 ### 1. 配置 API Key
 
 ```bash
-cd /home/admin/code/closeclaw
+# 克隆后进入项目目录
+cd /path/to/CloseClaw
 closeclaw config setup
 ```
 
