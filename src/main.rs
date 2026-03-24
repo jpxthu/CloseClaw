@@ -489,7 +489,7 @@ mod tests {
         assert_eq!(sub.0, "stop");
         let stop_matches = sub.1;
         assert!(
-            !stop_matches.contains_id("force") || !stop_matches.get_flag("force"),
+            !stop_matches.get_flag("force"),
             "force flag should default to false"
         );
     }
