@@ -1,0 +1,16 @@
+{
+  "last_audited_commit": "fd2644a2c4e1f5e3a7b8d9f2c1a0e4b6d8f0c2e4",
+  "last_audited_at": "2026-03-24T09:56:00+08:00",
+  "audited_commits": [
+    "5e82c75",  // graceful shutdown stop -f
+    "bdd0572",  // chat TCP framework
+    "245d3f1",  // permission engine user scope
+    "48002f8",  // MiniMax LLM provider real API
+    "2470765"   // LLM integration into chat session
+  ],
+  "issues_found": [
+    "#43", "#44",  // graceful shutdown
+    "#47", "#48", "#49",  // permission engine
+    "#54", "#55", "#56", "#57"  // LLM chat
+  ]
+}
