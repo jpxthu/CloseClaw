@@ -14,7 +14,7 @@
 *待讨论需求 → issues #23–26, #28 (role:brainstormer)*
   - Feishu webhook server, Graceful shutdown drain, Agent 间通信, 私聊/群聊 @ 机器人
   - **配置版本管理**（Brainstormer 已提澄清问题，待用户补充背景）
-- [ ] **流程问题 #30** — 等待 owner 决策（Process 已给出 2 个选项）
+- [x] **流程问题 #30** — ✅ 已决策：保持 Builder 直接合入 main + CI + sub-agent review 模式（不启用 PR 流程）
 
 ## Later（低优，可直接开动）
 
