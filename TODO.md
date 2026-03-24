@@ -5,7 +5,8 @@
 ## Next（当前 Sprint）
 
 - [x] **[Bug] user_scope_test.rs 编译错误** → [#49](https://github.com/jpxthu/CloseClaw/issues/49) ✅ 已由 Builder 确认修复
-- [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:builder) — Process 方案已出，Builder 执行中
+- [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:builder) — 已实现，等待 reviewer 验收
+- [ ] **手动验收流程文档** → [#41](https://github.com/jpxthu/CloseClaw/issues/41) (role:builder) — 已写入 GITHUB_WORKFLOW.md，等待 reviewer 验收
 - [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
 - [x] **代码审计：closeclaw stop -f** → [#38](https://github.com/jpxthu/CloseClaw/issues/38) ✅ 验收通过
 - [ ] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) (role:reviewer)
@@ -95,6 +96,8 @@
 | Drain loop busy_count 检查 | 9967512 |
 | Permission Engine bug 修复（Creator Rule + template expansion） | f99257c |
 | Audit test isolation 修复 | 4e157b6 |
+| GitHub Actions CI workflow | ee44fe8, 438bfc2 |
+| 手动验收流程文档 | c8902ac |
 | Skill 列表精简（allowBundled 配置） | — |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
