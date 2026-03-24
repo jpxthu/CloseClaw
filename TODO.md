@@ -4,17 +4,15 @@
 
 ## Next（当前 Sprint）
 
-- [x] **[Bug] user_scope_test.rs 编译错误** → [#49](https://github.com/jpxthu/CloseClaw/issues/49) ✅ 已由 Builder 确认修复
-- [x] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) ✅ (commits ee44fe8, 438bfc2, 16f9b93)
-- [x] **手动验收流程文档** → [#41](https://github.com/jpxthu/CloseClaw/issues/41) ✅ (commit c8902ac)
 - [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
-- [x] **代码审计：closeclaw stop -f** → [#38](https://github.com/jpxthu/CloseClaw/issues/38) ✅ 验收通过
 - [ ] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) (role:reviewer)
 - [ ] **代码审计：closeclaw chat TCP 框架** → [#37](https://github.com/jpxthu/CloseClaw/issues/37) (role:reviewer)
+- [ ] **chat 默认路由到 guide agent** → [#52](https://github.com/jpxthu/CloseClaw/issues/52) (role:builder)
+- [ ] **MiniMax LLM Provider 真实 API 调用** → [#51](https://github.com/jpxthu/CloseClaw/issues/51) (role:builder)
 
 ## Later（低优，可直接开动）
 
-- [x] **`closeclaw chat`** — 本地 CLI 直连 daemon，TCP + LLM provider ✅ (commit 2470765)
+- [x] **`closeclaw chat`** — 本地 CLI 直连 daemon，TCP + LLM provider + guide agent 路由 ✅ (commits 2470765, 1684be5, 48002f8)
 
 - [ ] **测试文件模块化重构** — 分散到 `src/<module>/tests.rs` → [#16](https://github.com/jpxthu/CloseClaw/issues/16) ⚠️ 无实现 commit
 - [ ] **测试流程规范化** — UT + 集成测试 + 测试员手动验收 + 自动化测试沉淀 → [#21](https://github.com/jpxthu/CloseClaw/issues/21) ⚠️ 无实现 commit
@@ -88,7 +86,7 @@
 | Issue #1 文档中文化 | 06f5f63 |
 | Issue #2 API Key 向导 | 170942e |
 | Issue #3 config setup 修复 | 1c86cc5 |
-| `closeclaw chat`（TCP + LLM provider 集成） | 2470765 |
+| `closeclaw chat`（TCP + LLM provider + guide agent 路由） | 2470765, 1684be5, 48002f8 |
 | `closeclaw stop -f`（强制关闭模式） | 5e82c75 |
 | Permission Engine 用户维度（Subject::UserAndAgent + templates + Caller） | ebbec79 |
 | 集成测试（cross-module interactions） | 86d942f |
@@ -98,7 +96,6 @@
 | Audit test isolation 修复 | 4e157b6 |
 | GitHub Actions CI workflow | ee44fe8, 438bfc2 |
 | 手动验收流程文档 | c8902ac |
-| Skill 列表精简（allowBundled 配置） | — |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
 | 多层级 Agent 架构设计文档 | — |
