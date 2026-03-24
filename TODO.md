@@ -4,11 +4,11 @@
 
 ## Next（当前 Sprint）
 
-- [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
+- [x] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) ✅
 - [ ] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) (role:reviewer)
 - [ ] **代码审计：closeclaw chat TCP 框架** → [#37](https://github.com/jpxthu/CloseClaw/issues/37) (role:reviewer)
-- [ ] **chat 默认路由到 guide agent** → [#52](https://github.com/jpxthu/CloseClaw/issues/52) (role:builder)
-- [ ] **MiniMax LLM Provider 真实 API 调用** → [#51](https://github.com/jpxthu/CloseClaw/issues/51) (role:builder)
+- [x] **chat 默认路由到 guide agent** → [#52](https://github.com/jpxthu/CloseClaw/issues/52) ✅ (commit 1684be5)
+- [x] **MiniMax LLM Provider 真实 API 调用** → [#51](https://github.com/jpxthu/CloseClaw/issues/51) ✅ (commit 48002f8)
 
 ## Later（低优，可直接开动）
 
