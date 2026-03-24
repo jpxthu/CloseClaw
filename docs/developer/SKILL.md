@@ -178,7 +178,8 @@ src/
 | `docs/gateway/README.md` | Gateway + IMAdapter API |
 | `docs/llm/README.md` | LLM provider 接口 |
 | `docs/daemon-graceful-shutdown.md` | Daemon Graceful Shutdown 详解 |
-| `git.md` | Git 操作规范 |
+| [git-guide.md](git-guide.md) | Git 工作流指南 |
+| [git-reference.md](git-reference.md) | Git 命令参考 |
 | `cargo.md` | Cargo 命令参考 |
 | `code-style.md` | Rust 代码规范 |
 | `commit-style.md` | Commit 格式规范 |

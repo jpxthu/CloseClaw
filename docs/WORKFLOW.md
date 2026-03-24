@@ -12,7 +12,7 @@ Skills in `src/skills/*.rs` are compiled into the binary.
 - Tests co-located in the same `.rs` files
 
 ### Documentation Skills
-SKILL.md files in `docs/skill-creator/`、`docs/developer/`、`docs/operator/` are bundled with the binary.
+SKILL.md files in `docs/skill-creator/`、`docs/developer/`、`docs/operator/` are loaded by the agent at runtime from the filesystem — they are **not** compiled into the binary.
 - Agent reads these at runtime to understand how to use skills
 - Must be manually kept in sync with code
 

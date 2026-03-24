@@ -198,9 +198,10 @@ Daemon receives SIGTERM                          │
          ▼                                       │
 ShutdownCoordinator.initiate_shutdown()          │
          │                                       │
-         ├─▶ Gateway.shutdown()  ── 停止路由新消息
-         ├─▶ AgentRegistry.shutdown() ── 停止spawn，等 agent 完成
+         ├─▶ Gateway.shutdown()        ── 停止路由新消息，冲洗 outbox
+         ├─▶ AgentRegistry.shutdown()  ── 停止 spawn，等 agent 完成
          ├─▶ FeishuAdapter.shutdown() ── 停止接收，序列化 outbox 到磁盘
+         │   （符合 Decision #3：drain 时一次性落盘，重启后检测并投递）
          │
          ▼
 busy_count 轮询（最多 30s）                     │
@@ -208,7 +209,7 @@ busy_count 轮询（最多 30s）                     │
          ├─ 每 10s 打印进度: "Waiting for N tasks..."   │
          │                                       │
          ▼                                       │
-All components.drain() ── 强制落盘              │
+All components.drain() ── 全部 idle 后统一触发状态落盘
          │                                       │
          ▼                                       │
 关闭日志、移除 PID file                          │

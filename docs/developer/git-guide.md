@@ -45,19 +45,4 @@ CloseClaw 团队约定：
 - commit 署名格式：`— 角色名: 描述`
 - 大改动先开 GitHub Issue 讨论
 
----
-
-## 附：常用 Git 命令参考
-
-| 命令 | 说明 |
-|------|------|
-| `git status` | 查看工作区状态 |
-| `git add <file>` | 暂存文件 |
-| `git commit -m "msg"` | 提交 |
-| `git push` | 推送到远程 |
-| `git push --force-with-lease` | 安全强制推送 |
-| `git pull --rebase` | 拉取并变基 |
-| `git log --oneline -10` | 查看最近10条提交 |
-| `git branch -a` | 查看所有分支 |
-| `git diff` | 查看未暂存的变更 |
-| `git diff --cached` | 查看已暂存的变更 |
+命令 Reference 见 [git-reference.md](git-reference.md)。
