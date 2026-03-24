@@ -11,6 +11,9 @@ use tracing::{debug, error, info, warn};
 /// Default LLM call timeout (60 seconds).
 const DEFAULT_LLM_TIMEOUT_SECS: u64 = 60;
 
+/// Default max chat history entries (100 messages = ~50 turns).
+const DEFAULT_MAX_HISTORY: usize = 100;
+
 /// Chat session — handles messages for a single TCP connection
 pub struct ChatSession {
     /// Unique session ID assigned by the server
@@ -33,6 +36,8 @@ pub struct ChatSession {
     model: String,
     /// Chat history for context
     chat_history: Vec<Message>,
+    /// Max chat history entries (to prevent unbounded memory growth).
+    max_history: usize,
 }
 
 impl ChatSession {
@@ -47,6 +52,12 @@ impl ChatSession {
         let (reader, writer) = stream.into_split();
         let reader = BufReader::new(reader);
 
+        // Parse max_history from env var, default to DEFAULT_MAX_HISTORY
+        let max_history: usize = std::env::var("CHAT_MAX_HISTORY")
+            .unwrap_or_else(|_| DEFAULT_MAX_HISTORY.to_string())
+            .parse()
+            .unwrap_or(DEFAULT_MAX_HISTORY);
+
         Self {
             session_id,
             agent_id,
@@ -58,6 +69,21 @@ impl ChatSession {
             llm_provider: std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "minimax".to_string()),
             model: std::env::var("LLM_MODEL").unwrap_or_else(|_| "MiniMax-M2.5".to_string()),
             chat_history: Vec::new(),
+            max_history,
+        }
+    }
+
+    /// Truncate chat history to max_history entries, keeping the most recent messages.
+    fn truncate_history(&mut self) {
+        if self.chat_history.len() > self.max_history {
+            let remove_count = self.chat_history.len() - self.max_history;
+            self.chat_history.drain(0..remove_count);
+            debug!(
+                session_id = %self.session_id,
+                removed = %remove_count,
+                remaining = %self.chat_history.len(),
+                "chat history truncated"
+            );
         }
     }
 
@@ -147,6 +173,9 @@ impl ChatSession {
                     role: "user".to_string(),
                     content: content.clone(),
                 });
+
+                // Truncate if over max_history limit
+                self.truncate_history();
 
                 // Call LLM
                 let response = self.call_llm(&content).await;
