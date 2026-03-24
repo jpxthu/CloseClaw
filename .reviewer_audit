@@ -1,22 +1,13 @@
 {
   "last_audited_commit": "a454b0d8c3cf8602a3bfab8ccbe147abfcec9c65",
-  "last_audited_at": "2026-03-24T21:26:00+08:00",
+  "last_audited_at": "2026-03-24T21:41:00+08:00",
   "audited_commits": [
-    "5e82c75",
-    "bdd0572",
-    "245d3f1",
-    "48002f8", "2470765", "a454b0d",
+    "5e82c75", "bdd0572", "245d3f1", "a454b0d",
     "034b6d9", "97929f2", "7624117", "9d96d98"
   ],
   "issues_found": [
     "#43", "#44",
     "#47", "#48", "#49",
     "#54", "#55", "#56", "#57"
-  ],
-  "issues_closed": [
-    "#54", "#55", "#56", "#57"
-  ],
-  "docs_only_commits_since_last_audit": [
-    "785207d", "20b67d0", "cfb54e6", "bf027a5", "ca326ea"
   ]
 }
