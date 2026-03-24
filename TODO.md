@@ -4,11 +4,13 @@
 
 ## Next（当前 Sprint）
 
-- [x] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) ✅
 - [ ] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) (role:reviewer)
 - [ ] **代码审计：closeclaw chat TCP 框架** → [#37](https://github.com/jpxthu/CloseClaw/issues/37) (role:reviewer)
-- [x] **chat 默认路由到 guide agent** → [#52](https://github.com/jpxthu/CloseClaw/issues/52) ✅ (commit 1684be5)
-- [x] **MiniMax LLM Provider 真实 API 调用** → [#51](https://github.com/jpxthu/CloseClaw/issues/51) ✅ (commit 48002f8)
+- [ ] **[Bug] OpenAIProvider 是 Stub** — 用户配置后收到假响应无感知 → [#57](https://github.com/jpxthu/CloseClaw/issues/57) (role:builder)
+- [ ] **[Bug] LLM 调用无超时** — API 慢/挂导致 session 永久阻塞 → [#56](https://github.com/jpxthu/CloseClaw/issues/56) (role:builder)
+- [ ] **[Bug] 协议违约** — chat.response 缺少 done:true → [#55](https://github.com/jpxthu/CloseClaw/issues/55) (role:builder)
+- [ ] **[缺失] Chat history 无限增长** → [#54](https://github.com/jpxthu/CloseClaw/issues/54) (role:builder)
+- [ ] **Cargo.lock 问题** → [#53](https://github.com/jpxthu/CloseClaw/issues/53)
 
 ## Later（低优，可直接开动）
 
