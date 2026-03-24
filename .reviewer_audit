@@ -1,13 +1,14 @@
 {
-  "last_audited_commit": "d61b3e17720ae1695d587f46a504c872f695d148",
-  "last_audited_at": "2026-03-25T01:00:00+08:00",
+  "last_audited_commit": "fe70187377e2918e23cb143716331929a5b5eafb",
+  "last_audited_at": "2026-03-25T02:17:00+08:00",
   "audited_commits": [
     "5e82c75",
     "bdd0572",
     "245d3f1",
     "48002f8", "2470765", "a454b0d",
     "034b6d9", "97929f2", "7624117", "9d96d98",
-    "014eea9"
+    "014eea9",
+    "fe70187"
   ],
   "issues_found": [
     "#43", "#44",
@@ -19,5 +20,6 @@
   ],
   "design_reviews": [
     "014eea9: 3 issues on session-and-topic design (WAL, thread_id/root_id, storage format)"
-  ]
+  ],
+  "notes": "fe70187-218522a: compiler warning fixes only (unused imports/variables), no new functionality"
 }
