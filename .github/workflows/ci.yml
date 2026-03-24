@@ -5,6 +5,18 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
+    inputs:
+      test_target:
+        description: 'Test target to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - lib
+          - integration
+          - doc
 
 env:
   CARGO_TERM_COLOR: always
