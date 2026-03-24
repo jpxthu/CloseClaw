@@ -4,7 +4,7 @@
 
 ## Next（当前 Sprint）
 
-- [ ] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) (role:reviewer)
+- [x] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) ✅ 100% 完整
 - [ ] **代码审计：closeclaw chat TCP 框架** → [#37](https://github.com/jpxthu/CloseClaw/issues/37) (role:reviewer)
 - [ ] **[Bug] OpenAIProvider 是 Stub** — 用户配置后收到假响应无感知 → [#57](https://github.com/jpxthu/CloseClaw/issues/57) (role:builder)
 - [ ] **[Bug] LLM 调用无超时** — API 慢/挂导致 session 永久阻塞 → [#56](https://github.com/jpxthu/CloseClaw/issues/56) (role:builder)
