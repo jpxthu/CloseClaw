@@ -11,6 +11,8 @@ use tokio::net::TcpStream;
 use tracing::{error, info};
 
 const DEFAULT_CHAT_ADDR: &str = "127.0.0.1:18889";
+/// Default agent for chat sessions (when client doesn't specify).
+const DEFAULT_AGENT_ID: &str = "guide";
 
 #[derive(Parser, Debug)]
 #[command(name = "chat")]
@@ -24,27 +26,34 @@ pub struct ChatCommand {
     #[arg(long, default_value = DEFAULT_CHAT_ADDR)]
     addr: String,
 
-    /// Agent ID to use when starting a session
-    #[arg(long, default_value = "default")]
+    /// Agent ID to use when starting a session (default: guide, or CLOSEWCLAW_DEFAULT_AGENT env)
+    #[arg(long, default_value = DEFAULT_AGENT_ID)]
     agent_id: String,
 }
 
 impl ChatCommand {
     /// Run the chat CLI — either single-shot or REPL mode
     pub async fn run(&self) -> anyhow::Result<()> {
+        // Resolve effective agent_id: CLI arg > CLOSEWCLAW_DEFAULT_AGENT env > "guide"
+        let agent_id = if self.agent_id == DEFAULT_AGENT_ID {
+            std::env::var("CLOSEWCLAW_DEFAULT_AGENT").unwrap_or_else(|_| DEFAULT_AGENT_ID.to_string())
+        } else {
+            self.agent_id.clone()
+        };
+
         let addr: SocketAddr = self.addr.parse().with_context(|| {
             format!("invalid address '{}' (expected format: 127.0.0.1:18889)", self.addr)
         })?;
 
         if let Some(ref msg) = self.message {
-            self.run_single(addr, msg).await
+            self.run_single(addr, &agent_id, msg).await
         } else {
-            self.run_repl(addr).await
+            self.run_repl(addr, &agent_id).await
         }
     }
 
     /// Connect to the server, start a session, optionally send one message, print response
-    async fn run_single(&self, addr: SocketAddr, message: &str) -> anyhow::Result<()> {
+    async fn run_single(&self, addr: SocketAddr, agent_id: &str, message: &str) -> anyhow::Result<()> {
         let mut stream = TcpStream::connect(addr)
             .await
             .with_context(|| format!("cannot connect to {} — is the daemon running?", addr))?;
@@ -54,7 +63,7 @@ impl ChatCommand {
         // Send chat.start
         let start_json = serde_json::json!({
             "type": "chat.start",
-            "agent_id": self.agent_id,
+            "agent_id": agent_id,
             "id": request_id.clone(),
         });
         let line = serde_json::to_string(&start_json).unwrap();
@@ -113,7 +122,7 @@ impl ChatCommand {
     }
 
     /// Connect to the server and run an interactive REPL
-    async fn run_repl(&self, addr: SocketAddr) -> anyhow::Result<()> {
+    async fn run_repl(&self, addr: SocketAddr, agent_id: &str) -> anyhow::Result<()> {
         let mut stream = TcpStream::connect(addr)
             .await
             .with_context(|| format!("cannot connect to {} — is the daemon running?", addr))?;
@@ -123,7 +132,7 @@ impl ChatCommand {
         // Send chat.start
         let start_json = serde_json::json!({
             "type": "chat.start",
-            "agent_id": self.agent_id,
+            "agent_id": agent_id,
             "id": request_id,
         });
         let line = serde_json::to_string(&start_json).unwrap();

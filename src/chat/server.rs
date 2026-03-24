@@ -9,6 +9,8 @@ use tracing::{error, info};
 
 /// Chat server bind address
 const CHAT_BIND_ADDR: &str = "127.0.0.1:18889";
+/// Default agent for chat sessions (when client doesn't specify).
+const DEFAULT_AGENT_ID: &str = "guide";
 
 /// ChatServer — TCP server that handles incoming chat connections
 pub struct ChatServer {
@@ -46,7 +48,7 @@ impl ChatServer {
                             tokio::spawn(async move {
                                 let session = ChatSession::new(
                                     session_id,
-                                    "default".to_string(),
+                                    DEFAULT_AGENT_ID.to_string(),
                                     stream,
                                     shutdown_rx,
                                     llm_registry,
