@@ -5,8 +5,8 @@
 ## Next（当前 Sprint）
 
 - [x] **[Bug] user_scope_test.rs 编译错误** → [#49](https://github.com/jpxthu/CloseClaw/issues/49) ✅ 已由 Builder 确认修复
-- [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:builder) — 已实现，等待 reviewer 验收
-- [ ] **手动验收流程文档** → [#41](https://github.com/jpxthu/CloseClaw/issues/41) (role:builder) — 已写入 GITHUB_WORKFLOW.md，等待 reviewer 验收
+- [x] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) ✅ (commits ee44fe8, 438bfc2, 16f9b93)
+- [x] **手动验收流程文档** → [#41](https://github.com/jpxthu/CloseClaw/issues/41) ✅ (commit c8902ac)
 - [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
 - [x] **代码审计：closeclaw stop -f** → [#38](https://github.com/jpxthu/CloseClaw/issues/38) ✅ 验收通过
 - [ ] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) (role:reviewer)
