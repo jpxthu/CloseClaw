@@ -6,7 +6,9 @@
 
 *Sprint 功能全部完成 ✅ — 待讨论需求需 owner 决策*
 
-- [ ] **编译 warning** → [#58](https://github.com/jpxthu/CloseClaw/issues/58) (role:builder) — 9 warnings
+- [x] **编译 warning** → [#58](https://github.com/jpxthu/CloseClaw/issues/58) ✅ (commit fc35c47)
+- [ ] **cargo test warning + 1 ignored** → [#59](https://github.com/jpxthu/CloseClaw/issues/59) (role:builder)
+- [ ] **文档冗余、不清晰** → [#60](https://github.com/jpxthu/CloseClaw/issues/60) (role:builder)
 - [ ] **待讨论需求** → issues #23–26, #28 (role:brainstormer)
   - Feishu webhook server, Graceful shutdown drain, Agent 间通信, 私聊/群聊 @ 机器人
   - **配置版本管理**（Brainstormer 已提澄清问题，待用户补充背景）
