@@ -158,7 +158,7 @@ Permission Engine 校验
 
 ### 3.4 权限查询 SKILL
 
-每个 Agent 内置 **permission_skill**，允许 Agent 查询自身权限：
+每个 Agent 内置 **permission_skill**（规划中，待实现），允许 Agent 查询自身权限：
 
 ```markdown
 ## permission_skill
@@ -339,7 +339,7 @@ Agent 想创建子 Agent
 
 CloseClaw 的 SKILL 系统与 OpenClaw 兼容，可以直接使用 OpenClaw 社区的 SKILL。
 
-### 7.2 SKILL 发现机制
+### 7.2 SKILL 发现机制（规划中，待实现）
 
 ```markdown
 ## skill_discovery_skill

@@ -65,20 +65,35 @@ cargo run -- [args]
 closeclaw/
 ├── src/
 │   ├── main.rs           # CLI 入口
-│   ├── permission/       # 权限引擎
-│   ├── config/           # 配置系统
 │   ├── agent/            # Agent 运行时
+│   ├── audit/            # 审计模块
+│   ├── chat/             # 聊天模块
+│   ├── cli/              # CLI 实现
+│   ├── config/           # 配置系统
+│   ├── daemon/           # Daemon 运行时
 │   ├── gateway/          # 网关 + IM 适配器
-│   ├── skills/           # 内置 Skills
-│   └── llm/              # LLM 接口抽象
+│   ├── im/               # IM 适配器
+│   ├── llm/              # LLM 接口抽象
+│   ├── permission/       # 权限引擎
+│   └── skills/           # 内置 Skills（编译进 binary）
 ├── configs/
 │   ├── agents.json       # Agent 配置
+│   ├── agents.json.example
 │   ├── permissions.json  # 权限规则
-│   └── .env              # API Key（不提交到 Git）
+│   └── .env.example      # 环境变量示例
 ├── docs/
 │   ├── SETUP.md          # 本文件
-│   ├── cli/README.md     # CLI 文档
-│   └── permission/       # 权限文档
+│   ├── agent/            # Agent 架构文档
+│   ├── cli/              # CLI 文档
+│   ├── daemon-graceful-shutdown.md
+│   ├── developer/        # 开发者指南
+│   ├── gateway/          # 网关文档
+│   ├── llm/             # LLM 文档
+│   ├── operator/         # 运维指南
+│   ├── permission/       # 权限文档
+│   ├── skill-creator/    # Skill 开发指南
+│   ├── plans/            # 设计文档
+│   └── WORKFLOW.md       # 开发流程
 └── tests/                # 集成测试
 ```
 

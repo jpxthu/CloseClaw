@@ -1,52 +1,63 @@
-# Git Operations Guide
+# Git Workflow Guide
 
-## Available Commands
-Use the `git_ops` skill with these methods:
+> 如何使用 CloseClaw 进行 Git 版本控制工作流。
 
-### status
-Check repository status.
-```rust
-git_ops.execute("status", serde_json::json!({})).await
-```
+## 基础工作流
 
-### commit
-Create a commit with message.
-```rust
-git_ops.execute("commit", serde_json::json!({"message": "feat: add feature"})).await
-```
+1. **创建新分支** — 每次新功能或修复都从 `master`/`main` 创建新分支
+2. **频繁提交** — 用清晰的 commit message 记录每步进展
+3. **推送前检查** — 确认 `git status` 无意外文件
+4. **推送到远程** — 推送到共享分支时使用 `--force-with-lease` 而非 `--force`
 
-### push
-Push commits to remote.
-```rust
-git_ops.execute("push", serde_json::json!({})).await
-```
+## 分支管理
 
-### pull
-Pull from remote.
-```rust
-git_ops.execute("pull", serde_json::json!({})).await
-```
-
-### log
-View recent commits.
-```rust
-git_ops.execute("log", serde_json::json!({})).await
-```
-
-## Branch Management
 ```bash
-# Create and switch to new branch
-git checkout -b feature-branch
+# 从 master 创建并切换到新分支
+git checkout -b feature/xxx
 
-# Switch back to master
+# 从 master 创建并切换到新分支（等价）
+git switch -c feature/xxx
+
+# 切换回 master
 git checkout master
+git switch master
 
-# Delete merged branch
-git branch -d feature-branch
+# 删除已合并的分支
+git branch -d feature/xxx
 ```
 
-## Workflow
-1. Always create a new branch for features
-2. Commit frequently with clear messages
-3. Push before merging
-4. Use `--force-with-lease` instead of `--force` when pushing to shared branches
+## 提交规范
+
+推荐格式：`type: 简短描述`
+
+常见 type：
+- `feat:` 新功能
+- `fix:` bug 修复
+- `docs:` 文档变更
+- `refactor:` 重构（不影响功能）
+- `test:` 测试相关
+- `chore:` 构建/工具变更
+
+## 与 closeclaw 项目协作
+
+CloseClaw 团队约定：
+- 所有变更通过 PR 合并
+- commit 署名格式：`— 角色名: 描述`
+- 大改动先开 GitHub Issue 讨论
+
+---
+
+## 附：常用 Git 命令参考
+
+| 命令 | 说明 |
+|------|------|
+| `git status` | 查看工作区状态 |
+| `git add <file>` | 暂存文件 |
+| `git commit -m "msg"` | 提交 |
+| `git push` | 推送到远程 |
+| `git push --force-with-lease` | 安全强制推送 |
+| `git pull --rebase` | 拉取并变基 |
+| `git log --oneline -10` | 查看最近10条提交 |
+| `git branch -a` | 查看所有分支 |
+| `git diff` | 查看未暂存的变更 |
+| `git diff --cached` | 查看已暂存的变更 |

@@ -9,10 +9,10 @@
 Skills in `src/skills/*.rs` are compiled into the binary.
 - Always available, no deployment needed
 - Listed in `src/skills/builtin.rs` -> `builtin_skills()`
-- Test in `src/skills/*/tests`
+- Tests co-located in the same `.rs` files
 
 ### Documentation Skills
-SKILL.md files in `docs/skills/` are bundled with the binary.
+SKILL.md files in `docs/skill-creator/`、`docs/developer/`、`docs/operator/` are bundled with the binary.
 - Agent reads these at runtime to understand how to use skills
 - Must be manually kept in sync with code
 
@@ -22,10 +22,9 @@ SKILL.md files in `docs/skills/` are bundled with the binary.
 1. Implement in `src/skills/my_skill.rs`
 2. Add to `builtin_skills()` in `src/skills/builtin.rs`
 3. Write tests in same file
-4. Create `docs/skills/my_skill/SKILL.md`
-5. Update `docs/skills/my_skill/TOPICS.md` files
-6. Run `cargo test --lib`
-7. Commit
+4. Create `docs/<category>/my_skill/SKILL.md` (e.g. `docs/developer/` or `docs/operator/`)
+5. Run `cargo test --lib`
+6. Commit
 
 ### When Modifying a Skill
 1. Modify code in `src/skills/`
