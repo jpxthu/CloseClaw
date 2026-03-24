@@ -6,10 +6,10 @@
 
 *Sprint 功能全部完成 ✅ — 待讨论需求需 owner 决策*
 
-- [ ] **待讨论需求** → issues #23–28 (role:brainstormer)
-  - Feishu webhook server, Graceful shutdown drain, Agent 间通信, 私聊/群聊 @ 机器人, /new 开新会话, 配置版本管理
-- [ ] **流程问题** → #30 (直接进 master, 需 owner 决策)
-- [ ] **Cargo.lock 问题** → [#53](https://github.com/jpxthu/CloseClaw/issues/53)
+- [ ] **待讨论需求** → issues #23–26, #28 (role:brainstormer)
+  - Feishu webhook server, Graceful shutdown drain, Agent 间通信, 私聊/群聊 @ 机器人
+  - **配置版本管理**（Brainstormer 已提澄清问题，待用户补充背景）
+- [ ] **流程问题 #30** — 等待 owner 决策（Process 已给出 2 个选项）
 
 ## Later（低优，可直接开动）
 
