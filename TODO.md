@@ -4,12 +4,11 @@
 
 ## Next（当前 Sprint）
 
-- [x] **代码审计：Permission Engine 用户维度** → [#36](https://github.com/jpxthu/CloseClaw/issues/36) ✅ 100% 完整
-- [ ] **代码审计：closeclaw chat TCP 框架** → [#37](https://github.com/jpxthu/CloseClaw/issues/37) (role:reviewer)
-- [ ] **[Bug] OpenAIProvider 是 Stub** — 用户配置后收到假响应无感知 → [#57](https://github.com/jpxthu/CloseClaw/issues/57) (role:builder)
-- [ ] **[Bug] LLM 调用无超时** — API 慢/挂导致 session 永久阻塞 → [#56](https://github.com/jpxthu/CloseClaw/issues/56) (role:builder)
-- [ ] **[Bug] 协议违约** — chat.response 缺少 done:true → [#55](https://github.com/jpxthu/CloseClaw/issues/55) (role:builder)
-- [ ] **[缺失] Chat history 无限增长** → [#54](https://github.com/jpxthu/CloseClaw/issues/54) (role:builder)
+*Sprint 功能全部完成 ✅ — 待讨论需求需 owner 决策*
+
+- [ ] **待讨论需求** → issues #23–28 (role:brainstormer)
+  - Feishu webhook server, Graceful shutdown drain, Agent 间通信, 私聊/群聊 @ 机器人, /new 开新会话, 配置版本管理
+- [ ] **流程问题** → #30 (直接进 master, 需 owner 决策)
 - [ ] **Cargo.lock 问题** → [#53](https://github.com/jpxthu/CloseClaw/issues/53)
 
 ## Later（低优，可直接开动）
