@@ -8,13 +8,10 @@
 
 - [x] **cargo test warning + 1 ignored** → [#59](https://github.com/jpxthu/CloseClaw/issues/59) ✅
 - [x] **文档冗余、不清晰** → [#60](https://github.com/jpxthu/CloseClaw/issues/60) ✅
-- [x] **LLM token 明文显示** → [#61](https://github.com/jpxthu/CloseClaw/issues/61) ✅ (安全 bug)
+- [x] **LLM token 明文显示** → [#61](https://github.com/jpxthu/CloseClaw/issues/61) ✅ 🔴 安全问题
 - [x] **CLI chat 报错 LLM provider 未配置** → [#62](https://github.com/jpxthu/CloseClaw/issues/62) ✅
-- [ ] **[Bug] LLM token 明文显示** → [#61](https://github.com/jpxthu/CloseClaw/issues/61) (role:builder) 🔴 安全问题
-- [ ] **[Bug] CLI chat 报错 — LLM provider 未配置** → [#62](https://github.com/jpxthu/CloseClaw/issues/62) (role:builder)
-- [ ] **[Bug] LLM token 明文显示** → [#61](https://github.com/jpxthu/CloseClaw/issues/61) (role:builder)
-- [ ] **[Bug] CLI chat 报错 — LLM provider 未配置** → [#62](https://github.com/jpxthu/CloseClaw/issues/62) (role:builder)
-- [ ] **待讨论需求** → issues #23–26, #28 (role:brainstormer)
+
+*待讨论需求 → issues #23–26, #28 (role:brainstormer)*
   - Feishu webhook server, Graceful shutdown drain, Agent 间通信, 私聊/群聊 @ 机器人
   - **配置版本管理**（Brainstormer 已提澄清问题，待用户补充背景）
 - [ ] **流程问题 #30** — 等待 owner 决策（Process 已给出 2 个选项）
