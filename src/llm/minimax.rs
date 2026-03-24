@@ -1,47 +1,34 @@
 //! MiniMax LLM Provider
 
 use async_trait::async_trait;
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Message, Usage};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
-pub struct MiniMaxProvider {
-    api_key: String,
-    base_url: String,
-}
+use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
 
-impl MiniMaxProvider {
-    pub fn new(api_key: String) -> Self {
-        Self {
-            api_key,
-            base_url: "https://api.minimax.chat/v1".to_string(),
-        }
-    }
+/// MiniMax API endpoint
+const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/chat/completions";
 
-    fn chat_url(&self) -> String {
-        format!("{}/text/chatcompletion_v2", self.base_url)
-    }
-}
-
+/// MiniMax API request body
 #[derive(Debug, Serialize)]
 struct MiniMaxRequest<'a> {
     model: &'a str,
-    messages: &'a [Message],
+    messages: &'a [crate::llm::Message],
     temperature: f32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
 }
 
+/// MiniMax API response body
 #[derive(Debug, Deserialize)]
 struct MiniMaxResponse {
-    id: String,
-    model: String,
     choices: Vec<MiniMaxChoice>,
     usage: MiniMaxUsage,
+    model: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct MiniMaxChoice {
-    finish_reason: String,
     message: MiniMaxMessage,
 }
 
@@ -58,6 +45,32 @@ struct MiniMaxUsage {
     total_tokens: u32,
 }
 
+pub struct MiniMaxProvider {
+    api_key: String,
+    base_url: String,
+    http_client: Client,
+}
+
+impl MiniMaxProvider {
+    pub fn new(api_key: String) -> Self {
+        let http_client = Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()
+            .expect("MiniMaxProvider: failed to build HTTP client");
+
+        Self {
+            api_key,
+            base_url: MINIMAX_API_URL.to_string(),
+            http_client,
+        }
+    }
+
+    /// Create a new provider from environment variable MINIMAX_API_KEY.
+    pub fn from_env() -> Option<Self> {
+        std::env::var("MINIMAX_API_KEY").ok().map(Self::new)
+    }
+}
+
 #[async_trait]
 impl LLMProvider for MiniMaxProvider {
     fn name(&self) -> &str {
@@ -69,55 +82,56 @@ impl LLMProvider for MiniMaxProvider {
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
-        let url = self.chat_url();
-
-        let body = MiniMaxRequest {
+        let req_body = MiniMaxRequest {
             model: &request.model,
             messages: &request.messages,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
         };
 
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&url)
+        let response = self
+            .http_client
+            .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&body)
+            .json(&req_body)
             .send()
             .await
             .map_err(|e| LLMError::NetworkError(e.to_string()))?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(LLMError::AuthFailed(format!("MiniMax API auth failed: {}", status)));
-            }
-            if status.as_u16() == 429 {
-                return Err(LLMError::RateLimitExceeded);
-            }
+        let status = response.status();
+
+        if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(LLMError::ApiError(format!("MiniMax API error {}: {}", status, body)));
+            return Err(if status.as_u16() == 401 {
+                LLMError::AuthFailed(format!("MiniMax auth failed: {}", body))
+            } else if status.as_u16() == 429 {
+                LLMError::RateLimitExceeded
+            } else if status.as_u16() == 400 {
+                LLMError::InvalidRequest(format!("MiniMax invalid request: {}", body))
+            } else {
+                LLMError::ApiError(format!("MiniMax API error ({}): {}", status, body))
+            });
         }
 
-        let mm_resp: MiniMaxResponse = response
+        let api_resp: MiniMaxResponse = response
             .json()
             .await
             .map_err(|e| LLMError::ApiError(format!("failed to parse MiniMax response: {}", e)))?;
 
-        let choice = mm_resp
+        let content = api_resp
             .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| LLMError::ApiError("no choices in MiniMax response".to_string()))?;
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
 
         Ok(ChatResponse {
-            content: choice.message.content,
-            model: mm_resp.model,
+            content,
+            model: api_resp.model,
             usage: Usage {
-                prompt_tokens: mm_resp.usage.prompt_tokens,
-                completion_tokens: mm_resp.usage.completion_tokens,
-                total_tokens: mm_resp.usage.total_tokens,
+                prompt_tokens: api_resp.usage.prompt_tokens,
+                completion_tokens: api_resp.usage.completion_tokens,
+                total_tokens: api_resp.usage.total_tokens,
             },
         })
     }
