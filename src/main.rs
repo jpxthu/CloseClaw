@@ -4,6 +4,15 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Mask an API key for display in previews (show first 4 and last 4 chars).
+fn mask_key(key: &str) -> String {
+    if key.len() <= 8 {
+        "****".to_string()
+    } else {
+        format!("{}....{}", &key[..4], &key[key.len() - 4..])
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "closeclaw")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
@@ -379,15 +388,15 @@ async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
 
     if has_minimax {
         env_content.push_str("# MiniMax API Key\n");
-        env_content.push_str(&format!("MINIMAX_API_KEY={}\n\n", minimax_key));
+        env_content.push_str(&format!("MINIMAX_API_KEY={}\n\n", mask_key(&minimax_key)));
     }
     if has_openai {
         env_content.push_str("# OpenAI API Key\n");
-        env_content.push_str(&format!("OPENAI_API_KEY={}\n\n", openai_key));
+        env_content.push_str(&format!("OPENAI_API_KEY={}\n\n", mask_key(&openai_key)));
     }
     if has_anthropic {
         env_content.push_str("# Anthropic API Key\n");
-        env_content.push_str(&format!("ANTHROPIC_API_KEY={}\n\n", anthropic_key));
+        env_content.push_str(&format!("ANTHROPIC_API_KEY={}\n\n", mask_key(&anthropic_key)));
     }
     env_content.push_str("# 飞书 Webhook（可选）\n");
     env_content.push_str("# FEISHU_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/xxx\n");
