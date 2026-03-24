@@ -96,6 +96,7 @@
 | Audit test isolation 修复 | 4e157b6 |
 | GitHub Actions CI workflow | ee44fe8, 438bfc2 |
 | 手动验收流程文档 | c8902ac |
+| Cargo.lock 从 git 移除（Rust 二进制不应提交 Cargo.lock） | e11eace |
 | Workspace skill code-dev 创建 | — |
 | docs/skills/ 重组为 docs/{operator,developer,skill-creator}/ | — |
 | 多层级 Agent 架构设计文档 | — |
