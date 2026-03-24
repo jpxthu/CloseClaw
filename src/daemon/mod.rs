@@ -17,6 +17,28 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
 
+/// Load key=value pairs from a .env file and set them as environment variables.
+/// Lines starting with # are treated as comments and ignored.
+fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
+    let content = std::fs::read_to_string(path)?;
+    for line in content.lines() {
+        let line = line.trim();
+        // Skip empty lines and comments
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        // Parse KEY=value
+        if let Some(pos) = line.find('=') {
+            let key = line[..pos].trim().to_string();
+            let value = line[pos + 1..].trim().to_string();
+            if !key.is_empty() && !value.is_empty() {
+                std::env::set_var(&key, &value);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Global daemon state
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
@@ -33,6 +55,16 @@ impl Daemon {
     /// Start the daemon with the given config directory
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
+
+        // Load .env file from config_dir if it exists
+        let env_path = std::path::Path::new(config_dir).join(".env");
+        if env_path.exists() {
+            if let Err(e) = load_env_file(&env_path) {
+                tracing::warn!(error = %e, path = %env_path.display(), "failed to load .env file");
+            } else {
+                info!("Loaded environment from {}", env_path.display());
+            }
+        }
 
         // Load agents config
         let agents_config = Self::load_agents_config(config_dir)?;
