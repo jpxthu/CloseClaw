@@ -1,7 +1,7 @@
 //! Anthropic LLM Provider
 
 use async_trait::async_trait;
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
+use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider};
 
 #[allow(dead_code)]
 pub struct AnthropicProvider {

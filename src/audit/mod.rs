@@ -10,7 +10,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{error, info};
 
@@ -102,7 +101,8 @@ pub struct AuditLogger {
     base_dir: PathBuf,
     /// In-memory buffer of events
     buffer: Arc<Mutex<VecDeque<AuditEvent>>>,
-    /// Flush interval in seconds
+    /// Flush interval in seconds (currently unused but reserved for future timer-based flush)
+    #[allow(dead_code)]
     flush_interval_secs: u64,
     /// Max buffer size before forced flush
     max_buffer_size: usize,

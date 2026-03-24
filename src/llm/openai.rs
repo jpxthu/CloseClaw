@@ -15,6 +15,7 @@ struct OpenAIRequest<'a> {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIResponse {
+    #[allow(dead_code)]
     id: String,
     model: String,
     choices: Vec<OpenAIChoice>,
@@ -23,12 +24,14 @@ struct OpenAIResponse {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIChoice {
+    #[allow(dead_code)]
     finish_reason: String,
     message: OpenAIMessage,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIMessage {
+    #[allow(dead_code)]
     role: String,
     content: String,
 }

@@ -5,7 +5,7 @@
 
 pub mod shutdown;
 
-use crate::audit::{AuditEvent, AuditEventBuilder, AuditLogger, AuditResult, AuditEventType};
+use crate::audit::{AuditEventBuilder, AuditLogger, AuditResult, AuditEventType};
 use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::providers::ConfigProvider;
@@ -15,7 +15,7 @@ use crate::llm::{LLMRegistry, MiniMaxProvider, OpenAIProvider, AnthropicProvider
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, error};
+use tracing::info;
 
 /// Global daemon state
 pub struct Daemon {

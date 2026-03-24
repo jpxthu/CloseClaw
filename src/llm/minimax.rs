@@ -34,6 +34,7 @@ struct MiniMaxChoice {
 
 #[derive(Debug, Deserialize)]
 struct MiniMaxMessage {
+    #[allow(dead_code)]
     role: String,
     content: String,
 }
