@@ -84,8 +84,8 @@ impl ChatSession {
                                 continue;
                             }
                             debug!(session_id = %self.session_id, line = %line, "received line");
-                            let response = self.handle_line(line).await;
-                            if let Some(msg) = response {
+                            let msgs = self.handle_line(line).await;
+                            for msg in msgs {
                                 if let Err(e) = self.send_message(msg).await {
                                     error!(session_id = %self.session_id, error = %e, "failed to send to client");
                                     break;
@@ -113,16 +113,16 @@ impl ChatSession {
         info!(session_id = %self.session_id, "chat session ended");
     }
 
-    /// Handle a single incoming JSON line, return optional server message to send back
-    async fn handle_line(&mut self, line: &str) -> Option<ServerMessage> {
+    /// Handle a single incoming JSON line, return zero or more server messages to send back
+    async fn handle_line(&mut self, line: &str) -> Vec<ServerMessage> {
         let msg: ClientMessage = match serde_json::from_str(line) {
             Ok(m) => m,
             Err(e) => {
                 warn!(session_id = %self.session_id, error = %e, raw = %line, "failed to parse client message");
-                return Some(ServerMessage::ChatError {
+                return vec![ServerMessage::ChatError {
                     message: format!("invalid message: {}", e),
                     id: uuid::Uuid::new_v4().to_string(),
-                });
+                }];
             }
         };
 
@@ -130,10 +130,10 @@ impl ChatSession {
             ClientMessage::ChatStart { agent_id, id } => {
                 info!(session_id = %self.session_id, agent_id = %agent_id, id = %id, "session start requested");
                 self.agent_id = agent_id;
-                Some(ServerMessage::ChatStarted {
+                vec![ServerMessage::ChatStarted {
                     session_id: self.session_id.clone(),
                     id,
-                })
+                }]
             }
             ClientMessage::ChatMessage { content, id } => {
                 info!(session_id = %self.session_id, content_len = %content.len(), id = %id, "chat message received");
@@ -156,25 +156,31 @@ impl ChatSession {
                 }
 
                 match response {
-                    Ok(content) => Some(ServerMessage::ChatResponse {
-                        content,
-                        done: false,
-                        id,
-                    }),
+                    Ok(content) => vec![
+                        ServerMessage::ChatResponse {
+                            content,
+                            done: true,
+                            id: id.clone(),
+                        },
+                        ServerMessage::ChatResponseDone { id },
+                    ],
                     Err(e) => {
                         error!(session_id = %self.session_id, error = %e, "LLM call failed");
-                        Some(ServerMessage::ChatResponse {
-                            content: format!("[error] LLM call failed: {}", e),
-                            done: false,
-                            id,
-                        })
+                        vec![
+                            ServerMessage::ChatResponse {
+                                content: format!("[error] LLM call failed: {}", e),
+                                done: true,
+                                id: id.clone(),
+                            },
+                            ServerMessage::ChatResponseDone { id },
+                        ]
                     }
                 }
             }
             ClientMessage::ChatStop { id } => {
                 info!(session_id = %self.session_id, id = %id, "session stop requested");
                 self.active = false;
-                Some(ServerMessage::ChatResponseDone { id })
+                vec![ServerMessage::ChatResponseDone { id }]
             }
         }
     }
