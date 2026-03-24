@@ -4,7 +4,7 @@
 
 ## Next（当前 Sprint）
 
-- [ ] **[Bug] user_scope_test.rs 测试无法编译** — evaluate() 已改为同步但测试仍用 await → [#49](https://github.com/jpxthu/CloseClaw/issues/49) (role:builder)
+- [x] **[Bug] user_scope_test.rs 编译错误** → [#49](https://github.com/jpxthu/CloseClaw/issues/49) ✅ 已由 Builder 确认修复
 - [ ] **GitHub Actions CI 流程** → [#42](https://github.com/jpxthu/CloseClaw/issues/42) (role:process)
 - [ ] **集成测试用例补充** → [#40](https://github.com/jpxthu/CloseClaw/issues/40) (role:builder)
 - [ ] **代码审计：closeclaw stop -f** → [#38](https://github.com/jpxthu/CloseClaw/issues/38) (role:builder)
