@@ -100,7 +100,7 @@ impl Default for LLMRegistry {
 impl LLMRegistry {
     pub fn new() -> Self {
         Self {
-            providers: tokin::sync::RwLock::new(std::collections::HashMap::new()),
+            providers: tokio::sync::RwLock::new(std::collections::HashMap::new()),
         }
     }
 
