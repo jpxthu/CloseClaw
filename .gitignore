@@ -26,7 +26,8 @@ Thumbs.db
 .env.*.local
 configs/secrets.json
 **/api_key*
+
 **/secrets*
+
 **/*.key
 credentials.json
-Cargo.lock
