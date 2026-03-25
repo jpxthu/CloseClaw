@@ -1,6 +1,6 @@
 {
-  "last_audited_commit": "f5af79e",
-  "last_audited_at": "2026-03-26T01:43:00+08:00",
+  "last_audited_commit": "f5e996e",
+  "last_audited_at": "2026-03-26T03:41:00+08:00",
   "audited_commits": [
     "014eea9", "aafb8e9", "a9cfcfc", "218522a",
     "651ef70", "56baa39", "75e0df3", "b7d2141", "65fa8e9", "84b28e8", "7ea31db",
@@ -10,7 +10,9 @@
     "05d6759", "88f99ff", "5521435",
     "6f94d55", "7e34666", "c788590",
     "7e5e145", "03a8a3e", "7b8f238",
-    "77d04aa", "f5af79e", "62f696e"
+    "77d04aa", "f5af79e", "62f696e",
+    "dfa739b",
+    "f5e996e"
   ],
   "notes": [
     "aafb8e9: .env loading from config_dir (minor: no key name validation, no size limit — low risk since config_dir is user-controlled)",
@@ -43,8 +45,10 @@
     "7e5e145: reviewer audit checkpoint",
     "03a8a3e: fix Cargo.toml typos (reqwest, cargo-llvm-cov) — fixes #90 and #91 ✅",
     "7b8f238: cargo fmt across entire codebase — style normalization; compiles cleanly",
-    "77d04aa: fix config setup writing masked keys to .env instead of real keys — CRITICAL BUG FIX #92 ✅; now uses separate env_preview (masked) vs env_content (real) for display vs file writing",
-    "f5af79e: add mask_key unit tests — good coverage of edge cases (short keys, exactly 8 chars, very long keys)",
-    "62f696e: update sandbox integration tests to match PermissionEngine API changes from c788590 (WithCaller/Bare enum, Caller.creator_id type, SandboxState::Shutdown, etc.)"
+    "77d04aa: fix config setup writing masked keys to .env instead of real keys — CRITICAL BUG FIX #92 ✅",
+    "f5af79e: add mask_key unit tests — good coverage of edge cases",
+    "62f696e: update sandbox integration tests to match PermissionEngine API changes from c788590",
+    "dfa739b: reviewer audit checkpoint",
+    "f5e996e: strip thinking tags (<think>/</think>) from MiniMax response before returning to user — fixes #104 ✅; also improved error handling from unwrap_or_default to proper error; has unit tests"
   ]
 }
