@@ -38,10 +38,30 @@ impl FallbackClient {
     ///
     /// `fallback_chain` is a list like `["minimax/MiniMax-M2.7", "dashscope/qwen3-max"]`
     pub fn new(registry: Arc<crate::llm::LLMRegistry>, fallback_chain: Vec<ModelEntry>) -> Self {
+        let cooldown = Arc::new(CooldownManager::new());
+        // Load persisted cooldowns from disk (no-op if no runtime is running yet,
+        // which is the startup case; skipped when called from within a runtime).
+        cooldown.load_sync();
         Self {
             registry,
             fallback_chain,
-            cooldown: Arc::new(CooldownManager::new()),
+            cooldown,
+            call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
+        }
+    }
+
+    /// Async constructor: creates the client and loads persisted cooldowns.
+    /// Prefer this in async contexts where block_on is unavailable.
+    pub async fn new_async(
+        registry: Arc<crate::llm::LLMRegistry>,
+        fallback_chain: Vec<ModelEntry>,
+    ) -> Self {
+        let cooldown = Arc::new(CooldownManager::new());
+        cooldown.load().await;
+        Self {
+            registry,
+            fallback_chain,
+            cooldown,
             call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
         }
     }
@@ -191,8 +211,8 @@ impl FallbackClient {
 
                     if kind == ErrorKind::Transient || kind == ErrorKind::Unknown {
                         // Check retry budget
-                        if attempt > max_retries
-                            || (kind == ErrorKind::Unknown && attempt > MAX_UNKNOWN_RETRIES)
+                        if attempt >= max_retries
+                            || (kind == ErrorKind::Unknown && attempt >= MAX_UNKNOWN_RETRIES)
                         {
                             return Err(err);
                         }

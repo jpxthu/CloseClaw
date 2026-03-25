@@ -5,6 +5,7 @@
 use crate::llm::ErrorKind;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
@@ -128,6 +129,57 @@ impl CooldownManager {
         cooldowns.remove(&key);
         drop(cooldowns);
         self.save().await;
+    }
+
+    /// Load persisted cooldowns from disk (sync version for use in sync constructors).
+    ///
+    /// Uses a one-shot runtime to block on async file I/O. Safe to call from sync
+    /// startup code (where no runtime is running yet). Skipped when called from
+    /// within a running runtime (e.g., in tests) since tests don't need persisted cooldowns.
+    #[allow(dead_code)]
+    pub fn load_sync(&self) {
+        // Only load when NO Tokio runtime is running (startup context).
+        // When a runtime IS running (tests, async contexts), skip — the in-memory
+        // cooldowns are empty anyway in those cases.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return;
+        }
+
+        if !self.persist_path.exists() {
+            return;
+        }
+        let data = match std::fs::read_to_string(&self.persist_path) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let loaded: HashMap<String, CooldownEntry> = match serde_json::from_str(&data) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        let now = chrono::Utc::now();
+        let valid: HashMap<String, CooldownEntry> = loaded
+            .into_iter()
+            .filter(|(_, entry)| {
+                if let Ok(expiry) = chrono::DateTime::parse_from_rfc3339(&entry.cooldown_until) {
+                    now < expiry
+                } else {
+                    false
+                }
+            })
+            .collect();
+        if valid.is_empty() {
+            return;
+        }
+
+        // Use a one-shot runtime to run the async load() to completion
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(_) => return,
+        };
+        rt.block_on(async {
+            let mut cooldowns = self.cooldowns.write().await;
+            cooldowns.extend(valid);
+        });
     }
 
     /// Load persisted cooldowns from disk
