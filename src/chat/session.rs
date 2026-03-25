@@ -66,10 +66,16 @@ impl ChatSession {
                 vec![format!("{}/{}", provider, model)]
             });
 
-        let fallback_client = Arc::new(FallbackClient::from_strings(
-            Arc::clone(&llm_registry),
-            fallback_chain,
-        ));
+        // Parse timeout from env var, default to 30 seconds
+        let timeout_secs: u64 = std::env::var("LLM_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "30".to_string())
+            .parse()
+            .unwrap_or(30);
+
+        let fallback_client = Arc::new(
+            FallbackClient::from_strings(Arc::clone(&llm_registry), fallback_chain)
+                .with_timeout(timeout_secs),
+        );
 
         Self {
             session_id,
@@ -190,7 +196,7 @@ impl ChatSession {
                 self.truncate_history();
 
                 // Call LLM
-                let response = self.call_llm(&content).await;
+                let response = self.call_llm().await;
 
                 // Add assistant response to history
                 if let Ok(ref resp) = response {
@@ -232,7 +238,7 @@ impl ChatSession {
 
     /// Call the LLM with the user's message and return the response content.
     /// Uses FallbackClient which handles retry, cooldown tracking, and model fallback.
-    async fn call_llm(&self, _content: &str) -> anyhow::Result<String> {
+    async fn call_llm(&self) -> anyhow::Result<String> {
         let request = ChatRequest {
             model: self.model.clone(),
             messages: self.chat_history.clone(),
