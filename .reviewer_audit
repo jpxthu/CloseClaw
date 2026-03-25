@@ -1,6 +1,6 @@
 {
-  "last_audited_commit": "2705918be5e0f3a7d91e6b2c5f8a3d4e9b1c6f2a",
-  "last_audited_at": "2026-03-25T20:14:00+08:00",
+  "last_audited_commit": "27059189afc8d2e4b1c3f7a6d9e5f8c2b4a1d3e6",
+  "last_audited_at": "2026-03-25T20:17:00+08:00",
   "audited_commits": [
     "014eea9", "aafb8e9", "a9cfcfc", "218522a",
     "651ef70", "56baa39", "75e0df3", "b7d2141", "65fa8e9", "84b28e8", "7ea31db",
@@ -25,10 +25,10 @@
     "c70ee24: fix Phase ordering in lifecycle state machine — Phase 7 删除（合并到 Phase 1/3），grace_period_secs 配置项补充；合理修正",
     "0fc2099: remove Cargo.lock from .gitignore — resolves #81 ✅",
     "e907852: add Cargo.lock — enables reproducible builds",
-    "7244213: add StubProvider for testable LLM integration tests — resolves #82 ✅; minor: unused import Arc and Message in stub.rs (warnings only)",
-    "c12ad2e: export StubProvider from llm module; BUG: tokin typo in mod.rs:103 — issued #88",
-    "2c8c278: add LLM integration tests; BUG: stub-modem typo in test assertion stub.rs:95 — issued #89",
-    "e69eb76: fix tokin→tokio typo — fixes #88 ✅, build verified OK",
-    "2705918: fix stub-modem→stub-model typo — fixes #89 ✅, test verified OK"
+    "7244213: add StubProvider for testable LLM integration tests — resolves #82 ✅; minor: unused import `std::sync::Arc` and `Message` in stub.rs (warnings only)",
+    "c12ad2e: export StubProvider from llm module — ⚠️ BUG #88: tokin typo causes compilation failure",
+    "2c8c278: add LLM integration tests — ⚠️ BUG #89: stub-modem typo in test assertion",
+    "e69eb76: fix tokin->tokio in LLMRegistry::new() — fixes #88 ✅",
+    "2705918: fix stub-modem->stub-model in test assertion — fixes #89 ✅"
   ]
 }
