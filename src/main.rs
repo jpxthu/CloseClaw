@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Mask an API key for display in previews (show first 4 and last 4 chars).
 fn mask_key(key: &str) -> String {
@@ -246,10 +247,21 @@ async fn handle_rule(action: RuleAction) -> Result<()> {
 }
 
 async fn handle_skill(action: SkillAction) -> Result<()> {
+    use closeclaw::permission::{Defaults, PermissionEngine, RuleSet};
     match action {
         SkillAction::List => {
+            // Build a minimal engine for CLI skill listing.
+            // In normal daemon mode the engine is created with full rules by Daemon::start().
+            let rule_set = RuleSet {
+                version: "1.0.0".to_string(),
+                rules: Vec::new(),
+                defaults: Defaults::default(),
+                template_includes: Vec::new(),
+                agent_creators: std::collections::HashMap::new(),
+            };
+            let engine = Arc::new(PermissionEngine::new(rule_set));
             println!("Installed skills:");
-            let skills = closeclaw::skills::builtin_skills();
+            let skills = closeclaw::skills::builtin_skills_with_engine(engine);
             for skill in &skills {
                 println!("  {} v{}", skill.manifest().name, skill.manifest().version);
             }

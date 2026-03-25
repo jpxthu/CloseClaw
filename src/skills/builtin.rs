@@ -392,6 +392,8 @@ impl Skill for SkillDiscoverySkill {
 pub struct BuiltinSkills;
 
 impl BuiltinSkills {
+    /// Create all built-in skills without a permission engine.
+    /// Permission checks will return `{ "allowed": null }` until an engine is injected.
     pub fn all() -> Vec<Arc<dyn Skill>> {
         vec![
             Arc::new(FileOpsSkill::new()) as Arc<dyn Skill>,
@@ -403,11 +405,29 @@ impl BuiltinSkills {
             Arc::new(super::SkillCreatorSkill::new()),
         ]
     }
+
+    /// Create all built-in skills with a shared permission engine injected.
+    /// The engine is passed to PermissionSkill so query calls are functional.
+    pub fn all_with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Vec<Arc<dyn Skill>> {
+        vec![
+            Arc::new(FileOpsSkill::new()) as Arc<dyn Skill>,
+            Arc::new(GitOpsSkill::new()),
+            Arc::new(SearchSkill::new()),
+            Arc::new(PermissionSkill::with_engine(engine)),
+            Arc::new(super::CodingAgentSkill::new(None)),
+            Arc::new(super::SkillCreatorSkill::new()),
+        ]
+    }
 }
 
-/// Get all built-in skills
+/// Get all built-in skills (without permission engine).
 pub fn builtin_skills() -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all()
+}
+
+/// Get all built-in skills with a shared permission engine injected.
+pub fn builtin_skills_with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Vec<Arc<dyn Skill>> {
+    BuiltinSkills::all_with_engine(engine)
 }
 
 #[cfg(test)]

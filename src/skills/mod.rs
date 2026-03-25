@@ -8,6 +8,6 @@ pub mod coding_agent;
 pub mod skill_creator;
 
 pub use registry::{Skill, SkillRegistry, SkillError, SkillManifest, SkillInput, SkillOutput};
-pub use builtin::builtin_skills;
+pub use builtin::{builtin_skills, builtin_skills_with_engine};
 pub use coding_agent::CodingAgentSkill;
 pub use skill_creator::SkillCreatorSkill;
