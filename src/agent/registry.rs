@@ -26,6 +26,15 @@ pub enum RegistryError {
 /// Result type for registry operations
 pub type RegistryResult<T> = Result<T, RegistryError>;
 
+/// Result of a cleanup operation
+#[derive(Debug)]
+pub struct CleanupResult {
+    /// Agents that were successfully cleaned up
+    pub cleaned: Vec<String>,
+    /// Agent IDs that failed to be removed, with their errors
+    pub failed: Vec<(String, RegistryError)>,
+}
+
 /// Thread-safe agent registry for managing all agent lifecycles
 #[derive(Debug)]
 pub struct AgentRegistry {
@@ -54,13 +63,13 @@ impl AgentRegistry {
     }
 
     /// Register a new agent (creates metadata, doesn't spawn process yet)
-    pub async fn register(&self, name: String, parent_id: Option<String>) -> Agent {
+    pub async fn register(&self, name: String, parent_id: Option<String>) -> RegistryResult<Agent> {
         let agent = Agent::new(name, parent_id);
         let mut agents = self.agents.write().await;
         let id = agent.id.clone();
         debug!(agent_id = %id, name = %agent.name, "registering new agent");
         agents.insert(id, agent.clone());
-        agent
+        Ok(agent)
     }
 
     /// Spawn an agent as a child process
@@ -70,17 +79,41 @@ impl AgentRegistry {
         parent_id: Option<String>,
         agent_binary_path: &str,
     ) -> RegistryResult<Agent> {
-        let agent = self.register(name, parent_id).await;
+        // Validate binary path before registration
+        let path = std::path::Path::new(agent_binary_path);
+        if !path.is_absolute() {
+            return Err(RegistryError::ProcessError(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("agent binary path must be absolute: {}", agent_binary_path),
+                )
+                .into(),
+            ));
+        }
+        if !path.exists() {
+            return Err(RegistryError::ProcessError(
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("agent binary not found: {}", agent_binary_path),
+                )
+                .into(),
+            ));
+        }
+
+        // Register agent metadata (transaction-like: clean up on spawn failure)
+        let agent = self.register(name, parent_id).await?;
         let agent_id = agent.id.clone();
 
-        // Spawn the process
-        let process = AgentProcess::spawn(agent_binary_path, &agent_id)
-            .await
-            .map_err(|e| {
-                // Clean up registration on spawn failure
-                error!(agent_id = %agent_id, error = %e, "failed to spawn agent process");
-                RegistryError::ProcessError(e)
-            })?;
+        // Spawn the process; on failure, remove the registered agent
+        let process = match AgentProcess::spawn(agent_binary_path, &agent_id).await {
+            Ok(p) => p,
+            Err(e) => {
+                error!(agent_id = %agent_id, error = %e, "failed to spawn agent process, cleaning up registration");
+                // Remove the orphaned registration
+                let _ = self.remove(&agent_id).await;
+                return Err(RegistryError::ProcessError(e));
+            }
+        };
 
         // Store process handle
         {
@@ -256,8 +289,9 @@ impl AgentRegistry {
         }
 
         // Update state to Stopped
-        if let Ok(_agent) = self.update_state(id, AgentState::Stopped).await {
-            debug!(agent_id = %id, "agent stopped");
+        match self.update_state(id, AgentState::Stopped).await {
+            Ok(_) => debug!(agent_id = %id, "agent stopped"),
+            Err(e) => warn!(agent_id = %id, error = %e, "failed to update agent state to Stopped"),
         }
 
         Ok(())
@@ -277,7 +311,7 @@ impl AgentRegistry {
     }
 
     /// Check for dead agents and clean them up
-    pub async fn cleanup_dead(&self) -> Vec<String> {
+    pub async fn cleanup_dead(&self) -> CleanupResult {
         let mut dead_ids = Vec::new();
 
         {
@@ -293,14 +327,20 @@ impl AgentRegistry {
             }
         }
 
-        // Remove dead agents
+        // Remove dead agents and track failures
+        let mut cleaned = Vec::new();
+        let mut failed = Vec::new();
         for id in &dead_ids {
-            if let Err(e) = self.remove(id).await {
-                error!(agent_id = %id, error = %e, "failed to cleanup dead agent");
+            match self.remove(id).await {
+                Ok(_) => cleaned.push(id.clone()),
+                Err(e) => {
+                    error!(agent_id = %id, error = %e, "failed to cleanup dead agent");
+                    failed.push((id.clone(), e));
+                }
             }
         }
 
-        dead_ids
+        CleanupResult { cleaned, failed }
     }
 
     /// Get count of registered agents
@@ -346,7 +386,10 @@ mod tests {
     #[tokio::test]
     async fn test_register_agent() {
         let registry = create_registry(30);
-        let agent = registry.register("test-agent".to_string(), None).await;
+        let agent = registry
+            .register("test-agent".to_string(), None)
+            .await
+            .unwrap();
         assert_eq!(agent.name, "test-agent");
         assert_eq!(agent.state, AgentState::Idle);
     }
@@ -354,7 +397,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_agent() {
         let registry = create_registry(30);
-        let created = registry.register("test".to_string(), None).await;
+        let created = registry.register("test".to_string(), None).await.unwrap();
         let retrieved = registry.get(&created.id).await.unwrap();
         assert_eq!(retrieved.id, created.id);
     }
@@ -369,8 +412,8 @@ mod tests {
     #[tokio::test]
     async fn test_list_agents() {
         let registry = create_registry(30);
-        registry.register("agent1".to_string(), None).await;
-        registry.register("agent2".to_string(), None).await;
+        registry.register("agent1".to_string(), None).await.unwrap();
+        registry.register("agent2".to_string(), None).await.unwrap();
         let agents = registry.list().await;
         assert_eq!(agents.len(), 2);
     }
@@ -378,7 +421,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_state() {
         let registry = create_registry(30);
-        let agent = registry.register("test".to_string(), None).await;
+        let agent = registry.register("test".to_string(), None).await.unwrap();
         registry
             .update_state(&agent.id, AgentState::Running)
             .await
@@ -390,7 +433,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_state_transition() {
         let registry = create_registry(30);
-        let agent = registry.register("test".to_string(), None).await;
+        let agent = registry.register("test".to_string(), None).await.unwrap();
         // Can't go from Idle to Suspended directly
         let result = registry
             .update_state(&agent.id, AgentState::Suspended)
@@ -401,7 +444,7 @@ mod tests {
     #[tokio::test]
     async fn test_remove_agent() {
         let registry = create_registry(30);
-        let agent = registry.register("test".to_string(), None).await;
+        let agent = registry.register("test".to_string(), None).await.unwrap();
         let removed = registry.remove(&agent.id).await.unwrap();
         assert_eq!(removed.id, agent.id);
         assert!(registry.get(&agent.id).await.is_err());
@@ -430,16 +473,19 @@ mod tests {
         let registry = create_registry(30);
 
         // Create parent and children
-        let parent = registry.register("parent".to_string(), None).await;
+        let parent = registry.register("parent".to_string(), None).await.unwrap();
         let child1 = registry
             .register("child1".to_string(), Some(parent.id.clone()))
-            .await;
+            .await
+            .unwrap();
         let _child2 = registry
             .register("child2".to_string(), Some(parent.id.clone()))
-            .await;
+            .await
+            .unwrap();
         let _grandchild = registry
             .register("grandchild".to_string(), Some(child1.id.clone()))
-            .await;
+            .await
+            .unwrap();
 
         // Get children of parent
         let children = registry.get_children(&parent.id).await;
@@ -458,10 +504,11 @@ mod tests {
     async fn test_get_parent() {
         let registry = create_registry(30);
 
-        let parent = registry.register("parent".to_string(), None).await;
+        let parent = registry.register("parent".to_string(), None).await.unwrap();
         let child = registry
             .register("child".to_string(), Some(parent.id.clone()))
-            .await;
+            .await
+            .unwrap();
 
         // Get parent of child
         let found_parent = registry.get_parent(&child.id).await;
@@ -477,13 +524,15 @@ mod tests {
     async fn test_get_ancestors() {
         let registry = create_registry(30);
 
-        let root = registry.register("root".to_string(), None).await;
+        let root = registry.register("root".to_string(), None).await.unwrap();
         let child = registry
             .register("child".to_string(), Some(root.id.clone()))
-            .await;
+            .await
+            .unwrap();
         let grandchild = registry
             .register("grandchild".to_string(), Some(child.id.clone()))
-            .await;
+            .await
+            .unwrap();
 
         // Get ancestors of grandchild
         let ancestors = registry.get_ancestors(&grandchild.id).await;
@@ -500,13 +549,15 @@ mod tests {
     async fn test_is_ancestor_of() {
         let registry = create_registry(30);
 
-        let root = registry.register("root".to_string(), None).await;
+        let root = registry.register("root".to_string(), None).await.unwrap();
         let child = registry
             .register("child".to_string(), Some(root.id.clone()))
-            .await;
+            .await
+            .unwrap();
         let grandchild = registry
             .register("grandchild".to_string(), Some(child.id.clone()))
-            .await;
+            .await
+            .unwrap();
 
         // Root is ancestor of grandchild
         assert!(registry.is_ancestor_of(&root.id, &grandchild.id).await);

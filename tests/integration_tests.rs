@@ -122,7 +122,10 @@ async fn test_agent_registry_lifecycle() {
     let registry: SharedAgentRegistry = create_registry(30);
 
     // Register agent
-    let agent = registry.register("test-agent".to_string(), None).await;
+    let agent = registry
+        .register("test-agent".to_string(), None)
+        .await
+        .unwrap();
     let agent_id = agent.id.clone();
 
     // Verify agent is idle
@@ -174,19 +177,24 @@ async fn test_agent_parent_child_hierarchy() {
     let registry: SharedAgentRegistry = create_registry(30);
 
     // Register parent
-    let parent = registry.register("parent-agent".to_string(), None).await;
+    let parent = registry
+        .register("parent-agent".to_string(), None)
+        .await
+        .unwrap();
     let parent_id = parent.id.clone();
 
     // Register child
     let child = registry
         .register("child-agent".to_string(), Some(parent_id.clone()))
-        .await;
+        .await
+        .unwrap();
     let child_id = child.id.clone();
 
     // Register grandchild
     let grandchild = registry
         .register("grandchild-agent".to_string(), Some(child_id.clone()))
-        .await;
+        .await
+        .unwrap();
     let grandchild_id = grandchild.id.clone();
 
     // Verify parent-child relationship
@@ -227,7 +235,10 @@ async fn test_heartbeat_timeout_marks_agent_dead() {
     // Create registry with very short timeout (1 second)
     let registry: SharedAgentRegistry = create_registry(1);
 
-    let agent = registry.register("test-agent".to_string(), None).await;
+    let agent = registry
+        .register("test-agent".to_string(), None)
+        .await
+        .unwrap();
     let agent_id = agent.id.clone();
 
     // Agent should be alive immediately
@@ -254,7 +265,10 @@ async fn test_permission_engine_with_registered_agent() {
     let engine = PermissionEngine::new(rules);
 
     // Register an agent (ID will be UUID)
-    let agent = registry.register("test-agent".to_string(), None).await;
+    let agent = registry
+        .register("test-agent".to_string(), None)
+        .await
+        .unwrap();
     let agent_id = agent.id.clone();
 
     // Verify file read is allowed (wildcard subject matches any agent)
@@ -465,7 +479,10 @@ async fn test_config_loading_drives_agent_creation() {
 
     // Create agents from config
     for agent_config in provider.agents() {
-        let _agent = registry.register(agent_config.name.clone(), None).await;
+        let _agent = registry
+            .register(agent_config.name.clone(), None)
+            .await
+            .unwrap();
     }
 
     let agents = registry.list().await;
@@ -566,7 +583,10 @@ async fn test_skill_with_permission_engine_integration() {
 
     // Create a registry for agent
     let registry: SharedAgentRegistry = create_registry(30);
-    let agent = registry.register("test-agent".to_string(), None).await;
+    let agent = registry
+        .register("test-agent".to_string(), None)
+        .await
+        .unwrap();
     let agent_id = agent.id.clone();
 
     // Query exec permission: should be denied (no exec rule)

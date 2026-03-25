@@ -59,7 +59,9 @@ pub struct Agent {
 
 impl Agent {
     /// Create a new agent in Idle state
+    /// Silently converts empty string parent_id to None (data corruption guard).
     pub fn new(name: String, parent_id: Option<String>) -> Self {
+        let parent_id = parent_id.filter(|id| !id.is_empty());
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
