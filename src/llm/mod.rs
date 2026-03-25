@@ -3,10 +3,12 @@
 pub mod openai;
 pub mod anthropic;
 pub mod minimax;
+pub mod stub;
 
 pub use openai::OpenAIProvider;
 pub use anthropic::AnthropicProvider;
 pub use minimax::MiniMaxProvider;
+pub use stub::StubProvider;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -98,7 +100,7 @@ impl Default for LLMRegistry {
 impl LLMRegistry {
     pub fn new() -> Self {
         Self {
-            providers: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            providers: tokin::sync::RwLock::new(std::collections::HashMap::new()),
         }
     }
 
