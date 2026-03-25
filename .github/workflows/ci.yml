@@ -38,6 +38,25 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Check commit message for issue reference
+        if: github.event_name == 'push'
+        run: |
+          # Skip for reviewer checkpoint commits (authored by Reviewer)
+          author=$(git log -1 --format='%an')
+          if [[ "$author" == "Reviewer" ]]; then
+            echo "Skipping commit-msg check for reviewer checkpoint"
+            exit 0
+          fi
+          # Check latest commit has Fixes #N or Refs #N
+          msg=$(git log -1 --format='%B')
+          if ! echo "$msg" | grep -qE '(Fixes|Refs|refs|refs) #[0-9]+'; then
+            echo "ERROR: Commit message missing 'Fixes #N' or 'Refs #N' footer"
+            echo "Commit message:"
+            echo "$msg"
+            exit 1
+          fi
+          echo "Commit message check passed"
+
       - name: Run unit and binary tests
         run: cargo test --lib --bins
 

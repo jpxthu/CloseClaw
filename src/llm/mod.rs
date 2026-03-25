@@ -1,8 +1,10 @@
 //! LLM Interface - Abstract trait for multiple LLM providers
 
 pub mod anthropic;
+pub mod fallback;
 pub mod minimax;
 pub mod openai;
+pub mod retry;
 pub mod stub;
 
 pub use anthropic::AnthropicProvider;
@@ -86,6 +88,55 @@ pub enum LLMError {
 
     #[error("Network error: {0}")]
     NetworkError(String),
+}
+
+/// Classifies an LLM error to determine retry strategy
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    /// Transient errors (429, 5xx, timeout) — retry with backoff
+    Transient,
+    /// Auth errors (401, 403) — rotate credentials, do not retry same credentials
+    Auth,
+    /// Billing errors (402, quota exhausted) — long cooldown
+    Billing,
+    /// Invalid request (400, 422) — do not retry, switch model
+    InvalidRequest,
+    /// Unknown errors — treat as transient with limited retries
+    Unknown,
+}
+
+impl LLMError {
+    /// Classify this error to determine retry strategy
+    pub fn kind(&self) -> ErrorKind {
+        use ErrorKind::*;
+        match self {
+            // Auth: credentials issue, no point retrying same credentials
+            LLMError::AuthFailed(_) => Auth,
+            // Rate limit — could be transient or billing
+            LLMError::RateLimitExceeded => Transient,
+            // Invalid request — don't retry, fix the request
+            LLMError::InvalidRequest(_) | LLMError::ModelNotFound(_) => InvalidRequest,
+            // API errors — check status if available; default to Transient
+            LLMError::ApiError(msg) => {
+                // Heuristic: messages containing status codes
+                if msg.contains("500")
+                    || msg.contains("502")
+                    || msg.contains("503")
+                    || msg.contains("504")
+                {
+                    Transient
+                } else if msg.contains("400") || msg.contains("422") {
+                    InvalidRequest
+                } else if msg.contains("401") || msg.contains("403") {
+                    Auth
+                } else {
+                    Unknown
+                }
+            }
+            // Network errors are transient
+            LLMError::NetworkError(_) => Transient,
+        }
+    }
 }
 
 /// LLM Registry - manages multiple providers
