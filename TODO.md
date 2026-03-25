@@ -58,8 +58,9 @@
 - max_depth 由 CloseClaw 逻辑校验
 
 **TODO（后续再定）：**
-- 经验推送机制（父→子的下行推送实现）
-- 通讯延迟处理（消息队列/长连接/拉取策略）
+- [x] 经验推送机制 — 设计完成 ✅（docs/plans/2026-03-25--experience-push-mechanism.md，issue #64 已关闭）
+- [x] 通讯延迟处理 — 设计完成 ✅（docs/plans/2026-03-25--communication-delay-strategy.md，issue #65 已关闭）
+- [x] Agent 生命周期状态机 — 设计完成 ✅（docs/plans/2026-03-25--agent-lifecycle-state-machine.md，issue #66 已关闭）
 
 ## 待实现（设计明确，可自行开始）
 
