@@ -323,14 +323,13 @@ enum AgentMessage {
 ### 5.1 阶段划分
 
 | 阶段 | 内容 | 依赖 | 预计工作量 |
-|------|------|------|----------|
-| **Phase 1** | 扩展 `AgentState` 枚举，增加 `Suspended(SuspendedInfo)` 和 `Error(ErrorInfo)` 变体；更新 `is_valid_transition()` | 无 | 小 |
+|------|------|------|---------- |
+| **Phase 1** | 扩展 `AgentState` 枚举，增加 `Suspended(SuspendedInfo)` 和 `Error(ErrorInfo)` 变体；更新 `is_valid_transition()`；**同时实现 `Suspended::Forced` vs `Suspended::Self` 区分** | 无 | 中 |
 | **Phase 2** | 实现 `AgentStateTransition` 事件结构，记录转换触发源和原因 | Phase 1 | 小 |
-| **Phase 3** | 实现每条转换路径的清理动作：`cleanup_on_stop()`、`cleanup_on_error()`、`suspend_process()`、`resume_process()` | Phase 1 | 中 |
+| **Phase 3** | 实现每条转换路径的清理动作：`cleanup_on_stop()`、`cleanup_on_error()`、`suspend_process()`、`resume_process()`；实现检查点机制（`Suspended::Forced` 的检查点保存与恢复） | Phase 1 | 中 |
 | **Phase 4** | 实现 `stop_with_descendants()` 和 `suspend_with_descendants()` 级联操作 | Phase 3 | 中 |
-| **Phase 5** | 添加 `wait_timeout_secs` 配置项，实现 `Waiting → Error` 超时机制 | Phase 2 | 小 |
+| **Phase 5** | 添加 `wait_timeout_secs` 和 `grace_period_secs` 配置项，实现 `Waiting → Error` 超时机制和级联停止缓冲期 | Phase 2 | 小 |
 | **Phase 6** | 集成到 `AgentRegistry`：`update_state()` 增加清理钩子，状态转换时自动触发清理 | Phase 3+4 | 中 |
-| **Phase 7** | 增加 `Suspended::Forced` vs `Suspended::Self` 的区分，实现检查点机制 | Phase 1 | 中 |
 
 ### 5.2 新增数据结构
 
@@ -409,6 +408,7 @@ impl AgentRegistry {
   "agent": {
     "heartbeat_timeout_secs": 30,
     "wait_timeout_secs": 300,
+    "grace_period_secs": 5,
     "cleanup_on_stop": {
       "delete_temp_files": true,
       "retain_metadata": true
