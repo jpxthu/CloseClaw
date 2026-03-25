@@ -11,6 +11,7 @@
 //! Note: seccomp/landlock enforcement is tested separately in unit tests
 //! since they require the actual kernel enforcement to be implemented.
 
+use std::hash::Hash;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -160,13 +161,14 @@ async fn test_ipc_channel_protocol_sandbox_request_serde() {
 #[tokio::test]
 async fn test_ipc_channel_protocol_evaluate_request_serde() {
     let request = SandboxRequest::Evaluate {
-        request: PermissionRequest {
+        request: PermissionRequest::WithCaller {
             caller: Caller {
                 user_id: "test-user".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: None,
+                creator_id: String::new(),
             },
             request: PermissionRequestBody::CommandExec {
+                agent: "test-agent".to_string(),
                 cmd: "ls".to_string(),
                 args: vec!["/tmp".to_string()],
             },
@@ -212,13 +214,13 @@ async fn test_ipc_channel_protocol_sandbox_response_serde() {
 #[tokio::test]
 async fn test_ipc_channel_protocol_permission_response_serde() {
     let response = SandboxResponse::PermissionResponse(PermissionResponse::Allowed {
-        reason: "allowed by rule allow-all".to_string(),
+        token: "allow-all".to_string(),
     });
     let json = serde_json::to_vec(&response).unwrap();
     let parsed: SandboxResponse = serde_json::from_slice(&json).unwrap();
     match parsed {
-        SandboxResponse::PermissionResponse(PermissionResponse::Allowed { reason }) => {
-            assert!(reason.contains("allow-all"));
+        SandboxResponse::PermissionResponse(PermissionResponse::Allowed { token }) => {
+            assert!(token.contains("allow-all"));
         }
         other => panic!("expected Allowed, got {:?}", other),
     }
@@ -296,8 +298,7 @@ async fn test_sandbox_cannot_spawn_twice() {
         }
 
         // Shutdown
-        let shutdown_result = sandbox.shutdown().await;
-        assert!(shutdown_result.is_ok(), "shutdown should succeed");
+        sandbox.shutdown().await;
     }
     // If spawn fails (e.g., binary not found in test context), that's OK for unit tests
 
@@ -312,13 +313,20 @@ async fn test_sandbox_ping_after_spawn() {
 
     let spawn_result = sandbox.spawn().await;
     if spawn_result.is_ok() {
-        // Ping should succeed
-        let ping_result = sandbox.ping().await;
-        assert!(ping_result.is_ok(), "ping should succeed after spawn");
+        // Use evaluate with a dummy request as liveness check (ping doesn't exist as a method)
+        let dummy_request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "echo".to_string(),
+            args: vec![],
+        });
+        let eval_result = sandbox.evaluate(dummy_request).await;
+        assert!(
+            eval_result.is_ok(),
+            "evaluate should succeed after spawn (sandbox is alive)"
+        );
 
         // Shutdown
-        let shutdown_result = sandbox.shutdown().await;
-        assert!(shutdown_result.is_ok());
+        sandbox.shutdown().await;
     }
 
     let _ = std::fs::remove_file(&socket_path);
@@ -335,13 +343,14 @@ async fn test_sandbox_evaluate_permission_request() {
     let spawn_result = sandbox.spawn().await;
     if spawn_result.is_ok() {
         // Evaluate a file read permission request
-        let request = PermissionRequest {
+        let request = PermissionRequest::WithCaller {
             caller: Caller {
                 user_id: "test-user".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: None,
+                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
+                agent: "test-agent".to_string(),
                 op: "read".to_string(),
                 path: "/tmp/test.txt".to_string(),
             },
@@ -355,10 +364,10 @@ async fn test_sandbox_evaluate_permission_request() {
 
         let response = eval_result.unwrap();
         match response {
-            PermissionResponse::Allowed { reason } => {
-                assert!(reason.contains("allow") || reason.contains("allowed"));
+            PermissionResponse::Allowed { token: _ } => {
+                // Permissive rules allow this request
             }
-            PermissionResponse::Denied { reason } => {
+            PermissionResponse::Denied { reason, rule: _ } => {
                 panic!(
                     "expected Allowed with permissive rules, got Denied: {}",
                     reason
@@ -367,8 +376,7 @@ async fn test_sandbox_evaluate_permission_request() {
         }
 
         // Shutdown
-        let shutdown_result = sandbox.shutdown().await;
-        assert!(shutdown_result.is_ok());
+        sandbox.shutdown().await;
     }
 
     let _ = std::fs::remove_file(&socket_path);
@@ -383,17 +391,21 @@ async fn test_sandbox_restart_after_shutdown() {
     // First spawn
     let first_spawn = sandbox.spawn().await;
     if first_spawn.is_ok() {
-        let ping1 = sandbox.ping().await;
-        assert!(ping1.is_ok());
+        // Use evaluate as liveness check (ping doesn't exist)
+        let dummy = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "echo".to_string(),
+            args: vec![],
+        });
+        assert!(sandbox.evaluate(dummy).await.is_ok());
 
-        let shutdown = sandbox.shutdown().await;
-        assert!(shutdown.is_ok());
+        sandbox.shutdown().await;
 
-        // State should be Stopped after shutdown
+        // State should be Shutdown after shutdown
         let state_after_shutdown = sandbox.state().await;
         assert!(matches!(
             state_after_shutdown,
-            closeclaw::permission::sandbox::SandboxState::Stopped
+            closeclaw::permission::sandbox::SandboxState::Shutdown
         ));
 
         // Second spawn should succeed (restart)
@@ -403,8 +415,15 @@ async fn test_sandbox_restart_after_shutdown() {
             "restart after shutdown should succeed"
         );
 
-        let ping2 = sandbox.ping().await;
-        assert!(ping2.is_ok(), "ping should succeed after restart");
+        let dummy2 = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "echo".to_string(),
+            args: vec![],
+        });
+        assert!(
+            sandbox.evaluate(dummy2).await.is_ok(),
+            "evaluate should succeed after restart"
+        );
 
         // Final shutdown
         let _ = sandbox.shutdown().await;
@@ -418,9 +437,14 @@ async fn test_sandbox_cannot_operate_when_not_spawned() {
     let socket_path = temp_socket_path();
     let sandbox = Sandbox::new(&socket_path);
 
-    // Ping without spawn should fail with IpcTimeout or Ipc error
-    let ping_result = sandbox.ping().await;
-    assert!(ping_result.is_err(), "ping without spawn should fail");
+    // Evaluate without spawn should fail with InvalidState error
+    let dummy_request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+        agent: "test-agent".to_string(),
+        cmd: "echo".to_string(),
+        args: vec![],
+    });
+    let eval_result = sandbox.evaluate(dummy_request).await;
+    assert!(eval_result.is_err(), "evaluate without spawn should fail");
 
     let _ = std::fs::remove_file(&socket_path);
 }
@@ -447,11 +471,11 @@ async fn test_sandbox_state_transitions() {
         ));
 
         // Shutdown
-        let _ = sandbox.shutdown().await;
+        sandbox.shutdown().await;
         let state2 = sandbox.state().await;
         assert!(matches!(
             state2,
-            closeclaw::permission::sandbox::SandboxState::Stopped
+            closeclaw::permission::sandbox::SandboxState::Shutdown
         ));
     }
 
