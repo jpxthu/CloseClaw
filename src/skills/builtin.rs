@@ -318,6 +318,76 @@ impl Skill for PermissionSkill {
     }
 }
 
+
+/// Skill discovery skill - allows agents to search and install skills from ClawHub
+pub struct SkillDiscoverySkill;
+
+impl SkillDiscoverySkill {
+    pub fn new() -> Self { Self }
+}
+
+#[async_trait]
+impl Skill for SkillDiscoverySkill {
+    fn manifest(&self) -> SkillManifest {
+        SkillManifest {
+            name: "skill_discovery".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Search, install, and manage skills from ClawHub marketplace. "
+                + "Use find to search, install to add, list to see installed, update to upgrade.",
+            author: Some("CloseClaw Team".to_string()),
+            dependencies: vec!["clawhub".to_string()],
+        }
+    }
+
+    fn methods(&self) -> Vec<&str> {
+        vec!["find", "install", "list", "update"]
+    }
+
+    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        match method {
+            "find" => {
+                let query = args.get("query").and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("query required".to_string()))?;
+                let output = tokio::process::Command::new("clawhub").args(["search", query])
+                    .output().await
+                    .map_err(|e| SkillError::ExecutionFailed(format!("clawhub search failed: {}", e)))?;
+                Ok(serde_json::json!({"query": query, "output": String::from_utf8_lossy(&output.stdout),
+                    "error": if output.status.success() { None } else { Some(String::from_utf8_lossy(&output.stderr).to_string()) }}))
+            }
+            "install" => {
+                let skill = args.get("skill").and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("skill name required".to_string()))?;
+                let version = args.get("version").and_then(|v| v.as_str());
+                let mut cmd = tokio::process::Command::new("clawhub");
+                cmd.args(["install", skill]);
+                if let Some(v) = version { cmd.arg("--version").arg(v); }
+                let output = cmd.output().await
+                    .map_err(|e| SkillError::ExecutionFailed(format!("clawhub install failed: {}", e)))?;
+                Ok(serde_json::json!({"skill": skill, "version": version, "output": String::from_utf8_lossy(&output.stdout),
+                    "error": if output.status.success() { None } else { Some(String::from_utf8_lossy(&output.stderr).to_string()) }}))
+            }
+            "list" => {
+                let output = tokio::process::Command::new("clawhub").args(["list"])
+                    .output().await
+                    .map_err(|e| SkillError::ExecutionFailed(format!("clawhub list failed: {}", e)))?;
+                Ok(serde_json::json!({"output": String::from_utf8_lossy(&output.stdout),
+                    "error": if output.status.success() { None } else { Some(String::from_utf8_lossy(&output.stderr).to_string()) }}))
+            }
+            "update" => {
+                let skill = args.get("skill").and_then(|v| v.as_str());
+                let mut cmd = tokio::process::Command::new("clawhub");
+                cmd.args(["update"]);
+                if let Some(s) = skill { cmd.arg(s); } else { cmd.arg("--all"); }
+                let output = cmd.output().await
+                    .map_err(|e| SkillError::ExecutionFailed(format!("clawhub update failed: {}", e)))?;
+                Ok(serde_json::json!({"skill": skill, "output": String::from_utf8_lossy(&output.stdout),
+                    "error": if output.status.success() { None } else { Some(String::from_utf8_lossy(&output.stderr).to_string()) }}))
+            }
+            _ => Err(SkillError::MethodNotFound { skill: "skill_discovery".to_string(), method: method.to_string() })
+        }
+    }
+}
+
 /// Built-in skills registry
 pub struct BuiltinSkills;
 
@@ -328,6 +398,7 @@ impl BuiltinSkills {
             Arc::new(GitOpsSkill::new()),
             Arc::new(SearchSkill::new()),
             Arc::new(PermissionSkill::new()),
+            Arc::new(SkillDiscoverySkill::new()),
             Arc::new(super::CodingAgentSkill::new(None)),
             Arc::new(super::SkillCreatorSkill::new()),
         ]
@@ -376,7 +447,7 @@ mod tests {
     #[test]
     fn test_builtin_skills() {
         let skills = BuiltinSkills::all();
-        assert_eq!(skills.len(), 6);
+        assert_eq!(skills.len(), 7);
         assert_eq!(skills[0].manifest().name, "file_ops");
         assert_eq!(skills[1].manifest().name, "git_ops");
         assert_eq!(skills[2].manifest().name, "search");
