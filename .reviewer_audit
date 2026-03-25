@@ -1,6 +1,6 @@
 {
-  "last_audited_commit": "7b8f238",
-  "last_audited_at": "2026-03-26T00:13:00+08:00",
+  "last_audited_commit": "f5af79e",
+  "last_audited_at": "2026-03-26T01:43:00+08:00",
   "audited_commits": [
     "014eea9", "aafb8e9", "a9cfcfc", "218522a",
     "651ef70", "56baa39", "75e0df3", "b7d2141", "65fa8e9", "84b28e8", "7ea31db",
@@ -9,7 +9,8 @@
     "e69eb76", "2705918",
     "05d6759", "88f99ff", "5521435",
     "6f94d55", "7e34666", "c788590",
-    "7e5e145", "03a8a3e", "7b8f238"
+    "7e5e145", "03a8a3e", "7b8f238",
+    "77d04aa", "f5af79e", "62f696e"
   ],
   "notes": [
     "aafb8e9: .env loading from config_dir (minor: no key name validation, no size limit — low risk since config_dir is user-controlled)",
@@ -34,13 +35,16 @@
     "e69eb76: fix tokin->tokio in LLMRegistry::new() — fixes #88 ✅",
     "2705918: fix stub-modem->stub-model in test assertion — fixes #89 ✅",
     "05d6759: regenerate valid Cargo.lock (was JSON, not TOML) — fixes bad Cargo.lock from e907852",
-    "88f99ff: add cargo-llvm-cov for coverage reporting — resolves #84 ✅; BUG #90: request typo (should be reqwest) in Cargo.toml:31; BUG #91: cargo=ldm-cov typo (should be cargo-llvm-cov) in Cargo.toml:63",
+    "88f99ff: add cargo-llvm-cov for coverage reporting — resolves #84 ✅; BUG #90: request typo; BUG #91: cargo=ldm-cov typo",
     "5521435: sandbox integration tests for seccomp/landlock (7 test cases) — resolves #83 ✅",
     "6f94d55: reviewer audit checkpoint",
     "7e34666: skill_discovery_skill for ClawHub marketplace — #69 CLOSED ✅",
     "c788590: inject PermissionEngine into PermissionSkill via builtin_skills_with_engine() — implements planned permission_skill",
     "7e5e145: reviewer audit checkpoint",
     "03a8a3e: fix Cargo.toml typos (reqwest, cargo-llvm-cov) — fixes #90 and #91 ✅",
-    "7b8f238: cargo fmt across entire codebase — style normalization; compiles cleanly (20 clippy warnings, 0 errors)"
+    "7b8f238: cargo fmt across entire codebase — style normalization; compiles cleanly",
+    "77d04aa: fix config setup writing masked keys to .env instead of real keys — CRITICAL BUG FIX #92 ✅; now uses separate env_preview (masked) vs env_content (real) for display vs file writing",
+    "f5af79e: add mask_key unit tests — good coverage of edge cases (short keys, exactly 8 chars, very long keys)",
+    "62f696e: update sandbox integration tests to match PermissionEngine API changes from c788590 (WithCaller/Bare enum, Caller.creator_id type, SandboxState::Shutdown, etc.)"
   ]
 }
