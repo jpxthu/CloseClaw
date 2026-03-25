@@ -1,13 +1,14 @@
 {
-  "last_audited_commit": "5521435",
-  "last_audited_at": "2026-03-25T22:01:00+08:00",
+  "last_audited_commit": "c788590",
+  "last_audited_at": "2026-03-25T23:38:00+08:00",
   "audited_commits": [
     "014eea9", "aafb8e9", "a9cfcfc", "218522a",
     "651ef70", "56baa39", "75e0df3", "b7d2141", "65fa8e9", "84b28e8", "7ea31db",
     "4047a44", "f03ca8d", "5314c1e", "7e096f1", "c70ee24",
     "0fc2099", "e907852", "7244213", "c12ad2e", "2c8c278",
     "e69eb76", "2705918",
-    "05d6759", "88f99ff", "5521435"
+    "05d6759", "88f99ff", "5521435",
+    "6f94d55", "7e34666", "c788590"
   ],
   "notes": [
     "aafb8e9: .env loading from config_dir (minor: no key name validation, no size limit — low risk since config_dir is user-controlled)",
@@ -32,7 +33,10 @@
     "e69eb76: fix tokin->tokio in LLMRegistry::new() — fixes #88 ✅",
     "2705918: fix stub-modem->stub-model in test assertion — fixes #89 ✅",
     "05d6759: regenerate valid Cargo.lock (was JSON, not TOML) — fixes bad Cargo.lock from e907852",
-    "88f99ff: add cargo-llvm-cov for coverage reporting — resolves #84 ✅",
-    "5521435: sandbox integration tests for seccomp/landlock (7 test cases) — resolves #83 ✅"
+    "88f99ff: add cargo-llvm-cov for coverage reporting — resolves #84 ✅; ⚠️ BUG #90: request typo (should be reqwest) in Cargo.toml:31; ⚠️ BUG #91: cargo=ldm-cov typo (should be cargo-llvm-cov) in Cargo.toml:63 — both block compilation",
+    "5521435: sandbox integration tests for seccomp/landlock (7 test cases) — resolves #83 ✅",
+    "6f94d55: reviewer audit checkpoint (already in audited list)",
+    "7e34666: skill_discovery_skill for ClawHub marketplace integration — find/install/list/update via clawhub CLI; #69 CLOSED ✅; looks reasonable",
+    "c788590: inject PermissionEngine into PermissionSkill via builtin_skills_with_engine() — implements planned permission_skill; minor: builder noted pre-existing Cargo.toml build issues (which I subsequently filed as #90 and #91)"
   ]
 }
