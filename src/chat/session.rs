@@ -1,12 +1,15 @@
 //! Per-connection chat session state
 
 use crate::chat::protocol::{ClientMessage, ServerMessage};
-use crate::llm::fallback::FallbackClient;
 use crate::llm::{ChatRequest, LLMRegistry, Message};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{debug, error, info, warn};
+
+/// Default LLM call timeout (60 seconds).
+const DEFAULT_LLM_TIMEOUT_SECS: u64 = 60;
 
 /// Default max chat history entries (100 messages = ~50 turns).
 const DEFAULT_MAX_HISTORY: usize = 100;
@@ -25,9 +28,11 @@ pub struct ChatSession {
     active: bool,
     /// Shutdown signal receiver
     shutdown_rx: tokio::sync::broadcast::Receiver<()>,
-    /// LLM fallback client (handles retry + fallback chain)
-    fallback_client: Arc<FallbackClient>,
-    /// Default model name (used for the ChatRequest)
+    /// LLM registry for chat completions
+    llm_registry: Arc<LLMRegistry>,
+    /// Default LLM provider name
+    llm_provider: String,
+    /// Default model name
     model: String,
     /// Chat history for context
     chat_history: Vec<Message>,
@@ -53,24 +58,6 @@ impl ChatSession {
             .parse()
             .unwrap_or(DEFAULT_MAX_HISTORY);
 
-        // Build fallback chain from LLM_FALLBACK_CHAIN env var
-        // Format: "minimax/MiniMax-M2.7,dashscope/qwen3-max"
-        // Defaults to just the primary model if not set
-        let fallback_chain: Vec<String> = std::env::var("LLM_FALLBACK_CHAIN")
-            .map(|s| s.split(',').map(str::trim).map(String::from).collect())
-            .unwrap_or_else(|_| {
-                let provider =
-                    std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "minimax".to_string());
-                let model =
-                    std::env::var("LLM_MODEL").unwrap_or_else(|_| "MiniMax-M2.5".to_string());
-                vec![format!("{}/{}", provider, model)]
-            });
-
-        let fallback_client = Arc::new(FallbackClient::from_strings(
-            Arc::clone(&llm_registry),
-            fallback_chain,
-        ));
-
         Self {
             session_id,
             agent_id,
@@ -78,7 +65,8 @@ impl ChatSession {
             writer,
             active: true,
             shutdown_rx,
-            fallback_client,
+            llm_registry,
+            llm_provider: std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "minimax".to_string()),
             model: std::env::var("LLM_MODEL").unwrap_or_else(|_| "MiniMax-M2.5".to_string()),
             chat_history: Vec::new(),
             max_history,
@@ -231,8 +219,32 @@ impl ChatSession {
     }
 
     /// Call the LLM with the user's message and return the response content.
-    /// Uses FallbackClient which handles retry, cooldown tracking, and model fallback.
+    /// Includes a timeout to prevent session blocking on slow/hanging API calls.
     async fn call_llm(&self, _content: &str) -> anyhow::Result<String> {
+        // Get timeout from env var, default to 60s
+        let timeout_secs: u64 = std::env::var("LLM_TIMEOUT_SECS")
+            .unwrap_or_else(|_| DEFAULT_LLM_TIMEOUT_SECS.to_string())
+            .parse()
+            .unwrap_or(DEFAULT_LLM_TIMEOUT_SECS);
+        let timeout = Duration::from_secs(timeout_secs);
+
+        let provider = self.llm_registry.get(&self.llm_provider).await;
+
+        let provider = match provider {
+            Some(p) => p,
+            None => {
+                // Fallback: try any available provider
+                let providers = self.llm_registry.list().await;
+                if providers.is_empty() {
+                    return Err(anyhow::anyhow!("no LLM providers configured"));
+                }
+                self.llm_registry
+                    .get(&providers[0])
+                    .await
+                    .ok_or_else(|| anyhow::anyhow!("provider not found"))?
+            }
+        };
+
         let request = ChatRequest {
             model: self.model.clone(),
             messages: self.chat_history.clone(),
@@ -240,11 +252,10 @@ impl ChatSession {
             max_tokens: Some(2048),
         };
 
-        // Use fallback client for automatic retry + fallback chain
-        let response = self
-            .fallback_client
-            .chat(request)
+        // Wrap LLM call with timeout
+        let response = tokio::time::timeout(timeout, provider.chat(request))
             .await
+            .map_err(|_| anyhow::anyhow!("LLM call timed out after {}s", timeout_secs))?
             .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
 
         debug!(
