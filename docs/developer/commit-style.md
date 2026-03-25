@@ -73,6 +73,32 @@ chore: update dependencies in Cargo.toml
 ## Rules
 1. Use imperative mood ("add" not "added")
 2. First line under 72 characters
-3. Reference issues when applicable
+3. **Reference issues with `Fixes #N` or `Refs #N` in the footer** — all commits on `main` branch must be traceable to a GitHub issue
+   - Exception: reviewer audit checkpoint commits (footer contains `— Reviewer: [name]`) may omit issue reference
 4. One logical change per commit
 5. Include context for non-trivial changes
+
+## Issue Reference Format
+
+Every non-exception commit on `main` **must** include a footer reference:
+
+```
+Fixes #N      #N is the GitHub issue number this commit resolves
+Refs #N       #N is the GitHub issue number this commit relates to
+```
+
+Examples:
+```
+fix(permission): correct strip_thinking_tags to remove thinking content
+
+Fixes #95
+```
+
+```
+chore: run cargo fmt on entire codebase
+
+Refs #86
+```
+
+### CI Gate
+A CI step validates that commits on `main` contain `Fixes #N` or `Refs #N` (or the Reviewer exception). Commits failing this check will block merge.
