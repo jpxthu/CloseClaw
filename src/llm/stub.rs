@@ -92,7 +92,7 @@ mod tests {
     #[tokio::test]
     async fn test_stub_provider_models() {
         let provider = StubProvider::new();
-        assert_eq!(provider.models(), vec!["stub-modem"]);
+        assert_eq!(provider.models(), vec!["stub-model"]);
     }
 
     #[tokio::test]
