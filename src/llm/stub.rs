@@ -42,10 +42,7 @@ impl LLMProvider for StubProvider {
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
         // Log the request for test inspection
         eprintln!("[StubProvider] chat called with model={}", request.model);
-        eprintln!(
-            "[StubProvider] messages count={}",
-            request.messages.len()
-        );
+        eprintln!("[StubProvider] messages count={}", request.messages.len());
 
         let prompt_tokens = request
             .messages

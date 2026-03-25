@@ -253,13 +253,10 @@ impl ChatSession {
         };
 
         // Wrap LLM call with timeout
-        let response = tokio::time::timeout(
-            timeout,
-            provider.chat(request)
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("LLM call timed out after {}s", timeout_secs))?
-        .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
+        let response = tokio::time::timeout(timeout, provider.chat(request))
+            .await
+            .map_err(|_| anyhow::anyhow!("LLM call timed out after {}s", timeout_secs))?
+            .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
 
         debug!(
             session_id = %self.session_id,

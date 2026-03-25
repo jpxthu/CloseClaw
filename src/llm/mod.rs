@@ -1,13 +1,13 @@
 //! LLM Interface - Abstract trait for multiple LLM providers
 
-pub mod openai;
 pub mod anthropic;
 pub mod minimax;
+pub mod openai;
 pub mod stub;
 
-pub use openai::OpenAIProvider;
 pub use anthropic::AnthropicProvider;
 pub use minimax::MiniMaxProvider;
+pub use openai::OpenAIProvider;
 pub use stub::StubProvider;
 
 use async_trait::async_trait;
@@ -62,7 +62,9 @@ pub trait LLMProvider: Send + Sync {
 
     /// Returns true if this is a stub provider that returns fake responses.
     /// When true, callers should treat this as a configuration error.
-    fn is_stub(&self) -> bool { false }
+    fn is_stub(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

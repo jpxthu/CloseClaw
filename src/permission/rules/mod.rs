@@ -2,7 +2,9 @@
 //!
 //! Provides builder patterns and validation for [`Rule`], [`Subject`], and [`RuleSet`] types.
 
-use crate::permission::engine::{Action, Effect, MatchType, Rule, RuleSet, Subject, Defaults, TemplateRef};
+use crate::permission::engine::{
+    Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject, TemplateRef,
+};
 
 /// Builder for constructing [`Rule`] instances fluently.
 #[derive(Debug, Default)]
@@ -110,7 +112,9 @@ impl RuleBuilder {
     /// Finalize and return the constructed [`Rule`].
     pub fn build(self) -> Result<Rule, RuleBuilderError> {
         let name = self.name.ok_or(RuleBuilderError::MissingField("name"))?;
-        let subject = self.subject.ok_or(RuleBuilderError::MissingField("subject"))?;
+        let subject = self
+            .subject
+            .ok_or(RuleBuilderError::MissingField("subject"))?;
 
         Ok(Rule {
             name,
@@ -202,7 +206,9 @@ impl RuleSetBuilder {
 
     /// Finalize and return the constructed [`RuleSet`].
     pub fn build(self) -> Result<RuleSet, RuleSetBuilderError> {
-        let version = self.version.ok_or(RuleSetBuilderError::MissingField("version"))?;
+        let version = self
+            .version
+            .ok_or(RuleSetBuilderError::MissingField("version"))?;
 
         Ok(RuleSet {
             version,
@@ -221,8 +227,13 @@ impl RuleSetBuilder {
 
     /// Register an agent creator mapping: agent_id -> creator_user_id.
     /// The creator automatically gets full-access to the agent.
-    pub fn agent_creator(mut self, agent_id: impl Into<String>, creator_user_id: impl Into<String>) -> Self {
-        self.agent_creators.insert(agent_id.into(), creator_user_id.into());
+    pub fn agent_creator(
+        mut self,
+        agent_id: impl Into<String>,
+        creator_user_id: impl Into<String>,
+    ) -> Self {
+        self.agent_creators
+            .insert(agent_id.into(), creator_user_id.into());
         self
     }
 }
@@ -273,7 +284,10 @@ pub mod validation {
         for (idx, rule) in ruleset.rules.iter().enumerate() {
             let rule_errors = validate_rule(rule);
             for err in rule_errors {
-                errors.push(RuleSetValidationError::InvalidRule { index: idx, error: err });
+                errors.push(RuleSetValidationError::InvalidRule {
+                    index: idx,
+                    error: err,
+                });
             }
         }
 
@@ -282,12 +296,18 @@ pub mod validation {
 
     /// Check if a ruleset has any deny rules (high priority).
     pub fn has_deny_rules(ruleset: &RuleSet) -> bool {
-        ruleset.rules.iter().any(|r| r.effect == crate::permission::engine::Effect::Deny)
+        ruleset
+            .rules
+            .iter()
+            .any(|r| r.effect == crate::permission::engine::Effect::Deny)
     }
 
     /// Check if a ruleset has any allow rules.
     pub fn has_allow_rules(ruleset: &RuleSet) -> bool {
-        ruleset.rules.iter().any(|r| r.effect == crate::permission::engine::Effect::Allow)
+        ruleset
+            .rules
+            .iter()
+            .any(|r| r.effect == crate::permission::engine::Effect::Allow)
     }
 
     /// A validation error for a single rule.
@@ -309,7 +329,10 @@ pub mod validation {
         #[error("ruleset version cannot be empty")]
         EmptyVersion,
         #[error("rule at index {index} is invalid: {error}")]
-        InvalidRule { index: usize, error: RuleValidationError },
+        InvalidRule {
+            index: usize,
+            error: RuleValidationError,
+        },
     }
 }
 
@@ -324,7 +347,11 @@ mod tests {
             .name("allow-read-home")
             .subject_agent("dev-agent-01")
             .allow()
-            .action(ActionBuilder::file("read", vec!["/home/**".to_string()]).build().unwrap())
+            .action(
+                ActionBuilder::file("read", vec!["/home/**".to_string()])
+                    .build()
+                    .unwrap(),
+            )
             .build()
             .unwrap();
 
@@ -336,11 +363,12 @@ mod tests {
 
     #[test]
     fn test_rule_builder_missing_name() {
-        let result = RuleBuilder::new()
-            .subject_agent("dev-agent-01")
-            .build();
+        let result = RuleBuilder::new().subject_agent("dev-agent-01").build();
 
-        assert!(matches!(result, Err(RuleBuilderError::MissingField("name"))));
+        assert!(matches!(
+            result,
+            Err(RuleBuilderError::MissingField("name"))
+        ));
     }
 
     #[test]
@@ -368,7 +396,10 @@ mod tests {
     fn test_validation() {
         let empty_rule = Rule {
             name: String::new(),
-            subject: Subject::AgentOnly { agent: String::new(), match_type: MatchType::Exact },
+            subject: Subject::AgentOnly {
+                agent: String::new(),
+                match_type: MatchType::Exact,
+            },
             effect: Effect::Allow,
             actions: vec![],
             template: None,
@@ -376,9 +407,15 @@ mod tests {
         };
 
         let errors = validation::validate_rule(&empty_rule);
-        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptyName)));
-        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptySubjectAgent)));
-        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::NoActions)));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, validation::RuleValidationError::EmptyName)));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, validation::RuleValidationError::EmptySubjectAgent)));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, validation::RuleValidationError::NoActions)));
     }
 
     // Additional validation tests (from comprehensive_tests.rs)
@@ -396,7 +433,9 @@ mod tests {
             priority: 0,
         };
         let errors = validation::validate_rule(&rule);
-        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptyName)));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, validation::RuleValidationError::EmptyName)));
     }
 
     #[test]
@@ -413,7 +452,9 @@ mod tests {
             priority: 0,
         };
         let errors = validation::validate_rule(&rule);
-        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::EmptySubjectAgent)));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, validation::RuleValidationError::EmptySubjectAgent)));
     }
 
     #[test]
@@ -430,7 +471,9 @@ mod tests {
             priority: 0,
         };
         let errors = validation::validate_rule(&rule);
-        assert!(errors.iter().any(|e| matches!(e, validation::RuleValidationError::NoActions)));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, validation::RuleValidationError::NoActions)));
     }
 
     #[test]
@@ -443,7 +486,9 @@ mod tests {
             agent_creators: std::collections::HashMap::new(),
         };
         let errors = validation::validate_ruleset(&ruleset);
-        assert!(errors.iter().any(|e| matches!(e, validation::RuleSetValidationError::EmptyVersion)));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, validation::RuleSetValidationError::EmptyVersion)));
     }
 
     #[test]
@@ -455,7 +500,11 @@ mod tests {
                     .name("deny-rule")
                     .subject_agent("test")
                     .deny()
-                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -474,7 +523,11 @@ mod tests {
                     .name("allow-rule")
                     .subject_agent("test")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -492,12 +545,19 @@ mod tests {
                     .name("test-rule")
                     .subject_agent("test")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
             .build();
-        assert!(matches!(result, Err(RuleSetBuilderError::MissingField("version"))));
+        assert!(matches!(
+            result,
+            Err(RuleSetBuilderError::MissingField("version"))
+        ));
     }
 
     #[test]
@@ -505,8 +565,15 @@ mod tests {
         let result = RuleBuilder::new()
             .name("test-rule")
             .allow()
-            .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+            .action(
+                ActionBuilder::file("read", vec!["**".to_string()])
+                    .build()
+                    .unwrap(),
+            )
             .build();
-        assert!(matches!(result, Err(RuleBuilderError::MissingField("subject"))));
+        assert!(matches!(
+            result,
+            Err(RuleBuilderError::MissingField("subject"))
+        ));
     }
 }

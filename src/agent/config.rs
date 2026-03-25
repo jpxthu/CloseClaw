@@ -62,7 +62,10 @@ pub fn check_communication_allowed(
     }
 
     // Step 2: Check if source is in target's inbound list
-    if !target_config.communication.can_receive_from(&source_config.id) {
+    if !target_config
+        .communication
+        .can_receive_from(&source_config.id)
+    {
         return CommunicationCheckResult::SourceNotInTargetInbound;
     }
 
@@ -74,13 +77,19 @@ pub fn check_communication_allowed(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaxDepthCheckResult {
     /// Agent can spawn children at this depth.
-    Allowed { current_depth: u32, max_allowed: u32 },
+    Allowed {
+        current_depth: u32,
+        max_allowed: u32,
+    },
     /// Agent cannot spawn: would exceed max_child_depth.
-    ExceedsMaxDepth { current_depth: u32, max_child_depth: u32 },
+    ExceedsMaxDepth {
+        current_depth: u32,
+        max_child_depth: u32,
+    },
 }
 
 /// Check if an agent can spawn a child at the proposed depth.
-/// 
+///
 /// `get_parent` is a callback that returns the parent agent's config given its ID.
 /// Returns the result of the depth check.
 pub fn check_max_depth<F>(agent_config: &AgentConfig, get_parent: F) -> MaxDepthCheckResult
@@ -242,7 +251,7 @@ impl AgentPermissions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use tempfile::TempDir;
 
     #[test]
@@ -429,7 +438,10 @@ mod tests {
         // Can spawn (0 < 3), max_allowed for child = 2
         let result = check_max_depth(&root, |_: &str| None);
         match result {
-            MaxDepthCheckResult::Allowed { current_depth, max_allowed } => {
+            MaxDepthCheckResult::Allowed {
+                current_depth,
+                max_allowed,
+            } => {
                 assert_eq!(current_depth, 0);
                 assert_eq!(max_allowed, 2); // 3 - 1
             }
@@ -475,7 +487,10 @@ mod tests {
 
         let result = check_max_depth(&leaf, get_parent);
         match result {
-            MaxDepthCheckResult::ExceedsMaxDepth { current_depth, max_child_depth } => {
+            MaxDepthCheckResult::ExceedsMaxDepth {
+                current_depth,
+                max_child_depth,
+            } => {
                 // leaf has 2 ancestors (parent + grandparent) = depth 2
                 assert_eq!(current_depth, 2);
                 assert_eq!(max_child_depth, 2);

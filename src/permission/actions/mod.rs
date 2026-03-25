@@ -54,18 +54,14 @@ impl ActionBuilder {
     /// Start building an InterAgent action.
     pub fn inter_agent() -> Self {
         Self {
-            inner: Some(Action::InterAgent {
-                agents: Vec::new(),
-            }),
+            inner: Some(Action::InterAgent { agents: Vec::new() }),
         }
     }
 
     /// Start building a ConfigWrite action.
     pub fn config_write() -> Self {
         Self {
-            inner: Some(Action::ConfigWrite {
-                files: Vec::new(),
-            }),
+            inner: Some(Action::ConfigWrite { files: Vec::new() }),
         }
     }
 

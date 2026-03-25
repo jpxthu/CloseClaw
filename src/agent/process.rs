@@ -91,7 +91,10 @@ impl AgentProcessHandle {
 
     /// Wait for the process to exit
     pub async fn wait(&mut self) -> Result<i32, ProcessError> {
-        let status = self.child.write().await
+        let status = self
+            .child
+            .write()
+            .await
             .wait()
             .await
             .map_err(|e| ProcessError::CommunicationError(e.to_string()))?;
@@ -100,7 +103,9 @@ impl AgentProcessHandle {
                 debug!(agent_id = %self.agent_id, code = code, "process exited");
                 Ok(code)
             }
-            None => Err(ProcessError::CommunicationError("process terminated by signal".to_string())),
+            None => Err(ProcessError::CommunicationError(
+                "process terminated by signal".to_string(),
+            )),
         }
     }
 
@@ -128,7 +133,10 @@ impl AgentProcess {
     ///
     /// # Returns
     /// A handle to the spawned process
-    pub async fn spawn(binary_path: &str, agent_id: &str) -> Result<AgentProcessHandle, ProcessError> {
+    pub async fn spawn(
+        binary_path: &str,
+        agent_id: &str,
+    ) -> Result<AgentProcessHandle, ProcessError> {
         info!(binary = %binary_path, agent_id = %agent_id, "spawning agent process");
 
         let child = Command::new(binary_path)
@@ -196,14 +204,14 @@ impl AgentProcess {
             payload: serde_json::to_value(payload)
                 .map_err(|e| ProcessError::CommunicationError(e.to_string()))?,
         };
-        serde_json::to_string(&msg)
-            .map_err(|e| ProcessError::CommunicationError(e.to_string()))
+        serde_json::to_string(&msg).map_err(|e| ProcessError::CommunicationError(e.to_string()))
     }
 
     /// Parse a message from JSON
     pub fn parse_message(raw: &str) -> Result<ProcessMessage, ProcessError> {
-        serde_json::from_str(raw)
-            .map_err(|e| ProcessError::CommunicationError(format!("failed to parse message: {}", e)))
+        serde_json::from_str(raw).map_err(|e| {
+            ProcessError::CommunicationError(format!("failed to parse message: {}", e))
+        })
     }
 }
 

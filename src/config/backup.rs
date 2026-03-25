@@ -2,14 +2,14 @@
 //!
 //! Maintains a rolling history of the last N backups for each config file.
 
+use chrono::Local;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use chrono::Local;
 
 /// BackupManager provides backup/rollback functionality for config files.
-/// 
+///
 /// It maintains a configurable number of rolling backups and allows
 /// rolling back to the last known good state on error.
 #[derive(Debug)]
@@ -39,13 +39,15 @@ impl BackupManager {
         let content = fs::read(file_path)?;
 
         let timestamp = Local::now().format("%Y%m%d_%H%M%S_%f");
-        let stem = file_path.file_stem()
+        let stem = file_path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("config");
-        let ext = file_path.extension()
+        let ext = file_path
+            .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("json");
-        
+
         let backup_name = format!("{}.{}.{}", stem, timestamp, ext);
         let backup_path = self.backup_dir.join(&backup_name);
 
@@ -64,13 +66,15 @@ impl BackupManager {
     ) -> io::Result<PathBuf> {
         let file_path = file_path.as_ref();
         let timestamp = Local::now().format("%Y%m%d_%H%M%S_%f");
-        let stem = file_path.file_stem()
+        let stem = file_path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("config");
-        let ext = file_path.extension()
+        let ext = file_path
+            .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("json");
-        
+
         let backup_name = format!("{}.{}.{}", stem, timestamp, ext);
         let backup_path = self.backup_dir.join(&backup_name);
 
@@ -102,7 +106,8 @@ impl BackupManager {
     /// List all backups for a given file, newest first.
     pub fn list_backups<P: AsRef<Path>>(&self, file_path: P) -> io::Result<Vec<PathBuf>> {
         let file_path = file_path.as_ref();
-        let stem = file_path.file_stem()
+        let stem = file_path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("config");
 
@@ -125,19 +130,17 @@ impl BackupManager {
     /// Get the most recent backup path for a file.
     pub fn find_latest_backup<P: AsRef<Path>>(&self, file_path: P) -> io::Result<PathBuf> {
         let backups = self.list_backups(file_path)?;
-        backups.into_iter().next()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "No backup found",
-                )
-            })
+        backups
+            .into_iter()
+            .next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No backup found"))
     }
 
     /// Remove old backups beyond max_backups limit.
     fn rotate_backups<P: AsRef<Path>>(&self, file_path: P) -> io::Result<()> {
         let file_path = file_path.as_ref();
-        let stem = file_path.file_stem()
+        let stem = file_path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("config");
 
@@ -188,7 +191,10 @@ impl SafeBackupManager {
         file_path: P,
         content: &[u8],
     ) -> io::Result<PathBuf> {
-        self.0.lock().unwrap().backup_with_content(file_path, content)
+        self.0
+            .lock()
+            .unwrap()
+            .backup_with_content(file_path, content)
     }
 
     /// Rollback within a locked context.
@@ -205,7 +211,7 @@ impl SafeBackupManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use tempfile::TempDir;
 
     #[test]

@@ -12,11 +12,8 @@ pub mod templates;
 mod tests;
 
 pub use engine::{
-    PermissionEngine, PermissionRequest, PermissionRequestBody, PermissionResponse,
-    Rule, RuleSet, Effect, Subject, MatchType, Action, CommandArgs, Defaults, Caller,
-    TemplateRef, glob_match,
+    glob_match, Action, Caller, CommandArgs, Defaults, Effect, MatchType, PermissionEngine,
+    PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject,
+    TemplateRef,
 };
-pub use rules::{
-    RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError,
-    validation,
-};
+pub use rules::{validation, RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError};

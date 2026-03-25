@@ -5,8 +5,8 @@
 //! Creator Rule short-circuit, template system, and Rule::validate().
 
 use crate::permission::engine::{
-    Action, Caller, Effect, MatchType, PermissionEngine, PermissionRequest,
-    PermissionRequestBody, PermissionResponse, Rule, Subject, TemplateRef,
+    Action, Caller, Effect, MatchType, PermissionEngine, PermissionRequest, PermissionRequestBody,
+    PermissionResponse, Rule, Subject, TemplateRef,
 };
 use crate::permission::rules::{validation, RuleBuilder, RuleSetBuilder};
 use crate::permission::templates::{Template, TemplateSubject};
@@ -231,11 +231,20 @@ fn test_with_caller_converts_bare() {
 #[test]
 fn test_permission_request_body_agent_id() {
     assert_eq!(
-        PermissionRequestBody::FileOp { agent: "a".into(), path: "/".into(), op: "read".into() }.agent_id(),
+        PermissionRequestBody::FileOp {
+            agent: "a".into(),
+            path: "/".into(),
+            op: "read".into()
+        }
+        .agent_id(),
         "a"
     );
     assert_eq!(
-        PermissionRequestBody::InterAgentMsg { from: "a".into(), to: "b".into() }.agent_id(),
+        PermissionRequestBody::InterAgentMsg {
+            from: "a".into(),
+            to: "b".into()
+        }
+        .agent_id(),
         "a"
     );
 }
@@ -403,9 +412,17 @@ async fn test_user_and_agent_rule_matching() {
         .rule(
             RuleBuilder::new()
                 .name("alice-read")
-                .subject_user_and_agent("ou_alice", "dev-agent-01", MatchType::Exact, MatchType::Exact)
+                .subject_user_and_agent(
+                    "ou_alice",
+                    "dev-agent-01",
+                    MatchType::Exact,
+                    MatchType::Exact,
+                )
                 .allow()
-                .action(Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] })
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
                 .build()
                 .unwrap(),
         )
@@ -438,9 +455,17 @@ async fn test_user_and_agent_rule_user_mismatch() {
         .rule(
             RuleBuilder::new()
                 .name("alice-read")
-                .subject_user_and_agent("ou_alice", "dev-agent-01", MatchType::Exact, MatchType::Exact)
+                .subject_user_and_agent(
+                    "ou_alice",
+                    "dev-agent-01",
+                    MatchType::Exact,
+                    MatchType::Exact,
+                )
                 .allow()
-                .action(Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] })
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
                 .build()
                 .unwrap(),
         )
@@ -475,7 +500,10 @@ async fn test_bare_request_uses_agent_only_matching() {
                 .name("dev-agent-full")
                 .subject_agent("dev-agent-01")
                 .allow()
-                .action(Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] })
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
                 .build()
                 .unwrap(),
         )
@@ -503,7 +531,10 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
                 .name("dev-agent-full")
                 .subject_agent("dev-agent-01")
                 .allow()
-                .action(Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] })
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
                 .build()
                 .unwrap(),
         )
@@ -537,9 +568,15 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
 fn test_validate_actions_only() {
     let rule = Rule {
         name: "test".to_string(),
-        subject: Subject::AgentOnly { agent: "test".to_string(), match_type: MatchType::Exact },
+        subject: Subject::AgentOnly {
+            agent: "test".to_string(),
+            match_type: MatchType::Exact,
+        },
         effect: Effect::Allow,
-        actions: vec![Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] }],
+        actions: vec![Action::File {
+            operation: "read".to_string(),
+            paths: vec!["**".to_string()],
+        }],
         template: None,
         priority: 0,
     };
@@ -550,10 +587,16 @@ fn test_validate_actions_only() {
 fn test_validate_template_only() {
     let rule = Rule {
         name: "test".to_string(),
-        subject: Subject::AgentOnly { agent: "test".to_string(), match_type: MatchType::Exact },
+        subject: Subject::AgentOnly {
+            agent: "test".to_string(),
+            match_type: MatchType::Exact,
+        },
         effect: Effect::Allow,
         actions: vec![],
-        template: Some(TemplateRef { name: "developer".to_string(), overrides: Default::default() }),
+        template: Some(TemplateRef {
+            name: "developer".to_string(),
+            overrides: Default::default(),
+        }),
         priority: 0,
     };
     assert!(rule.validate().is_ok());
@@ -563,10 +606,19 @@ fn test_validate_template_only() {
 fn test_validate_actions_and_template_mutually_exclusive() {
     let rule = Rule {
         name: "test".to_string(),
-        subject: Subject::AgentOnly { agent: "test".to_string(), match_type: MatchType::Exact },
+        subject: Subject::AgentOnly {
+            agent: "test".to_string(),
+            match_type: MatchType::Exact,
+        },
         effect: Effect::Allow,
-        actions: vec![Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] }],
-        template: Some(TemplateRef { name: "developer".to_string(), overrides: Default::default() }),
+        actions: vec![Action::File {
+            operation: "read".to_string(),
+            paths: vec!["**".to_string()],
+        }],
+        template: Some(TemplateRef {
+            name: "developer".to_string(),
+            overrides: Default::default(),
+        }),
         priority: 0,
     };
     let err = rule.validate().unwrap_err();
@@ -577,7 +629,10 @@ fn test_validate_actions_and_template_mutually_exclusive() {
 fn test_validate_at_least_one_required() {
     let rule = Rule {
         name: "test".to_string(),
-        subject: Subject::AgentOnly { agent: "test".to_string(), match_type: MatchType::Exact },
+        subject: Subject::AgentOnly {
+            agent: "test".to_string(),
+            match_type: MatchType::Exact,
+        },
         effect: Effect::Allow,
         actions: vec![],
         template: None,
@@ -603,7 +658,9 @@ fn test_subject_deserialize_old_agent_only() {
 fn test_subject_deserialize_old_with_glob() {
     let json = r#"{"agent": "dev-*", "match": "glob"}"#;
     let subject: Subject = serde_json::from_str(json).unwrap();
-    assert!(matches!(subject, Subject::AgentOnly { agent, match_type: MatchType::Glob } if agent == "dev-*"));
+    assert!(
+        matches!(subject, Subject::AgentOnly { agent, match_type: MatchType::Glob } if agent == "dev-*")
+    );
 }
 
 #[test]
@@ -616,7 +673,9 @@ fn test_subject_deserialize_new_user_and_agent() {
         "agent_match": "exact"
     }"#;
     let subject: Subject = serde_json::from_str(json).unwrap();
-    let Subject::UserAndAgent { user_id, agent, .. } = subject else { panic!("expected UserAndAgent") };
+    let Subject::UserAndAgent { user_id, agent, .. } = subject else {
+        panic!("expected UserAndAgent")
+    };
     assert_eq!(user_id, "ou_alice");
     assert_eq!(agent, "dev-agent-01");
 }
@@ -679,22 +738,34 @@ fn test_template_inheritance_expansion() {
     use crate::permission::templates::expand_inheritance;
 
     let mut templates: HashMap<String, Template> = HashMap::new();
-    templates.insert("base".to_string(), Template {
-        name: "base".to_string(),
-        description: "".to_string(),
-        subject: TemplateSubject::Any,
-        effect: Effect::Allow,
-        actions: vec![Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] }],
-        extends: vec![],
-    });
-    templates.insert("extended".to_string(), Template {
-        name: "extended".to_string(),
-        description: "".to_string(),
-        subject: TemplateSubject::Any,
-        effect: Effect::Allow,
-        actions: vec![Action::Command { command: "git".to_string(), args: crate::permission::engine::CommandArgs::Any }],
-        extends: vec!["base".to_string()],
-    });
+    templates.insert(
+        "base".to_string(),
+        Template {
+            name: "base".to_string(),
+            description: "".to_string(),
+            subject: TemplateSubject::Any,
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            extends: vec![],
+        },
+    );
+    templates.insert(
+        "extended".to_string(),
+        Template {
+            name: "extended".to_string(),
+            description: "".to_string(),
+            subject: TemplateSubject::Any,
+            effect: Effect::Allow,
+            actions: vec![Action::Command {
+                command: "git".to_string(),
+                args: crate::permission::engine::CommandArgs::Any,
+            }],
+            extends: vec!["base".to_string()],
+        },
+    );
 
     expand_inheritance(&mut templates).unwrap();
 
@@ -707,22 +778,28 @@ fn test_template_cycle_detection() {
     use crate::permission::templates::expand_inheritance;
 
     let mut templates: HashMap<String, Template> = HashMap::new();
-    templates.insert("a".to_string(), Template {
-        name: "a".to_string(),
-        description: "".to_string(),
-        subject: TemplateSubject::Any,
-        effect: Effect::Allow,
-        actions: vec![],
-        extends: vec!["b".to_string()],
-    });
-    templates.insert("b".to_string(), Template {
-        name: "b".to_string(),
-        description: "".to_string(),
-        subject: TemplateSubject::Any,
-        effect: Effect::Allow,
-        actions: vec![],
-        extends: vec!["a".to_string()],
-    });
+    templates.insert(
+        "a".to_string(),
+        Template {
+            name: "a".to_string(),
+            description: "".to_string(),
+            subject: TemplateSubject::Any,
+            effect: Effect::Allow,
+            actions: vec![],
+            extends: vec!["b".to_string()],
+        },
+    );
+    templates.insert(
+        "b".to_string(),
+        Template {
+            name: "b".to_string(),
+            description: "".to_string(),
+            subject: TemplateSubject::Any,
+            effect: Effect::Allow,
+            actions: vec![],
+            extends: vec!["a".to_string()],
+        },
+    );
 
     let result = expand_inheritance(&mut templates);
     assert!(result.is_err());
@@ -742,7 +819,10 @@ async fn test_rule_priority_higher_evaluated_first() {
                 .subject_agent("test-agent")
                 .allow()
                 .priority(0)
-                .action(Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] })
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
                 .build()
                 .unwrap(),
         )
@@ -752,7 +832,10 @@ async fn test_rule_priority_higher_evaluated_first() {
                 .subject_agent("test-agent")
                 .deny()
                 .priority(10)
-                .action(Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] })
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
                 .build()
                 .unwrap(),
         )
@@ -778,10 +861,25 @@ async fn test_rule_priority_higher_evaluated_first() {
 fn test_action_all_matches_any_request() {
     let action = Action::All;
     let requests = [
-        PermissionRequestBody::FileOp { agent: "test".into(), path: "/".into(), op: "read".into() },
-        PermissionRequestBody::CommandExec { agent: "test".into(), cmd: "rm".into(), args: vec![] },
-        PermissionRequestBody::NetOp { agent: "test".into(), host: "evil.com".into(), port: 80 },
-        PermissionRequestBody::ConfigWrite { agent: "test".into(), config_file: "/etc/passwd".into() },
+        PermissionRequestBody::FileOp {
+            agent: "test".into(),
+            path: "/".into(),
+            op: "read".into(),
+        },
+        PermissionRequestBody::CommandExec {
+            agent: "test".into(),
+            cmd: "rm".into(),
+            args: vec![],
+        },
+        PermissionRequestBody::NetOp {
+            agent: "test".into(),
+            host: "evil.com".into(),
+            port: 80,
+        },
+        PermissionRequestBody::ConfigWrite {
+            agent: "test".into(),
+            config_file: "/etc/passwd".into(),
+        },
     ];
     for req in requests {
         assert!(
@@ -807,7 +905,10 @@ fn test_validation_user_and_agent_subject() {
             agent_match: MatchType::Exact,
         },
         effect: Effect::Allow,
-        actions: vec![Action::File { operation: "read".to_string(), paths: vec!["**".to_string()] }],
+        actions: vec![Action::File {
+            operation: "read".to_string(),
+            paths: vec!["**".to_string()],
+        }],
         template: None,
         priority: 0,
     };
@@ -819,10 +920,16 @@ fn test_validation_user_and_agent_subject() {
 fn test_validation_with_template() {
     let rule = Rule {
         name: "test".to_string(),
-        subject: Subject::AgentOnly { agent: "test".to_string(), match_type: MatchType::Exact },
+        subject: Subject::AgentOnly {
+            agent: "test".to_string(),
+            match_type: MatchType::Exact,
+        },
         effect: Effect::Allow,
         actions: vec![],
-        template: Some(TemplateRef { name: "developer".to_string(), overrides: Default::default() }),
+        template: Some(TemplateRef {
+            name: "developer".to_string(),
+            overrides: Default::default(),
+        }),
         priority: 0,
     };
     let errors = validation::validate_rule(&rule);

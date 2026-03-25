@@ -5,13 +5,13 @@
 
 pub mod shutdown;
 
-use crate::audit::{AuditEventBuilder, AuditLogger, AuditResult, AuditEventType};
+use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
 use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::providers::ConfigProvider;
 use crate::gateway::{Gateway, GatewayConfig};
 use crate::im::feishu::FeishuAdapter;
-use crate::llm::{LLMRegistry, MiniMaxProvider, OpenAIProvider, AnthropicProvider};
+use crate::llm::{AnthropicProvider, LLMRegistry, MiniMaxProvider, OpenAIProvider};
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -102,7 +102,10 @@ impl Daemon {
         // Initialize agent registry
         let agent_registry: Arc<RwLock<crate::agent::registry::AgentRegistry>> =
             Arc::new(RwLock::new(crate::agent::registry::AgentRegistry::new(30)));
-        info!("Agent registry initialized ({} agents)", agents_config.agents().len());
+        info!(
+            "Agent registry initialized ({} agents)",
+            agents_config.agents().len()
+        );
 
         // Initialize gateway
         let gateway = Arc::new(Gateway::new(GatewayConfig {
@@ -133,7 +136,9 @@ impl Daemon {
         if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
             if !api_key.is_empty() {
                 let provider = Arc::new(AnthropicProvider::new(api_key));
-                llm_registry.register("anthropic".to_string(), provider).await;
+                llm_registry
+                    .register("anthropic".to_string(), provider)
+                    .await;
                 info!("Anthropic provider registered");
             }
         }
@@ -216,10 +221,7 @@ impl Daemon {
     }
 
     /// Initialize Feishu adapter from env or config
-    async fn init_feishu_adapter(
-        _config_dir: &str,
-        gateway: &Arc<Gateway>,
-    ) -> anyhow::Result<()> {
+    async fn init_feishu_adapter(_config_dir: &str, gateway: &Arc<Gateway>) -> anyhow::Result<()> {
         let app_id = std::env::var("FEISHU_APP_ID").ok();
         let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
         let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
@@ -227,11 +229,7 @@ impl Daemon {
         if let (Some(app_id), Some(app_secret), Some(verification_token)) =
             (app_id, app_secret, verification_token)
         {
-            let adapter = Arc::new(FeishuAdapter::new(
-                app_id,
-                app_secret,
-                verification_token,
-            ));
+            let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
             gateway
                 .register_adapter("feishu".to_string(), adapter)
                 .await;

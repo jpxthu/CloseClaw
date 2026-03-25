@@ -6,17 +6,17 @@
 //! - **Gateway**: IM protocol adapters (Feishu, Wecom, QQ, DingTalk, etc.)
 //! - **Config System**: Hot-reloadable JSON configs with validation and rollback
 
-pub mod permission;
 pub mod agent;
-pub mod gateway;
-pub mod config;
-pub mod im;
-pub mod skills;
-pub mod llm;
-pub mod cli;
-pub mod daemon;
-pub mod chat;
 pub mod audit;
+pub mod chat;
+pub mod cli;
+pub mod config;
+pub mod daemon;
+pub mod gateway;
+pub mod im;
+pub mod llm;
+pub mod permission;
+pub mod skills;
 
 use tracing::info;
 

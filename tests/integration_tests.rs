@@ -174,9 +174,7 @@ async fn test_agent_parent_child_hierarchy() {
     let registry: SharedAgentRegistry = create_registry(30);
 
     // Register parent
-    let parent = registry
-        .register("parent-agent".to_string(), None)
-        .await;
+    let parent = registry.register("parent-agent".to_string(), None).await;
     let parent_id = parent.id.clone();
 
     // Register child
@@ -268,27 +266,33 @@ async fn test_permission_engine_with_registered_agent() {
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 
     // Verify exec is denied (no exec rule)
-    let response = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::CommandExec {
-        agent: agent_id.clone(),
-        cmd: "rm".to_string(),
-        args: vec!["-rf".to_string()],
-    }));
+    let response = engine.evaluate(PermissionRequest::Bare(
+        PermissionRequestBody::CommandExec {
+            agent: agent_id.clone(),
+            cmd: "rm".to_string(),
+            args: vec!["-rf".to_string()],
+        },
+    ));
     assert!(matches!(response, PermissionResponse::Denied { .. }));
 
     // Verify git status is allowed (has git command rule)
-    let response = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::CommandExec {
-        agent: agent_id.clone(),
-        cmd: "git".to_string(),
-        args: vec!["status".to_string()],
-    }));
+    let response = engine.evaluate(PermissionRequest::Bare(
+        PermissionRequestBody::CommandExec {
+            agent: agent_id.clone(),
+            cmd: "git".to_string(),
+            args: vec!["status".to_string()],
+        },
+    ));
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 
     // Verify dangerous git args are denied
-    let response = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::CommandExec {
-        agent: agent_id.clone(),
-        cmd: "git".to_string(),
-        args: vec!["reset".to_string(), "--hard".to_string()],
-    }));
+    let response = engine.evaluate(PermissionRequest::Bare(
+        PermissionRequestBody::CommandExec {
+            agent: agent_id.clone(),
+            cmd: "git".to_string(),
+            args: vec!["reset".to_string(), "--hard".to_string()],
+        },
+    ));
     assert!(matches!(response, PermissionResponse::Denied { .. }));
 }
 
@@ -548,9 +552,7 @@ async fn test_skill_loading_and_execution_chain() {
 
     // Execute git_ops status
     let git_ops = registry.get("git_ops").await.unwrap();
-    let result = git_ops
-        .execute("status", serde_json::json!({}))
-        .await;
+    let result = git_ops.execute("status", serde_json::json!({})).await;
     assert!(result.is_ok());
 }
 
@@ -560,8 +562,7 @@ async fn test_skill_with_permission_engine_integration() {
     let engine = Arc::new(PermissionEngine::new(rules));
 
     // Create permission skill with engine reference
-    let perm_skill =
-        closeclaw::skills::builtin::PermissionSkill::with_engine(engine.clone());
+    let perm_skill = closeclaw::skills::builtin::PermissionSkill::with_engine(engine.clone());
 
     // Create a registry for agent
     let registry: SharedAgentRegistry = create_registry(30);
@@ -703,18 +704,22 @@ async fn test_permission_engine_template_resolution() {
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 
     // Test git status via template-resolved rule
-    let response = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::CommandExec {
-        agent: "any-agent".to_string(),
-        cmd: "git".to_string(),
-        args: vec!["status".to_string()],
-    }));
+    let response = engine.evaluate(PermissionRequest::Bare(
+        PermissionRequestBody::CommandExec {
+            agent: "any-agent".to_string(),
+            cmd: "git".to_string(),
+            args: vec!["status".to_string()],
+        },
+    ));
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 
     // Test unknown command should still be denied (no default allow)
-    let response = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::CommandExec {
-        agent: "any-agent".to_string(),
-        cmd: "rm".to_string(),
-        args: vec!["-rf".to_string()],
-    }));
+    let response = engine.evaluate(PermissionRequest::Bare(
+        PermissionRequestBody::CommandExec {
+            agent: "any-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-rf".to_string()],
+        },
+    ));
     assert!(matches!(response, PermissionResponse::Denied { .. }));
 }

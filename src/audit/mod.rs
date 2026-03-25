@@ -49,7 +49,11 @@ pub struct AuditEvent {
 
 impl AuditEvent {
     /// Create a new audit event
-    pub fn new(event_type: AuditEventType, details: serde_json::Value, result: AuditResult) -> Self {
+    pub fn new(
+        event_type: AuditEventType,
+        details: serde_json::Value,
+        result: AuditResult,
+    ) -> Self {
         Self {
             timestamp: Local::now(),
             event_type,
@@ -163,10 +167,7 @@ impl AuditLogger {
 
     /// Write a single event to the file synchronously
     fn write_event_to_file(path: &PathBuf, event: &AuditEvent) -> std::io::Result<()> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
 
         let mut writer = BufWriter::new(file);
         writer.write_all(event.serialize_to_json().as_bytes())?;
@@ -180,9 +181,15 @@ impl AuditLogger {
         // Always emit to tracing
         let event_type_str = format!("{:?}", event.event_type);
         match event.result {
-            AuditResult::Allow => info!(event_type = %event_type_str, "audit: {:?}", serde_json::to_string(&event.details).unwrap_or_default()),
-            AuditResult::Deny => info!(event_type = %event_type_str, result = "deny", "audit: {:?}", serde_json::to_string(&event.details).unwrap_or_default()),
-            AuditResult::Error => error!(event_type = %event_type_str, "audit error: {:?}", serde_json::to_string(&event.details).unwrap_or_default()),
+            AuditResult::Allow => {
+                info!(event_type = %event_type_str, "audit: {:?}", serde_json::to_string(&event.details).unwrap_or_default())
+            }
+            AuditResult::Deny => {
+                info!(event_type = %event_type_str, result = "deny", "audit: {:?}", serde_json::to_string(&event.details).unwrap_or_default())
+            }
+            AuditResult::Error => {
+                error!(event_type = %event_type_str, "audit error: {:?}", serde_json::to_string(&event.details).unwrap_or_default())
+            }
         }
 
         // Buffer the event
@@ -335,14 +342,24 @@ pub fn query_audit_events(filter: &AuditQueryFilter) -> Vec<AuditEvent> {
 }
 
 /// Export audit events to a file
-pub fn export_audit_events(filter: &AuditQueryFilter, output_path: &str, format: &str) -> std::io::Result<usize> {
+pub fn export_audit_events(
+    filter: &AuditQueryFilter,
+    output_path: &str,
+    format: &str,
+) -> std::io::Result<usize> {
     let events = query_audit_events(filter);
     let count = events.len();
 
     let content = match format {
-        "json" => serde_json::to_string_pretty(&events).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
-        "jsonl" => events.iter().map(|e| e.serialize_to_json()).collect::<Vec<_>>().join("\n"),
-        _ => serde_json::to_string_pretty(&events).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
+        "json" => serde_json::to_string_pretty(&events)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
+        "jsonl" => events
+            .iter()
+            .map(|e| e.serialize_to_json())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => serde_json::to_string_pretty(&events)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
     };
 
     fs::write(output_path, content)?;
@@ -488,7 +505,9 @@ mod tests {
         // Rotate to new day
         logger.rotate_if_needed().await;
 
-        let _new_file = temp_dir.path().join(format!("{}.jsonl", AuditLogger::current_date_string()));
+        let _new_file = temp_dir
+            .path()
+            .join(format!("{}.jsonl", AuditLogger::current_date_string()));
         // New file may or may not exist depending on date
     }
 
@@ -520,7 +539,11 @@ mod tests {
 
         let results = query_audit_events(&filter);
         // Should not panic even with non-existent audit dir
-        assert!(results.is_empty(), "Expected empty results in temp audit dir, got: {:?}", results);
+        assert!(
+            results.is_empty(),
+            "Expected empty results in temp audit dir, got: {:?}",
+            results
+        );
     }
 
     #[test]
@@ -587,7 +610,11 @@ mod tests {
         // Filter by event_type
         let type_filtered: Vec<_> = parsed_events
             .iter()
-            .filter(|e| format!("{:?}", e.event_type).to_lowercase().contains("permission"))
+            .filter(|e| {
+                format!("{:?}", e.event_type)
+                    .to_lowercase()
+                    .contains("permission")
+            })
             .collect();
         assert_eq!(type_filtered.len(), 2);
     }
@@ -597,13 +624,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_file = temp_dir.path().join("export.json");
 
-        let events = vec![
-            AuditEvent::new(
-                AuditEventType::PermissionCheck,
-                json!({"agent": "test"}),
-                AuditResult::Allow,
-            ),
-        ];
+        let events = vec![AuditEvent::new(
+            AuditEventType::PermissionCheck,
+            json!({"agent": "test"}),
+            AuditResult::Allow,
+        )];
 
         let content = serde_json::to_string_pretty(&events).unwrap();
         fs::write(&output_file, &content).unwrap();

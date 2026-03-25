@@ -145,13 +145,16 @@ impl Subject {
     /// Check if this subject matches the given caller.
     pub fn matches(&self, caller: &Caller) -> bool {
         match self {
-            Subject::AgentOnly { agent, match_type } => {
-                match match_type {
-                    MatchType::Exact => agent == &caller.agent,
-                    MatchType::Glob => glob_match(agent, &caller.agent),
-                }
-            }
-            Subject::UserAndAgent { user_id, agent, user_match, agent_match } => {
+            Subject::AgentOnly { agent, match_type } => match match_type {
+                MatchType::Exact => agent == &caller.agent,
+                MatchType::Glob => glob_match(agent, &caller.agent),
+            },
+            Subject::UserAndAgent {
+                user_id,
+                agent,
+                user_match,
+                agent_match,
+            } => {
                 let user_ok = match user_match {
                     MatchType::Exact => user_id == &caller.user_id,
                     MatchType::Glob => glob_match(user_id, &caller.user_id),
@@ -179,7 +182,8 @@ mod subject_de {
             let json: serde_json::Value = serde::Deserialize::deserialize(deserializer)?;
 
             // Check for match_mode discriminant
-            let match_mode = json.get("match_mode")
+            let match_mode = json
+                .get("match_mode")
                 .and_then(|v| v.as_str())
                 .map(String::from);
 
@@ -196,8 +200,8 @@ mod subject_de {
                         #[serde(alias = "agent_match", default)]
                         agent_match: MatchType,
                     }
-                    let fields: UAFields = serde_json::from_value(json)
-                        .map_err(|e| serde::de::Error::custom(e))?;
+                    let fields: UAFields =
+                        serde_json::from_value(json).map_err(|e| serde::de::Error::custom(e))?;
                     Ok(Subject::UserAndAgent {
                         user_id: fields.user_id,
                         agent: fields.agent,
@@ -213,8 +217,8 @@ mod subject_de {
                         #[serde(alias = "match", alias = "match_type", default)]
                         match_type: Option<MatchType>,
                     }
-                    let fields: AOFields = serde_json::from_value(json)
-                        .map_err(|e| serde::de::Error::custom(e))?;
+                    let fields: AOFields =
+                        serde_json::from_value(json).map_err(|e| serde::de::Error::custom(e))?;
                     Ok(Subject::AgentOnly {
                         agent: fields.agent,
                         match_type: fields.match_type.unwrap_or_default(),
@@ -274,8 +278,12 @@ pub enum Action {
 pub enum CommandArgs {
     #[default]
     Any,
-    Allowed { allowed: Vec<String> },
-    Blocked { blocked: Vec<String> },
+    Allowed {
+        allowed: Vec<String>,
+    },
+    Blocked {
+        blocked: Vec<String>,
+    },
 }
 
 /// Permission effect
@@ -310,12 +318,34 @@ pub struct Caller {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PermissionRequestBody {
-    FileOp { agent: String, path: String, op: String },
-    CommandExec { agent: String, cmd: String, args: Vec<String> },
-    NetOp { agent: String, host: String, port: u16 },
-    ToolCall { agent: String, skill: String, method: String },
-    InterAgentMsg { from: String, to: String },
-    ConfigWrite { agent: String, config_file: String },
+    FileOp {
+        agent: String,
+        path: String,
+        op: String,
+    },
+    CommandExec {
+        agent: String,
+        cmd: String,
+        args: Vec<String>,
+    },
+    NetOp {
+        agent: String,
+        host: String,
+        port: u16,
+    },
+    ToolCall {
+        agent: String,
+        skill: String,
+        method: String,
+    },
+    InterAgentMsg {
+        from: String,
+        to: String,
+    },
+    ConfigWrite {
+        agent: String,
+        config_file: String,
+    },
 }
 
 impl PermissionRequestBody {
@@ -357,13 +387,11 @@ impl PermissionRequest {
     pub fn caller(&self) -> Caller {
         match self {
             PermissionRequest::WithCaller { caller, .. } => caller.clone(),
-            PermissionRequest::Bare(body) => {
-                Caller {
-                    user_id: String::new(),
-                    agent: body.agent_id().to_string(),
-                    creator_id: String::new(),
-                }
-            }
+            PermissionRequest::Bare(body) => Caller {
+                user_id: String::new(),
+                agent: body.agent_id().to_string(),
+                creator_id: String::new(),
+            },
         }
     }
 
@@ -378,7 +406,10 @@ impl PermissionRequest {
     /// Converts a bare request to a request with caller.
     pub fn with_caller(self, caller: Caller) -> PermissionRequest {
         match self {
-            PermissionRequest::Bare(body) => PermissionRequest::WithCaller { caller, request: body },
+            PermissionRequest::Bare(body) => PermissionRequest::WithCaller {
+                caller,
+                request: body,
+            },
             other @ PermissionRequest::WithCaller { .. } => other,
         }
     }
@@ -440,12 +471,24 @@ impl PermissionEngine {
         for (idx, rule) in rules.rules.iter().enumerate() {
             match &rule.subject {
                 Subject::AgentOnly { agent, .. } => {
-                    engine.agent_rule_index.entry(agent.clone()).or_default().push(idx);
+                    engine
+                        .agent_rule_index
+                        .entry(agent.clone())
+                        .or_default()
+                        .push(idx);
                 }
                 Subject::UserAndAgent { user_id, agent, .. } => {
                     let key = format!("{}:{}", user_id, agent);
-                    engine.user_agent_rule_index.entry(key).or_default().push(idx);
-                    engine.agent_rule_index.entry(agent.clone()).or_default().push(idx);
+                    engine
+                        .user_agent_rule_index
+                        .entry(key)
+                        .or_default()
+                        .push(idx);
+                    engine
+                        .agent_rule_index
+                        .entry(agent.clone())
+                        .or_default()
+                        .push(idx);
                 }
             }
         }
@@ -482,7 +525,10 @@ impl PermissionEngine {
     }
 
     /// Load templates into the engine
-    pub fn load_templates(&mut self, templates: HashMap<String, crate::permission::templates::Template>) {
+    pub fn load_templates(
+        &mut self,
+        templates: HashMap<String, crate::permission::templates::Template>,
+    ) {
         self.templates = templates;
     }
 
@@ -564,7 +610,9 @@ impl PermissionEngine {
         if let Some(creator_id) = effective_creator_id {
             if caller.user_id == creator_id {
                 info!(agent = %agent_id, result = "allowed", reason = "creator_rule", "permission check completed");
-                return PermissionResponse::Allowed { token: generate_token() };
+                return PermissionResponse::Allowed {
+                    token: generate_token(),
+                };
             }
         }
 
@@ -592,11 +640,7 @@ impl PermissionEngine {
         }
 
         // ---- Step 2: Sort by priority (desc) ----
-        candidates.sort_by(|&a, &b| {
-            rules.rules[b]
-                .priority
-                .cmp(&rules.rules[a].priority)
-        });
+        candidates.sort_by(|&a, &b| rules.rules[b].priority.cmp(&rules.rules[a].priority));
 
         // ---- Step 3: Expand templates ----
         // For template-based rules, expand them into pseudo-rules with resolved actions.
@@ -635,7 +679,9 @@ impl PermissionEngine {
         // No deny found; if any rule matched, allow
         if matching_rule_name.is_some() {
             info!(agent = %agent_id, result = "allowed", reason = "matched_rule", "permission check completed");
-            return PermissionResponse::Allowed { token: generate_token() };
+            return PermissionResponse::Allowed {
+                token: generate_token(),
+            };
         }
 
         // ---- Step 5: Default fallback ----
@@ -674,8 +720,7 @@ impl PermissionEngine {
             if let Some(ref template_ref) = rule.template {
                 // Template-based rule: expand into pseudo-rules, one per resolved action
                 if let Some(tmpl) = self.templates.get(&template_ref.name) {
-                    let actions =
-                        resolve_template_actions(tmpl, &template_ref.overrides);
+                    let actions = resolve_template_actions(tmpl, &template_ref.overrides);
                     for action in actions {
                         // Create pseudo-rule with single resolved action
                         let pseudo_rule = Rule {
@@ -727,7 +772,9 @@ impl PermissionEngine {
         };
 
         match effect {
-            Effect::Allow => PermissionResponse::Allowed { token: generate_token() },
+            Effect::Allow => PermissionResponse::Allowed {
+                token: generate_token(),
+            },
             Effect::Deny => PermissionResponse::Denied {
                 reason: reason.to_string(),
                 rule: "default".to_string(),
@@ -762,12 +809,12 @@ impl PermissionEngine {
     pub fn args_match(&self, rule_args: &CommandArgs, request_args: &[String]) -> bool {
         match rule_args {
             CommandArgs::Any => true,
-            CommandArgs::Allowed { allowed } => {
-                request_args.iter().all(|arg| allowed.iter().any(|a| glob_match(a, arg)))
-            }
-            CommandArgs::Blocked { blocked } => {
-                request_args.iter().any(|arg| blocked.iter().any(|b| glob_match(b, arg)))
-            }
+            CommandArgs::Allowed { allowed } => request_args
+                .iter()
+                .all(|arg| allowed.iter().any(|a| glob_match(a, arg))),
+            CommandArgs::Blocked { blocked } => request_args
+                .iter()
+                .any(|arg| blocked.iter().any(|b| glob_match(b, arg))),
         }
     }
 }
@@ -795,27 +842,37 @@ pub(crate) fn action_matches_request(action: &Action, request: &PermissionReques
         (Action::File { operation, paths }, PermissionRequestBody::FileOp { path, op, .. }) => {
             operation == op && paths.iter().any(|p| glob_match(p, path))
         }
-        (Action::Command { command, args }, PermissionRequestBody::CommandExec { cmd, args: req_args, .. }) => {
+        (
+            Action::Command { command, args },
+            PermissionRequestBody::CommandExec {
+                cmd,
+                args: req_args,
+                ..
+            },
+        ) => {
             if command != cmd {
                 return false;
             }
             match args {
                 CommandArgs::Any => true,
-                CommandArgs::Allowed { allowed } => {
-                    req_args.iter().all(|arg| allowed.iter().any(|a| glob_match(a, arg)))
-                }
-                CommandArgs::Blocked { blocked } => {
-                    req_args.iter().any(|arg| blocked.iter().any(|b| glob_match(b, arg)))
-                }
+                CommandArgs::Allowed { allowed } => req_args
+                    .iter()
+                    .all(|arg| allowed.iter().any(|a| glob_match(a, arg))),
+                CommandArgs::Blocked { blocked } => req_args
+                    .iter()
+                    .any(|arg| blocked.iter().any(|b| glob_match(b, arg))),
             }
         }
         (Action::Network { hosts, ports }, PermissionRequestBody::NetOp { host, port, .. }) => {
             (hosts.is_empty() || hosts.iter().any(|h| glob_match(h, host)))
                 && (ports.is_empty() || ports.contains(port))
         }
-        (Action::ToolCall { skill, methods }, PermissionRequestBody::ToolCall { skill: s, method, .. }) => {
-            skill == s && (methods.is_empty() || methods.contains(method))
-        }
+        (
+            Action::ToolCall { skill, methods },
+            PermissionRequestBody::ToolCall {
+                skill: s, method, ..
+            },
+        ) => skill == s && (methods.is_empty() || methods.contains(method)),
         (Action::InterAgent { agents }, PermissionRequestBody::InterAgentMsg { to, .. }) => {
             agents.is_empty() || agents.iter().any(|a| glob_match(a, to))
         }
@@ -873,9 +930,7 @@ fn glob_match_vec(pat: &[char], text: &[char], pi: usize, ti: usize) -> bool {
 /// Generate a short-lived permission token
 fn generate_token() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap();
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     format!("perm_{}_{:016x}", duration.as_secs(), rand_u64())
 }
 
@@ -933,8 +988,14 @@ mod tests {
 
     #[test]
     fn test_glob_double_star() {
-        assert!(glob_match("/home/admin/code/**", "/home/admin/code/closeclaw/src/main.rs"));
-        assert!(glob_match("/home/admin/code/**", "/home/admin/code/closeclaw/src/permission/engine.rs"));
+        assert!(glob_match(
+            "/home/admin/code/**",
+            "/home/admin/code/closeclaw/src/main.rs"
+        ));
+        assert!(glob_match(
+            "/home/admin/code/**",
+            "/home/admin/code/closeclaw/src/permission/engine.rs"
+        ));
         assert!(!glob_match("/home/admin/code/**", "/home/admin/other/path"));
     }
 
@@ -1052,13 +1113,15 @@ mod tests {
         assert!(Subject::AgentOnly {
             agent: "test".to_string(),
             match_type: MatchType::Exact,
-        }.is_agent_only());
+        }
+        .is_agent_only());
         assert!(!Subject::UserAndAgent {
             user_id: "ou_123".to_string(),
             agent: "test".to_string(),
             user_match: MatchType::Exact,
             agent_match: MatchType::Exact,
-        }.is_agent_only());
+        }
+        .is_agent_only());
     }
 
     // -------------------------------------------------------------------------
@@ -1253,12 +1316,15 @@ mod tests {
     fn test_subject_deserialize_old_format_glob() {
         let json = r#"{"agent": "dev-*", "match": "glob"}"#;
         let subject: Subject = serde_json::from_str(json).unwrap();
-        assert!(matches!(subject, Subject::AgentOnly { agent, match_type: MatchType::Glob } if agent == "dev-*"));
+        assert!(
+            matches!(subject, Subject::AgentOnly { agent, match_type: MatchType::Glob } if agent == "dev-*")
+        );
     }
 
     #[test]
     fn test_subject_deserialize_new_agent_only() {
-        let json = r#"{"match_mode": "agent_only", "agent": "dev-agent-01", "match_type": "exact"}"#;
+        let json =
+            r#"{"match_mode": "agent_only", "agent": "dev-agent-01", "match_type": "exact"}"#;
         let subject: Subject = serde_json::from_str(json).unwrap();
         assert!(matches!(subject, Subject::AgentOnly { .. }));
     }
@@ -1274,7 +1340,9 @@ mod tests {
         }"#;
         let subject: Subject = serde_json::from_str(json).unwrap();
         assert!(matches!(subject, Subject::UserAndAgent { .. }));
-        let Subject::UserAndAgent { user_id, agent, .. } = subject else { unreachable!() };
+        let Subject::UserAndAgent { user_id, agent, .. } = subject else {
+            unreachable!()
+        };
         assert_eq!(user_id, "ou_alice");
         assert_eq!(agent, "dev-agent-01");
     }
@@ -1541,7 +1609,11 @@ mod tests {
             let _ = engine.evaluate(request);
         }
         let elapsed = start.elapsed();
-        assert!(elapsed.as_millis() < 100, "O(1) lookup should be fast, took {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() < 100,
+            "O(1) lookup should be fast, took {:?}",
+            elapsed
+        );
     }
 
     #[tokio::test]
@@ -1596,7 +1668,10 @@ mod tests {
 
     #[test]
     fn test_glob_match_path_with_directory_separators() {
-        assert!(glob_match("/home/admin/**", "/home/admin/code/closeclaw/src/main.rs"));
+        assert!(glob_match(
+            "/home/admin/**",
+            "/home/admin/code/closeclaw/src/main.rs"
+        ));
         assert!(glob_match("/home/admin/**", "/home/admin/code"));
     }
 
@@ -1743,7 +1818,11 @@ mod tests {
                     .name("read-home")
                     .subject_agent("test-agent")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["/home/**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["/home/**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -1769,7 +1848,11 @@ mod tests {
                     .name("read-only")
                     .subject_agent("test-agent")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["/home/**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["/home/**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -1976,7 +2059,12 @@ mod tests {
                     .name("allow-all-ports")
                     .subject_agent("test-agent")
                     .allow()
-                    .action(ActionBuilder::network().with_ports(vec![443]).build().unwrap())
+                    .action(
+                        ActionBuilder::network()
+                            .with_ports(vec![443])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -2188,7 +2276,11 @@ mod tests {
                     .name("exact-match")
                     .subject_agent("specific-agent")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -2221,7 +2313,11 @@ mod tests {
                     .name("glob-match")
                     .subject_glob("test-*")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -2316,7 +2412,11 @@ mod tests {
                     .name("allow-unicode")
                     .subject_agent("test-agent")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["/home/**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["/home/**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -2342,7 +2442,11 @@ mod tests {
                     .name("my-specific-deny-rule")
                     .subject_agent("test-agent")
                     .deny()
-                    .action(ActionBuilder::file("read", vec!["/secret/**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["/secret/**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -2373,7 +2477,11 @@ mod tests {
                     .name("allow-all")
                     .subject_agent("test-agent")
                     .allow()
-                    .action(ActionBuilder::file("read", vec!["**".to_string()]).build().unwrap())
+                    .action(
+                        ActionBuilder::file("read", vec!["**".to_string()])
+                            .build()
+                            .unwrap(),
+                    )
                     .build()
                     .unwrap(),
             )
@@ -2417,7 +2525,9 @@ mod tests {
             args: vec!["build".to_string()],
         });
         let response = engine.evaluate(request);
-        assert!(matches!(response, PermissionResponse::Denied { rule, .. } if rule == "deny-all-cargo"));
+        assert!(
+            matches!(response, PermissionResponse::Denied { rule, .. } if rule == "deny-all-cargo")
+        );
     }
 
     #[test]

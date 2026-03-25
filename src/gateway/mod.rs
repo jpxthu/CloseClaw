@@ -68,7 +68,8 @@ impl Gateway {
     pub async fn route_message(&self, channel: &str, message: Message) -> Result<(), GatewayError> {
         // Find the adapter for this channel
         let adapters = self.adapters.read().await;
-        let adapter = adapters.get(channel)
+        let adapter = adapters
+            .get(channel)
             .ok_or(GatewayError::UnknownChannel(channel.to_string()))?;
 
         // Validate message size
@@ -80,12 +81,15 @@ impl Gateway {
         let session_id = format!("{}:{}", channel, message.to);
         let mut sessions = self.sessions.write().await;
         if !sessions.contains_key(&session_id) {
-            sessions.insert(session_id.clone(), Session {
-                id: session_id.clone(),
-                agent_id: message.to.clone(),
-                channel: channel.to_string(),
-                created_at: chrono::Utc::now().timestamp(),
-            });
+            sessions.insert(
+                session_id.clone(),
+                Session {
+                    id: session_id.clone(),
+                    agent_id: message.to.clone(),
+                    channel: channel.to_string(),
+                    created_at: chrono::Utc::now().timestamp(),
+                },
+            );
         }
 
         // Send to adapter for delivery to agent
@@ -97,7 +101,8 @@ impl Gateway {
     /// Get active sessions for an agent
     pub async fn get_agent_sessions(&self, agent_id: &str) -> Vec<Session> {
         let sessions = self.sessions.read().await;
-        sessions.values()
+        sessions
+            .values()
             .filter(|s| s.agent_id == agent_id)
             .cloned()
             .collect()

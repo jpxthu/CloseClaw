@@ -38,12 +38,16 @@ pub struct SkillOutput {
 pub trait Skill: Send + Sync {
     /// Get skill manifest
     fn manifest(&self) -> SkillManifest;
-    
+
     /// List available methods
     fn methods(&self) -> Vec<&str>;
-    
+
     /// Execute a method
-    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError>;
+    async fn execute(
+        &self,
+        method: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, SkillError>;
 }
 
 /// Skill registry - manages all registered skills

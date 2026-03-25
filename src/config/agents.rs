@@ -74,7 +74,10 @@ impl AgentsConfigProvider {
         let config_path = path.as_ref().display().to_string();
         let content = fs::read_to_string(path)?;
         let config: AgentsConfig = serde_json::from_str(&content)?;
-        Ok(Self { config, config_path })
+        Ok(Self {
+            config,
+            config_path,
+        })
     }
 
     /// Create a new provider from a string (useful for testing)
@@ -187,19 +190,13 @@ impl AgentsConfig {
             if agent.model.is_empty() {
                 return Err(ConfigError::ValueError {
                     field: "model".to_string(),
-                    message: format!(
-                        "Agent '{}' has empty model",
-                        agent.name
-                    ),
+                    message: format!("Agent '{}' has empty model", agent.name),
                 });
             }
             if !names.insert(&agent.name) {
                 return Err(ConfigError::ValueError {
                     field: "name".to_string(),
-                    message: format!(
-                        "Duplicate agent name '{}'",
-                        agent.name
-                    ),
+                    message: format!("Duplicate agent name '{}'", agent.name),
                 });
             }
         }
@@ -326,7 +323,8 @@ impl AgentDirectoryProvider {
             if !path.is_dir() {
                 continue;
             }
-            let id = path.file_name()
+            let id = path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
@@ -335,8 +333,7 @@ impl AgentDirectoryProvider {
             let config_path = path.join("config.json");
             let config: AgentDirConfig = if config_path.exists() {
                 let content = fs::read_to_string(&config_path)?;
-                serde_json::from_str(&content)
-                    .map_err(|e| ConfigError::JsonError(e))?
+                serde_json::from_str(&content).map_err(|e| ConfigError::JsonError(e))?
             } else {
                 continue; // Skip dirs without config.json
             };
@@ -345,17 +342,19 @@ impl AgentDirectoryProvider {
             let perm_path = path.join("permissions.json");
             let permissions: Option<AgentPermissions> = if perm_path.exists() {
                 let content = fs::read_to_string(&perm_path)?;
-                Some(serde_json::from_str(&content)
-                    .map_err(|e| ConfigError::JsonError(e))?)
+                Some(serde_json::from_str(&content).map_err(|e| ConfigError::JsonError(e))?)
             } else {
                 None
             };
 
-            self.entries.insert(id.clone(), AgentDirectoryEntry {
-                id,
-                config,
-                permissions,
-            });
+            self.entries.insert(
+                id.clone(),
+                AgentDirectoryEntry {
+                    id,
+                    config,
+                    permissions,
+                },
+            );
         }
 
         Ok(())
@@ -383,14 +382,14 @@ impl AgentDirectoryProvider {
         fs::create_dir_all(&dir)?;
 
         let config_path = dir.join("config.json");
-        let content = serde_json::to_string_pretty(&entry.config)
-            .map_err(|e| ConfigError::JsonError(e))?;
+        let content =
+            serde_json::to_string_pretty(&entry.config).map_err(|e| ConfigError::JsonError(e))?;
         fs::write(&config_path, content)?;
 
         if let Some(ref perms) = entry.permissions {
             let perm_path = dir.join("permissions.json");
-            let content = serde_json::to_string_pretty(perms)
-                .map_err(|e| ConfigError::JsonError(e))?;
+            let content =
+                serde_json::to_string_pretty(perms).map_err(|e| ConfigError::JsonError(e))?;
             fs::write(&perm_path, content)?;
         }
 
@@ -440,9 +439,6 @@ impl ConfigProvider for AgentDirectoryProvider {
 #[cfg(test)]
 mod agent_dir_tests {
     use super::*;
-    
-    
-    
 
     #[test]
     fn test_agent_directory_load_and_save() {

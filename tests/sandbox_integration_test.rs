@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use closeclaw::permission::engine::{
-    Action, Caller, CommandArgs, Effect, MatchType, PermissionEngine,
-    PermissionRequest, PermissionRequestBody, PermissionResponse, RuleSet,
+    Action, Caller, CommandArgs, Effect, MatchType, PermissionEngine, PermissionRequest,
+    PermissionRequestBody, PermissionResponse, RuleSet,
 };
 use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
 use closeclaw::permission::sandbox::{
@@ -123,7 +123,10 @@ async fn test_security_policy_apply_does_not_panic() {
 
     // Applying the policy should not panic (even if enforcement is stubbed)
     let result = policy.apply();
-    assert!(result.is_ok(), "SecurityPolicy::apply() should not return error");
+    assert!(
+        result.is_ok(),
+        "SecurityPolicy::apply() should not return error"
+    );
 }
 
 #[tokio::test]
@@ -229,7 +232,10 @@ async fn test_sandbox_new_has_unstarted_state() {
     // Initial state should be Unstarted
     let state = sandbox.state().await;
     assert!(
-        matches!(state, closeclaw::permission::sandbox::SandboxState::Unstarted),
+        matches!(
+            state,
+            closeclaw::permission::sandbox::SandboxState::Unstarted
+        ),
         "new sandbox should be in Unstarted state, got {:?}",
         state
     );
@@ -271,17 +277,20 @@ async fn test_sandbox_cannot_spawn_twice() {
     if result.is_ok() {
         // Verify state is Running
         let state = sandbox.state().await;
-        assert!(matches!(state, closeclaw::permission::sandbox::SandboxState::Running));
+        assert!(matches!(
+            state,
+            closeclaw::permission::sandbox::SandboxState::Running
+        ));
 
         // Second spawn should fail
         let second_result = sandbox.spawn().await;
-        assert!(
-            second_result.is_err(),
-            "second spawn should return error"
-        );
+        assert!(second_result.is_err(), "second spawn should return error");
         match second_result {
             Err(SandboxError::InvalidState { state }) => {
-                assert!(matches!(state, closeclaw::permission::sandbox::SandboxState::Running));
+                assert!(matches!(
+                    state,
+                    closeclaw::permission::sandbox::SandboxState::Running
+                ));
             }
             other => panic!("expected InvalidState error, got {:?}", other),
         }
@@ -339,7 +348,10 @@ async fn test_sandbox_evaluate_permission_request() {
         };
 
         let eval_result = sandbox.evaluate(request).await;
-        assert!(eval_result.is_ok(), "evaluate should succeed with permissive rules");
+        assert!(
+            eval_result.is_ok(),
+            "evaluate should succeed with permissive rules"
+        );
 
         let response = eval_result.unwrap();
         match response {
@@ -347,7 +359,10 @@ async fn test_sandbox_evaluate_permission_request() {
                 assert!(reason.contains("allow") || reason.contains("allowed"));
             }
             PermissionResponse::Denied { reason } => {
-                panic!("expected Allowed with permissive rules, got Denied: {}", reason);
+                panic!(
+                    "expected Allowed with permissive rules, got Denied: {}",
+                    reason
+                );
             }
         }
 
@@ -405,10 +420,7 @@ async fn test_sandbox_cannot_operate_when_not_spawned() {
 
     // Ping without spawn should fail with IpcTimeout or Ipc error
     let ping_result = sandbox.ping().await;
-    assert!(
-        ping_result.is_err(),
-        "ping without spawn should fail"
-    );
+    assert!(ping_result.is_err(), "ping without spawn should fail");
 
     let _ = std::fs::remove_file(&socket_path);
 }
@@ -421,17 +433,26 @@ async fn test_sandbox_state_transitions() {
 
     // Initial state
     let state0 = sandbox.state().await;
-    assert!(matches!(state0, closeclaw::permission::sandbox::SandboxState::Unstarted));
+    assert!(matches!(
+        state0,
+        closeclaw::permission::sandbox::SandboxState::Unstarted
+    ));
 
     // Spawn
     if sandbox.spawn().await.is_ok() {
         let state1 = sandbox.state().await;
-        assert!(matches!(state1, closeclaw::permission::sandbox::SandboxState::Running));
+        assert!(matches!(
+            state1,
+            closeclaw::permission::sandbox::SandboxState::Running
+        ));
 
         // Shutdown
         let _ = sandbox.shutdown().await;
         let state2 = sandbox.state().await;
-        assert!(matches!(state2, closeclaw::permission::sandbox::SandboxState::Stopped));
+        assert!(matches!(
+            state2,
+            closeclaw::permission::sandbox::SandboxState::Stopped
+        ));
     }
 
     let _ = std::fs::remove_file(&socket_path);

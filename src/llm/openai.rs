@@ -1,7 +1,7 @@
 //! OpenAI LLM Provider
 
-use async_trait::async_trait;
 use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
@@ -95,13 +95,19 @@ impl LLMProvider for OpenAIProvider {
         if !response.status().is_success() {
             let status = response.status();
             if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(LLMError::AuthFailed(format!("OpenAI API auth failed: {}", status)));
+                return Err(LLMError::AuthFailed(format!(
+                    "OpenAI API auth failed: {}",
+                    status
+                )));
             }
             if status.as_u16() == 429 {
                 return Err(LLMError::RateLimitExceeded);
             }
             let body = response.text().await.unwrap_or_default();
-            return Err(LLMError::ApiError(format!("OpenAI API error {}: {}", status, body)));
+            return Err(LLMError::ApiError(format!(
+                "OpenAI API error {}: {}",
+                status, body
+            )));
         }
 
         let openai_resp: OpenAIResponse = response

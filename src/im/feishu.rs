@@ -2,12 +2,12 @@
 //!
 //! Implements IMAdapter for Feishu messaging platform.
 
+use super::{AdapterError, IMAdapter};
+use crate::gateway::Message;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use sha2::{Sha256, Digest};
-use crate::gateway::Message;
-use super::{IMAdapter, AdapterError};
 
 /// Feishu webhook event payload
 #[derive(Debug, Deserialize)]
@@ -88,7 +88,8 @@ impl IMAdapter for FeishuAdapter {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let text = content.get("text")
+        let text = content
+            .get("text")
             .and_then(|t| t.as_str())
             .unwrap_or("")
             .to_string();

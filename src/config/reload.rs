@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use super::backup::SafeBackupManager;
-use super::{ConfigProvider, ConfigError};
+use super::{ConfigError, ConfigProvider};
 
 /// Event emitted when a config reload occurs
 #[derive(Debug, Clone)]
@@ -124,7 +124,10 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
         drop(_provider_guard);
 
         // Create backup before attempting reload
-        if let Err(e) = self.backup_manager.backup_with_content(&path_buf, &current_content) {
+        if let Err(e) = self
+            .backup_manager
+            .backup_with_content(&path_buf, &current_content)
+        {
             warn!("Failed to create backup before reload: {}", e);
         }
 
@@ -197,10 +200,8 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
 
         let provider = Arc::clone(&self.provider);
         let backup_manager = SafeBackupManager::new(
-            super::backup::BackupManager::new(
-                std::env::temp_dir().join("closeclaw_backups"),
-                5,
-            ).unwrap()
+            super::backup::BackupManager::new(std::env::temp_dir().join("closeclaw_backups"), 5)
+                .unwrap(),
         );
         let debounce = self.debounce_duration;
         let event_sender = self.event_sender.clone();
@@ -216,12 +217,15 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
                 }
             },
             NotifyConfig::default(),
-        ).map_err(|e| ConfigError::SchemaError(format!("Watcher creation failed: {}", e)))?;
+        )
+        .map_err(|e| ConfigError::SchemaError(format!("Watcher creation failed: {}", e)))?;
 
         for path in &paths {
             watcher
                 .watch(path, RecursiveMode::NonRecursive)
-                .map_err(|e| ConfigError::SchemaError(format!("Watch failed for {:?}: {}", path, e)))?;
+                .map_err(|e| {
+                    ConfigError::SchemaError(format!("Watch failed for {:?}: {}", path, e))
+                })?;
         }
 
         // Spawn background task to handle events
@@ -295,9 +299,7 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
                     *provider_guard = temp_provider;
 
                     if let Some(ref sender) = event_sender {
-                        let _ = sender.try_send(ConfigReloadEvent::Reloaded {
-                            path: path_str,
-                        });
+                        let _ = sender.try_send(ConfigReloadEvent::Reloaded { path: path_str });
                     }
                 }
             }

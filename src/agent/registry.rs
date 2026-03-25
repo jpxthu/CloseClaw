@@ -163,15 +163,15 @@ impl AgentRegistry {
     pub async fn get_ancestors(&self, agent_id: &str) -> Vec<Agent> {
         let agents = self.agents.read().await;
         let mut ancestors = Vec::new();
-        
+
         // Get the starting agent to find its parent_id
         let current = match agents.get(agent_id) {
             Some(a) => a,
             None => return ancestors,
         };
-        
+
         let mut current_parent_id = current.parent_id.clone();
-        
+
         // Traverse up the hierarchy
         while let Some(parent_id) = current_parent_id {
             if parent_id.is_empty() {
@@ -185,7 +185,7 @@ impl AgentRegistry {
                 None => break,
             }
         }
-        
+
         ancestors
     }
 
@@ -270,8 +270,7 @@ impl AgentRegistry {
             processes.get(id).cloned()
         };
 
-        let mut process = process
-            .ok_or_else(|| RegistryError::AgentNotFound(id.to_string()))?;
+        let mut process = process.ok_or_else(|| RegistryError::AgentNotFound(id.to_string()))?;
 
         process.send_message(message).await?;
         Ok(())
@@ -380,7 +379,10 @@ mod tests {
     async fn test_update_state() {
         let registry = create_registry(30);
         let agent = registry.register("test".to_string(), None).await;
-        registry.update_state(&agent.id, AgentState::Running).await.unwrap();
+        registry
+            .update_state(&agent.id, AgentState::Running)
+            .await
+            .unwrap();
         let updated = registry.get(&agent.id).await.unwrap();
         assert_eq!(updated.state, AgentState::Running);
     }
@@ -390,7 +392,9 @@ mod tests {
         let registry = create_registry(30);
         let agent = registry.register("test".to_string(), None).await;
         // Can't go from Idle to Suspended directly
-        let result = registry.update_state(&agent.id, AgentState::Suspended).await;
+        let result = registry
+            .update_state(&agent.id, AgentState::Suspended)
+            .await;
         assert!(result.is_err());
     }
 
@@ -406,29 +410,44 @@ mod tests {
     #[test]
     fn test_is_valid_transition() {
         assert!(is_valid_transition(AgentState::Idle, AgentState::Running));
-        assert!(is_valid_transition(AgentState::Running, AgentState::Waiting));
-        assert!(is_valid_transition(AgentState::Running, AgentState::Stopped));
-        assert!(!is_valid_transition(AgentState::Stopped, AgentState::Running));
+        assert!(is_valid_transition(
+            AgentState::Running,
+            AgentState::Waiting
+        ));
+        assert!(is_valid_transition(
+            AgentState::Running,
+            AgentState::Stopped
+        ));
+        assert!(!is_valid_transition(
+            AgentState::Stopped,
+            AgentState::Running
+        ));
         assert!(!is_valid_transition(AgentState::Error, AgentState::Running));
     }
 
     #[tokio::test]
     async fn test_get_children() {
         let registry = create_registry(30);
-        
+
         // Create parent and children
         let parent = registry.register("parent".to_string(), None).await;
-        let child1 = registry.register("child1".to_string(), Some(parent.id.clone())).await;
-        let _child2 = registry.register("child2".to_string(), Some(parent.id.clone())).await;
-        let _grandchild = registry.register("grandchild".to_string(), Some(child1.id.clone())).await;
-        
+        let child1 = registry
+            .register("child1".to_string(), Some(parent.id.clone()))
+            .await;
+        let _child2 = registry
+            .register("child2".to_string(), Some(parent.id.clone()))
+            .await;
+        let _grandchild = registry
+            .register("grandchild".to_string(), Some(child1.id.clone()))
+            .await;
+
         // Get children of parent
         let children = registry.get_children(&parent.id).await;
         assert_eq!(children.len(), 2);
         let child_ids: Vec<_> = children.iter().map(|a| a.name.clone()).collect();
         assert!(child_ids.contains(&"child1".to_string()));
         assert!(child_ids.contains(&"child2".to_string()));
-        
+
         // Get children of child1 (should include grandchild)
         let children_of_child1 = registry.get_children(&child1.id).await;
         assert_eq!(children_of_child1.len(), 1);
@@ -438,15 +457,17 @@ mod tests {
     #[tokio::test]
     async fn test_get_parent() {
         let registry = create_registry(30);
-        
+
         let parent = registry.register("parent".to_string(), None).await;
-        let child = registry.register("child".to_string(), Some(parent.id.clone())).await;
-        
+        let child = registry
+            .register("child".to_string(), Some(parent.id.clone()))
+            .await;
+
         // Get parent of child
         let found_parent = registry.get_parent(&child.id).await;
         assert!(found_parent.is_some());
         assert_eq!(found_parent.unwrap().id, parent.id);
-        
+
         // Parent has no parent
         let parent_of_parent = registry.get_parent(&parent.id).await;
         assert!(parent_of_parent.is_none());
@@ -455,17 +476,21 @@ mod tests {
     #[tokio::test]
     async fn test_get_ancestors() {
         let registry = create_registry(30);
-        
+
         let root = registry.register("root".to_string(), None).await;
-        let child = registry.register("child".to_string(), Some(root.id.clone())).await;
-        let grandchild = registry.register("grandchild".to_string(), Some(child.id.clone())).await;
-        
+        let child = registry
+            .register("child".to_string(), Some(root.id.clone()))
+            .await;
+        let grandchild = registry
+            .register("grandchild".to_string(), Some(child.id.clone()))
+            .await;
+
         // Get ancestors of grandchild
         let ancestors = registry.get_ancestors(&grandchild.id).await;
         assert_eq!(ancestors.len(), 2);
         assert_eq!(ancestors[0].name, "child");
         assert_eq!(ancestors[1].name, "root");
-        
+
         // Root has no ancestors
         let root_ancestors = registry.get_ancestors(&root.id).await;
         assert!(root_ancestors.is_empty());
@@ -474,20 +499,24 @@ mod tests {
     #[tokio::test]
     async fn test_is_ancestor_of() {
         let registry = create_registry(30);
-        
+
         let root = registry.register("root".to_string(), None).await;
-        let child = registry.register("child".to_string(), Some(root.id.clone())).await;
-        let grandchild = registry.register("grandchild".to_string(), Some(child.id.clone())).await;
-        
+        let child = registry
+            .register("child".to_string(), Some(root.id.clone()))
+            .await;
+        let grandchild = registry
+            .register("grandchild".to_string(), Some(child.id.clone()))
+            .await;
+
         // Root is ancestor of grandchild
         assert!(registry.is_ancestor_of(&root.id, &grandchild.id).await);
-        
+
         // Child is ancestor of grandchild
         assert!(registry.is_ancestor_of(&child.id, &grandchild.id).await);
-        
+
         // Grandchild is NOT ancestor of root
         assert!(!registry.is_ancestor_of(&grandchild.id, &root.id).await);
-        
+
         // Root is NOT ancestor of itself
         assert!(!registry.is_ancestor_of(&root.id, &root.id).await);
     }

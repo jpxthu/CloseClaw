@@ -9,21 +9,13 @@ use serde::{Deserialize, Serialize};
 pub enum ClientMessage {
     /// Start a new chat session
     #[serde(rename = "chat.start")]
-    ChatStart {
-        agent_id: String,
-        id: String,
-    },
+    ChatStart { agent_id: String, id: String },
     /// Send a chat message
     #[serde(rename = "chat.message")]
-    ChatMessage {
-        content: String,
-        id: String,
-    },
+    ChatMessage { content: String, id: String },
     /// Stop the current chat session
     #[serde(rename = "chat.stop")]
-    ChatStop {
-        id: String,
-    },
+    ChatStop { id: String },
 }
 
 /// Server → Client messages
@@ -32,10 +24,7 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     /// Session started
     #[serde(rename = "chat.started")]
-    ChatStarted {
-        session_id: String,
-        id: String,
-    },
+    ChatStarted { session_id: String, id: String },
     /// A response chunk
     #[serde(rename = "chat.response")]
     ChatResponse {
@@ -45,15 +34,10 @@ pub enum ServerMessage {
     },
     /// Final response marker
     #[serde(rename = "chat.response.done")]
-    ChatResponseDone {
-        id: String,
-    },
+    ChatResponseDone { id: String },
     /// Error occurred
     #[serde(rename = "chat.error")]
-    ChatError {
-        message: String,
-        id: String,
-    },
+    ChatError { message: String, id: String },
 }
 
 impl ServerMessage {

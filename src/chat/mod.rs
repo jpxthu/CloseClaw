@@ -70,7 +70,9 @@ mod tests {
         assert!(json.contains(r#""done":true"#));
 
         // chat.response.done
-        let msg = ServerMessage::ChatResponseDone { id: "req-3".to_string() };
+        let msg = ServerMessage::ChatResponseDone {
+            id: "req-3".to_string(),
+        };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("chat.response.done"));
 

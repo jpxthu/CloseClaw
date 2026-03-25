@@ -4,8 +4,8 @@
 
 pub mod feishu;
 
-use async_trait::async_trait;
 use crate::gateway::Message;
+use async_trait::async_trait;
 
 /// IM Adapter trait - implemented by each messaging platform
 #[async_trait]

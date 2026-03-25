@@ -3,8 +3,8 @@
 //! Verifies that `closeclaw stop` (SIGTERM) triggers graceful shutdown
 //! instead of hard-killing the daemon.
 
-use std::time::Duration;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
@@ -19,8 +19,6 @@ fn closeclaw_binary() -> std::path::PathBuf {
 #[tokio::test]
 #[cfg(unix)]
 async fn test_sigterm_triggers_graceful_shutdown() {
-    
-
     // Build the daemon binary path (test binary != closeclaw daemon)
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let daemon_bin = manifest_dir.join("target/debug/closeclaw");

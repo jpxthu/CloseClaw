@@ -2,8 +2,8 @@
 //!
 //! This skill helps agents understand how to create new skills for CloseClaw.
 
+use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use crate::skills::{Skill, SkillManifest, SkillError};
 
 pub struct SkillCreatorSkill;
 
@@ -19,7 +19,8 @@ impl Skill for SkillCreatorSkill {
         SkillManifest {
             name: "skill_creator".to_string(),
             version: "1.0.0".to_string(),
-            description: "Helps agents understand how to create new skills for CloseClaw".to_string(),
+            description: "Helps agents understand how to create new skills for CloseClaw"
+                .to_string(),
             author: Some("CloseClaw Team".to_string()),
             dependencies: vec![],
         }
@@ -29,11 +30,14 @@ impl Skill for SkillCreatorSkill {
         vec!["guide", "template", "validate"]
     }
 
-    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError> {
+    async fn execute(
+        &self,
+        method: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, SkillError> {
         match method {
-            "guide" => {
-                Ok(serde_json::json!({
-                    "content": r#"# Creating a CloseClaw Skill
+            "guide" => Ok(serde_json::json!({
+                "content": r#"# Creating a CloseClaw Skill
 
 ## 1. Create the Skill File
 Create `src/skills/your_skill_name.rs`:
@@ -82,12 +86,10 @@ pub use your_skill_name::YourSkill;
 ## 3. Create SKILL.md Documentation
 Create `docs/skills/your_skill_name/SKILL.md` following the standard format.
 "#,
-                    "format": "markdown"
-                }))
-            }
-            "template" => {
-                Ok(serde_json::json!({
-                    "template": r#"---
+                "format": "markdown"
+            })),
+            "template" => Ok(serde_json::json!({
+                "template": r#"---
 name: skill-name
 description: |
   One-line description of what this skill does.
@@ -106,20 +108,20 @@ Description of the skill.
 ## Usage
 Detailed usage instructions.
 "#,
-                    "format": "markdown"
-                }))
-            }
+                "format": "markdown"
+            })),
             "validate" => {
-                let code = args.get("code")
+                let code = args
+                    .get("code")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
-                
+
                 // Basic validation checks
                 let has_async_trait = code.contains("#[async_trait]");
                 let has_manifest = code.contains("fn manifest");
                 let has_execute = code.contains("async fn execute");
                 let has_methods = code.contains("fn methods");
-                
+
                 Ok(serde_json::json!({
                     "valid": has_async_trait && has_manifest && has_execute && has_methods,
                     "checks": {
@@ -133,7 +135,7 @@ Detailed usage instructions.
             _ => Err(SkillError::MethodNotFound {
                 skill: "skill_creator".to_string(),
                 method: method.to_string(),
-            })
+            }),
         }
     }
 }

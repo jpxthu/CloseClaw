@@ -18,9 +18,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 
-use crate::permission::{
-    PermissionEngine, PermissionRequest, PermissionResponse, RuleSet,
-};
+use crate::permission::{PermissionEngine, PermissionRequest, PermissionResponse, RuleSet};
 
 /// Maximum time to wait for the engine process to start.
 const ENGINE_SPAWN_TIMEOUT_MS: u64 = 5000;
@@ -187,9 +185,8 @@ impl IpcChannel {
         let mut body = vec![0u8; body_len];
         reader.read_exact(&mut body).await?;
 
-        serde_json::from_slice(&body).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })
+        serde_json::from_slice(&body)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
     /// Start listening for connections and dispatch them to the engine.
@@ -295,7 +292,9 @@ pub enum SandboxState {
     #[default]
     Unstarted,
     Running,
-    Crashed { exit_code: Option<i32> },
+    Crashed {
+        exit_code: Option<i32>,
+    },
     Shutdown,
 }
 
@@ -393,8 +392,7 @@ impl Sandbox {
             .map_err(|e| SandboxError::ProcessError(e.to_string()))?;
 
         // Wait for the socket to appear (engine is ready).
-        let deadline = tokio::time::Instant::now()
-            + Duration::from_millis(ENGINE_SPAWN_TIMEOUT_MS);
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(ENGINE_SPAWN_TIMEOUT_MS);
 
         let socket_ready = loop {
             if tokio::time::Instant::now() >= deadline {
@@ -476,9 +474,7 @@ impl Sandbox {
 
         match resp {
             SandboxResponse::PermissionResponse(r) => Ok(r),
-            SandboxResponse::Error { message } => {
-                Err(SandboxError::ProcessError(message))
-            }
+            SandboxResponse::Error { message } => Err(SandboxError::ProcessError(message)),
             other => Err(SandboxError::ProcessError(format!(
                 "unexpected response: {:?}",
                 other
@@ -503,9 +499,7 @@ impl Sandbox {
 
         match resp {
             SandboxResponse::RulesReloaded => Ok(()),
-            SandboxResponse::Error { message } => {
-                Err(SandboxError::ProcessError(message))
-            }
+            SandboxResponse::Error { message } => Err(SandboxError::ProcessError(message)),
             other => Err(SandboxError::ProcessError(format!(
                 "unexpected response: {:?}",
                 other

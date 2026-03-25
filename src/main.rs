@@ -173,7 +173,11 @@ async fn main() -> Result<()> {
                 std::fs::create_dir_all(parent).ok();
             }
             std::fs::write(&pid_path, std::process::id().to_string())?;
-            println!("PID {} written to {}", std::process::id(), pid_path.display());
+            println!(
+                "PID {} written to {}",
+                std::process::id(),
+                pid_path.display()
+            );
 
             // Start the daemon
             let daemon = closeclaw::daemon::Daemon::start(&config_dir).await?;
@@ -278,7 +282,12 @@ async fn handle_audit(action: AuditAction) -> Result<()> {
     use closeclaw::audit::{export_audit_events, query_audit_events, AuditQueryFilter};
 
     match action {
-        AuditAction::Query { days, event_type, agent, limit } => {
+        AuditAction::Query {
+            days,
+            event_type,
+            agent,
+            limit,
+        } => {
             let filter = AuditQueryFilter {
                 days,
                 event_type,
@@ -307,7 +316,10 @@ async fn handle_audit(action: AuditAction) -> Result<()> {
                 limit: None,
             };
             let count = export_audit_events(&filter, &output, &format)?;
-            println!("Exported {} audit event(s) to {} ({})", count, output, format);
+            println!(
+                "Exported {} audit event(s) to {} ({})",
+                count, output, format
+            );
         }
     }
     Ok(())
@@ -320,7 +332,7 @@ fn pid_file_path() -> PathBuf {
 }
 
 async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
-    use dialoguer::{MultiSelect, Password, Confirm};
+    use dialoguer::{Confirm, MultiSelect, Password};
 
     println!();
     println!("╔══════════════════════════════════════════════════════════╗");
@@ -336,11 +348,7 @@ async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
     println!();
 
     // Step 1: Select providers
-    let providers = vec![
-        "MiniMax (推荐 / Recommended)",
-        "OpenAI",
-        "Anthropic",
-    ];
+    let providers = vec!["MiniMax (推荐 / Recommended)", "OpenAI", "Anthropic"];
 
     println!("【第 1 步】选择要配置的 LLM Provider");
     println!("提示：至少选择一个 Provider。你可以选择多个。");
@@ -408,7 +416,10 @@ async fn handle_config_setup(skip_confirm: bool) -> Result<()> {
     }
     if has_anthropic {
         env_content.push_str("# Anthropic API Key\n");
-        env_content.push_str(&format!("ANTHROPIC_API_KEY={}\n\n", mask_key(&anthropic_key)));
+        env_content.push_str(&format!(
+            "ANTHROPIC_API_KEY={}\n\n",
+            mask_key(&anthropic_key)
+        ));
     }
     env_content.push_str("# 飞书 Webhook（可选）\n");
     env_content.push_str("# FEISHU_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/xxx\n");
@@ -457,7 +468,10 @@ async fn handle_stop(force: bool) -> Result<()> {
 
     let pid: u32 = if pid_path.exists() {
         let content = std::fs::read_to_string(&pid_path)?;
-        content.trim().parse().map_err(|_| anyhow::anyhow!("Invalid PID in {}: {}", pid_path.display(), content))?
+        content
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid PID in {}: {}", pid_path.display(), content))?
     } else {
         anyhow::bail!(
             "PID file not found at {}.\nIs the daemon running? (Hint: use `closeclaw run --config-dir ./configs` to start)",
@@ -467,7 +481,9 @@ async fn handle_stop(force: bool) -> Result<()> {
 
     // Prevent killing self
     if pid == std::process::id() {
-        anyhow::bail!("Refusing to kill self. Use `pkill closeclaw` from another terminal instead.");
+        anyhow::bail!(
+            "Refusing to kill self. Use `pkill closeclaw` from another terminal instead."
+        );
     }
 
     let sig = if force { "KILL" } else { "TERM" };
@@ -478,10 +494,18 @@ async fn handle_stop(force: bool) -> Result<()> {
     {
         Ok(output) if output.status.success() => {
             let _ = std::fs::remove_file(&pid_path);
-            println!("✅ Daemon (PID {}) stopped ({}).", pid, if force { "SIGKILL" } else { "SIGTERM" });
+            println!(
+                "✅ Daemon (PID {}) stopped ({}).",
+                pid,
+                if force { "SIGKILL" } else { "SIGTERM" }
+            );
         }
         Ok(output) => {
-            anyhow::bail!("kill returned status {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "kill returned status {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
         Err(e) => anyhow::bail!("Failed to send {} to PID {}: {}", sig, pid, e),
     }
@@ -519,11 +543,16 @@ mod tests {
     fn test_stop_command_force_flag_short() {
         // Test that -f flag sets force to true
         let cmd = Cli::command();
-        let matches = cmd.try_get_matches_from(["closeclaw", "stop", "-f"]).unwrap();
+        let matches = cmd
+            .try_get_matches_from(["closeclaw", "stop", "-f"])
+            .unwrap();
         let sub = matches.subcommand().unwrap();
         assert_eq!(sub.0, "stop");
         let stop_matches = sub.1;
-        assert!(stop_matches.get_flag("force"), "force flag should be true with -f");
+        assert!(
+            stop_matches.get_flag("force"),
+            "force flag should be true with -f"
+        );
     }
 
     #[test]

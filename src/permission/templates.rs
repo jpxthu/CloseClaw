@@ -36,7 +36,10 @@ pub enum TemplateSubject {
     /// Matches any caller; subject is provided by the composing rule.
     Any,
     /// Fixed agent pattern.
-    Agent { agent: String, match_type: crate::permission::engine::MatchType },
+    Agent {
+        agent: String,
+        match_type: crate::permission::engine::MatchType,
+    },
     /// Fixed user+agent pattern.
     UserAndAgent {
         user_id: String,
@@ -51,7 +54,9 @@ pub enum TemplateSubject {
 /// Reads all `.json` files under `config_dir/templates/` and parses them
 /// as [`Template`] structs. Templates are returned as a map from template
 /// name to the resolved (inheritance-expanded) template.
-pub fn load_templates_from_dir(config_dir: &Path) -> Result<HashMap<String, Template>, TemplateLoadError> {
+pub fn load_templates_from_dir(
+    config_dir: &Path,
+) -> Result<HashMap<String, Template>, TemplateLoadError> {
     let templates_dir = config_dir.join("templates");
     if !templates_dir.is_dir() {
         return Ok(HashMap::new());
@@ -86,7 +91,9 @@ pub fn load_templates_from_dir(config_dir: &Path) -> Result<HashMap<String, Temp
 
 /// Resolve a template by name, recursively expanding its inheritance chain.
 /// Returns the fully-expanded template with all inherited actions merged.
-pub(crate) fn expand_inheritance(templates: &mut HashMap<String, Template>) -> Result<(), TemplateLoadError> {
+pub(crate) fn expand_inheritance(
+    templates: &mut HashMap<String, Template>,
+) -> Result<(), TemplateLoadError> {
     // Topological sort to detect cycles and resolve in correct order
     let names: Vec<String> = templates.keys().cloned().collect();
     let mut resolved: HashMap<String, Template> = HashMap::new();
@@ -118,7 +125,8 @@ fn resolve_template(
         return Err(TemplateLoadError::CycleDetected(name.to_string()));
     }
 
-    let tmpl = source.get(name)
+    let tmpl = source
+        .get(name)
         .ok_or_else(|| TemplateLoadError::TemplateNotFound(name.to_string()))?
         .clone();
 
@@ -184,8 +192,15 @@ mod tests {
                 crate::permission::engine::Action::Command {
                     command: "git".to_string(),
                     args: crate::permission::engine::CommandArgs::Allowed {
-                        allowed: vec!["status".to_string(), "log".to_string(), "diff".to_string(),
-                                      "add".to_string(), "commit".to_string(), "push".to_string(), "pull".to_string()],
+                        allowed: vec![
+                            "status".to_string(),
+                            "log".to_string(),
+                            "diff".to_string(),
+                            "add".to_string(),
+                            "commit".to_string(),
+                            "push".to_string(),
+                            "pull".to_string(),
+                        ],
                     },
                 },
                 crate::permission::engine::Action::Command {
@@ -203,12 +218,10 @@ mod tests {
             description: "Read-only access to all resources.".to_string(),
             subject: TemplateSubject::Any,
             effect: crate::permission::engine::Effect::Allow,
-            actions: vec![
-                crate::permission::engine::Action::File {
-                    operation: "read".to_string(),
-                    paths: vec!["**".to_string()],
-                },
-            ],
+            actions: vec![crate::permission::engine::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
             extends: vec![],
         }
     }
@@ -216,17 +229,16 @@ mod tests {
     fn admin_template() -> Template {
         Template {
             name: "admin".to_string(),
-            description: "Full access, inherits developer template and adds config write.".to_string(),
+            description: "Full access, inherits developer template and adds config write."
+                .to_string(),
             subject: TemplateSubject::Agent {
                 agent: "admin-*".to_string(),
                 match_type: crate::permission::engine::MatchType::Glob,
             },
             effect: crate::permission::engine::Effect::Allow,
-            actions: vec![
-                crate::permission::engine::Action::ConfigWrite {
-                    files: vec!["**".to_string()],
-                },
-            ],
+            actions: vec![crate::permission::engine::Action::ConfigWrite {
+                files: vec!["**".to_string()],
+            }],
             extends: vec!["developer".to_string()],
         }
     }
@@ -287,21 +299,27 @@ mod tests {
 
         let admin = templates.get("admin").unwrap();
         // Admin's own actions + inherited developer actions
-        assert!(admin.actions.iter().any(|a| matches!(a, crate::permission::engine::Action::ConfigWrite { .. })));
+        assert!(admin
+            .actions
+            .iter()
+            .any(|a| matches!(a, crate::permission::engine::Action::ConfigWrite { .. })));
         assert!(admin.actions.iter().any(|a| matches!(a, crate::permission::engine::Action::Command { command, .. } if command == "cargo")));
     }
 
     #[test]
     fn test_expand_inheritance_no_cycle() {
         let mut templates: HashMap<String, Template> = HashMap::new();
-        templates.insert("a".to_string(), Template {
-            name: "a".to_string(),
-            description: "".to_string(),
-            subject: TemplateSubject::Any,
-            effect: crate::permission::engine::Effect::Allow,
-            actions: vec![],
-            extends: vec![],
-        });
+        templates.insert(
+            "a".to_string(),
+            Template {
+                name: "a".to_string(),
+                description: "".to_string(),
+                subject: TemplateSubject::Any,
+                effect: crate::permission::engine::Effect::Allow,
+                actions: vec![],
+                extends: vec![],
+            },
+        );
 
         let result = expand_inheritance(&mut templates);
         assert!(result.is_ok());
@@ -310,22 +328,28 @@ mod tests {
     #[test]
     fn test_expand_inheritance_detects_cycle() {
         let mut templates: HashMap<String, Template> = HashMap::new();
-        templates.insert("a".to_string(), Template {
-            name: "a".to_string(),
-            description: "".to_string(),
-            subject: TemplateSubject::Any,
-            effect: crate::permission::engine::Effect::Allow,
-            actions: vec![],
-            extends: vec!["b".to_string()],
-        });
-        templates.insert("b".to_string(), Template {
-            name: "b".to_string(),
-            description: "".to_string(),
-            subject: TemplateSubject::Any,
-            effect: crate::permission::engine::Effect::Allow,
-            actions: vec![],
-            extends: vec!["a".to_string()],
-        });
+        templates.insert(
+            "a".to_string(),
+            Template {
+                name: "a".to_string(),
+                description: "".to_string(),
+                subject: TemplateSubject::Any,
+                effect: crate::permission::engine::Effect::Allow,
+                actions: vec![],
+                extends: vec!["b".to_string()],
+            },
+        );
+        templates.insert(
+            "b".to_string(),
+            Template {
+                name: "b".to_string(),
+                description: "".to_string(),
+                subject: TemplateSubject::Any,
+                effect: crate::permission::engine::Effect::Allow,
+                actions: vec![],
+                extends: vec!["a".to_string()],
+            },
+        );
 
         let result = expand_inheritance(&mut templates);
         assert!(matches!(result, Err(TemplateLoadError::CycleDetected(_))));
@@ -334,17 +358,23 @@ mod tests {
     #[test]
     fn test_expand_inheritance_missing_parent() {
         let mut templates: HashMap<String, Template> = HashMap::new();
-        templates.insert("child".to_string(), Template {
-            name: "child".to_string(),
-            description: "".to_string(),
-            subject: TemplateSubject::Any,
-            effect: crate::permission::engine::Effect::Allow,
-            actions: vec![],
-            extends: vec!["nonexistent".to_string()],
-        });
+        templates.insert(
+            "child".to_string(),
+            Template {
+                name: "child".to_string(),
+                description: "".to_string(),
+                subject: TemplateSubject::Any,
+                effect: crate::permission::engine::Effect::Allow,
+                actions: vec![],
+                extends: vec!["nonexistent".to_string()],
+            },
+        );
 
         let result = expand_inheritance(&mut templates);
-        assert!(matches!(result, Err(TemplateLoadError::TemplateNotFound(_))));
+        assert!(matches!(
+            result,
+            Err(TemplateLoadError::TemplateNotFound(_))
+        ));
     }
 
     #[test]

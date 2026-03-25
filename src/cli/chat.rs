@@ -36,13 +36,17 @@ impl ChatCommand {
     pub async fn run(&self) -> anyhow::Result<()> {
         // Resolve effective agent_id: CLI arg > CLOSEWCLAW_DEFAULT_AGENT env > "guide"
         let agent_id = if self.agent_id == DEFAULT_AGENT_ID {
-            std::env::var("CLOSEWCLAW_DEFAULT_AGENT").unwrap_or_else(|_| DEFAULT_AGENT_ID.to_string())
+            std::env::var("CLOSEWCLAW_DEFAULT_AGENT")
+                .unwrap_or_else(|_| DEFAULT_AGENT_ID.to_string())
         } else {
             self.agent_id.clone()
         };
 
         let addr: SocketAddr = self.addr.parse().with_context(|| {
-            format!("invalid address '{}' (expected format: 127.0.0.1:18889)", self.addr)
+            format!(
+                "invalid address '{}' (expected format: 127.0.0.1:18889)",
+                self.addr
+            )
         })?;
 
         if let Some(ref msg) = self.message {
@@ -53,7 +57,12 @@ impl ChatCommand {
     }
 
     /// Connect to the server, start a session, optionally send one message, print response
-    async fn run_single(&self, addr: SocketAddr, agent_id: &str, message: &str) -> anyhow::Result<()> {
+    async fn run_single(
+        &self,
+        addr: SocketAddr,
+        agent_id: &str,
+        message: &str,
+    ) -> anyhow::Result<()> {
         let mut stream = TcpStream::connect(addr)
             .await
             .with_context(|| format!("cannot connect to {} — is the daemon running?", addr))?;
@@ -102,7 +111,10 @@ impl ChatCommand {
                 println!();
                 break;
             } else if msg_type == "chat.error" {
-                let err_msg = resp_val.get("message").and_then(|v| v.as_str()).unwrap_or("unknown error");
+                let err_msg = resp_val
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error");
                 anyhow::bail!("server error: {}", err_msg);
             }
         }
@@ -146,7 +158,10 @@ impl ChatCommand {
         if resp_val.get("type").and_then(|v| v.as_str()) != Some("chat.started") {
             anyhow::bail!("unexpected response to chat.start: {}", resp);
         }
-        let session_id = resp_val.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+        let session_id = resp_val
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         info!(session_id = %session_id, "chat session started");
 
         println!("Connected to CloseClaw chat (session: {})", session_id);
@@ -251,6 +266,9 @@ impl ChatCommand {
 /// Read a single newline-delimited JSON line from a stream
 async fn read_line(stream: &mut TcpStream) -> anyhow::Result<String> {
     let mut buf = tokio::io::BufReader::new(stream).lines();
-    let line = buf.next_line().await?.ok_or_else(|| anyhow::anyhow!("server closed connection"))?;
+    let line = buf
+        .next_line()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("server closed connection"))?;
     Ok(line)
 }
