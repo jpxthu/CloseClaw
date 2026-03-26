@@ -273,10 +273,15 @@ pub struct AuditQueryFilter {
     pub limit: Option<usize>,
 }
 
+/// Maximum number of days allowed in a single audit query to prevent DoS
+const MAX_QUERY_DAYS: u32 = 365;
+
 /// Read audit log files and filter events
 pub fn query_audit_events(filter: &AuditQueryFilter) -> Vec<AuditEvent> {
     let mut results: Vec<AuditEvent> = Vec::new();
     let today = Local::now();
+    // Cap days to prevent DoS via unbounded loop iteration
+    let days = filter.days.min(MAX_QUERY_DAYS);
     let base_dir = {
         let home = std::env::var("HOME").ok();
         match home {
@@ -288,7 +293,7 @@ pub fn query_audit_events(filter: &AuditQueryFilter) -> Vec<AuditEvent> {
     let event_type_filter = filter.event_type.as_ref();
     let agent_filter = filter.agent.as_ref();
 
-    for days_ago in 0..filter.days {
+    for days_ago in 0..days {
         let date = today - chrono::Duration::days(days_ago as i64);
         let date_str = date.format("%Y-%m-%d").to_string();
         let path = base_dir.join(format!("{}.jsonl", date_str));
@@ -539,6 +544,25 @@ mod tests {
 
         let results = query_audit_events(&filter);
         // Should not panic even with non-existent audit dir
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_query_audit_events_max_days_cap() {
+        let temp_dir = TempDir::new().unwrap();
+        std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
+
+        // u32::MAX should be capped to MAX_QUERY_DAYS without panicking
+        let filter = AuditQueryFilter {
+            days: u32::MAX,
+            event_type: None,
+            agent: None,
+            limit: None,
+        };
+
+        // Should not panic even with u32::MAX days
+        let results = query_audit_events(&filter);
+        assert!(results.is_empty());
         assert!(
             results.is_empty(),
             "Expected empty results in temp audit dir, got: {:?}",
