@@ -1,54 +1,202 @@
 {
-  "last_audited_commit": "f5e996e",
-  "last_audited_at": "2026-03-26T03:41:00+08:00",
-  "audited_commits": [
-    "014eea9", "aafb8e9", "a9cfcfc", "218522a",
-    "651ef70", "56baa39", "75e0df3", "b7d2141", "65fa8e9", "84b28e8", "7ea31db",
-    "4047a44", "f03ca8d", "5314c1e", "7e096f1", "c70ee24",
-    "0fc2099", "e907852", "7244213", "c12ad2e", "2c8c278",
-    "e69eb76", "2705918",
-    "05d6759", "88f99ff", "5521435",
-    "6f94d55", "7e34666", "c788590",
-    "7e5e145", "03a8a3e", "7b8f238",
-    "77d04aa", "f5af79e", "62f696e",
-    "dfa739b",
-    "f5e996e"
+  "audit_queue": [
+    {
+      "module": "im",
+      "path": "src/im/",
+      "lines": 1000,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "llm",
+      "path": "src/llm/",
+      "lines": 1000,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "permission/engine",
+      "path": "src/permission/engine.rs",
+      "lines": 2463,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "permission/sandbox",
+      "path": "src/permission/sandbox/",
+      "lines": 543,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "permission/rules",
+      "path": "src/permission/rules/",
+      "lines": 512,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "permission/actions",
+      "path": "src/permission/actions/",
+      "lines": 191,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "permission/templates",
+      "path": "src/permission/templates/",
+      "lines": 358,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "permission/tests",
+      "path": "src/permission/tests/",
+      "lines": 830,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "skills/registry",
+      "path": "src/skills/registry.rs",
+      "lines": 200,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "skills/builtin",
+      "path": "src/skills/builtin.rs",
+      "lines": 401,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "skills/mod",
+      "path": "src/skills/mod.rs",
+      "lines": 100,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "main",
+      "path": "src/main.rs",
+      "lines": 532,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:26:00+08:00"
+    },
+    {
+      "module": "agent/process",
+      "path": "src/agent/process.rs",
+      "lines": 310,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T14:01:00+08:00"
+    },
+    {
+      "module": "agent/registry",
+      "path": "src/agent/registry.rs",
+      "lines": 494,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:28:00+08:00"
+    },
+    {
+      "module": "agent/config",
+      "path": "src/agent/config.rs",
+      "lines": 486,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T07:58:00+08:00"
+    },
+    {
+      "module": "agent/mod",
+      "path": "src/agent/mod.rs",
+      "lines": 100,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T10:59:00+08:00"
+    },
+    {
+      "module": "audit",
+      "path": "src/audit/mod.rs",
+      "lines": 615,
+      "last_audited_commit": "21841f0",
+      "last_audited_at": "2026-03-26T13:00:00+08:00"
+    },
+    {
+      "module": "chat/protocol",
+      "path": "src/chat/protocol.rs",
+      "lines": 200,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T13:32:00+08:00"
+    },
+    {
+      "module": "chat/session",
+      "path": "src/chat/session.rs",
+      "lines": 282,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T14:33:00+08:00"
+    },
+    {
+      "module": "chat/mod",
+      "path": "src/chat/mod.rs",
+      "lines": 100,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T15:01:00+08:00"
+    },
+    {
+      "module": "cli/chat",
+      "path": "src/cli/chat.rs",
+      "lines": 256,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T15:30:00+08:00"
+    },
+    {
+      "module": "config/agents",
+      "path": "src/config/agents.rs",
+      "lines": 516,
+      "last_audited_commit": "a748b04",
+      "last_audited_at": "2026-03-26T16:30:00+08:00"
+    },
+    {
+      "module": "config/reload",
+      "path": "src/config/reload.rs",
+      "lines": 322,
+      "last_audited_commit": "a9fb10f",
+      "last_audited_at": "2026-03-26T17:15:00+08:00"
+    },
+    {
+      "module": "config/backup",
+      "path": "src/config/backup.rs",
+      "lines": 254,
+      "last_audited_commit": "a9fb10f",
+      "last_audited_at": "2026-03-26T17:51:00+08:00"
+    },
+    {
+      "module": "config/mod",
+      "path": "src/config/mod.rs",
+      "lines": 200,
+      "last_audited_commit": "a9fb10f",
+      "last_audited_at": "2026-03-26T18:51:00+08:00"
+    },
+    {
+      "module": "daemon/mod",
+      "path": "src/daemon/mod.rs",
+      "lines": 362,
+      "last_audited_commit": "a9fb10f",
+      "last_audited_at": "2026-03-26T19:19:00+08:00"
+    },
+    {
+      "module": "daemon/shutdown",
+      "path": "src/daemon/shutdown.rs",
+      "lines": 316,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T19:49:00+08:00"
+    },
+    {
+      "module": "gateway",
+      "path": "src/gateway/",
+      "lines": 200,
+      "last_audited_commit": "0923dc1",
+      "last_audited_at": "2026-03-26T20:27:00+08:00"
+    }
   ],
-  "notes": [
-    "aafb8e9: .env loading from config_dir (minor: no key name validation, no size limit — low risk since config_dir is user-controlled)",
-    "a9cfcfc: API key masking in config setup preview — good security fix",
-    "218522a: compilation warning fixes (unused imports/variables) — all in test code, no behavior change",
-    "651ef70: pure rename docs/developer/SKILL.md -> DEVELOPER.md — no content change",
-    "56baa39: TODO.md #30 marked closed — confirmed CLOSED on GitHub",
-    "75e0df3: docs fix — Feishu Adapter drain() description now correctly says 'serialize outbox to disk' instead of 'flush unsent messages'",
-    "b7d2141: docs: SETUP.md dir tree updated, WORKFLOW.md steps simplified, MULTI_AGENT_ARCHITECTURE.md 'permission_skill' and 'skill_discovery_skill' marked as 规划中, git.md split into guide + reference — all reasonable",
-    "65fa8e9: TODO.md cleanup — removed duplicate #61 #62 entries",
-    "84b28e8: TODO.md update — #59-62 all closed, confirmed against GitHub",
-    "4047a44: 设计文档：experience-push-mechanism — 推荐方案B（Pull），轻量事件驱动；#64 CLOSED ✅",
-    "f03ca8d: 设计文档：communication-delay-strategy — 推荐拉取+内存队列混合策略；#65 CLOSED ✅",
-    "5314c1e: 设计文档：agent-lifecycle-state-machine — 完整状态转换图+Phase实施计划；#66 CLOSED ✅",
-    "7e096f1: TODO.md 更新 — 三个设计标记已完成，对应 #64/#65/#66 均 CLOSED ✅",
-    "c70ee24: fix Phase ordering in lifecycle state machine — Phase 7 删除（合并到 Phase 1/3），grace_period_secs 配置项补充；合理修正",
-    "0fc2099: remove Cargo.lock from .gitignore — resolves #81 ✅",
-    "e907852: add Cargo.lock — enables reproducible builds",
-    "7244213: add StubProvider for testable LLM integration tests — resolves #82 ✅; minor: unused import `std::sync::Arc` and `Message` in stub.rs (warnings only)",
-    "c12ad2e: export StubProvider from llm module — BUG #88: tokin typo causes compilation failure",
-    "2c8c278: add LLM integration tests — BUG #89: stub-modem typo in test assertion",
-    "e69eb76: fix tokin->tokio in LLMRegistry::new() — fixes #88 ✅",
-    "2705918: fix stub-modem->stub-model in test assertion — fixes #89 ✅",
-    "05d6759: regenerate valid Cargo.lock (was JSON, not TOML) — fixes bad Cargo.lock from e907852",
-    "88f99ff: add cargo-llvm-cov for coverage reporting — resolves #84 ✅; BUG #90: request typo; BUG #91: cargo=ldm-cov typo",
-    "5521435: sandbox integration tests for seccomp/landlock (7 test cases) — resolves #83 ✅",
-    "6f94d55: reviewer audit checkpoint",
-    "7e34666: skill_discovery_skill for ClawHub marketplace — #69 CLOSED ✅",
-    "c788590: inject PermissionEngine into PermissionSkill via builtin_skills_with_engine() — implements planned permission_skill",
-    "7e5e145: reviewer audit checkpoint",
-    "03a8a3e: fix Cargo.toml typos (reqwest, cargo-llvm-cov) — fixes #90 and #91 ✅",
-    "7b8f238: cargo fmt across entire codebase — style normalization; compiles cleanly",
-    "77d04aa: fix config setup writing masked keys to .env instead of real keys — CRITICAL BUG FIX #92 ✅",
-    "f5af79e: add mask_key unit tests — good coverage of edge cases",
-    "62f696e: update sandbox integration tests to match PermissionEngine API changes from c788590",
-    "dfa739b: reviewer audit checkpoint",
-    "f5e996e: strip thinking tags (<think>/</think>) from MiniMax response before returning to user — fixes #104 ✅; also improved error handling from unwrap_or_default to proper error; has unit tests"
-  ]
+  "heartbeat_count": 21,
+  "last_commit_link_check": "0923dc1"
 }
