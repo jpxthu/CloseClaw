@@ -13,9 +13,10 @@ use tokio::sync::broadcast;
 use tracing::{info, warn};
 
 /// Shutdown state machine
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShutdownState {
     /// Normal operation
+    #[default]
     Running,
     /// Shutdown signal received, stop accepting new work
     ShuttingDown,
@@ -34,12 +35,6 @@ impl ShutdownState {
             3 => ShutdownState::Stopped,
             _ => ShutdownState::Running,
         }
-    }
-}
-
-impl Default for ShutdownState {
-    fn default() -> Self {
-        ShutdownState::Running
     }
 }
 
@@ -171,10 +166,6 @@ impl ShutdownHandle {
         // Signal all components to stop accepting new work
         // (Components check is_shutting_down() before starting new work)
         let _ = self.drain_done_tx.send(());
-
-        // Wait for busy_count to reach 0, with timeout
-        let started_at = std::time::Instant::now();
-        let _deadline = started_at + std::time::Duration::from_secs(DRAIN_TIMEOUT_SECS);
 
         // Wait for busy_count to reach 0, with timeout
         let started_at = std::time::Instant::now();
