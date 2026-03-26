@@ -383,8 +383,7 @@ impl AgentDirectoryProvider {
 
         if let Some(ref perms) = entry.permissions {
             let perm_path = dir.join("permissions.json");
-            let content =
-                serde_json::to_string_pretty(perms).map_err(ConfigError::JsonError)?;
+            let content = serde_json::to_string_pretty(perms).map_err(ConfigError::JsonError)?;
             fs::write(&perm_path, content)?;
         }
 
@@ -544,7 +543,10 @@ mod agent_dir_tests {
         // reload() should skip the non-UTF8 directory and succeed
         let mut provider = AgentDirectoryProvider::new(agents_dir.clone()).unwrap();
         let result = provider.reload();
-        assert!(result.is_ok(), "reload should skip non-UTF8 dirs and succeed");
+        assert!(
+            result.is_ok(),
+            "reload should skip non-UTF8 dirs and succeed"
+        );
         assert!(
             provider.get("valid-agent").is_some(),
             "valid agent should still be loaded"
