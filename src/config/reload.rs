@@ -46,8 +46,8 @@ pub struct ConfigReloadManager<P> {
     provider: Arc<std::sync::Mutex<P>>,
     /// File paths being watched
     watched_paths: Vec<PathBuf>,
-    /// Backup manager for rollback support
-    backup_manager: SafeBackupManager,
+    /// Backup manager for rollback support (Arc so it can be shared with the watch background task)
+    backup_manager: Arc<SafeBackupManager>,
     /// Channel for reload events
     event_sender: Option<mpsc::Sender<ConfigReloadEvent>>,
     /// Debounce duration to avoid rapid reloads
@@ -77,7 +77,7 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
         Self {
             provider: Arc::new(std::sync::Mutex::new(provider)),
             watched_paths: Vec::new(),
-            backup_manager,
+            backup_manager: Arc::new(backup_manager),
             event_sender: None,
             debounce_duration,
             parse_fn: Arc::new(parse_fn),
@@ -95,7 +95,7 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
         Self {
             provider: Arc::new(std::sync::Mutex::new(provider)),
             watched_paths: Vec::new(),
-            backup_manager,
+            backup_manager: Arc::new(backup_manager),
             event_sender: Some(event_sender),
             debounce_duration,
             parse_fn: Arc::new(parse_fn),
@@ -199,10 +199,7 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
         self.watched_paths = paths.clone();
 
         let provider = Arc::clone(&self.provider);
-        let backup_manager = SafeBackupManager::new(
-            super::backup::BackupManager::new(std::env::temp_dir().join("closeclaw_backups"), 5)
-                .unwrap(),
-        );
+        let backup_manager = Arc::clone(&self.backup_manager);
         let debounce = self.debounce_duration;
         let event_sender = self.event_sender.clone();
         let parse_fn = Arc::clone(&self.parse_fn);
