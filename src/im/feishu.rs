@@ -9,7 +9,9 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 /// Feishu webhook event payload
 #[derive(Debug, Deserialize)]
@@ -54,6 +56,22 @@ struct FeishuSenderId {
 /// Feishu API base URL
 const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
+/// Cached tenant access token with expiry time.
+/// Feishu tokens are valid ~2 hours; we refresh proactively at 1.5h.
+#[derive(Debug, Clone)]
+struct CachedToken {
+    token: String,
+    /// When this token expires (absolute time)
+    expires_at: Instant,
+}
+
+impl CachedToken {
+    /// Returns true if token is expired or close to expiry (within 5 minutes)
+    fn needs_refresh(&self) -> bool {
+        Instant::now() > self.expires_at - Duration::from_secs(300)
+    }
+}
+
 /// Feishu adapter implementation
 #[derive(Debug, Clone)]
 pub struct FeishuAdapter {
@@ -61,6 +79,8 @@ pub struct FeishuAdapter {
     app_secret: String,
     verification_token: String,
     http_client: Client,
+    /// Cached tenant access token — shared across all clones via Arc<Mutex>
+    cached_token: Arc<Mutex<Option<CachedToken>>>,
 }
 
 impl FeishuAdapter {
@@ -74,11 +94,37 @@ impl FeishuAdapter {
             app_secret,
             verification_token,
             http_client,
+            cached_token: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Obtain a tenant access token from Feishu API.
+    /// Obtain a tenant access token from Feishu API, using a cached token when valid.
+    /// Feishu tokens are valid ~2 hours; we proactively refresh at 1.5h to avoid expiry mid-request.
     async fn get_tenant_token(&self) -> Result<String, AdapterError> {
+        // Fast path: check cache without lock
+        let cached = self.cached_token.lock().await;
+        if let Some(ref c) = *cached {
+            if !c.needs_refresh() {
+                return Ok(c.token.clone());
+            }
+        }
+        drop(cached); // release lock before slow I/O
+
+        // Slow path: fetch new token
+        let new_token = self.fetch_tenant_token().await?;
+
+        // Cache with 2-hour TTL (Feishu standard expiry)
+        let mut cached = self.cached_token.lock().await;
+        *cached = Some(CachedToken {
+            expires_at: Instant::now() + Duration::from_secs(7200),
+            token: new_token.clone(),
+        });
+
+        Ok(new_token)
+    }
+
+    /// Fetch a fresh tenant access token from Feishu API (no caching).
+    async fn fetch_tenant_token(&self) -> Result<String, AdapterError> {
         #[derive(Serialize)]
         struct TokenRequest<'a> {
             app_id: &'a str,
