@@ -1,15 +1,36 @@
 //! Built-in skills - file_ops, git_ops, search, etc.
 
+use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use std::sync::Arc;
 
 /// File operations skill
-pub struct FileOpsSkill;
+#[allow(clippy::new_without_default)]
+pub struct FileOpsSkill {
+    /// Reference to the permission engine (set at construction)
+    engine: Option<Arc<crate::permission::PermissionEngine>>,
+}
+
+impl Default for FileOpsSkill {
+    fn default() -> Self {
+        Self { engine: None }
+    }
+}
 
 impl FileOpsSkill {
+    /// Create a new FileOpsSkill without a permission engine.
+    /// All file operations will be denied if no engine is available.
     pub fn new() -> Self {
-        Self
+        Self { engine: None }
+    }
+
+    /// Create a new FileOpsSkill with a permission engine reference.
+    /// File operations will be checked against the engine before execution.
+    pub fn with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Self {
+        Self {
+            engine: Some(engine),
+        }
     }
 }
 
@@ -34,6 +55,34 @@ impl Skill for FileOpsSkill {
         method: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, SkillError> {
+        // Extract agent_id from args for permission checking
+        let agent_id = args
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
+
+        // Map method to permission action
+        let action = match method {
+            "read" | "exists" | "list" => "file_read",
+            "write" | "delete" => "file_write",
+            _ => {
+                return Err(SkillError::MethodNotFound {
+                    skill: "file_ops".to_string(),
+                    method: method.to_string(),
+                });
+            }
+        };
+
+        // Check permission if engine is available
+        if let Some(ref engine) = self.engine {
+            match engine.check(agent_id, action) {
+                PermissionResponse::Allowed { .. } => {}
+                PermissionResponse::Denied { reason, .. } => {
+                    return Err(SkillError::PermissionDenied(reason));
+                }
+            }
+        }
+
         match method {
             "read" => {
                 let path = args
@@ -91,6 +140,7 @@ impl Skill for FileOpsSkill {
 }
 
 /// Git operations skill
+#[derive(Default)]
 pub struct GitOpsSkill;
 
 impl GitOpsSkill {
@@ -185,6 +235,7 @@ impl Skill for GitOpsSkill {
 }
 
 /// Search skill (web search)
+#[derive(Default)]
 pub struct SearchSkill;
 
 impl SearchSkill {
@@ -224,6 +275,7 @@ impl Skill for SearchSkill {
                 Ok(serde_json::json!({
                     "query": query,
                     "results": [],
+                    "is_stub": true,
                     "message": "Search skill stub - integrate with search API"
                 }))
             }
@@ -342,11 +394,29 @@ impl Skill for PermissionSkill {
 }
 
 /// Skill discovery skill - allows agents to search and install skills from ClawHub
-pub struct SkillDiscoverySkill;
+#[allow(clippy::new_without_default)]
+pub struct SkillDiscoverySkill {
+    /// Reference to the permission engine (set at construction)
+    engine: Option<Arc<crate::permission::PermissionEngine>>,
+}
+
+impl Default for SkillDiscoverySkill {
+    fn default() -> Self {
+        Self { engine: None }
+    }
+}
 
 impl SkillDiscoverySkill {
+    /// Create a new SkillDiscoverySkill without a permission engine.
     pub fn new() -> Self {
-        Self
+        Self { engine: None }
+    }
+
+    /// Create a new SkillDiscoverySkill with a permission engine reference.
+    pub fn with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Self {
+        Self {
+            engine: Some(engine),
+        }
     }
 }
 
@@ -390,11 +460,26 @@ impl Skill for SkillDiscoverySkill {
                 )
             }
             "install" => {
+                let agent_id = args
+                    .get("agent_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
                 let skill = args
                     .get("skill")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SkillError::InvalidArgs("skill name required".to_string()))?;
                 let version = args.get("version").and_then(|v| v.as_str());
+
+                // Check spawn permission before installing a skill
+                if let Some(ref engine) = self.engine {
+                    match engine.check(agent_id, "spawn") {
+                        PermissionResponse::Allowed { .. } => {}
+                        PermissionResponse::Denied { reason, .. } => {
+                            return Err(SkillError::PermissionDenied(reason));
+                        }
+                    }
+                }
+
                 let mut cmd = tokio::process::Command::new("clawhub");
                 cmd.args(["install", skill]);
                 if let Some(v) = version {
@@ -470,11 +555,11 @@ impl BuiltinSkills {
         engine: Arc<crate::permission::PermissionEngine>,
     ) -> Vec<Arc<dyn Skill>> {
         vec![
-            Arc::new(FileOpsSkill::new()) as Arc<dyn Skill>,
+            Arc::new(FileOpsSkill::with_engine(engine.clone())) as Arc<dyn Skill>,
             Arc::new(GitOpsSkill::new()),
             Arc::new(SearchSkill::new()),
-            Arc::new(PermissionSkill::with_engine(engine)),
-            Arc::new(SkillDiscoverySkill::new()),
+            Arc::new(PermissionSkill::with_engine(engine.clone())),
+            Arc::new(SkillDiscoverySkill::with_engine(engine)),
             Arc::new(super::CodingAgentSkill::new(None)),
             Arc::new(super::SkillCreatorSkill::new()),
         ]
@@ -498,23 +583,140 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_file_ops_read() {
+    async fn test_file_ops_read_requires_agent_id() {
         let skill = FileOpsSkill::new();
+        // Missing agent_id should fail
         let result = skill
             .execute("read", serde_json::json!({"path": "Cargo.toml"}))
             .await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_file_ops_read_with_permission() {
+        // Create a RuleSet that allows file_read for "test-agent"
+        use crate::permission::{Action, Effect, MatchType, Rule, Subject};
+        let rule = Rule {
+            name: "allow-read".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        };
+        let ruleset = crate::permission::RuleSet {
+            version: "1.0".to_string(),
+            rules: vec![rule],
+            defaults: crate::permission::Defaults::default(),
+            template_includes: vec![],
+            agent_creators: std::collections::HashMap::new(),
+        };
+        let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+        let skill = FileOpsSkill::with_engine(engine);
+        let result = skill
+            .execute(
+                "read",
+                serde_json::json!({"path": "Cargo.toml", "agent_id": "test-agent"}),
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "read should succeed with permission: {:?}",
+            result
+        );
         let value = result.unwrap();
         assert!(value.get("content").is_some());
     }
 
     #[tokio::test]
-    async fn test_file_ops_exists() {
+    async fn test_file_ops_read_denied_without_permission() {
+        // Create a RuleSet that denies file_read for "test-agent"
+        use crate::permission::{Action, Effect, MatchType, Rule, Subject};
+        let rule = Rule {
+            name: "deny-all".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Deny,
+            actions: vec![Action::All],
+            template: None,
+            priority: 0,
+        };
+        let ruleset = crate::permission::RuleSet {
+            version: "1.0".to_string(),
+            rules: vec![rule],
+            defaults: crate::permission::Defaults::default(),
+            template_includes: vec![],
+            agent_creators: std::collections::HashMap::new(),
+        };
+        let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+        let skill = FileOpsSkill::with_engine(engine);
+        let result = skill
+            .execute(
+                "read",
+                serde_json::json!({"path": "Cargo.toml", "agent_id": "test-agent"}),
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SkillError::PermissionDenied(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_file_ops_exists_requires_agent_id() {
         let skill = FileOpsSkill::new();
         let result = skill
             .execute("exists", serde_json::json!({"path": "Cargo.toml"}))
             .await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_file_ops_exists_with_permission() {
+        use crate::permission::{Action, Effect, MatchType, Rule, Subject};
+        let rule = Rule {
+            name: "allow-exists".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        };
+        let ruleset = crate::permission::RuleSet {
+            version: "1.0".to_string(),
+            rules: vec![rule],
+            defaults: crate::permission::Defaults::default(),
+            template_includes: vec![],
+            agent_creators: std::collections::HashMap::new(),
+        };
+        let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+        let skill = FileOpsSkill::with_engine(engine);
+        let result = skill
+            .execute(
+                "exists",
+                serde_json::json!({"path": "Cargo.toml", "agent_id": "test-agent"}),
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "exists should succeed with permission: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -531,6 +733,8 @@ mod tests {
             .execute("search", serde_json::json!({"query": "rust programming"}))
             .await;
         assert!(result.is_ok());
+        let value = result.unwrap();
+        assert!(value.get("is_stub").and_then(|v| v.as_bool()) == Some(true));
     }
 
     #[test]
