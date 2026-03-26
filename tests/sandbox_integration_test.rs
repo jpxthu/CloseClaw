@@ -16,12 +16,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use closeclaw::permission::engine::{
-    Action, Caller, CommandArgs, Effect, MatchType, PermissionEngine, PermissionRequest,
-    PermissionRequestBody, PermissionResponse, RuleSet,
+    Action, Caller, CommandArgs, Effect, PermissionRequest, PermissionRequestBody,
+    PermissionResponse, RuleSet,
 };
 use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
 use closeclaw::permission::sandbox::{
-    IpcChannel, Sandbox, SandboxError, SandboxRequest, SandboxResponse, SecurityPolicy,
+    Sandbox, SandboxError, SandboxRequest, SandboxResponse, SecurityPolicy,
 };
 
 /// Creates a minimal permissive ruleset for testing.
@@ -342,6 +342,12 @@ async fn test_sandbox_evaluate_permission_request() {
 
     let spawn_result = sandbox.spawn().await;
     if spawn_result.is_ok() {
+        // Load the permissive rules before evaluating
+        sandbox
+            .reload_rules(rules)
+            .await
+            .expect("reload_rules should succeed");
+
         // Evaluate a file read permission request
         let request = PermissionRequest::WithCaller {
             caller: Caller {

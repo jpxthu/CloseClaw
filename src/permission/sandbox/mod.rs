@@ -79,25 +79,26 @@ impl SecurityPolicy {
 
 #[cfg(target_os = "linux")]
 fn apply_seccomp() -> anyhow::Result<()> {
-    use std::fs::OpenOptions;
-
-    // Demonstrate the seccomp mechanism. In production, use libseccomp or a
-    // BPF program via seccomp(2) with SECCOMP_SET_MODE_FILTER.
-    // The allowlisted syscalls below are the bare minimum for a Rust async runtime.
-    let _ = OpenOptions::new()
-        .write(true)
-        .open("/dev/null")
-        .map_err(|e| anyhow::anyhow!("seccomp demo requires /dev/null: {}", e))?;
-    tracing::debug!("seccomp policy applied");
+    // seccomp enforcement is not yet implemented.
+    // In production, use libseccomp or a BPF program via seccomp(2)
+    // with SECCOMP_SET_MODE_FILTER.
+    tracing::warn!(
+        "SecurityPolicy::apply(): seccomp enforcement is a stub. \
+         Kernel-level syscall filtering is NOT active."
+    );
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 fn apply_landlock(_allowed_paths: &[PathBuf]) -> anyhow::Result<()> {
+    // Landlock enforcement is not yet implemented.
     // Landlock is available since Linux 5.13.
     // In production, call `landlock_create_ruleset()` and `landlock_add_rule()`
-    // via the userspace ABI. This requires the `landlock` kernel feature.
-    tracing::debug!("landlock policy applied");
+    // via the userspace ABI.
+    tracing::warn!(
+        "SecurityPolicy::apply(): landlock enforcement is a stub. \
+         Filesystem sandboxing is NOT active."
+    );
     Ok(())
 }
 
