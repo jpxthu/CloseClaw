@@ -55,12 +55,6 @@ impl Skill for FileOpsSkill {
         method: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, SkillError> {
-        // Extract agent_id from args for permission checking
-        let agent_id = args
-            .get("agent_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
-
         // Map method to permission action
         let action = match method {
             "read" | "exists" | "list" => "file_read",
@@ -75,6 +69,10 @@ impl Skill for FileOpsSkill {
 
         // Check permission if engine is available
         if let Some(ref engine) = self.engine {
+            let agent_id = args
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
             match engine.check(agent_id, action) {
                 PermissionResponse::Allowed { .. } => {}
                 PermissionResponse::Denied { reason, .. } => {
@@ -583,10 +581,25 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_file_ops_read_requires_agent_id() {
+    async fn test_file_ops_read_requires_agent_id_when_engine_set() {
+        // Without engine, agent_id is not required (backward compatible)
         let skill = FileOpsSkill::new();
-        // Missing agent_id should fail
         let result = skill
+            .execute("read", serde_json::json!({"path": "Cargo.toml"}))
+            .await;
+        assert!(result.is_ok());
+
+        // With engine, agent_id IS required
+        let ruleset = crate::permission::RuleSet {
+            version: "1.0".to_string(),
+            rules: vec![],
+            defaults: crate::permission::Defaults::default(),
+            template_includes: vec![],
+            agent_creators: std::collections::HashMap::new(),
+        };
+        let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+        let skill_with = FileOpsSkill::with_engine(engine);
+        let result = skill_with
             .execute("read", serde_json::json!({"path": "Cargo.toml"}))
             .await;
         assert!(result.is_err());
@@ -672,9 +685,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_file_ops_exists_requires_agent_id() {
+    async fn test_file_ops_exists_requires_agent_id_when_engine_set() {
+        // Without engine, agent_id is not required (backward compatible)
         let skill = FileOpsSkill::new();
         let result = skill
+            .execute("exists", serde_json::json!({"path": "Cargo.toml"}))
+            .await;
+        assert!(result.is_ok());
+
+        // With engine, agent_id IS required
+        let ruleset = crate::permission::RuleSet {
+            version: "1.0".to_string(),
+            rules: vec![],
+            defaults: crate::permission::Defaults::default(),
+            template_includes: vec![],
+            agent_creators: std::collections::HashMap::new(),
+        };
+        let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+        let skill_with = FileOpsSkill::with_engine(engine);
+        let result = skill_with
             .execute("exists", serde_json::json!({"path": "Cargo.toml"}))
             .await;
         assert!(result.is_err());

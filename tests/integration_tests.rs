@@ -561,7 +561,7 @@ async fn test_skill_loading_and_execution_chain() {
 
     // Execute file_ops exists method
     let result = file_ops
-        .execute("exists", serde_json::json!({"path": "Cargo.toml"}))
+        .execute("exists", serde_json::json!({"path": "Cargo.toml", "agent_id": "test-agent"}))
         .await;
     assert!(result.is_ok());
     let value = result.unwrap();
