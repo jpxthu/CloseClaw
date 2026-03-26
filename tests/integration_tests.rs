@@ -474,7 +474,7 @@ async fn test_config_loading_drives_agent_creation() {
         ]
     }"#;
 
-    let provider = AgentsConfigProvider::from_str(json).unwrap();
+    let provider = AgentsConfigProvider::from_json_str(json).unwrap();
     provider.validate().unwrap();
 
     // Create agents from config
@@ -507,7 +507,7 @@ async fn test_config_validation_rejects_invalid_parent() {
         ]
     }"#;
 
-    let provider = AgentsConfigProvider::from_str(json).unwrap();
+    let provider = AgentsConfigProvider::from_json_str(json).unwrap();
     let result = provider.validate();
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -524,7 +524,7 @@ async fn test_config_validation_rejects_duplicate_names() {
         ]
     }"#;
 
-    let provider = AgentsConfigProvider::from_str(json).unwrap();
+    let provider = AgentsConfigProvider::from_json_str(json).unwrap();
     let result = provider.validate();
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();

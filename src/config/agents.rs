@@ -65,10 +65,6 @@ impl Default for AgentsConfigProvider {
 }
 
 impl AgentsConfigProvider {
-    /// Parse from a JSON string (used by reload manager).
-    pub fn from_json_str(s: &str) -> Result<Self, ConfigError> {
-        serde_json::from_str(s).map_err(ConfigError::JsonError)
-    }
     /// Create a new provider from file path
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
         let config_path = path.as_ref().display().to_string();
@@ -81,7 +77,7 @@ impl AgentsConfigProvider {
     }
 
     /// Create a new provider from a string (useful for testing)
-    pub fn from_str(content: &str) -> Result<Self, ConfigError> {
+    pub fn from_json_str(content: &str) -> Result<Self, ConfigError> {
         let config: AgentsConfig = serde_json::from_str(content)?;
         Ok(Self {
             config,
@@ -227,7 +223,7 @@ mod tests {
                 }
             ]
         }"#;
-        let provider = AgentsConfigProvider::from_str(json).unwrap();
+        let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         provider.validate().unwrap();
 
         let lookup = provider.lookup();
@@ -250,7 +246,7 @@ mod tests {
                 }
             ]
         }"#;
-        let provider = AgentsConfigProvider::from_str(json).unwrap();
+        let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         let err = provider.validate().unwrap_err();
         assert!(err.to_string().contains("nonexistent"));
     }
@@ -264,7 +260,7 @@ mod tests {
                 { "name": "agent1", "model": "claude-3-opus" }
             ]
         }"#;
-        let provider = AgentsConfigProvider::from_str(json).unwrap();
+        let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         let err = provider.validate().unwrap_err();
         assert!(err.to_string().contains("Duplicate"));
     }
@@ -323,17 +319,16 @@ impl AgentDirectoryProvider {
             if !path.is_dir() {
                 continue;
             }
-            let id = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
+            let id = match path.file_name().and_then(|n| n.to_str()) {
+                Some(id) if !id.is_empty() => id.to_string(),
+                _ => continue, // Skip directories with non-UTF8 or empty names
+            };
 
             // Load config.json
             let config_path = path.join("config.json");
             let config: AgentDirConfig = if config_path.exists() {
                 let content = fs::read_to_string(&config_path)?;
-                serde_json::from_str(&content).map_err(|e| ConfigError::JsonError(e))?
+                serde_json::from_str(&content).map_err(ConfigError::JsonError)?
             } else {
                 continue; // Skip dirs without config.json
             };
@@ -342,7 +337,7 @@ impl AgentDirectoryProvider {
             let perm_path = path.join("permissions.json");
             let permissions: Option<AgentPermissions> = if perm_path.exists() {
                 let content = fs::read_to_string(&perm_path)?;
-                Some(serde_json::from_str(&content).map_err(|e| ConfigError::JsonError(e))?)
+                Some(serde_json::from_str(&content).map_err(ConfigError::JsonError)?)
             } else {
                 None
             };
@@ -357,7 +352,7 @@ impl AgentDirectoryProvider {
             );
         }
 
-        Ok(())
+        self.validate()
     }
 
     /// Get an agent entry by id.
@@ -383,13 +378,13 @@ impl AgentDirectoryProvider {
 
         let config_path = dir.join("config.json");
         let content =
-            serde_json::to_string_pretty(&entry.config).map_err(|e| ConfigError::JsonError(e))?;
+            serde_json::to_string_pretty(&entry.config).map_err(ConfigError::JsonError)?;
         fs::write(&config_path, content)?;
 
         if let Some(ref perms) = entry.permissions {
             let perm_path = dir.join("permissions.json");
             let content =
-                serde_json::to_string_pretty(perms).map_err(|e| ConfigError::JsonError(e))?;
+                serde_json::to_string_pretty(perms).map_err(ConfigError::JsonError)?;
             fs::write(&perm_path, content)?;
         }
 
@@ -508,5 +503,51 @@ mod agent_dir_tests {
         // Remove
         provider2.remove_agent("new-agent").unwrap();
         assert!(provider2.get("new-agent").is_none());
+    }
+
+    #[test]
+    fn test_reload_skips_non_utf8_directory_names() {
+        use chrono::Utc;
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let agents_dir = temp.path().to_path_buf();
+
+        // Create a valid agent directory
+        let valid_dir = agents_dir.join("valid-agent");
+        fs::create_dir_all(&valid_dir).unwrap();
+        let config = AgentDirConfig {
+            id: "valid-agent".to_string(),
+            name: "Valid Agent".to_string(),
+            parent_id: None,
+            max_child_depth: 2,
+            created_at: Utc::now(),
+            state: crate::agent::config::AgentConfigState::Running,
+            communication: Default::default(),
+        };
+        fs::write(
+            valid_dir.join("config.json"),
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+
+        // Create an agent directory with invalid UTF-8 name (os_str without valid utf8)
+        // We simulate this by creating a directory with a name that would fail to_str()
+        // On Linux we can use OsString::from_vec to create non-UTF8 bytes
+        use std::os::unix::ffi::OsStringExt;
+        let non_utf8_name: std::ffi::OsString =
+            std::ffi::OsString::from_vec(vec![0x80, 0x81, 0x82]);
+        let invalid_dir = agents_dir.join(&non_utf8_name);
+        fs::create_dir_all(&invalid_dir).unwrap();
+
+        // reload() should skip the non-UTF8 directory and succeed
+        let mut provider = AgentDirectoryProvider::new(agents_dir.clone()).unwrap();
+        let result = provider.reload();
+        assert!(result.is_ok(), "reload should skip non-UTF8 dirs and succeed");
+        assert!(
+            provider.get("valid-agent").is_some(),
+            "valid agent should still be loaded"
+        );
     }
 }
