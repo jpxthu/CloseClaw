@@ -31,3 +31,4 @@ configs/secrets.json
 
 **/*.key
 credentials.json
+.reviewer_audit
