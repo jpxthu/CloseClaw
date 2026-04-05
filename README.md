@@ -2,28 +2,16 @@
 
 > 轻量级、规则驱动的多 agent 执行框架
 
-## 项目状态
+## 开发纪律：Spec-first
 
-🟢 **开发中** — Phase 1-7 完成，Phase 8-11 规划中
+**所有代码实现完全依据 `docs/` 下的 Spec 文档，文档与代码功能模块一一对应。**
 
-<details>
-<summary><b>Phase 进展（点击展开）</b></summary>
+这是 CloseClaw 的核心开发纪律：
+- 需求来了 → 先写 Spec，Spec 评审通过后再写代码
+- 代码必须与 Spec 一致，不允许 Spec 没有就去写代码
+- Spec 变更必须经过评审，不能单方面改代码不改文档
 
-| Phase | 内容 | 状态 |
-|-------|------|------|
-| Phase 1 | 架构设计 + Permission Engine | ✅ 完成 |
-| Phase 2 | Permission Engine 完善 | ✅ 完成 |
-| Phase 3 | Config System + Agent Runtime | ✅ 完成 |
-| Phase 4 | Gateway + Feishu IM Adapter | ✅ 完成 |
-| Phase 5 | Skill System | ✅ 完成 |
-| Phase 6 | LLM 接口抽象（OpenAI / Anthropic / MiniMax） | ✅ 完成 |
-| Phase 7 | CLI + Daemon + Graceful Shutdown | ✅ 完成 |
-| Phase 8 | Inter-agent 通信 | 🔜 规划中 |
-| Phase 9 | 配置热重载 | 🔜 规划中 |
-| Phase 10 | 多 IM 适配器（企业微信/QQ/钉钉） | 🔜 规划中 |
-| Phase 11 | 日志与审计系统 | 🔜 规划中 |
-
-</details>
+这条纪律保证了 agent 行为的可预测性和可审计性，是 CloseClaw 区别于其他 agent 框架的关键。
 
 ## 核心特性
 
@@ -93,11 +81,15 @@ closeclaw/
 └── docs/             # 设计文档
 ```
 
-## 设计文档
+## Spec 文档
 
-- [docs/developer/SKILL.md](docs/developer/SKILL.md) - 完整架构设计（开发指南）
-- [docs/developer/references/architecture.md](docs/developer/references/architecture.md) - 核心设计原则与组件详解
-- [docs/permission/](docs/permission/) - 权限系统文档
+项目采用 Spec-first 开发模式：`docs/` 下的每个模块对应一份 Spec，代码完全依据 Spec 实现。
+
+- [docs/developer/README.md](docs/developer/README.md) - 开发指南
+- [docs/developer/references/architecture.md](docs/developer/references/architecture.md) - 核心架构设计
+- [docs/permission/OVERVIEW.md](docs/permission/OVERVIEW.md) - 权限引擎设计
+- [docs/agent/README.md](docs/agent/README.md) - Agent 模块设计
+- [docs/plans/](docs/plans/) - 功能设计方案（已定稿）
 
 ## License
 

@@ -75,6 +75,8 @@ chore: update dependencies in Cargo.toml
 2. First line under 72 characters
 3. **Reference issues with `Fixes #N` or `Refs #N` in the footer** — all commits on `main` branch must be traceable to a GitHub issue
    - Exception: reviewer audit checkpoint commits (footer contains `— Reviewer: [name]`) may omit issue reference
+
+   **Body 引用宽容**：issue 引用也可以出现在 body 正文中（如 `关联 #23988456494`），不限于 footer 行。
 4. One logical change per commit
 5. Include context for non-trivial changes
 

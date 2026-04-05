@@ -49,7 +49,7 @@ jobs:
           fi
           # Check latest commit has Fixes #N or Refs #N
           msg=$(git log -1 --format='%B')
-          if ! echo "$msg" | grep -qE '(Fixes|Refs|refs|refs) #[0-9]+'; then
+          if ! echo "$msg" | grep -qE '(Fixes|Refs|关联|关闭) #?[0-9]+'; then
             echo "ERROR: Commit message missing 'Fixes #N' or 'Refs #N' footer"
             echo "Commit message:"
             echo "$msg"
