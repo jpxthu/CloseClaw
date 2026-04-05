@@ -12,6 +12,7 @@ use closeclaw::permission::{
     Sandbox, SandboxState, SandboxError,
     SecurityPolicy, IpcChannel,
     SandboxRequest, SandboxResponse,
+    TemplateRef, PermissionRequestWithCaller, Caller,
 };
 ```
 
@@ -49,7 +50,37 @@ match response {
 
 ## `PermissionRequest`
 
-`evaluate()` 的输入。每个变体代表不同的操作类别。
+`evaluate()` 的输入。区分有无调用者元数据的两种形式：
+
+```rust
+/// 无调用者元数据的权限请求
+pub enum PermissionRequest {
+    FileOp { agent: String, path: String, op: String },
+    CommandExec { agent: String, cmd: String, args: Vec<String> },
+    NetOp { agent: String, host: String, port: u16 },
+    ToolCall { agent: String, skill: String, method: String },
+    InterAgentMsg { from: String, to: String },
+    ConfigWrite { agent: String, config_file: String },
+}
+
+/// 带调用者元数据的权限请求（用于 inter-agent 场景）
+pub struct PermissionRequestWithCaller {
+    pub caller: Caller,
+    pub body: PermissionRequestBody,
+}
+
+/// 调用者元数据
+pub struct Caller {
+    pub agent_id: String,
+    pub user_id: Option<String>,
+    pub rule_name: Option<String>,
+}
+
+/// 权限请求体（对应 Action::InterAgent）
+pub enum PermissionRequestBody {
+    InterAgentMsg { from: String, to: String },
+}
+```
 
 在 JSON 中变体用 `"type"` 标记：
 
@@ -57,7 +88,7 @@ match response {
 { "type": "file_op", "agent": "...", "path": "...", "op": "..." }
 ```
 
-### 变体
+### 变体（PermissionRequest）
 
 | 变体 | 字段 | 类别 |
 |---|---|---|
@@ -102,6 +133,10 @@ pub struct RuleSet {
     pub version: String,
     pub rules: Vec<Rule>,
     pub defaults: Defaults,
+    /// 模板名称列表，用于运行时模板展开
+    pub template_includes: Vec<String>,
+    /// Agent 创建者映射：agent_id -> creator_user_id
+    pub agent_creators: HashMap<String, String>,
 }
 ```
 
@@ -125,6 +160,10 @@ pub struct Rule {
     pub subject: Subject,
     pub effect: Effect,
     pub actions: Vec<Action>,
+    /// 关联的权限模板引用
+    pub template: Option<TemplateRef>,
+    /// 规则优先级，数值越大优先级越高，匹配时取最高优先级规则
+    pub priority: i32,
 }
 ```
 
@@ -145,10 +184,21 @@ pub enum Effect {
 
 ## `Subject`
 
+权限主体，支持纯 Agent 模式和 User+Agent 联合模式。
+
 ```rust
-pub struct Subject {
-    pub agent: String,
-    pub match_type: MatchType,
+pub enum Subject {
+    /// 仅匹配 Agent（向后兼容原有行为）
+    AgentOnly {
+        agent: String,
+        match_type: MatchType,
+    },
+    /// 同时匹配 User 和 Agent
+    UserAndAgent {
+        user_id: String,
+        user_match: MatchType,
+        agent_match: MatchType,
+    },
 }
 ```
 
@@ -157,7 +207,7 @@ pub struct Subject {
 如果该主体匹配给定的 agent ID，则返回 `true`。
 
 ```rust
-let subject = Subject {
+let subject = Subject::AgentOnly {
     agent: "dev-*".to_string(),
     match_type: MatchType::Glob,
 };
@@ -190,6 +240,23 @@ pub enum Action {
     ToolCall { skill: String, methods: Vec<String> },
     InterAgent { agents: Vec<String> },
     ConfigWrite { files: Vec<String> },
+    /// 匹配所有操作类型
+    All,
+}
+```
+
+---
+
+## `TemplateRef`
+
+权限模板引用，用于将规则与可复用的权限模板关联。
+
+```rust
+pub struct TemplateRef {
+    /// 模板名称，对应 RuleSet.template_includes 中的条目
+    pub name: String,
+    /// 可选的版本约束，如 ">=1.0.0"
+    pub version: Option<String>,
 }
 ```
 
