@@ -83,13 +83,22 @@ closeclaw/
 
 ## Spec 文档
 
-项目采用 Spec-first 开发模式：`docs/` 下的每个模块对应一份 Spec，代码完全依据 Spec 实现。
+**Spec-first 开发模式**：`docs/` 下的目录结构与 `src/` 完全对应，每个模块的 Spec 文档（设计决策、API 约定、行为规范）放在对应目录下。
 
-- [docs/developer/README.md](docs/developer/README.md) - 开发指南
-- [docs/developer/references/architecture.md](docs/developer/references/architecture.md) - 核心架构设计
-- [docs/permission/OVERVIEW.md](docs/permission/OVERVIEW.md) - 权限引擎设计
-- [docs/agent/README.md](docs/agent/README.md) - Agent 模块设计
-- [docs/plans/](docs/plans/) - 功能设计方案（已定稿）
+- **目录对应**：`docs/<模块>/` ↔ `src/<模块>/`，一一对应
+- **内容约束**：文档描述"模块做什么、做到什么程度"，代码依据文档实现
+- **拆分原则**：文档拆分与代码拆分独立，各自按职责划分，不要求一一文件对应
+- **变更规则**：文档变更必须评审，不能单方面改代码不改文档
+
+现有 Spec 文档：
+
+- [docs/developer/](docs/developer/README.md) - 开发指南
+- [docs/permission/](docs/permission/OVERVIEW.md) - 权限引擎
+- [docs/agent/](docs/agent/README.md) - Agent 模块
+- [docs/gateway/](docs/gateway/README.md) - 网关
+- [docs/llm/](docs/llm/README.md) - LLM 接口
+- [docs/config/](docs/config/README.md) - 配置系统
+- [docs/operator/](docs/operator/SKILL.md) - 运维指南
 
 ## License
 
