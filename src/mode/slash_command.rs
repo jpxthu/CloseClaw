@@ -7,6 +7,63 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::session::persistence::ReasoningMode;
 
+/// Help text for slash commands
+pub const SLASH_HELP_TEXT: &str = r#"可用斜杠指令：
+/plan <任务>   - 先规划再执行
+/code <任务>   - 生成代码
+/review <内容> - 代码审查
+/debug <问题>  - 调试分析
+/direct        - 直接回答
+/think <问题>  - 深度思考
+/mode          - 查看当前模式
+/mode <模式>   - 切换到指定模式
+/compact       - 压缩上下文
+/help          - 显示此帮助"#;
+
+/// Slash command handler result
+#[derive(Debug, Clone)]
+pub enum SlashCommandResult {
+    /// Switch to target mode (for mode-switching commands)
+    SwitchMode(ReasoningMode),
+    /// Return text response to user (for meta commands)
+    Text(String),
+    /// Compact context result
+    Compact { before: usize, after: usize },
+    /// Unknown command error
+    Unknown(String),
+}
+
+impl SlashCommandResult {
+    /// Check if this result switches mode
+    pub fn is_mode_switch(&self) -> bool {
+        matches!(self, SlashCommandResult::SwitchMode(_))
+    }
+
+    /// Get the target mode if this is a mode switch
+    pub fn target_mode(&self) -> Option<ReasoningMode> {
+        match self {
+            SlashCommandResult::SwitchMode(mode) => Some(*mode),
+            _ => None,
+        }
+    }
+
+    /// Get the text response if this is a text result
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            SlashCommandResult::Text(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get the compact result if this is a compact result
+    pub fn compact(&self) -> Option<(usize, usize)> {
+        match self {
+            SlashCommandResult::Compact { before, after } => Some((*before, *after)),
+            _ => None,
+        }
+    }
+}
+
 /// Slash command to mode mapping (used by decision module)
 pub const SLASH_MODE_MAP: &[(&str, ReasoningMode)] = &[
     ("/plan", ReasoningMode::Plan),
@@ -149,6 +206,69 @@ pub fn parse_slash_command(input: &str) -> Option<SlashCommand> {
     ))
 }
 
+/// Handle a parsed slash command and return the result
+/// 
+/// For mode-switching commands (/plan, /code, etc.), returns SwitchMode.
+/// For meta commands (/help, /mode, /compact), returns appropriate result.
+/// For unrecognized commands, returns Unknown.
+pub fn handle_slash_command(cmd: &SlashCommand) -> SlashCommandResult {
+    match cmd.command.as_str() {
+        "/help" => SlashCommandResult::Text(SLASH_HELP_TEXT.to_string()),
+        
+        "/mode" => {
+            if cmd.args.is_empty() {
+                // /mode without args: caller should provide current mode
+                // Return a placeholder that caller will fill in
+                SlashCommandResult::Text("请提供模式：direct, plan, stream, hidden".to_string())
+            } else {
+                // /mode with args: switch to specified mode
+                let target = match cmd.args.to_lowercase().as_str() {
+                    "direct" => ReasoningMode::Direct,
+                    "plan" => ReasoningMode::Plan,
+                    "stream" => ReasoningMode::Stream,
+                    "hidden" => ReasoningMode::Hidden,
+                    _ => {
+                        return SlashCommandResult::Text(
+                            format!("无效模式。可用模式：direct, plan, stream, hidden")
+                        )
+                    }
+                };
+                SlashCommandResult::SwitchMode(target)
+            }
+        }
+        
+        "/compact" => {
+            // /compact: caller should perform actual compaction
+            // Return placeholder with mock values - caller will replace
+            SlashCommandResult::Compact { before: 0, after: 0 }
+        }
+        
+        "/plan" | "/code" | "/review" | "/debug" | "/direct" | "/think" => {
+            SlashCommandResult::SwitchMode(cmd.target_mode)
+        }
+        
+        _ => SlashCommandResult::Unknown(cmd.command.clone()),
+    }
+}
+
+/// Format mode for display
+pub fn format_mode(mode: ReasoningMode) -> &'static str {
+    match mode {
+        ReasoningMode::Direct => "direct",
+        ReasoningMode::Plan => "plan",
+        ReasoningMode::Stream => "stream",
+        ReasoningMode::Hidden => "hidden",
+    }
+}
+
+/// Build a friendly unknown command response
+pub fn unknown_command_response(command: &str) -> String {
+    format!(
+        "未知指令: {}。输入 /help 查看可用指令。",
+        command
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,5 +334,108 @@ mod tests {
         assert_eq!(map.get("/direct"), Some(ReasoningMode::Direct));
         assert!(map.is_meta("/mode"));
         assert!(!map.is_meta("/plan"));
+    }
+
+    // === Handler tests ===
+
+    #[test]
+    fn test_handle_slash_plan_switches_mode() {
+        let cmd = parse_slash_command("/plan 设计系统").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.is_mode_switch());
+        assert_eq!(result.target_mode(), Some(ReasoningMode::Plan));
+    }
+
+    #[test]
+    fn test_handle_slash_code_switches_mode() {
+        let cmd = parse_slash_command("/code 写函数").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.is_mode_switch());
+        assert_eq!(result.target_mode(), Some(ReasoningMode::Stream));
+    }
+
+    #[test]
+    fn test_handle_slash_direct_switches_mode() {
+        let cmd = parse_slash_command("/direct").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.is_mode_switch());
+        assert_eq!(result.target_mode(), Some(ReasoningMode::Direct));
+    }
+
+    #[test]
+    fn test_handle_slash_think_switches_mode() {
+        let cmd = parse_slash_command("/think 分析风险").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.is_mode_switch());
+        assert_eq!(result.target_mode(), Some(ReasoningMode::Hidden));
+    }
+
+    #[test]
+    fn test_handle_help_returns_text() {
+        let cmd = parse_slash_command("/help").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.text().is_some());
+        let text = result.text().unwrap();
+        assert!(text.contains("/plan"));
+        assert!(text.contains("/code"));
+        assert!(text.contains("/help"));
+    }
+
+    #[test]
+    fn test_handle_mode_without_args_returns_usage() {
+        let cmd = parse_slash_command("/mode").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.text().is_some());
+        let text = result.text().unwrap();
+        assert!(text.contains("请提供模式"));
+    }
+
+    #[test]
+    fn test_handle_mode_with_valid_arg_switches_mode() {
+        let cmd = parse_slash_command("/mode plan").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.is_mode_switch());
+        assert_eq!(result.target_mode(), Some(ReasoningMode::Plan));
+    }
+
+    #[test]
+    fn test_handle_mode_with_invalid_arg_returns_error() {
+        let cmd = parse_slash_command("/mode invalid_mode").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.text().is_some());
+        let text = result.text().unwrap();
+        assert!(text.contains("无效模式"));
+    }
+
+    #[test]
+    fn test_handle_compact_returns_compact_result() {
+        let cmd = parse_slash_command("/compact").unwrap();
+        let result = handle_slash_command(&cmd);
+        assert!(result.compact().is_some());
+    }
+
+    #[test]
+    fn test_handle_unknown_command_returns_unknown() {
+        let cmd = parse_slash_command("/unknown").unwrap();
+        let result = handle_slash_command(&cmd);
+        match result {
+            SlashCommandResult::Unknown(cmd_name) => assert_eq!(cmd_name, "/unknown"),
+            _ => panic!("Expected Unknown result"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_command_response_format() {
+        let response = unknown_command_response("/foo");
+        assert!(response.contains("/foo"));
+        assert!(response.contains("/help"));
+    }
+
+    #[test]
+    fn test_format_mode() {
+        assert_eq!(format_mode(ReasoningMode::Direct), "direct");
+        assert_eq!(format_mode(ReasoningMode::Plan), "plan");
+        assert_eq!(format_mode(ReasoningMode::Stream), "stream");
+        assert_eq!(format_mode(ReasoningMode::Hidden), "hidden");
     }
 }

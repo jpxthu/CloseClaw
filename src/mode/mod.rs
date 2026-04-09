@@ -12,7 +12,10 @@ pub mod switch_event;
 
 pub use decision::{decide_mode, ModeDecisionTree};
 pub use natural_language::{parse_natural_language_intent, IntentResult, NaturalLanguagePatterns};
-pub use slash_command::{parse_slash_command, SlashCommand, SlashModeMap, SLASH_MODE_MAP};
+pub use slash_command::{
+    format_mode, handle_slash_command, parse_slash_command, SlashCommand, SlashCommandResult,
+    SlashModeMap, SLASH_HELP_TEXT, SLASH_MODE_MAP, unknown_command_response,
+};
 pub use switch_event::{ModeSwitchEvent, ModeSwitchTrigger, UserIntent};
 
 use crate::platform::capabilities::{ModeDecisionContext, PlatformCapabilityService};
