@@ -77,6 +77,19 @@
 | max_depth 层级校验逻辑 | 0b88aac |
 | AgentRegistry parent_id 层级支持 | 5fa8a87 |
 | permission_query 内置 SKILL | 91a2edd |
+| Agent 生命周期状态机 Phase 1-6（AgentState 扩展、AgentStateTransition、Checkpoint/PausePoint、级联操作、优雅关闭配置、AgentRegistry 集成） | 见下方 |
+
+### Issue #145 — Agent 生命周期状态机实现
+
+**Spec 文档:** `docs/agent/AGENT_LIFECYCLE_STATE_MACHINE.md`
+
+**新增文件:**
+- `src/agent/state.rs` — 状态机核心类型（AgentState 扩展含 SuspendedReason/ErrorInfo、AgentStateTransition、Checkpoint、PausePoint、SourceLocation、is_valid_transition、持久化函数）
+
+**修改文件:**
+- `src/agent/mod.rs` — AgentState re-export + Agent struct 简化（set_state、emit_transition、update_heartbeat）
+- `src/agent/registry.rs` — AgentRegistry 扩展（stop_with_descendants、suspend_with_descendants、resume、stop_agent、suspend_agent、resume_agent、destroy_agent、confirm_destroy、save_checkpoint）
+- `src/agent/config.rs` — AgentConfig 新增 wait_timeout_secs、grace_period_secs 字段
 
 ## 已完成 ✅
 

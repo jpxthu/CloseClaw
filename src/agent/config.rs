@@ -151,10 +151,34 @@ pub struct AgentConfig {
     /// Communication whitelist configuration.
     #[serde(default)]
     pub communication: CommunicationConfig,
+    /// Wait timeout for graceful child agent shutdown (seconds).
+    /// None means use registry-level default (30s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait_timeout_secs: Option<u64>,
+    /// Grace period after wait timeout before SIGTERM/SIGKILL (seconds).
+    /// None means use registry-level default (10s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grace_period_secs: Option<u64>,
 }
 
 fn default_max_child_depth() -> u32 {
     3
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            parent_id: None,
+            max_child_depth: default_max_child_depth(),
+            created_at: chrono::Utc::now(),
+            state: AgentConfigState::default(),
+            communication: CommunicationConfig::default(),
+            wait_timeout_secs: None,
+            grace_period_secs: None,
+        }
+    }
 }
 
 /// Operational state of an agent (distinct from runtime `AgentState`).
@@ -268,6 +292,7 @@ mod tests {
                 outbound: vec!["parent-id".to_string()],
                 inbound: vec!["parent-id".to_string()],
             },
+            ..Default::default()
         };
 
         let path = temp.path().join("config.json");
@@ -334,6 +359,7 @@ mod tests {
                 outbound: vec!["child-1".to_string()],
                 inbound: vec!["child-1".to_string()],
             },
+            ..Default::default()
         };
 
         let child = AgentConfig {
@@ -344,6 +370,7 @@ mod tests {
             created_at: Utc::now(),
             state: AgentConfigState::Running,
             communication: CommunicationConfig::default_with_parent(Some("parent-1")),
+            ..Default::default()
         };
 
         // Parent -> Child should be allowed
@@ -368,6 +395,7 @@ mod tests {
                 outbound: vec!["agent-b".to_string()],
                 inbound: vec!["agent-b".to_string()],
             },
+            ..Default::default()
         };
 
         let agent_c = AgentConfig {
@@ -381,6 +409,7 @@ mod tests {
                 outbound: vec![],
                 inbound: vec![],
             },
+            ..Default::default()
         };
 
         // Agent A -> Agent C: A's outbound doesn't contain C
@@ -401,6 +430,7 @@ mod tests {
                 outbound: vec!["agent-b".to_string()],
                 inbound: vec!["agent-b".to_string()],
             },
+            ..Default::default()
         };
 
         let agent_b = AgentConfig {
@@ -414,6 +444,7 @@ mod tests {
                 outbound: vec![],
                 inbound: vec![], // B doesn't accept inbound from anyone
             },
+            ..Default::default()
         };
 
         // Agent A -> Agent B: A's outbound contains B, but B's inbound doesn't contain A
@@ -432,6 +463,7 @@ mod tests {
             created_at: Utc::now(),
             state: AgentConfigState::Running,
             communication: Default::default(),
+            ..Default::default()
         };
 
         // No parents, so depth = 0, max_child_depth = 3
@@ -460,6 +492,7 @@ mod tests {
             created_at: Utc::now(),
             state: AgentConfigState::Running,
             communication: Default::default(),
+            ..Default::default()
         };
 
         // Simulate: root -> child1 -> child2 -> leaf (depth 3)
@@ -472,6 +505,7 @@ mod tests {
                 created_at: Utc::now(),
                 state: AgentConfigState::Running,
                 communication: Default::default(),
+                ..Default::default()
             }),
             "grandparent" => Some(AgentConfig {
                 id: "grandparent".to_string(),
@@ -481,6 +515,7 @@ mod tests {
                 created_at: Utc::now(),
                 state: AgentConfigState::Running,
                 communication: Default::default(),
+                ..Default::default()
             }),
             _ => None,
         };

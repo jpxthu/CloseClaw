@@ -3,42 +3,16 @@
 pub mod config;
 pub mod process;
 pub mod registry;
+pub mod state;
+
+pub use state::{
+    is_valid_transition, AgentState, AgentStateTransition, Checkpoint, DestroyConfirmation,
+    ErrorInfo, PausePoint, SourceLocation, SuspendedReason, TransitionTrigger,
+};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use uuid::Uuid;
-
-/// Agent lifecycle state
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentState {
-    /// Created, not started
-    Idle,
-    /// Actively processing
-    Running,
-    /// Waiting for response
-    Waiting,
-    /// Paused by scheduler
-    Suspended,
-    /// Completed or killed
-    Stopped,
-    /// Crashed with error
-    Error,
-}
-
-impl fmt::Display for AgentState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AgentState::Idle => write!(f, "idle"),
-            AgentState::Running => write!(f, "running"),
-            AgentState::Waiting => write!(f, "waiting"),
-            AgentState::Suspended => write!(f, "suspended"),
-            AgentState::Stopped => write!(f, "stopped"),
-            AgentState::Error => write!(f, "error"),
-        }
-    }
-}
 
 /// Agent instance - represents a single agent with its metadata
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -93,7 +67,17 @@ impl Agent {
 
     /// Check if the agent is in a terminal state
     pub fn is_terminal(&self) -> bool {
-        matches!(self.state, AgentState::Stopped | AgentState::Error)
+        matches!(self.state, AgentState::Stopped | AgentState::Error(_))
+    }
+
+    /// Emit a state transition event for the given state change.
+    pub fn emit_transition(
+        &self,
+        from_state: AgentState,
+        to_state: AgentState,
+        trigger: TransitionTrigger,
+    ) -> AgentStateTransition {
+        AgentStateTransition::new(from_state, to_state, trigger)
     }
 }
 
@@ -104,7 +88,7 @@ mod tests {
     #[test]
     fn test_agent_creation() {
         let agent = Agent::new("test-agent".to_string(), None);
-        assert_eq!(agent.state, AgentState::Idle);
+        assert!(matches!(agent.state, AgentState::Idle));
         assert!(agent.parent_id.is_none());
         assert!(!agent.id.is_empty());
     }
@@ -133,10 +117,26 @@ mod tests {
         agent.set_state(AgentState::Stopped);
         assert!(agent.is_terminal());
 
-        agent.set_state(AgentState::Error);
+        agent.set_state(AgentState::Error(ErrorInfo::new("oops", false)));
         assert!(agent.is_terminal());
 
         agent.set_state(AgentState::Running);
         assert!(!agent.is_terminal());
+
+        agent.set_state(AgentState::Suspended(SuspendedReason::Forced));
+        assert!(!agent.is_terminal());
+    }
+
+    #[test]
+    fn test_emit_transition() {
+        let agent = Agent::new("test".to_string(), None);
+        let t = agent.emit_transition(
+            AgentState::Idle,
+            AgentState::Running,
+            TransitionTrigger::UserRequest,
+        );
+        assert!(matches!(t.from_state, AgentState::Idle));
+        assert!(matches!(t.to_state, AgentState::Running));
+        assert!(matches!(t.trigger, TransitionTrigger::UserRequest));
     }
 }

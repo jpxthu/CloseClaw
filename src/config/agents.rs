@@ -455,6 +455,8 @@ mod agent_dir_tests {
             created_at: Utc::now(),
             state: crate::agent::config::AgentConfigState::Running,
             communication: Default::default(),
+            wait_timeout_secs: None,
+            grace_period_secs: None,
         };
 
         let config_path = agent_dir.join("config.json");
@@ -488,6 +490,8 @@ mod agent_dir_tests {
                 created_at: Utc::now(),
                 state: crate::agent::config::AgentConfigState::Running,
                 communication: Default::default(),
+                wait_timeout_secs: None,
+                grace_period_secs: None,
             },
             permissions: None,
         };
@@ -524,6 +528,8 @@ mod agent_dir_tests {
             created_at: Utc::now(),
             state: crate::agent::config::AgentConfigState::Running,
             communication: Default::default(),
+            wait_timeout_secs: None,
+            grace_period_secs: None,
         };
         fs::write(
             valid_dir.join("config.json"),
