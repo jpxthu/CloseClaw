@@ -34,6 +34,7 @@
 - [ ] **Permission Engine 用户维度支持** — 见 Next 第一项
 - [ ] **多 IM 适配器优先级** — 企业微信/QQ/钉钉，先做哪个？
 - [ ] **Skill 系统设计** — skill review 机制要不要开？
+- [ ] **产品说明书类型文档与 Skill 缺口整体梳理** → [#165](https://github.com/jpxthu/CloseClaw/issues/165)
 
 ## 待讨论（需先和你讨论）
 

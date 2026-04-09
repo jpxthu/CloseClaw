@@ -8,6 +8,7 @@
 
 pub mod agent;
 pub mod audit;
+pub mod card;
 pub mod chat;
 pub mod cli;
 pub mod config;
