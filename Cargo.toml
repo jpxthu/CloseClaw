@@ -42,6 +42,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # Async trait (for IMAdapter)
 async-trait = "0.1"
 
+# Redis client for session persistence
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
 # Hashing (for signature validation)
 sha2 = "0.10"
 

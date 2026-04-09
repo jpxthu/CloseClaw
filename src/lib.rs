@@ -16,6 +16,7 @@ pub mod gateway;
 pub mod im;
 pub mod llm;
 pub mod permission;
+pub mod session;
 pub mod skills;
 
 use tracing::info;
