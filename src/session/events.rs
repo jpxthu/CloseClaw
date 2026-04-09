@@ -1,8 +1,103 @@
-//! Checkpoint trigger events
+//! Checkpoint trigger events and mode switch events
 //!
-//! Defines when checkpoints should be saved during the session lifecycle.
+//! Defines when checkpoints should be saved during the session lifecycle,
+//! and the ModeSwitchEvent for handling reasoning mode transitions.
 
 use crate::session::persistence::ReasoningMode;
+use std::sync::Arc;
+
+/// User Intent — parsed user input for reasoning
+#[derive(Debug, Clone)]
+pub struct UserIntent {
+    /// Raw user input
+    pub raw_input: String,
+    /// Parsed goal (if available)
+    pub parsed_goal: Option<String>,
+    /// Extracted entities
+    pub entities: Vec<String>,
+}
+
+impl UserIntent {
+    /// Create a new UserIntent
+    pub fn new(raw_input: impl Into<String>) -> Self {
+        Self {
+            raw_input: raw_input.into(),
+            parsed_goal: None,
+            entities: vec![],
+        }
+    }
+
+    /// Set the parsed goal
+    pub fn with_parsed_goal(mut self, goal: impl Into<String>) -> Self {
+        self.parsed_goal = Some(goal.into());
+        self
+    }
+}
+
+impl Default for UserIntent {
+    fn default() -> Self {
+        Self {
+            raw_input: String::new(),
+            parsed_goal: None,
+            entities: vec![],
+        }
+    }
+}
+
+/// Mode Switch Event — triggered when reasoning mode changes
+#[derive(Debug, Clone)]
+pub struct ModeSwitchEvent {
+    /// Requested mode (from user or config)
+    pub requested_mode: Option<ReasoningMode>,
+    /// Target mode after switch
+    pub target_mode: Option<ReasoningMode>,
+    /// User intent associated with this mode switch
+    pub user_intent: Option<Arc<UserIntent>>,
+    /// Session ID
+    pub session_id: Option<String>,
+}
+
+impl Default for ModeSwitchEvent {
+    fn default() -> Self {
+        Self {
+            requested_mode: None,
+            target_mode: None,
+            user_intent: None,
+            session_id: None,
+        }
+    }
+}
+
+impl ModeSwitchEvent {
+    /// Create a new ModeSwitchEvent
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the requested mode
+    pub fn with_requested_mode(mut self, mode: ReasoningMode) -> Self {
+        self.requested_mode = Some(mode);
+        self
+    }
+
+    /// Set the target mode
+    pub fn with_target_mode(mut self, mode: ReasoningMode) -> Self {
+        self.target_mode = Some(mode);
+        self
+    }
+
+    /// Set the user intent
+    pub fn with_user_intent(mut self, intent: UserIntent) -> Self {
+        self.user_intent = Some(Arc::new(intent));
+        self
+    }
+
+    /// Set the session ID
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+}
 
 /// Checkpoint trigger时机 — defines when a checkpoint should be saved
 #[derive(Debug, Clone)]

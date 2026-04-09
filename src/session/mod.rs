@@ -19,4 +19,4 @@ pub use persistence::{
     CheckpointManager, PersistenceError, PersistenceService, ReasoningMode,
     SessionCheckpoint,
 };
-pub use events::CheckpointTrigger;
+pub use events::{CheckpointTrigger, ModeSwitchEvent, UserIntent};

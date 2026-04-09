@@ -9,6 +9,7 @@
 //! - #163: Card interaction system
 
 pub mod capabilities;
+pub mod feishu;
 
 pub use capabilities::{
     CapabilityLevel, FileUploadCapability, MessageUpdateCapability, ModeDecisionContext,

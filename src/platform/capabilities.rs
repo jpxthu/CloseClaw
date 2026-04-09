@@ -155,6 +155,15 @@ impl PlatformCapabilityService {
         }
     }
 
+    /// Check if a platform fully supports a specific reasoning mode (no fallback needed)
+    pub fn supports_mode_fully(&self, platform: &str, mode: ReasoningMode) -> bool {
+        let caps = self.get_capabilities(platform);
+        match mode {
+            ReasoningMode::Direct | ReasoningMode::Plan | ReasoningMode::Hidden => true,
+            ReasoningMode::Stream => caps.stream_mode_support == CapabilityLevel::Full,
+        }
+    }
+
     /// Get the fallback mode for a platform when the requested mode is not supported
     pub fn get_fallback_mode(&self, platform: &str, requested_mode: ReasoningMode) -> ReasoningMode {
         match requested_mode {
