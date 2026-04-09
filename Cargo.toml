@@ -47,6 +47,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # Hashing (for signature validation)
 sha2 = "0.10"
+hex = "0.4"
 
 # File watching (hot reload)
 notify = "6.1"

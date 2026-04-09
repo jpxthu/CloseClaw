@@ -113,6 +113,18 @@ pub enum CheckpointTrigger {
     },
     /// 网关关闭前（同步写入）
     GatewayShutdown,
+    /// Compaction 发生前（用于保护 bootstrap 上下文）
+    PreCompact {
+        /// Compaction 前 transcript 字符数
+        before_char_count: usize,
+    },
+    /// Compaction 发生后（用于检测 bootstrap 上下文是否被扭曲）
+    PostCompact {
+        /// Compaction 后 transcript 字符数
+        after_char_count: usize,
+        /// Compaction 前 transcript 字符数
+        before_char_count: usize,
+    },
 }
 
 impl CheckpointTrigger {
@@ -141,5 +153,16 @@ mod tests {
             message_id: "msg123".to_string(),
         };
         assert!(!message_sent.requires_sync());
+
+        let pre_compact = CheckpointTrigger::PreCompact {
+            before_char_count: 1000,
+        };
+        assert!(!pre_compact.requires_sync());
+
+        let post_compact = CheckpointTrigger::PostCompact {
+            before_char_count: 1000,
+            after_char_count: 500,
+        };
+        assert!(!post_compact.requires_sync());
     }
 }
