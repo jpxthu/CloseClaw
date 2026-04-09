@@ -47,10 +47,10 @@ jobs:
             echo "Skipping commit-msg check for reviewer checkpoint"
             exit 0
           fi
-          # Check latest commit has Fixes #N or Refs #N
+          # Check latest commit has Fixes, Refs, or Closes #N
           msg=$(git log -1 --format='%B')
-          if ! echo "$msg" | grep -qE '(Fixes|Refs|关联|关闭) #?[0-9]+'; then
-            echo "ERROR: Commit message missing 'Fixes #N' or 'Refs #N' footer"
+          if ! echo "$msg" | grep -qE '(Fixes|Refs|Closes) #?[0-9]+'; then
+            echo "ERROR: Commit message missing 'Fixes #N', 'Refs #N', or 'Closes #N' footer"
             echo "Commit message:"
             echo "$msg"
             exit 1
