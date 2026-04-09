@@ -468,7 +468,9 @@ impl AgentRegistry {
         // Stop all descendants first
         for descendant in descendants {
             if matches!(reason, SuspendedReason::Forced) {
-                self.save_checkpoint(&descendant.id, "cascade-suspend").await.ok();
+                self.save_checkpoint(&descendant.id, "cascade-suspend")
+                    .await
+                    .ok();
             }
             self.update_state(
                 &descendant.id,
@@ -483,8 +485,12 @@ impl AgentRegistry {
         if matches!(reason, SuspendedReason::Forced) {
             self.save_checkpoint(id, "cascade-suspend").await.ok();
         }
-        self.update_state(id, AgentState::Suspended(reason), TransitionTrigger::ParentCascade)
-            .await?;
+        self.update_state(
+            id,
+            AgentState::Suspended(reason),
+            TransitionTrigger::ParentCascade,
+        )
+        .await?;
 
         Ok(())
     }
@@ -497,8 +503,13 @@ impl AgentRegistry {
 
         // Only allow resume from Suspended or Error(recoverable) states
         match &agent.state {
-            AgentState::Suspended(_) | AgentState::Error(ErrorInfo { recoverable: true, .. }) => {}
-            AgentState::Error(ErrorInfo { recoverable: false, .. }) => {
+            AgentState::Suspended(_)
+            | AgentState::Error(ErrorInfo {
+                recoverable: true, ..
+            }) => {}
+            AgentState::Error(ErrorInfo {
+                recoverable: false, ..
+            }) => {
                 return Err(RegistryError::InvalidStateTransition(
                     "cannot resume from non-recoverable error".to_string(),
                 ));
@@ -525,11 +536,7 @@ impl AgentRegistry {
         let checkpoint = Checkpoint {
             id: Uuid::new_v4().to_string(),
             agent_id: agent_id.to_string(),
-            location: SourceLocation::new(
-                location_note,
-                file!(),
-                line!(),
-            ),
+            location: SourceLocation::new(location_note, file!(), line!()),
             variables_json: "{}".to_string(),
             parent_id: agent.parent_id.clone(),
             created_at: chrono::Utc::now(),
@@ -568,8 +575,12 @@ impl AgentRegistry {
             if matches!(reason, SuspendedReason::Forced) {
                 self.save_checkpoint(id, "suspend").await.ok();
             }
-            self.update_state(id, AgentState::Suspended(reason), TransitionTrigger::Scheduler)
-                .await?;
+            self.update_state(
+                id,
+                AgentState::Suspended(reason),
+                TransitionTrigger::Scheduler,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -684,7 +695,11 @@ mod tests {
         let registry = create_registry(30);
         let agent = registry.register("test".to_string(), None).await.unwrap();
         registry
-            .update_state(&agent.id, AgentState::Running, TransitionTrigger::UserRequest)
+            .update_state(
+                &agent.id,
+                AgentState::Running,
+                TransitionTrigger::UserRequest,
+            )
             .await
             .unwrap();
         let updated = registry.get(&agent.id).await.unwrap();
@@ -697,7 +712,11 @@ mod tests {
         let agent = registry.register("test".to_string(), None).await.unwrap();
         // Can't go from Stopped to Running (Stopped is terminal)
         registry
-            .update_state(&agent.id, AgentState::Stopped, TransitionTrigger::UserRequest)
+            .update_state(
+                &agent.id,
+                AgentState::Stopped,
+                TransitionTrigger::UserRequest,
+            )
             .await
             .unwrap();
         let result = registry
@@ -726,11 +745,26 @@ mod tests {
         assert!(is_valid_transition(&Idle, &Running));
         assert!(is_valid_transition(&Running, &Waiting));
         assert!(is_valid_transition(&Running, &Stopped));
-        assert!(is_valid_transition(&Running, &Suspended(SuspendedReason::Forced)));
-        assert!(is_valid_transition(&Waiting, &Suspended(SuspendedReason::SelfRequested)));
-        assert!(is_valid_transition(&Suspended(SuspendedReason::Forced), &Running));
-        assert!(is_valid_transition(&Suspended(SuspendedReason::SelfRequested), &Running));
-        assert!(is_valid_transition(&Suspended(SuspendedReason::SelfRequested), &Stopped));
+        assert!(is_valid_transition(
+            &Running,
+            &Suspended(SuspendedReason::Forced)
+        ));
+        assert!(is_valid_transition(
+            &Waiting,
+            &Suspended(SuspendedReason::SelfRequested)
+        ));
+        assert!(is_valid_transition(
+            &Suspended(SuspendedReason::Forced),
+            &Running
+        ));
+        assert!(is_valid_transition(
+            &Suspended(SuspendedReason::SelfRequested),
+            &Running
+        ));
+        assert!(is_valid_transition(
+            &Suspended(SuspendedReason::SelfRequested),
+            &Stopped
+        ));
         // Terminal states
         assert!(!is_valid_transition(&Stopped, &Running));
         // Non-recoverable error is terminal
@@ -1003,7 +1037,11 @@ mod tests {
             .unwrap();
 
         registry
-            .update_state(&parent.id, AgentState::Running, TransitionTrigger::Scheduler)
+            .update_state(
+                &parent.id,
+                AgentState::Running,
+                TransitionTrigger::Scheduler,
+            )
             .await
             .unwrap();
         registry
@@ -1029,7 +1067,11 @@ mod tests {
             .unwrap();
 
         registry
-            .update_state(&parent.id, AgentState::Running, TransitionTrigger::Scheduler)
+            .update_state(
+                &parent.id,
+                AgentState::Running,
+                TransitionTrigger::Scheduler,
+            )
             .await
             .unwrap();
         registry
@@ -1038,18 +1080,20 @@ mod tests {
             .unwrap();
 
         registry
-            .suspend_agent(
-                &parent.id,
-                SuspendedReason::Forced,
-                true,
-            )
+            .suspend_agent(&parent.id, SuspendedReason::Forced, true)
             .await
             .unwrap();
 
         let parent_state = registry.get(&parent.id).await.unwrap().state;
         let child_state = registry.get(&child.id).await.unwrap().state;
-        assert!(matches!(parent_state, AgentState::Suspended(SuspendedReason::Forced)));
-        assert!(matches!(child_state, AgentState::Suspended(SuspendedReason::Forced)));
+        assert!(matches!(
+            parent_state,
+            AgentState::Suspended(SuspendedReason::Forced)
+        ));
+        assert!(matches!(
+            child_state,
+            AgentState::Suspended(SuspendedReason::Forced)
+        ));
     }
 
     #[tokio::test]

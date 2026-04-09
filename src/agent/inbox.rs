@@ -58,14 +58,30 @@ pub struct InboxConfig {
     pub alert_webhook: Option<String>,
 }
 
-fn default_poll_interval() -> u64 { 5 }
-fn default_max_retry() -> u32 { 3 }
-fn default_base_delay() -> u64 { 1000 }
-fn default_max_delay() -> u64 { 60000 }
-fn default_jitter() -> u64 { 500 }
-fn default_timeout() -> u64 { 10000 }
-fn default_acked_ttl_days() -> i64 { 7 }
-fn default_dead_letter_ttl_days() -> i64 { 30 }
+fn default_poll_interval() -> u64 {
+    5
+}
+fn default_max_retry() -> u32 {
+    3
+}
+fn default_base_delay() -> u64 {
+    1000
+}
+fn default_max_delay() -> u64 {
+    60000
+}
+fn default_jitter() -> u64 {
+    500
+}
+fn default_timeout() -> u64 {
+    10000
+}
+fn default_acked_ttl_days() -> i64 {
+    7
+}
+fn default_dead_letter_ttl_days() -> i64 {
+    30
+}
 
 impl Default for InboxConfig {
     fn default() -> Self {
@@ -142,7 +158,12 @@ pub struct InboxMessage {
 
 impl InboxMessage {
     /// Create a new pending message
-    pub fn new(from: String, to: String, msg_type: MessageType, payload: serde_json::Value) -> Self {
+    pub fn new(
+        from: String,
+        to: String,
+        msg_type: MessageType,
+        payload: serde_json::Value,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             from,
@@ -172,7 +193,8 @@ impl InboxMessage {
         // Add jitter: random in [-jitter_ms, +jitter_ms]
         let jitter_range = config.jitter_ms as i64;
         let jitter = if jitter_range > 0 {
-            let jitter_val = (rand_jitter() % (jitter_range * 2) as u64) as i64 - jitter_range as i64;
+            let jitter_val =
+                (rand_jitter() % (jitter_range * 2) as u64) as i64 - jitter_range as i64;
             jitter_val
         } else {
             0
@@ -360,7 +382,10 @@ impl InboxManager {
                 if path.extension().map(|e| e == "json").unwrap_or(false) {
                     if let Ok(content) = fs::read_to_string(&path).await {
                         if let Ok(record) = serde_json::from_str::<DeadLetterRecord>(&content) {
-                            self.dead_letters.write().await.insert(record.msg_id.clone(), record);
+                            self.dead_letters
+                                .write()
+                                .await
+                                .insert(record.msg_id.clone(), record);
                         }
                     }
                 }
@@ -378,14 +403,17 @@ impl InboxManager {
             MessageStatus::DeadLetter => self.base_path.join("dead_letter"),
         };
         let path = dir.join(format!("{}.json", msg.id));
-        let json = serde_json::to_string_pretty(msg).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })?;
+        let json = serde_json::to_string_pretty(msg)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         fs::write(path, json).await
     }
 
     /// Remove a message from its current location
-    async fn remove_message_file(&self, msg_id: &str, status: MessageStatus) -> std::io::Result<()> {
+    async fn remove_message_file(
+        &self,
+        msg_id: &str,
+        status: MessageStatus,
+    ) -> std::io::Result<()> {
         let dir = match status {
             MessageStatus::Pending => self.base_path.join("pending"),
             MessageStatus::Acked => self.base_path.join("acked"),
@@ -471,7 +499,8 @@ impl InboxManager {
             let msg_clone = msg.clone();
             drop(pending_guard);
 
-            self.remove_message_file(msg_id, MessageStatus::Pending).await?;
+            self.remove_message_file(msg_id, MessageStatus::Pending)
+                .await?;
             self.persist_message(&msg_clone).await?;
 
             *self.acked_count.write().await += 1;
@@ -523,11 +552,15 @@ impl InboxManager {
             let record = DeadLetterRecord::new(dead_msg.clone(), reason);
 
             // Persist dead letter
-            self.remove_message_file(msg_id, MessageStatus::Pending).await?;
+            self.remove_message_file(msg_id, MessageStatus::Pending)
+                .await?;
             self.persist_message(&dead_msg).await?;
 
             // Store record
-            self.dead_letters.write().await.insert(msg_id.to_string(), record);
+            self.dead_letters
+                .write()
+                .await
+                .insert(msg_id.to_string(), record);
 
             // TODO: Send alert if webhook configured
             if let Some(ref webhook) = self.config.alert_webhook {
@@ -732,7 +765,11 @@ mod tests {
         // Delay should be around 1000ms +/- 500ms (so 500-1500ms)
         if let Some(t) = next {
             let delay = (t - msg.created_at).num_milliseconds();
-            assert!(delay >= 500 && delay <= 1500, "Expected 500-1500ms, got {}", delay);
+            assert!(
+                delay >= 500 && delay <= 1500,
+                "Expected 500-1500ms, got {}",
+                delay
+            );
         }
 
         // Increment retry count and check again
@@ -742,7 +779,11 @@ mod tests {
         if let Some(t) = next {
             let delay = (t - msg.created_at).num_milliseconds();
             // Should be around 2000ms +/- 500ms (so 1500-2500ms)
-            assert!(delay >= 1500 && delay <= 2500, "Expected 1500-2500ms, got {}", delay);
+            assert!(
+                delay >= 1500 && delay <= 2500,
+                "Expected 1500-2500ms, got {}",
+                delay
+            );
         }
     }
 

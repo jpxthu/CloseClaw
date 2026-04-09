@@ -13,6 +13,7 @@ use std::sync::Arc;
 // ---------------------------------------------------------------------------
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
 use closeclaw::agent::AgentState;
+use closeclaw::agent::{SuspendedReason, TransitionTrigger};
 use closeclaw::config::agents::AgentsConfigProvider;
 use closeclaw::config::ConfigProvider;
 use closeclaw::permission::engine::{
@@ -135,7 +136,7 @@ async fn test_agent_registry_lifecycle() {
 
     // Transition to Running
     registry
-        .update_state(&agent_id, AgentState::Running)
+        .update_state(&agent_id, AgentState::Running, TransitionTrigger::Scheduler)
         .await
         .unwrap();
 
@@ -145,24 +146,34 @@ async fn test_agent_registry_lifecycle() {
 
     // Transition to Waiting
     registry
-        .update_state(&agent_id, AgentState::Waiting)
+        .update_state(&agent_id, AgentState::Waiting, TransitionTrigger::Scheduler)
         .await
         .unwrap();
 
     // Transition to Suspended
     registry
-        .update_state(&agent_id, AgentState::Suspended)
+        .update_state(
+            &agent_id,
+            AgentState::Suspended(SuspendedReason::SelfRequested),
+            TransitionTrigger::Scheduler,
+        )
         .await
         .unwrap();
 
     // Transition to Stopped
     registry
-        .update_state(&agent_id, AgentState::Stopped)
+        .update_state(
+            &agent_id,
+            AgentState::Stopped,
+            TransitionTrigger::SystemShutdown,
+        )
         .await
         .unwrap();
 
     // Verify terminal state - can't transition back to Running
-    let result = registry.update_state(&agent_id, AgentState::Running).await;
+    let result = registry
+        .update_state(&agent_id, AgentState::Running, TransitionTrigger::Scheduler)
+        .await;
     assert!(result.is_err());
 
     // Cleanup
@@ -561,7 +572,10 @@ async fn test_skill_loading_and_execution_chain() {
 
     // Execute file_ops exists method
     let result = file_ops
-        .execute("exists", serde_json::json!({"path": "Cargo.toml", "agent_id": "test-agent"}))
+        .execute(
+            "exists",
+            serde_json::json!({"path": "Cargo.toml", "agent_id": "test-agent"}),
+        )
         .await;
     assert!(result.is_ok());
     let value = result.unwrap();

@@ -285,15 +285,13 @@ pub fn is_valid_transition(from: &AgentState, to: &AgentState) -> bool {
         // Idle can go to Running, Suspended, Stopped, or Error
         (Idle, Running) | (Idle, Suspended(_)) | (Idle, Stopped) | (Idle, Error(_)) => true,
         // Running can go to Waiting, Suspended, Stopped, or Error
-        (Running, Waiting)
-        | (Running, Suspended(_))
-        | (Running, Stopped)
-        | (Running, Error(_)) => true,
+        (Running, Waiting) | (Running, Suspended(_)) | (Running, Stopped) | (Running, Error(_)) => {
+            true
+        }
         // Waiting can go back to Running, or to Suspended, Stopped, Error
-        (Waiting, Running)
-        | (Waiting, Suspended(_))
-        | (Waiting, Stopped)
-        | (Waiting, Error(_)) => true,
+        (Waiting, Running) | (Waiting, Suspended(_)) | (Waiting, Stopped) | (Waiting, Error(_)) => {
+            true
+        }
         // Suspended can go to Running or Stopped
         (Suspended(_), Running) | (Suspended(_), Stopped) => true,
         // Error can go to Running if recoverable (resume after error)
@@ -360,19 +358,40 @@ mod tests {
         use AgentState::*;
         // Idle
         assert!(is_valid_transition(&Idle, &Running));
-        assert!(is_valid_transition(&Idle, &Error(ErrorInfo::new("fail", false))));
+        assert!(is_valid_transition(
+            &Idle,
+            &Error(ErrorInfo::new("fail", false))
+        ));
         // Running
         assert!(is_valid_transition(&Running, &Waiting));
-        assert!(is_valid_transition(&Running, &Suspended(SuspendedReason::Forced)));
+        assert!(is_valid_transition(
+            &Running,
+            &Suspended(SuspendedReason::Forced)
+        ));
         assert!(is_valid_transition(&Running, &Stopped));
-        assert!(is_valid_transition(&Running, &Error(ErrorInfo::new("crash", false))));
+        assert!(is_valid_transition(
+            &Running,
+            &Error(ErrorInfo::new("crash", false))
+        ));
         // Waiting
         assert!(is_valid_transition(&Waiting, &Running));
-        assert!(is_valid_transition(&Waiting, &Suspended(SuspendedReason::Forced)));
+        assert!(is_valid_transition(
+            &Waiting,
+            &Suspended(SuspendedReason::Forced)
+        ));
         // Suspended
-        assert!(is_valid_transition(&Suspended(SuspendedReason::Forced), &Running));
-        assert!(is_valid_transition(&Suspended(SuspendedReason::SelfRequested), &Running));
-        assert!(is_valid_transition(&Suspended(SuspendedReason::SelfRequested), &Stopped));
+        assert!(is_valid_transition(
+            &Suspended(SuspendedReason::Forced),
+            &Running
+        ));
+        assert!(is_valid_transition(
+            &Suspended(SuspendedReason::SelfRequested),
+            &Running
+        ));
+        assert!(is_valid_transition(
+            &Suspended(SuspendedReason::SelfRequested),
+            &Stopped
+        ));
         // Terminal states
         assert!(!is_valid_transition(&Stopped, &Running));
         // Error (non-recoverable)
