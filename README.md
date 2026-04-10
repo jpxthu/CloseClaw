@@ -2,16 +2,16 @@
 
 > 轻量级、规则驱动的多 agent 执行框架
 
-## 开发纪律：Spec-first
+## Spec 规格书
 
-**所有代码实现完全依据 `docs/` 下的 Spec 文档，文档与代码功能模块一一对应。**
+CloseClaw 使用 **Spec-first** 开发模式：
 
-这是 CloseClaw 的核心开发纪律：
-- 需求来了 → 先写 Spec，Spec 评审通过后再写代码
-- 代码必须与 Spec 一致，不允许 Spec 没有就去写代码
-- Spec 变更必须经过评审，不能单方面改代码不改文档
+- **规格书位置**：`src/<模块名>/SPEC.md`（每个模块一个规格书）
+- **规格书内容**：模块的精确功能说明（接口、数据结构、行为规范），不是开发步骤
+- **编写规范**：见 [SPEC_CONVENTION.md](SPEC_CONVENTION.md)
+- **当前状态**：大部分模块规格书缺失，正在逐步建立（见 SPEC_CONVENTION.md）
 
-这条纪律保证了 agent 行为的可预测性和可审计性，是 CloseClaw 区别于其他 agent 框架的关键。
+> **Spec-first 开发纪律**：需求来了 → developer 先写 SPEC → braino review 通过后再开发 → 代码与 SPEC 保持镜像一致
 
 ## 核心特性
 
@@ -81,24 +81,11 @@ closeclaw/
 └── docs/             # 设计文档
 ```
 
-## Spec 文档
+## 开发指南
 
-**Spec-first 开发模式**：`docs/` 下的目录结构与 `src/` 完全对应，每个模块的 Spec 文档（设计决策、API 约定、行为规范）放在对应目录下。
-
-- **目录对应**：`docs/<模块>/` ↔ `src/<模块>/`，一一对应
-- **内容约束**：文档描述"模块做什么、做到什么程度"，代码依据文档实现
-- **拆分原则**：文档拆分与代码拆分独立，各自按职责划分，不要求一一文件对应
-- **变更规则**：文档变更必须评审，不能单方面改代码不改文档
-
-现有 Spec 文档：
-
-- [docs/developer/](docs/developer/README.md) - 开发指南
-- [docs/permission/](docs/permission/OVERVIEW.md) - 权限引擎
-- [docs/agent/](docs/agent/README.md) - Agent 模块
-- [docs/gateway/](docs/gateway/README.md) - 网关
-- [docs/llm/](docs/llm/README.md) - LLM 接口
-- [docs/config/](docs/config/README.md) - 配置系统
-- [docs/operator/](docs/operator/SKILL.md) - 运维指南
+- [SPEC_CONVENTION.md](SPEC_CONVENTION.md) — SPEC 编写规范（模块规格书怎么写）
+- `src/<模块>/SPEC.md` — 各模块规格书（陆续建立中）
+- [docs/](docs/) — 项目级文档、开发者指南
 
 ## License
 
