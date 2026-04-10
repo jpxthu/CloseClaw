@@ -21,6 +21,7 @@ pub mod permission;
 pub mod platform;
 pub mod session;
 pub mod skills;
+pub mod system_prompt;
 
 use tracing::info;
 
