@@ -1,313 +1,160 @@
-# Platform 模块规格说明书
-
-> 本文件描述模块「当前是什么」，不包含开发步骤、issue 号或验收标准。
-
----
+# platform 模块规格说明书
 
 ## 1. 模块概述
 
-**职责**：提供多平台能力检测与推理模式降级支持，是下游功能的基础设施。
+`platform` 模块是 CloseClaw 的多平台 IM 适配层，核心职责是为不同即时通讯平台（飞书、Telegram、Discord、Slack）提供统一的能力抽象和推理模式降级决策。
 
-**下游依赖**：
-- Issue #161：Feishu Stream→Plan 降级
-- Issue #162：斜杠指令系统
-- Issue #163：卡片交互系统
+模块维护各平台的能力矩阵（消息编辑、卡片交互、文件上传、流式输出等），并依据能力配置在运行时决定最优的交互模式。Feishu 作为需要特殊处理的平台，通过 `FeishuAdapter` 实现 Stream→Plan 的降级流程，用交互式卡片模拟流式输出体验。
 
-**子模块**：
-- `src/platform/` — 平台能力检测核心
-- `src/platform/feishu/` — 飞书平台专用适配器（Stream→Plan 降级）
+模块边界：只做平台能力检测和模式决策，不直接对接外部 API，不处理具体的消息收发逻辑。
 
 ---
 
-## 2. 公开 API
+## 2. 公开接口
 
-### 2.1 platform/mod.rs — 模块入口
+### 常量
 
-```rust
-// 常量
-pub const PLATFORM_FEISHU: &str = "feishu";
-pub const PLATFORM_TELEGRAM: &str = "telegram";
-pub const PLATFORM_DISCORD: &str = "discord";
-pub const PLATFORM_SLACK: &str = "slack";
-
-// 函数
-pub fn default_capabilities() -> PlatformCapabilities
-```
-
-**导出类型**（来自 `capabilities.rs`）：
-`CapabilityLevel`, `FileUploadCapability`, `MessageUpdateCapability`, `ModeDecisionContext`, `PlatformCapabilities`, `PlatformCapabilityService`, `ReasoningMode`
-
-### 2.2 platform/capabilities.rs — 平台能力检测
-
-```rust
-// 能力等级
-pub enum CapabilityLevel { Full, Partial, None }
-
-// 文件上传能力
-pub enum FileUploadCapability { Full, Partial, None }
-
-// 消息更新能力（别名）
-pub type MessageUpdateCapability = CapabilityLevel;
-
-// 卡片交互能力（别名）
-pub type CardInteractionCapability = CapabilityLevel;
-
-// 平台能力结构
-pub struct PlatformCapabilities {
-    pub platform: String,
-    pub message_update: MessageUpdateCapability,
-    pub card_interaction: CardInteractionCapability,
-    pub file_upload: FileUploadCapability,
-    pub message_length_limit: u32,
-    pub stream_mode_support: CapabilityLevel,
-    pub edit_message_support: bool,
-}
-
-// 平台能力检测服务
-pub struct PlatformCapabilityService { ... }
-
-impl PlatformCapabilityService {
-    pub fn new() -> Self
-    pub fn get_capabilities(&self, platform: &str) -> PlatformCapabilities
-    pub fn supports_mode(&self, platform: &str, mode: ReasoningMode) -> bool
-    pub fn supports_mode_fully(&self, platform: &str, mode: ReasoningMode) -> bool
-    pub fn get_fallback_mode(&self, platform: &str, requested_mode: ReasoningMode) -> ReasoningMode
-}
-
-// 推理模式（从 session::persistence re-export）
-pub enum ReasoningMode { Direct, Plan, Stream, Hidden }
-
-// 模式决策上下文
-pub struct ModeDecisionContext {
-    pub requested_mode: Option<ReasoningMode>,
-    pub session_id: String,
-    pub metadata: HashMap<String, String>,
-}
-impl ModeDecisionContext {
-    pub fn new(session_id: impl Into<String>) -> Self
-    pub fn with_requested_mode(self, mode: ReasoningMode) -> Self
-    pub fn with_metadata(self, key: impl Into<String>, value: impl Into<String>) -> Self
-}
-```
-
-**已知平台能力矩阵**：
-
-| 平台 | message_update | card_interaction | file_upload | stream_mode_support | message_length_limit |
-|------|---------------|-----------------|-------------|---------------------|---------------------|
-| feishu | Partial | Full | Full | Partial | 10000 |
-| telegram | Full | Partial | Full | Full | 4096 |
-| discord | Full | Partial | Full | Full | 2000 |
-| slack | Full | Partial | Full | Full | 3000 |
-| unknown | None | None | None | None | 4000 |
-
-**降级规则**：
-- `ReasoningMode::Stream` + `CapabilityLevel::None` → `ReasoningMode::Direct`
-- `ReasoningMode::Stream` + `CapabilityLevel::Partial` → `ReasoningMode::Plan`
-- `ReasoningMode::Direct/Plan/Hidden` → 不降级
+| 标识符 | 描述 |
+|--------|------|
+| `PLATFORM_FEISHU` | 飞书平台标识 |
+| `PLATFORM_TELEGRAM` | Telegram 平台标识 |
+| `PLATFORM_DISCORD` | Discord 平台标识 |
+| `PLATFORM_SLACK` | Slack 平台标识 |
+| `FEISHU_STREAM_FALLBACK_STEPS` | Feishu Stream→Plan 降级的 4 步流程定义（定义于 `feishu/fallback.rs`） |
+| `COMPLEXITY_INDICATORS` | 高复杂度任务的 6 个关键词指标（定义于 `feishu/complexity.rs`） |
 
 ---
 
-## 3. platform/feishu/ — 飞书适配器
+### 构造（Construction）
 
-### 3.1 feishu/mod.rs — 模块入口
-
-嵌入设计文档（`//!` 注释），包含 Issue #161 的完整设计规范。本模块以此设计为准。
-
-### 3.2 feishu/adapter.rs — 飞书适配器核心
-
-```rust
-// 消息服务接口（trait，需外部实现）
-#[async_trait]
-pub trait FeishuMessageService: Send + Sync {
-    async fn send_message(&self, content: &str) -> Result<String, FeishuAdapterError>;
-    async fn update_message(&self, message_id: &str, content: &str) -> Result<(), FeishuAdapterError>;
-    async fn send_card(&self, card_config: &PlanCardConfig) -> Result<String, FeishuAdapterError>;
-}
-
-// 降级结果
-pub struct FallbackResult {
-    pub initial_message_id: String,
-    pub card_message_id: String,
-    pub final_message_id: String,
-}
-
-// 飞书适配器
-pub struct FeishuAdapter { ... }
-
-impl FeishuAdapter {
-    pub fn new(
-        capability_service: Arc<PlatformCapabilityService>,
-        card_service: Arc<dyn CardService>,
-        message_service: Arc<dyn FeishuMessageService>,
-    ) -> Self
-
-    /// 判断指定推理模式是否需要降级
-    pub fn should_fallback(&self, mode: ReasoningMode) -> bool
-
-    /// 获取 Stream 在飞书上的降级目标
-    pub fn get_fallback_mode(&self) -> ReasoningMode  // 恒返回 ReasoningMode::Plan
-
-    /// 降级流程是否启用（当前硬编码 true）
-    pub fn is_fallback_enabled(&self) -> bool
-
-    /// 执行 Stream→Plan 降级完整流程
-    pub async fn execute_fallback(&self, intent: &ModeSwitchEvent) -> Result<FallbackResult, FeishuAdapterError>
-
-    /// 处理模式切换事件，自动判断是否降级
-    pub async fn handle_mode_switch(&self, event: &ModeSwitchEvent) -> Result<Option<FallbackResult>, FeishuAdapterError>
-}
-```
-
-**降级触发条件**：`should_fallback(ReasoningMode::Stream)` 当且仅当 `stream_mode_support != Full`（即 Partial 或 None）。
-
-### 3.3 feishu/fallback.rs — 降级步骤定义
-
-```rust
-pub enum FallbackAction {
-    SendInitialMessage,
-    CreateCard,
-    UpdateCard,
-    SendFinal,
-}
-
-pub struct FallbackStep {
-    pub step: u32,
-    pub action: FallbackAction,
-    pub content: &'static str,
-    pub persist: bool,
-}
-
-impl FallbackStep {
-    pub fn content_string(&self) -> String;  // 将 content 字段转换为格式化字符串（如"🔍 进入深度分析模式..."）
-}
-
-pub const FEISHU_STREAM_FALLBACK_STEPS: &[FallbackStep]
-pub fn get_fallback_steps(mode: &str) -> Option<&'static [FallbackStep]>
-```
-
-默认 4 步：发送初始提示 → 创建卡片 → 更新卡片 → 发送最终结论。
-
-### 3.4 feishu/card.rs — Plan 卡片结构
-
-```rust
-pub struct PlanCardConfig {
-    pub title: String,
-    pub sections: Vec<PlanSection>,
-    pub show_progress: bool,
-    pub show_step_buttons: bool,
-}
-
-pub struct PlanSection {
-    pub step_number: u32,
-    pub title: String,
-    pub content: String,
-    pub status: StepStatus,
-}
-
-pub enum StepStatus { Pending, Active, Completed }
-
-pub fn build_initial_sections(goal: Option<&str>) -> Vec<PlanSection>  // 默认 3 节：需求分析/技术方案/实现路径
-pub fn default_plan_card_config(goal: Option<&str>) -> PlanCardConfig
-```
-
-### 3.5 feishu/card_updater.rs — 卡片更新服务接口
-
-```rust
-pub struct SectionUpdate {
-    pub title: Option<String>,
-    pub content: Option<String>,
-    pub status: Option<StepStatus>,
-}
-
-pub struct CardHandle { pub message_id: String }
-
-pub struct CardServiceError { pub message: String }
-
-#[async_trait]
-pub trait CardService: Send + Sync {
-    async fn create_card(&self, config: &PlanCardConfig) -> Result<CardHandle, FeishuAdapterError>;
-    async fn update_section(&self, card_id: &str, section_index: usize, update: SectionUpdate) -> Result<(), FeishuAdapterError>;
-    async fn update_progress(&self, card_id: &str, current_step: u32, total_steps: u32) -> Result<(), FeishuAdapterError>;
-    async fn mark_step_complete(&self, card_id: &str, step_number: u32) -> Result<(), FeishuAdapterError>;
-    async fn update_card(&self, card_id: &str, config: &PlanCardConfig) -> Result<(), FeishuAdapterError>;
-}
-```
-
-**注意**：`CardService` 和 `FeishuMessageService` 均为 trait，代码库中无具体实现。它们是接口定义，供外部（如 gateway/im 模块）注入实现。
-
-### 3.6 feishu/complexity.rs — 高复杂度判断
-
-```rust
-pub fn is_high_complexity(intent: &ModeSwitchEvent) -> bool
-
-// 判断标准：parsed_goal 中复杂关键词出现 ≥2 次，或长度 > 100 字符
-// 关键词：系统、架构、设计、实现、重构、迁移
-
-pub struct HighComplexityConfig {
-    pub show_progress_bar: bool,
-    pub show_key_decision_points: bool,
-    pub enable_mind_map_export: bool,
-    pub enable_step_confirmation: bool,
-}
-
-pub fn get_high_complexity_config() -> HighComplexityConfig
-```
-
-### 3.7 feishu/error.rs — 错误类型
-
-```rust
-pub enum FeishuAdapterError {
-    CardService(String),
-    MessageService(String),
-    CapabilityService(String),
-    FallbackNotEnabled,
-    CardNotFound(String),
-    InvalidModeSwitchEvent,
-    SectionNotFound(usize),
-    Io(std::io::Error),
-    Serialization(serde_json::Error),
-}
-```
-
-### 3.8 feishu/updater.rs — 逐步更新逻辑
-
-```rust
-pub async fn run_streaming_with_card_update<C: CardService + ?Sized>(
-    card_service: &C,
-    card: &CardHandle,
-    intent: &ModeSwitchEvent,
-    config: HighComplexityConfig,
-) -> Result<(), FeishuAdapterError>
-
-pub async fn update_card_content<C: CardService + ?Sized>(
-    card_service: &C,
-    card_id: &str,
-    section_index: usize,
-    content: &str,
-) -> Result<(), FeishuAdapterError>
-```
+| 接口 | 描述 |
+|------|------|
+| `PlatformCapabilityService::new()` | 构造能力服务，注册已知平台的能力矩阵 |
+| `FeishuAdapter::new(...)` | 构造飞书适配器，注入能力服务、卡片服务、消息服务 |
+| `FallbackResult` | Fallback 执行结果结构体，含 initial/card/final 三个 message_id |
+| `ModeDecisionContext::new(session_id)` | 构造模式决策上下文（Builder 起点） |
 
 ---
 
-## 4. 行为规范
+### 配置（Configuration）
 
-### 4.1 降级决策
-
-`FeishuAdapter::should_fallback` 使用 `supports_mode_fully`（而非 `supports_mode`）：
-- `stream_mode_support == Full` → 不降级
-- `stream_mode_support == Partial` → 降级到 Plan
-- `stream_mode_support == None` → 降级到 Direct
-
-### 4.2 能力默认值
-
-未知平台所有能力为 `None`，`message_length_limit` 默认为 4000。
-
-### 4.3 ReasoningMode 重新导出
-
-`platform` 模块从 `session::persistence::ReasoningMode` 重新导出，所有子模块使用同一类型。
+| 接口 | 描述 |
+|------|------|
+| `default_capabilities()` | 返回未知平台的默认能力配置（全不支持） |
+| `ReasoningMode` | 从 `session::persistence` 重新导出的推理模式枚举（Stream/Plan/Direct/Hidden） |
+| `ModeDecisionContext::with_requested_mode(mode)` | 设置本次决策请求的推理模式 |
+| `ModeDecisionContext::with_metadata(key, value)` | 向上下文附加键值元数据 |
 
 ---
 
-## 5. 偏差记录
+### 主操作（Primary Operations）
 
-见 `SPEC_ALIGNMENT_PLAN.md` Round 07 偏差追踪表。
+| 接口 | 描述 |
+|------|------|
+| `PlatformCapabilityService::get_capabilities(platform)` | 查询指定平台的能力配置 |
+| `PlatformCapabilityService::get_fallback_mode(platform, mode)` | 获取某平台在某模式下应降级到的目标模式 |
+| `FeishuAdapter::execute_fallback(intent)` | 执行完整的 Stream→Plan 降级流程 |
+| `FeishuAdapter::handle_mode_switch(event)` | 处理模式切换事件，判断是否需要降级并触发降级流程 |
+| `build_initial_sections(goal)` | 根据目标构建 Plan 卡片的初始区段列表 |
+| `default_plan_card_config(goal)` | 构建带进度的 Plan 卡片默认配置 |
+| `get_fallback_steps(mode)` | 获取指定模式对应的降级步骤序列 |
+| `run_streaming_with_card_update(...)` | 模拟流式输出，逐步更新卡片各区段 |
+| `update_card_content(...)` | 在流式过程中更新卡片指定区段的内容 |
+| `SectionUpdate` | 卡片区段增量更新结构 |
+| `CardHandle` | 卡片创建后返回的句柄（仅含 message_id） |
+| `FeishuAdapterError::CardService(String)` | 卡片服务错误变体（定义于 error.rs） |
+| `HighComplexityConfig` | 高复杂度任务的展示增强配置 |
+| `is_high_complexity(intent)` | 判断用户意图描述的任务是否属于高复杂度 |
+| `get_high_complexity_config()` | 获取高复杂度任务的展示增强配置 |
+| `FallbackAction` | Fallback 步骤动作类型枚举（SendInitialMessage/CreateCard/UpdateCard/SendFinal） |
+| `FallbackStep` | Fallback 单个步骤结构体（含序号、动作、静态描述、persist 标志） |
+| `FallbackStep::content_string()` | 将步骤的静态内容转换为 String |
+| `CardService` | 卡片服务抽象 trait，含 `create_card`、`update_section`、`update_progress`、`mark_step_complete`、`update_card` 五个异步方法 |
+
+---
+
+### 查询（Query）
+
+| 接口 | 描述 |
+|------|------|
+| `PlatformCapabilityService::supports_mode(platform, mode)` | 检查平台是否支持某推理模式 |
+| `PlatformCapabilityService::supports_mode_fully(platform, mode)` | 检查平台是否完整支持某推理模式 |
+| `FeishuAdapter::should_fallback(mode)` | 判断某模式在飞书平台是否需要降级 |
+| `FeishuAdapter::get_fallback_mode()` | 获取飞书平台 Stream 模式对应的降级目标 |
+| `FeishuAdapter::is_fallback_enabled()` | 检查飞书降级流程是否已启用 |
+
+---
+
+## 3. 架构与结构
+
+### 3.1 子模块划分
+
+```
+platform/
+├── mod.rs              # 模块入口，导出常量、公共类型、default_capabilities
+├── capabilities.rs     # 能力矩阵定义与服务
+└── feishu/
+    ├── mod.rs          # 导出 FeishuAdapter、FallbackResult、CardService
+    ├── adapter.rs      # FeishuAdapter 核心：降级决策与流程编排
+    ├── card.rs         # Plan 卡片结构：PlanCardConfig、PlanSection、StepStatus
+    ├── card_updater.rs # CardService trait：卡片创建与更新操作抽象
+    ├── fallback.rs     # 降级步骤定义：FallbackAction、FallbackStep
+    ├── updater.rs      # 流式更新逻辑：模拟流式输出驱动的卡片刷新
+    ├── complexity.rs   # 高复杂度任务检测：指标词、is_high_complexity
+    └── error.rs        # 错误类型：FeishuAdapterError（9 个变体，含 Io、Serialization）
+```
+
+**`capabilities.rs`** 定义能力枚举 `CapabilityLevel`、`FileUploadCapability`，结构体 `PlatformCapabilities`，以及查询服务 `PlatformCapabilityService` 和决策上下文 `ModeDecisionContext`。
+
+**`feishu/`** 是 Feishu 平台的具体实现子包，`adapter.rs` 是入口，按需组合 card、card_updater、fallback、updater、complexity 四个子模块。
+
+---
+
+### 3.2 数据流
+
+```
+用户发起 ModeSwitchEvent
+       │
+       ▼
+FeishuAdapter::handle_mode_switch(event)
+       │
+       ├─→ should_fallback(mode) ──(No)──→ 直接返回 None
+       │
+       └─→ (Yes) execute_fallback(intent)
+                    │
+                    ├─1. send_initial_message()      → 发送 "🔍 进入深度分析模式..."
+                    │
+                    ├─2. create_plan_card(goal)      → Feishu CardService::create_card
+                    │                                   产出 CardHandle { message_id }
+                    │
+                    ├─3. run_streaming_with_card_update()
+                    │       │
+                    │       ├─ update_progress(1/N)
+                    │       ├─ 对每个 section:
+                    │       │     update_section(idx, Active)
+                    │       │     mark_step_complete(n)
+                    │       └─ update_progress(N/N)
+                    │
+                    └─4. send_final_message()        → 发送 "✅ 分析完成"
+                    
+       ▼
+返回 FallbackResult { initial_message_id, card_message_id, final_message_id }
+```
+
+降级流程中，卡片内容更新由 `CardService` trait 的实现层完成。
+
+---
+
+### 3.3 跨模块格式
+
+**意图结构（Intent）**：由 `session::events::ModeSwitchEvent` 传入，包含 `target_mode`、`requested_mode`、`user_intent`（含 `parsed_goal`），用于驱动降级流程和高复杂度判断。
+
+**卡片配置（Card）**：在子模块间传递时使用 `PlanCardConfig`（卡片整体配置）和 `CardHandle`（仅含 `message_id`，由 card_updater 创建后沿流程传递）。
+
+**区段更新（Update）**：流式更新时通过 `SectionUpdate` 结构传递增量修改（`title`、`content`、`status` 均为 `Option`）。
+
+**错误类型**：所有 Feishu 子模块的错误统一为 `FeishuAdapterError` 枚举，向上对 adapter 暴露。
+
+---
+
+*最后更新：2026-04-14*
