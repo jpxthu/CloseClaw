@@ -1,367 +1,169 @@
 # SPEC: Session 模块规格说明书
 
-> 本文档描述 `src/session/` 模块的精确功能规格，以代码实现为准。
+> 本文档按 SPEC_CONVENTION.md v3 编写，描述模块做什么、公开接口和架构结构，不含详细字段列表或函数签名。
 
 ---
 
 ## 1. 模块概述
 
-**职责**：Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保护，是 CloseClaw 网关稳定性的核心保障。
+Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保护，是网关稳定性的核心保障。
+
+**核心思路**：会话状态以 Checkpoint 形式定期持久化到存储后端，网关重启时从存储恢复。Session 启动时注入的 bootstrap 内容（AGENTS.md、SOUL.md 等）在 compaction 期间受到保护，确保摘要操作不会扭曲 agent 的身份上下文。
 
 **子模块组织**：
-
-```
-src/session/
-├── mod.rs           # 模块入口，re-export 公开类型
-├── bootstrap.rs     # Bootstrap 上下文保护（compaction 防护）
-├── events.rs        # Checkpoint 触发事件和模式切换事件定义
-├── persistence.rs   # 核心数据结构 + PersistenceService Trait + CheckpointManager
-├── recovery.rs      # Session 恢复服务
-└── storage/
-    ├── mod.rs       # 存储后端统一导出
-    ├── memory.rs    # 内存存储（测试用）
-    └── redis.rs     # Redis 存储（生产用）
-```
+- `bootstrap` — compaction 期间保护 agent bootstrap 文件不被摘要扭曲
+- `persistence` — Checkpoint 数据结构 + 持久化服务接口 + 本地缓存管理器
+- `events` — Checkpoint 触发时机定义（模式切换/消息发送/网关关闭/compaction）
+- `recovery` — 网关启动时从存储恢复会话
+- `storage/` — 可插拔存储后端（Memory/Redis）
 
 ---
 
-## 2. 公开 API（re-export）
+## 2. 公开接口（mod.rs re-export）
 
-以下类型从 `mod.rs` 统一导出，供其他模块使用：
+按工作流分组，组内按字母序排列：
 
-```rust
-// Bootstrap 保护
-pub use bootstrap::{BootstrapContext, BootstrapProtection, BootstrapRegion};
+### 构造 / 配置
 
-// 持久化核心
-pub use persistence::{
-    CheckpointManager, PersistenceError, PersistenceService,
-    ReasoningMode, SessionCheckpoint,
-};
+| 接口 | 功能 |
+|------|------|
+| `BootstrapProtection::new()` | 创建无 workspace 的保护器（用于 transcript 扫描） |
+| `BootstrapProtection::with_workspace(PathBuf)` | 创建带 workspace 路径的保护器（用于 reinject） |
+| `BootstrapProtection::with_bootstrap_files(Vec<String>)` | 自定义要保护的 bootstrap 文件列表 |
+| `BootstrapProtection::with_size_limit(usize)` | 设置 reinject 字符数上限（默认 60K） |
+| `MemoryStorage::new()` | 创建内存存储后端（测试/单实例用） |
+| `RedisStorage::new(&str, &str) -> Result<Self, PersistenceError>` | 从 URL 创建 Redis 存储后端 |
+| `RedisStorage::key_prefix(&self) -> &str` | 查询存储使用的 key 前缀 |
+| `CheckpointManager::new(Arc<S>)` | 创建带存储后端的 Checkpoint 管理器 |
+| `SessionRecoveryService::new(Arc<S>)` | 创建恢复服务 |
 
-// 事件
-pub use events::{CheckpointTrigger, ModeSwitchEvent, UserIntent};
-```
+### 主操作
+
+| 接口 | 功能 |
+|------|------|
+| `BootstrapProtection::protect_session(&str) -> (String, BootstrapContext)` | 扫描 transcript 中已有的 bootstrap 内容并标记，返回标记后 transcript 和上下文 |
+| `BootstrapProtection::before_compact(&mut BootstrapContext)` | 存储所有 region 的 hash，供 compaction 后校验 |
+| `BootstrapProtection::after_compact(&str, &mut BootstrapContext) -> Vec<String>` | 检测 bootstrap 内容是否在 compaction 后被扭曲，返回需 reinject 的文件名列表 |
+| `BootstrapProtection::reinject(&[String], &mut BootstrapContext) -> Result<String, BootstrapProtectionError>` | 从 workspace 读取 bootstrap 文件，生成带标记的注入文本供 prepend |
+| `CheckpointManager::save(SessionCheckpoint)` | 异步保存 checkpoint（不阻塞主流程） |
+| `CheckpointManager::save_sync(SessionCheckpoint)` | 同步保存 checkpoint（用于网关关闭） |
+| `SessionRecoveryService::set_restore_callback(F)` | 设置恢复回调，接收 session_id 和 checkpoint |
+| `SessionRecoveryService::recover() -> Result<RecoveryReport, PersistenceError>` | 扫描所有活跃 session 并逐个恢复 |
+
+### 查询
+
+| 接口 | 功能 |
+|------|------|
+| `BootstrapProtection::read_bootstrap_files() -> Result<HashMap<String, String>, BootstrapProtectionError>` | 从 workspace 读取所有 bootstrap 文件内容 |
+| `BootstrapProtection::workspace_path() -> Option<&PathBuf>` | 获取 workspace 路径 |
+| `BootstrapProtection::bootstrap_files() -> &[String]` | 获取当前保护的 bootstrap 文件列表 |
+| `CheckpointManager::load(&str) -> Result<Option<SessionCheckpoint>, PersistenceError>` | 加载 checkpoint（优先本地缓存，未命中查存储） |
+| `CheckpointManager::cached_session_ids() -> Vec<String>` | 获取本地缓存中的所有 session_id |
+| `CheckpointManager::storage(&self) -> &S` | 获取底层存储服务引用 |
+| `SessionRecoveryService::storage(&self) -> &S` | 获取底层存储服务引用 |
+
+### 清理
+
+| 接口 | 功能 |
+|------|------|
+| `CheckpointManager::delete(&str)` | 删除 checkpoint（同时清本地缓存和存储） |
+| `CheckpointManager::clear_cache()` | 清空本地缓存 |
+
+### 公开数据类型（不含字段列表）
+
+| 类型 | 说明 |
+|------|------|
+| `BootstrapContext` | bootstrap 区域元数据容器，含 regions 列表和 integrity hash |
+| `BootstrapRegion` | 单个 bootstrap 文件的区域标记（含 hash 用于完整性校验） |
+| `BootstrapProtectionError` | bootstrap 保护操作错误（FileNotFound/IntegrityCheckFailed/IoError/MarkerParseError/WorkspacePathRequired） |
+| `SessionCheckpoint` | 会话持久化状态快照（session_id/mode/last_message_id/mode_state/pending_messages/ttl） |
+| `ReasoningMode` | 推理模式枚举（Direct/Plan/Stream/Hidden） |
+| `ReasoningModeState` | 推理模式运行时状态（步骤计数/步骤消息/完成标志） |
+| `PendingMessage` | 未最终确认的中间消息 |
+| `PersistenceService` | 持久化存储接口（save/load/delete/list_active_sessions） |
+| `PersistenceError` | 持久化操作错误（Redis/Postgres/Io/Serialization/NotFound/Lock） |
+| `CheckpointTrigger` | Checkpoint 触发时机（ModeSwitch/MessageSent/GatewayShutdown/PreCompact/PostCompact） |
+| `ModeSwitchEvent` | 模式切换事件（含 from/to mode 和 user_intent） |
+| `UserIntent` | 解析后的用户意图（raw_input/parsed_goal/entities） |
+| `RecoveryReport` | 恢复结果报告（recovered/failed 列表 + is_full_success/total） |
 
 ---
 
-## 3. Bootstrap 上下文保护（bootstrap.rs）
+## 3. 架构与数据流
 
-### 3.1 职责
+### 3.1 Bootstrap 保护流程
 
-在 OpenClaw 触发 session compaction 时，确保 agent 的 bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md）不被摘要扭曲，并在 compaction 完成后重新注入完整的 bootstrap 内容。
-
-### 3.2 核心数据结构
-
-#### BootstrapRegion
-
-```rust
-pub struct BootstrapRegion {
-    pub region_id: String,           // 唯一标识（session 作用域）
-    pub file_name: String,           // 文件名，如 "AGENTS.md"
-    pub content_hash: String,        // SHA-256 前12位 hex（完整性校验）
-    pub char_count: usize,           // 原始字符数
-    pub is_reinject: bool,           // 是否为 compaction 后重新注入
-    pub injected_at: DateTime<Utc>,  // 注入时间戳
-    pub transcript_offset: Option<usize>, // 在 transcript 中的偏移（预留）
-}
+```
+Session 启动
+    ↓
+protect_session() — 扫描 transcript，找到 bootstrap 内容，打上标记
+    ↓
+before_compact() — 存储所有 region hash
+    ↓
+Compaction 发生（摘要 transcript）
+    ↓
+after_compact() — 用 pre_compact hash 校验标记区域内容
+    ↓
+若内容被扭曲 → reinject() — 从 workspace 重新读取原始文件，生成带标记文本
+    ↓
+prepend 到 transcript 头部
 ```
 
-#### BootstrapContext
-
-```rust
-pub struct BootstrapContext {
-    pub regions: Vec<BootstrapRegion>,           // 当前追踪的所有 region
-    pub reinjected_after_last_compact: bool,     // 上次 compaction 后是否已重注入
-    pub total_char_count: usize,                 // 所有 bootstrap 内容的总字符数
-    pub pre_compact_hashes: HashMap<String, String>, // compaction 前存储的 hash（key=region_id）
-}
-```
-
-### 3.3 行为规范
-
-#### protect_session(transcript: &str) → (String, BootstrapContext)
-
-1. 扫描 transcript，找到已有 bootstrap 内容区域（通过启发式匹配）
-2. 用 `BOOTSTRAP_REGION_START` / `BOOTSTRAP_REGION_END` 标记包裹每个 bootstrap 文件内容
-3. 返回修改后的 transcript 和初始 BootstrapContext
-
-#### before_compact(ctx: &mut BootstrapContext)
-
-存储所有 region 的 content_hash 到 `pre_compact_hashes`，供 compaction 后校验。
-
-#### after_compact(transcript: &str, ctx: &mut BootstrapContext) → Vec<String>
-
-1. 遍历所有 region，在 transcript 中查找对应标记区域
-2. 提取标记内的内容，调用 `region.verify_integrity()` 校验 hash
-3. 返回需要重新注入的文件名列表
-
-#### reinject(file_names: &[String], ctx: &mut BootstrapContext) → Result<String, BootstrapProtectionError>
-
-1. 从 workspace 路径读取原始 bootstrap 文件
-2. 为每个文件创建 `is_reinject=true` 的 BootstrapRegion
-3. 生成带标记的注入文本，返回待 prepend 的完整字符串
-4. 超出 size_limit（默认 60K chars）时记录 warning log
-5. 错误时返回 `BootstrapProtectionError` 变体（如 `WorkspacePathRequired`、`IoError` 等）
-
-#### verify_integrity(content: &str) → bool
-
-使用 SHA-256 前 12 位 hex 进行前缀匹配校验。
-
-### 3.4 标记格式
-
+**标记格式**：
 ```
 <bootstrap:file=AGENTS.md,hash=abc123def456,chars=1234,reinject=false>
-[原始文件内容]
+[原始内容]
 </bootstrap>
 ```
 
-### 3.5 公开常量和辅助函数
+**完整性校验**：SHA-256 前 12 位 hex 前缀匹配。
 
-```rust
-pub const BOOTSTRAP_REGION_START: &str = "<bootstrap:file=";
-pub const BOOTSTRAP_REGION_END: &str = "</bootstrap>";
-pub fn make_bootstrap_marker(...) -> String; // 测试用公开函数
+### 3.2 Checkpoint 持久化流程
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BootstrapProtectionError {
-    FileNotFound(String),                      // bootstrap 文件不存在
-    IntegrityCheckFailed(String),             // 内容完整性校验失败
-    IoError(std::io::Error),                 // IO 错误
-    MarkerParseError(String),                 // 标记解析失败
-    WorkspacePathRequired,                     // reinject 需要 workspace 路径（无 payload）
-}
+```
+CheckpointTrigger 事件触发
+    ↓
+CheckpointManager::save() — 更新本地缓存 + tokio::spawn 异步写存储
+    ↓
+GatewayShutdown — save_sync() 确保同步落盘
+    ↓
+存储后端（PersistenceService）— MemoryStorage / RedisStorage
 ```
 
-> 注：`make_bootstrap_marker` 是无限制的公开函数（无 `#[cfg(test)]` 限制），路径使用 `file_name` 字段从 `BootstrapRegion` 获取。
+**加载优先顺序**：本地缓存 → 存储后端。
 
----
+### 3.3 会话恢复流程
 
-## 4. 持久化层（persistence.rs）
-
-### 4.1 ReasoningMode 枚举
-
-```rust
-pub enum ReasoningMode {
-    Direct,  // 直接回答模式
-    Plan,    // 规划模式（先展示思考框架）
-    Stream,  // 流式输出模式
-    Hidden,  // 隐藏思考过程模式
-}
 ```
-
-实现 `Default`（默认 Direct）、`Copy`、`PartialEq`、`Eq`、`Serialize`、`Deserialize`、`Display`。
-
-### 4.2 ReasoningModeState 结构
-
-```rust
-pub struct ReasoningModeState {
-    pub current_step: u32,      // 当前步骤编号（1-indexed）
-    pub total_steps: u32,      // 总步骤数
-    pub step_messages: Vec<String>, // 各步骤输出内容
-    pub is_complete: bool,     // 是否完成
-}
-```
-
-提供 `start_step()`、`add_step_message()`、`complete()` 方法。
-
-### 4.3 PendingMessage 结构
-
-```rust
-pub struct PendingMessage {
-    pub message_id: String,
-    pub content: String,
-    pub created_at: DateTime<Utc>,
-    pub sent: bool,  // 是否已发送
-}
-```
-
-提供 `new()` 和 `mark_sent()` 方法。
-
-### 4.4 SessionCheckpoint 结构
-
-```rust
-pub struct SessionCheckpoint {
-    pub session_id: String,
-    pub last_message_id: Option<String>,
-    pub mode_state: ReasoningModeState,
-    pub pending_messages: Vec<PendingMessage>,
-    pub mode: ReasoningMode,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub ttl_seconds: u64,  // 默认 604800（7 天），0 表示不过期
-}
-```
-
-提供 `new()` 和多个 `with_*()` builder 方法，以及 `touch()` 更新 `updated_at`。
-
-### 4.5 PersistenceService Trait
-
-```rust
-#[async_trait]
-pub trait PersistenceService: Send + Sync {
-    async fn save_checkpoint(&self, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError>;
-    async fn load_checkpoint(&self, session_id: &str) -> Result<Option<SessionCheckpoint>, PersistenceError>;
-    async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError>;
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError>;
-}
-```
-
-### 4.6 CheckpointManager<S: PersistenceService>
-
-提供：
-
-- `save(checkpoint)` — 异步写入，不阻塞主流程
-- `save_sync(checkpoint)` — 同步写入（用于网关关闭）
-- `load(session_id)` — 优先查本地缓存，未命中则查存储
-- `delete(session_id)` — 删除缓存和存储
-- `clear_cache()` — 清空本地缓存
-- `cached_session_ids()` — 获取缓存中的所有 session_id
-
-本地缓存：`RwLock<HashMap<String, SessionCheckpoint>>`
-
-### 4.7 PersistenceError 枚举
-
-```rust
-pub enum PersistenceError {
-    Redis(String),
-    Postgres(String),
-    Io(std::io::Error),
-    Serialization(serde_json::Error),
-    NotFound(String),
-    Lock(String),
-}
-```
-
-实现 `std::error::Error` + `From` 常见错误类型。
-
----
-
-## 5. 存储后端
-
-### 5.1 MemoryStorage
-
-```rust
-pub struct MemoryStorage {
-    checkpoints: RwLock<HashMap<String, SessionCheckpoint>>,
-}
-```
-- 用途：测试和单实例部署
-- 实现 `PersistenceService` Trait
-
-### 5.2 RedisStorage
-
-```rust
-pub struct RedisStorage {
-    client: redis::Client,
-    key_prefix: String,
-}
-```
-
-**方法**：
-- `new(redis_url: &str, key_prefix: &str) -> Result<Self, PersistenceError>` — 构造 Redis 存储
-- `key_prefix(&self) -> &str` — 获取 key 前缀
-
-- TTL：使用 checkpoint.ttl_seconds，默认 604800 秒
-- `list_active_sessions()`：使用 `KEYS` 命令扫描
-
----
-
-## 6. Checkpoint 触发事件（events.rs）
-
-### 6.1 CheckpointTrigger 枚举
-
-```rust
-pub enum CheckpointTrigger {
-    ModeSwitch { from_mode: ReasoningMode, to_mode: ReasoningMode },
-    MessageSent { message_id: String },
-    GatewayShutdown,  // requires_sync = true
-    PreCompact { before_char_count: usize },
-    PostCompact { after_char_count: usize, before_char_count: usize },
-}
-```
-
-- `requires_sync()`：仅 `GatewayShutdown` 返回 true
-
-### 6.2 ModeSwitchEvent 结构
-
-```rust
-pub struct ModeSwitchEvent {
-    pub requested_mode: Option<ReasoningMode>,
-    pub target_mode: Option<ReasoningMode>,
-    pub user_intent: Option<Arc<UserIntent>>,
-    pub session_id: Option<String>,
-}
-```
-
-### 6.3 UserIntent 结构
-
-```rust
-pub struct UserIntent {
-    pub raw_input: String,
-    pub parsed_goal: Option<String>,
-    pub entities: Vec<String>,
-}
+网关启动
+    ↓
+SessionRecoveryService::recover()
+    ↓
+遍历所有活跃 session（list_active_sessions）
+    ↓
+逐个加载 checkpoint（load_checkpoint）
+    ↓
+调用用户回调（restore_fn）
 ```
 
 ---
 
-## 7. 恢复服务（recovery.rs）
+## 4. 存储后端约定
 
-### 7.1 SessionRecoveryService<S: PersistenceService>
+| 后端 | 用途 | TTL |
+|------|------|-----|
+| `MemoryStorage` | 测试/单实例 | 无 |
+| `RedisStorage` | 生产 | checkpoint.ttl_seconds（默认 7 天） |
 
-```rust
-pub struct SessionRecoveryService<S: PersistenceService> {
-    storage: Arc<S>,
-    restore_fn: RwLock<Option<Box<dyn Fn(&str, &SessionCheckpoint) -> Result<(), PersistenceError> + Send + Sync>>>,
-}
-```
-
-- `storage(&self) -> &S` — 获取底层持久化服务引用
-- `set_restore_callback()` — 设置恢复回调，接收 session_id 和 checkpoint
-- `recover()` — 扫描所有活跃 session，逐个恢复，返回 `RecoveryReport`
-- `recover_session()` — 恢复单个 session（从存储加载 checkpoint 并调用回调）
-
-### 7.2 RecoveryReport 结构
-
-```rust
-pub struct RecoveryReport {
-    pub recovered: Vec<String>,  // 成功恢复的 session_id 列表
-    pub failed: Vec<String>,     // 恢复失败的 session_id 列表
-}
-```
-
-提供 `is_full_success()` 和 `total()` 方法。
+RedisStorage 的 `list_active_sessions()` 使用 `KEYS` 命令扫描。
 
 ---
 
-## 8. 行为规范总结
+## 5. 已知偏差（v3 重写后）
 
-| 功能 | 行为 |
-|------|------|
-| Bootstrap 完整性校验 | SHA-256 前12位 hex 前缀匹配 |
-| Compaction 保护 | before_compact 存 hash → after_compact 校验 → reinject |
-| Checkpoint 异步保存 | GatewayShutdown 同步写入，其他异步 tokio::spawn |
-| Checkpoint 加载 | 先查本地缓存，未命中查存储后端 |
-| Recovery | 扫描活跃 session → 逐个加载 checkpoint → 调用回调 |
+| 偏差项 | 类型 | 说明 | 状态 |
+|--------|------|------|------|
+| PostgreSQL 存储后端 | 少了 | 代码无实现，旧的偏差表曾记录此为偏差 | 记入偏差表待确认 |
+| File 存储后端 | 少了 | 代码无实现，旧的偏差表曾记录此为偏差 | 记入偏差表待确认 |
 
----
-
-## 9. 测试覆盖
-
-| 文件 | 测试内容 |
-|------|---------|
-| bootstrap.rs | BootstrapRegion 序列化/完整性校验/wrap/parse；BootstrapContext 默认/添加region/校验/exceeds；BootstrapProtection before_compact/after_compact/reinject；make_bootstrap_marker；region_id 唯一性 |
-| persistence.rs | CheckpointManager save+load+cache_hit+delete+clear_cache；ReasoningMode Default+Display；PendingMessage mark_sent；ReasoningModeState operations |
-| storage/memory.rs | save+load/load_none/delete/list_active_sessions/overwrite |
-| storage/redis.rs | make_key/key_prefix/invalid_url；集成测试标注 `#[ignore]` |
-| recovery.rs | RecoveryReport is_full_success/total；SessionRecoveryService recover_empty/recover_with_callback/recover_not_found |
-| events.rs | CheckpointTrigger.requires_sync() |
-
-**总计：约 40+ 测试用例**，覆盖全部核心逻辑路径。
-
----
-
-## 10. 已知偏差（无）
-
-`src/session/` 模块与文档高度一致，代码已完整实现文档中所有设计内容。无偏差需记录。
+**注**：v3 标准下，许多旧偏差表中的条目（字段顺序、签名详细程度、类型名等）已不算有效偏差，不在此处重复记录。按 v3 判断标准重写后，`BootstrapProtectionError` 变体名、`verify_integrity` 形式、`PostCompact` 字段顺序等旧条目均已失效。
