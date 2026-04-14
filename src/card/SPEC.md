@@ -29,10 +29,10 @@
 | `PlanStep` | `mod.rs` | 单个步骤 |
 | `StepStatus` | `mod.rs` | 步骤状态枚举 |
 | `CardEvent` | `events.rs` | 卡片交互产生的事件 |
-| `PlanConfirmedPayload` | `events.rs` | PlanConfirmed 事件负载（session_id + card_message_id） |
-| `PlanCancelledPayload` | `events.rs` | PlanCancelled 事件负载（session_id） |
-| `PlanRegeneratePayload` | `events.rs` | PlanRegenerate 事件负载（session_id） |
-| `StepToggledPayload` | `events.rs` | StepToggled 事件负载（step_index + collapsed） |
+| `PlanConfirmedPayload` | `handler.rs` | PlanConfirmed 事件负载（session_id + card_message_id） |
+| `PlanCancelledPayload` | `handler.rs` | PlanCancelled 事件负载（session_id） |
+| `PlanRegeneratePayload` | `handler.rs` | PlanRegenerate 事件负载（session_id） |
+| `StepToggledPayload` | `handler.rs` | StepToggled 事件负载（step_index + collapsed） |
 | `CardError` | `handler.rs` | 处理器错误类型 |
 | `CardEventBus` | `handler.rs` | 事件总线 trait |
 | `CardUpdateService` | `update.rs` | 卡片更新服务（纯数据构建，无 I/O） |
@@ -222,6 +222,7 @@
 | variant | 含义 |
 |---------|------|
 | `EventBus(String)` | 事件总线发布失败 |
+| `SessionNotFound(String)` | 会话未找到（dead code，未被实际使用） |
 | `InvalidAction(String)` | 无效的按钮动作 |
 
 ### 6.2 `update.rs` — `CardError`
@@ -254,7 +255,7 @@ card 模块
 | 4 | `CardUpdateService` | 纯数据构建器，无 I/O | 文档描述持有 `Arc<FeishuAdapter>` 并执行真实 HTTP 更新 | 偏差：update.rs 是纯函数模块，实际 HTTP 调用需在其他模块（如 feishu.rs adapter）实现 |
 | 5 | `CardUpdateService` 构造方式 | `CardUpdateService::new()` → `Self` | 文档描述接收 `Arc<FeishuAdapter>` | 无影响：当前设计避免了对 FeishuAdapter 的循环依赖 |
 | 6 | `update.rs` 的 `CardError` 定义 | `CardNotFound`, `UpdateFailed`, `InvalidStepIndex` | 文档未定义（作为占位符） | 无影响 |
-（已删除 SessionNotFound — 此 variant 不存在于代码中）
+| 7 | `handler.rs` 的 `CardError` 定义 | `EventBus`, `SessionNotFound`, `InvalidAction` | 文档未提及 | 偏差较小：三个 variant 均为 dead code，代码实际未使用 |
 | 8 | `CardHeader.avatar_url` | 被存储但 `render_feishu_card` 不渲染 | 文档定义了字段但渲染部分未提及 | 无功能影响：飞书 card header 不支持自定义头像 |
 | 9 | `handler.rs` `StepToggled` 日志级别 | `tracing::debug!` | 文档未指定 | 无影响 |
 | 10 | `CardEventBus` trait | 存在于 `handler.rs`，被 `handle_card_event` 使用 | 文档描述在 handler.rs 但结构为 async fn | 一致 |
