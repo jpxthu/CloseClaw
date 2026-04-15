@@ -29,64 +29,29 @@ CloseClaw 使用 **Spec-first** 开发模式：
 - **OS 安全层**：seccomp + landlock
 - **构建工具**：Cargo
 
-## 快速开始
-
-```bash
-# 克隆
-git clone git@github.com:jpxthu/CloseClaw.git
-cd CloseClaw
-
-# 编译
-cargo build                  # Debug build (fast)
-
-# 运行测试
-cargo test
-
-# Release build (for production)
-cargo build --release
-
-# 运行
-cargo run
-```
-
-## 开发
-
-```bash
-# 查看所有分支
-git branch -a
-
-# 切换到主分支（所有 Phase 1-7 功能已合并）
-git checkout master
-
-# 运行所有测试
-cargo test
-
-# 运行带日志
-RUST_LOG=debug cargo test
-```
-
 ## 目录结构
 
+> **维护规则**：模块结构或功能变更时，必须同步更新本表。新增模块也必须在此注册。
+
+| 文件 | 描述 |
+|------|------|
+| `src/agent/SPEC.md` | Agent 配置、prompt 构造、能力调度 |
+| `src/card/SPEC.md` | 卡片消息渲染与交互处理 |
+| `src/chat/SPEC.md` | 聊天会话管理、上下文构建 |
+| `src/config/SPEC.md` | 配置加载、校验、热点更新 |
+| `src/gateway/SPEC.md` | 网关协议接入（IM 适配层） |
+| `src/im/SPEC.md` | IM 消息接收与发送、事件处理 |
+| `src/llm/SPEC.md` | LLM 接口抽象、多模型支持 |
+| `src/mode/SPEC.md` | 运行模式（CLI/Gateway/Daemon） |
+| `src/permission/SPEC.md` | 权限校验与访问控制 |
+| `src/platform/SPEC.md` | 平台层抽象（飞书/Discord/Signal…） |
+| `src/session/SPEC.md` | Session 存储与生命周期管理 |
+| `src/skills/SPEC.md` | Skill 加载、注册、调度 |
+| `src/system_prompt/SPEC.md` | System Prompt 分段渲染 |
+
+## 启动
+
+```bash
+cargo build && cargo test
+cargo run
 ```
-closeclaw/
-├── src/
-│   ├── gateway/      # 网关模块（消息路由、Session 管理）
-│   ├── agent/        # agent 运行时（状态机、进程管理）
-│   ├── permission/   # 权限引擎（核心）
-│   ├── config/       # 配置系统（热重载、备份回滚）
-│   ├── im/           # IM 适配器
-│   ├── skills/       # 内置 skills
-│   └── llm/          # LLM 接口抽象
-├── tests/            # 集成测试
-└── docs/             # 设计文档
-```
-
-## 开发指南
-
-- [SPEC_CONVENTION.md](SPEC_CONVENTION.md) — SPEC 编写规范（模块规格书怎么写）
-- `src/<模块>/SPEC.md` — 各模块规格书（陆续建立中）
-- [docs/](docs/) — 项目级文档、开发者指南
-
-## License
-
-MIT
