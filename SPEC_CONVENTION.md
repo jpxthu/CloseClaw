@@ -1,8 +1,28 @@
 # SPEC 规格书编写规范
 
-> 状态：**v3** | 2026-04-13 更新
+---
+
+## SPEC 文件地图
+
+| 文件 | 描述 |
+|------|------|
+| `src/agent/SPEC.md` | Agent 配置、prompt 构造、能力调度 |
+| `src/card/SPEC.md` | 卡片消息渲染与交互处理 |
+| `src/chat/SPEC.md` | 聊天会话管理、上下文构建 |
+| `src/config/SPEC.md` | 配置加载、校验、热点更新 |
+| `src/gateway/SPEC.md` | 网关协议接入（IM 适配层） |
+| `src/im/SPEC.md` | IM 消息接收与发送、事件处理 |
+| `src/llm/SPEC.md` | LLM 接口抽象、多模型支持 |
+| `src/mode/SPEC.md` | 运行模式（CLI/Gateway/Daemon） |
+| `src/permission/SPEC.md` | 权限校验与访问控制 |
+| `src/platform/SPEC.md` | 平台层抽象（飞书/Discord/Signal…） |
+| `src/session/SPEC.md` | Session 存储与生命周期管理 |
+| `src/skills/SPEC.md` | Skill 加载、注册、调度 |
+| `src/system_prompt/SPEC.md` | System Prompt 分段渲染 |
 
 ---
+
+> 状态：**v3** | 2026-04-13 更新
 
 ## 什么是 SPEC
 
@@ -100,14 +120,5 @@ src/<模块名>/SPEC.md
 
 每个模块的规格书放在对应代码目录下。`docs/` 保留给跨模块架构文档和面向用户的指南。
 
----
 
-## 与 docs/ 的分工
-
-| 类型 | 位置 | 内容 |
-|------|------|------|
-| SPEC | `src/<模块>/SPEC.md` | 模块概述、公开接口、架构结构 |
-| 设计意图/历史 | `docs/design/` 或代码注释 | 架构决策、为什么这么做 |
-| 用户指南 | `docs/` | 面向人类的上手文档 |
-| 过时文档 | `docs/archive/` | 已废弃但有保留价值 |
 
