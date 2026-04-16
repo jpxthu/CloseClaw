@@ -158,8 +158,10 @@ pub fn handle_git_command(args: &str) -> SlashCommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    
 
     #[test]
+    
     fn test_system_command_set_content() {
         clear_append_section();
         let result = handle_system_command("test append");
@@ -173,6 +175,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_system_command_empty_shows_current() {
         clear_append_section();
         let result = handle_system_command("");
@@ -184,6 +187,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_system_command_truncation() {
         clear_append_section();
         let long_text = "x".repeat(600);

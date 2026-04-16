@@ -233,7 +233,7 @@ pub fn set_append_section(text: String) -> Option<String> {
 
 /// Get the current append section content
 pub fn get_append_section() -> Option<String> {
-    APPEND_SECTION.read().ok()?.clone()
+    APPEND_SECTION.write().ok()?.clone()
 }
 
 /// Clear the append section (called after request completes)
@@ -251,6 +251,7 @@ pub fn clear_append_section() {
 mod tests {
     use super::*;
     use std::io::Write;
+    
     use tempfile::tempdir;
 
     #[test]
@@ -288,6 +289,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_append_section_truncation() {
         let long_text = "a".repeat(600);
         let warning = set_append_section(long_text);
@@ -299,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_append_section_no_truncation() {
         let text = "short text".to_string();
         let warning = set_append_section(text.clone());
@@ -307,6 +310,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_append_section_cleared_after_request() {
         set_append_section("test".to_string());
         assert!(get_append_section().is_some());

@@ -201,9 +201,11 @@ pub fn build_from_workspace<P: AsRef<Path>>(
 mod tests {
     use super::*;
     use super::super::sections::{clear_append_section, set_append_section};
+    
 
     #[test]
     fn test_build_system_prompt_with_override() {
+        clear_append_section();
         set_override_prompt(Some("override prompt".to_string()));
         let sections = vec![Section::RoleSection("should not appear".to_string())];
         let result = build_system_prompt(sections);
@@ -213,6 +215,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_agent_prompt() {
+        clear_append_section();
         set_agent_prompt(Some("agent prompt".to_string()));
         let sections = vec![];
         let result = build_system_prompt(sections);
@@ -222,6 +225,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_custom_prompt() {
+        clear_append_section();
         set_custom_prompt(Some("custom prompt".to_string()));
         let sections = vec![];
         let result = build_system_prompt(sections);
@@ -230,8 +234,10 @@ mod tests {
     }
 
     #[test]
+    
     fn test_build_system_prompt_default() {
         // Clear global state that could affect this test
+        clear_append_section();
         set_override_prompt(None);
         set_agent_prompt(None);
         set_custom_prompt(None);
@@ -243,7 +249,9 @@ mod tests {
     }
 
     #[test]
+    
     fn test_build_append_section_appended() {
+        set_override_prompt(None);
         clear_append_section();
         set_append_section("extra notes".to_string());
         let sections = vec![Section::RoleSection("base".to_string())];
@@ -254,6 +262,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_append_section_not_shown_when_empty() {
         clear_append_section();
         let sections = vec![Section::RoleSection("base".to_string())];
@@ -264,6 +273,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_dynamic_sections_not_cached() {
         clear_append_section();
         let sections = vec![Section::SessionState {
