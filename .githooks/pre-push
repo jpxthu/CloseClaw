@@ -1,0 +1,66 @@
+#!/bin/bash
+# pre-push hook
+#
+# 1. Block force push to protected branches
+# 2. Require unit tests to pass before push
+
+set -e
+
+protected_branches="master main develop"
+
+echo "=== pre-push hook ===
+
+"
+
+# --- Part 1: Force push check ---
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    branch_name="${remote_ref#refs/heads/}"
+
+    if ! echo "$protected_branches" | grep -qw "$branch_name"; then
+        continue
+    fi
+
+    if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
+        echo "Allowing create of new protected branch '$branch_name'"
+        continue
+    fi
+
+    git fetch --quiet origin "refs/heads/$branch_name:refs/remotes/temp-force-check" 2>/dev/null
+
+    temp_remote_sha=$(git rev-parse refs/remotes/temp-force-check 2>/dev/null)
+    git branch -d temp-force-check 2>/dev/null || true
+
+    if [[ -z "$temp_remote_sha" ]]; then
+        echo "Warning: could not fetch remote branch '$branch_name', skipping force push check"
+        continue
+    fi
+
+    if ! git merge-base --is-ancestor "$temp_remote_sha" "$local_sha" 2>/dev/null; then
+        echo ""
+        echo "ERROR: Force push detected on protected branch '$branch_name'"
+        echo "Remote sha: $temp_remote_sha"
+        echo "Local sha:  $local_sha"
+        echo ""
+        echo "Force pushing to '$branch_name' is not allowed."
+        echo "If you need to recover, use: git push --force-with-lease origin $branch_name"
+        echo ""
+        exit 1
+    fi
+
+    echo "Protected branch '$branch_name': non-force push detected, allowing"
+done
+
+# --- Part 2: UT check ---
+echo ""
+echo "Running unit tests before push..."
+
+if ! cargo test --lib --bins 2>&1; then
+    echo ""
+    echo "ERROR: Unit tests failed. Push blocked."
+    echo "Fix the tests and try again."
+    exit 1
+fi
+
+echo ""
+echo "pre-push hook: all checks passed"

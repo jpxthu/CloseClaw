@@ -1,0 +1,38 @@
+#!/bin/bash
+# Commit-msg hook: validates Source: and Type: footers
+# Mirrors CI check in .github/workflows/ci.yml
+
+set -e
+
+msg=$(cat "$1")
+
+echo "=== Commit message ==="
+echo "$msg"
+echo ""
+
+# 1. Check Source: footer
+if ! echo "$msg" | grep -qE '^Source: (issue #[0-9]+|Fixes #|Refs #|Closes #|CI|user)'; then
+    echo "ERROR: Source footer must be one of:"
+    echo "  - issue #N"
+    echo "  - Fixes #N / Refs #N / Closes #N (legacy)"
+    echo "  - CI"
+    echo "  - user"
+    echo ""
+    echo "Commit message:"
+    echo "$msg"
+    exit 1
+fi
+
+# 2. Check Type: footer
+valid_types="feat|fix|docs|refactor|test|perf|chore"
+if ! echo "$msg" | grep -qE "^Type: ($valid_types)"; then
+    echo "ERROR: Type footer must be one of: $valid_types"
+    echo ""
+    echo "Commit message:"
+    echo "$msg"
+    exit 1
+fi
+
+echo "Commit message check passed"
+echo "- Source: $(echo "$msg" | grep '^Source:' | sed 's/^Source: //')"
+echo "- Type: $(echo "$msg" | grep '^Type:' | sed 's/^Type: //')"
