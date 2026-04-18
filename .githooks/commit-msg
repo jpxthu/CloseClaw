@@ -33,6 +33,16 @@ if ! echo "$msg" | grep -qE "^Type: ($valid_types)"; then
     exit 1
 fi
 
+# 3. Remind agent to verify commit author matches their session identity
+actual_author=$(git config user.name 2>/dev/null | tr -d '\n')
+actual_email=$(git config user.email 2>/dev/null | tr -d '\n')
+if [[ -n "$actual_author" ]]; then
+    echo "NOTE: Current commit author is '$actual_author <$actual_email>'"
+    echo "      If this is not your agent identity, fix with:"
+    echo "      git commit --amend --author 'Your Name <your@email>' --no-edit"
+    echo ""
+fi
+
 echo "Commit message check passed"
 echo "- Source: $(echo "$msg" | grep '^Source:' | sed 's/^Source: //')"
 echo "- Type: $(echo "$msg" | grep '^Type:' | sed 's/^Type: //')"
