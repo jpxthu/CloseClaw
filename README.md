@@ -9,7 +9,7 @@ CloseClaw 使用 **Spec-first** 开发模式：
 - **规格书位置**：`src/<模块名>/SPEC.md`（每个模块一个规格书）
 - **规格书内容**：模块的精确功能说明（接口、数据结构、行为规范），不是开发步骤
 - **编写规范**：见 [SPEC_CONVENTION.md](SPEC_CONVENTION.md)
-- **当前状态**：大部分模块规格书缺失，正在逐步建立（见 SPEC_CONVENTION.md）
+- **当前状态**：全部 16 个模块规格书已完成，与代码库对齐（见 SPEC_ALIGNMENT_PLAN__MODULES.md）
 
 > **Spec-first 开发纪律**：需求来了 → developer 先写 SPEC → braino review 通过后再开发 → 代码与 SPEC 保持镜像一致
 
@@ -48,6 +48,9 @@ CloseClaw 使用 **Spec-first** 开发模式：
 | `src/session/SPEC.md` | Session 存储与生命周期管理 |
 | `src/skills/SPEC.md` | Skill 加载、注册、调度 |
 | `src/system_prompt/SPEC.md` | System Prompt 分段渲染 |
+| `src/audit/SPEC.md` | 操作审计日志、事件记录与查询 |
+| `src/cli/SPEC.md` | 命令行启动、交互模式、参数解析 |
+| `src/daemon/SPEC.md` | Daemon 进程管理、信号处理、优雅关闭 |
 
 ## 启动
 
