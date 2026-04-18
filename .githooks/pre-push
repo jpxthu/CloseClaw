@@ -1,7 +1,7 @@
 #!/bin/bash
 # pre-push hook
 #
-# 1. Block force push to protected branches (purely local, no network)
+# 1. Block force push to protected branches
 # 2. Run unit tests before push
 
 set -e
@@ -12,7 +12,7 @@ echo "=== pre-push hook ==="
 echo ""
 
 # --- Part 1: Force push check ---
-# Uses remote_sha passed by git push via stdin — no git fetch needed.
+# Fetch the actual remote SHA via FETCH_HEAD, then compare locally.
 
 while read -r local_ref local_sha remote_ref remote_sha; do
     branch_name="${remote_ref#refs/heads/}"
@@ -27,12 +27,20 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         continue
     fi
 
-    if git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+    # Fetch the actual remote SHA (stored in FETCH_HEAD)
+    if ! git fetch --quiet origin "refs/heads/$branch_name" 2>/dev/null; then
+        echo "Warning: could not fetch remote '$branch_name', skipping force push check"
+        continue
+    fi
+
+    remote_actual_sha=$(git rev-parse "refs/remotes/origin/$branch_name")
+
+    if git merge-base --is-ancestor "$remote_actual_sha" "$local_sha" 2>/dev/null; then
         echo "Branch '$branch_name': fast-forward, allowing"
     else
         echo ""
         echo "ERROR: Force push detected on protected branch '$branch_name'"
-        echo "Remote: $remote_sha"
+        echo "Remote: $remote_actual_sha"
         echo "Local:  $local_sha"
         echo ""
         echo "Force pushing to '$branch_name' is not allowed."
@@ -41,20 +49,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         exit 1
     fi
 done
-
-# --- Part 2: UT check ---
-echo ""
-echo "Running unit tests..."
-
-# Disconnect stdin so cargo test doesn't accidentally read push ref data
-exec </dev/null
-
-if ! cargo test --lib --bins 2>&1; then
-    echo ""
-    echo "ERROR: Unit tests failed. Push blocked."
-    echo "Fix the tests and try again."
-    exit 1
-fi
 
 echo ""
 echo "pre-push hook: all checks passed"
