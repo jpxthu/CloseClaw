@@ -7,17 +7,14 @@ pub mod lifecycle;
 pub mod query;
 
 use crate::agent::process::{AgentProcess, AgentProcessHandle};
-use crate::agent::state::{
-    is_valid_transition, AgentStateTransition, Checkpoint, DestroyConfirmation, ErrorInfo,
-    SourceLocation, SuspendedReason, TransitionTrigger,
-};
+#[cfg(test)]
+use crate::agent::state::{is_valid_transition, Checkpoint, DestroyConfirmation, SourceLocation};
+use crate::agent::state::{AgentStateTransition, ErrorInfo, SuspendedReason, TransitionTrigger};
 use crate::agent::{Agent, AgentState};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tracing::debug;
-use uuid::Uuid;
 
 /// Errors that can occur in the agent registry
 #[derive(Error, Debug)]
