@@ -2,7 +2,9 @@
 
 ## 模块概述
 
-提供进程内 TCP 聊天服务，监听 `127.0.0.1:18889`，通过 JSON 换行分隔协议（NDJSON）与客户端交互。每个 TCP 连接对应一个独立会话，会话将用户消息委托给 LLM（带 fallback 链），完整响应后一次性写回客户端。
+提供进程内 TCP 聊天服务，监听 `127.0.0.1:18889`，通过 JSON 换行分隔协议（NDJSON）
+与客户端交互。每个 TCP 连接对应一个独立会话，会话将用户消息委托给 LLM
+（带 fallback 链），完整响应后一次性写回客户端。
 
 核心设计：per-connection session + broadcast shutdown + LLM fallback 链 + 历史窗口截断。
 
@@ -35,6 +37,7 @@
 - **`ChatSession::new()`** — 构造 session；从环境变量初始化 fallback_client、max_history、timeout
 - **`ChatSession::run()`** — 主事件循环：读客户端消息 → 分发处理 → 写回响应；并监听 shutdown 信号
 - **`ChatSession::handle_line()`** — 解析 ClientMessage，分发 ChatStart/ChatMessage/ChatStop
+- **`ChatSession::handle_chat_message()`** — 处理 ChatMessage：追加历史 → 截断 → 调用 LLM → 返回响应消息
 - **`ChatSession::call_llm()`** — 调用 LLM（通过 FallbackClient），返回响应内容
 - **`ChatSession::send_message()`** — 将 ServerMessage 写入 TCP（JSON + 换行 + flush）
 - **`ChatSession::truncate_history()`** — 裁剪 chat_history 到 max_history 条
@@ -61,9 +64,10 @@ ClientMessage ──► ChatSession::handle_line
                         │
                         ├─ ChatStart  ──► ChatSession::new agent_id  ──► ChatStarted
                         │
-                        ├─ ChatMessage ──► truncate_history()
+                        ├─ ChatMessage ──► handle_chat_message()
+                        │                   ──► append user to history → truncate_history()
                         │                   ──► call_llm() via FallbackClient
-                        │                   ──► append user + assistant to history
+                        │                   ──► append assistant to history
                         │                   ──► ChatResponse + ChatResponseDone
                         │
                         └─ ChatStop ──► active = false  ──► ChatResponseDone
@@ -98,7 +102,9 @@ TCP Client
 2. 将原始行 JSON 反序列化为 `ClientMessage`；失败返回 `ChatError`。
 3. 根据消息类型分发：
    - `ChatStart`：更新 `self.agent_id`，返回 `ChatStarted`。
-   - `ChatMessage`：追加 user 消息 → truncate → call LLM → 追加 assistant 消息 → 返回 `ChatResponse` + `ChatResponseDone`；LLM 失败时 content 字段填充 `[error]` 信息。
+   - `ChatMessage`：委托给 `handle_chat_message`：追加 user 消息 → truncate →
+     call LLM → 追加 assistant 消息 → 返回 `ChatResponse` + `ChatResponseDone`；
+     LLM 失败时 content 字段填充 `[error]` 信息。
    - `ChatStop`：设置 `active = false`，返回 `ChatResponseDone`。
 4. `send_message` 写响应 JSON 加 `\n` 后 flush 到客户端；写入失败则退出循环。
 
@@ -150,4 +156,5 @@ TCP Client
 ---
 
 *变更历史*
+- 2026-04-20：#226 提取 `handle_chat_message` 方法，同步 SPEC
 - 2026-04-14：按 v3 标准重写，精简接口签名、补充架构/数据流章节
