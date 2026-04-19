@@ -15,6 +15,9 @@ use tracing::{debug, error, info, warn};
 use super::backup::SafeBackupManager;
 use super::{ConfigError, ConfigProvider};
 
+/// Type alias for the config parsing function.
+type ParseFn<P> = Arc<dyn Fn(&str) -> Result<P, ConfigError> + Send + Sync>;
+
 /// Event emitted when a config reload occurs
 #[derive(Debug, Clone)]
 pub enum ConfigReloadEvent {
@@ -46,14 +49,14 @@ pub struct ConfigReloadManager<P> {
     provider: Arc<std::sync::Mutex<P>>,
     /// File paths being watched
     watched_paths: Vec<PathBuf>,
-    /// Backup manager for rollback support (Arc so it can be shared with the watch background task)
+    /// Backup manager for rollback support
     backup_manager: Arc<SafeBackupManager>,
     /// Channel for reload events
     event_sender: Option<mpsc::Sender<ConfigReloadEvent>>,
     /// Debounce duration to avoid rapid reloads
     debounce_duration: Duration,
     /// Parsing function for the config provider
-    parse_fn: Arc<dyn Fn(&str) -> Result<P, ConfigError> + Send + Sync>,
+    parse_fn: ParseFn<P>,
 }
 
 impl<P> std::fmt::Debug for ConfigReloadManager<P> {
@@ -107,61 +110,68 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
         Arc::clone(&self.provider)
     }
 
-    /// Manually trigger a reload of a specific config path.
-    /// Returns the result of the reload operation.
-    pub fn reload(&self, path: &str) -> ReloadResult {
-        let path_buf = PathBuf::from(path);
+    /// Read file content and create backup before reload.
+    fn backup_current_content(&self, path: &PathBuf) -> Result<(), ReloadResult> {
+        let current_content = fs::read(path).map_err(|e| {
+            error!("Failed to read config file {:?}: {}", path, e);
+            ReloadResult::RolledBack(ConfigError::IoError(e))
+        })?;
 
-        // Lock provider and read current content for backup
-        let _provider_guard = self.provider.lock().unwrap();
-        let current_content = match fs::read(&path_buf) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Failed to read config file {:?}: {}", path_buf, e);
-                return ReloadResult::RolledBack(ConfigError::IoError(e));
-            }
-        };
-        drop(_provider_guard);
-
-        // Create backup before attempting reload
         if let Err(e) = self
             .backup_manager
-            .backup_with_content(&path_buf, &current_content)
+            .backup_with_content(path, &current_content)
         {
             warn!("Failed to create backup before reload: {}", e);
         }
+        Ok(())
+    }
 
-        // Attempt to parse and validate new config
-        let new_content = match fs::read_to_string(&path_buf) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Failed to read new config content: {}", e);
-                return ReloadResult::RolledBack(ConfigError::IoError(e));
-            }
-        };
+    /// Load config from file, parse and validate. Returns the parsed provider on success.
+    fn load_and_validate(&self, path: &str, path_buf: &PathBuf) -> Result<P, ReloadResult> {
+        let new_content = fs::read_to_string(path_buf).map_err(|e| {
+            error!("Failed to read new config content: {}", e);
+            ReloadResult::RolledBack(ConfigError::IoError(e))
+        })?;
 
-        // Try to create a temporary provider to validate
-        let temp_provider = match (self.parse_fn)(&new_content) {
-            Ok(p) => p,
-            Err(e) => {
-                error!("Failed to parse new config: {}", e);
-                self.emit_event(ConfigReloadEvent::ValidationFailed {
-                    path: path.to_string(),
-                    error: e.to_string(),
-                });
-                return ReloadResult::ValidationFailed(e);
-            }
-        };
+        let temp_provider = (self.parse_fn)(&new_content).map_err(|e| {
+            error!("Failed to parse new config: {}", e);
+            self.emit_event(ConfigReloadEvent::ValidationFailed {
+                path: path.to_string(),
+                error: e.to_string(),
+            });
+            ReloadResult::ValidationFailed(e)
+        })?;
 
-        // Validate the new config
-        if let Err(e) = temp_provider.validate() {
+        temp_provider.validate().map_err(|e| {
             error!("Validation failed for new config: {}", e);
             self.emit_event(ConfigReloadEvent::ValidationFailed {
                 path: path.to_string(),
                 error: e.to_string(),
             });
-            return ReloadResult::ValidationFailed(e);
+            ReloadResult::ValidationFailed(e)
+        })?;
+
+        Ok(temp_provider)
+    }
+}
+
+impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
+    /// Manually trigger a reload of a specific config path.
+    /// Returns the result of the reload operation.
+    pub fn reload(&self, path: &str) -> ReloadResult {
+        let path_buf = PathBuf::from(path);
+
+        // Lock provider briefly to ensure no concurrent reload
+        let _guard = self.provider.lock().unwrap();
+        drop(_guard);
+
+        if let Err(result) = self.backup_current_content(&path_buf) {
+            return result;
         }
+        let temp_provider = match self.load_and_validate(path, &path_buf) {
+            Ok(p) => p,
+            Err(result) => return result,
+        };
 
         // Validation passed, apply the new config
         let mut provider_guard = self.provider.lock().unwrap();
@@ -227,82 +237,114 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
 
         // Spawn background task to handle events
         std::thread::spawn(move || {
-            let mut last_event_time: std::time::Instant = std::time::Instant::now()
-                .checked_sub(debounce * 2)
-                .unwrap_or(std::time::Instant::now());
-
-            for event in rx {
-                // Debounce: skip if within debounce window
-                let now = std::time::Instant::now();
-                if now.duration_since(last_event_time) < debounce {
-                    debug!("Debouncing config change event");
-                    continue;
-                }
-                last_event_time = now;
-
-                for path in event.paths {
-                    let path_str = path.display().to_string();
-                    info!("Config file changed: {}", path_str);
-
-                    // Lock provider for backup
-                    let current_content = match fs::read(&path) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            error!("Failed to read config for backup: {}", e);
-                            continue;
-                        }
-                    };
-
-                    if let Err(e) = backup_manager.backup_with_content(&path, &current_content) {
-                        warn!("Failed to create backup: {}", e);
-                    }
-
-                    // Try to reload
-                    let new_content = match fs::read_to_string(&path) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            error!("Failed to read changed config: {}", e);
-                            continue;
-                        }
-                    };
-
-                    let temp_provider = match parse_fn(&new_content) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            error!("Failed to parse changed config: {}", e);
-                            if let Some(ref sender) = event_sender {
-                                let _ = sender.try_send(ConfigReloadEvent::ValidationFailed {
-                                    path: path_str.clone(),
-                                    error: e.to_string(),
-                                });
-                            }
-                            continue;
-                        }
-                    };
-
-                    if let Err(e) = temp_provider.validate() {
-                        error!("Validation failed for changed config: {}", e);
-                        if let Some(ref sender) = event_sender {
-                            let _ = sender.try_send(ConfigReloadEvent::ValidationFailed {
-                                path: path_str.clone(),
-                                error: e.to_string(),
-                            });
-                        }
-                        continue;
-                    }
-
-                    // Apply the new config
-                    let mut provider_guard = provider.lock().unwrap();
-                    *provider_guard = temp_provider;
-
-                    if let Some(ref sender) = event_sender {
-                        let _ = sender.try_send(ConfigReloadEvent::Reloaded { path: path_str });
-                    }
-                }
-            }
+            run_watch_loop(
+                rx,
+                provider,
+                backup_manager,
+                parse_fn,
+                event_sender,
+                debounce,
+            );
         });
 
         Ok(WatcherHandle { watcher })
+    }
+}
+
+/// Background loop that processes file change events with debounce.
+fn run_watch_loop<P: ConfigProvider + Send + 'static>(
+    rx: std::sync::mpsc::Receiver<Event>,
+    provider: Arc<std::sync::Mutex<P>>,
+    backup_manager: Arc<SafeBackupManager>,
+    parse_fn: ParseFn<P>,
+    event_sender: Option<mpsc::Sender<ConfigReloadEvent>>,
+    debounce: Duration,
+) {
+    let mut last_event_time = std::time::Instant::now()
+        .checked_sub(debounce * 2)
+        .unwrap_or(std::time::Instant::now());
+
+    for event in rx {
+        let now = std::time::Instant::now();
+        if now.duration_since(last_event_time) < debounce {
+            debug!("Debouncing config change event");
+            continue;
+        }
+        last_event_time = now;
+
+        for path in event.paths {
+            handle_path_change(&path, &provider, &backup_manager, &parse_fn, &event_sender);
+        }
+    }
+}
+
+/// Process a single changed path: backup, parse, validate, apply.
+fn handle_path_change<P: ConfigProvider + Send + 'static>(
+    path: &PathBuf,
+    provider: &Arc<std::sync::Mutex<P>>,
+    backup_manager: &Arc<SafeBackupManager>,
+    parse_fn: &ParseFn<P>,
+    event_sender: &Option<mpsc::Sender<ConfigReloadEvent>>,
+) {
+    let path_str = path.display().to_string();
+    info!("Config file changed: {}", path_str);
+
+    let current_content = match fs::read(path) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to read config for backup: {}", e);
+            return;
+        }
+    };
+    if let Err(e) = backup_manager.backup_with_content(path, &current_content) {
+        warn!("Failed to create backup: {}", e);
+    }
+
+    let new_content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to read changed config: {}", e);
+            return;
+        }
+    };
+
+    let temp_provider = match parse_fn(&new_content) {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Failed to parse changed config: {}", e);
+            emit_watch_event(
+                event_sender,
+                ConfigReloadEvent::ValidationFailed {
+                    path: path_str.clone(),
+                    error: e.to_string(),
+                },
+            );
+            return;
+        }
+    };
+
+    if let Err(e) = temp_provider.validate() {
+        error!("Validation failed for changed config: {}", e);
+        emit_watch_event(
+            event_sender,
+            ConfigReloadEvent::ValidationFailed {
+                path: path_str.clone(),
+                error: e.to_string(),
+            },
+        );
+        return;
+    }
+
+    let mut provider_guard = provider.lock().unwrap();
+    *provider_guard = temp_provider;
+
+    emit_watch_event(event_sender, ConfigReloadEvent::Reloaded { path: path_str });
+}
+
+/// Send a watch event if a sender is available.
+fn emit_watch_event(sender: &Option<mpsc::Sender<ConfigReloadEvent>>, event: ConfigReloadEvent) {
+    if let Some(ref s) = sender {
+        let _ = s.try_send(event);
     }
 }
 
