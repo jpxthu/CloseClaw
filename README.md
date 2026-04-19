@@ -1,60 +1,84 @@
 # CloseClaw
 
-> 轻量级、规则驱动的多 agent 执行框架
-
-## Spec 规格书
-
-CloseClaw 使用 **Spec-first** 开发模式：
-
-- **规格书位置**：`src/<模块名>/SPEC.md`（每个模块一个规格书）
-- **规格书内容**：模块的精确功能说明（接口、数据结构、行为规范），不是开发步骤
-- **编写规范**：见 [SPEC_CONVENTION.md](SPEC_CONVENTION.md)
-- **当前状态**：全部 16 个模块规格书已完成，与代码库对齐（见 SPEC_ALIGNMENT_PLAN__MODULES.md）
-
-> **Spec-first 开发纪律**：需求来了 → developer 先写 SPEC → braino review 通过后再开发 → 代码与 SPEC 保持镜像一致
-
-## 核心特性
-
-- **规则驱动的权限引擎**：每只 agent 的权限在代码层面编译进沙盒，不可绕过
-- **模块化架构**：Gateway、Agent Runtime、Permission Engine、IM Adapter、Skill System 独立可插拔
-- **多 IM 后端支持**：飞书、Telegram、Discord 等即时通讯工具可插拔接入
-- **清晰的配置系统**：JSON 格式配置，模块分离，变更可追踪
-- **可见性与可追溯**：agent 动作、权限判断过程、agent 间通信均可观测
-
-## 技术栈
-
-- **语言**：Rust
-- **并发运行时**：Tokio
-- **IPC**：Unix Domain Socket + async channels
-- **OS 安全层**：seccomp + landlock
-- **构建工具**：Cargo
-
-## 目录结构
-
-> **维护规则**：模块结构或功能变更时，必须同步更新本表。新增模块也必须在此注册。
-
-| 文件 | 描述 |
-|------|------|
-| `src/agent/SPEC.md` | Agent 配置、prompt 构造、能力调度 |
-| `src/card/SPEC.md` | 卡片消息渲染与交互处理 |
-| `src/chat/SPEC.md` | 聊天会话管理、上下文构建 |
-| `src/config/SPEC.md` | 配置加载、校验、热点更新 |
-| `src/gateway/SPEC.md` | 网关协议接入（IM 适配层） |
-| `src/im/SPEC.md` | IM 消息接收与发送、事件处理 |
-| `src/llm/SPEC.md` | LLM 接口抽象、多模型支持 |
-| `src/mode/SPEC.md` | 运行模式（CLI/Gateway/Daemon） |
-| `src/permission/SPEC.md` | 权限校验与访问控制 |
-| `src/platform/SPEC.md` | 平台层抽象（飞书/Discord/Signal…） |
-| `src/session/SPEC.md` | Session 存储与生命周期管理 |
-| `src/skills/SPEC.md` | Skill 加载、注册、调度 |
-| `src/system_prompt/SPEC.md` | System Prompt 分段渲染 |
-| `src/audit/SPEC.md` | 操作审计日志、事件记录与查询 |
-| `src/cli/SPEC.md` | 命令行启动、交互模式、参数解析 |
-| `src/daemon/SPEC.md` | Daemon 进程管理、信号处理、优雅关闭 |
-
-## 启动
+轻量级、规则驱动的多 agent 执行框架。Rust + Tokio。
 
 ```bash
 cargo build && cargo test
-cargo run
 ```
+
+## 开发纪律
+
+### Spec-first
+
+- 每个模块有规格书：`src/<模块名>/SPEC.md`
+- SPEC 描述"系统现在是什么"，不是开发步骤
+- 代码改了 SPEC 必须同步，SPEC 改了代码也必须同步
+- 编写规范见 [SPEC_CONVENTION.md](SPEC_CONVENTION.md)
+
+### 代码硬限制
+
+| 指标 | 上限 |
+|------|------|
+| 文件行数 | 500 |
+| 单行宽度 | 120 字符 |
+| 函数体行数 | 50 |
+| 函数参数 | 6 |
+| 模块嵌套深度 | 3 层 |
+| impl 块行数 | 100 |
+| enum 变体数 | 20 |
+| 嵌套 match/if | 3 层 |
+| unsafe 块 | 0（除非有注释说明） |
+
+### Commit 格式
+
+```
+<type>(<scope>): <description>
+
+Source: <issue #N | CI | user>
+Type: <type>
+```
+
+`Source:` 和 `Type:` footer 是 **强制要求**，CI 会校验。详见 [docs/developer/commit-style.md](docs/developer/commit-style.md)。
+
+### 编码规范
+
+- 命名：类型 `UpperCamelCase`，函数/变量 `snake_case`，常量 `SCREAMING_SNAKE_CASE`
+- 布尔变量加前缀 `is_` / `has_` / `can_` / `should_`
+- 错误：`thiserror` 定义错误类型，`anyhow` 包装上下文，`?` 传播
+- 测试：单元测试同文件 `#[cfg(test)]`，集成测试放 `tests/`
+- 完整规范见 [docs/developer/code-style.md](docs/developer/code-style.md)
+
+## 模块地图
+
+| 目录 | 功能 | SPEC |
+|------|------|------|
+| `src/agent/` | Agent 配置、prompt 构造、能力调度 | [SPEC](src/agent/SPEC.md) |
+| `src/audit/` | 操作审计日志、事件记录与查询 | [SPEC](src/audit/SPEC.md) |
+| `src/card/` | 卡片消息渲染与交互处理 | [SPEC](src/card/SPEC.md) |
+| `src/chat/` | 聊天会话管理、上下文构建 | [SPEC](src/chat/SPEC.md) |
+| `src/cli/` | 命令行启动、交互模式、参数解析 | [SPEC](src/cli/SPEC.md) |
+| `src/config/` | 配置加载、校验、热点更新 | [SPEC](src/config/SPEC.md) |
+| `src/daemon/` | Daemon 进程管理、信号处理、优雅关闭 | [SPEC](src/daemon/SPEC.md) |
+| `src/gateway/` | 网关协议接入（IM 适配层） | [SPEC](src/gateway/SPEC.md) |
+| `src/im/` | IM 消息接收与发送、事件处理 | [SPEC](src/im/SPEC.md) |
+| `src/llm/` | LLM 接口抽象、多模型支持 | [SPEC](src/llm/SPEC.md) |
+| `src/mode/` | 运行模式（CLI/Gateway/Daemon） | [SPEC](src/mode/SPEC.md) |
+| `src/permission/` | 权限校验与访问控制 | [SPEC](src/permission/SPEC.md) |
+| `src/platform/` | 平台层抽象（飞书/Discord/Signal…） | [SPEC](src/platform/SPEC.md) |
+| `src/session/` | Session 存储与生命周期管理 | [SPEC](src/session/SPEC.md) |
+| `src/skills/` | Skill 加载、注册、调度 | [SPEC](src/skills/SPEC.md) |
+| `src/system_prompt/` | System Prompt 分段渲染 | [SPEC](src/system_prompt/SPEC.md) |
+
+## 关键文件索引
+
+| 需要了解 | 去看 |
+|----------|------|
+| 环境搭建、构建命令 | [docs/SETUP.md](docs/SETUP.md) |
+| 编码规范、硬限制详情 | [docs/developer/code-style.md](docs/developer/code-style.md) |
+| Commit 格式、CI 门禁 | [docs/developer/commit-style.md](docs/developer/commit-style.md) |
+| Git 工作流 | [docs/developer/git-guide.md](docs/developer/git-guide.md) |
+| Cargo 命令速查 | [docs/developer/cargo.md](docs/developer/cargo.md) |
+| SPEC 编写规范 | [SPEC_CONVENTION.md](SPEC_CONVENTION.md) |
+| Agent 模型与通信 | [docs/developer/references/agent-model.md](docs/developer/references/agent-model.md) |
+| 风险项、术语表 | [docs/developer/references/risk-issues.md](docs/developer/references/risk-issues.md) |
+| 配置示例 | `configs/agents.json.example`、`configs/.env.example` |

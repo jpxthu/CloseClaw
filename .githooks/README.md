@@ -6,7 +6,8 @@
 
 ```
 .githooks/
-├── commit-msg    # 提交信息格式检查
+├── commit-msg    # 提交信息格式检查（Source: + Type:）
+├── pre-commit   # 代码风格检查（fmt + clippy + 行数）
 ├── pre-push     # 禁止 force push 到保护分支
 └── README.md    # 本文件
 ```
@@ -22,6 +23,23 @@ git config core.hooksPath .githooks
 **注意**：`core.hooksPath` 是 per-repo 配置，新克隆仓库后需重新执行上方命令。
 
 ## Hooks 说明
+
+### pre-commit
+
+在每次 `git commit` 前自动运行以下检查，全部通过才允许提交：
+
+| 步骤 | 检查内容 | 失败时的提示 |
+|---|---|---|
+| 1 | `cargo fmt --check` | 格式不对，运行 `cargo fmt` 修复 |
+| 2 | `cargo clippy --all -- -D warnings` | clippy 报错，修复 lint 问题 |
+| 3 | `taplo fmt --check`（如已安装） | TOML 格式错误 |
+| 4 | 文件行数 ≤ 500 | 文件超过 500 行，必须先拆分 |
+
+**依赖安装（一次性）：**
+```bash
+cargo install clippy
+cargo install taplo
+```
 
 ### commit-msg
 

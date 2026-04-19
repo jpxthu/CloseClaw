@@ -1,48 +1,99 @@
-# Git Workflow Guide
+# Git 工作流
 
-> 如何使用 CloseClaw 进行 Git 版本控制工作流。
+## 核心规则
 
-## 基础工作流
+- **禁止直接 push master**——所有变更必须通过 PR（squash merge）
+- **禁止 force push master**——无论什么情况
+- 一个 PR = 一个 squash commit，master 保持线性历史
+- commit message 遵守 [commit-style.md](commit-style.md)
 
-1. **创建新分支** — 每次新功能或修复都从 `master`/`main` 创建新分支
-2. **频繁提交** — 用清晰的 commit message 记录每步进展
-3. **推送前检查** — 确认 `git status` 无意外文件
-4. **推送到远程** — 推送到共享分支时使用 `--force-with-lease` 而非 `--force`
-
-## 分支管理
+## 标准开发流程
 
 ```bash
-# 从 master 创建并切换到新分支
-git checkout -b feature/xxx
+# 1. 拉最新 master，创建功能分支
+git checkout master && git pull --rebase
+git checkout -b feat/xxx
 
-# 从 master 创建并切换到新分支（等价）
-git switch -c feature/xxx
+# 2. 开发
+# ...写代码...
 
-# 切换回 master
-git checkout master
-git switch master
+# 3. 提交前检查
+cargo fmt && cargo clippy -- -D warnings && cargo test
 
-# 删除已合并的分支
-git branch -d feature/xxx
+# 4. 提交（遵守 commit-style）
+git add -A
+git commit -m "feat(scope): 简短描述
+
+Source: issue #N
+Type: feat"
+
+# 5. 开发过程中 master 有更新？rebase 而非 merge
+git fetch origin
+git rebase origin/master
+
+# 6. 推送并创建 PR
+git push -u origin feat/xxx
+gh pr create --fill
 ```
 
-## 提交规范
+## PR 合并
 
-推荐格式：`type: 简短描述`
+开发 agent 的 code review 由自己 spawn sub-agent 完成，不需要等外部 review。
 
-常见 type：
-- `feat:` 新功能
-- `fix:` bug 修复
-- `docs:` 文档变更
-- `refactor:` 重构（不影响功能）
-- `test:` 测试相关
-- `chore:` 构建/工具变更
+```bash
+# 创建 PR 后直接 squash merge
+gh pr merge --squash --delete-branch
+```
 
-## 与 closeclaw 项目协作
+## 分支命名
 
-CloseClaw 团队约定：
-- 所有变更通过 PR 合并
-- commit 署名格式：`— 角色名: 描述`
-- 大改动先开 GitHub Issue 讨论
+| 前缀 | 用途 |
+|------|------|
+| `feat/` | 新功能 |
+| `fix/` | Bug 修复 |
+| `docs/` | 文档变更 |
+| `refactor/` | 重构 |
+| `test/` | 测试 |
+| `chore/` | 构建/工具 |
 
-命令 Reference 见 [git-reference.md](git-reference.md)。
+## master 保护（本地 hook）
+
+项目自带 `pre-push` hook，阻止直接 push 到 master。
+
+### 安装
+
+```bash
+git config core.hooksPath .githooks
+```
+
+### Hook 内容
+
+`.githooks/pre-push`：
+
+```bash
+#!/bin/bash
+while read local_ref local_sha remote_ref remote_sha; do
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    if [ "$branch" = "master" ]; then
+        echo "ERROR: 直接 push 到 master 被禁止。请通过 PR squash merge。"
+        exit 1
+    fi
+done
+```
+
+## 常用命令速查
+
+```bash
+# 创建并切换分支
+git switch -c feat/xxx
+
+# 删除已合并的分支
+git branch -d feat/xxx
+
+# 推送时用 --force-with-lease（替代 --force）
+git push --force-with-lease
+
+# 查看当前状态
+git status
+git log --oneline -10
+```
