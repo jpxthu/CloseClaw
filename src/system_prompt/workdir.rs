@@ -123,7 +123,11 @@ fn git_status_count(path: &Path, extra_arg: &str) -> usize {
         vec!["status", "--porcelain", extra_arg]
     };
 
-    let output = Command::new("git").args(&args).current_dir(path).output().ok();
+    let output = Command::new("git")
+        .args(&args)
+        .current_dir(path)
+        .output()
+        .ok();
 
     output
         .filter(|o| o.status.success())
@@ -154,7 +158,10 @@ pub fn build_git_status() -> Option<String> {
         format!("{} uncommitted change(s)", changes)
     };
 
-    Some(format!("On branch {}\n  status: {}", branch, status_summary))
+    Some(format!(
+        "On branch {}\n  status: {}",
+        branch, status_summary
+    ))
 }
 
 #[cfg(test)]

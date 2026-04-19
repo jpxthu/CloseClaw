@@ -81,10 +81,7 @@ pub async fn handle_card_event(
                 "plan cancelled via card button"
             );
             event_bus
-                .publish(
-                    "plan_cancelled",
-                    PlanCancelledPayload { session_id },
-                )
+                .publish("plan_cancelled", PlanCancelledPayload { session_id })
                 .await
                 .map_err(CardError::EventBus)
         }
@@ -95,10 +92,7 @@ pub async fn handle_card_event(
                 "plan regeneration requested via card button"
             );
             event_bus
-                .publish(
-                    "plan_regenerate",
-                    PlanRegeneratePayload { session_id },
-                )
+                .publish("plan_regenerate", PlanRegeneratePayload { session_id })
                 .await
                 .map_err(CardError::EventBus)
         }
@@ -133,7 +127,11 @@ pub async fn handle_card_event(
 #[async_trait::async_trait]
 pub trait CardEventBus: Send + Sync {
     /// Publish an event with the given name and payload.
-    async fn publish(&self, event_name: &str, payload: impl serde::Serialize + Send) -> Result<(), String>;
+    async fn publish(
+        &self,
+        event_name: &str,
+        payload: impl serde::Serialize + Send,
+    ) -> Result<(), String>;
 }
 
 #[cfg(test)]

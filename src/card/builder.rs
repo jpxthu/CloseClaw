@@ -1,6 +1,8 @@
 //! Feishu card builder — constructs cards from plan data.
 
-use super::elements::{ButtonElement, ButtonStyle, CardAction, CardElement, MarkdownElement, ProgressElement};
+use super::elements::{
+    ButtonElement, ButtonStyle, CardAction, CardElement, MarkdownElement, ProgressElement,
+};
 use super::{CardHeader, PlanData, PlanStep, RichCard, StepStatus};
 
 /// Feishu card builder for constructing Plan mode cards.
@@ -63,12 +65,7 @@ impl FeishuCardBuilder {
             StepStatus::Completed => "✅",
         };
 
-        let content = format!(
-            "{} **{}**\n\n{}",
-            status_icon,
-            step.title,
-            step.content
-        );
+        let content = format!("{} **{}**\n\n{}", status_icon, step.title, step.content);
 
         CardElement::Markdown(MarkdownElement {
             content,
@@ -87,7 +84,11 @@ mod tests {
             title: "测试计划".to_string(),
             current_step: 2,
             total_steps: 3,
-            step_labels: vec!["需求分析".to_string(), "方案设计".to_string(), "实现".to_string()],
+            step_labels: vec![
+                "需求分析".to_string(),
+                "方案设计".to_string(),
+                "实现".to_string(),
+            ],
             steps: vec![
                 PlanStep {
                     title: "需求分析".to_string(),

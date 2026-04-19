@@ -3,9 +3,7 @@
 use crate::session::events::ModeSwitchEvent;
 
 /// Complexity indicator keywords that suggest a high-complexity task.
-const COMPLEXITY_INDICATORS: &[&str] = &[
-    "系统", "架构", "设计", "实现", "重构", "迁移",
-];
+const COMPLEXITY_INDICATORS: &[&str] = &["系统", "架构", "设计", "实现", "重构", "迁移"];
 
 /// Determine whether a mode-switch event describes a high-complexity task.
 ///
