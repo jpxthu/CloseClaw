@@ -203,14 +203,12 @@ too_many_arguments = 6
 git config core.hooksPath .githooks
 ```
 
-Hook 内容（仅检查 staged 文件，不背负历史技术债）：
+Hook 内容（仅检查 staged 文件行数，不背负历史技术债；
+cargo fmt 和 clippy 放 CI，因为它们检查整个 crate 无法按文件过滤）：
 
 ```bash
 #!/bin/bash
 set -e
-
-cargo fmt --check
-cargo clippy --all -- -D warnings
 
 # 仅检查本次提交涉及的文件
 git diff --cached --name-only --diff-filter=ACMR -- '*.rs' | while read f; do
