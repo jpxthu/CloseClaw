@@ -118,7 +118,11 @@ Agent 模块负责 CloseClaw 多智能体系统的核心运行时管理。
 | `mod.rs` | `Agent` 核心结构体定义 |
 | `state.rs` | 状态机、状态转换校验、Checkpoint/PausePoint 持久化 |
 | `process.rs` | 子进程管理（spawn、IPC、stdout/stderr 异步读取） |
-| `registry.rs` | 全局注册表（Agent 生命周期中心） |
+| `registry/` | 全局注册表（Agent 生命周期中心） |
+| `registry/mod.rs` | RegistryError、AgentRegistry 结构体、构造器、SharedAgentRegistry |
+| `registry/query.rs` | 只读查询方法（get/list/ancestors/descendants 等） |
+| `registry/lifecycle.rs` | 基础生命周期（register/spawn/update_state/remove/kill 等） |
+| `registry/cascade.rs` | 级联操作（stop/suspend/resume/destroy 等） |
 | `config.rs` | AgentConfig、AgentPermissions、CommunicationConfig |
 | `inbox.rs` | InboxManager（消息队列 + 重试 + 死信 + 统计） |
 
