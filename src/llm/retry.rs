@@ -130,7 +130,9 @@ impl CooldownManager {
         drop(cooldowns);
         self.save().await;
     }
+}
 
+impl CooldownManager {
     /// Load persisted cooldowns from disk (sync version for use in sync constructors).
     ///
     /// Uses a one-shot runtime to block on async file I/O. Safe to call from sync
