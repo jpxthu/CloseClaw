@@ -130,21 +130,6 @@ impl ShutdownHandle {
         self.coordinator.state() != ShutdownState::Running
     }
 
-    /// Increment the busy count (call before starting async work)
-    pub fn increment_busy(&self) {
-        self.busy_count.fetch_add(1, Ordering::SeqCst);
-    }
-
-    /// Decrement the busy count (call after async work completes)
-    pub fn decrement_busy(&self) {
-        self.busy_count.fetch_sub(1, Ordering::SeqCst);
-    }
-
-    /// Get current busy count (for debugging/monitoring)
-    pub fn busy_count(&self) -> usize {
-        self.busy_count.load(Ordering::SeqCst)
-    }
-
     /// Initiate graceful shutdown — called when SIGTERM/SIGINT is received.
     ///
     /// 1. Transition to ShuttingDown
@@ -163,15 +148,15 @@ impl ShutdownHandle {
             DRAIN_TIMEOUT_SECS
         );
 
-        // Signal all components to stop accepting new work
-        // (Components check is_shutting_down() before starting new work)
         let _ = self.drain_done_tx.send(());
+        self.wait_for_drain().await;
+    }
 
-        // Wait for busy_count to reach 0, with timeout
+    /// Wait for busy_count to reach 0 or timeout, then finalize shutdown.
+    async fn wait_for_drain(&self) {
         let started_at = std::time::Instant::now();
 
         loop {
-            // Check if all in-flight operations are complete
             let count = self.busy_count.load(Ordering::SeqCst);
             if count == 0 {
                 info!("All in-flight operations complete, shutting down immediately");
@@ -192,7 +177,7 @@ impl ShutdownHandle {
             }
 
             info!(
-                "Waiting for in-flight operations to complete... ({}s / {}s, busy_count={})",
+                "Waiting for in-flight operations... ({}s / {}s, busy_count={})",
                 elapsed, DRAIN_TIMEOUT_SECS, count
             );
 
@@ -208,6 +193,23 @@ impl ShutdownHandle {
     /// Check if shutdown is complete
     pub fn is_stopped(&self) -> bool {
         self.coordinator.state() == ShutdownState::Stopped
+    }
+}
+
+impl ShutdownHandle {
+    /// Increment the busy count (call before starting async work)
+    pub fn increment_busy(&self) {
+        self.busy_count.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Decrement the busy count (call after async work completes)
+    pub fn decrement_busy(&self) {
+        self.busy_count.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// Get current busy count (for debugging/monitoring)
+    pub fn busy_count(&self) -> usize {
+        self.busy_count.load(Ordering::SeqCst)
     }
 }
 
