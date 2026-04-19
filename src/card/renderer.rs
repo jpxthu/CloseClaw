@@ -1,6 +1,9 @@
 //! Feishu card renderer — converts card elements to Feishu interactive card JSON.
 
-use super::elements::{ButtonElement, ButtonStyle, CardAction, CardElement, ImageElement, MarkdownElement, ProgressElement};
+use super::elements::{
+    ButtonElement, ButtonStyle, CardAction, CardElement, ImageElement, MarkdownElement,
+    ProgressElement,
+};
 
 /// Render a single card element to Feishu JSON format.
 pub fn render_element(element: &CardElement) -> serde_json::Value {
@@ -118,8 +121,10 @@ pub fn render_feishu_card(card: &super::RichCard) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::card::elements::{
+        ButtonElement, ButtonStyle, CardAction, CardElement, MarkdownElement, ProgressElement,
+    };
     use crate::card::{CardHeader, RichCard};
-    use crate::card::elements::{CardElement, ProgressElement, MarkdownElement, ButtonElement, CardAction, ButtonStyle};
 
     #[test]
     fn test_render_markdown() {
@@ -138,7 +143,13 @@ mod tests {
         let el = ProgressElement {
             current: 3,
             total: 5,
-            labels: Some(vec!["分析".to_string(), "设计".to_string(), "实现".to_string(), "测试".to_string(), "部署".to_string()]),
+            labels: Some(vec![
+                "分析".to_string(),
+                "设计".to_string(),
+                "实现".to_string(),
+                "测试".to_string(),
+                "部署".to_string(),
+            ]),
         };
         let json = render_element(&CardElement::Progress(el));
         assert_eq!(json["tag"], "markdown");
@@ -216,8 +227,8 @@ mod tests {
 
     #[test]
     fn test_render_feishu_card_with_header() {
-        use crate::card::{CardHeader, RichCard, StepStatus, PlanStep};
         use crate::card::elements::{CardElement, ProgressElement};
+        use crate::card::{CardHeader, PlanStep, RichCard, StepStatus};
 
         let card = RichCard {
             card_id: Some("msg_123".to_string()),
@@ -231,7 +242,11 @@ mod tests {
                 CardElement::Progress(ProgressElement {
                     current: 1,
                     total: 3,
-                    labels: Some(vec!["第一步".to_string(), "第二步".to_string(), "第三步".to_string()]),
+                    labels: Some(vec![
+                        "第一步".to_string(),
+                        "第二步".to_string(),
+                        "第三步".to_string(),
+                    ]),
                 }),
                 CardElement::Divider,
             ],
@@ -251,13 +266,11 @@ mod tests {
             card_id: None,
             title: "无头卡片".to_string(),
             header: None,
-            elements: vec![
-                CardElement::Markdown(MarkdownElement {
-                    content: "简单内容".to_string(),
-                    collapsible: false,
-                    collapsed: false,
-                }),
-            ],
+            elements: vec![CardElement::Markdown(MarkdownElement {
+                content: "简单内容".to_string(),
+                collapsible: false,
+                collapsed: false,
+            })],
         };
 
         let json = render_feishu_card(&card);

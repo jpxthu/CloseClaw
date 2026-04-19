@@ -3,8 +3,8 @@
 //! Orchestrates section assembly and renders the final system prompt string.
 
 use super::sections::{
-    get_append_section, get_cached_section, invalidate_all_sections, load_cached_file_section,
-    invalidate_section, read_file_section, Section,
+    get_append_section, get_cached_section, invalidate_all_sections, invalidate_section,
+    load_cached_file_section, read_file_section, Section,
 };
 use std::path::Path;
 use std::sync::RwLock;
@@ -199,9 +199,8 @@ pub fn build_from_workspace<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::sections::{clear_append_section, set_append_section};
-    
+    use super::*;
 
     #[test]
     fn test_build_system_prompt_with_override() {
@@ -234,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_build_system_prompt_default() {
         // Clear global state that could affect this test
         clear_append_section();
@@ -249,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_build_append_section_appended() {
         set_override_prompt(None);
         clear_append_section();
@@ -262,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_append_section_not_shown_when_empty() {
         clear_append_section();
         let sections = vec![Section::RoleSection("base".to_string())];
@@ -273,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_dynamic_sections_not_cached() {
         clear_append_section();
         let sections = vec![Section::SessionState {

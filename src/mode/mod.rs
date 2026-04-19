@@ -13,8 +13,8 @@ pub mod switch_event;
 pub use decision::{decide_mode, ModeDecisionTree};
 pub use natural_language::{parse_natural_language_intent, IntentResult, NaturalLanguagePatterns};
 pub use slash_command::{
-    format_mode, handle_slash_command, parse_slash_command, SlashCommand, SlashCommandResult,
-    SlashModeMap, SLASH_HELP_TEXT, SLASH_MODE_MAP, unknown_command_response,
+    format_mode, handle_slash_command, parse_slash_command, unknown_command_response, SlashCommand,
+    SlashCommandResult, SlashModeMap, SLASH_HELP_TEXT, SLASH_MODE_MAP,
 };
 pub use switch_event::{ModeSwitchEvent, ModeSwitchTrigger, UserIntent};
 
@@ -85,8 +85,8 @@ mod tests {
     #[test]
     fn test_decide_mode_priority() {
         let service = PlatformCapabilityService::new();
-        let ctx = ModeDecisionContext::new("test-session")
-            .with_requested_mode(ReasoningMode::Stream);
+        let ctx =
+            ModeDecisionContext::new("test-session").with_requested_mode(ReasoningMode::Stream);
 
         // Slash command should take highest priority
         let mode = decide_mode("/plan 设计系统", "feishu", &ctx, &service);

@@ -23,8 +23,15 @@ pub enum Section {
     MemorySection(String),
     HeartbeatSection(String),
     // --- Dynamic sections (always rebuilt) ---
-    ChannelContext { chat_name: String, sender_id: String, timestamp: String },
-    SessionState { turn_count: u32, pending_tasks: Vec<String> },
+    ChannelContext {
+        chat_name: String,
+        sender_id: String,
+        timestamp: String,
+    },
+    SessionState {
+        turn_count: u32,
+        pending_tasks: Vec<String>,
+    },
     AppendSection(String),
     GitStatus(String),
 }
@@ -251,7 +258,7 @@ pub fn clear_append_section() {
 mod tests {
     use super::*;
     use std::io::Write;
-    
+
     use tempfile::tempdir;
 
     #[test]
@@ -289,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_append_section_truncation() {
         let long_text = "a".repeat(600);
         let warning = set_append_section(long_text);
@@ -301,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_append_section_no_truncation() {
         let text = "short text".to_string();
         let warning = set_append_section(text.clone());
@@ -310,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_append_section_cleared_after_request() {
         set_append_section("test".to_string());
         assert!(get_append_section().is_some());

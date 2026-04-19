@@ -31,7 +31,10 @@ impl Default for MemoryStorage {
 
 #[async_trait]
 impl PersistenceService for MemoryStorage {
-    async fn save_checkpoint(&self, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {
+    async fn save_checkpoint(
+        &self,
+        checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
         let mut checkpoints = self
             .checkpoints
             .write()

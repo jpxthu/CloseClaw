@@ -58,8 +58,13 @@ impl ModeDecisionTree {
 
         // 3. Platform adaptation for requested mode
         if let Some(requested_mode) = context.requested_mode {
-            if !self.capability_service.supports_mode(platform, requested_mode) {
-                return self.capability_service.get_fallback_mode(platform, requested_mode);
+            if !self
+                .capability_service
+                .supports_mode(platform, requested_mode)
+            {
+                return self
+                    .capability_service
+                    .get_fallback_mode(platform, requested_mode);
             }
             return requested_mode;
         }
@@ -137,8 +142,8 @@ mod tests {
     #[test]
     fn test_platform_fallback() {
         let service = make_service();
-        let ctx = ModeDecisionContext::new("test-session")
-            .with_requested_mode(ReasoningMode::Stream);
+        let ctx =
+            ModeDecisionContext::new("test-session").with_requested_mode(ReasoningMode::Stream);
 
         // On Feishu, Stream should fall back to Plan
         let mode = decide_mode("写代码", "feishu", &ctx, &service);

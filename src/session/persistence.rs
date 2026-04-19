@@ -3,11 +3,11 @@
 //! Defines the core [`SessionCheckpoint`] structure and [`PersistenceService`] trait
 //! for implementing pluggable storage backends.
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use async_trait::async_trait;
 use thiserror::Error;
 use tokio::sync::RwLock;
 
@@ -198,10 +198,14 @@ pub enum PersistenceError {
 #[async_trait]
 pub trait PersistenceService: Send + Sync {
     /// 保存 Checkpoint
-    async fn save_checkpoint(&self, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError>;
+    async fn save_checkpoint(&self, checkpoint: &SessionCheckpoint)
+        -> Result<(), PersistenceError>;
 
     /// 加载 Checkpoint
-    async fn load_checkpoint(&self, session_id: &str) -> Result<Option<SessionCheckpoint>, PersistenceError>;
+    async fn load_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError>;
 
     /// 删除 Checkpoint
     async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError>;
@@ -267,7 +271,10 @@ impl<S: PersistenceService + 'static> CheckpointManager<S> {
     }
 
     /// 加载 Checkpoint（优先本地缓存）
-    pub async fn load(&self, session_id: &str) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+    pub async fn load(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         // 先查本地缓存
         {
             let cache = self.local_cache.read().await;
@@ -329,7 +336,10 @@ mod tests {
             .with_last_message_id(Some("msg123".to_string()))
             .with_mode(ReasoningMode::Plan)
             .with_mode_state(state)
-            .add_pending_message(PendingMessage::new("pending1".to_string(), "Pending content".to_string()))
+            .add_pending_message(PendingMessage::new(
+                "pending1".to_string(),
+                "Pending content".to_string(),
+            ))
     }
 
     #[tokio::test]

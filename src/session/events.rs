@@ -108,9 +108,7 @@ pub enum CheckpointTrigger {
         to_mode: ReasoningMode,
     },
     /// 消息发送后
-    MessageSent {
-        message_id: String,
-    },
+    MessageSent { message_id: String },
     /// 网关关闭前（同步写入）
     GatewayShutdown,
     /// Compaction 发生前（用于保护 bootstrap 上下文）
