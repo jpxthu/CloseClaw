@@ -3,7 +3,10 @@
 //! These are separate from the mode slash commands (in src/mode/slash_command.rs)
 //! and focus on system prompt manipulation.
 
-use super::sections::{clear_append_section, get_append_section, set_append_section as store_append, APPEND_SECTION_MAX_LEN};
+use super::sections::{
+    clear_append_section, get_append_section, set_append_section as store_append,
+    APPEND_SECTION_MAX_LEN,
+};
 use super::workdir::{build_git_status, clear_workdir, get_workdir, set_workdir};
 use crate::mode::slash_command::SlashCommandResult;
 
@@ -39,10 +42,7 @@ pub fn handle_system_command(args: &str) -> SlashCommandResult {
             get_append_section().unwrap_or_default()
         )
     } else {
-        format!(
-            "已设置追加内容：\n{}\n\n请求结束后自动清除。",
-            text
-        )
+        format!("已设置追加内容：\n{}\n\n请求结束后自动清除。", text)
     };
 
     SlashCommandResult::Text(response)
@@ -105,7 +105,7 @@ pub fn handle_git_command(args: &str) -> SlashCommandResult {
         Some(w) => w,
         None => {
             return SlashCommandResult::Text(
-                "未设置工作目录。使用 /cd <路径> 先切换。".to_string()
+                "未设置工作目录。使用 /cd <路径> 先切换。".to_string(),
             );
         }
     };
@@ -114,10 +114,7 @@ pub fn handle_git_command(args: &str) -> SlashCommandResult {
         return SlashCommandResult::Text("当前目录不是 git 仓库。".to_string());
     }
 
-    let git_args: Vec<&str> = args
-        .trim()
-        .split_whitespace()
-        .collect();
+    let git_args: Vec<&str> = args.trim().split_whitespace().collect();
 
     if git_args.is_empty() || git_args[0] == "status" {
         // Return embedded git status
@@ -158,10 +155,9 @@ pub fn handle_git_command(args: &str) -> SlashCommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
-    
+
     fn test_system_command_set_content() {
         clear_append_section();
         let result = handle_system_command("test append");
@@ -175,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_system_command_empty_shows_current() {
         clear_append_section();
         let result = handle_system_command("");
@@ -187,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_system_command_truncation() {
         clear_append_section();
         let long_text = "x".repeat(600);

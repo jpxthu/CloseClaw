@@ -54,7 +54,9 @@ pub fn build_initial_sections(goal: Option<&str>) -> Vec<PlanSection> {
         PlanSection {
             step_number: 1,
             title: "需求分析".to_string(),
-            content: goal.map(|g| format!("目标：{}", g)).unwrap_or_else(|| "分析中...".to_string()),
+            content: goal
+                .map(|g| format!("目标：{}", g))
+                .unwrap_or_else(|| "分析中...".to_string()),
             status: StepStatus::Pending,
         },
         PlanSection {

@@ -18,8 +18,7 @@ pub mod storage;
 
 // Re-export commonly used types
 pub use bootstrap::{BootstrapContext, BootstrapProtection, BootstrapRegion};
-pub use persistence::{
-    CheckpointManager, PersistenceError, PersistenceService, ReasoningMode,
-    SessionCheckpoint,
-};
 pub use events::{CheckpointTrigger, ModeSwitchEvent, UserIntent};
+pub use persistence::{
+    CheckpointManager, PersistenceError, PersistenceService, ReasoningMode, SessionCheckpoint,
+};

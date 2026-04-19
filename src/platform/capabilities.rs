@@ -165,7 +165,11 @@ impl PlatformCapabilityService {
     }
 
     /// Get the fallback mode for a platform when the requested mode is not supported
-    pub fn get_fallback_mode(&self, platform: &str, requested_mode: ReasoningMode) -> ReasoningMode {
+    pub fn get_fallback_mode(
+        &self,
+        platform: &str,
+        requested_mode: ReasoningMode,
+    ) -> ReasoningMode {
         match requested_mode {
             ReasoningMode::Stream => {
                 let caps = self.get_capabilities(platform);

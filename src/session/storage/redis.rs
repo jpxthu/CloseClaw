@@ -5,8 +5,8 @@
 
 use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 use async_trait::async_trait;
-use redis::AsyncCommands;
 use redis;
+use redis::AsyncCommands;
 
 /// Redis storage backend
 #[derive(Debug, Clone)]
@@ -41,7 +41,10 @@ impl RedisStorage {
 
 #[async_trait]
 impl PersistenceService for RedisStorage {
-    async fn save_checkpoint(&self, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {
+    async fn save_checkpoint(
+        &self,
+        checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
         let mut conn = self
             .client
             .get_multiplexed_async_connection()
@@ -158,16 +161,16 @@ mod tests {
 
     #[test]
     fn test_redis_storage_make_key_custom_prefix() {
-        let storage =
-            RedisStorage::new("redis://localhost:6379", "custom_prefix").expect("Failed to create RedisStorage");
+        let storage = RedisStorage::new("redis://localhost:6379", "custom_prefix")
+            .expect("Failed to create RedisStorage");
 
         assert_eq!(storage.make_key("abc"), "custom_prefix:abc");
     }
 
     #[test]
     fn test_redis_storage_key_prefix() {
-        let storage =
-            RedisStorage::new("redis://localhost:6379", "my_prefix").expect("Failed to create RedisStorage");
+        let storage = RedisStorage::new("redis://localhost:6379", "my_prefix")
+            .expect("Failed to create RedisStorage");
 
         assert_eq!(storage.key_prefix(), "my_prefix");
     }

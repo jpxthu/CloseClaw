@@ -80,11 +80,7 @@ impl BootstrapRegion {
         let full_hash = Self::compute_hash(content);
         // Store first 12 hex chars for marker compactness
         let content_hash = full_hash[..12].to_string();
-        let region_id = format!(
-            "{}_{}",
-            file_name,
-            content_hash[..8].to_string()
-        );
+        let region_id = format!("{}_{}", file_name, content_hash[..8].to_string());
 
         Self {
             region_id,
@@ -173,10 +169,16 @@ impl BootstrapRegion {
         }
 
         let file_name = file_name.ok_or_else(|| {
-            BootstrapProtectionError::MarkerParseError(format!("missing file in marker: {}", marker))
+            BootstrapProtectionError::MarkerParseError(format!(
+                "missing file in marker: {}",
+                marker
+            ))
         })?;
         let hash = hash.ok_or_else(|| {
-            BootstrapProtectionError::MarkerParseError(format!("missing hash in marker: {}", marker))
+            BootstrapProtectionError::MarkerParseError(format!(
+                "missing hash in marker: {}",
+                marker
+            ))
         })?;
         let char_count = chars.unwrap_or_else(|| content.chars().count());
         let is_reinject = reinject.unwrap_or(false);
@@ -228,7 +230,10 @@ impl BootstrapContext {
     }
 
     /// Check if any region has had its content corrupted (hash mismatch)
-    pub fn check_integrity<'a>(&self, contents: impl Iterator<Item = (&'a str, &'a str)>) -> Vec<String> {
+    pub fn check_integrity<'a>(
+        &self,
+        contents: impl Iterator<Item = (&'a str, &'a str)>,
+    ) -> Vec<String> {
         // contents: iterator of (file_name, content)
         let mut corrupted = Vec::new();
         for (file_name, content) in contents {
@@ -400,7 +405,8 @@ impl BootstrapProtection {
     pub fn before_compact(&self, ctx: &mut BootstrapContext) {
         ctx.pre_compact_hashes.clear();
         for region in &ctx.regions {
-            ctx.pre_compact_hashes.insert(region.region_id.clone(), region.content_hash.clone());
+            ctx.pre_compact_hashes
+                .insert(region.region_id.clone(), region.content_hash.clone());
         }
     }
 
@@ -416,9 +422,12 @@ impl BootstrapProtection {
                 if let Some(marker_end) = transcript[start_idx..].find('>') {
                     // body_content_start is right after the '>' of start marker
                     let body_content_start = start_idx + marker_end + 1;
-                    if let Some(end_rel) = transcript[body_content_start..].find(BOOTSTRAP_REGION_END) {
+                    if let Some(end_rel) =
+                        transcript[body_content_start..].find(BOOTSTRAP_REGION_END)
+                    {
                         // Extract content - strip leading newline (after >) and trailing newline (before </bootstrap>)
-                        let raw_content = &transcript[body_content_start..body_content_start + end_rel];
+                        let raw_content =
+                            &transcript[body_content_start..body_content_start + end_rel];
                         let content = raw_content.trim();
                         if !region.verify_integrity(content) {
                             to_reinject.push(region.file_name.clone());
@@ -445,8 +454,13 @@ impl BootstrapProtection {
 
     /// Generate reinject text for the specified files.
     /// Returns the full reinject block to prepend to transcript.
-    pub fn reinject(&self, file_names: &[String], ctx: &mut BootstrapContext) -> Result<String, BootstrapProtectionError> {
-        let workspace = self.workspace_path
+    pub fn reinject(
+        &self,
+        file_names: &[String],
+        ctx: &mut BootstrapContext,
+    ) -> Result<String, BootstrapProtectionError> {
+        let workspace = self
+            .workspace_path
             .as_ref()
             .ok_or(BootstrapProtectionError::WorkspacePathRequired)?;
 
@@ -479,8 +493,11 @@ impl BootstrapProtection {
     }
 
     /// Read bootstrap files from workspace and return as a map
-    pub fn read_bootstrap_files(&self) -> Result<HashMap<String, String>, BootstrapProtectionError> {
-        let workspace = self.workspace_path
+    pub fn read_bootstrap_files(
+        &self,
+    ) -> Result<HashMap<String, String>, BootstrapProtectionError> {
+        let workspace = self
+            .workspace_path
             .as_ref()
             .ok_or(BootstrapProtectionError::WorkspacePathRequired)?;
 
@@ -507,11 +524,7 @@ impl BootstrapProtection {
 }
 
 /// Utility: generate region marker string
-pub fn make_bootstrap_marker(
-    file_name: &str,
-    content: &str,
-    is_reinject: bool,
-) -> String {
+pub fn make_bootstrap_marker(file_name: &str, content: &str, is_reinject: bool) -> String {
     let hash = BootstrapRegion::compute_hash(content);
     let char_count = content.chars().count();
     format!(
@@ -633,7 +646,9 @@ mod tests {
         protection.before_compact(&mut ctx);
 
         assert_eq!(ctx.pre_compact_hashes.len(), 1);
-        assert!(ctx.pre_compact_hashes.contains_key(&ctx.regions[0].region_id));
+        assert!(ctx
+            .pre_compact_hashes
+            .contains_key(&ctx.regions[0].region_id));
     }
 
     #[test]
@@ -650,7 +665,11 @@ mod tests {
         let wrapped = ctx.regions[0].wrap_content(content);
         let to_reinject = protection.after_compact(&wrapped, &mut ctx);
 
-        assert!(to_reinject.is_empty(), "unexpected reinject needed: {:?}", to_reinject);
+        assert!(
+            to_reinject.is_empty(),
+            "unexpected reinject needed: {:?}",
+            to_reinject
+        );
         assert!(ctx.reinjected_after_last_compact);
     }
 

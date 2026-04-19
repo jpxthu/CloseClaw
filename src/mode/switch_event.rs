@@ -90,11 +90,17 @@ impl ModeSwitchEvent {
         args: impl Into<String>,
     ) -> Self {
         let raw: String = raw_input.into();
-        Self::new(session_id, from_mode, to_mode, ModeSwitchTrigger::SlashCommand, command)
-            .with_user_intent(UserIntent {
-                raw_input: raw.clone(),
-                parsed_goal: args.into(),
-            })
+        Self::new(
+            session_id,
+            from_mode,
+            to_mode,
+            ModeSwitchTrigger::SlashCommand,
+            command,
+        )
+        .with_user_intent(UserIntent {
+            raw_input: raw.clone(),
+            parsed_goal: args.into(),
+        })
     }
 
     /// Create from natural language
@@ -106,11 +112,17 @@ impl ModeSwitchEvent {
         raw_input: impl Into<String>,
     ) -> Self {
         let raw: String = raw_input.into();
-        Self::new(session_id, from_mode, to_mode, ModeSwitchTrigger::NaturalLanguage, keyword)
-            .with_user_intent(UserIntent {
-                raw_input: raw.clone(),
-                parsed_goal: raw,
-            })
+        Self::new(
+            session_id,
+            from_mode,
+            to_mode,
+            ModeSwitchTrigger::NaturalLanguage,
+            keyword,
+        )
+        .with_user_intent(UserIntent {
+            raw_input: raw.clone(),
+            parsed_goal: raw,
+        })
     }
 
     /// Create from platform adaptation

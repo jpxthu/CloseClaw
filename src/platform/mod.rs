@@ -75,7 +75,12 @@ mod tests {
     #[test]
     fn test_all_platforms_have_caps() {
         let service = PlatformCapabilityService::new();
-        let platforms = [PLATFORM_FEISHU, PLATFORM_TELEGRAM, PLATFORM_DISCORD, PLATFORM_SLACK];
+        let platforms = [
+            PLATFORM_FEISHU,
+            PLATFORM_TELEGRAM,
+            PLATFORM_DISCORD,
+            PLATFORM_SLACK,
+        ];
 
         for platform in platforms {
             let caps = service.get_capabilities(platform);

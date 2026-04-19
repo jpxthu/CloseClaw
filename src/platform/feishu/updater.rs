@@ -74,7 +74,9 @@ pub async fn update_card_content<C: CardService + ?Sized>(
         content: Some(content.to_string()),
         ..Default::default()
     };
-    card_service.update_section(card_id, section_index, update).await
+    card_service
+        .update_section(card_id, section_index, update)
+        .await
 }
 
 #[cfg(test)]

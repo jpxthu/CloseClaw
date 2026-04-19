@@ -139,8 +139,6 @@ impl SlashModeMap {
         }
     }
 
-
-
     /// Get the mode for a command
     pub fn get(&self, command: &str) -> Option<ReasoningMode> {
         self.mode_map.get(command).copied()
@@ -194,7 +192,10 @@ pub fn parse_slash_command(input: &str) -> Option<SlashCommand> {
     let target_mode = if is_meta_command {
         ReasoningMode::Direct // Meta commands don't switch mode
     } else {
-        *slash_map.mode_map.get(&command).unwrap_or(&ReasoningMode::Direct)
+        *slash_map
+            .mode_map
+            .get(&command)
+            .unwrap_or(&ReasoningMode::Direct)
     };
 
     Some(SlashCommand::new(
@@ -207,14 +208,14 @@ pub fn parse_slash_command(input: &str) -> Option<SlashCommand> {
 }
 
 /// Handle a parsed slash command and return the result
-/// 
+///
 /// For mode-switching commands (/plan, /code, etc.), returns SwitchMode.
 /// For meta commands (/help, /mode, /compact), returns appropriate result.
 /// For unrecognized commands, returns Unknown.
 pub fn handle_slash_command(cmd: &SlashCommand) -> SlashCommandResult {
     match cmd.command.as_str() {
         "/help" => SlashCommandResult::Text(SLASH_HELP_TEXT.to_string()),
-        
+
         "/mode" => {
             if cmd.args.is_empty() {
                 // /mode without args: caller should provide current mode
@@ -228,25 +229,28 @@ pub fn handle_slash_command(cmd: &SlashCommand) -> SlashCommandResult {
                     "stream" => ReasoningMode::Stream,
                     "hidden" => ReasoningMode::Hidden,
                     _ => {
-                        return SlashCommandResult::Text(
-                            format!("无效模式。可用模式：direct, plan, stream, hidden")
-                        )
+                        return SlashCommandResult::Text(format!(
+                            "无效模式。可用模式：direct, plan, stream, hidden"
+                        ))
                     }
                 };
                 SlashCommandResult::SwitchMode(target)
             }
         }
-        
+
         "/compact" => {
             // /compact: caller should perform actual compaction
             // Return placeholder with mock values - caller will replace
-            SlashCommandResult::Compact { before: 0, after: 0 }
+            SlashCommandResult::Compact {
+                before: 0,
+                after: 0,
+            }
         }
-        
+
         "/plan" | "/code" | "/review" | "/debug" | "/direct" | "/think" => {
             SlashCommandResult::SwitchMode(cmd.target_mode)
         }
-        
+
         _ => SlashCommandResult::Unknown(cmd.command.clone()),
     }
 }
@@ -263,10 +267,7 @@ pub fn format_mode(mode: ReasoningMode) -> &'static str {
 
 /// Build a friendly unknown command response
 pub fn unknown_command_response(command: &str) -> String {
-    format!(
-        "未知指令: {}。输入 /help 查看可用指令。",
-        command
-    )
+    format!("未知指令: {}。输入 /help 查看可用指令。", command)
 }
 
 #[cfg(test)]

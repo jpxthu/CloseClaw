@@ -13,8 +13,8 @@ pub mod renderer;
 pub mod update;
 
 // Re-export commonly used types
-pub use elements::{CardAction, CardElement};
 pub use elements::{ButtonElement, ButtonStyle, ImageElement, MarkdownElement, ProgressElement};
+pub use elements::{CardAction, CardElement};
 pub use renderer::render_feishu_card;
 
 /// Card header configuration

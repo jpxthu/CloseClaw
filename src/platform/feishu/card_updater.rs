@@ -43,10 +43,7 @@ impl std::error::Error for CardServiceError {}
 #[async_trait]
 pub trait CardService: Send + Sync {
     /// Create an interactive card
-    async fn create_card(
-        &self,
-        config: &PlanCardConfig,
-    ) -> Result<CardHandle, FeishuAdapterError>;
+    async fn create_card(&self, config: &PlanCardConfig) -> Result<CardHandle, FeishuAdapterError>;
 
     /// Update a specific section of the card
     async fn update_section(

@@ -12,7 +12,9 @@ pub struct SessionRecoveryService<S: PersistenceService> {
     storage: Arc<S>,
     /// Callback to restore a session from checkpoint
     /// The closure receives the session_id and checkpoint, and should restore the session state.
-    restore_fn: RwLock<Option<Box<dyn Fn(&str, &SessionCheckpoint) -> Result<(), PersistenceError> + Send + Sync>>>,
+    restore_fn: RwLock<
+        Option<Box<dyn Fn(&str, &SessionCheckpoint) -> Result<(), PersistenceError> + Send + Sync>>,
+    >,
 }
 
 impl<S: PersistenceService> SessionRecoveryService<S> {
@@ -180,10 +182,7 @@ mod tests {
 
         service
             .set_restore_callback(move |session_id, _checkpoint| {
-                restored_clone
-                    .lock()
-                    .unwrap()
-                    .push(session_id.to_string());
+                restored_clone.lock().unwrap().push(session_id.to_string());
                 Ok(())
             })
             .await;

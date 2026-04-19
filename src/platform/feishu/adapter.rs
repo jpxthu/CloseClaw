@@ -20,7 +20,11 @@ pub trait FeishuMessageService: Send + Sync {
     async fn send_message(&self, content: &str) -> Result<String, FeishuAdapterError>;
 
     /// Update an existing message
-    async fn update_message(&self, message_id: &str, content: &str) -> Result<(), FeishuAdapterError>;
+    async fn update_message(
+        &self,
+        message_id: &str,
+        content: &str,
+    ) -> Result<(), FeishuAdapterError>;
 
     /// Send a card message
     async fn send_card(&self, card_config: &PlanCardConfig) -> Result<String, FeishuAdapterError>;
@@ -65,7 +69,9 @@ impl FeishuAdapter {
     /// Check if fallback is needed for the given mode
     pub fn should_fallback(&self, mode: ReasoningMode) -> bool {
         mode == ReasoningMode::Stream
-            && !self.capability_service.supports_mode_fully("feishu", ReasoningMode::Stream)
+            && !self
+                .capability_service
+                .supports_mode_fully("feishu", ReasoningMode::Stream)
     }
 
     /// Get the fallback mode for Stream on Feishu
@@ -160,8 +166,8 @@ impl FeishuAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::PlatformCapabilityService;
     use crate::platform::feishu::card_updater::SectionUpdate;
+    use crate::platform::PlatformCapabilityService;
     use async_trait::async_trait;
 
     struct MockCardService;

@@ -193,8 +193,8 @@ impl FeishuAdapter {
         }
 
         let payload = render_feishu_card(card);
-        let content = serde_json::to_string(&payload)
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        let content =
+            serde_json::to_string(&payload).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
 
         let req = SendRequest {
             receive_id: chat_id,
@@ -224,9 +224,9 @@ impl FeishuAdapter {
             )));
         }
 
-        resp.data
-            .and_then(|d| d.message_id)
-            .ok_or_else(|| AdapterError::SendFailed("No message_id in card send response".to_string()))
+        resp.data.and_then(|d| d.message_id).ok_or_else(|| {
+            AdapterError::SendFailed("No message_id in card send response".to_string())
+        })
     }
 
     /// Update an existing card message identified by `message_id`.
@@ -252,8 +252,8 @@ impl FeishuAdapter {
         }
 
         // Feishu update requires the full card content string
-        let content = serde_json::to_string(patch)
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        let content =
+            serde_json::to_string(patch).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
 
         let req = UpdateRequest { content: &content };
 

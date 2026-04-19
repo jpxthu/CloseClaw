@@ -11,13 +11,9 @@ pub enum CardEvent {
         card_message_id: String,
     },
     /// User cancelled the plan
-    PlanCancelled {
-        session_id: String,
-    },
+    PlanCancelled { session_id: String },
     /// User requested plan regeneration
-    PlanRegenerate {
-        session_id: String,
-    },
+    PlanRegenerate { session_id: String },
     /// User toggled a step's collapsed state
     StepToggled {
         session_id: String,
@@ -73,10 +69,14 @@ mod tests {
     #[test]
     fn test_from_action_confirm() {
         let action = CardAction::Confirm;
-        let event = CardEvent::from_action(&action, "sess_123".to_string(), Some("msg_456".to_string()));
+        let event =
+            CardEvent::from_action(&action, "sess_123".to_string(), Some("msg_456".to_string()));
 
         match event {
-            Some(CardEvent::PlanConfirmed { session_id, card_message_id }) => {
+            Some(CardEvent::PlanConfirmed {
+                session_id,
+                card_message_id,
+            }) => {
                 assert_eq!(session_id, "sess_123");
                 assert_eq!(card_message_id, "msg_456");
             }
@@ -90,7 +90,9 @@ mod tests {
         let event = CardEvent::from_action(&action, "sess_123".to_string(), None);
 
         match event {
-            Some(CardEvent::PlanConfirmed { card_message_id, .. }) => {
+            Some(CardEvent::PlanConfirmed {
+                card_message_id, ..
+            }) => {
                 assert_eq!(card_message_id, "");
             }
             _ => panic!("Expected PlanConfirmed"),
@@ -131,7 +133,11 @@ mod tests {
         let event = CardEvent::from_action(&action, "sess_xyz".to_string(), None);
 
         match event {
-            Some(CardEvent::StepToggled { session_id, step_index, collapsed }) => {
+            Some(CardEvent::StepToggled {
+                session_id,
+                step_index,
+                collapsed,
+            }) => {
                 assert_eq!(session_id, "sess_xyz");
                 assert_eq!(step_index, 2);
                 assert!(!collapsed);
@@ -146,7 +152,11 @@ mod tests {
         let event = CardEvent::from_action(&action, "sess_123".to_string(), None);
 
         match event {
-            Some(CardEvent::StepToggled { step_index, collapsed, .. }) => {
+            Some(CardEvent::StepToggled {
+                step_index,
+                collapsed,
+                ..
+            }) => {
                 assert_eq!(step_index, 5);
                 assert!(collapsed);
             }
