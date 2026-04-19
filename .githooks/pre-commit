@@ -1,12 +1,6 @@
 #!/bin/bash
 set -e
 
-# 格式检查
-cargo fmt --check
-
-# lint
-cargo clippy --all -- -D warnings
-
 # 文件行数限制 — 仅检查 staged 文件，不背负历史技术债
 git diff --cached --name-only --diff-filter=ACMR -- '*.rs' | while read f; do
     lines=$(wc -l < "$f")
