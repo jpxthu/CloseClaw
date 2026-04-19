@@ -1,54 +1,8 @@
 #!/bin/bash
-# pre-push hook
-#
-# 1. Block force push to protected branches
-# 2. Run unit tests before push
-
-set -e
-
-protected_branches="master main develop"
-
-echo "=== pre-push hook ==="
-echo ""
-
-# --- Part 1: Force push check ---
-# Fetch the actual remote SHA via FETCH_HEAD, then compare locally.
-
-while read -r local_ref local_sha remote_ref remote_sha; do
-    branch_name="${remote_ref#refs/heads/}"
-
-    if ! echo "$protected_branches" | grep -qw "$branch_name"; then
-        echo "Branch '$branch_name': not protected, skipping"
-        continue
-    fi
-
-    if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
-        echo "Branch '$branch_name': new branch, allowing"
-        continue
-    fi
-
-    # Fetch the actual remote SHA (stored in FETCH_HEAD)
-    if ! git fetch --quiet origin "refs/heads/$branch_name" 2>/dev/null; then
-        echo "Warning: could not fetch remote '$branch_name', skipping force push check"
-        continue
-    fi
-
-    remote_actual_sha=$(git rev-parse "refs/remotes/origin/$branch_name")
-
-    if git merge-base --is-ancestor "$remote_actual_sha" "$local_sha" 2>/dev/null; then
-        echo "Branch '$branch_name': fast-forward, allowing"
-    else
-        echo ""
-        echo "ERROR: Force push detected on protected branch '$branch_name'"
-        echo "Remote: $remote_actual_sha"
-        echo "Local:  $local_sha"
-        echo ""
-        echo "Force pushing to '$branch_name' is not allowed."
-        echo "Use --force-with-lease if you understand the risk."
-        echo ""
+while read local_ref local_sha remote_ref remote_sha; do
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    if [ "$branch" = "master" ]; then
+        echo "ERROR: 直接 push 到 master 被禁止。请通过 PR squash merge。"
         exit 1
     fi
 done
-
-echo ""
-echo "pre-push hook: all checks passed"
