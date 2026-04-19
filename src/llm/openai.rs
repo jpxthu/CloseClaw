@@ -60,6 +60,15 @@ impl OpenAIProvider {
     fn chat_url(&self) -> String {
         format!("{}/chat/completions", self.base_url)
     }
+
+    /// Map HTTP status code to the appropriate LLM error.
+    fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
+        match status.as_u16() {
+            401 | 403 => LLMError::AuthFailed(format!("OpenAI API auth failed: {}", status)),
+            429 => LLMError::RateLimitExceeded,
+            _ => LLMError::ApiError(format!("OpenAI API error {}: {}", status, body)),
+        }
+    }
 }
 
 #[async_trait]
@@ -94,20 +103,11 @@ impl LLMProvider for OpenAIProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(LLMError::AuthFailed(format!(
-                    "OpenAI API auth failed: {}",
-                    status
-                )));
-            }
             if status.as_u16() == 429 {
                 return Err(LLMError::RateLimitExceeded);
             }
             let body = response.text().await.unwrap_or_default();
-            return Err(LLMError::ApiError(format!(
-                "OpenAI API error {}: {}",
-                status, body
-            )));
+            return Err(Self::map_status_error(status, body));
         }
 
         let openai_resp: OpenAIResponse = response
