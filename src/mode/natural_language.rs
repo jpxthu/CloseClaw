@@ -112,56 +112,40 @@ impl NaturalLanguagePatterns {
             .collect()
     }
 
-    /// Recognize planning intent
-    pub fn recognize_plan(&self, input: &str) -> IntentResult {
-        let matches = self.match_patterns(input, &self.plan_patterns);
+    /// Build an IntentResult from matched patterns
+    fn build_intent(&self, mode: ReasoningMode, matches: Vec<(&'static str, f32)>) -> IntentResult {
         if matches.is_empty() {
             return IntentResult::new(ReasoningMode::Direct, 0.0, vec![]);
         }
-
         let confidence = (matches.len() as f32 * 0.85).min(1.0);
         let keywords: Vec<String> = matches.iter().map(|(k, _)| (*k).to_string()).collect();
+        IntentResult::new(mode, confidence, keywords)
+    }
+}
 
-        IntentResult::new(ReasoningMode::Plan, confidence, keywords)
+impl NaturalLanguagePatterns {
+    /// Recognize planning intent
+    pub fn recognize_plan(&self, input: &str) -> IntentResult {
+        let matches = self.match_patterns(input, &self.plan_patterns);
+        self.build_intent(ReasoningMode::Plan, matches)
     }
 
     /// Recognize code generation intent
     pub fn recognize_code(&self, input: &str) -> IntentResult {
         let matches = self.match_patterns(input, &self.code_patterns);
-        if matches.is_empty() {
-            return IntentResult::new(ReasoningMode::Direct, 0.0, vec![]);
-        }
-
-        let confidence = (matches.len() as f32 * 0.85).min(1.0);
-        let keywords: Vec<String> = matches.iter().map(|(k, _)| (*k).to_string()).collect();
-
-        IntentResult::new(ReasoningMode::Stream, confidence, keywords)
+        self.build_intent(ReasoningMode::Stream, matches)
     }
 
     /// Recognize debug intent
     pub fn recognize_debug(&self, input: &str) -> IntentResult {
         let matches = self.match_patterns(input, &self.debug_patterns);
-        if matches.is_empty() {
-            return IntentResult::new(ReasoningMode::Direct, 0.0, vec![]);
-        }
-
-        let confidence = (matches.len() as f32 * 0.85).min(1.0);
-        let keywords: Vec<String> = matches.iter().map(|(k, _)| (*k).to_string()).collect();
-
-        IntentResult::new(ReasoningMode::Stream, confidence, keywords)
+        self.build_intent(ReasoningMode::Stream, matches)
     }
 
     /// Recognize review intent
     pub fn recognize_review(&self, input: &str) -> IntentResult {
         let matches = self.match_patterns(input, &self.review_patterns);
-        if matches.is_empty() {
-            return IntentResult::new(ReasoningMode::Direct, 0.0, vec![]);
-        }
-
-        let confidence = (matches.len() as f32 * 0.85).min(1.0);
-        let keywords: Vec<String> = matches.iter().map(|(k, _)| (*k).to_string()).collect();
-
-        IntentResult::new(ReasoningMode::Plan, confidence, keywords)
+        self.build_intent(ReasoningMode::Plan, matches)
     }
 }
 
