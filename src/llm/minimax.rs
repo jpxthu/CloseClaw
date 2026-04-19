@@ -75,6 +75,16 @@ impl MiniMaxProvider {
         std::env::var("MINIMAX_API_KEY").ok().map(Self::new)
     }
 
+    /// Map HTTP status code to the appropriate LLM error.
+    fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
+        match status.as_u16() {
+            401 => LLMError::AuthFailed(format!("MiniMax auth failed: {}", body)),
+            429 => LLMError::RateLimitExceeded,
+            400 => LLMError::InvalidRequest(format!("MiniMax invalid request: {}", body)),
+            _ => LLMError::ApiError(format!("MiniMax API error ({}): {}", status, body)),
+        }
+    }
+
     /// Strip MiniMax thinking tags from content.
     ///
     /// MiniMax thinking models return reasoning wrapped in XML tags:
@@ -145,15 +155,7 @@ impl LLMProvider for MiniMaxProvider {
 
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(if status.as_u16() == 401 {
-                LLMError::AuthFailed(format!("MiniMax auth failed: {}", body))
-            } else if status.as_u16() == 429 {
-                LLMError::RateLimitExceeded
-            } else if status.as_u16() == 400 {
-                LLMError::InvalidRequest(format!("MiniMax invalid request: {}", body))
-            } else {
-                LLMError::ApiError(format!("MiniMax API error ({}): {}", status, body))
-            });
+            return Err(Self::map_status_error(status, body));
         }
 
         let api_resp: MiniMaxResponse = response
