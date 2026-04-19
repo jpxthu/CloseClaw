@@ -65,6 +65,13 @@ impl ActionBuilder {
         }
     }
 
+    /// Finalize and return the constructed [`Action`].
+    pub fn build(self) -> Option<Action> {
+        self.inner
+    }
+}
+
+impl ActionBuilder {
     /// Add allowed command arguments.
     pub fn allowed_args(mut self, args: Vec<String>) -> Self {
         if let Some(Action::Command { args: cmd_args, .. }) = &mut self.inner {
@@ -119,11 +126,6 @@ impl ActionBuilder {
             *f = files;
         }
         self
-    }
-
-    /// Finalize and return the constructed [`Action`].
-    pub fn build(self) -> Option<Action> {
-        self.inner
     }
 }
 
