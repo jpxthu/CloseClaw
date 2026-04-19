@@ -57,70 +57,84 @@ pub async fn handle_card_event(
         CardEvent::PlanConfirmed {
             session_id,
             card_message_id,
-        } => {
-            tracing::info!(
-                session_id = %session_id,
-                card_message_id = %card_message_id,
-                "plan confirmed via card button"
-            );
-            event_bus
-                .publish(
-                    "plan_confirmed",
-                    PlanConfirmedPayload {
-                        session_id,
-                        card_message_id,
-                    },
-                )
-                .await
-                .map_err(CardError::EventBus)
-        }
-
+        } => handle_plan_confirmed(event_bus, session_id, card_message_id).await,
         CardEvent::PlanCancelled { session_id } => {
-            tracing::info!(
-                session_id = %session_id,
-                "plan cancelled via card button"
-            );
-            event_bus
-                .publish("plan_cancelled", PlanCancelledPayload { session_id })
-                .await
-                .map_err(CardError::EventBus)
+            handle_plan_cancelled(event_bus, session_id).await
         }
-
         CardEvent::PlanRegenerate { session_id } => {
-            tracing::info!(
-                session_id = %session_id,
-                "plan regeneration requested via card button"
-            );
-            event_bus
-                .publish("plan_regenerate", PlanRegeneratePayload { session_id })
-                .await
-                .map_err(CardError::EventBus)
+            handle_plan_regenerate(event_bus, session_id).await
         }
-
         CardEvent::StepToggled {
             session_id,
             step_index,
             collapsed,
-        } => {
-            tracing::debug!(
-                session_id = %session_id,
-                step_index = %step_index,
-                collapsed = %collapsed,
-                "step toggled via card button"
-            );
-            event_bus
-                .publish(
-                    "step_toggled",
-                    StepToggledPayload {
-                        session_id,
-                        step_index,
-                        collapsed,
-                    },
-                )
-                .await
-                .map_err(CardError::EventBus)
-        }
+        } => handle_step_toggled(event_bus, session_id, step_index, collapsed).await,
     }
+}
+
+async fn handle_plan_confirmed(
+    event_bus: &impl CardEventBus,
+    session_id: String,
+    card_message_id: String,
+) -> Result<(), CardError> {
+    tracing::info!(session_id = %session_id, card_message_id = %card_message_id, "plan confirmed via card button");
+    event_bus
+        .publish(
+            "plan_confirmed",
+            PlanConfirmedPayload {
+                session_id,
+                card_message_id,
+            },
+        )
+        .await
+        .map_err(CardError::EventBus)
+}
+
+async fn handle_plan_cancelled(
+    event_bus: &impl CardEventBus,
+    session_id: String,
+) -> Result<(), CardError> {
+    tracing::info!(session_id = %session_id, "plan cancelled via card button");
+    event_bus
+        .publish("plan_cancelled", PlanCancelledPayload { session_id })
+        .await
+        .map_err(CardError::EventBus)
+}
+
+async fn handle_plan_regenerate(
+    event_bus: &impl CardEventBus,
+    session_id: String,
+) -> Result<(), CardError> {
+    tracing::info!(session_id = %session_id, "plan regeneration requested via card button");
+    event_bus
+        .publish("plan_regenerate", PlanRegeneratePayload { session_id })
+        .await
+        .map_err(CardError::EventBus)
+}
+
+async fn handle_step_toggled(
+    event_bus: &impl CardEventBus,
+    session_id: String,
+    step_index: u32,
+    collapsed: bool,
+) -> Result<(), CardError> {
+    tracing::debug!(
+        session_id = %session_id,
+        step_index = %step_index,
+        collapsed = %collapsed,
+        "step toggled via card button"
+    );
+    event_bus
+        .publish(
+            "step_toggled",
+            StepToggledPayload {
+                session_id,
+                step_index,
+                collapsed,
+            },
+        )
+        .await
+        .map_err(CardError::EventBus)
 }
 
 /// Trait for the event bus — allows swapping implementations for testing.
