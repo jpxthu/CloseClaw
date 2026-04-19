@@ -74,6 +74,25 @@ jobs:
           echo "- Source: $(echo "$msg" | grep '^Source:' | sed 's/^Source: //')"
           echo "- Type: $(echo "$msg" | grep '^Type:' | sed 's/^Type: //')"
 
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --all 2>&1 | tee clippy-output.txt
+        continue-on-error: true
+
+      - name: Check clippy warnings
+        run: |
+          warnings=$(grep -c '^warning' clippy-output.txt || true)
+          if [ "$warnings" -gt 0 ]; then
+            echo "⚠️ $warnings clippy warnings found. Fix before enabling strict mode."
+            echo "List of warnings:"
+            grep -E '(warning\[|warning:)' clippy-output.txt || true
+            echo ""
+            echo "Once all warnings are resolved, remove continue-on-error from the clippy step"
+            echo "and add -- -D warnings to fail on warnings."
+          fi
+
       - name: Run unit and binary tests
         run: cargo test --lib --bins
 
