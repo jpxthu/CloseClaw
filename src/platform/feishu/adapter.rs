@@ -102,7 +102,9 @@ impl FeishuAdapter {
         let content = "✅ 分析完成，请查看上方计划卡片";
         self.message_service.send_message(content).await
     }
+}
 
+impl FeishuAdapter {
     /// Execute the fallback flow
     pub async fn execute_fallback(
         &self,
