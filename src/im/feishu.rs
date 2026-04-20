@@ -84,6 +84,7 @@ pub struct FeishuAdapter {
     cached_token: Arc<Mutex<Option<CachedToken>>>,
 }
 
+/// Constructor and token management
 impl FeishuAdapter {
     pub fn new(app_id: String, app_secret: String, verification_token: String) -> Self {
         let http_client = Client::builder()
@@ -99,22 +100,19 @@ impl FeishuAdapter {
         }
     }
 
-    /// Obtain a tenant access token from Feishu API, using a cached token when valid.
-    /// Feishu tokens are valid ~2 hours; we proactively refresh at 1.5h to avoid expiry mid-request.
+    /// Obtain a tenant access token, using a cached token when valid.
+    /// Feishu tokens are valid ~2 hours; we proactively refresh at 1.5h.
     async fn get_tenant_token(&self) -> Result<String, AdapterError> {
-        // Fast path: check cache without lock
         let cached = self.cached_token.lock().await;
         if let Some(ref c) = *cached {
             if !c.needs_refresh() {
                 return Ok(c.token.clone());
             }
         }
-        drop(cached); // release lock before slow I/O
+        drop(cached);
 
-        // Slow path: fetch new token
         let new_token = self.fetch_tenant_token().await?;
 
-        // Cache with 2-hour TTL (Feishu standard expiry)
         let mut cached = self.cached_token.lock().await;
         *cached = Some(CachedToken {
             expires_at: Instant::now() + Duration::from_secs(7200),
@@ -166,50 +164,49 @@ impl FeishuAdapter {
         resp.tenant_access_token
             .ok_or_else(|| AdapterError::SendFailed("No token in response".to_string()))
     }
+}
+
+/// Card send and update operations
+impl FeishuAdapter {
+    /// Build the JSON content string for a card send request.
+    fn build_card_body(card: &RichCard) -> Result<String, AdapterError> {
+        let payload = render_feishu_card(card);
+        serde_json::to_string(&payload).map_err(|e| AdapterError::SendFailed(e.to_string()))
+    }
 
     /// Send an interactive card message to a chat.
-    ///
-    /// Returns the message ID on success, which is needed for subsequent updates.
+    /// Returns the message ID on success, needed for subsequent updates.
     pub async fn send_card(&self, chat_id: &str, card: &RichCard) -> Result<String, AdapterError> {
         let token = self.get_tenant_token().await?;
+        let content = Self::build_card_body(card)?;
+        let url = format!("{}/im/v1/messages?receive_id_type=open_id", FEISHU_API_BASE);
 
         #[derive(Serialize)]
-        struct SendRequest<'a> {
+        struct Req<'a> {
             receive_id: &'a str,
             msg_type: &'a str,
             content: &'a str,
         }
-
         #[derive(Deserialize)]
-        struct SendResponse {
+        struct Resp {
             code: i32,
             msg: String,
-            data: Option<SendResponseData>,
+            data: Option<RespData>,
         }
-
         #[derive(Deserialize)]
-        struct SendResponseData {
+        struct RespData {
             message_id: Option<String>,
         }
 
-        let payload = render_feishu_card(card);
-        let content =
-            serde_json::to_string(&payload).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        let req = SendRequest {
-            receive_id: chat_id,
-            msg_type: "interactive",
-            content: &content,
-        };
-
-        let resp: SendResponse = self
+        let resp: Resp = self
             .http_client
-            .post(format!(
-                "{}/im/v1/messages?receive_id_type=open_id",
-                FEISHU_API_BASE
-            ))
+            .post(&url)
             .header("Authorization", format!("Bearer {}", token))
-            .json(&req)
+            .json(&Req {
+                receive_id: chat_id,
+                msg_type: "interactive",
+                content: &content,
+            })
             .send()
             .await
             .map_err(|e| AdapterError::SendFailed(e.to_string()))?
@@ -223,16 +220,14 @@ impl FeishuAdapter {
                 resp.code, resp.msg
             )));
         }
-
         resp.data.and_then(|d| d.message_id).ok_or_else(|| {
             AdapterError::SendFailed("No message_id in card send response".to_string())
         })
     }
+}
 
+impl FeishuAdapter {
     /// Update an existing card message identified by `message_id`.
-    ///
-    /// `patch` is a JSON object containing the new card content (elements, etc.).
-    /// Feishu requires the full card content in the update request.
     pub async fn update_message(
         &self,
         message_id: &str,
@@ -251,17 +246,14 @@ impl FeishuAdapter {
             msg: String,
         }
 
-        // Feishu update requires the full card content string
         let content =
             serde_json::to_string(patch).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        let req = UpdateRequest { content: &content };
 
         let resp: UpdateResponse = self
             .http_client
             .patch(format!("{}/im/v1/messages/{}", FEISHU_API_BASE, message_id))
             .header("Authorization", format!("Bearer {}", token))
-            .json(&req)
+            .json(&UpdateRequest { content: &content })
             .send()
             .await
             .map_err(|e| AdapterError::SendFailed(e.to_string()))?
