@@ -20,6 +20,8 @@ pub struct PermissionEngine {
     templates: HashMap<String, crate::permission::templates::Template>,
 }
 
+// --- Construction & index management ---
+
 impl PermissionEngine {
     /// Create a new PermissionEngine from a RuleSet
     pub fn new(rules: RuleSet) -> Self {
@@ -29,34 +31,7 @@ impl PermissionEngine {
             user_agent_rule_index: HashMap::new(),
             templates: HashMap::new(),
         };
-        let agent_index: HashMap<String, Vec<usize>> = HashMap::new();
-        let user_agent_index: HashMap<String, Vec<usize>> = HashMap::new();
-        engine.agent_rule_index = agent_index;
-        engine.user_agent_rule_index = user_agent_index;
-        for (idx, rule) in rules.rules.iter().enumerate() {
-            match &rule.subject {
-                Subject::AgentOnly { agent, .. } => {
-                    engine
-                        .agent_rule_index
-                        .entry(agent.clone())
-                        .or_default()
-                        .push(idx);
-                }
-                Subject::UserAndAgent { user_id, agent, .. } => {
-                    let key = format!("{}:{}", user_id, agent);
-                    engine
-                        .user_agent_rule_index
-                        .entry(key)
-                        .or_default()
-                        .push(idx);
-                    engine
-                        .agent_rule_index
-                        .entry(agent.clone())
-                        .or_default()
-                        .push(idx);
-                }
-            }
-        }
+        engine.rebuild_indices_with_rules(&rules);
         engine
     }
 
@@ -95,14 +70,12 @@ impl PermissionEngine {
     ) {
         self.templates = templates;
     }
+}
 
+// --- Simplified check ---
+
+impl PermissionEngine {
     /// Simplified permission check — evaluates if `agent_id` may perform `action`.
-    ///
-    /// `action` is one of: "exec", "file_read", "file_write", "network",
-    /// "spawn", "tool_call", "config_write".
-    ///
-    /// Uses a bare request (no caller user context) and wildcard arguments
-    /// to check the coarse-grained permission.
     pub fn check(&self, agent_id: &str, action: &str) -> PermissionResponse {
         let body = match action {
             "exec" => PermissionRequestBody::CommandExec {
@@ -138,7 +111,6 @@ impl PermissionEngine {
                 agent: agent_id.to_string(),
                 config_file: "*".to_string(),
             },
-            // Unknown action — deny by default
             _ => {
                 return PermissionResponse::Denied {
                     reason: format!("unknown action: {}", action),
@@ -149,7 +121,11 @@ impl PermissionEngine {
 
         self.evaluate(PermissionRequest::Bare(body))
     }
+}
 
+// --- Evaluation & helpers ---
+
+impl PermissionEngine {
     /// Evaluate a permission request.
     pub fn evaluate(&self, request: PermissionRequest) -> PermissionResponse {
         let caller = request.caller();
@@ -162,86 +138,22 @@ impl PermissionEngine {
             "permission check initiated"
         );
 
+        // Step 0: Creator rule (highest priority)
+        if let Some(response) = self.check_creator_rule(&caller, &agent_id) {
+            return response;
+        }
+
         let rules = self.rules.clone();
 
-        // ---- Step 0: Creator Rule (highest priority, short-circuit return) ----
-        let effective_creator_id = if !caller.creator_id.is_empty() {
-            Some(caller.creator_id.as_str())
-        } else {
-            rules.agent_creators.get(&agent_id).map(|s| s.as_str())
-        };
-        if let Some(creator_id) = effective_creator_id {
-            if caller.user_id == creator_id {
-                info!(agent = %agent_id, result = "allowed", reason = "creator_rule", "permission check completed");
-                return PermissionResponse::Allowed {
-                    token: generate_token(),
-                };
-            }
+        // Steps 1-2: Collect and sort candidates
+        let candidates = self.collect_candidates(&caller, &agent_id, &rules);
+
+        // Steps 3-4: Expand templates and evaluate
+        if let Some(response) = self.match_rules(&candidates, &rules, &caller, request.body()) {
+            return response;
         }
 
-        // ---- Step 1: Build candidate rule list ----
-        let mut candidates: Vec<usize> = Vec::new();
-
-        // 1a. User+Agent dual-key index lookup (O(1))
-        let index_key = format!("{}:{}", caller.user_id, agent_id);
-        if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
-            candidates.extend(indices);
-        }
-
-        // 1b. Agent-only index lookup (O(1))
-        if let Some(indices) = self.agent_rule_index.get(&agent_id) {
-            candidates.extend(indices);
-        }
-
-        // 1c. Glob fallback (only if 1a and 1b produced nothing)
-        if candidates.is_empty() {
-            for (idx, rule) in rules.rules.iter().enumerate() {
-                if rule.subject.matches(&caller) {
-                    candidates.push(idx);
-                }
-            }
-        }
-
-        // ---- Step 2: Sort by priority (desc) ----
-        candidates.sort_by(|&a, &b| rules.rules[b].priority.cmp(&rules.rules[a].priority));
-
-        // ---- Step 3: Expand templates ----
-        let (expanded_rules, expanded_indices) = self.expand_templates_sync(&candidates, &rules);
-
-        // ---- Step 4: Evaluate (AWS IAM-style deny-precedence) ----
-        let mut matching_rule_name: Option<String> = None;
-        for &rule_idx in &expanded_indices {
-            let rule = &expanded_rules[rule_idx];
-
-            if !rule.subject.matches(&caller) {
-                continue;
-            }
-
-            if !self.rule_actions_match(rule, request.body()) {
-                continue;
-            }
-
-            matching_rule_name = Some(rule.name.clone());
-
-            if rule.effect == Effect::Deny {
-                let reason = format!("action denied by rule '{}'", rule.name);
-                info!(agent = %agent_id, result = "denied", rule = %rule.name, "permission check completed");
-                return PermissionResponse::Denied {
-                    reason,
-                    rule: rule.name.clone(),
-                };
-            }
-        }
-
-        // No deny found; if any rule matched, allow
-        if matching_rule_name.is_some() {
-            info!(agent = %agent_id, result = "allowed", reason = "matched_rule", "permission check completed");
-            return PermissionResponse::Allowed {
-                token: generate_token(),
-            };
-        }
-
-        // ---- Step 5: Default fallback ----
+        // Step 5: Default fallback
         let response = self.default_deny(request.body(), &rules.defaults, "no matching rule");
         info!(
             agent = %agent_id,
@@ -255,11 +167,118 @@ impl PermissionEngine {
         response
     }
 
+    /// Step 0: Check creator rule — if the caller is the agent's creator, allow immediately.
+    fn check_creator_rule(
+        &self,
+        caller: &super::engine_types::Caller,
+        agent_id: &str,
+    ) -> Option<PermissionResponse> {
+        let effective_creator_id = if !caller.creator_id.is_empty() {
+            Some(caller.creator_id.as_str())
+        } else {
+            self.rules.agent_creators.get(agent_id).map(|s| s.as_str())
+        };
+
+        if let Some(creator_id) = effective_creator_id {
+            if caller.user_id == creator_id {
+                info!(agent = %agent_id, result = "allowed", reason = "creator_rule", "permission check completed");
+                return Some(PermissionResponse::Allowed {
+                    token: generate_token(),
+                });
+            }
+        }
+        None
+    }
+}
+
+// --- Candidate collection & rule matching ---
+
+impl PermissionEngine {
+    fn collect_candidates(
+        &self,
+        caller: &super::engine_types::Caller,
+        agent_id: &str,
+        rules: &RuleSet,
+    ) -> Vec<usize> {
+        let mut candidates: Vec<usize> = Vec::new();
+
+        // 1a. User+Agent dual-key index lookup (O(1))
+        let index_key = format!("{}:{}", caller.user_id, agent_id);
+        if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
+            candidates.extend(indices);
+        }
+
+        // 1b. Agent-only index lookup (O(1))
+        if let Some(indices) = self.agent_rule_index.get(agent_id) {
+            candidates.extend(indices);
+        }
+
+        // 1c. Glob fallback (only if 1a and 1b produced nothing)
+        if candidates.is_empty() {
+            for (idx, rule) in rules.rules.iter().enumerate() {
+                if rule.subject.matches(caller) {
+                    candidates.push(idx);
+                }
+            }
+        }
+
+        // Sort by priority (desc)
+        candidates.sort_by(|&a, &b| rules.rules[b].priority.cmp(&rules.rules[a].priority));
+        candidates
+    }
+
+    /// Steps 3-4: Expand templates, then evaluate rules (deny-precedence).
+    fn match_rules(
+        &self,
+        candidates: &[usize],
+        rules: &RuleSet,
+        caller: &super::engine_types::Caller,
+        request_body: &PermissionRequestBody,
+    ) -> Option<PermissionResponse> {
+        let (expanded_rules, expanded_indices) = self.expand_templates_sync(candidates, rules);
+
+        let mut matching_rule_name: Option<String> = None;
+        for &rule_idx in &expanded_indices {
+            let rule = &expanded_rules[rule_idx];
+
+            if !rule.subject.matches(caller) {
+                continue;
+            }
+            if !self.rule_actions_match(rule, request_body) {
+                continue;
+            }
+
+            matching_rule_name = Some(rule.name.clone());
+
+            if rule.effect == Effect::Deny {
+                let reason = format!("action denied by rule '{}'", rule.name);
+                info!(
+                    agent = %caller.agent,
+                    result = "denied",
+                    rule = %rule.name,
+                    "permission check completed"
+                );
+                return Some(PermissionResponse::Denied {
+                    reason,
+                    rule: rule.name.clone(),
+                });
+            }
+        }
+
+        if matching_rule_name.is_some() {
+            info!(agent = %caller.agent, result = "allowed", reason = "matched_rule", "permission check completed");
+            return Some(PermissionResponse::Allowed {
+                token: generate_token(),
+            });
+        }
+        None
+    }
+}
+
+// --- Template expansion & utility helpers ---
+
+impl PermissionEngine {
     /// Expand template references in candidate rules.
-    ///
-    /// For template-based rules, replaces the rule with one pseudo-rule per resolved
-    /// template action (each pseudo-rule carries a single action, allowing precise
-    /// deny/action matching). For non-template rules, keeps the rule as-is.
     fn expand_templates_sync(
         &self,
         candidates: &[usize],
@@ -304,7 +323,11 @@ impl PermissionEngine {
 
         (expanded_rules, unique_indices)
     }
+}
 
+// --- Default & action matching ---
+
+impl PermissionEngine {
     /// Get default action when no rule matches.
     fn default_deny(
         &self,
