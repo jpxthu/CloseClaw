@@ -1,5 +1,6 @@
 //! Agent Runtime - manages agent lifecycle and inter-agent communication
 
+pub mod communication;
 pub mod config;
 pub mod inbox;
 pub mod process;
