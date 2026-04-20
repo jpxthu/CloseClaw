@@ -63,6 +63,22 @@ impl Section {
             Section::GitStatus(_) => "git_status",
         }
     }
+    fn format_session_state(&self, turn_count: u32, pending_tasks: &[String]) -> String {
+        let tasks_str = if pending_tasks.is_empty() {
+            "  (none)".to_string()
+        } else {
+            pending_tasks
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("  {}. {}", i + 1, t))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        format!(
+            "## Session State\n- turn_count: {}\n- pending_tasks:\n{}\n",
+            turn_count, tasks_str
+        )
+    }
 
     /// Render the section as a string for the system prompt
     pub fn render(&self) -> String {
@@ -95,22 +111,7 @@ impl Section {
             Section::SessionState {
                 turn_count,
                 pending_tasks,
-            } => {
-                let tasks_str = if pending_tasks.is_empty() {
-                    "  (none)".to_string()
-                } else {
-                    pending_tasks
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| format!("  {}. {}", i + 1, t))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                };
-                format!(
-                    "## Session State\n- turn_count: {}\n- pending_tasks:\n{}\n",
-                    turn_count, tasks_str
-                )
-            }
+            } => self.format_session_state(*turn_count, pending_tasks),
             Section::AppendSection(content) => {
                 format!("## Append\n{}\n", content)
             }
