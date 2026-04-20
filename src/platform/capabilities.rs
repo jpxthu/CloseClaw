@@ -78,66 +78,67 @@ impl PlatformCapabilityService {
     /// Create a new PlatformCapabilityService with known platform configurations
     pub fn new() -> Self {
         let mut capabilities = HashMap::new();
-
-        // Feishu capabilities
-        capabilities.insert(
-            "feishu".to_string(),
-            PlatformCapabilities {
-                platform: "feishu".to_string(),
-                message_update: CapabilityLevel::Partial,
-                card_interaction: CapabilityLevel::Full,
-                file_upload: FileUploadCapability::Full,
-                message_length_limit: 10000,
-                stream_mode_support: CapabilityLevel::Partial, // Stream updates会被覆盖，需要降级
-                edit_message_support: true,
-            },
-        );
-
-        // Telegram capabilities
-        capabilities.insert(
-            "telegram".to_string(),
-            PlatformCapabilities {
-                platform: "telegram".to_string(),
-                message_update: CapabilityLevel::Full,
-                card_interaction: CapabilityLevel::Partial,
-                file_upload: FileUploadCapability::Full,
-                message_length_limit: 4096,
-                stream_mode_support: CapabilityLevel::Full,
-                edit_message_support: true,
-            },
-        );
-
-        // Discord capabilities
-        capabilities.insert(
-            "discord".to_string(),
-            PlatformCapabilities {
-                platform: "discord".to_string(),
-                message_update: CapabilityLevel::Full,
-                card_interaction: CapabilityLevel::Partial,
-                file_upload: FileUploadCapability::Full,
-                message_length_limit: 2000,
-                stream_mode_support: CapabilityLevel::Full,
-                edit_message_support: true,
-            },
-        );
-
-        // Slack capabilities
-        capabilities.insert(
-            "slack".to_string(),
-            PlatformCapabilities {
-                platform: "slack".to_string(),
-                message_update: CapabilityLevel::Full,
-                card_interaction: CapabilityLevel::Partial,
-                file_upload: FileUploadCapability::Full,
-                message_length_limit: 3000,
-                stream_mode_support: CapabilityLevel::Full,
-                edit_message_support: true,
-            },
-        );
-
+        Self::register_defaults(&mut capabilities);
         Self { capabilities }
     }
 
+    fn register_defaults(capabilities: &mut HashMap<String, PlatformCapabilities>) {
+        capabilities.insert("feishu".to_string(), Self::feishu_capabilities());
+        capabilities.insert("telegram".to_string(), Self::telegram_capabilities());
+        capabilities.insert("discord".to_string(), Self::discord_capabilities());
+        capabilities.insert("slack".to_string(), Self::slack_capabilities());
+    }
+
+    fn feishu_capabilities() -> PlatformCapabilities {
+        PlatformCapabilities {
+            platform: "feishu".to_string(),
+            message_update: CapabilityLevel::Partial,
+            card_interaction: CapabilityLevel::Full,
+            file_upload: FileUploadCapability::Full,
+            message_length_limit: 10000,
+            stream_mode_support: CapabilityLevel::Partial,
+            edit_message_support: true,
+        }
+    }
+
+    fn telegram_capabilities() -> PlatformCapabilities {
+        PlatformCapabilities {
+            platform: "telegram".to_string(),
+            message_update: CapabilityLevel::Full,
+            card_interaction: CapabilityLevel::Partial,
+            file_upload: FileUploadCapability::Full,
+            message_length_limit: 4096,
+            stream_mode_support: CapabilityLevel::Full,
+            edit_message_support: true,
+        }
+    }
+
+    fn discord_capabilities() -> PlatformCapabilities {
+        PlatformCapabilities {
+            platform: "discord".to_string(),
+            message_update: CapabilityLevel::Full,
+            card_interaction: CapabilityLevel::Partial,
+            file_upload: FileUploadCapability::Full,
+            message_length_limit: 2000,
+            stream_mode_support: CapabilityLevel::Full,
+            edit_message_support: true,
+        }
+    }
+
+    fn slack_capabilities() -> PlatformCapabilities {
+        PlatformCapabilities {
+            platform: "slack".to_string(),
+            message_update: CapabilityLevel::Full,
+            card_interaction: CapabilityLevel::Partial,
+            file_upload: FileUploadCapability::Full,
+            message_length_limit: 3000,
+            stream_mode_support: CapabilityLevel::Full,
+            edit_message_support: true,
+        }
+    }
+}
+
+impl PlatformCapabilityService {
     /// Get capabilities for a specific platform
     pub fn get_capabilities(&self, platform: &str) -> PlatformCapabilities {
         self.capabilities
