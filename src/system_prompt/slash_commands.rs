@@ -103,7 +103,9 @@ pub fn handle_pwd_command() -> SlashCommandResult {
 pub fn handle_git_command(args: &str) -> SlashCommandResult {
     let workdir = match get_workdir() {
         Some(w) => w,
-        None => return SlashCommandResult::Text("未设置工作目录。使用 /cd <路径> 先切换。".to_string()),
+        None => {
+            return SlashCommandResult::Text("未设置工作目录。使用 /cd <路径> 先切换。".to_string())
+        }
     };
 
     if !std::path::Path::new(&workdir).join(".git").exists() {
