@@ -59,84 +59,93 @@ pub fn set_custom_prompt(prompt: Option<String>) {
 ///  4. defaultSystemPrompt
 ///  5. appendSection (always appended last)
 pub fn build_system_prompt(sections: Vec<Section>) -> String {
-    // Check override first
-    if let Ok(guard) = OVERRIDE_PROMPT.read() {
-        if let Some(ref override_prompt) = *guard {
-            return append_append_section(override_prompt.clone());
-        }
+    // Check priority prompts first (early return)
+    if let Some(prompt) = get_priority_prompt() {
+        return append_append_section(prompt);
     }
 
-    // Agent prompt
-    if let Ok(guard) = AGENT_PROMPT.read() {
-        if let Some(ref agent_prompt) = *guard {
-            return append_append_section(agent_prompt.clone());
-        }
-    }
-
-    // Custom prompt
-    if let Ok(guard) = CUSTOM_PROMPT.read() {
-        if let Some(ref custom_prompt) = *guard {
-            return append_append_section(custom_prompt.clone());
-        }
-    }
-
-    // Build from sections (default)
-    let mut rendered_sections = Vec::new();
-
-    for section in sections {
-        let name = section.name();
-        let is_static = section.is_cacheable();
-
-        if is_static {
-            // For file-based sections, use mtime-aware cache
-            let section_str = match section {
-                Section::MemorySection(_) => {
-                    // Try workspace memory path
-                    let memory_path = Path::new("MEMORY.md");
-                    if memory_path.exists() {
-                        load_cached_file_section("memory", memory_path)
-                            .map(|c| Section::MemorySection(c).render())
-                            .unwrap_or_default()
-                    } else {
-                        section.render()
-                    }
-                }
-                Section::HeartbeatSection(_) => {
-                    let heartbeat_path = Path::new("HEARTBEAT.md");
-                    if heartbeat_path.exists() {
-                        load_cached_file_section("heartbeat", heartbeat_path)
-                            .map(|c| Section::HeartbeatSection(c).render())
-                            .unwrap_or_default()
-                    } else {
-                        section.render()
-                    }
-                }
-                _ => {
-                    // Use generic cache for other static sections
-                    if let Some(cached) = get_cached_section(name, None) {
-                        cached
-                    } else {
-                        let rendered = section.render();
-                        // Store without mtime for non-file sections
-                        super::sections::put_cached_section(name, rendered.clone(), None);
-                        rendered
-                    }
-                }
-            };
-            rendered_sections.push(section_str);
-        } else {
-            // Dynamic section — always render fresh
-            rendered_sections.push(section.render());
-        }
-    }
-
-    let base = if rendered_sections.is_empty() {
+    // Render sections
+    let rendered = render_sections(sections);
+    let base = if rendered.is_empty() {
         DEFAULT_PROMPT.to_string()
     } else {
-        rendered_sections.join("\n")
+        rendered.join("\n")
     };
 
     append_append_section(base)
+}
+
+/// Get the highest-priority prompt that is set
+fn get_priority_prompt() -> Option<String> {
+    // Check override
+    if let Ok(guard) = OVERRIDE_PROMPT.read() {
+        if let Some(ref prompt) = *guard {
+            return Some(prompt.clone());
+        }
+    }
+    // Check agent
+    if let Ok(guard) = AGENT_PROMPT.read() {
+        if let Some(ref prompt) = *guard {
+            return Some(prompt.clone());
+        }
+    }
+    // Check custom
+    if let Ok(guard) = CUSTOM_PROMPT.read() {
+        if let Some(ref prompt) = *guard {
+            return Some(prompt.clone());
+        }
+    }
+    None
+}
+
+/// Render all sections into a vector of strings
+fn render_sections(sections: Vec<Section>) -> Vec<String> {
+    sections
+        .into_iter()
+        .map(render_section)
+        .collect()
+}
+
+/// Render a single section to string
+fn render_section(section: Section) -> String {
+    let name = section.name();
+    let is_static = section.is_cacheable();
+
+    if is_static {
+        match section {
+            Section::MemorySection(_) => {
+                let path = Path::new("MEMORY.md");
+                if path.exists() {
+                    load_cached_file_section("memory", path)
+                        .map(|c| Section::MemorySection(c).render())
+                        .unwrap_or_default()
+                } else {
+                    section.render()
+                }
+            }
+            Section::HeartbeatSection(_) => {
+                let path = Path::new("HEARTBEAT.md");
+                if path.exists() {
+                    load_cached_file_section("heartbeat", path)
+                        .map(|c| Section::HeartbeatSection(c).render())
+                        .unwrap_or_default()
+                } else {
+                    section.render()
+                }
+            }
+            _ => {
+                if let Some(cached) = get_cached_section(name, None) {
+                    cached
+                } else {
+                    let rendered = section.render();
+                    super::sections::put_cached_section(name, rendered.clone(), None);
+                    rendered
+                }
+            }
+        }
+    } else {
+        section.render()
+    }
 }
 
 /// Append the current append_section to a base prompt
