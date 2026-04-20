@@ -19,6 +19,9 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use crate::permission::{PermissionEngine, PermissionRequest, PermissionResponse, RuleSet};
+pub mod ipc;
+
+pub use ipc::IpcChannel;
 
 /// Maximum time to wait for the engine process to start.
 const ENGINE_SPAWN_TIMEOUT_MS: u64 = 5000;
@@ -135,88 +138,6 @@ pub enum SandboxResponse {
 // ---------------------------------------------------------------------------
 // IPC Channel
 // ---------------------------------------------------------------------------
-
-/// Bidirectional IPC channel over a Unix domain socket.
-///
-/// The protocol uses length-prefixed JSON frames:
-///
-/// ```text
-/// [4-byte big-endian length (u32)][JSON frame bytes]
-/// ```
-pub struct IpcChannel {
-    path: PathBuf,
-}
-
-impl IpcChannel {
-    /// Create a new IPC channel at the given socket path.
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
-    }
-
-    /// Remove the socket file if it already exists (idempotent).
-    fn clean_up(&self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-
-    /// Connect to the engine and send a request, returning the response.
-    async fn call(&self, request: &SandboxRequest) -> std::io::Result<SandboxResponse> {
-        let stream = timeout(
-            Duration::from_millis(IPC_TIMEOUT_MS),
-            UnixStream::connect(&self.path),
-        )
-        .await
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "IPC connect timeout"))??;
-
-        let (reader, mut writer): (_, OwnedWriteHalf) = stream.into_split();
-
-        // Send request: [4-byte len][json]
-        let json = serde_json::to_vec(request)?;
-        let len = (json.len() as u32).to_be_bytes();
-        writer.write_all(&len).await?;
-        writer.write_all(&json).await?;
-        writer.flush().await?;
-
-        // Read response header
-        let mut hdr = [0u8; 4];
-        let mut reader = BufReader::new(reader);
-        reader.read_exact(&mut hdr).await?;
-        let body_len = u32::from_be_bytes(hdr) as usize;
-
-        // Read body
-        let mut body = vec![0u8; body_len];
-        reader.read_exact(&mut body).await?;
-
-        serde_json::from_slice(&body)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
-
-    /// Start listening for connections and dispatch them to the engine.
-    ///
-    /// Blocks forever, processing each connection in a spawned task.
-    pub async fn serve(self, engine: Arc<PermissionEngine>) -> std::io::Result<()> {
-        self.clean_up();
-
-        let listener = UnixListener::bind(&self.path)?;
-
-        tracing::info!("engine IPC server listening on {}", self.path.display());
-
-        loop {
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let engine = engine.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, engine).await {
-                            tracing::error!("IPC connection error: {}", e);
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::error!("UnixListener accept error: {}", e);
-                }
-            }
-        }
-    }
-}
 
 /// Handle a single IPC connection from the host.
 async fn handle_connection(
@@ -365,7 +286,10 @@ impl Sandbox {
     pub async fn state(&self) -> SandboxState {
         *self.state.read().await
     }
+}
 
+/// Engine process management: spawn, restart, shutdown.
+impl Sandbox {
     /// Spawn the permission engine as a child process.
     ///
     /// The engine binary is the current process itself, started with the
@@ -379,10 +303,16 @@ impl Sandbox {
                 state: SandboxState::Running,
             });
         }
-
         self.channel.clean_up();
+        let mut child = self.spawn_process()?;
+        self.wait_socket(&mut child)?;
+        self.verify_engine().await?;
+        Ok(())
+    }
 
-        let mut child = Command::new(std::env::current_exe()?)
+    /// Launch the engine subprocess.
+    fn spawn_process(&self) -> Result<Child, SandboxError> {
+        Command::new(std::env::current_exe()?)
             .env("SANDBOX_ENGINE", "1")
             .env("SANDBOX_IPC_PATH", &self.ipc_path)
             .arg("--engine")
@@ -390,34 +320,29 @@ impl Sandbox {
             .stderr(Stdio::inherit())
             .stdin(Stdio::null())
             .spawn()
-            .map_err(|e| SandboxError::ProcessError(e.to_string()))?;
+            .map_err(|e| SandboxError::ProcessError(e.to_string()))
+    }
 
-        // Wait for the socket to appear (engine is ready).
+    /// Wait for the IPC socket to appear within the spawn timeout.
+    fn wait_socket(&mut self, child: &mut Child) -> Result<(), SandboxError> {
         let deadline = tokio::time::Instant::now() + Duration::from_millis(ENGINE_SPAWN_TIMEOUT_MS);
-
-        let socket_ready = loop {
+        loop {
             if tokio::time::Instant::now() >= deadline {
-                break false;
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(SandboxError::ProcessError(
+                    "engine socket never appeared".to_string(),
+                ));
             }
             if self.ipc_path.exists() {
-                // Give the engine one more moment to call bind().
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                break true;
+                return Ok(());
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        };
-
-        if !socket_ready {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(SandboxError::ProcessError(
-                "engine socket never appeared".to_string(),
-            ));
+            std::thread::sleep(Duration::from_millis(50));
         }
+    }
 
-        self.child = Some(child);
-
-        // Ping to confirm the engine is responsive.
+    /// Verify the engine responds to a Ping and mark it as running.
+    async fn verify_engine(&mut self) -> Result<(), SandboxError> {
         match timeout(
             Duration::from_millis(IPC_TIMEOUT_MS),
             self.channel.call(&SandboxRequest::Ping),
@@ -434,11 +359,13 @@ impl Sandbox {
             Ok(Err(e)) => return Err(SandboxError::Ipc(e)),
             Err(_) => return Err(SandboxError::IpcTimeout),
         }
-
+        self.child = Some(self.child.take().unwrap());
         *self.state.write().await = SandboxState::Running;
         Ok(())
     }
+}
 
+impl Sandbox {
     /// Restart the engine process (shutdown + spawn).
     pub async fn restart(&mut self) -> Result<(), SandboxError> {
         self.shutdown().await;
@@ -454,7 +381,10 @@ impl Sandbox {
         self.channel.clean_up();
         *self.state.write().await = SandboxState::Shutdown;
     }
+}
 
+/// IPC: evaluate and reload_rules.
+impl Sandbox {
     /// Evaluate a permission request by sending it to the engine over IPC.
     pub async fn evaluate(
         &self,
