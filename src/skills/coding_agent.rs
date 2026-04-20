@@ -41,69 +41,78 @@ impl Skill for CodingAgentSkill {
         args: serde_json::Value,
     ) -> Result<serde_json::Value, SkillError> {
         match method {
-            "delegate" => {
-                let task = args
-                    .get("task")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("task required".to_string()))?;
-                let language = args
-                    .get("language")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("rust");
-
-                // Stub - would spawn OpenCode or Claude Code
-                Ok(serde_json::json!({
-                    "status": "delegated",
-                    "task": task,
-                    "language": language,
-                    "model": self.model,
-                    "message": "Coding task delegated - implementation stub"
-                }))
-            }
-            "review" => {
-                let _code = args
-                    .get("code")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
-
-                Ok(serde_json::json!({
-                    "status": "review_complete",
-                    "issues": [],
-                    "message": "Code review - implementation stub"
-                }))
-            }
-            "refactor" => {
-                let _code = args
-                    .get("code")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
-                let goal = args
-                    .get("goal")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("improve readability");
-
-                Ok(serde_json::json!({
-                    "status": "refactored",
-                    "goal": goal,
-                    "message": "Refactoring - implementation stub"
-                }))
-            }
-            "test" => {
-                let _code = args
-                    .get("code")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
-
-                Ok(serde_json::json!({
-                    "status": "tests_generated",
-                    "test_count": 0,
-                    "message": "Test generation - implementation stub"
-                }))
-            }
+            "delegate" => Self::delegate(&args, &self.model),
+            "review" => Self::review(&args),
+            "refactor" => Self::refactor(&args),
+            "test" => Self::test(&args),
             _ => Err(SkillError::MethodNotFound {
                 skill: "coding_agent".to_string(),
                 method: method.to_string(),
             }),
         }
+    }
+}
+
+impl CodingAgentSkill {
+    fn delegate(args: &serde_json::Value, model: &str) -> Result<serde_json::Value, SkillError> {
+        let task = args
+            .get("task")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SkillError::InvalidArgs("task required".to_string()))?;
+        let language = args
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("rust");
+
+        Ok(serde_json::json!({
+            "status": "delegated",
+            "task": task,
+            "language": language,
+            "model": model,
+            "message": "Coding task delegated - implementation stub"
+        }))
+    }
+
+    fn review(args: &serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        let _code = args
+            .get("code")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
+
+        Ok(serde_json::json!({
+            "status": "review_complete",
+            "issues": [],
+            "message": "Code review - implementation stub"
+        }))
+    }
+
+    fn refactor(args: &serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        let _code = args
+            .get("code")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
+        let goal = args
+            .get("goal")
+            .and_then(|v| v.as_str())
+            .unwrap_or("improve readability");
+
+        Ok(serde_json::json!({
+            "status": "refactored",
+            "goal": goal,
+            "message": "Refactoring - implementation stub"
+        }))
+    }
+
+    fn test(args: &serde_json::Value) -> Result<serde_json::Value, SkillError> {
+        let _code = args
+            .get("code")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SkillError::InvalidArgs("code required".to_string()))?;
+
+        Ok(serde_json::json!({
+            "status": "tests_generated",
+            "test_count": 0,
+            "message": "Test generation - implementation stub"
+        }))
     }
 }
