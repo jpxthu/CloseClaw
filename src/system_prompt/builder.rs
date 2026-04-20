@@ -59,28 +59,32 @@ pub fn set_custom_prompt(prompt: Option<String>) {
 ///  4. defaultSystemPrompt
 ///  5. appendSection (always appended last)
 pub fn build_system_prompt(sections: Vec<Section>) -> String {
-    // Check override first
+    if let Some(prompt) = get_prompt_override() {
+        return append_append_section(prompt);
+    }
+    append_append_section(render_sections_or_default(&sections))
+}
+
+fn get_prompt_override() -> Option<String> {
     if let Ok(guard) = OVERRIDE_PROMPT.read() {
-        if let Some(ref override_prompt) = *guard {
-            return append_append_section(override_prompt.clone());
+        if let Some(ref p) = *guard {
+            return Some(p.clone());
         }
     }
-
-    // Agent prompt
     if let Ok(guard) = AGENT_PROMPT.read() {
-        if let Some(ref agent_prompt) = *guard {
-            return append_append_section(agent_prompt.clone());
+        if let Some(ref p) = *guard {
+            return Some(p.clone());
         }
     }
-
-    // Custom prompt
     if let Ok(guard) = CUSTOM_PROMPT.read() {
-        if let Some(ref custom_prompt) = *guard {
-            return append_append_section(custom_prompt.clone());
+        if let Some(ref p) = *guard {
+            return Some(p.clone());
         }
     }
+    None
+}
 
-    // Build from sections (default)
+fn render_sections_or_default(sections: &[Section]) -> String {
     let mut rendered_sections = Vec::new();
 
     for section in sections {
@@ -88,11 +92,9 @@ pub fn build_system_prompt(sections: Vec<Section>) -> String {
         let is_static = section.is_cacheable();
 
         if is_static {
-            // For file-based sections, use mtime-aware cache
             let section_str = match section {
                 Section::MemorySection(_) => {
-                    // Try workspace memory path
-                    let memory_path = Path::new("MEMORY.md");
+                    let memory_path = std::path::Path::new("MEMORY.md");
                     if memory_path.exists() {
                         load_cached_file_section("memory", memory_path)
                             .map(|c| Section::MemorySection(c).render())
@@ -102,7 +104,7 @@ pub fn build_system_prompt(sections: Vec<Section>) -> String {
                     }
                 }
                 Section::HeartbeatSection(_) => {
-                    let heartbeat_path = Path::new("HEARTBEAT.md");
+                    let heartbeat_path = std::path::Path::new("HEARTBEAT.md");
                     if heartbeat_path.exists() {
                         load_cached_file_section("heartbeat", heartbeat_path)
                             .map(|c| Section::HeartbeatSection(c).render())
@@ -112,12 +114,10 @@ pub fn build_system_prompt(sections: Vec<Section>) -> String {
                     }
                 }
                 _ => {
-                    // Use generic cache for other static sections
                     if let Some(cached) = get_cached_section(name, None) {
                         cached
                     } else {
                         let rendered = section.render();
-                        // Store without mtime for non-file sections
                         super::sections::put_cached_section(name, rendered.clone(), None);
                         rendered
                     }
@@ -125,21 +125,17 @@ pub fn build_system_prompt(sections: Vec<Section>) -> String {
             };
             rendered_sections.push(section_str);
         } else {
-            // Dynamic section — always render fresh
             rendered_sections.push(section.render());
         }
     }
 
-    let base = if rendered_sections.is_empty() {
+    if rendered_sections.is_empty() {
         DEFAULT_PROMPT.to_string()
     } else {
         rendered_sections.join("\n")
-    };
-
-    append_append_section(base)
+    }
 }
 
-/// Append the current append_section to a base prompt
 fn append_append_section(base: String) -> String {
     if let Some(append) = get_append_section() {
         format!("{}\n\n## Append\n{}\n", base, append)
