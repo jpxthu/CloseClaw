@@ -32,7 +32,10 @@ impl AgentsConfigProvider {
         let config_path = path.as_ref().display().to_string();
         let content = fs::read_to_string(path)?;
         let config: AgentsConfig = serde_json::from_str(&content)?;
-        Ok(Self { config, config_path })
+        Ok(Self {
+            config,
+            config_path,
+        })
     }
 
     /// Create a new provider from a string (useful for testing)

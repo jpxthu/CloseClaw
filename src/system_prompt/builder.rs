@@ -100,10 +100,7 @@ fn get_priority_prompt() -> Option<String> {
 
 /// Render all sections into a vector of strings
 fn render_sections(sections: Vec<Section>) -> Vec<String> {
-    sections
-        .into_iter()
-        .map(render_section)
-        .collect()
+    sections.into_iter().map(render_section).collect()
 }
 
 /// Render a single section to string

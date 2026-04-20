@@ -58,16 +58,14 @@ mod tests {
     fn test_valid_config() {
         let config = AgentsConfig {
             version: "1.0.0".to_string(),
-            agents: vec![
-                crate::config::agents::types::AgentConfig {
-                    name: "orchestrator".to_string(),
-                    model: "gpt-4".to_string(),
-                    persona: "Master orchestrator".to_string(),
-                    max_iterations: 100,
-                    timeout_minutes: Some(60),
-                    parent: None,
-                },
-            ],
+            agents: vec![crate::config::agents::types::AgentConfig {
+                name: "orchestrator".to_string(),
+                model: "gpt-4".to_string(),
+                persona: "Master orchestrator".to_string(),
+                max_iterations: 100,
+                timeout_minutes: Some(60),
+                parent: None,
+            }],
         };
         validate_agents_config(&config).unwrap();
     }
