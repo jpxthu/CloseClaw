@@ -117,38 +117,44 @@ pub fn handle_git_command(args: &str) -> SlashCommandResult {
     let git_args: Vec<&str> = args.trim().split_whitespace().collect();
 
     if git_args.is_empty() || git_args[0] == "status" {
-        // Return embedded git status
-        if let Some(status) = build_git_status() {
-            SlashCommandResult::Text(status)
-        } else {
-            SlashCommandResult::Text("无法读取 git 状态。".to_string())
-        }
+        handle_git_status()
     } else {
-        // Delegate to git binary
-        use std::process::Command;
+        execute_git_command(&workdir, &git_args)
+    }
+}
 
-        let output = Command::new("git")
-            .args(&git_args)
-            .current_dir(&workdir)
-            .output();
+fn handle_git_status() -> SlashCommandResult {
+    if let Some(status) = build_git_status() {
+        SlashCommandResult::Text(status)
+    } else {
+        SlashCommandResult::Text("无法读取 git 状态。".to_string())
+    }
+}
 
-        match output {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if output.status.success() {
-                    SlashCommandResult::Text(stdout.to_string())
-                } else {
-                    SlashCommandResult::Text(format!(
-                        "git {} 失败：\n{}\n{}",
-                        git_args.join(" "),
-                        stdout,
-                        stderr
-                    ))
-                }
+fn execute_git_command(workdir: &str, git_args: &[&str]) -> SlashCommandResult {
+    use std::process::Command;
+
+    let output = Command::new("git")
+        .args(git_args)
+        .current_dir(workdir)
+        .output();
+
+    match output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if output.status.success() {
+                SlashCommandResult::Text(stdout.to_string())
+            } else {
+                SlashCommandResult::Text(format!(
+                    "git {} 失败：\n{}\n{}",
+                    git_args.join(" "),
+                    stdout,
+                    stderr
+                ))
             }
-            Err(e) => SlashCommandResult::Text(format!("无法执行 git：{}", e)),
         }
+        Err(e) => SlashCommandResult::Text(format!("无法执行 git：{}", e)),
     }
 }
 
