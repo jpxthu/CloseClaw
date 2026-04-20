@@ -23,11 +23,9 @@ fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
         let line = line.trim();
-        // Skip empty lines and comments
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        // Parse KEY=value
         if let Some(pos) = line.find('=') {
             let key = line[..pos].trim().to_string();
             let value = line[pos + 1..].trim().to_string();
@@ -51,63 +49,23 @@ pub struct Daemon {
     pub audit_logger: Arc<AuditLogger>,
 }
 
+// --- Lifecycle: start, run ---
+
 impl Daemon {
     /// Start the daemon with the given config directory
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
 
-        // Load .env file from config_dir if it exists
-        let env_path = std::path::Path::new(config_dir).join(".env");
-        if env_path.exists() {
-            if let Err(e) = load_env_file(&env_path) {
-                tracing::warn!(error = %e, path = %env_path.display(), "failed to load .env file");
-            } else {
-                info!("Loaded environment from {}", env_path.display());
-            }
-        }
+        Self::load_env(config_dir);
 
-        // Load agents config
         let agents_config = Self::load_agents_config(config_dir)?;
-
-        // Initialize permission engine (rule evaluation sandbox)
-        let rule_set = RuleSet {
-            version: "1.0.0".to_string(),
-            rules: Vec::new(),
-            defaults: Defaults::default(),
-            template_includes: Vec::new(),
-            agent_creators: std::collections::HashMap::new(),
-        };
-        let mut permission_engine = PermissionEngine::new(rule_set);
-
-        // Load templates from config_dir/templates/ if directory exists
-        let templates_dir = std::path::Path::new(config_dir).join("templates");
-        if templates_dir.exists() {
-            if let Ok(templates) =
-                crate::permission::templates::load_templates_from_dir(&templates_dir)
-            {
-                let count = templates.len();
-                if count > 0 {
-                    permission_engine.load_templates(templates);
-                    info!(
-                        "Loaded {} permission templates from {}",
-                        count,
-                        templates_dir.display()
-                    );
-                }
-            }
-        }
-        let permission_engine = Arc::new(permission_engine);
-        info!("Permission engine initialized");
-
-        // Initialize agent registry
-        let agent_registry: Arc<RwLock<crate::agent::registry::AgentRegistry>> =
-            Arc::new(RwLock::new(crate::agent::registry::AgentRegistry::new(30)));
+        let permission_engine = Self::build_permission_engine(config_dir);
+        let agent_registry = Arc::new(RwLock::new(crate::agent::registry::AgentRegistry::new(30)));
         info!(
             "Agent registry initialized ({} agents)",
             agents_config.agents().len()
         );
 
-        // Initialize gateway
         let gateway = Arc::new(Gateway::new(GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
@@ -115,83 +73,14 @@ impl Daemon {
         }));
         info!("Gateway initialized");
 
-        // Register Feishu adapter if credentials are available
         Self::init_feishu_adapter(config_dir, &gateway).await?;
 
-        // Initialize shutdown coordinator
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
 
-        // Initialize LLM registry
-        let llm_registry = Arc::new(LLMRegistry::new());
-
-        // Register available LLM providers based on environment variables
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-            if !api_key.is_empty() {
-                let provider = Arc::new(OpenAIProvider::new(api_key));
-                llm_registry.register("openai".to_string(), provider).await;
-                info!("OpenAI provider registered");
-            }
-        }
-        if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
-            if !api_key.is_empty() {
-                let provider = Arc::new(AnthropicProvider::new(api_key));
-                llm_registry
-                    .register("anthropic".to_string(), provider)
-                    .await;
-                info!("Anthropic provider registered");
-            }
-        }
-        if let Ok(api_key) = std::env::var("MINIMAX_API_KEY") {
-            if !api_key.is_empty() {
-                let provider = Arc::new(MiniMaxProvider::new(api_key));
-                llm_registry.register("minimax".to_string(), provider).await;
-                info!("MiniMax provider registered");
-            }
-        }
-
-        // Initialize and spawn chat TCP server
-        let chat_server = Arc::new(ChatServer::new(Arc::clone(&llm_registry)));
-        let chat_server_for_task = Arc::clone(&chat_server);
-        let shutdown_rx = shutdown.subscribe_drain();
-        tokio::spawn(async move {
-            if let Err(e) = chat_server_for_task.run(shutdown_rx).await {
-                tracing::warn!(error = %e, "chat server exited with error");
-            }
-        });
-        info!(addr = "127.0.0.1:18889", "chat TCP server spawned");
-
-        // Initialize audit logger
-        let audit_logger = Arc::new(AuditLogger::new());
-
-        // Log daemon start as a config reload event
-        let start_event = AuditEventBuilder::new(AuditEventType::ConfigReload)
-            .details(serde_json::json!({
-                "component": "daemon",
-                "version": env!("CARGO_PKG_VERSION"),
-                "config_dir": config_dir,
-            }))
-            .result(AuditResult::Allow)
-            .build();
-        let audit_logger_for_start = Arc::clone(&audit_logger);
-        tokio::spawn(async move {
-            audit_logger_for_start.log(start_event).await;
-            audit_logger_for_start.flush().await;
-        });
-
-        // Spawn background flush task
-        let audit_for_flush = Arc::clone(&audit_logger);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        audit_for_flush.rotate_if_needed().await;
-                        audit_for_flush.flush().await;
-                    }
-                }
-            }
-        });
+        let llm_registry = Self::init_llm_registry().await;
+        let chat_server = Self::spawn_chat_server(&llm_registry, &shutdown);
+        let audit_logger = Self::spawn_audit_tasks(config_dir);
 
         info!(
             "CloseClaw daemon started successfully (v{})",
@@ -208,6 +97,54 @@ impl Daemon {
         })
     }
 
+    /// Run the daemon — blocks until shutdown signal is received.
+    #[cfg(unix)]
+    pub async fn run(&self) -> anyhow::Result<()> {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigint = signal(SignalKind::interrupt())?;
+        let mut sigterm = signal(SignalKind::terminate())?;
+
+        tokio::select! {
+            _ = sigint.recv() => {
+                info!("Received Ctrl+C, initiating shutdown...");
+            }
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM, initiating graceful shutdown...");
+            }
+        }
+
+        self.shutdown.initiate_shutdown().await;
+        self.shutdown_audit().await;
+        Ok(())
+    }
+
+    /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
+    #[cfg(not(unix))]
+    pub async fn run(&self) -> anyhow::Result<()> {
+        tokio::signal::ctrl_c().await?;
+        info!("Received Ctrl+C, initiating shutdown...");
+        self.shutdown.initiate_shutdown().await;
+        self.shutdown_audit().await;
+        Ok(())
+    }
+}
+
+// --- Config loading helpers ---
+
+impl Daemon {
+    /// Load .env file from config_dir if it exists.
+    fn load_env(config_dir: &str) {
+        let env_path = std::path::Path::new(config_dir).join(".env");
+        if env_path.exists() {
+            if let Err(e) = load_env_file(&env_path) {
+                tracing::warn!(error = %e, path = %env_path.display(), "failed to load .env file");
+            } else {
+                info!("Loaded environment from {}", env_path.display());
+            }
+        }
+    }
+
     /// Load and validate agents.json
     fn load_agents_config(config_dir: &str) -> anyhow::Result<AgentsConfigProvider> {
         let path = format!("{}/agents.json", config_dir);
@@ -220,7 +157,42 @@ impl Daemon {
         Ok(provider)
     }
 
-    /// Initialize Feishu adapter from env or config
+    /// Build permission engine, loading templates from config_dir/templates/ if present.
+    fn build_permission_engine(config_dir: &str) -> Arc<PermissionEngine> {
+        let rule_set = RuleSet {
+            version: "1.0.0".to_string(),
+            rules: Vec::new(),
+            defaults: Defaults::default(),
+            template_includes: Vec::new(),
+            agent_creators: std::collections::HashMap::new(),
+        };
+        let mut engine = PermissionEngine::new(rule_set);
+
+        let templates_dir = std::path::Path::new(config_dir).join("templates");
+        if templates_dir.exists() {
+            if let Ok(templates) =
+                crate::permission::templates::load_templates_from_dir(&templates_dir)
+            {
+                let count = templates.len();
+                if count > 0 {
+                    engine.load_templates(templates);
+                    info!(
+                        "Loaded {} permission templates from {}",
+                        count,
+                        templates_dir.display()
+                    );
+                }
+            }
+        }
+        info!("Permission engine initialized");
+        Arc::new(engine)
+    }
+}
+
+// --- Service init helpers ---
+
+impl Daemon {
+    /// Initialize Feishu adapter from env or config.
     async fn init_feishu_adapter(_config_dir: &str, gateway: &Arc<Gateway>) -> anyhow::Result<()> {
         let app_id = std::env::var("FEISHU_APP_ID").ok();
         let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
@@ -240,44 +212,94 @@ impl Daemon {
         Ok(())
     }
 
-    /// Run the daemon — blocks until shutdown signal is received.
-    ///
-    /// Handles both SIGINT (Ctrl+C) and SIGTERM (`kill` / `closeclaw stop`),
-    /// triggering graceful shutdown via [`ShutdownHandle::initiate_shutdown()`].
-    #[cfg(unix)]
-    pub async fn run(&self) -> anyhow::Result<()> {
-        use tokio::signal::unix::{signal, SignalKind};
+    /// Initialize LLM registry and register providers from environment variables.
+    async fn init_llm_registry() -> Arc<LLMRegistry> {
+        let registry = Arc::new(LLMRegistry::new());
 
-        let mut sigint = signal(SignalKind::interrupt())?;
-        let mut sigterm = signal(SignalKind::terminate())?;
-
-        tokio::select! {
-            _ = sigint.recv() => {
-                info!("Received Ctrl+C, initiating shutdown...");
+        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
+            if !api_key.is_empty() {
+                let provider = Arc::new(OpenAIProvider::new(api_key));
+                registry.register("openai".to_string(), provider).await;
+                info!("OpenAI provider registered");
             }
-            _ = sigterm.recv() => {
-                info!("Received SIGTERM, initiating graceful shutdown...");
+        }
+        if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
+            if !api_key.is_empty() {
+                let provider = Arc::new(AnthropicProvider::new(api_key));
+                registry.register("anthropic".to_string(), provider).await;
+                info!("Anthropic provider registered");
+            }
+        }
+        if let Ok(api_key) = std::env::var("MINIMAX_API_KEY") {
+            if !api_key.is_empty() {
+                let provider = Arc::new(MiniMaxProvider::new(api_key));
+                registry.register("minimax".to_string(), provider).await;
+                info!("MiniMax provider registered");
             }
         }
 
-        self.shutdown.initiate_shutdown().await;
-        // Flush audit logs before exit
-        self.shutdown_audit().await;
-        Ok(())
+        registry
+    }
+}
+
+impl Daemon {
+    /// Create and spawn the chat TCP server as a background task.
+    fn spawn_chat_server(
+        llm_registry: &Arc<LLMRegistry>,
+        shutdown: &shutdown::ShutdownHandle,
+    ) -> Arc<ChatServer> {
+        let chat_server = Arc::new(ChatServer::new(Arc::clone(llm_registry)));
+        let chat_server_for_task = Arc::clone(&chat_server);
+        let shutdown_rx = shutdown.subscribe_drain();
+        tokio::spawn(async move {
+            if let Err(e) = chat_server_for_task.run(shutdown_rx).await {
+                tracing::warn!(error = %e, "chat server exited with error");
+            }
+        });
+        info!(addr = "127.0.0.1:18889", "chat TCP server spawned");
+        chat_server
     }
 
-    /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
-    #[cfg(not(unix))]
-    pub async fn run(&self) -> anyhow::Result<()> {
-        // Block forever — all work is async via tokio
-        tokio::signal::ctrl_c().await?;
-        info!("Received Ctrl+C, initiating shutdown...");
-        self.shutdown.initiate_shutdown().await;
-        // Flush audit logs before exit
-        self.shutdown_audit().await;
-        Ok(())
-    }
+    /// Create audit logger and spawn background flush + startup-log tasks.
+    fn spawn_audit_tasks(config_dir: &str) -> Arc<AuditLogger> {
+        let audit_logger = Arc::new(AuditLogger::new());
 
+        // Log daemon start as a config reload event
+        let start_event = AuditEventBuilder::new(AuditEventType::ConfigReload)
+            .details(serde_json::json!({
+                "component": "daemon",
+                "version": env!("CARGO_PKG_VERSION"),
+                "config_dir": config_dir,
+            }))
+            .result(AuditResult::Allow)
+            .build();
+        let logger_for_start = Arc::clone(&audit_logger);
+        tokio::spawn(async move {
+            logger_for_start.log(start_event).await;
+            logger_for_start.flush().await;
+        });
+
+        // Spawn background flush task
+        let audit_for_flush = Arc::clone(&audit_logger);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        audit_for_flush.rotate_if_needed().await;
+                        audit_for_flush.flush().await;
+                    }
+                }
+            }
+        });
+
+        audit_logger
+    }
+}
+
+// --- Audit & permission helpers ---
+
+impl Daemon {
     /// Evaluate a permission request and log the result to the audit log
     pub async fn evaluate_with_audit(
         &self,
@@ -312,10 +334,7 @@ impl Daemon {
     /// Log an agent start event
     pub async fn log_agent_start(&self, agent_id: &str, model: &str) {
         let event = AuditEventBuilder::new(AuditEventType::AgentStart)
-            .details(serde_json::json!({
-                "agent": agent_id,
-                "model": model,
-            }))
+            .details(serde_json::json!({ "agent": agent_id, "model": model }))
             .result(AuditResult::Allow)
             .build();
         let logger = Arc::clone(&self.audit_logger);
@@ -327,9 +346,7 @@ impl Daemon {
     /// Log an agent stop event
     pub async fn log_agent_stop(&self, agent_id: &str) {
         let event = AuditEventBuilder::new(AuditEventType::AgentStop)
-            .details(serde_json::json!({
-                "agent": agent_id,
-            }))
+            .details(serde_json::json!({ "agent": agent_id }))
             .result(AuditResult::Allow)
             .build();
         let logger = Arc::clone(&self.audit_logger);
@@ -341,10 +358,7 @@ impl Daemon {
     /// Log an agent error event
     pub async fn log_agent_error(&self, agent_id: &str, error: &str) {
         let event = AuditEventBuilder::new(AuditEventType::AgentError)
-            .details(serde_json::json!({
-                "agent": agent_id,
-                "error": error,
-            }))
+            .details(serde_json::json!({ "agent": agent_id, "error": error }))
             .result(AuditResult::Error)
             .build();
         let logger = Arc::clone(&self.audit_logger);
