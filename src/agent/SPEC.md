@@ -124,7 +124,9 @@ Agent 模块负责 CloseClaw 多智能体系统的核心运行时管理。
 | `registry/lifecycle.rs` | 基础生命周期（register/spawn/update_state/remove/kill 等） |
 | `registry/cascade.rs` | 级联操作（stop/suspend/resume/destroy 等） |
 | `config.rs` | AgentConfig、AgentPermissions、CommunicationConfig |
-| `inbox.rs` | InboxManager（消息队列 + 重试 + 死信 + 统计） |
+| `inbox/` | InboxManager（消息队列 + 重试 + 死信 + 统计） |
+| `inbox/types.rs` | InboxConfig, MessageType, MessageStatus, InboxMessage, DeadLetterRecord, CommStats |
+| `inbox/manager.rs` | InboxManager struct + impl |
 
 ### 3.2 关键数据流
 
