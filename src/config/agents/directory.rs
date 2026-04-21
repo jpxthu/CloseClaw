@@ -66,9 +66,7 @@ impl AgentDirectoryProvider {
             let perm_path = path.join("permissions.json");
             let permissions: Option<AgentPermissions> = if perm_path.exists() {
                 let content = std::fs::read_to_string(&perm_path)?;
-                Some(serde_json::from_str(&content).map_err(
-                    ConfigError::JsonError,
-                )?)
+                Some(serde_json::from_str(&content).map_err(ConfigError::JsonError)?)
             } else {
                 None
             };
@@ -113,9 +111,7 @@ impl AgentDirectoryProvider {
 
         if let Some(ref perms) = entry.permissions {
             let perm_path = dir.join("permissions.json");
-            let content = serde_json::to_string_pretty(perms).map_err(
-                ConfigError::JsonError,
-            )?;
+            let content = serde_json::to_string_pretty(perms).map_err(ConfigError::JsonError)?;
             std::fs::write(&perm_path, content)?;
         }
 

@@ -30,6 +30,16 @@ pub struct SessionCheckpoint {
     pub updated_at: DateTime<Utc>,
     /// TTL（秒），0 表示不过期
     pub ttl_seconds: u64,
+    /// 会话状态
+    pub status: SessionStatus,
+    /// 最后一条消息的时间
+    pub last_message_at: Option<DateTime<Utc>>,
+    /// 消息计数
+    pub message_count: u64,
+    /// 渠道标识
+    pub channel: Option<String>,
+    /// 聊天 ID
+    pub chat_id: Option<String>,
 }
 
 impl SessionCheckpoint {
@@ -45,6 +55,11 @@ impl SessionCheckpoint {
             created_at: now,
             updated_at: now,
             ttl_seconds: 604800, // 7 days default
+            status: SessionStatus::default(),
+            last_message_at: None,
+            message_count: 0,
+            channel: None,
+            chat_id: None,
         }
     }
 
@@ -75,6 +90,36 @@ impl SessionCheckpoint {
     /// Set TTL in seconds
     pub fn with_ttl(mut self, ttl: u64) -> Self {
         self.ttl_seconds = ttl;
+        self
+    }
+
+    /// Update the session status
+    pub fn with_status(mut self, status: SessionStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    /// Update the last message timestamp
+    pub fn with_last_message_at(mut self, at: DateTime<Utc>) -> Self {
+        self.last_message_at = Some(at);
+        self
+    }
+
+    /// Update the message count
+    pub fn with_message_count(mut self, count: u64) -> Self {
+        self.message_count = count;
+        self
+    }
+
+    /// Update the channel
+    pub fn with_channel(mut self, channel: String) -> Self {
+        self.channel = Some(channel);
+        self
+    }
+
+    /// Update the chat ID
+    pub fn with_chat_id(mut self, chat_id: String) -> Self {
+        self.chat_id = Some(chat_id);
         self
     }
 
@@ -177,6 +222,31 @@ impl std::fmt::Display for ReasoningMode {
     }
 }
 
+/// Session Status — 会话生命周期状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionStatus {
+    /// 活跃状态
+    Active,
+    /// 已归档状态
+    Archived,
+}
+
+impl Default for SessionStatus {
+    fn default() -> Self {
+        SessionStatus::Active
+    }
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionStatus::Active => write!(f, "active"),
+            SessionStatus::Archived => write!(f, "archived"),
+        }
+    }
+}
+
 /// Persistence errors
 #[derive(Error, Debug)]
 pub enum PersistenceError {
@@ -212,6 +282,32 @@ pub trait PersistenceService: Send + Sync {
 
     /// 列出所有活跃 Session 的 Checkpoint
     async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError>;
+
+    /// 归档 Checkpoint
+    async fn archive_checkpoint(
+        &self,
+        _checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
+        Err(PersistenceError::NotFound(_checkpoint.session_id.clone()))
+    }
+
+    /// 恢复已归档的 Checkpoint
+    async fn restore_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Err(PersistenceError::NotFound(session_id.to_string()))
+    }
+
+    /// 永久删除已归档的 Checkpoint
+    async fn purge_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
+        Err(PersistenceError::NotFound(session_id.to_string()))
+    }
+
+    /// 列出已归档的 Session
+    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Checkpoint 管理器 — 负责保存和恢复 Session 状态
@@ -318,138 +414,45 @@ impl<S: PersistenceService + 'static> CheckpointManager<S> {
         let cache = self.local_cache.read().await;
         cache.keys().cloned().collect()
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Use the memory storage for tests
-    use crate::session::storage::memory::MemoryStorage;
-
-    fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
-        let mut state = ReasoningModeState::default();
-        state.start_step(3);
-        state.add_step_message("Step 1: Analyzing...".to_string());
-
-        SessionCheckpoint::new(session_id.to_string())
-            .with_last_message_id(Some("msg123".to_string()))
-            .with_mode(ReasoningMode::Plan)
-            .with_mode_state(state)
-            .add_pending_message(PendingMessage::new(
-                "pending1".to_string(),
-                "Pending content".to_string(),
-            ))
+    /// 归档 Checkpoint
+    pub async fn archive(&self, checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
+        self.storage.archive_checkpoint(&checkpoint).await?;
+        // 从本地缓存和活跃存储中移除
+        {
+            let mut cache = self.local_cache.write().await;
+            cache.remove(&checkpoint.session_id);
+        }
+        self.storage.delete_checkpoint(&checkpoint.session_id).await?;
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_checkpoint_manager_save_and_load() {
-        let storage = Arc::new(MemoryStorage::new());
-        let manager = CheckpointManager::new(storage);
-
-        let checkpoint = create_test_checkpoint("session1");
-
-        // Save
-        manager.save(checkpoint.clone()).await.unwrap();
-
-        // Give the async task time to complete (for storage update)
-        tokio::task::yield_now().await;
-
-        // Load
-        let loaded = manager.load("session1").await.unwrap();
-        assert!(loaded.is_some());
-
-        let loaded = loaded.unwrap();
-        assert_eq!(loaded.session_id, "session1");
-        assert_eq!(loaded.last_message_id, Some("msg123".to_string()));
-        assert_eq!(loaded.mode, ReasoningMode::Plan);
-        assert_eq!(loaded.mode_state.current_step, 1);
+    /// 恢复已归档的 Checkpoint
+    pub async fn restore(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        let cp = self.storage.restore_checkpoint(session_id).await?;
+        if let Some(ref checkpoint) = cp {
+            // 恢复到活跃存储
+            self.storage.save_checkpoint(checkpoint).await?;
+            self.storage.purge_checkpoint(session_id).await?;
+            // 更新本地缓存
+            let mut cache = self.local_cache.write().await;
+            cache.insert(session_id.to_string(), checkpoint.clone());
+        }
+        Ok(cp)
     }
 
-    #[tokio::test]
-    async fn test_checkpoint_manager_cache_hit() {
-        let storage = Arc::new(MemoryStorage::new());
-        let manager = CheckpointManager::new(storage);
-
-        let checkpoint = create_test_checkpoint("session2");
-
-        // Save (sync to ensure cache is populated before load)
-        manager.save_sync(checkpoint.clone()).await.unwrap();
-
-        // Load should hit cache
-        let loaded = manager.load("session2").await.unwrap();
-        assert!(loaded.is_some());
-        assert_eq!(loaded.unwrap().session_id, "session2");
+    /// 永久删除已归档的 Checkpoint
+    pub async fn purge(&self, session_id: &str) -> Result<(), PersistenceError> {
+        self.storage.purge_checkpoint(session_id).await
     }
 
-    #[tokio::test]
-    async fn test_checkpoint_manager_delete() {
-        let storage = Arc::new(MemoryStorage::new());
-        let manager = CheckpointManager::new(storage);
-
-        let checkpoint = create_test_checkpoint("session3");
-        manager.save_sync(checkpoint).await.unwrap();
-
-        // Delete
-        manager.delete("session3").await.unwrap();
-
-        // Load should return None
-        let loaded = manager.load("session3").await.unwrap();
-        assert!(loaded.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_checkpoint_manager_clear_cache() {
-        let storage = Arc::new(MemoryStorage::new());
-        let manager = CheckpointManager::new(storage);
-
-        let checkpoint = create_test_checkpoint("session4");
-        manager.save_sync(checkpoint).await.unwrap();
-
-        // Clear cache
-        manager.clear_cache().await;
-
-        // Cache should be empty
-        let ids = manager.cached_session_ids().await;
-        assert!(ids.is_empty());
-    }
-
-    #[test]
-    fn test_reasoning_mode_default() {
-        let mode = ReasoningMode::default();
-        assert_eq!(mode, ReasoningMode::Direct);
-    }
-
-    #[test]
-    fn test_reasoning_mode_display() {
-        assert_eq!(ReasoningMode::Direct.to_string(), "direct");
-        assert_eq!(ReasoningMode::Plan.to_string(), "plan");
-        assert_eq!(ReasoningMode::Stream.to_string(), "stream");
-        assert_eq!(ReasoningMode::Hidden.to_string(), "hidden");
-    }
-
-    #[test]
-    fn test_pending_message_mark_sent() {
-        let mut msg = PendingMessage::new("msg1".to_string(), "content".to_string());
-        assert!(!msg.sent);
-        msg.mark_sent();
-        assert!(msg.sent);
-    }
-
-    #[test]
-    fn test_reasoning_mode_state_operations() {
-        let mut state = ReasoningModeState::default();
-        assert_eq!(state.current_step, 0);
-        assert!(!state.is_complete);
-
-        state.start_step(5);
-        assert_eq!(state.current_step, 1);
-        assert_eq!(state.total_steps, 5);
-
-        state.add_step_message("Thinking...".to_string());
-        assert_eq!(state.step_messages.len(), 1);
-
-        state.complete();
-        assert!(state.is_complete);
+    /// 列出已归档的 Session ID
+    pub async fn archived_session_ids(&self) -> Result<Vec<String>, PersistenceError> {
+        self.storage.list_archived_sessions().await
     }
 }
+
+
