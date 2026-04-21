@@ -13,7 +13,7 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 
 子模块：
 - `registry` — Skill trait + SkillRegistry 注册中心
-- `builtin` — 7 个内置技能实现
+- `builtin` — 7 个内置技能实现（file_ops, git_ops, search, permission, discovery）
 - `coding_agent` — 编码委托技能（stub）
 - `skill_creator` — 技能创建辅助技能
 
