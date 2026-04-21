@@ -68,6 +68,10 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 |------|------|
 | `CheckpointManager::delete(&str)` | 删除 checkpoint（同时清本地缓存和存储） |
 | `CheckpointManager::clear_cache()` | 清空本地缓存 |
+| `CheckpointManager::archive(SessionCheckpoint)` | 归档 checkpoint（从活跃存储移至归档存储，清缓存） |
+| `CheckpointManager::restore(&str)` | 恢复已归档 checkpoint（从归档移回活跃存储） |
+| `CheckpointManager::purge(&str)` | 永久删除已归档 checkpoint |
+| `CheckpointManager::archived_session_ids()` | 列出所有已归档的 session_id |
 
 ### 公开数据类型（不含字段列表）
 
@@ -76,11 +80,12 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `BootstrapContext` | bootstrap 区域元数据容器，含 regions 列表和 integrity hash |
 | `BootstrapRegion` | 单个 bootstrap 文件的区域标记（含 hash 用于完整性校验） |
 | `BootstrapProtectionError` | bootstrap 保护操作错误（FileNotFound/IntegrityCheckFailed/IoError/MarkerParseError/WorkspacePathRequired） |
-| `SessionCheckpoint` | 会话持久化状态快照（session_id/mode/last_message_id/mode_state/pending_messages/ttl） |
+| `SessionCheckpoint` | 会话持久化状态快照（含 status/last_message_at/message_count/channel/chat_id 等生命周期字段） |
+| `SessionStatus` | 会话生命周期状态枚举（Active/Archived） |
 | `ReasoningMode` | 推理模式枚举（Direct/Plan/Stream/Hidden） |
 | `ReasoningModeState` | 推理模式运行时状态（步骤计数/步骤消息/完成标志） |
 | `PendingMessage` | 未最终确认的中间消息 |
-| `PersistenceService` | 持久化存储接口（save/load/delete/list_active_sessions） |
+| `PersistenceService` | 持久化存储接口（save/load/delete/list_active_sessions + archive/restore/purge/list_archived，后四个有默认实现返回 NotFound） |
 | `PersistenceError` | 持久化操作错误（Redis/Postgres/Io/Serialization/NotFound/Lock） |
 | `CheckpointTrigger` | Checkpoint 触发时机（ModeSwitch/MessageSent/GatewayShutdown/PreCompact/PostCompact） |
 | `ModeSwitchEvent` | 模式切换事件（含 from/to mode 和 user_intent） |
@@ -132,6 +137,25 @@ GatewayShutdown — save_sync() 确保同步落盘
 
 **加载优先顺序**：本地缓存 → 存储后端。
 
+### 3.4 归档流程
+
+```
+CheckpointManager::archive()
+    ↓
+archive_checkpoint() — 写入归档存储
+    ↓
+delete_checkpoint() — 从活跃存储删除 + 清本地缓存
+
+CheckpointManager::restore()
+    ↓
+restore_checkpoint() — 从归档存储读取
+    ↓
+save_checkpoint() — 写回活跃存储 + purge 归档 + 更新缓存
+
+CheckpointManager::purge() — 永久删除归档记录
+CheckpointManager::archived_session_ids() — 列出归档 session
+```
+
 ### 3.3 会话恢复流程
 
 ```
@@ -152,7 +176,7 @@ SessionRecoveryService::recover()
 
 | 后端 | 用途 | TTL |
 |------|------|-----|
-| `MemoryStorage` | 测试/单实例 | 无 |
+| `MemoryStorage` | 测试/单实例 | 无；内存 HashMap + 独立 archived HashMap |
 | `RedisStorage` | 生产 | checkpoint.ttl_seconds（默认 7 天） |
 
 RedisStorage 的 `list_active_sessions()` 使用 `KEYS` 命令扫描。
