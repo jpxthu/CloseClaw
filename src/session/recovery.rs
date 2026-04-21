@@ -108,7 +108,7 @@ impl RecoveryReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::persistence::{ReasoningMode, ReasoningModeState};
+    use crate::session::persistence::{ReasoningMode, ReasoningModeState, SessionStatus};
     use crate::session::storage::memory::MemoryStorage;
     use chrono::Utc;
 
@@ -127,6 +127,11 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             ttl_seconds: 604800,
+            status: SessionStatus::Active,
+            last_message_at: None,
+            message_count: 0,
+            channel: None,
+            chat_id: None,
         }
     }
 
