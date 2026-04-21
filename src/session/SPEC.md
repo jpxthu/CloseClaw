@@ -85,7 +85,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `ReasoningMode` | 推理模式枚举（Direct/Plan/Stream/Hidden） |
 | `ReasoningModeState` | 推理模式运行时状态（步骤计数/步骤消息/完成标志） |
 | `PendingMessage` | 未最终确认的中间消息 |
-| `PersistenceService` | 持久化存储接口（save/load/delete/list_active_sessions + archive/restore/purge/list_archived，后四个有默认实现返回 NotFound） |
+| `PersistenceService` | 持久化存储接口（save/load/delete/list_active_sessions + archive/restore/purge/list_archived，后四个有默认实现：archive/restore/purge 返回 NotFound，list_archived 返回空列表） |
 | `PersistenceError` | 持久化操作错误（Redis/Postgres/Io/Serialization/NotFound/Lock） |
 | `CheckpointTrigger` | Checkpoint 触发时机（ModeSwitch/MessageSent/GatewayShutdown/PreCompact/PostCompact） |
 | `ModeSwitchEvent` | 模式切换事件（含 from/to mode 和 user_intent） |
@@ -137,7 +137,7 @@ GatewayShutdown — save_sync() 确保同步落盘
 
 **加载优先顺序**：本地缓存 → 存储后端。
 
-### 3.4 归档流程
+### 3.3 归档流程
 
 ```
 CheckpointManager::archive()
@@ -156,7 +156,7 @@ CheckpointManager::purge() — 永久删除归档记录
 CheckpointManager::archived_session_ids() — 列出归档 session
 ```
 
-### 3.3 会话恢复流程
+### 3.4 会话恢复流程
 
 ```
 网关启动
