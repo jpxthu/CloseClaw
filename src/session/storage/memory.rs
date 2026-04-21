@@ -12,6 +12,7 @@ use std::sync::RwLock;
 #[derive(Debug)]
 pub struct MemoryStorage {
     checkpoints: RwLock<HashMap<String, SessionCheckpoint>>,
+    archived: RwLock<HashMap<String, SessionCheckpoint>>,
 }
 
 impl MemoryStorage {
@@ -19,6 +20,7 @@ impl MemoryStorage {
     pub fn new() -> Self {
         Self {
             checkpoints: RwLock::new(HashMap::new()),
+            archived: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -70,12 +72,52 @@ impl PersistenceService for MemoryStorage {
             .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
         Ok(checkpoints.keys().cloned().collect())
     }
+
+    async fn archive_checkpoint(
+        &self,
+        checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
+        let mut archived = self
+            .archived
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        archived.insert(checkpoint.session_id.clone(), checkpoint.clone());
+        Ok(())
+    }
+
+    async fn restore_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        let archived = self
+            .archived
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        Ok(archived.get(session_id).cloned())
+    }
+
+    async fn purge_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
+        let mut archived = self
+            .archived
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        archived.remove(session_id);
+        Ok(())
+    }
+
+    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        let archived = self
+            .archived
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        Ok(archived.keys().cloned().collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::persistence::{ReasoningMode, ReasoningModeState};
+    use crate::session::persistence::{ReasoningMode, ReasoningModeState, SessionStatus};
     use chrono::Utc;
 
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -93,6 +135,11 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             ttl_seconds: 604800,
+            status: SessionStatus::Active,
+            last_message_at: None,
+            message_count: 0,
+            channel: None,
+            chat_id: None,
         }
     }
 

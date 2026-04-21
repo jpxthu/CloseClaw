@@ -13,6 +13,8 @@
 pub mod bootstrap;
 pub mod events;
 pub mod persistence;
+#[cfg(test)]
+pub mod persistence_tests;
 pub mod recovery;
 pub mod storage;
 
