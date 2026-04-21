@@ -58,7 +58,11 @@
 
 ```
 src/audit/
-└── mod.rs   # 包含所有类型定义和实现（含单元测试）
+├── mod.rs          # 模块声明 + pub use re-exports
+├── types.rs        # AuditEventType, AuditResult, AuditEvent, AuditEventBuilder
+├── logger.rs       # AuditLogger struct + impl + Default
+├── query.rs        # AuditQueryFilter, query_audit_events, export_audit_events
+└── tests.rs        # 单元测试
 ```
 
 ### 数据流
