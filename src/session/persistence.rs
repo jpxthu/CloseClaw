@@ -423,7 +423,9 @@ impl<S: PersistenceService + 'static> CheckpointManager<S> {
             let mut cache = self.local_cache.write().await;
             cache.remove(&checkpoint.session_id);
         }
-        self.storage.delete_checkpoint(&checkpoint.session_id).await?;
+        self.storage
+            .delete_checkpoint(&checkpoint.session_id)
+            .await?;
         Ok(())
     }
 
@@ -454,5 +456,3 @@ impl<S: PersistenceService + 'static> CheckpointManager<S> {
         self.storage.list_archived_sessions().await
     }
 }
-
-
