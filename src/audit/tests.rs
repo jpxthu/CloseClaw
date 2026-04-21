@@ -6,9 +6,9 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    use super::super::types::{AuditEvent, AuditEventBuilder, AuditEventType, AuditResult};
     use super::super::logger::AuditLogger;
     use super::super::query::{query_audit_events, AuditQueryFilter};
+    use super::super::types::{AuditEvent, AuditEventBuilder, AuditEventType, AuditResult};
 
     #[test]
     fn test_audit_event_serialize_to_json() {
