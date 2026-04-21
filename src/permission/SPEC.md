@@ -98,6 +98,9 @@
 | `engine/` | 核心评估逻辑：类型定义、O(1) 索引、评估算法 |
 | `actions/` | Action 类型及其 Builder |
 | `rules/` | Rule/RuleSet Builder 及验证逻辑 |
+| `rules/builder.rs` | RuleBuilder + RuleBuilderError |
+| `rules/ruleset_builder.rs` | RuleSetBuilder + RuleSetBuilderError |
+| `rules/validation.rs` | 规则和规则集验证辅助函数 |
 | `templates.rs` | 模板加载与继承展开 |
 | `sandbox/` | OS 进程隔离、IPC 通信、安全策略 |
 

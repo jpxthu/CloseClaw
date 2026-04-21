@@ -10,3 +10,6 @@ pub mod validation;
 
 pub use builder::{RuleBuilder, RuleBuilderError};
 pub use ruleset_builder::{RuleSetBuilder, RuleSetBuilderError};
+
+// Re-export types needed by tests (defined in crate::permission::engine, re-exported at crate::permission)
+pub use crate::permission::{Rule, Effect, Subject, MatchType, Defaults, RuleSet};
