@@ -62,21 +62,17 @@ impl Skill for PermissionSkill {
                 if let Some(ref engine) = self.engine {
                     let response = engine.check(agent_id, action);
                     match response {
-                        PermissionResponse::Allowed { token: _ } => {
-                            Ok(serde_json::json!({
-                                "allowed": true,
-                                "agent_id": agent_id,
-                                "action": action,
-                            }))
-                        }
-                        PermissionResponse::Denied { reason, rule: _ } => {
-                            Ok(serde_json::json!({
-                                "allowed": false,
-                                "agent_id": agent_id,
-                                "action": action,
-                                "reason": reason,
-                            }))
-                        }
+                        PermissionResponse::Allowed { token: _ } => Ok(serde_json::json!({
+                            "allowed": true,
+                            "agent_id": agent_id,
+                            "action": action,
+                        })),
+                        PermissionResponse::Denied { reason, rule: _ } => Ok(serde_json::json!({
+                            "allowed": false,
+                            "agent_id": agent_id,
+                            "action": action,
+                            "reason": reason,
+                        })),
                     }
                 } else {
                     Ok(serde_json::json!({
