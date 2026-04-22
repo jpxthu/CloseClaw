@@ -15,7 +15,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 - `persistence` — Checkpoint 数据结构 + 持久化服务接口 + 本地缓存管理器
 - `events` — Checkpoint 触发时机定义（模式切换/消息发送/网关关闭/compaction）
 - `recovery` — 网关启动时从存储恢复会话
-- `storage/` — 可插拔存储后端（Memory/Redis）
+- `storage/` — 可插拔存储后端（Memory/Redis/SqliteStorage）
 
 ---
 
@@ -33,6 +33,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `BootstrapProtection::with_size_limit(usize)` | 设置 reinject 字符数上限（默认 60K） |
 | `MemoryStorage::new()` | 创建内存存储后端（测试/单实例用） |
 | `RedisStorage::new(&str, &str) -> Result<Self, PersistenceError>` | 从 URL 创建 Redis 存储后端 |
+| `SqliteStorage::new(&Path) -> Result<Self, PersistenceError>` | 从路径创建 SQLite 存储后端（自动建库+Schema） |
 | `RedisStorage::key_prefix(&self) -> &str` | 查询存储使用的 key 前缀 |
 | `CheckpointManager::new(Arc<S>)` | 创建带存储后端的 Checkpoint 管理器 |
 | `SessionRecoveryService::new(Arc<S>)` | 创建恢复服务 |
@@ -132,7 +133,7 @@ CheckpointManager::save() — 更新本地缓存 + tokio::spawn 异步写存储
     ↓
 GatewayShutdown — save_sync() 确保同步落盘
     ↓
-存储后端（PersistenceService）— MemoryStorage / RedisStorage
+存储后端（PersistenceService）— MemoryStorage / RedisStorage / SqliteStorage
 ```
 
 **加载优先顺序**：本地缓存 → 存储后端。
@@ -178,8 +179,11 @@ SessionRecoveryService::recover()
 |------|------|-----|
 | `MemoryStorage` | 测试/单实例 | 无；内存 HashMap + 独立 archived HashMap |
 | `RedisStorage` | 生产 | checkpoint.ttl_seconds（默认 7 天） |
+| `SqliteStorage` | 生产（单实例/嵌入式） | 无；SQLite 元数据 + JSONL transcript 文件；归档/恢复/清理；两阶段事务保证原子性 |
 
 RedisStorage 的 `list_active_sessions()` 使用 `KEYS` 命令扫描。
+
+SqliteStorage 将 checkpoint 元数据（session_id/status/created_at/archived_at 等）存入 SQLite 表，transcript 内容写入独立 JSONL 文件，通过两阶段事务（BEGIN IMMEDIATE / COMMIT）保证 DB 与文件系统操作原子性。归档时 `std::fs::rename` 移动 transcript 文件，DB 与文件系统状态一致。
 
 ---
 

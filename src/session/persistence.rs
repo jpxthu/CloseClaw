@@ -254,6 +254,8 @@ pub enum PersistenceError {
     Redis(String),
     #[error("PostgreSQL error: {0}")]
     Postgres(String),
+    #[error("SQLite error: {0}")]
+    Sqlite(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
@@ -307,6 +309,11 @@ pub trait PersistenceService: Send + Sync {
     /// 列出已归档的 Session
     async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
+    }
+
+    /// 使给定 session 的本地缓存失效（无实际操作，直接返回 Ok）。
+    async fn invalidate_session(&self, _session_id: &str) -> Result<(), PersistenceError> {
+        Ok(())
     }
 }
 
