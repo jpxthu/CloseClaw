@@ -114,3 +114,192 @@ pub fn export_audit_events(
     fs::write(output_path, content)?;
     Ok(count)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audit::{AuditEvent, AuditEventType, AuditResult};
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    /// Helper: create a temp audit dir with one day's events
+    fn setup_audit_dir(events: &[AuditEvent]) -> TempDir {
+        let dir = TempDir::new().unwrap();
+        let audit_dir = dir.path().join(".closeclaw").join("audit");
+        fs::create_dir_all(&audit_dir).unwrap();
+
+        let today = Local::now().format("%Y-%m-%d").to_string();
+        let path = audit_dir.join(format!("{}.jsonl", today));
+        let mut file = fs::File::create(path).unwrap();
+        for event in events {
+            writeln!(file, "{}", event.serialize_to_json()).unwrap();
+        }
+        dir
+    }
+
+    /// Run query with HOME overridden to the temp dir
+    fn query_with_home(filter: &AuditQueryFilter, home: &std::path::Path) -> Vec<AuditEvent> {
+        // Override HOME env var for the test
+        let orig = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home);
+        let result = query_audit_events(filter);
+        if let Some(h) = orig {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        result
+    }
+
+    #[test]
+    fn test_query_returns_events() {
+        let events = vec![
+            AuditEvent::new(
+                AuditEventType::PermissionCheck,
+                serde_json::json!({"agent": "agent1"}),
+                AuditResult::Allow,
+            ),
+        ];
+        let dir = setup_audit_dir(&events);
+        let filter = AuditQueryFilter {
+            days: 1,
+            ..Default::default()
+        };
+        let results = query_with_home(&filter, dir.path());
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].event_type, AuditEventType::PermissionCheck));
+    }
+
+    #[test]
+    fn test_query_filter_by_event_type() {
+        let events = vec![
+            AuditEvent::new(
+                AuditEventType::PermissionCheck,
+                serde_json::json!({}),
+                AuditResult::Allow,
+            ),
+            AuditEvent::new(
+                AuditEventType::AgentStart,
+                serde_json::json!({}),
+                AuditResult::Allow,
+            ),
+        ];
+        let dir = setup_audit_dir(&events);
+        let filter = AuditQueryFilter {
+            days: 1,
+            event_type: Some("permissioncheck".to_string()),
+            ..Default::default()
+        };
+        let results = query_with_home(&filter, dir.path());
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_query_filter_by_agent() {
+        let events = vec![
+            AuditEvent::new(
+                AuditEventType::PermissionCheck,
+                serde_json::json!({"agent": "alpha"}),
+                AuditResult::Deny,
+            ),
+            AuditEvent::new(
+                AuditEventType::PermissionCheck,
+                serde_json::json!({"agent": "beta"}),
+                AuditResult::Allow,
+            ),
+        ];
+        let dir = setup_audit_dir(&events);
+        let filter = AuditQueryFilter {
+            days: 1,
+            agent: Some("alpha".to_string()),
+            ..Default::default()
+        };
+        let results = query_with_home(&filter, dir.path());
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_query_limit() {
+        let events: Vec<AuditEvent> = (0..5)
+            .map(|_| {
+                AuditEvent::new(
+                    AuditEventType::AgentError,
+                    serde_json::json!({}),
+                    AuditResult::Error,
+                )
+            })
+            .collect();
+        let dir = setup_audit_dir(&events);
+        let filter = AuditQueryFilter {
+            days: 1,
+            limit: Some(2),
+            ..Default::default()
+        };
+        let results = query_with_home(&filter, dir.path());
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_query_no_home_returns_empty() {
+        let orig = std::env::var("HOME").ok();
+        std::env::remove_var("HOME");
+        let filter = AuditQueryFilter {
+            days: 1,
+            ..Default::default()
+        };
+        let results = query_audit_events(&filter);
+        assert!(results.is_empty());
+        if let Some(h) = orig {
+            std::env::set_var("HOME", h);
+        }
+    }
+
+    #[test]
+    fn test_query_empty_dir() {
+        let dir = TempDir::new().unwrap();
+        let filter = AuditQueryFilter {
+            days: 1,
+            ..Default::default()
+        };
+        let results = query_with_home(&filter, dir.path());
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_export_json() {
+        let events = vec![
+            AuditEvent::new(
+                AuditEventType::ConfigReload,
+                serde_json::json!({"key": "val"}),
+                AuditResult::Allow,
+            ),
+        ];
+        let dir = setup_audit_dir(&events);
+        let output = dir.path().join("export.json");
+        let filter = AuditQueryFilter {
+            days: 1,
+            ..Default::default()
+        };
+        let orig = std::env::var("HOME").ok();
+        std::env::set_var("HOME", dir.path());
+        let count = export_audit_events(&filter, output.to_str().unwrap(), "json").unwrap();
+        if let Some(h) = orig {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        assert_eq!(count, 1);
+        let content = fs::read_to_string(&output).unwrap();
+        assert!(content.contains("ConfigReload"));
+    }
+
+    #[test]
+    fn test_max_query_days_cap() {
+        let filter = AuditQueryFilter {
+            days: 9999,
+            ..Default::default()
+        };
+        // Should not panic even with large days value
+        let _ = query_audit_events(&filter);
+    }
+}
