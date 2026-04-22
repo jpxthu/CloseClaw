@@ -137,6 +137,78 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_user_intent_new() {
+        let intent = UserIntent::new("hello world");
+        assert_eq!(intent.raw_input, "hello world");
+        assert!(intent.parsed_goal.is_none());
+        assert!(intent.entities.is_empty());
+    }
+
+    #[test]
+    fn test_user_intent_with_parsed_goal() {
+        let intent = UserIntent::new("search for X").with_parsed_goal("find X");
+        assert_eq!(intent.raw_input, "search for X");
+        assert_eq!(intent.parsed_goal.as_deref(), Some("find X"));
+    }
+
+    #[test]
+    fn test_user_intent_default() {
+        let intent = UserIntent::default();
+        assert!(intent.raw_input.is_empty());
+        assert!(intent.parsed_goal.is_none());
+        assert!(intent.entities.is_empty());
+    }
+
+    #[test]
+    fn test_mode_switch_event_new_and_default() {
+        let evt = ModeSwitchEvent::new();
+        assert!(evt.requested_mode.is_none());
+        assert!(evt.target_mode.is_none());
+        assert!(evt.user_intent.is_none());
+        assert!(evt.session_id.is_none());
+
+        let evt2 = ModeSwitchEvent::default();
+        assert!(evt2.requested_mode.is_none());
+    }
+
+    #[test]
+    fn test_mode_switch_event_builders() {
+        let intent = UserIntent::new("analyze this");
+        let evt = ModeSwitchEvent::new()
+            .with_requested_mode(ReasoningMode::Direct)
+            .with_target_mode(ReasoningMode::Plan)
+            .with_user_intent(intent)
+            .with_session_id("sess-123");
+
+        assert_eq!(evt.requested_mode, Some(ReasoningMode::Direct));
+        assert_eq!(evt.target_mode, Some(ReasoningMode::Plan));
+        assert!(evt.user_intent.is_some());
+        assert_eq!(evt.session_id.as_deref(), Some("sess-123"));
+    }
+
+    #[test]
+    fn test_checkpoint_trigger_variants_debug() {
+        let mode_switch = CheckpointTrigger::ModeSwitch {
+            from_mode: ReasoningMode::Direct,
+            to_mode: ReasoningMode::Plan,
+        };
+        let debug = format!("{:?}", mode_switch);
+        assert!(debug.contains("ModeSwitch"));
+
+        let msg = CheckpointTrigger::MessageSent {
+            message_id: "m1".to_string(),
+        };
+        let debug = format!("{:?}", msg);
+        assert!(debug.contains("MessageSent"));
+
+        let pre = CheckpointTrigger::PreCompact {
+            before_char_count: 42,
+        };
+        let debug = format!("{:?}", pre);
+        assert!(debug.contains("PreCompact"));
+    }
+
+    #[test]
     fn test_trigger_requires_sync() {
         let shutdown = CheckpointTrigger::GatewayShutdown;
         assert!(shutdown.requires_sync());
