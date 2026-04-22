@@ -7,14 +7,17 @@
 //! - [`SecurityPolicy`] — seccomp/landlock enforcement on Linux
 //! - [`SandboxRequest`] / [`SandboxResponse`] — serialized IPC messages
 
+mod security;
+pub use security::*;
+
+mod ipc;
+pub use ipc::*;
+
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::unix::OwnedWriteHalf;
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 
@@ -22,266 +25,6 @@ use crate::permission::{PermissionEngine, PermissionRequest, PermissionResponse,
 
 /// Maximum time to wait for the engine process to start.
 const ENGINE_SPAWN_TIMEOUT_MS: u64 = 5000;
-
-/// Maximum time to wait for a response from the engine over IPC.
-const IPC_TIMEOUT_MS: u64 = 3000;
-
-// ---------------------------------------------------------------------------
-// Security Policy
-// ---------------------------------------------------------------------------
-
-/// Security policies applied to the engine subprocess.
-///
-/// On Linux, seccomp and landlock are used to restrict the engine's capabilities.
-/// On non-Linux platforms, these are no-ops.
-#[derive(Debug, Clone, Default)]
-pub struct SecurityPolicy {
-    /// Enable seccomp to restrict syscalls.
-    pub seccomp: bool,
-    /// Enable landlock to restrict filesystem access.
-    pub landlock: bool,
-    /// Explicitly allowed filesystem paths (used with landlock).
-    pub allowed_fs_paths: Vec<PathBuf>,
-    /// Explicitly blocked syscalls (used with seccomp).
-    pub blocked_syscalls: Vec<String>,
-}
-
-impl SecurityPolicy {
-    /// Create a default security policy that enables seccomp and landlock on Linux.
-    pub fn default_restrictive() -> Self {
-        Self {
-            seccomp: cfg!(target_os = "linux"),
-            landlock: cfg!(target_os = "linux"),
-            allowed_fs_paths: vec![],
-            blocked_syscalls: vec![],
-        }
-    }
-
-    /// Apply the security policy inside the engine subprocess.
-    ///
-    /// Call this **once** at startup, before serving any requests.
-    #[cfg(target_os = "linux")]
-    pub fn apply(&self) -> anyhow::Result<()> {
-        if self.seccomp {
-            apply_seccomp()?;
-        }
-        if self.landlock {
-            apply_landlock(&self.allowed_fs_paths)?;
-        }
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    pub fn apply(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn apply_seccomp() -> anyhow::Result<()> {
-    // seccomp enforcement is not yet implemented.
-    // In production, use libseccomp or a BPF program via seccomp(2)
-    // with SECCOMP_SET_MODE_FILTER.
-    tracing::warn!(
-        "SecurityPolicy::apply(): seccomp enforcement is a stub. \
-         Kernel-level syscall filtering is NOT active."
-    );
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn apply_landlock(_allowed_paths: &[PathBuf]) -> anyhow::Result<()> {
-    // Landlock enforcement is not yet implemented.
-    // Landlock is available since Linux 5.13.
-    // In production, call `landlock_create_ruleset()` and `landlock_add_rule()`
-    // via the userspace ABI.
-    tracing::warn!(
-        "SecurityPolicy::apply(): landlock enforcement is a stub. \
-         Filesystem sandboxing is NOT active."
-    );
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// IPC Messages
-// ---------------------------------------------------------------------------
-
-/// Request sent from the host process to the sandboxed engine.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SandboxRequest {
-    /// Ask the engine to evaluate a permission request.
-    Evaluate { request: PermissionRequest },
-    /// Ask the engine to reload its ruleset.
-    ReloadRules { rules: RuleSet },
-    /// Ping — returns Pong.
-    Ping,
-}
-
-/// Response sent from the sandboxed engine back to the host.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SandboxResponse {
-    /// Permission evaluation result.
-    PermissionResponse(PermissionResponse),
-    /// Acknowledge a rules reload.
-    RulesReloaded,
-    /// Pong acknowledgement.
-    Pong,
-    /// Engine-side error.
-    Error { message: String },
-}
-
-// ---------------------------------------------------------------------------
-// IPC Channel
-// ---------------------------------------------------------------------------
-
-/// Bidirectional IPC channel over a Unix domain socket.
-///
-/// The protocol uses length-prefixed JSON frames:
-///
-/// ```text
-/// [4-byte big-endian length (u32)][JSON frame bytes]
-/// ```
-pub struct IpcChannel {
-    path: PathBuf,
-}
-
-impl IpcChannel {
-    /// Create a new IPC channel at the given socket path.
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
-    }
-
-    /// Remove the socket file if it already exists (idempotent).
-    fn clean_up(&self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-
-    /// Connect to the engine and send a request, returning the response.
-    async fn call(&self, request: &SandboxRequest) -> std::io::Result<SandboxResponse> {
-        let stream = timeout(
-            Duration::from_millis(IPC_TIMEOUT_MS),
-            UnixStream::connect(&self.path),
-        )
-        .await
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "IPC connect timeout"))??;
-
-        let (reader, mut writer): (_, OwnedWriteHalf) = stream.into_split();
-
-        // Send request: [4-byte len][json]
-        let json = serde_json::to_vec(request)?;
-        let len = (json.len() as u32).to_be_bytes();
-        writer.write_all(&len).await?;
-        writer.write_all(&json).await?;
-        writer.flush().await?;
-
-        // Read response header
-        let mut hdr = [0u8; 4];
-        let mut reader = BufReader::new(reader);
-        reader.read_exact(&mut hdr).await?;
-        let body_len = u32::from_be_bytes(hdr) as usize;
-
-        // Read body
-        let mut body = vec![0u8; body_len];
-        reader.read_exact(&mut body).await?;
-
-        serde_json::from_slice(&body)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
-
-    /// Start listening for connections and dispatch them to the engine.
-    ///
-    /// Blocks forever, processing each connection in a spawned task.
-    pub async fn serve(self, engine: Arc<PermissionEngine>) -> std::io::Result<()> {
-        self.clean_up();
-
-        let listener = UnixListener::bind(&self.path)?;
-
-        tracing::info!("engine IPC server listening on {}", self.path.display());
-
-        loop {
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let engine = engine.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, engine).await {
-                            tracing::error!("IPC connection error: {}", e);
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::error!("UnixListener accept error: {}", e);
-                }
-            }
-        }
-    }
-}
-
-/// Handle a single IPC connection from the host.
-async fn handle_connection(
-    stream: UnixStream,
-    engine: Arc<PermissionEngine>,
-) -> std::io::Result<()> {
-    let (reader, writer): (_, OwnedWriteHalf) = stream.into_split();
-    let mut reader = BufReader::new(reader);
-    let mut writer = writer;
-
-    loop {
-        // Read 4-byte length header
-        let mut hdr = [0u8; 4];
-        match reader.read_exact(&mut hdr).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
-            Err(e) => return Err(e),
-        }
-        let body_len = u32::from_be_bytes(hdr) as usize;
-
-        // Read body
-        let mut body = vec![0u8; body_len];
-        reader.read_exact(&mut body).await?;
-
-        // Deserialize request
-        let request: SandboxRequest = match serde_json::from_slice(&body) {
-            Ok(r) => r,
-            Err(e) => {
-                let resp = SandboxResponse::Error {
-                    message: format!("invalid request: {}", e),
-                };
-                send_response(&mut writer, &resp).await?;
-                continue;
-            }
-        };
-
-        // Process request
-        let response = match &request {
-            SandboxRequest::Evaluate { request } => {
-                SandboxResponse::PermissionResponse(engine.evaluate(request.clone()))
-            }
-            SandboxRequest::ReloadRules { rules: _ } => {
-                // The engine is recreated externally; we just acknowledge.
-                SandboxResponse::RulesReloaded
-            }
-            SandboxRequest::Ping => SandboxResponse::Pong,
-        };
-
-        send_response(&mut writer, &response).await?;
-    }
-
-    Ok(())
-}
-
-async fn send_response(
-    writer: &mut OwnedWriteHalf,
-    response: &SandboxResponse,
-) -> std::io::Result<()> {
-    let json = serde_json::to_vec(response)?;
-    let len = (json.len() as u32).to_be_bytes();
-    writer.write_all(&len).await?;
-    writer.write_all(&json).await?;
-    writer.flush().await?;
-    Ok(())
-}
 
 // ---------------------------------------------------------------------------
 // Sandbox
@@ -365,7 +108,9 @@ impl Sandbox {
     pub async fn state(&self) -> SandboxState {
         *self.state.read().await
     }
+}
 
+impl Sandbox {
     /// Spawn the permission engine as a child process.
     ///
     /// The engine binary is the current process itself, started with the
@@ -382,6 +127,17 @@ impl Sandbox {
 
         self.channel.clean_up();
 
+        let child = self.spawn_child_process().await?;
+        self.child = Some(child);
+
+        self.confirm_engine_ready().await?;
+
+        *self.state.write().await = SandboxState::Running;
+        Ok(())
+    }
+
+    /// Create the engine subprocess and wait for its socket to appear.
+    async fn spawn_child_process(&self) -> Result<Child, SandboxError> {
         let mut child = Command::new(std::env::current_exe()?)
             .env("SANDBOX_ENGINE", "1")
             .env("SANDBOX_IPC_PATH", &self.ipc_path)
@@ -415,30 +171,29 @@ impl Sandbox {
             ));
         }
 
-        self.child = Some(child);
+        Ok(child)
+    }
 
-        // Ping to confirm the engine is responsive.
+    /// Confirm the engine is responsive by sending a Ping and awaiting Pong.
+    async fn confirm_engine_ready(&self) -> Result<(), SandboxError> {
         match timeout(
             Duration::from_millis(IPC_TIMEOUT_MS),
             self.channel.call(&SandboxRequest::Ping),
         )
         .await
         {
-            Ok(Ok(SandboxResponse::Pong)) => {}
-            Ok(Ok(other)) => {
-                return Err(SandboxError::ProcessError(format!(
-                    "unexpected response to Ping: {:?}",
-                    other
-                )));
-            }
-            Ok(Err(e)) => return Err(SandboxError::Ipc(e)),
-            Err(_) => return Err(SandboxError::IpcTimeout),
+            Ok(Ok(SandboxResponse::Pong)) => Ok(()),
+            Ok(Ok(other)) => Err(SandboxError::ProcessError(format!(
+                "unexpected response to Ping: {:?}",
+                other
+            ))),
+            Ok(Err(e)) => Err(SandboxError::Ipc(e)),
+            Err(_) => Err(SandboxError::IpcTimeout),
         }
-
-        *self.state.write().await = SandboxState::Running;
-        Ok(())
     }
+}
 
+impl Sandbox {
     /// Restart the engine process (shutdown + spawn).
     pub async fn restart(&mut self) -> Result<(), SandboxError> {
         self.shutdown().await;
@@ -535,4 +290,44 @@ pub async fn run_engine_subprocess(ipc_path: PathBuf, rules: RuleSet) -> anyhow:
 
     channel.serve(engine).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sandbox_state_default() {
+        let state = SandboxState::default();
+        assert_eq!(state, SandboxState::Unstarted);
+    }
+
+    #[test]
+    fn test_sandbox_error_display() {
+        let ipc_err = SandboxError::IpcTimeout;
+        let ipc_msg = ipc_err.to_string();
+        assert!(
+            ipc_msg.contains("timeout") || ipc_msg.contains("IPC"),
+            "IpcTimeout display should contain 'timeout' or 'IPC': {}",
+            ipc_msg
+        );
+
+        let process_err = SandboxError::ProcessError("engine died".to_string());
+        let process_msg = process_err.to_string();
+        assert!(
+            process_msg.contains("engine died"),
+            "ProcessError display should contain the message: {}",
+            process_msg
+        );
+
+        let invalid_state = SandboxError::InvalidState {
+            state: SandboxState::Running,
+        };
+        let invalid_msg = invalid_state.to_string();
+        assert!(
+            invalid_msg.contains("Running"),
+            "InvalidState display should contain the state: {}",
+            invalid_msg
+        );
+    }
 }
