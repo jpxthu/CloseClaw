@@ -103,6 +103,9 @@
 | `rules/validation.rs` | 规则和规则集验证辅助函数 |
 | `templates.rs` | 模板加载与继承展开 |
 | `sandbox/` | OS 进程隔离、IPC 通信、安全策略 |
+| `sandbox/mod.rs` | Sandbox 生命周期管理、SandboxState、SandboxError |
+| `sandbox/ipc.rs` | IpcChannel、SandboxRequest/SandboxResponse IPC 消息 |
+| `sandbox/security.rs` | SecurityPolicy、seccomp/landlock 平台策略 |
 
 ### 数据流（Host → Engine 子进程）
 
