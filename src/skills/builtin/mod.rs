@@ -61,3 +61,70 @@ pub fn builtin_skills_with_engine(
 ) -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all_with_engine(engine)
 }
+
+#[cfg(test)]
+mod extra_tests {
+    use super::*;
+
+    #[test]
+    fn test_builtin_skills_all_returns_seven_skills() {
+        let skills = BuiltinSkills::all();
+        assert_eq!(skills.len(), 7);
+    }
+
+    #[test]
+    fn test_builtin_skills_all_have_manifests() {
+        let skills = BuiltinSkills::all();
+        for skill in &skills {
+            let m = skill.manifest();
+            assert!(!m.name.is_empty(), "skill manifest name should not be empty");
+            assert!(!m.version.is_empty(), "skill manifest version should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_builtin_skills_names() {
+        let skills = BuiltinSkills::all();
+        let names: Vec<String> = skills.iter().map(|s| s.manifest().name.clone()).collect();
+        assert!(names.iter().any(|n| n == "file_ops"));
+        assert!(names.iter().any(|n| n == "git_ops"));
+        assert!(names.iter().any(|n| n == "search"));
+        assert!(names.iter().any(|n| n == "permission_query"));
+        assert!(names.iter().any(|n| n == "skill_discovery"));
+    }
+
+    #[test]
+    fn test_builtin_skills_function() {
+        let skills = builtin_skills();
+        assert_eq!(skills.len(), 7);
+    }
+
+    fn make_engine() -> Arc<crate::permission::PermissionEngine> {
+        use crate::permission::engine::engine_types::{RuleSet, Defaults};
+        let rules = RuleSet {
+            version: "1".to_string(),
+            rules: vec![],
+            defaults: Defaults::default(),
+            template_includes: vec![],
+            agent_creators: std::collections::HashMap::new(),
+        };
+        Arc::new(crate::permission::PermissionEngine::new(rules))
+    }
+
+    #[test]
+    fn test_builtin_skills_with_engine_has_same_count() {
+        let engine = make_engine();
+        let skills = builtin_skills_with_engine(engine);
+        assert_eq!(skills.len(), 7);
+    }
+
+    #[test]
+    fn test_all_with_engine_skills_have_manifests() {
+        let engine = make_engine();
+        let skills = BuiltinSkills::all_with_engine(engine);
+        for skill in &skills {
+            let m = skill.manifest();
+            assert!(!m.name.is_empty());
+        }
+    }
+}
