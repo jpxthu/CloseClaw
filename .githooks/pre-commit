@@ -1,13 +1,24 @@
 #!/bin/bash
 set -e
 
-# 文件行数限制 — 仅检查 staged 文件，不背负历史技术债
-git diff --cached --name-only --diff-filter=ACMR -- '*.rs' | while read f; do
-    lines=$(wc -l < "$f")
-    if [ "$lines" -gt 500 ]; then
-        echo "ERROR: $f: ${lines} 行（上限 500）"
+staged_rs=$(git diff --cached --name-only --diff-filter=ACMR -- '*.rs')
+
+if [ -n "$staged_rs" ]; then
+    # 文件行数限制 — 仅检查 staged 文件，不背负历史技术债
+    for f in $staged_rs; do
+        lines=$(wc -l < "$f")
+        if [ "$lines" -gt 500 ]; then
+            echo "ERROR: $f: ${lines} 行（上限 500）"
+            exit 1
+        fi
+    done
+
+    # cargo fmt --check — 仅检查 staged 文件，不背负历史技术债
+    # 行宽（默认 100）、缩进、空白等格式问题一并覆盖
+    if ! cargo fmt --check -- $staged_rs 2>&1; then
+        echo "ERROR: 以上文件格式不符合规范，请运行 'cargo fmt' 修复后重新提交"
         exit 1
     fi
-done
+fi
 
 echo "All checks passed"
