@@ -17,7 +17,7 @@ git checkout -b feat/xxx
 # 2. 开发
 # ...写代码...
 
-# 3. 提交前检查
+# 3. 提交前检查（本地 hook 会自动跑，这里手动列出供参考）
 cargo fmt && cargo clippy -- -D warnings && cargo test
 
 # 4. 提交（遵守 commit-style）
@@ -36,12 +36,18 @@ git push -u origin feat/xxx
 gh pr create --fill
 ```
 
-## PR 合并
+## PR 创建与合并
+
+> ⚠️ **PR merge 时不要加 `--subject` 和 `--body` 参数**。squash merge 会把 PR title 作为 commit subject、PR body 作为 commit body，保留完整的变更信息。
+>
+> ```bash
+> gh pr merge --squash --delete-branch
+> ```
 
 开发 agent 的 code review 由自己 spawn sub-agent 完成，不需要等外部 review。
 
 ```bash
-# 创建 PR 后直接 squash merge
+# 创建 PR 后 squash merge（不覆盖 subject 和 body）
 gh pr merge --squash --delete-branch
 ```
 
