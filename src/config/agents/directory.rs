@@ -157,3 +157,209 @@ impl ConfigProvider for AgentDirectoryProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::config::{AgentConfig as AgentDirConfig, AgentPermissions, ActionPermission, PermissionLimits};
+    use tempfile::TempDir;
+    use std::collections::HashMap;
+
+    fn make_config(id: &str, name: &str) -> AgentDirConfig {
+        AgentDirConfig {
+            id: id.to_string(),
+            name: name.to_string(),
+            parent_id: None,
+            max_child_depth: 3,
+            created_at: chrono::Utc::now(),
+            state: crate::agent::config::AgentConfigState::Running,
+            communication: crate::agent::communication::CommunicationConfig::default(),
+            wait_timeout_secs: None,
+            grace_period_secs: None,
+        }
+    }
+
+    fn write_agent(dir: &std::path::Path, id: &str, config: &AgentDirConfig, perms: Option<&AgentPermissions>) {
+        let agent_dir = dir.join(id);
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        let config_json = serde_json::to_string_pretty(config).unwrap();
+        std::fs::write(agent_dir.join("config.json"), config_json).unwrap();
+        if let Some(p) = perms {
+            let perm_json = serde_json::to_string_pretty(p).unwrap();
+            std::fs::write(agent_dir.join("permissions.json"), perm_json).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_new_empty_dir() {
+        let dir = TempDir::new().unwrap();
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert!(provider.agent_ids().is_empty());
+        assert!(provider.is_default());
+    }
+
+    #[test]
+    fn test_new_nonexistent_dir() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent");
+        let provider = AgentDirectoryProvider::new(path).unwrap();
+        assert!(provider.agent_ids().is_empty());
+    }
+
+    #[test]
+    fn test_load_single_agent() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config("agent-1", "Agent One");
+        write_agent(dir.path(), "agent-1", &config, None);
+
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert_eq!(provider.agent_ids().len(), 1);
+        assert!(provider.get("agent-1").is_some());
+        assert!(provider.get("agent-1").unwrap().permissions.is_none());
+    }
+
+    #[test]
+    fn test_load_agent_with_permissions() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config("agent-2", "Agent Two");
+        let perms = AgentPermissions {
+            agent_id: "agent-2".to_string(),
+            permissions: HashMap::from([
+                ("exec".to_string(), ActionPermission { allowed: true, limits: PermissionLimits::default() }),
+            ]),
+            inherited_from: None,
+        };
+        write_agent(dir.path(), "agent-2", &config, Some(&perms));
+
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        let entry = provider.get("agent-2").unwrap();
+        assert!(entry.permissions.is_some());
+    }
+
+    #[test]
+    fn test_skip_dir_without_config() {
+        let dir = TempDir::new().unwrap();
+        let agent_dir = dir.path().join("empty-agent");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert!(provider.agent_ids().is_empty());
+    }
+
+    #[test]
+    fn test_skip_files_in_agents_dir() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("readme.txt"), "hello").unwrap();
+
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert!(provider.agent_ids().is_empty());
+    }
+
+    #[test]
+    fn test_version_and_config_path() {
+        let dir = TempDir::new().unwrap();
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert_eq!(provider.version(), "1.0.0");
+        assert_eq!(AgentDirectoryProvider::config_path(), "~/.closeclaw/agents/");
+    }
+
+    #[test]
+    fn test_validate_empty_id() {
+        let dir = TempDir::new().unwrap();
+        let config = AgentDirConfig {
+            id: String::new(),
+            ..make_config("x", "x")
+        };
+        // Manually insert entry with empty id
+        write_agent(dir.path(), "bad-agent", &AgentDirConfig {
+            id: String::new(),
+            name: "Bad".to_string(),
+            ..AgentDirConfig::default()
+        }, None);
+
+        let result = AgentDirectoryProvider::new(dir.path().to_path_buf());
+        // config with empty id should fail validation
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reload() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config("a1", "Agent 1");
+        write_agent(dir.path(), "a1", &config, None);
+
+        let mut provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert_eq!(provider.agent_ids().len(), 1);
+
+        // Add another agent and reload
+        let config2 = make_config("a2", "Agent 2");
+        write_agent(dir.path(), "a2", &config2, None);
+        provider.reload().unwrap();
+        assert_eq!(provider.agent_ids().len(), 2);
+    }
+
+    #[test]
+    fn test_save_agent() {
+        let dir = TempDir::new().unwrap();
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+
+        let config = make_config("new-agent", "New");
+        let entry = AgentDirectoryEntry {
+            id: "new-agent".to_string(),
+            config: config.clone(),
+            permissions: None,
+        };
+        provider.save_agent(&entry).unwrap();
+
+        // Verify written
+        let written = std::fs::read_to_string(dir.path().join("new-agent/config.json")).unwrap();
+        assert!(written.contains("new-agent"));
+    }
+
+    #[test]
+    fn test_save_agent_with_permissions() {
+        let dir = TempDir::new().unwrap();
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+
+        let config = make_config("perm-agent", "Perm");
+        let perms = AgentPermissions {
+            agent_id: "perm-agent".to_string(),
+            permissions: HashMap::new(),
+            inherited_from: None,
+        };
+        let entry = AgentDirectoryEntry {
+            id: "perm-agent".to_string(),
+            config,
+            permissions: Some(perms),
+        };
+        provider.save_agent(&entry).unwrap();
+
+        assert!(dir.path().join("perm-agent/permissions.json").exists());
+    }
+
+    #[test]
+    fn test_remove_agent() {
+        let dir = TempDir::new().unwrap();
+        let config = make_config("rm-agent", "Remove");
+        write_agent(dir.path(), "rm-agent", &config, None);
+
+        let mut provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert!(provider.get("rm-agent").is_some());
+
+        provider.remove_agent("rm-agent").unwrap();
+        assert!(provider.get("rm-agent").is_none());
+        assert!(!dir.path().join("rm-agent").exists());
+    }
+
+    #[test]
+    fn test_entries() {
+        let dir = TempDir::new().unwrap();
+        let c1 = make_config("e1", "E1");
+        let c2 = make_config("e2", "E2");
+        write_agent(dir.path(), "e1", &c1, None);
+        write_agent(dir.path(), "e2", &c2, None);
+
+        let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
+        assert_eq!(provider.entries().len(), 2);
+    }
+}
