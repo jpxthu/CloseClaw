@@ -132,3 +132,127 @@ impl LLMProvider for OpenAIProvider {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_openai_provider_new() {
+        let provider = OpenAIProvider::new("test-key".to_string());
+        assert_eq!(provider.api_key, "test-key");
+        assert_eq!(provider.base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn test_openai_provider_name() {
+        let provider = OpenAIProvider::new("key".to_string());
+        assert_eq!(provider.name(), "openai");
+    }
+
+    #[test]
+    fn test_openai_provider_models() {
+        let provider = OpenAIProvider::new("key".to_string());
+        let models = provider.models();
+        assert_eq!(models, vec!["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"]);
+    }
+
+    #[test]
+    fn test_chat_url() {
+        let provider = OpenAIProvider::new("key".to_string());
+        assert_eq!(
+            provider.chat_url(),
+            "https://api.openai.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_map_status_error_401() {
+        let err = OpenAIProvider::map_status_error(
+            reqwest::StatusCode::UNAUTHORIZED,
+            "bad key".to_string(),
+        );
+        match err {
+            LLMError::AuthFailed(msg) => assert!(msg.contains("401")),
+            _ => panic!("Expected AuthFailed"),
+        }
+    }
+
+    #[test]
+    fn test_map_status_error_403() {
+        let err = OpenAIProvider::map_status_error(
+            reqwest::StatusCode::FORBIDDEN,
+            "forbidden".to_string(),
+        );
+        assert!(matches!(err, LLMError::AuthFailed(_)));
+    }
+
+    #[test]
+    fn test_map_status_error_429() {
+        let err = OpenAIProvider::map_status_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            "rate limited".to_string(),
+        );
+        assert!(matches!(err, LLMError::RateLimitExceeded));
+    }
+
+    #[test]
+    fn test_map_status_error_500() {
+        let err = OpenAIProvider::map_status_error(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "server error".to_string(),
+        );
+        match err {
+            LLMError::ApiError(msg) => assert!(msg.contains("500")),
+            _ => panic!("Expected ApiError"),
+        }
+    }
+
+    #[test]
+    fn test_openai_request_serialization() {
+        let msg = crate::llm::Message {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+        };
+        let req = OpenAIRequest {
+            model: "gpt-4",
+            messages: &[msg],
+            temperature: 0.7,
+            max_tokens: Some(100),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("gpt-4"));
+        assert!(json.contains("hello"));
+        assert!(json.contains("100"));
+    }
+
+    #[test]
+    fn test_openai_request_no_max_tokens() {
+        let msg = crate::llm::Message {
+            role: "user".to_string(),
+            content: "hi".to_string(),
+        };
+        let req = OpenAIRequest {
+            model: "gpt-4",
+            messages: &[msg],
+            temperature: 0.0,
+            max_tokens: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("max_tokens"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_network_error() {
+        let provider = OpenAIProvider::new("bad-key".to_string());
+        let request = ChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![],
+            temperature: 0.0,
+            max_tokens: None,
+        };
+        let result = provider.chat(request).await;
+        // Will fail with auth error from OpenAI (or network error in sandbox)
+        assert!(result.is_err());
+    }
+}
