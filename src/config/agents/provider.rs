@@ -165,7 +165,8 @@ mod tests {
 
     #[test]
     fn test_lookup() {
-        let json = r#"{"version":"1","agents":[{"name":"a","model":"m"},{"name":"b","model":"n"}]}"#;
+        let json =
+            r#"{"version":"1","agents":[{"name":"a","model":"m"},{"name":"b","model":"n"}]}"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         let map = provider.lookup();
         assert_eq!(map.len(), 2);

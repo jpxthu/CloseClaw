@@ -180,8 +180,8 @@ impl FallbackClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider};
+    use std::sync::Arc;
 
     #[test]
     fn test_model_entry_parse() {
@@ -226,8 +226,12 @@ mod tests {
                         match e {
                             LLMError::AuthFailed(msg) => Err(LLMError::AuthFailed(msg.clone())),
                             LLMError::RateLimitExceeded => Err(LLMError::RateLimitExceeded),
-                            LLMError::ModelNotFound(msg) => Err(LLMError::ModelNotFound(msg.clone())),
-                            LLMError::InvalidRequest(msg) => Err(LLMError::InvalidRequest(msg.clone())),
+                            LLMError::ModelNotFound(msg) => {
+                                Err(LLMError::ModelNotFound(msg.clone()))
+                            }
+                            LLMError::InvalidRequest(msg) => {
+                                Err(LLMError::InvalidRequest(msg.clone()))
+                            }
                             LLMError::ApiError(msg) => Err(LLMError::ApiError(msg.clone())),
                             LLMError::NetworkError(msg) => Err(LLMError::NetworkError(msg.clone())),
                         }
@@ -239,8 +243,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LLMProvider for MockProvider {
-        fn name(&self) -> &str { &self.name }
-        fn models(&self) -> Vec<&str> { vec!["test-model"] }
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn models(&self) -> Vec<&str> {
+            vec!["test-model"]
+        }
         async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, LLMError> {
             (self.response_fn)()
         }
@@ -250,14 +258,23 @@ mod tests {
         ChatResponse {
             model: "test-model".to_string(),
             content: "hello".to_string(),
-            usage: crate::llm::Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            usage: crate::llm::Usage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+            },
         }
     }
 
     #[tokio::test]
     async fn test_fallback_client_succeeds_on_first_model() {
         let registry = Arc::new(crate::llm::LLMRegistry::new());
-        registry.register("prov".to_string(), Arc::new(MockProvider::new("prov", Ok(ok_response())))).await;
+        registry
+            .register(
+                "prov".to_string(),
+                Arc::new(MockProvider::new("prov", Ok(ok_response()))),
+            )
+            .await;
 
         let client = FallbackClient::from_strings(registry, vec!["prov/test-model".to_string()]);
         let req = ChatRequest {
@@ -275,14 +292,36 @@ mod tests {
     async fn test_fallback_client_falls_through_on_auth_error() {
         let registry = Arc::new(crate::llm::LLMRegistry::new());
         // First provider fails with auth error
-        registry.register("fail".to_string(), Arc::new(MockProvider::new("fail", Err(LLMError::AuthFailed("bad key".to_string()))))).await;
+        registry
+            .register(
+                "fail".to_string(),
+                Arc::new(MockProvider::new(
+                    "fail",
+                    Err(LLMError::AuthFailed("bad key".to_string())),
+                )),
+            )
+            .await;
         // Second provider succeeds
-        registry.register("ok".to_string(), Arc::new(MockProvider::new("ok", Ok(ok_response())))).await;
+        registry
+            .register(
+                "ok".to_string(),
+                Arc::new(MockProvider::new("ok", Ok(ok_response()))),
+            )
+            .await;
 
-        let client = FallbackClient::new(registry, vec![
-            ModelEntry { provider: "fail".to_string(), model: "m1".to_string() },
-            ModelEntry { provider: "ok".to_string(), model: "m2".to_string() },
-        ]);
+        let client = FallbackClient::new(
+            registry,
+            vec![
+                ModelEntry {
+                    provider: "fail".to_string(),
+                    model: "m1".to_string(),
+                },
+                ModelEntry {
+                    provider: "ok".to_string(),
+                    model: "m2".to_string(),
+                },
+            ],
+        );
         let req = ChatRequest {
             model: "m1".to_string(),
             messages: vec![],
@@ -296,12 +335,26 @@ mod tests {
     #[tokio::test]
     async fn test_fallback_client_skips_missing_provider() {
         let registry = Arc::new(crate::llm::LLMRegistry::new());
-        registry.register("ok".to_string(), Arc::new(MockProvider::new("ok", Ok(ok_response())))).await;
+        registry
+            .register(
+                "ok".to_string(),
+                Arc::new(MockProvider::new("ok", Ok(ok_response()))),
+            )
+            .await;
 
-        let client = FallbackClient::new(registry, vec![
-            ModelEntry { provider: "missing".to_string(), model: "m1".to_string() },
-            ModelEntry { provider: "ok".to_string(), model: "m2".to_string() },
-        ]);
+        let client = FallbackClient::new(
+            registry,
+            vec![
+                ModelEntry {
+                    provider: "missing".to_string(),
+                    model: "m1".to_string(),
+                },
+                ModelEntry {
+                    provider: "ok".to_string(),
+                    model: "m2".to_string(),
+                },
+            ],
+        );
         let req = ChatRequest {
             model: "m1".to_string(),
             messages: vec![],
@@ -315,7 +368,15 @@ mod tests {
     #[tokio::test]
     async fn test_fallback_client_all_exhausted() {
         let registry = Arc::new(crate::llm::LLMRegistry::new());
-        registry.register("fail".to_string(), Arc::new(MockProvider::new("fail", Err(LLMError::InvalidRequest("bad".to_string()))))).await;
+        registry
+            .register(
+                "fail".to_string(),
+                Arc::new(MockProvider::new(
+                    "fail",
+                    Err(LLMError::InvalidRequest("bad".to_string())),
+                )),
+            )
+            .await;
 
         let client = FallbackClient::from_strings(registry, vec!["fail/test-model".to_string()]);
         let req = ChatRequest {

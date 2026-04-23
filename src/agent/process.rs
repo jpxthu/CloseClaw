@@ -344,7 +344,10 @@ mod tests {
 
     #[test]
     fn test_process_error_display() {
-        let err = ProcessError::SpawnError(std::io::Error::new(std::io::ErrorKind::NotFound, "no binary"));
+        let err = ProcessError::SpawnError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no binary",
+        ));
         assert!(err.to_string().contains("no binary"));
 
         let err = ProcessError::ProcessNotFound("test".to_string());
@@ -367,7 +370,8 @@ mod tests {
             None,
             "broadcast",
             &serde_json::json!({"alert": true}),
-        ).unwrap();
+        )
+        .unwrap();
         let parsed: ProcessMessage = serde_json::from_str(&msg).unwrap();
         assert!(parsed.to.is_none());
         assert_eq!(parsed.payload["alert"], true);
@@ -384,9 +388,8 @@ mod tests {
     fn test_agent_process_handle_accessors() {
         // spawn "echo" to get a real process handle
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let handle = rt.block_on(async {
-            AgentProcess::spawn("echo", "test-agent").await.unwrap()
-        });
+        let handle =
+            rt.block_on(async { AgentProcess::spawn("echo", "test-agent").await.unwrap() });
         assert_eq!(handle.agent_id(), "test-agent");
         // pid might be 0 if process exited quickly, but shouldn't panic
         let _pid = handle.pid();
@@ -431,9 +434,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_kill_process() {
-        let handle = AgentProcess::spawn("sleep", "test-agent")
-            .await
-            .unwrap();
+        let handle = AgentProcess::spawn("sleep", "test-agent").await.unwrap();
         let mut handle = handle;
         let result = handle.kill().await;
         assert!(result.is_ok());

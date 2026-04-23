@@ -77,8 +77,14 @@ mod extra_tests {
         let skills = BuiltinSkills::all();
         for skill in &skills {
             let m = skill.manifest();
-            assert!(!m.name.is_empty(), "skill manifest name should not be empty");
-            assert!(!m.version.is_empty(), "skill manifest version should not be empty");
+            assert!(
+                !m.name.is_empty(),
+                "skill manifest name should not be empty"
+            );
+            assert!(
+                !m.version.is_empty(),
+                "skill manifest version should not be empty"
+            );
         }
     }
 
@@ -100,7 +106,7 @@ mod extra_tests {
     }
 
     fn make_engine() -> Arc<crate::permission::PermissionEngine> {
-        use crate::permission::engine::engine_types::{RuleSet, Defaults};
+        use crate::permission::engine::engine_types::{Defaults, RuleSet};
         let rules = RuleSet {
             version: "1".to_string(),
             rules: vec![],
