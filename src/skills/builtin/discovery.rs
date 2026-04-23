@@ -176,7 +176,9 @@ mod tests {
     #[tokio::test]
     async fn test_install_missing_agent_id() {
         let skill = SkillDiscoverySkill::new();
-        let result = skill.execute("install", serde_json::json!({"skill": "foo"})).await;
+        let result = skill
+            .execute("install", serde_json::json!({"skill": "foo"}))
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             SkillError::InvalidArgs(msg) => assert!(msg.contains("agent_id")),
@@ -187,7 +189,9 @@ mod tests {
     #[tokio::test]
     async fn test_install_missing_skill() {
         let skill = SkillDiscoverySkill::new();
-        let result = skill.execute("install", serde_json::json!({"agent_id": "a1"})).await;
+        let result = skill
+            .execute("install", serde_json::json!({"agent_id": "a1"}))
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             SkillError::InvalidArgs(msg) => assert!(msg.contains("skill")),
@@ -207,15 +211,23 @@ mod tests {
     }
 
     fn make_engine() -> Arc<crate::permission::PermissionEngine> {
-        use crate::permission::engine::engine_types::{Defaults, RuleSet, Rule, Subject, Effect, Action, MatchType};
+        use crate::permission::engine::engine_types::{
+            Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
+        };
         use std::collections::HashMap;
         let rules = RuleSet {
             version: "1".to_string(),
             rules: vec![Rule {
                 name: "deny-spawn".to_string(),
-                subject: Subject::AgentOnly { agent: "blocked-agent".to_string(), match_type: MatchType::Exact },
+                subject: Subject::AgentOnly {
+                    agent: "blocked-agent".to_string(),
+                    match_type: MatchType::Exact,
+                },
                 effect: Effect::Deny,
-                actions: vec![Action::ToolCall { skill: "*".to_string(), methods: vec![] }],
+                actions: vec![Action::ToolCall {
+                    skill: "*".to_string(),
+                    methods: vec![],
+                }],
                 template: None,
                 priority: 10,
             }],
@@ -230,10 +242,15 @@ mod tests {
     async fn test_install_permission_denied() {
         let engine = make_engine();
         let skill = SkillDiscoverySkill::with_engine(engine);
-        let result = skill.execute("install", serde_json::json!({
-            "agent_id": "blocked-agent",
-            "skill": "test-skill"
-        })).await;
+        let result = skill
+            .execute(
+                "install",
+                serde_json::json!({
+                    "agent_id": "blocked-agent",
+                    "skill": "test-skill"
+                }),
+            )
+            .await;
         // May be denied or may succeed if engine check doesn't match action "spawn"
         // The important thing is it doesn't panic
         let _ = result;

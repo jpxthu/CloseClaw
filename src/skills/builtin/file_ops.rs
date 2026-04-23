@@ -144,7 +144,10 @@ mod tests {
     #[test]
     fn test_methods() {
         let skill = FileOpsSkill::new();
-        assert_eq!(skill.methods(), vec!["read", "write", "list", "delete", "exists"]);
+        assert_eq!(
+            skill.methods(),
+            vec!["read", "write", "list", "delete", "exists"]
+        );
     }
 
     #[tokio::test]
@@ -154,7 +157,9 @@ mod tests {
         std::fs::write(&path, "hello world").unwrap();
 
         let skill = FileOpsSkill::new();
-        let result = skill.execute("read", serde_json::json!({"path": path.to_str().unwrap()})).await;
+        let result = skill
+            .execute("read", serde_json::json!({"path": path.to_str().unwrap()}))
+            .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap()["content"], "hello world");
     }
@@ -176,7 +181,12 @@ mod tests {
         let path = dir.path().join("out.txt");
 
         let skill = FileOpsSkill::new();
-        let result = skill.execute("write", serde_json::json!({"path": path.to_str().unwrap(), "content": "data"})).await;
+        let result = skill
+            .execute(
+                "write",
+                serde_json::json!({"path": path.to_str().unwrap(), "content": "data"}),
+            )
+            .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap()["success"], true);
 
@@ -187,7 +197,9 @@ mod tests {
     #[tokio::test]
     async fn test_write_missing_content() {
         let skill = FileOpsSkill::new();
-        let result = skill.execute("write", serde_json::json!({"path": "/tmp/x"})).await;
+        let result = skill
+            .execute("write", serde_json::json!({"path": "/tmp/x"}))
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             SkillError::InvalidArgs(msg) => assert!(msg.contains("content")),
@@ -202,11 +214,21 @@ mod tests {
         std::fs::write(&path, "").unwrap();
 
         let skill = FileOpsSkill::new();
-        let result = skill.execute("exists", serde_json::json!({"path": path.to_str().unwrap()})).await;
+        let result = skill
+            .execute(
+                "exists",
+                serde_json::json!({"path": path.to_str().unwrap()}),
+            )
+            .await;
         assert_eq!(result.unwrap()["exists"], true);
 
         let fake = dir.path().join("fake.txt");
-        let result = skill.execute("exists", serde_json::json!({"path": fake.to_str().unwrap()})).await;
+        let result = skill
+            .execute(
+                "exists",
+                serde_json::json!({"path": fake.to_str().unwrap()}),
+            )
+            .await;
         assert_eq!(result.unwrap()["exists"], false);
     }
 
@@ -217,7 +239,12 @@ mod tests {
         std::fs::write(&path, "bye").unwrap();
 
         let skill = FileOpsSkill::new();
-        let result = skill.execute("delete", serde_json::json!({"path": path.to_str().unwrap()})).await;
+        let result = skill
+            .execute(
+                "delete",
+                serde_json::json!({"path": path.to_str().unwrap()}),
+            )
+            .await;
         assert!(result.is_ok());
         assert!(!path.exists());
     }
@@ -229,7 +256,12 @@ mod tests {
         std::fs::write(dir.path().join("b.txt"), "").unwrap();
 
         let skill = FileOpsSkill::new();
-        let result = skill.execute("list", serde_json::json!({"path": dir.path().to_str().unwrap()})).await;
+        let result = skill
+            .execute(
+                "list",
+                serde_json::json!({"path": dir.path().to_str().unwrap()}),
+            )
+            .await;
         let binding = result.unwrap();
         let entries = binding["entries"].as_array().unwrap();
         assert_eq!(entries.len(), 2);

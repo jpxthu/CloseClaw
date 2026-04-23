@@ -153,13 +153,11 @@ mod tests {
 
     #[test]
     fn test_query_returns_events() {
-        let events = vec![
-            AuditEvent::new(
-                AuditEventType::PermissionCheck,
-                serde_json::json!({"agent": "agent1"}),
-                AuditResult::Allow,
-            ),
-        ];
+        let events = vec![AuditEvent::new(
+            AuditEventType::PermissionCheck,
+            serde_json::json!({"agent": "agent1"}),
+            AuditResult::Allow,
+        )];
         let dir = setup_audit_dir(&events);
         let filter = AuditQueryFilter {
             days: 1,
@@ -167,7 +165,10 @@ mod tests {
         };
         let results = query_with_home(&filter, dir.path());
         assert_eq!(results.len(), 1);
-        assert!(matches!(results[0].event_type, AuditEventType::PermissionCheck));
+        assert!(matches!(
+            results[0].event_type,
+            AuditEventType::PermissionCheck
+        ));
     }
 
     #[test]
@@ -267,13 +268,11 @@ mod tests {
 
     #[test]
     fn test_export_json() {
-        let events = vec![
-            AuditEvent::new(
-                AuditEventType::ConfigReload,
-                serde_json::json!({"key": "val"}),
-                AuditResult::Allow,
-            ),
-        ];
+        let events = vec![AuditEvent::new(
+            AuditEventType::ConfigReload,
+            serde_json::json!({"key": "val"}),
+            AuditResult::Allow,
+        )];
         let dir = setup_audit_dir(&events);
         let output = dir.path().join("export.json");
         let filter = AuditQueryFilter {
