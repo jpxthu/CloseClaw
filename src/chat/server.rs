@@ -88,3 +88,43 @@ impl Default for ChatServer {
 pub fn spawn_chat_server(llm_registry: Arc<LLMRegistry>) -> ChatServer {
     ChatServer::new(llm_registry)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chat_server_new() {
+        let registry = Arc::new(LLMRegistry::new());
+        let server = ChatServer::new(registry);
+        // shutdown should work without panic
+        server.shutdown();
+    }
+
+    #[test]
+    fn test_chat_server_default() {
+        let server = ChatServer::default();
+        server.shutdown();
+    }
+
+    #[test]
+    fn test_spawn_chat_server() {
+        let registry = Arc::new(LLMRegistry::new());
+        let server = spawn_chat_server(registry);
+        server.shutdown();
+    }
+
+    #[test]
+    fn test_shutdown_multiple_times() {
+        let server = ChatServer::default();
+        server.shutdown();
+        // second shutdown should not panic
+        server.shutdown();
+    }
+
+    #[test]
+    fn test_constants() {
+        assert_eq!(CHAT_BIND_ADDR, "127.0.0.1:18889");
+        assert_eq!(DEFAULT_AGENT_ID, "guide");
+    }
+}
