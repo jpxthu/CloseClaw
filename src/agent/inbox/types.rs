@@ -285,3 +285,165 @@ impl CommStats {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inbox_config_default() {
+        let c = InboxConfig::default();
+        assert_eq!(c.poll_interval_secs, 5);
+        assert_eq!(c.max_retry, 3);
+        assert_eq!(c.base_delay_ms, 1000);
+        assert_eq!(c.max_delay_ms, 60000);
+        assert_eq!(c.jitter_ms, 500);
+        assert_eq!(c.timeout_ms, 10000);
+        assert_eq!(c.acked_ttl_days, 7);
+        assert_eq!(c.dead_letter_ttl_days, 30);
+        assert!(c.alert_webhook.is_none());
+    }
+
+    #[test]
+    fn test_inbox_config_serialization() {
+        let c = InboxConfig::default();
+        let json = serde_json::to_string(&c).unwrap();
+        let parsed: InboxConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.poll_interval_secs, c.poll_interval_secs);
+    }
+
+    #[test]
+    fn test_message_type_serde() {
+        let mt = MessageType::Task;
+        let json = serde_json::to_string(&mt).unwrap();
+        assert_eq!(json, "\"task\"");
+        let parsed: MessageType = serde_json::from_str("\"heartbeat\"").unwrap();
+        assert_eq!(parsed, MessageType::Heartbeat);
+    }
+
+    #[test]
+    fn test_message_status_serde() {
+        let ms = MessageStatus::Pending;
+        let json = serde_json::to_string(&ms).unwrap();
+        assert_eq!(json, "\"pending\"");
+    }
+
+    #[test]
+    fn test_inbox_message_new() {
+        let msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Task,
+            serde_json::json!({"key": "val"}),
+        );
+        assert_eq!(msg.from, "a");
+        assert_eq!(msg.to, "b");
+        assert_eq!(msg.status, MessageStatus::Pending);
+        assert_eq!(msg.retry_count, 0);
+        assert!(msg.acked_at.is_none());
+        assert!(msg.should_persist());
+        assert!(msg.should_retry());
+    }
+
+    #[test]
+    fn test_inbox_message_heartbeat_not_persist() {
+        let msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Heartbeat,
+            serde_json::json!(null),
+        );
+        assert!(!msg.should_persist());
+        assert!(!msg.should_retry());
+    }
+
+    #[test]
+    fn test_inbox_message_lateral_persist() {
+        let msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Lateral,
+            serde_json::json!(null),
+        );
+        assert!(msg.should_persist());
+        assert!(!msg.should_retry());
+    }
+
+    #[test]
+    fn test_inbox_message_ack() {
+        let mut msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Task,
+            serde_json::json!(null),
+        );
+        msg.ack();
+        assert_eq!(msg.status, MessageStatus::Acked);
+        assert!(msg.acked_at.is_some());
+    }
+
+    #[test]
+    fn test_inbox_message_dead_letter() {
+        let mut msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Task,
+            serde_json::json!(null),
+        );
+        msg.dead_letter("timeout");
+        assert_eq!(msg.status, MessageStatus::DeadLetter);
+        assert_eq!(msg.last_error.as_deref(), Some("timeout"));
+        assert!(msg.dead_letter_at.is_some());
+    }
+
+    #[test]
+    fn test_calculate_next_retry_basic() {
+        let msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Task,
+            serde_json::json!(null),
+        );
+        let config = InboxConfig::default();
+        let next = msg.calculate_next_retry(&config);
+        assert!(next.is_some());
+        // Should be after creation time
+        assert!(next.unwrap() > msg.created_at);
+    }
+
+    #[test]
+    fn test_calculate_next_retry_max_exceeded() {
+        let mut msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Task,
+            serde_json::json!(null),
+        );
+        msg.retry_count = msg.max_retry;
+        let config = InboxConfig::default();
+        assert!(msg.calculate_next_retry(&config).is_none());
+    }
+
+    #[test]
+    fn test_dead_letter_record_new() {
+        let msg = InboxMessage::new(
+            "a".into(),
+            "b".into(),
+            MessageType::Task,
+            serde_json::json!(null),
+        );
+        let id = msg.id.clone();
+        let record = DeadLetterRecord::new(msg, "failed");
+        assert_eq!(record.msg_id, id);
+        assert_eq!(record.failure_reason, "failed");
+        assert_eq!(record.retry_count, 0);
+    }
+
+    #[test]
+    fn test_comm_stats_new() {
+        let stats = CommStats::new("agent-1".into());
+        assert_eq!(stats.agent_id, "agent-1");
+        assert_eq!(stats.pending_count, 0);
+        assert!(stats.avg_latency_ms.is_none());
+    }
+}
