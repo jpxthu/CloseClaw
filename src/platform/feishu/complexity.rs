@@ -53,3 +53,81 @@ impl Default for HighComplexityConfig {
 pub fn get_high_complexity_config() -> HighComplexityConfig {
     HighComplexityConfig::default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::events::{ModeSwitchEvent, UserIntent};
+    use std::sync::Arc;
+
+    fn make_event(goal: &str) -> ModeSwitchEvent {
+        ModeSwitchEvent {
+            user_intent: Some(Arc::new(
+                UserIntent::new("test").with_parsed_goal(goal),
+            )),
+            ..ModeSwitchEvent::default()
+        }
+    }
+
+    #[test]
+    fn test_not_high_complexity_simple() {
+        let event = make_event("帮我写一个hello world");
+        assert!(!is_high_complexity(&event));
+    }
+
+    #[test]
+    fn test_high_complexity_two_keywords() {
+        let event = make_event("系统架构重构任务");
+        assert!(is_high_complexity(&event));
+    }
+
+    #[test]
+    fn test_high_complexity_long_goal() {
+        let long_goal = "a".repeat(101);
+        let event = make_event(&long_goal);
+        assert!(is_high_complexity(&event));
+    }
+
+    #[test]
+    fn test_not_high_complexity_exactly_100() {
+        let goal = "a".repeat(100);
+        let event = make_event(&goal);
+        assert!(!is_high_complexity(&event));
+    }
+
+    #[test]
+    fn test_not_high_complexity_single_keyword() {
+        let event = make_event("系统监控任务");
+        assert!(!is_high_complexity(&event));
+    }
+
+    #[test]
+    fn test_no_user_intent() {
+        let event = ModeSwitchEvent::default();
+        assert!(!is_high_complexity(&event));
+    }
+
+    #[test]
+    fn test_no_parsed_goal() {
+        let event = ModeSwitchEvent {
+            user_intent: Some(Arc::new(UserIntent::new("test"))),
+            ..ModeSwitchEvent::default()
+        };
+        assert!(!is_high_complexity(&event));
+    }
+
+    #[test]
+    fn test_default_config() {
+        let config = HighComplexityConfig::default();
+        assert!(config.show_progress_bar);
+        assert!(config.show_key_decision_points);
+        assert!(!config.enable_mind_map_export);
+        assert!(config.enable_step_confirmation);
+    }
+
+    #[test]
+    fn test_get_config() {
+        let config = get_high_complexity_config();
+        assert!(config.show_progress_bar);
+    }
+}
