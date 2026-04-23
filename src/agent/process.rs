@@ -315,4 +315,127 @@ mod tests {
         let result = AgentProcess::parse_message("not valid json");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_process_message_serialize_deserialize() {
+        let msg = ProcessMessage {
+            msg_type: "result".to_string(),
+            from: "a".to_string(),
+            to: Some("b".to_string()),
+            payload: serde_json::json!({"x": 42}),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ProcessMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.msg_type, "result");
+        assert_eq!(parsed.payload["x"], 42);
+    }
+
+    #[test]
+    fn test_process_message_broadcast() {
+        let msg = ProcessMessage {
+            msg_type: "heartbeat".to_string(),
+            from: "agent".to_string(),
+            to: None,
+            payload: serde_json::json!({}),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"heartbeat\""));
+    }
+
+    #[test]
+    fn test_process_error_display() {
+        let err = ProcessError::SpawnError(std::io::Error::new(std::io::ErrorKind::NotFound, "no binary"));
+        assert!(err.to_string().contains("no binary"));
+
+        let err = ProcessError::ProcessNotFound("test".to_string());
+        assert!(err.to_string().contains("test"));
+
+        let err = ProcessError::ProcessAlreadyRunning("a".to_string());
+        assert!(err.to_string().contains("already running"));
+
+        let err = ProcessError::CommunicationError("comm fail".to_string());
+        assert!(err.to_string().contains("comm fail"));
+
+        let err = ProcessError::UnexpectedExit(1);
+        assert!(err.to_string().contains("1"));
+    }
+
+    #[test]
+    fn test_create_message_no_target() {
+        let msg = AgentProcess::create_message(
+            "agent1",
+            None,
+            "broadcast",
+            &serde_json::json!({"alert": true}),
+        ).unwrap();
+        let parsed: ProcessMessage = serde_json::from_str(&msg).unwrap();
+        assert!(parsed.to.is_none());
+        assert_eq!(parsed.payload["alert"], true);
+    }
+
+    #[test]
+    fn test_parse_message_missing_fields() {
+        let json = r#"{"type":"test","from":"a","to":null,"payload":null}"#;
+        let msg = AgentProcess::parse_message(json).unwrap();
+        assert_eq!(msg.msg_type, "test");
+    }
+
+    #[test]
+    fn test_agent_process_handle_accessors() {
+        // spawn "echo" to get a real process handle
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let handle = rt.block_on(async {
+            AgentProcess::spawn("echo", "test-agent").await.unwrap()
+        });
+        assert_eq!(handle.agent_id(), "test-agent");
+        // pid might be 0 if process exited quickly, but shouldn't panic
+        let _pid = handle.pid();
+    }
+
+    #[tokio::test]
+    async fn test_spawn_nonexistent_binary() {
+        let result = AgentProcess::spawn("/nonexistent/binary/path", "test").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_with_args() {
+        let result = AgentProcess::spawn_with_args("echo", "test-agent", &["hello"]).await;
+        assert!(result.is_ok());
+        let handle = result.unwrap();
+        assert_eq!(handle.agent_id(), "test-agent");
+    }
+
+    #[tokio::test]
+    async fn test_send_message_to_echo() {
+        let handle = AgentProcess::spawn("cat", "test-agent").await.unwrap();
+        let mut handle = handle;
+        // cat echoes stdin to stdout, so we can send a message
+        let result = handle.send_message("hello world").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_json_message() {
+        let handle = AgentProcess::spawn("cat", "test-agent").await.unwrap();
+        let mut handle = handle;
+        let msg = ProcessMessage {
+            msg_type: "test".to_string(),
+            from: "a".to_string(),
+            to: Some("b".to_string()),
+            payload: serde_json::json!({"key": "val"}),
+        };
+        let result = handle.send_json(&msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_kill_process() {
+        let handle = AgentProcess::spawn("sleep", "test-agent")
+            .await
+            .unwrap();
+        let mut handle = handle;
+        let result = handle.kill().await;
+        assert!(result.is_ok());
+    }
 }
