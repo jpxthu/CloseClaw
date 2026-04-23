@@ -105,7 +105,7 @@ This project is maintained by AI agents. Every rule below exists because **long 
 | Metric | Maximum | Rationale |
 |--------|---------|-----------|
 | File lines | **500** | Beyond this, diff is unreadable and context is wasted |
-| Line length | **120 characters** | Enforced by rustfmt |
+| Line length | **100 characters** | Enforced by rustfmt |
 | Function lines | **50 lines** | Large functions hide complexity |
 | Function arguments | **6** | More than 6 signals hidden dependency |
 | Module depth | **3 levels** | `crate::foo::bar::baz` is a code smell |
@@ -179,7 +179,7 @@ cargo fmt          # auto-fix
 ```toml
 # .rustfmt.toml (or pyproject.toml [tool.rustfmt])
 edition = "2021"
-max_width = 120
+max_width = 100
 ```
 
 ### Linter: clippy
