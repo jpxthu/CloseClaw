@@ -105,7 +105,9 @@ impl Skill for PermissionSkill {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permission::engine::engine_types::{Defaults, RuleSet, Rule, Subject, Effect, Action};
+    use crate::permission::engine::engine_types::{
+        Action, Defaults, Effect, Rule, RuleSet, Subject,
+    };
     use std::collections::HashMap;
 
     fn make_engine_with_allow_rule() -> Arc<crate::permission::PermissionEngine> {
@@ -114,9 +116,15 @@ mod tests {
             version: "1".to_string(),
             rules: vec![Rule {
                 name: "test-allow".to_string(),
-                subject: Subject::AgentOnly { agent: "agent-1".to_string(), match_type: MatchType::Exact },
+                subject: Subject::AgentOnly {
+                    agent: "agent-1".to_string(),
+                    match_type: MatchType::Exact,
+                },
                 effect: Effect::Allow,
-                actions: vec![Action::File { operation: "read".to_string(), paths: vec!["*".to_string()] }],
+                actions: vec![Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["*".to_string()],
+                }],
                 template: None,
                 priority: 0,
             }],
@@ -150,7 +158,12 @@ mod tests {
     #[tokio::test]
     async fn test_query_no_engine_returns_null() {
         let skill = PermissionSkill::new();
-        let result = skill.execute("query", serde_json::json!({"agent_id": "a1", "action": "file_read"})).await;
+        let result = skill
+            .execute(
+                "query",
+                serde_json::json!({"agent_id": "a1", "action": "file_read"}),
+            )
+            .await;
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["allowed"], serde_json::Value::Null);
@@ -160,7 +173,12 @@ mod tests {
     async fn test_query_with_engine_allowed() {
         let engine = make_engine_with_allow_rule();
         let skill = PermissionSkill::with_engine(engine);
-        let result = skill.execute("query", serde_json::json!({"agent_id": "agent-1", "action": "file_read"})).await;
+        let result = skill
+            .execute(
+                "query",
+                serde_json::json!({"agent_id": "agent-1", "action": "file_read"}),
+            )
+            .await;
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["allowed"], true);
@@ -170,7 +188,12 @@ mod tests {
     async fn test_query_with_engine_denied() {
         let engine = make_engine_with_allow_rule();
         let skill = PermissionSkill::with_engine(engine);
-        let result = skill.execute("query", serde_json::json!({"agent_id": "unknown-agent", "action": "file_read"})).await;
+        let result = skill
+            .execute(
+                "query",
+                serde_json::json!({"agent_id": "unknown-agent", "action": "file_read"}),
+            )
+            .await;
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["allowed"], false);
@@ -179,14 +202,18 @@ mod tests {
     #[tokio::test]
     async fn test_query_missing_agent_id() {
         let skill = PermissionSkill::new();
-        let result = skill.execute("query", serde_json::json!({"action": "file_read"})).await;
+        let result = skill
+            .execute("query", serde_json::json!({"action": "file_read"}))
+            .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_query_missing_action() {
         let skill = PermissionSkill::new();
-        let result = skill.execute("query", serde_json::json!({"agent_id": "a1"})).await;
+        let result = skill
+            .execute("query", serde_json::json!({"agent_id": "a1"}))
+            .await;
         assert!(result.is_err());
     }
 

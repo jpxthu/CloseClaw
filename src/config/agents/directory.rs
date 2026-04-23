@@ -161,9 +161,11 @@ impl ConfigProvider for AgentDirectoryProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::config::{AgentConfig as AgentDirConfig, AgentPermissions, ActionPermission, PermissionLimits};
-    use tempfile::TempDir;
+    use crate::agent::config::{
+        ActionPermission, AgentConfig as AgentDirConfig, AgentPermissions, PermissionLimits,
+    };
     use std::collections::HashMap;
+    use tempfile::TempDir;
 
     fn make_config(id: &str, name: &str) -> AgentDirConfig {
         AgentDirConfig {
@@ -179,7 +181,12 @@ mod tests {
         }
     }
 
-    fn write_agent(dir: &std::path::Path, id: &str, config: &AgentDirConfig, perms: Option<&AgentPermissions>) {
+    fn write_agent(
+        dir: &std::path::Path,
+        id: &str,
+        config: &AgentDirConfig,
+        perms: Option<&AgentPermissions>,
+    ) {
         let agent_dir = dir.join(id);
         std::fs::create_dir_all(&agent_dir).unwrap();
         let config_json = serde_json::to_string_pretty(config).unwrap();
@@ -224,9 +231,13 @@ mod tests {
         let config = make_config("agent-2", "Agent Two");
         let perms = AgentPermissions {
             agent_id: "agent-2".to_string(),
-            permissions: HashMap::from([
-                ("exec".to_string(), ActionPermission { allowed: true, limits: PermissionLimits::default() }),
-            ]),
+            permissions: HashMap::from([(
+                "exec".to_string(),
+                ActionPermission {
+                    allowed: true,
+                    limits: PermissionLimits::default(),
+                },
+            )]),
             inherited_from: None,
         };
         write_agent(dir.path(), "agent-2", &config, Some(&perms));
@@ -260,7 +271,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let provider = AgentDirectoryProvider::new(dir.path().to_path_buf()).unwrap();
         assert_eq!(provider.version(), "1.0.0");
-        assert_eq!(AgentDirectoryProvider::config_path(), "~/.closeclaw/agents/");
+        assert_eq!(
+            AgentDirectoryProvider::config_path(),
+            "~/.closeclaw/agents/"
+        );
     }
 
     #[test]
@@ -271,11 +285,16 @@ mod tests {
             ..make_config("x", "x")
         };
         // Manually insert entry with empty id
-        write_agent(dir.path(), "bad-agent", &AgentDirConfig {
-            id: String::new(),
-            name: "Bad".to_string(),
-            ..AgentDirConfig::default()
-        }, None);
+        write_agent(
+            dir.path(),
+            "bad-agent",
+            &AgentDirConfig {
+                id: String::new(),
+                name: "Bad".to_string(),
+                ..AgentDirConfig::default()
+            },
+            None,
+        );
 
         let result = AgentDirectoryProvider::new(dir.path().to_path_buf());
         // config with empty id should fail validation

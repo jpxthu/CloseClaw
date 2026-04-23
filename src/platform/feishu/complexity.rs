@@ -62,9 +62,7 @@ mod tests {
 
     fn make_event(goal: &str) -> ModeSwitchEvent {
         ModeSwitchEvent {
-            user_intent: Some(Arc::new(
-                UserIntent::new("test").with_parsed_goal(goal),
-            )),
+            user_intent: Some(Arc::new(UserIntent::new("test").with_parsed_goal(goal))),
             ..ModeSwitchEvent::default()
         }
     }

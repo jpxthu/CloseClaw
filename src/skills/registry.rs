@@ -127,7 +127,9 @@ mod tests {
 
     impl MockSkill {
         fn new(name: &str) -> Self {
-            Self { name: name.to_string() }
+            Self {
+                name: name.to_string(),
+            }
         }
     }
 
@@ -203,7 +205,9 @@ mod tests {
     #[tokio::test]
     async fn test_unregister() {
         let registry = SkillRegistry::new();
-        registry.register(Arc::new(MockSkill::new("to_remove"))).await;
+        registry
+            .register(Arc::new(MockSkill::new("to_remove")))
+            .await;
 
         assert!(registry.unregister("to_remove").await);
         assert!(!registry.contains("to_remove").await);
@@ -223,7 +227,9 @@ mod tests {
     #[tokio::test]
     async fn test_execute_method() {
         let registry = SkillRegistry::new();
-        registry.register(Arc::new(MockSkill::new("exec_skill"))).await;
+        registry
+            .register(Arc::new(MockSkill::new("exec_skill")))
+            .await;
 
         let skill = registry.get("exec_skill").await.unwrap();
         let result = skill.execute("method1", serde_json::Value::Null).await;
