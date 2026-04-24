@@ -457,26 +457,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_tenant_token_error() {
-        let adapter = FeishuAdapter::new("bad".into(), "bad".into(), "t".into());
-        assert!(adapter.fetch_tenant_token().await.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_send_card_error() {
-        let adapter = FeishuAdapter::new("bad".into(), "bad".into(), "t".into());
+    async fn test_error_cases() {
+        let a = FeishuAdapter::new("bad".into(), "bad".into(), "t".into());
+        assert!(a.fetch_tenant_token().await.is_err());
         let card = RichCard {
             card_id: None,
             title: "T".into(),
             elements: vec![],
             header: None,
         };
-        assert!(adapter.send_card("ou_test", &card).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_send_message_error() {
-        let adapter = FeishuAdapter::new("bad".into(), "bad".into(), "t".into());
+        assert!(a.send_card("ou", &card).await.is_err());
         let msg = Message {
             id: "1".into(),
             from: "a".into(),
@@ -486,7 +476,7 @@ mod tests {
             timestamp: 0,
             metadata: HashMap::new(),
         };
-        assert!(adapter.send_message(&msg).await.is_err());
+        assert!(a.send_message(&msg).await.is_err());
     }
 
     #[tokio::test]
