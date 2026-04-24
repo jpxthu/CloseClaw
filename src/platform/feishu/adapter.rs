@@ -5,13 +5,12 @@
 use std::sync::Arc;
 
 use crate::platform::capabilities::{PlatformCapabilityService, ReasoningMode};
-use crate::session::events::ModeSwitchEvent;
 
-use super::card::{default_plan_card_config, PlanCardConfig};
-use super::card_updater::{CardHandle, CardService};
-use super::complexity::{get_high_complexity_config, HighComplexityConfig};
+use super::card::PlanCardConfig;
+use super::card_updater::CardService;
+#[cfg(test)]
+use super::card_updater::{CardHandle, SectionUpdate};
 use super::error::FeishuAdapterError;
-use crate::platform::feishu::updater::run_streaming_with_card_update;
 
 /// Feishu message service trait (to be implemented by actual Feishu integration)
 #[async_trait::async_trait]
@@ -47,9 +46,11 @@ pub struct FeishuAdapter {
     /// Platform capability service
     capability_service: Arc<PlatformCapabilityService>,
     /// Card service
-    card_service: Arc<dyn CardService>,
+    pub(crate) card_service: Arc<dyn CardService>,
     /// Message service
-    message_service: Arc<dyn FeishuMessageService>,
+    pub(crate) message_service: Arc<dyn FeishuMessageService>,
+    /// Whether fallback is enabled
+    fallback_enabled: bool,
 }
 
 impl FeishuAdapter {
@@ -63,6 +64,7 @@ impl FeishuAdapter {
             capability_service,
             card_service,
             message_service,
+            fallback_enabled: true,
         }
     }
 
@@ -74,94 +76,20 @@ impl FeishuAdapter {
                 .supports_mode_fully("feishu", ReasoningMode::Stream)
     }
 
-    /// Get the fallback mode for Stream on Feishu
     pub fn get_fallback_mode(&self) -> ReasoningMode {
         ReasoningMode::Plan
     }
 
-    /// Check if fallback is enabled (from config)
     pub fn is_fallback_enabled(&self) -> bool {
-        // TODO: Read from config
-        true
+        self.fallback_enabled
     }
 
-    /// Send initial hint message
-    async fn send_initial_message(&self) -> Result<String, FeishuAdapterError> {
-        let content = "🔍 进入深度分析模式...";
-        self.message_service.send_message(content).await
+    pub(crate) fn card_service(&self) -> &Arc<dyn CardService> {
+        &self.card_service
     }
 
-    /// Create Plan card framework
-    async fn create_plan_card(&self, goal: Option<&str>) -> Result<CardHandle, FeishuAdapterError> {
-        let config = default_plan_card_config(goal);
-        self.card_service.create_card(&config).await
-    }
-
-    /// Send final conclusion message
-    async fn send_final_message(&self, card: &CardHandle) -> Result<String, FeishuAdapterError> {
-        let content = "✅ 分析完成，请查看上方计划卡片";
-        self.message_service.send_message(content).await
-    }
-}
-
-impl FeishuAdapter {
-    /// Execute the fallback flow
-    pub async fn execute_fallback(
-        &self,
-        intent: &ModeSwitchEvent,
-    ) -> Result<FallbackResult, FeishuAdapterError> {
-        if !self.is_fallback_enabled() {
-            return Err(FeishuAdapterError::FallbackNotEnabled);
-        }
-
-        // Get the goal for card creation
-        let goal = intent
-            .user_intent
-            .as_ref()
-            .and_then(|u| u.parsed_goal.as_ref())
-            .map(|s| s.as_str());
-
-        // Step 1: Send initial hint
-        let initial = self.send_initial_message().await?;
-
-        // Step 2: Create Plan card
-        let card = self.create_plan_card(goal).await?;
-
-        // Step 3: Run streaming updates with card
-        run_streaming_with_card_update(
-            &*self.card_service,
-            &card,
-            intent,
-            get_high_complexity_config(),
-        )
-        .await?;
-
-        // Step 4: Send final conclusion
-        let final_msg = self.send_final_message(&card).await?;
-
-        Ok(FallbackResult {
-            initial_message_id: initial,
-            card_message_id: card.message_id,
-            final_message_id: final_msg,
-        })
-    }
-
-    /// Handle a mode switch event, determining if fallback is needed
-    pub async fn handle_mode_switch(
-        &self,
-        event: &ModeSwitchEvent,
-    ) -> Result<Option<FallbackResult>, FeishuAdapterError> {
-        let target_mode = event
-            .target_mode
-            .or_else(|| event.requested_mode)
-            .unwrap_or(ReasoningMode::Direct);
-
-        if self.should_fallback(target_mode) {
-            let result = self.execute_fallback(event).await?;
-            Ok(Some(result))
-        } else {
-            Ok(None)
-        }
+    pub(crate) fn message_service(&self) -> &Arc<dyn FeishuMessageService> {
+        &self.message_service
     }
 }
 
@@ -269,26 +197,24 @@ mod tests {
         let adapter = create_test_adapter();
         assert_eq!(adapter.get_fallback_mode(), ReasoningMode::Plan);
     }
+}
 
-    #[tokio::test]
-    async fn test_is_high_complexity_detection() {
-        use crate::session::events::UserIntent;
-        use std::sync::Arc;
-
-        let adapter = create_test_adapter();
-        let event = ModeSwitchEvent {
-            target_mode: Some(ReasoningMode::Stream),
-            user_intent: Some(Arc::new(UserIntent {
-                raw_input: "设计一个用户认证系统".to_string(),
-                parsed_goal: Some("设计一个用户认证系统".to_string()),
-                entities: vec![],
-            })),
-            ..Default::default()
-        };
-
-        // This would normally use is_high_complexity, but we test handle_mode_switch
-        // which calls execute_fallback
-        let result = adapter.handle_mode_switch(&event).await;
-        assert!(result.is_ok());
+/// Test-only constructor that allows controlling fallback_enabled.
+/// This lives outside the main impl block so it can be used by sibling test modules
+/// (e.g., adapter_event::tests) via pub(crate) visibility.
+#[cfg(test)]
+impl FeishuAdapter {
+    pub(crate) fn new_for_test(
+        capability_service: Arc<PlatformCapabilityService>,
+        card_service: Arc<dyn CardService>,
+        message_service: Arc<dyn FeishuMessageService>,
+        fallback_enabled: bool,
+    ) -> Self {
+        Self {
+            capability_service,
+            card_service,
+            message_service,
+            fallback_enabled,
+        }
     }
 }
