@@ -9,7 +9,9 @@ pub mod reload;
 pub mod session;
 pub use agents::{AgentDirectoryEntry, AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use providers::{ConfigError, ConfigProvider};
-pub use session::{PerAgentSessionConfig, SessionConfig, SessionConfigProvider};
+pub use session::{
+    JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfig, SessionConfigProvider,
+};
 
 #[cfg(test)]
 mod tests {
