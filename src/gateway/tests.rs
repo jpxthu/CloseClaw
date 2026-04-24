@@ -8,9 +8,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// ---------------------------------------------------------------------------
 // Mock adapter
-// ---------------------------------------------------------------------------
 
 struct MockAdapter {
     should_fail: bool,
@@ -46,9 +44,7 @@ impl IMAdapter for MockAdapter {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Test helpers
-// ---------------------------------------------------------------------------
 
 fn make_config() -> GatewayConfig {
     GatewayConfig {
@@ -71,9 +67,19 @@ fn make_message(to: &str, content: &str) -> Message {
     }
 }
 
-// ---------------------------------------------------------------------------
+fn feishu_msg(from: &str, to: &str) -> Message {
+    Message {
+        id: "x".into(),
+        from: from.into(),
+        to: to.into(),
+        content: "hi".into(),
+        channel: "feishu".into(),
+        timestamp: 0,
+        metadata: HashMap::new(),
+    }
+}
+
 // Serialisation tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gateway_config_serialization() {
@@ -94,9 +100,7 @@ fn test_message_serialization() {
     assert_eq!(parsed.content, "hello");
 }
 
-// ---------------------------------------------------------------------------
 // DmScope + compute_session_key unit tests
-// ---------------------------------------------------------------------------
 
 fn msg(from: &str, to: &str) -> Message {
     Message {
@@ -157,9 +161,7 @@ fn test_dm_scope_default_is_per_channel_peer() {
     assert_eq!(DmScope::default(), DmScope::PerChannelPeer);
 }
 
-// ---------------------------------------------------------------------------
 // GatewayConfig serde: dm_scope values
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gateway_config_dm_scope_main() {
@@ -198,9 +200,7 @@ fn test_gateway_config_dm_scope_defaults_when_missing() {
     assert_eq!(cfg.max_message_size, 0);
 }
 
-// ---------------------------------------------------------------------------
 // Gateway integration tests
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn test_register_and_route() {
@@ -289,9 +289,7 @@ fn test_gateway_error_display() {
     assert!(GatewayError::RateLimitExceeded.to_string().contains("Rate"));
 }
 
-// ---------------------------------------------------------------------------
 // Session isolation tests
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn test_per_channel_peer_different_senders_different_sessions() {
@@ -353,4 +351,131 @@ async fn test_per_account_channel_peer_different_accounts_different_sessions() {
     gw.route_message("ch", m2, Some("acc_b")).await.unwrap();
     let sessions = gw.get_agent_sessions("bob").await;
     assert_eq!(sessions.len(), 2);
+}
+
+// account_id metadata extraction tests
+
+#[tokio::test]
+async fn test_route_message_extracts_account_id_from_metadata() {
+    let mut cfg = make_config();
+    cfg.dm_scope = DmScope::PerAccountChannelPeer;
+    let gw = crate::gateway::Gateway::new(cfg);
+    let adapter = Arc::new(MockAdapter { should_fail: false });
+    gw.register_adapter("feishu".to_string(), adapter).await;
+
+    let mut msg = make_message("agent-1", "hello");
+    msg.metadata
+        .insert("account_id".to_string(), "tenant_abc".to_string());
+
+    // Pass None for account_id — should fall back to metadata
+    gw.route_message("feishu", msg, None).await.unwrap();
+
+    let sessions = gw.get_agent_sessions("agent-1").await;
+    assert_eq!(sessions.len(), 1);
+    // Session key should include the account_id from metadata via PerAccountChannelPeer
+    assert!(sessions[0].id.starts_with("tenant_abc:"));
+}
+
+#[tokio::test]
+async fn test_route_message_explicit_account_id_overrides_metadata() {
+    let mut cfg = make_config();
+    cfg.dm_scope = DmScope::PerAccountChannelPeer;
+    let gw = crate::gateway::Gateway::new(cfg);
+    let adapter = Arc::new(MockAdapter { should_fail: false });
+    gw.register_adapter("feishu".to_string(), adapter).await;
+
+    let mut msg = make_message("agent-1", "hello");
+    msg.metadata
+        .insert("account_id".to_string(), "metadata_tenant".to_string());
+
+    // Explicit account_id should take precedence over metadata
+    gw.route_message("feishu", msg, Some("explicit_tenant"))
+        .await
+        .unwrap();
+
+    let sessions = gw.get_agent_sessions("agent-1").await;
+    assert_eq!(sessions.len(), 1);
+    assert!(sessions[0].id.starts_with("explicit_tenant:"));
+}
+
+#[tokio::test]
+async fn test_per_channel_peer_feishu_session_isolation() {
+    // Simulates Feishu DM scenario: two different users (different `from` open_ids)
+    // messaging the same agent on the same channel — must get different sessions.
+    let mut cfg = make_config();
+    cfg.dm_scope = DmScope::PerChannelPeer;
+    let gw = crate::gateway::Gateway::new(cfg);
+    let adapter = Arc::new(MockAdapter { should_fail: false });
+    gw.register_adapter("feishu".to_string(), adapter).await;
+
+    let mut msg_alice = make_message("agent-1", "hello from alice");
+    msg_alice.from = "ou_alice".to_string();
+
+    let mut msg_carol = make_message("agent-1", "hello from carol");
+    msg_carol.from = "ou_carol".to_string();
+
+    gw.route_message("feishu", msg_alice, None).await.unwrap();
+    gw.route_message("feishu", msg_carol, None).await.unwrap();
+
+    let sessions = gw.get_agent_sessions("agent-1").await;
+    assert_eq!(sessions.len(), 2);
+    let ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
+    assert!(ids.iter().any(|k| k.contains("ou_alice")));
+    assert!(ids.iter().any(|k| k.contains("ou_carol")));
+}
+
+// DmScope Feishu isolation tests
+
+// Combined test: per_channel_peer isolation, main shared session, per_account_channel_peer multi-tenant
+#[tokio::test]
+async fn test_feishu_dm_scope_isolation_variants() {
+    // Variant 1: PerChannelPeer — different open_ids → different sessions
+    {
+        let mut cfg = make_config();
+        cfg.dm_scope = DmScope::PerChannelPeer;
+        let gw = crate::gateway::Gateway::new(cfg);
+        let adapter = Arc::new(MockAdapter { should_fail: false });
+        gw.register_adapter("feishu".to_string(), adapter).await;
+        let m1 = feishu_msg("ou_u1", "ag");
+        let m2 = feishu_msg("ou_u2", "ag");
+        gw.route_message("feishu", m1, None).await.unwrap();
+        gw.route_message("feishu", m2, None).await.unwrap();
+        let sessions = gw.get_agent_sessions("ag").await;
+        assert_eq!(sessions.len(), 2);
+        assert_ne!(sessions[0].id, sessions[1].id);
+    }
+    // Variant 2: Main — all users share one session
+    {
+        let mut cfg = make_config();
+        cfg.dm_scope = DmScope::Main;
+        let gw = crate::gateway::Gateway::new(cfg);
+        let adapter = Arc::new(MockAdapter { should_fail: false });
+        gw.register_adapter("feishu".to_string(), adapter).await;
+        let m1 = feishu_msg("ou_u1", "ag");
+        let m2 = feishu_msg("ou_u2", "ag");
+        gw.route_message("feishu", m1, None).await.unwrap();
+        gw.route_message("feishu", m2, None).await.unwrap();
+        let sessions = gw.get_agent_sessions("ag").await;
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "feishu:ag");
+    }
+    // Variant 3: PerAccountChannelPeer — different tenants → different sessions
+    {
+        let mut cfg = make_config();
+        cfg.dm_scope = DmScope::PerAccountChannelPeer;
+        let gw = crate::gateway::Gateway::new(cfg);
+        let adapter = Arc::new(MockAdapter { should_fail: false });
+        gw.register_adapter("feishu".to_string(), adapter).await;
+        let mut m1 = feishu_msg("ou_u1", "ag");
+        m1.metadata.insert("account_id".into(), "tenant_a".into());
+        let mut m2 = feishu_msg("ou_u1", "ag");
+        m2.metadata.insert("account_id".into(), "tenant_b".into());
+        gw.route_message("feishu", m1, None).await.unwrap();
+        gw.route_message("feishu", m2, None).await.unwrap();
+        let sessions = gw.get_agent_sessions("ag").await;
+        assert_eq!(sessions.len(), 2);
+        let ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
+        assert!(ids.iter().any(|k| k.starts_with("tenant_a:")));
+        assert!(ids.iter().any(|k| k.starts_with("tenant_b:")));
+    }
 }
