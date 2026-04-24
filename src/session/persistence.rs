@@ -247,6 +247,16 @@ impl std::fmt::Display for SessionStatus {
     }
 }
 
+/// Agent Role — 智能体角色枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentRole {
+    /// 主智能体
+    MainAgent,
+    /// 分身智能体
+    SubAgent,
+}
+
 /// Persistence errors
 #[derive(Error, Debug)]
 pub enum PersistenceError {
