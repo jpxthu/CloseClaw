@@ -8,11 +8,12 @@
 
 配置热加载系统，管理 JSON 配置文件的读取、验证、持久化和热重载。
 
-包含四个子模块：
+包含五个子模块：
 - **agents**：agents.json 和 per-agent 配置目录的 ConfigProvider 实现
 - **backup**：写前备份 + 滚动清理
 - **reload**：基于 notify 的文件监控 + 自动重载
 - **providers**：ConfigProvider trait 和 ConfigError
+- **session**：per-agent per-role session 配置（idle/purge），供 ArchiveSweeper 和 Daemon 使用
 
 ---
 
@@ -22,6 +23,11 @@
 |------|------|
 | `ConfigProvider` | Trait，所有配置提供者的接口 |
 | `ConfigError` | 错误枚举（SchemaError / ValueError / IoError / JsonError） |
+| `PerAgentSessionConfig` | 单个 agent-role 的 session 配置（idle_minutes / purge_after_minutes） |
+| `SessionConfig` | 完整 session 配置容器（defaults / agents / sweeper_interval_secs） |
+| `SessionConfigProvider` | Trait，获取 per-agent session 配置和 sweeper 间隔 |
+| `JsonSessionConfigProvider` | JSON 文件实现的 SessionConfigProvider |
+| `AgentRole` | Agent 角色枚举（MainAgent / SubAgent），imported from `crate::session::persistence` |
 | `AgentsConfig` | agents.json 完整配置（version + agents 列表） |
 | `AgentsConfigProvider` | agents.json 的 ConfigProvider 实现 |
 | `AgentConfig` | agents.json 中单个 agent 的条目数据结构（name/model/parent/persona/max_iterations/timeout_minutes） |
@@ -65,6 +71,38 @@ pub enum ConfigError {
 ---
 
 ## 子模块结构
+
+### session：per-agent session 配置
+
+**用途**：解析 `session_config.json`，提供 per-agent per-role 的 idle/purge 配置，为 ArchiveSweeper 和 Daemon 集成提供基础。
+
+**常量**：
+- `DEFAULT_IDLE_MINUTES`（30）：默认 idle 超时（分钟）
+- `DEFAULT_PURGE_AFTER_MINUTES`（10080，7天）：默认 purge 超时（分钟），0 = 永不过期
+- `DEFAULT_SWEEPER_INTERVAL_SECS`（300，5分钟）：默认 sweeper 轮询间隔（秒）
+
+**数据结构**：
+- `PerAgentSessionConfig`：单个 agent-role 的配置（idle_minutes、purge_after_minutes）
+- `SessionConfig`：完整配置容器（defaults: BTreeMap<AgentRole, PerAgentSessionConfig>、agents: BTreeMap<agent_id, BTreeMap<AgentRole, PerAgentSessionConfig>>、sweeper_interval_secs）
+
+**Trait `SessionConfigProvider`**（Send + Sync）：
+- `session_config_for(agent_id, role)` — 按 agent/role 查询配置，使用 fallback 链：per-agent override → defaults → hardcoded defaults
+- `sweeper_interval_secs()` — sweeper 轮询间隔
+- `list_agents()` — 所有配置了 per-agent override 的 agent_id 列表
+
+**`JsonSessionConfigProvider`** 构造与行为：
+- `new(path)` — 读取 JSON 文件
+  - 文件不存在 → `warn!` + 硬编码默认值（不报错）
+  - JSON 解析错误 → `Err(ConfigError::SchemaError)`
+  - 负值校验失败 → `Err(ConfigError::ValueError)`
+- `validate()` — 校验 idle_minutes >= 0、purge_after_minutes >= 0
+
+**Fallback 链**（`session_config_for` 查询优先级）：
+1. per-agent override（agents 字段，agent_id + role 精确匹配）
+2. defaults（defaults 字段，role 匹配）
+3. hardcoded defaults（常量）
+
+---
 
 ### agents：配置加载
 
