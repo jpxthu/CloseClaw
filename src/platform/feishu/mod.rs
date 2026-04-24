@@ -5,6 +5,7 @@
 //! supported by the platform.
 
 pub mod adapter;
+pub mod adapter_event;
 pub mod card;
 pub mod card_updater;
 pub mod complexity;
