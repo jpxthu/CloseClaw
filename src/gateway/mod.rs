@@ -108,6 +108,10 @@ impl Gateway {
     }
 
     /// Route an incoming message to the appropriate agent
+    ///
+    /// If `account_id` is `None`, automatically extracts it from
+    /// `message.metadata.get("account_id")`. Explicit `account_id`
+    /// parameter takes precedence over metadata.
     pub async fn route_message(
         &self,
         channel: &str,
@@ -125,11 +129,15 @@ impl Gateway {
             return Err(GatewayError::MessageTooLarge);
         }
 
+        // Resolve account_id: explicit parameter wins, else fall back to metadata
+        let resolved_account_id =
+            account_id.or_else(|| message.metadata.get("account_id").map(|s| s.as_str()));
+
         // Create session if needed
-        let session_id = self
-            .config
-            .dm_scope
-            .compute_session_key(channel, &message, account_id);
+        let session_id =
+            self.config
+                .dm_scope
+                .compute_session_key(channel, &message, resolved_account_id);
         let mut sessions = self.sessions.write().await;
         if !sessions.contains_key(&session_id) {
             sessions.insert(
