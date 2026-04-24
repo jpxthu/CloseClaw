@@ -9,7 +9,7 @@ use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
 use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::providers::ConfigProvider;
-use crate::gateway::{Gateway, GatewayConfig};
+use crate::gateway::{DmScope, Gateway, GatewayConfig};
 use crate::im::feishu::FeishuAdapter;
 use crate::llm::{AnthropicProvider, LLMRegistry, MiniMaxProvider, OpenAIProvider};
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
@@ -70,6 +70,7 @@ impl Daemon {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
             max_message_size: 16_384,
+            dm_scope: DmScope::default(),
         }));
         info!("Gateway initialized");
 
