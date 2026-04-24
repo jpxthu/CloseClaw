@@ -95,7 +95,8 @@ platform/
 ├── capabilities.rs     # 能力矩阵定义与服务
 └── feishu/
     ├── mod.rs          # 导出 FeishuAdapter、FallbackResult、CardService
-    ├── adapter.rs      # FeishuAdapter 核心：降级决策与流程编排
+    ├── adapter.rs      # FeishuAdapter 核心：结构体定义、构造函数、能力查询
+    ├── adapter_event.rs # FeishuAdapter 事件处理：execute_fallback、handle_mode_switch 及辅助方法
     ├── card.rs         # Plan 卡片结构：PlanCardConfig、PlanSection、StepStatus
     ├── card_updater.rs # CardService trait：卡片创建与更新操作抽象
     ├── fallback.rs     # 降级步骤定义：FallbackAction、FallbackStep
@@ -106,7 +107,9 @@ platform/
 
 **`capabilities.rs`** 定义能力枚举 `CapabilityLevel`、`FileUploadCapability`，结构体 `PlatformCapabilities`，以及查询服务 `PlatformCapabilityService` 和决策上下文 `ModeDecisionContext`。
 
-**`feishu/`** 是 Feishu 平台的具体实现子包，`adapter.rs` 是入口，按需组合 card、card_updater、fallback、updater、complexity 四个子模块。
+**`feishu/`** 是 Feishu 平台的具体实现子包，`adapter.rs` 是入口，按需组合 card、card_updater、fallback、updater、complexity 五个子模块。
+
+**`adapter_event.rs`** 包含 `FeishuAdapter` 的事件处理 impl 块：`execute_fallback`（Stream→Plan 降级流程编排）和 `handle_mode_switch`（模式切换判断），以及 `send_initial_message`、`create_plan_card`、`send_final_message` 三个私有辅助方法。`adapter.rs` 仅保留结构体/类型定义、构造函数和能力查询方法。
 
 ---
 
