@@ -4,9 +4,11 @@
 
 daemon 是 CloseClaw 的后台服务进程，负责启动和协调所有组件（Gateway、AgentRegistry、PermissionEngine、ChatServer、AuditLogger），并在接收到 SIGINT/SIGTERM 信号时执行优雅关闭。
 
-启动流程按顺序完成：加载 .env → 初始化 PermissionEngine → 初始化 AgentRegistry → 初始化 Gateway → 注册 Feishu 适配器 → 启动 ShutdownCoordinator → 注册 LLM Providers → 启动 Chat TCP Server → 启动 AuditLogger。
+启动流程按顺序完成：加载 .env → 初始化 SqliteStorage（失败则 start() 返回 Err）→ 初始化 JsonSessionConfigProvider（文件不存在则 warn + 硬编码默认值）→ 创建 ArchiveSweeper 并 spawn 后台任务 → 初始化 PermissionEngine → 初始化 AgentRegistry → 初始化 Gateway（注入 storage）→ 注册 Feishu 适配器 → 启动 ShutdownCoordinator → 注册 LLM Providers → 启动 Chat TCP Server → 启动 AuditLogger。
 
-关闭流程采用状态机管理：Running → ShuttingDown → Draining → Stopped，等待所有在途操作完成后退出，超时强制终止。
+SqliteStorage 的 data_dir 直接使用 `config_dir` 参数，不做 fallback 计算。
+
+关闭流程采用状态机管理：Running → ShuttingDown → Draining → Stopped，等待所有在途操作完成后退出，超时强制终止；Daemon shutdown 时通过 `sweeper_shutdown_tx` 通知 ArchiveSweeper 优雅退出。
 
 ## 公开接口
 
@@ -59,7 +61,9 @@ daemon
 │   ├── permission_engine: Arc<PermissionEngine>
 │   ├── shutdown: ShutdownHandle
 │   ├── chat_server: Arc<ChatServer>
-│   └── audit_logger: Arc<AuditLogger>
+│   ├── audit_logger: Arc<AuditLogger>
+│   ├── storage: Arc<SqliteStorage>
+│   └── sweeper_shutdown_tx: watch::Sender<()>（控制 ArchiveSweeper 生命周期）
 │
 └── shutdown（子模块）
     ├── ShutdownState（枚举，状态机状态）
