@@ -18,6 +18,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`Usage`** — token 用量统计（prompt_tokens、completion_tokens、total_tokens）
 - **`LLMError`** — 错误枚举：AuthFailed、RateLimitExceeded、ModelNotFound、InvalidRequest、ApiError、NetworkError
 - **`ErrorKind`** — 错误可恢复性分类：Transient、Auth、Billing、InvalidRequest、Unknown
+- **`Scenario`** — `FakeProvider` 场景枚举：Ok（成功响应）、Err（错误响应）、Delay（sleep 后执行内部场景，内部场景可为 Ok/Err/另一个 Delay，嵌套递归解析）
 
 ### 数据类型（Provider 注册与管理）
 
@@ -25,11 +26,16 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`LLMProvider`**（trait）— Provider 接口，抽象所有 LLM 调用
 - **`FallbackClient`** — 包装 `LLMRegistry`，在多个 model 间做 fallback + 重试
 - **`ModelEntry`** — fallback chain 中的单个模型条目（provider + model）
+- **`FakeProvider`** — 测试用可控响应 Provider（通过 Builder 编排场景，FIFO 依次消耗）
+- **`CapturedRequest`** — `FakeProvider` 捕获的请求记录（model、messages）
+- **`Builder`** — `FakeProvider` 的 Builder，支持 `.then_ok()`、`.then_err()`、`.then_delay()`、`.or_else()`、`.stub()` 等 API
 
 ### 构造
 
 - **`LLMRegistry::new`** — 创建空注册中心
 - **`LLMProvider::new`** — 构造 Provider 实例（MimMax、OpenAI、Anthropic、Stub 各有）
+- **`FakeProvider::new`** — 构造无场景的 `FakeProvider`（首次调用必然 panic，用于严格测试）
+- **`FakeProvider::builder`** — 构造 `Builder`，开始编排 `FakeProvider` 场景
 - **`FallbackClient::new`** — 同步构造（加载持久化 cooldown）
 - **`FallbackClient::new_async`** — 异步构造
 - **`FallbackClient::from_strings`** — 从 `"provider/model"` 字符串列表构造
@@ -52,6 +58,9 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`LLMProvider::name** — 返回 Provider 名称
 - **`LLMProvider::is_stub** — 返回该 Provider 是否为 stub（默认 false）
 - **`LLMError::kind** — 将错误分类为 ErrorKind
+- **`FakeProvider::captured_requests`** — 返回所有已捕获请求（不消费）
+- **`FakeProvider::drain_requests`** — 移除并返回所有已捕获请求
+- **`FakeProvider::clear_requests`** — 清空已捕获请求
 
 ### 重试与冷却
 
@@ -83,6 +92,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `openai.rs` | OpenAI Chat Completions API adapter |
 | `anthropic.rs` | Anthropic API adapter（当前为 stub） |
 | `stub.rs` | 测试用固定响应 Provider |
+| `fake.rs` | `FakeProvider`：场景编排 Provider，支持 Ok/Err/Delay 场景、FIFO 消耗、请求捕获（feature `fake-llm`） |
 | `fallback.rs` | FallbackClient：两层重试（内层同模型指数退避、外层模型切换） |
 | `retry.rs` | CooldownManager：按 (provider, model) 分组的冷却持久化；backoff_delay 计算 |
 
