@@ -4,9 +4,17 @@
 
 pub mod agents;
 pub mod backup;
+pub mod manager;
 pub mod providers;
 pub mod reload;
 pub mod session;
+
+// Public re-exports from manager
+pub use manager::{
+    ConfigInfo, ConfigLoadError, ConfigManager, ConfigSection, ConfigValidationError,
+    ConfigWriteError, SafeBackupManager,
+};
+
 pub use agents::{AgentDirectoryEntry, AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use providers::{ConfigError, ConfigProvider};
 pub use session::{
