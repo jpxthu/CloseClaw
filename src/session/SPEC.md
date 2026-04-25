@@ -16,6 +16,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 - `events` — Checkpoint 触发时机定义（模式切换/消息发送/网关关闭/compaction）
 - `recovery` — 网关启动时从存储恢复会话
 - `storage/` — 可插拔存储后端（Memory/Redis/SqliteStorage）
+- `sweeper` — 后台任务，定时扫描 idle session 执行 archive，对超 TTL 的 archived session 执行 purge，支持 `tokio::sync::watch` 优雅退出
 
 ---
 
@@ -33,15 +34,17 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `BootstrapProtection::with_size_limit(usize)` | 设置 reinject 字符数上限（默认 60K） |
 | `MemoryStorage::new()` | 创建内存存储后端（测试/单实例用） |
 | `RedisStorage::new(&str, &str) -> Result<Self, PersistenceError>` | 从 URL 创建 Redis 存储后端 |
-| `SqliteStorage::new(&Path) -> Result<Self, PersistenceError>` | 从路径创建 SQLite 存储后端（自动建库+Schema） |
+| `ArchiveSweeper::new(Arc<dyn PersistenceService>, Arc<dyn SessionConfigProvider>)` | 创建 Archive Sweeper 实例 |
 | `RedisStorage::key_prefix(&self) -> &str` | 查询存储使用的 key 前缀 |
 | `CheckpointManager::new(Arc<S>)` | 创建带存储后端的 Checkpoint 管理器 |
+| `ArchiveSweeper::run(&self, tokio::sync::watch::Receiver<()>)` | 启动 sweeper 主循环，监听 shutdown 信号优雅退出 |
 | `SessionRecoveryService::new(Arc<S>)` | 创建恢复服务 |
 
 ### 主操作
 
 | 接口 | 功能 |
 |------|------|
+| `ArchiveSweeper::run_once(&self)` | 执行一次 sweep（archive idle + purge expired），panic 不导致 sweeper 退出；purge_after_minutes 为 0 时跳过 purge 扫描 |
 | `BootstrapProtection::protect_session(&str) -> (String, BootstrapContext)` | 扫描 transcript 中已有的 bootstrap 内容并标记，返回标记后 transcript 和上下文 |
 | `BootstrapProtection::before_compact(&mut BootstrapContext)` | 存储所有 region 的 hash，供 compaction 后校验 |
 | `BootstrapProtection::after_compact(&str, &mut BootstrapContext) -> Vec<String>` | 检测 bootstrap 内容是否在 compaction 后被扭曲，返回需 reinject 的文件名列表 |
@@ -80,6 +83,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 |------|------|
 | `BootstrapContext` | bootstrap 区域元数据容器，含 regions 列表和 integrity hash |
 | `BootstrapRegion` | 单个 bootstrap 文件的区域标记（含 hash 用于完整性校验） |
+| `ArchiveSweeperError` | Sweeper 操作错误（Storage/Config 变体） |
 | `BootstrapProtectionError` | bootstrap 保护操作错误（FileNotFound/IntegrityCheckFailed/IoError/MarkerParseError/WorkspacePathRequired） |
 | `SessionCheckpoint` | 会话持久化状态快照（含 status/last_message_at/message_count/channel/chat_id 等生命周期字段） |
 | `SessionStatus` | 会话生命周期状态枚举（Active/Archived） |

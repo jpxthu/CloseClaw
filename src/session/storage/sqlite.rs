@@ -438,4 +438,32 @@ impl PersistenceService for SqliteStorage {
     async fn invalidate_session(&self, _session_id: &str) -> Result<(), PersistenceError> {
         Ok(())
     }
+
+    async fn list_idle_sessions_for_agent(
+        &self,
+        agent_id: &str,
+        role: crate::session::persistence::AgentRole,
+        idle_minutes: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        let role_str = match role {
+            crate::session::persistence::AgentRole::MainAgent => "main_agent",
+            crate::session::persistence::AgentRole::SubAgent => "sub_agent",
+        };
+        self.list_idle_sessions_for_agent(agent_id, role_str, idle_minutes)
+            .await
+    }
+
+    async fn list_expired_archived_sessions_for_agent(
+        &self,
+        agent_id: &str,
+        role: crate::session::persistence::AgentRole,
+        purge_after_minutes: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        let role_str = match role {
+            crate::session::persistence::AgentRole::MainAgent => "main_agent",
+            crate::session::persistence::AgentRole::SubAgent => "sub_agent",
+        };
+        self.list_expired_archived_sessions_for_agent(agent_id, role_str, purge_after_minutes)
+            .await
+    }
 }
