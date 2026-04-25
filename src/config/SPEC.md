@@ -206,6 +206,36 @@ pub enum ConfigError {
 
 **`is_default` 判断**：所有子结构均为默认值时返回 true（与 JSON 中字段缺失/存在无关）。
 
+**`PluginsConfigData`** — 从 `plugins.json` 加载插件配置，实现 `ConfigProvider` trait。涵盖：插件启用状态、白名单、插件条目和安装信息。
+
+**数据结构**：
+- `version`（String，默认 `"1.0.0"`）
+- `enabled`（bool，默认 `true`）
+- `allow`（`Vec<String>`，默认 `[]`）— 允许的插件名称列表
+- `entries`（`BTreeMap<String, PluginEntry>`，默认 `{}`）— 插件条目映射
+- `installs`（`BTreeMap<String, PluginInstallInfo>`，默认 `{}`）— 插件安装信息映射
+
+**子结构**：`PluginEntry` / `PluginInstallInfo`
+
+`PluginEntry` 字段：
+- `enabled`（bool，默认 `false`）
+
+`PluginInstallInfo` 字段：
+- `source`（`Option<String>`，默认 `None`）
+- `sourcePath`（`Option<String>`，默认 `None`）
+- `installPath`（`Option<String>`，默认 `None`）
+- `version`（`Option<String>`，默认 `None`）
+- `installedAt`（`Option<String>`，默认 `None`）
+
+**验证规则**：
+- `allow` 列表中不允许存在空字符串
+
+**构造方法**：
+- `from_file(path)` — 从文件路径加载
+- `from_json_str(content)` — 从 JSON 字符串加载
+
+**`is_default` 判断**：version = `"1.0.0"` 且 enabled = `true` 且 allow / entries / installs 均为空时返回 true。
+
 ---
 
 ### reload：热重载
