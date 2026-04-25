@@ -123,12 +123,14 @@ impl Daemon {
             agents_config.agents().len()
         );
 
-        let gateway = Arc::new(Gateway::new(GatewayConfig {
+        let mut gateway = Gateway::new(GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
             max_message_size: 16_384,
             dm_scope: DmScope::default(),
-        }));
+        });
+        gateway.set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>);
+        let gateway = Arc::new(gateway);
         info!("Gateway initialized");
 
         Self::init_feishu_adapter(config_dir, &gateway).await?;
