@@ -1,0 +1,22 @@
+{
+  "id": "063c05e7cf2ad5b9b3d0fdc851ef505c",
+  "type": "message",
+  "role": "assistant",
+  "model": "MiniMax-M2.7",
+  "content": [
+    {
+      "thinking": "The user just says \"hi\". I",
+      "signature": "dfcb7ab6a98350d64e64b86c2ce0ff132ff00cd45007bc6099d1616ba0ba1911",
+      "type": "thinking"
+    }
+  ],
+  "usage": {
+    "input_tokens": 42,
+    "output_tokens": 10
+  },
+  "stop_reason": "max_tokens",
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

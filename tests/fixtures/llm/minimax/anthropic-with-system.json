@@ -1,0 +1,28 @@
+{
+  "id": "063c05d2460e806851ddd5526b24a567",
+  "type": "message",
+  "role": "assistant",
+  "model": "MiniMax-M2.5",
+  "content": [
+    {
+      "thinking": "The user wants me to say hello. This is a straightforward greeting request. I'll respond with a friendly greeting.",
+      "signature": "b4fb43544670897924d096964159d4a3ea01b83253ca1edc3fc5ffbb243d3f15",
+      "type": "thinking"
+    },
+    {
+      "text": "Hello! 👋 How can I help you today?",
+      "type": "text"
+    }
+  ],
+  "usage": {
+    "input_tokens": 23,
+    "output_tokens": 36,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "stop_reason": "end_turn",
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": "success"
+  }
+}

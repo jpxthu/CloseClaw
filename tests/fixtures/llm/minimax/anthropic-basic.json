@@ -1,0 +1,24 @@
+{
+  "id": "063c05cf290926b74f355364eda39c58",
+  "type": "message",
+  "role": "assistant",
+  "model": "MiniMax-M2.5",
+  "content": [
+    {
+      "thinking": "The user wants me to say hello in 3 words. This is a simple request - I should respond with a greeting using exactly 3 words.\n\nSome options:\n- \"Hello there, friend\"\n- \"Good to see you\"\n- \"Hey",
+      "signature": "eb0620e759352a60923e9b36014040f18da2d03be02ecb55fb6f9a6c1b470fa4",
+      "type": "thinking"
+    }
+  ],
+  "usage": {
+    "input_tokens": 28,
+    "output_tokens": 50,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 16
+  },
+  "stop_reason": "max_tokens",
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": "success"
+  }
+}

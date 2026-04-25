@@ -1,0 +1,46 @@
+{
+  "id": "063c05b015619f0a37adb6403ebcf04a",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user wants me to say \"hi",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user wants me to say \"hi"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128112,
+  "model": "MiniMax-M2.7-highspeed",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 56,
+    "total_characters": 0,
+    "prompt_tokens": 46,
+    "completion_tokens": 10,
+    "completion_tokens_details": {
+      "reasoning_tokens": 10
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

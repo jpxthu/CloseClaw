@@ -1,0 +1,46 @@
+{
+  "id": "063c05babf5f9bbfcdd136f14433336d",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "To multiply \\(17\\) by \\(23\\) we can break the numbers into parts that are easier to multiply, then add the partial products.\n\n\\[\n\\begin{aligned}\n17 \\times 23 &= 17 \\times (20 + 3) \\\\\n&= 17 \\times 20 \\;+\\; 17 \\times 3 \\\\\n&= (17 \\times 2 \\times 10) \\;+\\; (17 \\times 3) \\\\\n&= 34 \\times 10 \\;+\\; 51 \\\\\n&= 340 \\;+\\; 51 \\\\\n&= 391.\n\\end{aligned}\n\\]\n\nSo,",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user asks: \"What is 17 * 23? Show your work.\" This is a straightforward multiplication problem. The answer is 391 (since 17*20=340, 17*3=51, sum=391). So provide the answer and show work.\n\nWe just need to answer. There's no disallowed content. We can produce answer with explanation.",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user asks: \"What is 17 * 23? Show your work.\" This is a straightforward multiplication problem. The answer is 391 (since 17*20=340, 17*3=51, sum=391). So provide the answer and show work.\n\nWe just need to answer. There's no disallowed content. We can produce answer with explanation."
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128122,
+  "model": "MiniMax-M2.7",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 253,
+    "total_characters": 0,
+    "prompt_tokens": 53,
+    "completion_tokens": 200,
+    "completion_tokens_details": {
+      "reasoning_tokens": 79
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

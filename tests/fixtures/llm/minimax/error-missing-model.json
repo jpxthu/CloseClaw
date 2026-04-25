@@ -1,0 +1,8 @@
+{
+  "choices": null,
+  "usage": null,
+  "base_resp": {
+    "status_code": 2013,
+    "status_msg": "invalid params, binding: expr_path=model, cause=missing required parameter"
+  }
+}

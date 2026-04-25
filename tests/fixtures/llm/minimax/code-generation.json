@@ -1,0 +1,46 @@
+{
+  "id": "063c05b769d218f4e26fdfd0686ea6eb",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "Here’s the classic “Hello, World!” program in Python:\n\n```python\n# Hello World in",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user asks: \"Write a hello world in Python\". Simple. I can respond with a code block that prints \"Hello, World!\". Possibly add comments. The policy is not relevant. This is safe. Provide a simple snippet.\n\nThus answer:\n\n```python\n# Hello World in Python\nprint(\"Hello, World!\")\n```\n\nAlternatively, explanation. Should be short and direct.",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user asks: \"Write a hello world in Python\". Simple. I can respond with a code block that prints \"Hello, World!\". Possibly add comments. The policy is not relevant. This is safe. Provide a simple snippet.\n\nThus answer:\n\n```python\n# Hello World in Python\nprint(\"Hello, World!\")\n```\n\nAlternatively, explanation. Should be short and direct."
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128119,
+  "model": "MiniMax-M2.5",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 147,
+    "total_characters": 0,
+    "prompt_tokens": 47,
+    "completion_tokens": 100,
+    "completion_tokens_details": {
+      "reasoning_tokens": 80
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "id": "063c05a86c95717300552e7748dbe8ef",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Dogs, often referred to as \"man's best friend,\" are loyal, intelligent, and versatile companions that have lived alongside humans for thousands of years. They come in a remarkable variety of breeds, ranging from tiny Chihuahuas to towering Great Danes, each developed for specific tasks such as herding, hunting, guarding, or simply providing affection. Known for their keen sense of smell and hearing, dogs excel in roles like search‑and‑rescue, detection work, and service assistance, demonstrating both trainability and empathy. Beyond their working abilities, dogs are celebrated for their playful nature and unwavering loyalty, forming deep emotional bonds with their owners and often providing therapeutic benefits to people of all ages. Whether bounding joyfully in a park, curled up at a bedside, or diligently performing a job, dogs enrich human life with their devotion, humor, and boundless energy.",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user asks: \"Write a paragraph about dogs.\" Straightforward. Provide a paragraph describing dogs, possibly covering their characteristics, behavior, relationship with humans, etc. Ensure it's one paragraph, well-written.\n\nI should comply.",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user asks: \"Write a paragraph about dogs.\" Straightforward. Provide a paragraph describing dogs, possibly covering their characteristics, behavior, relationship with humans, etc. Ensure it's one paragraph, well-written.\n\nI should comply."
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128104,
+  "model": "MiniMax-M2.5",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 268,
+    "total_characters": 0,
+    "prompt_tokens": 46,
+    "completion_tokens": 222,
+    "completion_tokens_details": {
+      "reasoning_tokens": 49
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

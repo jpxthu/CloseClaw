@@ -1,0 +1,46 @@
+{
+  "id": "063c05adf40c74312920ff2c93e1cd6d",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user wants a greeting in one word",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user wants a greeting in one word"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128109,
+  "model": "MiniMax-M2.5-highspeed",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 56,
+    "total_characters": 0,
+    "prompt_tokens": 46,
+    "completion_tokens": 10,
+    "completion_tokens_details": {
+      "reasoning_tokens": 10
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}
