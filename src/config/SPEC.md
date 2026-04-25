@@ -236,6 +236,38 @@ pub enum ConfigError {
 
 **`is_default` 判断**：version = `"1.0.0"` 且 enabled = `true` 且 allow / entries / installs 均为空时返回 true。
 
+**`ModelsConfigData`** — 从 `models.json` 加载模型配置，实现 `ConfigProvider` trait。mode 字段控制合批策略（`merge` / `replace`），providers 以 provider id 为键组织各厂商的 endpoint、认证信息和模型列表。
+
+**子结构**：`ProviderConfig` / `ModelDefinition`
+
+`ProviderConfig` 字段：
+- `baseUrl`（`Option<String>`，默认 `None`）— 厂商 API 基础地址
+- `apiKey`（`Option<String>`，默认 `None`）— 认证密钥
+- `api`（`Option<String>`，默认 `None`）— API 版本路径
+- `models`（`Vec<ModelDefinition>`，默认 `[]`）— 该厂商下的模型定义列表
+
+`ModelDefinition` 字段：
+- `id`（`String`，必填）— 模型唯一标识
+- `name`（`Option<String>`，默认 `None`）— 显示名称
+- `enabled`（`Option<bool>`，默认 `None`）— 是否启用
+
+**验证规则**：
+- provider id 非空
+- model id 非空
+- `baseUrl` 为空字符串（`""`）时跳过校验；非空时必须以 `http://` 或 `https://` 开头
+- `apiKey` 为空字符串（`""`）时返回错误；`None`（字段缺失）时跳过校验
+
+**查询接口**：
+- `get_provider(id)` — 按 provider id 查找 ProviderConfig
+- `get_model(provider_id, model_id)` — 按 provider id 和 model id 查找 ModelDefinition
+- `enabled_providers()` — 返回存在至少一个 enabled=true 模型的 provider id 列表
+
+**构造方法**：
+- `from_file(path)` — 从文件路径加载
+- `from_json_str(content)` — 从 JSON 字符串加载（测试用）
+
+**`is_default` 判断**：mode = `"merge"` 且 providers 为空时返回 true。
+
 ---
 
 ### reload：热重载
