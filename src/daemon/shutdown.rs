@@ -38,11 +38,29 @@ impl ShutdownState {
     }
 }
 
-/// Global drain timeout
-const DRAIN_TIMEOUT_SECS: u64 = 30;
+/// Returns the drain timeout in seconds.
+#[cfg(not(test))]
+const fn drain_timeout_secs() -> u64 {
+    30
+}
 
-/// Global drain poll interval
-const DRAIN_POLL_SECS: u64 = 2;
+/// Returns the drain timeout in seconds (test mode: 3s).
+#[cfg(test)]
+const fn drain_timeout_secs() -> u64 {
+    3
+}
+
+/// Returns the drain poll interval.
+#[cfg(not(test))]
+const fn drain_poll_interval() -> std::time::Duration {
+    std::time::Duration::from_secs(2)
+}
+
+/// Returns the drain poll interval (test mode: 100ms).
+#[cfg(test)]
+const fn drain_poll_interval() -> std::time::Duration {
+    std::time::Duration::from_millis(100)
+}
 
 /// ShutdownCoordinator — coordinates graceful shutdown across all components.
 ///
@@ -145,7 +163,7 @@ impl ShutdownHandle {
 
         info!(
             "Graceful shutdown initiated (timeout={}s)",
-            DRAIN_TIMEOUT_SECS
+            drain_timeout_secs()
         );
 
         let _ = self.drain_done_tx.send(());
@@ -166,10 +184,11 @@ impl ShutdownHandle {
             }
 
             let elapsed = started_at.elapsed().as_secs();
-            if elapsed >= DRAIN_TIMEOUT_SECS {
+            if elapsed >= drain_timeout_secs() {
                 warn!(
                     "Drain timeout exceeded ({}s) — forcing shutdown (busy_count={})",
-                    DRAIN_TIMEOUT_SECS, count
+                    drain_timeout_secs(),
+                    count
                 );
                 self.coordinator.start_drain();
                 self.coordinator.mark_stopped();
@@ -178,10 +197,12 @@ impl ShutdownHandle {
 
             info!(
                 "Waiting for in-flight operations... ({}s / {}s, busy_count={})",
-                elapsed, DRAIN_TIMEOUT_SECS, count
+                elapsed,
+                drain_timeout_secs(),
+                count
             );
 
-            tokio::time::sleep(std::time::Duration::from_secs(DRAIN_POLL_SECS)).await;
+            tokio::time::sleep(drain_poll_interval()).await;
         }
     }
 
@@ -305,5 +326,17 @@ mod tests {
         assert_eq!(format!("{:?}", ShutdownState::ShuttingDown), "ShuttingDown");
         assert_eq!(format!("{:?}", ShutdownState::Draining), "Draining");
         assert_eq!(format!("{:?}", ShutdownState::Stopped), "Stopped");
+    }
+
+    #[test]
+    fn test_drain_timeout_secs_test_mode() {
+        // In test mode, drain_timeout_secs should return 3 (not 30)
+        assert_eq!(drain_timeout_secs(), 3);
+    }
+
+    #[test]
+    fn test_drain_poll_interval_test_mode() {
+        // In test mode, drain_poll_interval should return 100ms (not 2s)
+        assert_eq!(drain_poll_interval(), std::time::Duration::from_millis(100));
     }
 }
