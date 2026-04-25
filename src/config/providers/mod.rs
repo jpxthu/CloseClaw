@@ -1,5 +1,8 @@
 //! ConfigProvider implementations
 
+pub mod gateway;
+pub use gateway::GatewayConfigData;
+
 /// Configuration provider trait for extensible config management
 pub trait ConfigProvider {
     /// Get config version as string (semver format)
