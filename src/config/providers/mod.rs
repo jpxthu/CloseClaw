@@ -1,9 +1,11 @@
 //! ConfigProvider implementations
 
 pub mod gateway;
+pub mod models;
 pub mod plugins;
 pub mod system;
 pub use gateway::GatewayConfigData;
+pub use models::ModelsConfigData;
 pub use plugins::PluginsConfigData;
 pub use system::SystemConfigData;
 
