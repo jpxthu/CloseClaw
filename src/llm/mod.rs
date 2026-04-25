@@ -7,6 +7,9 @@ pub mod openai;
 pub mod retry;
 pub mod stub;
 
+#[cfg(feature = "fake-llm")]
+pub mod fake;
+
 pub use anthropic::AnthropicProvider;
 pub use minimax::MiniMaxProvider;
 pub use openai::OpenAIProvider;
@@ -69,7 +72,7 @@ pub trait LLMProvider: Send + Sync {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum LLMError {
     #[error("Authentication failed: {0}")]
     AuthFailed(String),
