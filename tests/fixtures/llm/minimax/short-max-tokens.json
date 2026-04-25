@@ -1,37 +1,37 @@
 {
-  "id": "063c059d1995c8758cd834723da59c2a",
+  "id": "063c05a6a87f72468c621e61e963dd76",
   "choices": [
     {
       "finish_reason": "length",
       "index": 0,
       "message": {
-        "content": "Your name is Alice! You told me at",
+        "content": "",
         "role": "assistant",
         "name": "MiniMax AI",
         "audio_content": "",
-        "reasoning_content": "The user just told me their name is Alice, so I should respond with that.",
+        "reasoning_content": "The user wants",
         "reasoning_details": [
           {
             "type": "reasoning.text",
             "id": "reasoning-text-1",
             "format": "MiniMax-response-v1",
             "index": 0,
-            "text": "The user just told me their name is Alice, so I should respond with that."
+            "text": "The user wants"
           }
         ]
       }
     }
   ],
-  "created": 1777128093,
+  "created": 1777128102,
   "model": "MiniMax-M2.5",
   "object": "chat.completion",
   "usage": {
-    "total_tokens": 93,
+    "total_tokens": 50,
     "total_characters": 0,
-    "prompt_tokens": 63,
-    "completion_tokens": 30,
+    "prompt_tokens": 45,
+    "completion_tokens": 5,
     "completion_tokens_details": {
-      "reasoning_tokens": 21
+      "reasoning_tokens": 5
     }
   },
   "input_sensitive": false,

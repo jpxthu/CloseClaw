@@ -1,5 +1,5 @@
 {
-  "id": "063c00db9c8f1ee2b106a0a0a3f754db",
+  "id": "063c059a1f86d418a88ac88a0f71af9d",
   "choices": [
     {
       "finish_reason": "length",
@@ -9,20 +9,20 @@
         "role": "assistant",
         "name": "MiniMax AI",
         "audio_content": "",
-        "reasoning_content": "The user wants me to say hello in 3 words. This is a simple request.\n\nSome options:\n- \"Hello there friend\"\n-",
+        "reasoning_content": "The user wants me to say hello in 3 words. This is a simple request. I should just provide a friendly greeting in exactly ",
         "reasoning_details": [
           {
             "type": "reasoning.text",
             "id": "reasoning-text-1",
             "format": "MiniMax-response-v1",
             "index": 0,
-            "text": "The user wants me to say hello in 3 words. This is a simple request.\n\nSome options:\n- \"Hello there friend\"\n-"
+            "text": "The user wants me to say hello in 3 words. This is a simple request. I should just provide a friendly greeting in exactly "
           }
         ]
       }
     }
   ],
-  "created": 1777126875,
+  "created": 1777128090,
   "model": "MiniMax-M2.7",
   "object": "chat.completion",
   "usage": {

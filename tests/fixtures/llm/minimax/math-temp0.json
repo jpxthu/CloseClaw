@@ -1,5 +1,5 @@
 {
-  "id": "063c00da0aeabefe5660a8cbad35cd0a",
+  "id": "063c0598eaa70723cae2ea08073bec6d",
   "choices": [
     {
       "finish_reason": "length",
@@ -9,20 +9,20 @@
         "role": "assistant",
         "name": "MiniMax AI",
         "audio_content": "",
-        "reasoning_content": "The user asks a simple math question: \"What is 2+2?\" Straightforward",
+        "reasoning_content": "The user asks \"What is 2+2?\" It's a simple arithmetic. The answer",
         "reasoning_details": [
           {
             "type": "reasoning.text",
             "id": "reasoning-text-1",
             "format": "MiniMax-response-v1",
             "index": 0,
-            "text": "The user asks a simple math question: \"What is 2+2?\" Straightforward"
+            "text": "The user asks \"What is 2+2?\" It's a simple arithmetic. The answer"
           }
         ]
       }
     }
   ],
-  "created": 1777126874,
+  "created": 1777128088,
   "model": "MiniMax-M2.5",
   "object": "chat.completion",
   "usage": {
