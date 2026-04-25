@@ -30,8 +30,12 @@ pub enum Scenario {
         prompt_tokens: u32,
         completion_tokens: u32,
     },
-    /// Respond with an error.
-    Err(LLMError),
+    /// Respond with an error, optionally with usage metrics.
+    Err {
+        error: LLMError,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+    },
     /// Sleep for the given duration then behave as the wrapped scenario.
     Delay {
         duration: Duration,
@@ -50,9 +54,30 @@ impl Scenario {
         }
     }
 
-    /// Shortcut: an error scenario.
+    /// Shortcut: an error scenario with default zero usage.
     pub fn err(error: LLMError) -> Self {
-        Self::Err(error)
+        Self::Err {
+            error,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+        }
+    }
+
+    /// Error scenario with custom usage metrics.
+    pub fn err_with(error: LLMError, prompt_tokens: u32, completion_tokens: u32) -> Self {
+        Self::Err {
+            error,
+            prompt_tokens,
+            completion_tokens,
+        }
+    }
+
+    /// Shortcut: a delayed scenario — sleeps for `duration` then resolves as `inner`.
+    pub fn delay(duration: std::time::Duration, inner: Scenario) -> Self {
+        Self::Delay {
+            duration,
+            inner: Box::new(inner),
+        }
     }
 
     fn usage(&self) -> Usage {
@@ -66,10 +91,14 @@ impl Scenario {
                 completion_tokens: *completion_tokens,
                 total_tokens: *prompt_tokens + *completion_tokens,
             },
-            Self::Err(_) => Usage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0,
+            Self::Err {
+                prompt_tokens,
+                completion_tokens,
+                ..
+            } => Usage {
+                prompt_tokens: *prompt_tokens,
+                completion_tokens: *completion_tokens,
+                total_tokens: *prompt_tokens + *completion_tokens,
             },
             Self::Delay { inner, .. } => inner.usage(),
         }
@@ -78,7 +107,7 @@ impl Scenario {
     fn content(&self) -> String {
         match self {
             Self::Ok { content, .. } => content.clone(),
-            Self::Err(_) => String::new(),
+            Self::Err { .. } => String::new(),
             Self::Delay { inner, .. } => inner.content(),
         }
     }
@@ -86,7 +115,7 @@ impl Scenario {
     fn model(&self) -> String {
         match self {
             Self::Ok { model, .. } => model.clone(),
-            Self::Err(_) => String::new(),
+            Self::Err { .. } => String::new(),
             Self::Delay { inner, .. } => inner.model(),
         }
     }
@@ -110,19 +139,19 @@ impl From<ChatRequest> for CapturedRequest {
 
 /// Internal state shared across clones of FakeProvider.
 #[derive(Debug, Clone)]
-struct SharedState {
+pub struct SharedState {
     /// Queue of scenarios to consume in FIFO order.
-    scenarios: VecDeque<Scenario>,
+    pub scenarios: VecDeque<Scenario>,
     /// Captured requests for test inspection.
-    captured: Vec<CapturedRequest>,
+    pub captured: Vec<CapturedRequest>,
     /// Panic on scenario exhaustion (unless a fallback is set).
-    panic_on_exhaust: bool,
+    pub panic_on_exhaust: bool,
     /// Fallback response when scenarios are exhausted (set via `.or_else()`).
-    fallback: Option<String>,
+    pub fallback: Option<String>,
     /// Fallback model for or_else fallback.
-    fallback_model: String,
+    pub fallback_model: String,
     /// Whether is_stub returns true.
-    stub_flag: bool,
+    pub stub_flag: bool,
 }
 
 impl Default for SharedState {
@@ -156,7 +185,7 @@ impl Default for SharedState {
 /// ```
 #[derive(Debug, Clone)]
 pub struct FakeProvider {
-    inner: Arc<Mutex<SharedState>>,
+    pub inner: Arc<Mutex<SharedState>>,
 }
 
 impl FakeProvider {
@@ -213,6 +242,13 @@ impl Default for FakeProvider {
     }
 }
 
+// Tests live in fake_tests.rs but are compiled as part of this module.
+// This keeps fake.rs under the 500-line pre-commit limit while preserving
+// the original `use super::*` import semantics for the tests.
+#[cfg(all(test, feature = "fake-llm"))]
+#[path = "fake_tests.rs"]
+mod tests;
+
 /// Builder for `FakeProvider`.
 #[derive(Debug, Clone, Default)]
 pub struct Builder {
@@ -249,9 +285,24 @@ impl Builder {
         self
     }
 
-    /// Add an error scenario with a custom message — consumes the next call.
-    pub fn then_err_with(mut self, error: LLMError) -> Self {
-        self.state.scenarios.push_back(Scenario::err(error));
+    /// Add an error scenario with custom usage metrics — consumes the next call.
+    pub fn then_err_with(
+        mut self,
+        error: LLMError,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+    ) -> Self {
+        self.state
+            .scenarios
+            .push_back(Scenario::err_with(error, prompt_tokens, completion_tokens));
+        self
+    }
+
+    /// Add a delay scenario — sleeps for `duration` then resolves as `inner`.
+    pub fn then_delay(mut self, duration: std::time::Duration, inner: Scenario) -> Self {
+        self.state
+            .scenarios
+            .push_back(Scenario::delay(duration, inner));
         self
     }
 
@@ -321,7 +372,7 @@ impl LLMProvider for FakeProvider {
                         usage,
                     });
                 }
-                Scenario::Err(err) => return Err(err),
+                Scenario::Err { error, .. } => return Err(error),
             }
         }
     }

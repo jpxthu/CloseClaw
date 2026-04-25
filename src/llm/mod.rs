@@ -9,6 +9,8 @@ pub mod stub;
 
 #[cfg(feature = "fake-llm")]
 pub mod fake;
+#[cfg(feature = "fake-llm")]
+pub use fake::FakeProvider;
 
 pub use anthropic::AnthropicProvider;
 pub use minimax::MiniMaxProvider;
