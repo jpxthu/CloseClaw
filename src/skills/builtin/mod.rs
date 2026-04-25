@@ -2,6 +2,7 @@
 
 pub mod discovery;
 pub mod file_ops;
+mod file_ops_tests;
 pub mod git_ops;
 pub mod permission;
 pub mod search;
