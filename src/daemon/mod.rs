@@ -9,11 +9,17 @@ use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
 use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::providers::ConfigProvider;
+use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig};
 use crate::im::feishu::FeishuAdapter;
 use crate::llm::{AnthropicProvider, LLMRegistry, MiniMaxProvider, OpenAIProvider};
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
+use crate::session::persistence::PersistenceService;
+use crate::session::storage::SqliteStorage;
+use crate::session::sweeper::ArchiveSweeper;
+use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::watch;
 use tokio::sync::RwLock;
 use tracing::info;
 
@@ -47,6 +53,10 @@ pub struct Daemon {
     pub chat_server: Arc<ChatServer>,
     /// Audit logger for structured audit logging
     pub audit_logger: Arc<AuditLogger>,
+    /// SQLite storage for session persistence
+    pub storage: Arc<SqliteStorage>,
+    /// Shutdown sender for ArchiveSweeper
+    pub sweeper_shutdown_tx: watch::Sender<()>,
 }
 
 // --- Lifecycle: start, run ---
@@ -57,6 +67,53 @@ impl Daemon {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
 
         Self::load_env(config_dir);
+
+        // Initialize SQLite storage — fail hard if this fails (no MemoryStorage fallback)
+        let data_dir = Path::new(config_dir);
+        let storage = Arc::new(
+            SqliteStorage::new(data_dir)
+                .map_err(|e| anyhow::anyhow!("failed to initialize SqliteStorage: {}", e))?,
+        );
+        info!("SqliteStorage initialized at {}", data_dir.display());
+
+        // Initialize session config provider — warn and use defaults if file is missing
+        let session_config_path = data_dir.join("session_config.json");
+        let config_provider: Arc<dyn SessionConfigProvider> =
+            match JsonSessionConfigProvider::new(&session_config_path) {
+                Ok(provider) => {
+                    info!(
+                        "Session config loaded from {}",
+                        session_config_path.display()
+                    );
+                    Arc::new(provider)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        path = %session_config_path.display(),
+                        "failed to load session config, using hardcoded defaults"
+                    );
+                    // Use a non-existent path so new() returns Ok with config=None (hardcoded defaults)
+                    Arc::new(
+                        JsonSessionConfigProvider::new(
+                            "/dev/null/closeclaw_session_config_nonexistent",
+                        )
+                        .unwrap(),
+                    )
+                }
+            };
+
+        // Create ArchiveSweeper shutdown channel and spawn sweeper
+        let (sweeper_tx, sweeper_rx) = watch::channel(());
+        let sweeper = Arc::new(ArchiveSweeper::new(
+            Arc::clone(&storage) as Arc<dyn PersistenceService>,
+            Arc::clone(&config_provider),
+        ));
+        let sweeper_for_task = Arc::clone(&sweeper);
+        tokio::spawn(async move {
+            sweeper_for_task.run(sweeper_rx).await;
+        });
+        info!("ArchiveSweeper spawned");
 
         let agents_config = Self::load_agents_config(config_dir)?;
         let permission_engine = Self::build_permission_engine(config_dir);
@@ -95,6 +152,8 @@ impl Daemon {
             shutdown,
             chat_server,
             audit_logger,
+            storage,
+            sweeper_shutdown_tx: sweeper_tx,
         })
     }
 
@@ -116,6 +175,7 @@ impl Daemon {
         }
 
         self.shutdown.initiate_shutdown().await;
+        let _ = self.sweeper_shutdown_tx.send(());
         self.shutdown_audit().await;
         Ok(())
     }
@@ -126,6 +186,7 @@ impl Daemon {
         tokio::signal::ctrl_c().await?;
         info!("Received Ctrl+C, initiating shutdown...");
         self.shutdown.initiate_shutdown().await;
+        let _ = self.sweeper_shutdown_tx.send(());
         self.shutdown_audit().await;
         Ok(())
     }
