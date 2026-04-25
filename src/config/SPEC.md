@@ -178,6 +178,34 @@ pub enum ConfigError {
 - `DEFAULT_MAX_MESSAGE_SIZE`（16384）
 - `DEFAULT_DM_SCOPE`（"per-channel-peer"）
 
+**`SystemConfigData`** — 从 `openclaw.json` 的 system 区段加载系统配置，实现 `ConfigProvider` trait。涵盖：wizard、update、meta、messages、commands、session、cron、hooks、browser、auth（仅 profiles，不含 apiKey）。
+
+**数据结构**：
+- `WizardConfig` — wizard 上一次运行状态（lastRunAt / lastRunVersion / lastRunCommand / lastRunMode），均为 `Option`
+- `UpdateConfig` — checkOnStart（默认 true）
+- `MetaConfig` — 上次 touch 版本和时间（lastTouchedVersion / lastTouchedAt），均为 `Option`
+- `MessagesConfig` — ackReactionScope（`Option`）
+- `CommandsConfig` — native / nativeSkills / restart（均默认 true）、ownerDisplay（`Option`）
+- `SessionConfig` — dmScope（默认 "per-account-channel-peer"）+ maintenance 子配置
+  - `SessionMaintenanceConfig` — mode（默认 "enforce"）、pruneAfter（默认 "7d"）、maxEntries（默认 500）
+- `CronConfig` — enabled（默认 true）
+- `HooksConfig` — internal 子配置（enabled + entries map）
+  - `HooksInternalConfig` — enabled（默认 true）、entries（`BTreeMap<String, HookEntryConfig>`）
+  - `HookEntryConfig` — enabled（默认 true）
+- `BrowserConfig` — executablePath（`Option`）、headless（默认 true）、defaultProfile（`Option`）
+- `AuthProfilesConfig` — profiles（`BTreeMap<String, AuthProfileEntryConfig>`）
+  - `AuthProfileEntryConfig` — provider（非空字符串）、mode（默认空字符串）
+
+**验证规则**：
+- `session.maintenance.mode` ∈ {enforce, warn, off}
+- `session.dmScope` ∈ {per-account-channel-peer, per-channel-peer, per-peer, main}
+
+**构造方法**：
+- `from_file(path)` — 从文件路径加载
+- `from_json_str(content)` — 从 JSON 字符串加载
+
+**`is_default` 判断**：所有子结构均为默认值时返回 true（与 JSON 中字段缺失/存在无关）。
+
 ---
 
 ### reload：热重载
