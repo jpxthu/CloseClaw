@@ -1,9 +1,11 @@
 //! Tests for built-in skills
+use crate::permission::{Action, Effect, MatchType, Rule, Subject};
 use crate::skills::builtin::{
     builtin_skills, BuiltinSkills, FileOpsSkill, GitOpsSkill, SearchSkill,
 };
 use crate::skills::Skill;
 use std::sync::Arc;
+use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_file_ops_read_requires_agent_id_when_engine_set() {
@@ -32,7 +34,6 @@ async fn test_file_ops_read_requires_agent_id_when_engine_set() {
 
 #[tokio::test]
 async fn test_file_ops_read_with_permission() {
-    use crate::permission::{Action, Effect, MatchType, Rule, Subject};
     let rule = Rule {
         name: "allow-read".to_string(),
         subject: Subject::AgentOnly {
@@ -73,7 +74,6 @@ async fn test_file_ops_read_with_permission() {
 
 #[tokio::test]
 async fn test_file_ops_read_denied_without_permission() {
-    use crate::permission::{Action, Effect, MatchType, Rule, Subject};
     let rule = Rule {
         name: "deny-all".to_string(),
         subject: Subject::AgentOnly {
@@ -132,7 +132,6 @@ async fn test_file_ops_exists_requires_agent_id_when_engine_set() {
 
 #[tokio::test]
 async fn test_file_ops_exists_with_permission() {
-    use crate::permission::{Action, Effect, MatchType, Rule, Subject};
     let rule = Rule {
         name: "allow-exists".to_string(),
         subject: Subject::AgentOnly {
