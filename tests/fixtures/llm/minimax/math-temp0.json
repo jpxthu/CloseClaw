@@ -1,0 +1,46 @@
+{
+  "id": "063c0598eaa70723cae2ea08073bec6d",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user asks \"What is 2+2?\" It's a simple arithmetic. The answer",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user asks \"What is 2+2?\" It's a simple arithmetic. The answer"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128088,
+  "model": "MiniMax-M2.5",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 68,
+    "total_characters": 0,
+    "prompt_tokens": 48,
+    "completion_tokens": 20,
+    "completion_tokens_details": {
+      "reasoning_tokens": 20
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

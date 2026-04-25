@@ -1,0 +1,8 @@
+{
+  "choices": null,
+  "usage": null,
+  "base_resp": {
+    "status_code": 2013,
+    "status_msg": "invalid params, code: 2013, msg: invalid params, unknown model 'invalid-model-xyz'"
+  }
+}

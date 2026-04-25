@@ -1,0 +1,28 @@
+{
+  "id": "063c05d6e1da00c4f39e1952aa595521",
+  "type": "message",
+  "role": "assistant",
+  "model": "MiniMax-M2.7",
+  "content": [
+    {
+      "thinking": "17 * 23 = 391",
+      "signature": "6fb167334d5eea91f72ea216ca2663bf3400ff35b8160c8b49aa62dc7c04452e",
+      "type": "thinking"
+    },
+    {
+      "text": "The answer is **391**.",
+      "type": "text"
+    }
+  ],
+  "usage": {
+    "input_tokens": 29,
+    "output_tokens": 17,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  },
+  "stop_reason": "end_turn",
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": "success"
+  }
+}

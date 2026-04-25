@@ -1,0 +1,46 @@
+{
+  "id": "063c05a00e953bf8a8716e9ff95d1e32",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user wants me to say hi. I should respond in emojis as instructed in my system",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user wants me to say hi. I should respond in emojis as instructed in my system"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128096,
+  "model": "MiniMax-M2.5",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 46,
+    "total_characters": 0,
+    "prompt_tokens": 26,
+    "completion_tokens": 20,
+    "completion_tokens_details": {
+      "reasoning_tokens": 20
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

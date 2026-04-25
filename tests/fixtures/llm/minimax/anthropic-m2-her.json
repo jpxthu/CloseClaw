@@ -1,0 +1,21 @@
+{
+  "id": "063c05e38db668376c986113fd8193ec",
+  "type": "message",
+  "role": "assistant",
+  "model": "M2-her",
+  "content": [
+    {
+      "text": "（Hesitates briefly, hands trembling slightly as they clutch the worn wooden wand） I-I’ve only just started training... you want me to cast a real spell? *swallows hard* What if I turn you into a frog instead?",
+      "type": "text"
+    }
+  ],
+  "usage": {
+    "input_tokens": 159,
+    "output_tokens": 48
+  },
+  "stop_reason": "end_turn",
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

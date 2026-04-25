@@ -1,0 +1,33 @@
+{
+  "id": "063c05b41de3f13d917d903224bc42a6",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "*point to a distant land with a sly grin, eyes gleaming with anticipation* To new lands and untold riches, my matey! *crack knuckles and grip the wheel tighter* The ocean’s got secrets today!",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": ""
+      }
+    }
+  ],
+  "created": 1777128116,
+  "model": "M2-her",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 207,
+    "total_characters": 0,
+    "prompt_tokens": 163,
+    "completion_tokens": 44
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

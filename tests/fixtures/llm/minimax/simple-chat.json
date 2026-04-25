@@ -1,0 +1,46 @@
+{
+  "id": "063c05954ec3a357f3a03e557a9251d9",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user asks: \"Say hello in exactly 3 words\". The user wants a greeting in exactly 3 words. So answer can be \"Hello, there, friend!\" which is three words? Let's count: \"Hello,\" is one",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user asks: \"Say hello in exactly 3 words\". The user wants a greeting in exactly 3 words. So answer can be \"Hello, there, friend!\" which is three words? Let's count: \"Hello,\" is one"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128085,
+  "model": "MiniMax-M2.5",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 98,
+    "total_characters": 0,
+    "prompt_tokens": 48,
+    "completion_tokens": 50,
+    "completion_tokens_details": {
+      "reasoning_tokens": 50
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

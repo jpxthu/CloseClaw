@@ -1,0 +1,46 @@
+{
+  "id": "063c05c7ea28354ff36fae7dc66c065a",
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "audio_content": "",
+        "reasoning_content": "The user asked me what they said they like. Looking at the conversation, the user said \"I like apples\" at the beginning. So",
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "id": "reasoning-text-1",
+            "format": "MiniMax-response-v1",
+            "index": 0,
+            "text": "The user asked me what they said they like. Looking at the conversation, the user said \"I like apples\" at the beginning. So"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1777128135,
+  "model": "MiniMax-M2.5",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 119,
+    "total_characters": 0,
+    "prompt_tokens": 89,
+    "completion_tokens": 30,
+    "completion_tokens_details": {
+      "reasoning_tokens": 30
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}
