@@ -17,6 +17,7 @@ pub mod persistence;
 pub mod persistence_tests;
 pub mod recovery;
 pub mod storage;
+pub mod sweeper;
 
 // Re-export commonly used types
 pub use bootstrap::{BootstrapContext, BootstrapProtection, BootstrapRegion};

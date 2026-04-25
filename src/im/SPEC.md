@@ -59,6 +59,7 @@ FeishuEvent.header.event_type
 FeishuEvent.event.sender.sender_id.open_id  → Message.from
 FeishuEvent.event.content (JSON string) → parse → .text → Message.content
 FeishuEvent.event.message_type
+FeishuEvent.header.app_id         → Message.metadata["account_id"]
 ```
 
 `Message.to` 留空，由 gateway 根据 session context 填充。
