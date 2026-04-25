@@ -325,6 +325,28 @@ pub trait PersistenceService: Send + Sync {
     async fn invalidate_session(&self, _session_id: &str) -> Result<(), PersistenceError> {
         Ok(())
     }
+
+    /// List IDs of active sessions for a specific agent/role idle for at least
+    /// `idle_minutes`.
+    async fn list_idle_sessions_for_agent(
+        &self,
+        _agent_id: &str,
+        _role: AgentRole,
+        _idle_minutes: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    /// List IDs of archived sessions for a specific agent/role past their purge
+    /// window.
+    async fn list_expired_archived_sessions_for_agent(
+        &self,
+        _agent_id: &str,
+        _role: AgentRole,
+        _purge_after_minutes: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Checkpoint 管理器 — 负责保存和恢复 Session 状态
