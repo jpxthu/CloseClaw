@@ -272,3 +272,4 @@ impl From<super::im::AdapterError> for GatewayError {
 
 #[cfg(test)]
 mod tests;
+mod tests_archive;

@@ -436,3 +436,6 @@ impl Daemon {
         self.audit_logger.shutdown().await;
     }
 }
+
+#[cfg(test)]
+mod tests;
