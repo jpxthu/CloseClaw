@@ -8,11 +8,12 @@
 
 配置热加载系统，管理 JSON 配置文件的读取、验证、持久化和热重载。
 
-包含五个子模块：
+包含六个子模块：
 - **agents**：agents.json 和 per-agent 配置目录的 ConfigProvider 实现
 - **backup**：写前备份 + 滚动清理
-- **reload**：基于 notify 的文件监控 + 自动重载
+- **manager**：ConfigManager 统一配置管理入口，提供原子写入、备份集成和配置访问
 - **providers**：ConfigProvider trait 和 ConfigError
+- **reload**：基于 notify 的文件监控 + 自动重载
 - **session**：per-agent per-role session 配置（idle/purge），供 ArchiveSweeper 和 Daemon 使用
 
 ---
@@ -23,6 +24,13 @@
 |------|------|
 | `ConfigProvider` | Trait，所有配置提供者的接口 |
 | `ConfigError` | 错误枚举（SchemaError / ValueError / IoError / JsonError） |
+| `ConfigManager` | 统一配置管理入口，提供原子写入、备份集成和配置访问 |
+| `ConfigSection` | 配置节枚举（Models / Channels / Gateway / Plugins / System / Credentials） |
+| `ConfigInfo` | 配置文件元数据（path / version / last_modified） |
+| `ConfigLoadError` | 配置加载错误（ConfigDirNotFound / ConfigFileNotFound / ParseError / ValidationError / BackupNotFound / IoError） |
+| `ConfigWriteError` | 配置写入错误（ValidationFailed / BackupFailed / WriteFailed / FileNotFound） |
+| `ConfigValidationError` | 配置验证错误（path + message） |
+| `write_atomically` | 原子写入函数（写临时文件 + fsync + rename） |
 | `PerAgentSessionConfig` | 单个 agent-role 的 session 配置（idle_minutes / purge_after_minutes） |
 | `SessionConfig` | 完整 session 配置容器（defaults / agents / sweeper_interval_secs） |
 | `SessionConfigProvider` | Trait，获取 per-agent session 配置和 sweeper 间隔 |
@@ -40,7 +48,7 @@
 | `ReloadResult` | 重载操作结果（Success/ValidationFailed/RolledBack） |
 | `WatcherHandle` | 文件监控句柄，drop 时停止监控 |
 
-> 注：以下完整实现存在但 mod.rs 未导出——如需通过 crate 外部访问，需在 mod.rs 中补充 re-export：BackupManager、SafeBackupManager、ConfigReloadManager<P>、ConfigReloadEvent、ReloadResult、WatcherHandle
+> 注：BackupManager、ConfigReloadManager<P>、ConfigReloadEvent、ReloadResult、WatcherHandle 存在但 mod.rs 未导出。SafeBackupManager 已 re-exported。
 
 ---
 
