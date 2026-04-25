@@ -1,8 +1,10 @@
 //! ConfigProvider implementations
 
 pub mod gateway;
+pub mod plugins;
 pub mod system;
 pub use gateway::GatewayConfigData;
+pub use plugins::PluginsConfigData;
 pub use system::SystemConfigData;
 
 /// Configuration provider trait for extensible config management
