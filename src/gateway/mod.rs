@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::session::persistence::{PersistenceService, SessionStatus};
+
 /// DM session scope - controls how session keys are partitioned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -80,6 +82,7 @@ pub struct Gateway {
     config: GatewayConfig,
     adapters: RwLock<HashMap<String, Arc<dyn super::im::IMAdapter>>>,
     sessions: RwLock<HashMap<String, Session>>,
+    storage: Option<Arc<dyn PersistenceService>>,
 }
 
 /// Session - represents an active conversation
@@ -98,7 +101,63 @@ impl Gateway {
             config,
             adapters: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
+            storage: None,
         }
+    }
+
+    /// Configure the persistence storage backend.
+    pub fn set_storage(&mut self, storage: Arc<dyn PersistenceService>) {
+        self.storage = Some(storage);
+    }
+
+    /// Attempt to restore an archived session.
+    ///
+    /// Checks whether `session_id` has an archived checkpoint in storage; if so,
+    /// sends a "正在恢复会话..." notification to the user and calls
+    /// `storage.restore_checkpoint`. Returns `true` iff restoration was attempted
+    /// and succeeded.
+    async fn try_restore_archived_session(&self, session_id: &str, channel: &str) -> bool {
+        let Some(storage) = &self.storage else {
+            return false;
+        };
+
+        let checkpoint = match storage.load_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp,
+            Ok(None) | Err(_) => return false,
+        };
+
+        if checkpoint.status != SessionStatus::Archived {
+            return false;
+        }
+
+        // Send restoration notification to user
+        let adapters = self.adapters.read().await;
+        if let Some(adapter) = adapters.get(channel) {
+            let notification = Message {
+                id: format!("restore-{}", session_id),
+                from: "system".to_string(),
+                to: checkpoint
+                    .chat_id
+                    .as_deref()
+                    .unwrap_or(session_id)
+                    .to_string(),
+                content: "正在恢复会话...".to_string(),
+                channel: channel.to_string(),
+                timestamp: chrono::Utc::now().timestamp(),
+                metadata: HashMap::new(),
+            };
+            if let Err(e) = adapter.send_message(&notification).await {
+                tracing::warn!(session_id = %session_id, error = %e, "failed to send restore notification");
+            }
+        }
+
+        // Restore the archived session
+        if let Err(e) = storage.restore_checkpoint(session_id).await {
+            tracing::warn!(session_id = %session_id, error = %e, "failed to restore archived session");
+            return false;
+        }
+
+        true
     }
 
     /// Register an IM adapter
@@ -140,15 +199,37 @@ impl Gateway {
                 .compute_session_key(channel, &message, resolved_account_id);
         let mut sessions = self.sessions.write().await;
         if !sessions.contains_key(&session_id) {
-            sessions.insert(
-                session_id.clone(),
-                Session {
-                    id: session_id.clone(),
-                    agent_id: message.to.clone(),
-                    channel: channel.to_string(),
-                    created_at: chrono::Utc::now().timestamp(),
-                },
-            );
+            // Attempt to restore an archived session before creating a new one
+            let restored = self
+                .try_restore_archived_session(&session_id, channel)
+                .await;
+            if restored {
+                // Reload checkpoint to obtain chat_id / agent_id for the new Session
+                if let Some(storage) = &self.storage {
+                    if let Ok(Some(cp)) = storage.load_checkpoint(&session_id).await {
+                        sessions.insert(
+                            session_id.clone(),
+                            Session {
+                                id: session_id.clone(),
+                                agent_id: cp.chat_id.unwrap_or_else(|| message.to.clone()),
+                                channel: channel.to_string(),
+                                created_at: chrono::Utc::now().timestamp(),
+                            },
+                        );
+                    }
+                }
+            } else {
+                // No archived session — create a brand-new Session
+                sessions.insert(
+                    session_id.clone(),
+                    Session {
+                        id: session_id.clone(),
+                        agent_id: message.to.clone(),
+                        channel: channel.to_string(),
+                        created_at: chrono::Utc::now().timestamp(),
+                    },
+                );
+            }
         }
 
         // Send to adapter for delivery to agent
@@ -191,3 +272,4 @@ impl From<super::im::AdapterError> for GatewayError {
 
 #[cfg(test)]
 mod tests;
+mod tests_archive;
