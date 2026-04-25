@@ -157,6 +157,29 @@ pub enum ConfigError {
 
 ---
 
+### providers：配置源实现
+
+**用途**：提供各种配置文件的 ConfigProvider 实现，将配置数据与验证逻辑封装为统一 trait 接口。
+
+**`GatewayConfigData`** — 从 `gateway.json` 加载网关配置，实现 `ConfigProvider` trait。
+
+**数据结构**：version、name、port、timeout、rate_limit_per_minute、max_message_size、dm_scope。
+
+**验证规则**：port > 0（port 为 u16，上限 65535 由类型系统天然保证）。
+
+**构造方法**：
+- `from_file(path)` — 从文件路径加载
+- `from_json_str(content)` — 从 JSON 字符串加载（测试用）
+
+**常量**：
+- `DEFAULT_PORT`（3000）
+- `DEFAULT_TIMEOUT`（30000）
+- `DEFAULT_RATE_LIMIT_PER_MINUTE`（60）
+- `DEFAULT_MAX_MESSAGE_SIZE`（16384）
+- `DEFAULT_DM_SCOPE`（"per-channel-peer"）
+
+---
+
 ### reload：热重载
 
 **`ConfigReloadManager<P>`** — 监控配置文件变更，验证通过后自动重载。
