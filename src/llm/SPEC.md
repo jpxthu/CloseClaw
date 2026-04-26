@@ -34,6 +34,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 
 - **`LLMRegistry::new`** — 创建空注册中心
 - **`LLMProvider::new`** — 构造 Provider 实例（MimMax、OpenAI、Anthropic、Stub 各有）
+- **`OpenAIProvider::new_with_base_url`** — 以自定义 base URL 构造 OpenAI Provider 实例（用于测试环境注入 mock server）
 - **`FakeProvider::new`** — 构造无场景的 `FakeProvider`（首次调用必然 panic，用于严格测试）
 - **`FakeProvider::builder`** — 构造 `Builder`，开始编排 `FakeProvider` 场景
 - **`FallbackClient::new`** — 同步构造（加载持久化 cooldown）
