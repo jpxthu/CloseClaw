@@ -51,7 +51,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 ### 主操作
 
 - **`LLMProvider::chat** — 发起一次聊天补全请求（各 Provider 实现）
-- **`LLMProvider::chat_streaming** — 发起流式聊天补全请求，返回 `StreamingResponse`，调用方逐块消费 `ChatStreamChunk`；默认实现将 `chat()` 结果包装为单块流
+- **`LLMProvider::chat_streaming`** — 发起流式聊天补全请求，返回 `StreamingResponse`，调用方逐块消费 `ChatStreamChunk`；默认实现将 `chat()` 结果包装为单块流。MiniMax 和 GLM Provider override 此方法，使用独立 SSE 流式实现
 - **`FallbackClient::chat** — 带重试 + fallback 的聊天请求，自动处理冷却和模型切换
 
 ### 查询
@@ -95,6 +95,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `minimax.rs` | MiniMax Chat Completions API adapter。推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 在内部解析（unit test 覆盖），暂未通过 `Usage` 暴露给调用方。 |
 | `glm.rs` | 智谱 GLM 系列模型（glm-5.1、glm-4.7、glm-4.5-air 等）adapter。错误格式为 top-level `error`（code 为字符串），code "1211" → ModelNotFound、"1214" → InvalidRequest；推理模型 `content` 为空时提取 `reasoning_content`；`usage` 中含 `prompt_tokens_details.cached_tokens` 和 `completion_tokens_details.reasoning_tokens`。 |
 | `minimax_stream.rs` | MiniMax 流式接口：SSE 解析、delta 提取、流式错误处理 |
+| `glm_stream.rs` | GLM 流式接口：SSE 解析、delta 提取（`reasoning_content` 优先、`content` 兜底）、流式错误处理；`GlmProvider::chat_streaming()` override 实现 |
 | `openai.rs` | OpenAI Chat Completions API adapter |
 | `anthropic.rs` | Anthropic API adapter（当前为 stub） |
 | `stub.rs` | 测试用固定响应 Provider |

@@ -3,6 +3,7 @@
 pub mod anthropic;
 pub mod fallback;
 pub mod glm;
+pub mod glm_stream;
 pub mod minimax;
 pub mod openai;
 pub mod retry;
