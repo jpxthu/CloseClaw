@@ -293,6 +293,44 @@ pub enum ConfigError {
 
 **`is_default` 判断**：channels 和 bindings 均为空时返回 true。
 
+**`CredentialsProvider`** — 从 `config/credentials/` 目录加载各 provider 的 JSON 凭据文件，实现 `ConfigProvider` trait。目录不存在时返回空 provider。
+
+**子结构**：`ApiKeyCredentials` / `FeishuCredentials` / `AnyProviderCredentials` / `CredentialsProvider`
+
+`ApiKeyCredentials` 字段：
+- `provider`（String）— provider 名称
+- `apiKey`（String）— API 密钥
+
+`FeishuCredentials` 字段：
+- `provider`（String）— provider 名称
+- `appId`（String）— 飞书应用 app_id
+- `appSecret`（String）— 飞书应用 app_secret
+- `botName`（`Option<String>`，默认 `None`）— 机器人名称
+
+`AnyProviderCredentials` — `ApiKey` 和 `Feishu` 两个变体的无标签枚举（`#[serde(untagged)]`），支持不同 provider 的凭据格式混存。
+
+`CredentialsProvider` 字段：
+- `providers`（`HashMap<String, AnyProviderCredentials>`）— 按 provider 名称索引的凭据集合
+
+**加载行为**：
+- `load_from_dir(dir)` — 扫描 `dir/*.json`，按文件名（不含扩展名）作为 provider key 存入 HashMap；目录不存在返回 `Err(ConfigError::IoError)`；JSON 反序列化失败的文件跳过（silently continue）
+- `from_json_str(content)` — 从 JSON 字符串解析（测试用）
+
+**验证规则**：
+- `ApiKey` 变体：`apiKey` 不能为空字符串
+- `Feishu` 变体：`appId` 和 `appSecret` 均不能为空字符串
+
+**查询接口**：
+- `get(provider)` — 按名称查找对应凭据变体
+- `get_api_key(provider)` — 返回 `ApiKey` 变体的 apiKey，`Feishu` 变体返回 `None`
+- `feishu_creds()` — 返回第一个 `Feishu` 变体的引用（若存在）
+
+**构造方法**：
+- `load_from_dir(path)` — 从目录加载所有 JSON 文件
+- `from_json_str(content)` — 从 JSON 字符串构造（测试用）
+
+**`is_default` 判断**：providers 为空时返回 true。
+
 ---
 
 ### reload：热重载
