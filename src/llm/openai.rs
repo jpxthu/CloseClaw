@@ -57,6 +57,13 @@ impl OpenAIProvider {
         }
     }
 
+    pub fn new_with_base_url(api_key: String, base_url: &str) -> Self {
+        Self {
+            api_key,
+            base_url: base_url.to_string(),
+        }
+    }
+
     fn chat_url(&self) -> String {
         format!("{}/chat/completions", self.base_url)
     }
@@ -136,6 +143,33 @@ impl LLMProvider for OpenAIProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mockito::Server;
+
+    #[tokio::test]
+    async fn test_chat_network_error() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/chat/completions")
+            .with_status(401)
+            .with_body(r#"{"error": {"message": "bad API key"}}"#)
+            .create_async()
+            .await;
+
+        let provider = OpenAIProvider::new_with_base_url("bad-key".to_string(), &server.url());
+        let request = ChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![],
+            temperature: 0.0,
+            max_tokens: None,
+        };
+        let result = provider.chat(request).await;
+        mock.assert_async().await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LLMError::AuthFailed(_) => {}
+            _ => panic!("Expected AuthFailed"),
+        }
+    }
 
     #[test]
     fn test_openai_provider_new() {
@@ -240,19 +274,5 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("max_tokens"));
-    }
-
-    #[tokio::test]
-    async fn test_chat_network_error() {
-        let provider = OpenAIProvider::new("bad-key".to_string());
-        let request = ChatRequest {
-            model: "gpt-4".to_string(),
-            messages: vec![],
-            temperature: 0.0,
-            max_tokens: None,
-        };
-        let result = provider.chat(request).await;
-        // Will fail with auth error from OpenAI (or network error in sandbox)
-        assert!(result.is_err());
     }
 }

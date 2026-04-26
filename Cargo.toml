@@ -79,6 +79,7 @@ dirs = "5"
 proptest = "=1.4"
 tempfile = "3.10"
 serial_test = "3.4"
+mockito = "1.2"
 # Coverage reporting
 cargo-llvm-cov = "0.6"
 
