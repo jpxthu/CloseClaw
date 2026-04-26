@@ -2,6 +2,7 @@
 
 pub mod anthropic;
 pub mod fallback;
+pub mod glm;
 pub mod minimax;
 pub mod openai;
 pub mod retry;
@@ -13,6 +14,7 @@ pub mod fake;
 pub use fake::FakeProvider;
 
 pub use anthropic::AnthropicProvider;
+pub use glm::GlmProvider;
 pub use minimax::MiniMaxProvider;
 pub use openai::OpenAIProvider;
 pub use stub::StubProvider;
