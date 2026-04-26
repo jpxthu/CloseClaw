@@ -7,6 +7,9 @@ use std::time::Duration;
 
 use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
 
+#[path = "minimax_stream.rs"]
+pub(crate) mod minimax_stream;
+
 /// MiniMax API endpoint
 const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/chat/completions";
 
@@ -75,9 +78,9 @@ struct MiniMaxBaseResp {
 }
 
 pub struct MiniMaxProvider {
-    api_key: String,
-    base_url: String,
-    http_client: Client,
+    pub(crate) api_key: String,
+    pub(crate) base_url: String,
+    pub(crate) http_client: Client,
 }
 
 impl MiniMaxProvider {
@@ -101,7 +104,7 @@ impl MiniMaxProvider {
         }
     }
 
-    fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
+    pub(crate) fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
         match status.as_u16() {
             401 | 403 => LLMError::AuthFailed(body),
             404 => LLMError::ModelNotFound(body),
@@ -112,7 +115,7 @@ impl MiniMaxProvider {
     }
 
     /// Map MiniMax internal status_code to LLMError
-    fn map_base_resp_error(status_code: i32, status_msg: &str) -> LLMError {
+    pub(crate) fn map_base_resp_error(status_code: i32, status_msg: &str) -> LLMError {
         match status_code {
             1004 => LLMError::AuthFailed(status_msg.to_string()),
             2013 => {
@@ -211,6 +214,13 @@ impl LLMProvider for MiniMaxProvider {
                 total_tokens: usage.map(|u| u.total_tokens).unwrap_or(0),
             },
         })
+    }
+
+    async fn chat_streaming(
+        &self,
+        request: ChatRequest,
+    ) -> Result<crate::llm::StreamingResponse, LLMError> {
+        minimax_stream::send_streaming_request(self, request).await
     }
 }
 

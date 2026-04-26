@@ -48,12 +48,28 @@ pub struct ChatResponse {
 }
 
 /// Token usage
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
 }
+
+/// A single chunk from streaming chat response.
+/// Each chunk contains a text fragment, or an error, or signals the end.
+#[derive(Debug, Clone)]
+pub enum ChatStreamChunk {
+    /// A text fragment from the stream (delta content)
+    Text(String),
+    /// The stream ended with this final response metadata
+    Done { model: String, usage: Usage },
+    /// An error occurred during streaming
+    Error(LLMError),
+}
+
+/// Streamed chat response receiver.
+/// Callers consume chunks with `receiver.recv().await` until `None`.
+pub type StreamingResponse = tokio::sync::mpsc::Receiver<ChatStreamChunk>;
 
 /// LLM provider trait - implemented by each LLM provider
 #[async_trait]
@@ -63,6 +79,20 @@ pub trait LLMProvider: Send + Sync {
 
     /// Send a chat request
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError>;
+
+    /// Send a streaming chat request. Default implementation wraps chat() as a single chunk.
+    async fn chat_streaming(&self, request: ChatRequest) -> Result<StreamingResponse, LLMError> {
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        let response = self.chat(request).await?;
+        let _ = tx.send(ChatStreamChunk::Text(response.content)).await;
+        let _ = tx
+            .send(ChatStreamChunk::Done {
+                model: response.model,
+                usage: response.usage,
+            })
+            .await;
+        Ok(rx)
+    }
 
     /// List available models
     fn models(&self) -> Vec<&str>;
