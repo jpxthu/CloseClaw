@@ -10,7 +10,10 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use thiserror::Error;
+use tracing::warn;
 use uuid::Uuid;
+
+use super::providers::{ConfigProvider, CredentialsProvider};
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -210,6 +213,8 @@ pub struct ConfigManager {
     backup_manager: SafeBackupManager,
     /// In-memory cache of all loaded config sections.
     sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
+    /// Loaded credentials provider (from config/credentials/ directory).
+    credentials_provider: RwLock<CredentialsProvider>,
 }
 
 impl ConfigManager {
@@ -224,6 +229,7 @@ impl ConfigManager {
             config_dir,
             backup_manager,
             sections: RwLock::new(HashMap::new()),
+            credentials_provider: RwLock::new(CredentialsProvider::default()),
         })
     }
 
@@ -271,13 +277,23 @@ impl ConfigManager {
             sections.insert(section, value);
         }
 
-        // Credentials is a directory; store empty object as placeholder
-        let creds_path = ConfigSection::Credentials.path(&self.config_dir);
-        if creds_path.exists() {
-            sections.insert(
-                ConfigSection::Credentials,
-                serde_json::Value::Object(Default::default()),
-            );
+        // Load credentials from config/credentials/ directory.
+        let creds_dir = self.config_dir.join(CredentialsProvider::config_path());
+        let creds_provider = match CredentialsProvider::load_from_dir(&creds_dir) {
+            Ok(cp) => cp,
+            Err(e) => {
+                warn!(
+                    "failed to load credentials from '{}': {}",
+                    creds_dir.display(),
+                    e
+                );
+                CredentialsProvider::default()
+            }
+        };
+        *self.credentials_provider.write().expect("RwLock poisoned") = creds_provider.clone();
+        // Store as JSON value in sections (may be empty/default if dir is absent)
+        if let Ok(json) = serde_json::to_value(&creds_provider) {
+            sections.insert(ConfigSection::Credentials, json);
         }
 
         Ok(())
@@ -350,6 +366,16 @@ impl ConfigManager {
             .expect("RwLock for config sections was poisoned")
             .get(&section)
             .cloned()
+    }
+
+    /// Get the loaded credentials provider.
+    ///
+    /// Returns `None` if `load()` has not been called yet.
+    pub fn credentials(&self) -> Option<CredentialsProvider> {
+        self.credentials_provider
+            .read()
+            .ok()
+            .map(|guard| guard.clone())
     }
 
     /// List metadata about all configuration files.
