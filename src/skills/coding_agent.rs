@@ -116,3 +116,199 @@ impl CodingAgentSkill {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // === Constructor tests ===
+
+    #[test]
+    fn test_new_with_model() {
+        let skill = CodingAgentSkill::new(Some("openai/gpt-4".to_string()));
+        let m = skill.manifest();
+        // model is private, verify indirectly via delegate output
+        assert_eq!(m.name, "coding_agent");
+    }
+
+    #[test]
+    fn test_new_without_model() {
+        let skill = CodingAgentSkill::new(None);
+        let m = skill.manifest();
+        assert_eq!(m.name, "coding_agent");
+    }
+
+    // === manifest tests ===
+
+    #[test]
+    fn test_manifest_fields() {
+        let skill = CodingAgentSkill::new(None);
+        let m = skill.manifest();
+        assert_eq!(m.name, "coding_agent");
+        assert_eq!(m.version, "1.0.0");
+        assert!(m.description.contains("AI coding agents"));
+        assert_eq!(m.author, Some("CloseClaw Team".to_string()));
+        assert!(m.dependencies.is_empty());
+    }
+
+    // === methods tests ===
+
+    #[test]
+    fn test_methods() {
+        let skill = CodingAgentSkill::new(None);
+        assert_eq!(
+            skill.methods(),
+            vec!["delegate", "review", "refactor", "test"]
+        );
+    }
+
+    // === delegate tests ===
+
+    #[tokio::test]
+    async fn test_delegate_success() {
+        let skill = CodingAgentSkill::new(Some("test/model".to_string()));
+        let result = skill
+            .execute(
+                "delegate",
+                serde_json::json!({"task": "write a function", "language": "python"}),
+            )
+            .await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r["status"], "delegated");
+        assert_eq!(r["task"], "write a function");
+        assert_eq!(r["language"], "python");
+        assert_eq!(r["model"], "test/model");
+    }
+
+    #[tokio::test]
+    async fn test_delegate_default_language() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill
+            .execute("delegate", serde_json::json!({"task": "fix bug"}))
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap()["language"], "rust");
+    }
+
+    #[tokio::test]
+    async fn test_delegate_missing_task() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill.execute("delegate", serde_json::json!({})).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SkillError::InvalidArgs(msg) => assert!(msg.contains("task")),
+            other => panic!("expected InvalidArgs, got {:?}", other),
+        }
+    }
+
+    // === review tests ===
+
+    #[tokio::test]
+    async fn test_review_success() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill
+            .execute("review", serde_json::json!({"code": "fn main() {}"}))
+            .await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r["status"], "review_complete");
+        assert!(r["issues"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_review_missing_code() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill.execute("review", serde_json::json!({})).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SkillError::InvalidArgs(msg) => assert!(msg.contains("code")),
+            other => panic!("expected InvalidArgs, got {:?}", other),
+        }
+    }
+
+    // === refactor tests ===
+
+    #[tokio::test]
+    async fn test_refactor_success() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill
+            .execute(
+                "refactor",
+                serde_json::json!({"code": "fn old() {}", "goal": "reduce complexity"}),
+            )
+            .await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r["status"], "refactored");
+        assert_eq!(r["goal"], "reduce complexity");
+    }
+
+    #[tokio::test]
+    async fn test_refactor_default_goal() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill
+            .execute("refactor", serde_json::json!({"code": "fn old() {}"}))
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap()["goal"], "improve readability");
+    }
+
+    #[tokio::test]
+    async fn test_refactor_missing_code() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill.execute("refactor", serde_json::json!({})).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SkillError::InvalidArgs(msg) => assert!(msg.contains("code")),
+            other => panic!("expected InvalidArgs, got {:?}", other),
+        }
+    }
+
+    // === test generation tests ===
+
+    #[tokio::test]
+    async fn test_test_success() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill
+            .execute(
+                "test",
+                serde_json::json!({"code": "fn add(a:i32,b:i32)->i32{a+b}"}),
+            )
+            .await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r["status"], "tests_generated");
+        assert_eq!(r["test_count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_test_missing_code() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill.execute("test", serde_json::json!({})).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SkillError::InvalidArgs(msg) => assert!(msg.contains("code")),
+            other => panic!("expected InvalidArgs, got {:?}", other),
+        }
+    }
+
+    // === unknown method test ===
+
+    #[tokio::test]
+    async fn test_unknown_method() {
+        let skill = CodingAgentSkill::new(None);
+        let result = skill.execute("nonexistent", serde_json::json!({})).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SkillError::MethodNotFound {
+                skill: s,
+                method: m,
+            } => {
+                assert_eq!(s, "coding_agent");
+                assert_eq!(m, "nonexistent");
+            }
+            other => panic!("expected MethodNotFound, got {:?}", other),
+        }
+    }
+}
