@@ -1,13 +1,20 @@
 //! Unit tests for the GLM provider.
 
 use super::*;
+use mockito::Server;
+
+// ---------------------------------------------------------------------------//
+// mock_integration — HTTP-level mock tests covering the full chat() pipeline  //
+// ---------------------------------------------------------------------------//
+mod mock_extra;
+mod mock_integration;
 
 // --- Fixture-based deserialization and content extraction tests ---
 
 #[test]
 fn test_glm_5_1_chat_extract_reasoning() {
     // glm-5.1-chat.json: content empty → extract reasoning_content
-    let json = include_str!("../../../tests/fixtures/llm/glm/glm-5.1-chat.json");
+    let json = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-chat.json");
     let resp: GlmResponse = serde_json::from_str(json).unwrap();
     let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
     let msg = &choice.message;
@@ -39,7 +46,7 @@ fn test_glm_5_1_chat_extract_reasoning() {
 #[test]
 fn test_glm_4_7_simple_chat_extract_reasoning() {
     // glm-4.7-simple-chat.json: content empty → extract reasoning_content
-    let json = include_str!("../../../tests/fixtures/llm/glm/glm-4.7-simple-chat.json");
+    let json = include_str!("../../../../tests/fixtures/llm/glm/glm-4.7-simple-chat.json");
     let resp: GlmResponse = serde_json::from_str(json).unwrap();
     let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
     let msg = &choice.message;
@@ -65,7 +72,7 @@ fn test_glm_4_7_simple_chat_extract_reasoning() {
 #[test]
 fn test_glm_4_5_air_chat_extract_reasoning() {
     // glm-4.5-air-chat.json: AIR model, content empty → extract reasoning_content
-    let json = include_str!("../../../tests/fixtures/llm/glm/glm-4.5-air-chat.json");
+    let json = include_str!("../../../../tests/fixtures/llm/glm/glm-4.5-air-chat.json");
     let resp: GlmResponse = serde_json::from_str(json).unwrap();
     let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
     let msg = &choice.message;
@@ -85,7 +92,7 @@ fn test_glm_4_5_air_chat_extract_reasoning() {
 #[test]
 fn test_glm_5_1_multi_turn() {
     // glm-5.1-multi-turn.json: multi-turn conversation parsing
-    let json = include_str!("../../../tests/fixtures/llm/glm/glm-5.1-multi-turn.json");
+    let json = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-multi-turn.json");
     let resp: GlmResponse = serde_json::from_str(json).unwrap();
     let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
     let msg = &choice.message;
@@ -106,7 +113,7 @@ fn test_glm_5_1_multi_turn() {
 #[test]
 fn test_glm_error_invalid_model() {
     // glm-error-invalid-model.json: code="1211" → ModelNotFound
-    let json = include_str!("../../../tests/fixtures/llm/glm/glm-error-invalid-model.json");
+    let json = include_str!("../../../../tests/fixtures/llm/glm/glm-error-invalid-model.json");
     let resp: GlmResponse = serde_json::from_str(json).unwrap();
     let err_body = resp.error.as_ref().unwrap();
     assert_eq!(err_body.code, "1211");
@@ -117,7 +124,7 @@ fn test_glm_error_invalid_model() {
 #[test]
 fn test_glm_error_empty_messages() {
     // glm-error-empty-messages.json: code="1214" → InvalidRequest
-    let json = include_str!("../../../tests/fixtures/llm/glm/glm-error-empty-messages.json");
+    let json = include_str!("../../../../tests/fixtures/llm/glm/glm-error-empty-messages.json");
     let resp: GlmResponse = serde_json::from_str(json).unwrap();
     let err_body = resp.error.as_ref().unwrap();
     assert_eq!(err_body.code, "1214");
@@ -187,7 +194,7 @@ fn test_extract_content_both_empty() {
 #[test]
 fn test_glm_5_1_reasoning_tokens_details() {
     // glm-5.1-reasoning.json: verify completion_tokens_details and prompt_tokens_details
-    let json = include_str!("../../../tests/fixtures/llm/glm/glm-5.1-reasoning.json");
+    let json = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-reasoning.json");
     let resp: GlmResponse = serde_json::from_str(json).unwrap();
     let usage = resp.usage.as_ref().unwrap();
     assert_eq!(usage.completion_tokens, 200);
