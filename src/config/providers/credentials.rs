@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn test_validate_valid_feishu() {
         let json = r#"{"providers":{
-            "feishu": {"provider":"feishu","appId":"cli_abc","appSecret":"sec_xyz","botName":"TestBot"}
+            "feishu":{"provider":"feishu","appId":"cli_abc","appSecret":"sec","botName":"Bot"}
         }}"#;
         let provider = CredentialsProvider::from_json_str(json).unwrap();
         provider
