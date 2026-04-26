@@ -362,4 +362,99 @@ mod tests {
         let usage = resp.usage.unwrap();
         assert!(usage.completion_tokens_details.is_none());
     }
+
+    // --- map_status_error: HTTP status code branches ---
+
+    #[test]
+    fn test_map_status_error_403() {
+        let err = MiniMaxProvider::map_status_error(
+            reqwest::StatusCode::FORBIDDEN,
+            "forbidden".to_string(),
+        );
+        matches!(err, LLMError::AuthFailed(msg) if msg == "forbidden");
+    }
+
+    #[test]
+    fn test_map_status_error_404() {
+        let err = MiniMaxProvider::map_status_error(
+            reqwest::StatusCode::NOT_FOUND,
+            "not found".to_string(),
+        );
+        matches!(err, LLMError::ModelNotFound(msg) if msg == "not found");
+    }
+
+    #[test]
+    fn test_map_status_error_422() {
+        let err = MiniMaxProvider::map_status_error(
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+            "validation error".to_string(),
+        );
+        matches!(err, LLMError::InvalidRequest(msg) if msg == "validation error");
+    }
+
+    #[test]
+    fn test_map_status_error_429() {
+        let err = MiniMaxProvider::map_status_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            "rate limit".to_string(),
+        );
+        matches!(err, LLMError::RateLimitExceeded);
+    }
+
+    #[test]
+    fn test_map_status_error_other() {
+        let err = MiniMaxProvider::map_status_error(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "internal error".to_string(),
+        );
+        matches!(err, LLMError::ApiError(msg) if msg.contains("500") && msg.contains("internal error"));
+    }
+
+    // --- extract_content: empty/whitespace edge cases ---
+
+    #[test]
+    fn test_extract_content_both_empty() {
+        let msg = MiniMaxMessage {
+            role: "assistant".to_string(),
+            content: "".to_string(),
+            reasoning_content: None,
+        };
+        let extracted = MiniMaxProvider::extract_content(&msg);
+        assert_eq!(extracted, "");
+    }
+
+    #[test]
+    fn test_extract_content_whitespace_only_content() {
+        let msg = MiniMaxMessage {
+            role: "assistant".to_string(),
+            content: "   \n\t  ".to_string(),
+            reasoning_content: Some("reasoning".to_string()),
+        };
+        let extracted = MiniMaxProvider::extract_content(&msg);
+        // whitespace-only content should fall back to reasoning_content
+        assert_eq!(extracted, "reasoning");
+    }
+
+    #[test]
+    fn test_extract_content_whitespace_only_reasoning_content() {
+        let msg = MiniMaxMessage {
+            role: "assistant".to_string(),
+            content: "".to_string(),
+            reasoning_content: Some("   \n\t  ".to_string()),
+        };
+        let extracted = MiniMaxProvider::extract_content(&msg);
+        // whitespace-only reasoning_content should also yield empty
+        assert_eq!(extracted, "");
+    }
+
+    #[test]
+    fn test_extract_content_whitespace_trimmed() {
+        let msg = MiniMaxMessage {
+            role: "assistant".to_string(),
+            content: "  Hello  ".to_string(),
+            reasoning_content: None,
+        };
+        let extracted = MiniMaxProvider::extract_content(&msg);
+        assert_eq!(extracted, "Hello");
+    }
 }
