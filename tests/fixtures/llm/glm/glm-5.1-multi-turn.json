@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1.  **Analyze the input:** The user is asking \"What is my name?\".\n2.  **Access context/memory:** Look back",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777220193,
+  "id": "20260427001632084ef5004d2044a5",
+  "model": "glm-5.1",
+  "object": "chat.completion",
+  "request_id": "20260427001632084ef5004d2044a5",
+  "usage": {
+    "completion_tokens": 30,
+    "completion_tokens_details": {
+      "reasoning_tokens": 30
+    },
+    "prompt_tokens": 20,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 50
+  }
+}

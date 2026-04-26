@@ -1,0 +1,26 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "\nHmm, the user asked me to say hi in just three words. That's a simple and straightforward request. They probably want a quick greeting",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219566,
+  "id": "20260427000605663029b933a24a18",
+  "model": "GLM-4.5-Air",
+  "object": "chat.completion",
+  "request_id": "20260427000605663029b933a24a18",
+  "usage": {
+    "completion_tokens": 30,
+    "prompt_tokens": 11,
+    "prompt_tokens_details": {
+      "cached_tokens": 4
+    },
+    "total_tokens": 41
+  }
+}

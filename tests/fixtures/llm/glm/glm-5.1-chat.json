@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1.  **Analyze the Request:**\n    *   Action: Say hi.\n    *   Constraint: Exactly 3 words.\n\n2.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219561,
+  "id": "20260427000555d7d6537e5cbf49e8",
+  "model": "glm-5.1",
+  "object": "chat.completion",
+  "request_id": "20260427000555d7d6537e5cbf49e8",
+  "usage": {
+    "completion_tokens": 30,
+    "completion_tokens_details": {
+      "reasoning_tokens": 30
+    },
+    "prompt_tokens": 11,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 41
+  }
+}

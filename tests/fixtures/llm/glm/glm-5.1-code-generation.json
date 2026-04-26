@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1.  **Analyze the Request:** The user is asking for a \"hello world\" program written in Python.\n2.  **Identify the Core Task:** Provide the standard Python syntax for printing \"Hello, World!\".\n3.  **Determine the Output:** The code `print(\"Hello, World!\")`.\n4.  **Format the Output:** Present the code clearly using Markdown code blocks.\n5.  **Add Context (Optional but helpful):** Briefly explain how to",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777220212,
+  "id": "202604270016475fea7a6cc4424ccf",
+  "model": "glm-5.1",
+  "object": "chat.completion",
+  "request_id": "202604270016475fea7a6cc4424ccf",
+  "usage": {
+    "completion_tokens": 100,
+    "completion_tokens_details": {
+      "reasoning_tokens": 100
+    },
+    "prompt_tokens": 11,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 111
+  }
+}

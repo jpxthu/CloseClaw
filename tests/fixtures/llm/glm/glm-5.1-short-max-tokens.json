@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1.  **An",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777220205,
+  "id": "2026042700164274246b6c0561457d",
+  "model": "glm-5.1",
+  "object": "chat.completion",
+  "request_id": "2026042700164274246b6c0561457d",
+  "usage": {
+    "completion_tokens": 5,
+    "completion_tokens_details": {
+      "reasoning_tokens": 5
+    },
+    "prompt_tokens": 9,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 14
+  }
+}

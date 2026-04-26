@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1. **分析请求：**\n    * **主题：** Spring (春天)。\n    * **限制：** 恰好三个词",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777220227,
+  "id": "20260427001704aa20c20a6a6f4ec1",
+  "model": "glm-5.1",
+  "object": "chat.completion",
+  "request_id": "20260427001704aa20c20a6a6f4ec1",
+  "usage": {
+    "completion_tokens": 30,
+    "completion_tokens_details": {
+      "reasoning_tokens": 29
+    },
+    "prompt_tokens": 10,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 40
+  }
+}
