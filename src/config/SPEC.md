@@ -268,6 +268,31 @@ pub enum ConfigError {
 
 **`is_default` 判断**：mode = `"merge"` 且 providers 为空时返回 true。
 
+**`ChannelsConfigData`** — 从 `channels.json` 加载 channels 和 bindings 配置，实现 `ConfigProvider` trait。channels 为 channel type → 配置值的映射，bindings 为路由规则列表。
+
+**数据结构**：
+- `ChannelsConfigData` — 根配置（channels + bindings）
+- `BindingEntry` — 单条路由规则（agent_id + match）
+- `BindingMatch` — 匹配条件（channel + account_id）
+
+**常量**：`ALLOWED_CHANNEL_TYPES` 列出所有支持的 channel type（feishu / discord / telegram / slack / whatsapp / signal / matrix / msteams / mattermost / nostr / nextcloud-talk / synology-chat / line / googlechat / bluebubbles / imessage / irc / qqbot / twitch / openclaw）。
+
+**验证规则**：
+- 所有 channel type key 必须在允许列表中
+- 每个 binding 的 agent_id / match.channel / match.account_id 均不能为空
+
+**查询接口**：
+- `enabled_channels()` — 返回 `enabled = true` 的 channel key 列表
+- `get_channel(channel_type)` — 按 channel type 查找对应配置值
+- `get_bindings_by_channel(channel_type)` — 返回 match.channel 等于给定值的 binding 列表
+- `get_bindings_by_account(account_id)` — 返回 match.account_id 等于给定值的 binding 列表
+
+**构造方法**：
+- `from_file(path)` — 从文件路径加载
+- `from_json_str(content)` — 从 JSON 字符串加载（测试用）
+
+**`is_default` 判断**：channels 和 bindings 均为空时返回 true。
+
 ---
 
 ### reload：热重载
