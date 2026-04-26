@@ -1,11 +1,13 @@
 //! ConfigProvider implementations
 
 pub mod channels;
+pub mod credentials;
 pub mod gateway;
 pub mod models;
 pub mod plugins;
 pub mod system;
 pub use channels::ChannelsConfigData;
+pub use credentials::CredentialsProvider;
 pub use gateway::GatewayConfigData;
 pub use models::ModelsConfigData;
 pub use plugins::PluginsConfigData;
