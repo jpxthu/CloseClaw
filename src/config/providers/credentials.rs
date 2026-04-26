@@ -44,19 +44,11 @@ pub enum AnyProviderCredentials {
 }
 
 /// Root credentials provider — holds all loaded credentials by provider name.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct CredentialsProvider {
     #[serde(default)]
     pub providers: HashMap<String, AnyProviderCredentials>,
-}
-
-impl Default for CredentialsProvider {
-    fn default() -> Self {
-        Self {
-            providers: HashMap::new(),
-        }
-    }
 }
 
 impl CredentialsProvider {
