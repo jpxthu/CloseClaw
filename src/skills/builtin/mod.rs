@@ -2,10 +2,12 @@
 
 pub mod discovery;
 pub mod file_ops;
+#[cfg(test)]
 mod file_ops_tests;
 pub mod git_ops;
 pub mod permission;
 pub mod search;
+#[cfg(test)]
 pub mod tests;
 
 pub use discovery::SkillDiscoverySkill;

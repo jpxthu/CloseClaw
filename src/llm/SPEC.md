@@ -89,7 +89,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | 文件 | 职责 |
 |------|------|
 | `mod.rs` | 类型定义（Message、ChatRequest、ErrorKind 等）、LLMRegistry、LLMProvider trait、re-export 所有 Provider |
-| `minimax.rs` | MiniMax Chat Completions API adapter |
+| `minimax.rs` | MiniMax Chat Completions API adapter。推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 透传推理 token 数。 |
 | `openai.rs` | OpenAI Chat Completions API adapter |
 | `anthropic.rs` | Anthropic API adapter（当前为 stub） |
 | `stub.rs` | 测试用固定响应 Provider |
@@ -109,14 +109,23 @@ HTTP 状态码 → `LLMError` 变体：
 | 500–504 | `ApiError`（kind = Transient） |
 | 网络错误 | `NetworkError` |
 
+### MiniMax 业务错误码
+
+MiniMax API 通过响应体中的 `base_resp.status_code`（非 HTTP 状态码）返回业务错误，非零即失败。
+
+| status_code | LLMError | 触发场景 |
+|-------------|----------|---------|
+| 1004 | `AuthFailed` | 认证失败（API Key 无效） |
+| 2013 + 含 "unknown model" | `ModelNotFound` | 模型不存在 |
+| 2013 + 其它 | `InvalidRequest` | 参数错误（如 messages 为空、缺少必填参数） |
+| 其它非零 | `ApiError` | 其它业务错误 |
+
 ### FallbackClient 两层错误处理
 
 - **内层**（`chat_with_retry`）：仅对 `Transient` / `Unknown` 错误重试，耗尽后切模型
 - **外层**（`chat`）：`InvalidRequest` / `Auth` / `Billing` 立即切模型；`Transient` / `Unknown` 重试耗尽后切模型；成功则清除 cooldown
 
-### MiniMax Thinking Tag 剥离
 
-MiniMax thinking 模型在响应 `content` 中嵌入 `<think>` ... `</think>` XML 标签包裹的思考内容。模块在返回响应前自动剥离这两个标签并 `trim()`，调用方拿到的 `content` 不含 thinking tag。
 
 ### 冷却持久化
 
