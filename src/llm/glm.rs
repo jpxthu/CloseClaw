@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
+use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, StreamingResponse, Usage};
 
 /// GLM API endpoint
 const GLM_API_URL: &str = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions";
@@ -89,9 +89,9 @@ struct GlmErrorBody {
 }
 
 pub struct GlmProvider {
-    api_key: String,
-    base_url: String,
-    http_client: Client,
+    pub(crate) api_key: String,
+    pub(crate) base_url: String,
+    pub(crate) http_client: Client,
 }
 
 impl GlmProvider {
@@ -115,7 +115,7 @@ impl GlmProvider {
         }
     }
 
-    fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
+    pub(crate) fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
         match status.as_u16() {
             401 | 403 => LLMError::AuthFailed(body),
             404 => LLMError::ModelNotFound(body),
@@ -130,7 +130,7 @@ impl GlmProvider {
     /// - "1211" → ModelNotFound (model does not exist)
     /// - "1214" → InvalidRequest (e.g. empty messages)
     /// - others → ApiError
-    fn map_glm_error(code: &str, message: &str) -> LLMError {
+    pub(crate) fn map_glm_error(code: &str, message: &str) -> LLMError {
         match code {
             "1211" => LLMError::ModelNotFound(message.to_string()),
             "1214" => LLMError::InvalidRequest(message.to_string()),
@@ -226,7 +226,9 @@ impl LLMProvider for GlmProvider {
         Self::parse_chat_response(api_resp)
     }
 
-    // chat_streaming uses trait default: wraps chat() as single-element stream
+    async fn chat_streaming(&self, request: ChatRequest) -> Result<StreamingResponse, LLMError> {
+        crate::llm::glm_stream::send_streaming_request(self, request).await
+    }
 }
 
 #[cfg(test)]
