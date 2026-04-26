@@ -92,7 +92,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | 文件 | 职责 |
 |------|------|
 | `mod.rs` | 类型定义（Message、ChatRequest、ErrorKind 等）、LLMRegistry、LLMProvider trait、re-export 所有 Provider |
-| `minimax.rs` | MiniMax Chat Completions API adapter。推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 透传推理 token 数。 |
+| `minimax.rs` | MiniMax Chat Completions API adapter。推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 在内部解析（unit test 覆盖），暂未通过 `Usage` 暴露给调用方。 |
 | `minimax_stream.rs` | MiniMax 流式接口：SSE 解析、delta 提取、流式错误处理 |
 | `openai.rs` | OpenAI Chat Completions API adapter |
 | `anthropic.rs` | Anthropic API adapter（当前为 stub） |

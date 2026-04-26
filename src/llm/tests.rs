@@ -225,6 +225,108 @@ mod tests {
         assert_eq!(extract_message_text(&msg), "");
     }
 
+    #[test]
+    fn test_extract_message_text_whitespace_only_content() {
+        let msg = MiniMaxStreamMessage {
+            role: "assistant".to_string(),
+            content: Some("   \n\t  ".to_string()),
+            reasoning_content: Some("reasoning".to_string()),
+        };
+        // whitespace-only content should fall back to reasoning_content
+        assert_eq!(extract_message_text(&msg), "reasoning");
+    }
+
+    #[test]
+    fn test_extract_message_text_whitespace_only_reasoning() {
+        let msg = MiniMaxStreamMessage {
+            role: "assistant".to_string(),
+            content: Some("".to_string()),
+            reasoning_content: Some("   \n\t  ".to_string()),
+        };
+        assert_eq!(extract_message_text(&msg), "");
+    }
+
+    #[test]
+    fn test_extract_message_text_whitespace_trimmed() {
+        let msg = MiniMaxStreamMessage {
+            role: "assistant".to_string(),
+            content: Some("  Hello  ".to_string()),
+            reasoning_content: None,
+        };
+        assert_eq!(extract_message_text(&msg), "Hello");
+    }
+
+    #[test]
+    fn test_process_chunk_content_delta_sends_text() {
+        // Verify content delta (not reasoning_content) also sends text
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let json = r#"{"id":"abc","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello world"}}],"model":"MiniMax-M2.5"}"#;
+        let chunk: MiniMaxStreamChunk = serde_json::from_str(json).unwrap();
+        let should_continue = process_chunk(chunk, &tx).unwrap();
+        assert!(should_continue);
+        let result = rx.try_recv();
+        match result {
+            Ok(ChatStreamChunk::Text(text)) => assert_eq!(text, "Hello world"),
+            other => panic!("Expected Text('Hello world'), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_final_chunk_with_content() {
+        // Final chunk with non-empty content field
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let json = r#"{"id":"abc","choices":[{"finish_reason":"stop","index":0,"message":{"content":"Final answer","role":"assistant","reasoning_content":"Reasoning"}}],"model":"MiniMax-M2.5","usage":{"total_tokens":20,"prompt_tokens":10,"completion_tokens":10}}"#;
+        let chunk: MiniMaxStreamChunk = serde_json::from_str(json).unwrap();
+        let should_continue = process_chunk(chunk, &tx).unwrap();
+        assert!(!should_continue);
+        // Should send Text with content (not reasoning_content), then Done
+        let first = rx.try_recv();
+        match first {
+            Ok(ChatStreamChunk::Text(t)) => assert_eq!(t, "Final answer"),
+            other => panic!("Expected Text('Final answer') first, got {:?}", other),
+        }
+        let second = rx.try_recv();
+        match second {
+            Ok(ChatStreamChunk::Done { model, usage }) => {
+                assert_eq!(model, "MiniMax-M2.5");
+                assert_eq!(usage.total_tokens, 20);
+            }
+            other => panic!("Expected Done, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_final_chunk_empty_content_no_reasoning() {
+        // Final chunk with empty content and no reasoning_content → no Text, just Done
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let json = r#"{"id":"abc","choices":[{"finish_reason":"stop","index":0,"message":{"content":"","role":"assistant"}}],"model":"MiniMax-M2.5","usage":{"total_tokens":5,"prompt_tokens":5,"completion_tokens":0}}"#;
+        let chunk: MiniMaxStreamChunk = serde_json::from_str(json).unwrap();
+        let should_continue = process_chunk(chunk, &tx).unwrap();
+        assert!(!should_continue);
+        // No Text chunk sent; only Done
+        let first = rx.try_recv();
+        match first {
+            Ok(ChatStreamChunk::Done { .. }) => {}
+            other => panic!("Expected Done, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_chunk_delta_prefers_reasoning_content() {
+        // When both content and reasoning_content are present in delta,
+        // reasoning_content takes priority (matches actual SSE stream order)
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let json = r#"{"id":"abc","choices":[{"index":0,"delta":{"role":"assistant","content":"Visible","reasoning_content":"Hidden"}}],"model":"MiniMax-M2.5"}"#;
+        let chunk: MiniMaxStreamChunk = serde_json::from_str(json).unwrap();
+        let should_continue = process_chunk(chunk, &tx).unwrap();
+        assert!(should_continue);
+        let result = rx.try_recv();
+        match result {
+            Ok(ChatStreamChunk::Text(t)) => assert_eq!(t, "Hidden"),
+            other => panic!("Expected Text('Hidden'), got {:?}", other),
+        }
+    }
+
     // --- Usage from fixture files ---
 
     #[test]
