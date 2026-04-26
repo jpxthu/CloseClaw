@@ -1,0 +1,41 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "tools": [
+      {
+        "name": "web_search_prime",
+        "description": "Search web information, returns results including web page title, web page URL, web page summary, website name, website icon, etc.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "search_query": {
+              "type": "string",
+              "description": "Content to be searched, it is recommended that the search query not exceed 70 characters"
+            },
+            "search_domain_filter": {
+              "type": "string",
+              "description": "Used to limit the scope of search results, only return content from specified whitelist domains, such as: www.example.com."
+            },
+            "search_recency_filter": {
+              "type": "string",
+              "description": "Search for web pages within a specified time range. Default is noLimit Available values:- oneDay, within one day- oneWeek, within one week- oneMonth, within one month- oneYear, within one year- noLimit, no limit (default)"
+            },
+            "content_size": {
+              "type": "string",
+              "description": "Control the number of words in the web page summary; default value is medium - medium: balanced mode, suitable for most queries. 400-600 words.- high: maximize context to provide more comprehensive answers, but higher cost, 2500 words."
+            },
+            "location": {
+              "type": "string",
+              "description": "Guess which region the user is from based on user input. Default is cn Available values: - cn, Chinese region- us, non-Chinese region"
+            }
+          },
+          "required": [
+            "search_query"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  }
+}

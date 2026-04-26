@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1.  **Understand the Goal:** The user wants to know the product of 17 and 23, and explicitly requested to see the step-by-step work.\n\n2.  **Choose a Method:** There are several ways to multiply 17 by 23.\n    *   *Method 1: Standard Algorithm (Long Multiplication).* Good for showing traditional steps.\n    *   *Method 2: FOIL Method / Difference of Squares trick.* $17 \\times 23 = (20 - 3)(20 + 3) = 20^2 - 3^2 = 400 - 9 = 391$. (This is highly elegant and great for mental math).\n    *   *Method 3: Area Model / Partial Products.* Good for visual/conceptual understanding. $17 \\times 23 = (10 + 7) \\times (20 + 3) = 200 + 30 + 140 + 21 = ",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219742,
+  "id": "20260427000855ba30ba053cba47e0",
+  "model": "glm-5.1",
+  "object": "chat.completion",
+  "request_id": "20260427000855ba30ba053cba47e0",
+  "usage": {
+    "completion_tokens": 200,
+    "completion_tokens_details": {
+      "reasoning_tokens": 200
+    },
+    "prompt_tokens": 17,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 217
+  }
+}

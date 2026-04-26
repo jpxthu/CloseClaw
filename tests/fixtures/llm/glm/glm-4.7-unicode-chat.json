@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "用户想要用三个词形容春天。\n\n1.  **分析需求：**\n    *   主题：春天。\n    *   格式：",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219733,
+  "id": "20260427000852583f3333942d4375",
+  "model": "GLM-4.7",
+  "object": "chat.completion",
+  "request_id": "20260427000852583f3333942d4375",
+  "usage": {
+    "completion_tokens": 30,
+    "completion_tokens_details": {
+      "reasoning_tokens": 30
+    },
+    "prompt_tokens": 10,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 40
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "The user wants a joke",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219623,
+  "id": "202604270007035c3722e8009342be",
+  "model": "GLM-4.7",
+  "object": "chat.completion",
+  "request_id": "202604270007035c3722e8009342be",
+  "usage": {
+    "completion_tokens": 5,
+    "completion_tokens_details": {
+      "reasoning_tokens": 5
+    },
+    "prompt_tokens": 9,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 14
+  }
+}

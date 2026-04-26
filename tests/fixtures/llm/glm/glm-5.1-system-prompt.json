@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1.  **Analyze the Request:**\n    *   User says: \"Say hi\"\n",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777220222,
+  "id": "2026042700170034071f283e2149f8",
+  "model": "glm-5.1",
+  "object": "chat.completion",
+  "request_id": "2026042700170034071f283e2149f8",
+  "usage": {
+    "completion_tokens": 20,
+    "completion_tokens_details": {
+      "reasoning_tokens": 20
+    },
+    "prompt_tokens": 18,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 38
+  }
+}
