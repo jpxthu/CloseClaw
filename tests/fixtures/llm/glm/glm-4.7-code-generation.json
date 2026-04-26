@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "The user is asking for a \"Hello, World!\" program in Python.\nThis is a very standard, simple request.\n\n**Steps:**\n1.  **Identify the language:** Python.\n2.  **Identify the goal:** Write a program that prints \"Hello, World!\" (or \"Hello World\").\n3.  **Determine the correct syntax:**\n    *   In Python 3, it's `print(\"Hello, World!\")`.\n    *   In Python 2",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219722,
+  "id": "20260427000824c0bfedcf9d4043b2",
+  "model": "GLM-4.7",
+  "object": "chat.completion",
+  "request_id": "20260427000824c0bfedcf9d4043b2",
+  "usage": {
+    "completion_tokens": 100,
+    "completion_tokens_details": {
+      "reasoning_tokens": 100
+    },
+    "prompt_tokens": 11,
+    "prompt_tokens_details": {
+      "cached_tokens": 3
+    },
+    "total_tokens": 111
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "The user wants me to say hello in exactly three words.\n\n1.  **Analyze the Request:**\n    *   Task: Say hello.\n    *   Constraint: Exactly 3 words.\n\n2.  **Brainstorm Options:**\n   ",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219551,
+  "id": "20260427000542f88d7c72843e4019",
+  "model": "GLM-4.7",
+  "object": "chat.completion",
+  "request_id": "20260427000542f88d7c72843e4019",
+  "usage": {
+    "completion_tokens": 50,
+    "completion_tokens_details": {
+      "reasoning_tokens": 50
+    },
+    "prompt_tokens": 12,
+    "prompt_tokens_details": {
+      "cached_tokens": 10
+    },
+    "total_tokens": 62
+  }
+}

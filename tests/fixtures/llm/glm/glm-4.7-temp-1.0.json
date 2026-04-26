@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "The user wants a random word. I need to",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219778,
+  "id": "202604270009272929385ec159485b",
+  "model": "GLM-4.7",
+  "object": "chat.completion",
+  "request_id": "202604270009272929385ec159485b",
+  "usage": {
+    "completion_tokens": 10,
+    "completion_tokens_details": {
+      "reasoning_tokens": 10
+    },
+    "prompt_tokens": 10,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 20
+  }
+}

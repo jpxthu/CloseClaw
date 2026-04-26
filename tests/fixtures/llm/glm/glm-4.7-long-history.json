@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "message": {
+        "content": "",
+        "reasoning_content": "1.  **Analyze the user's request:** The user is asking \"What did I say I like?\". This refers to the previous conversation",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1777219759,
+  "id": "202604270009060da33f48ff12432c",
+  "model": "GLM-4.7",
+  "object": "chat.completion",
+  "request_id": "202604270009060da33f48ff12432c",
+  "usage": {
+    "completion_tokens": 30,
+    "completion_tokens_details": {
+      "reasoning_tokens": 30
+    },
+    "prompt_tokens": 39,
+    "prompt_tokens_details": {
+      "cached_tokens": 3
+    },
+    "total_tokens": 69
+  }
+}
