@@ -16,6 +16,9 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`ChatRequest`** — 聊天补全请求（model、messages、temperature、max_tokens）
 - **`ChatResponse`** — 聊天补全响应（content、model、usage，不含 cooldown_retry_after）
 - **`Usage`** — token 用量统计（prompt_tokens、completion_tokens、total_tokens）
+- **`GlmQuotaResponse`** — GLM Quota API 响应（code、msg、data、success）
+- **`GlmQuotaData`** — GLM Quota 数据（limits 数组、level）
+- **`GlmLimit`** — 单条配额上限条目（type、unit、number、usage、remaining、percentage、next_reset_time）
 - **`LLMError`** — 错误枚举：AuthFailed、RateLimitExceeded、ModelNotFound、InvalidRequest、ApiError、NetworkError
 - **`ErrorKind`** — 错误可恢复性分类：Transient、Auth、Billing、InvalidRequest、Unknown
 - **`Scenario`** — `FakeProvider` 场景枚举：Ok（成功响应）、Err（错误响应）、Delay（sleep 后执行内部场景，内部场景可为 Ok/Err/另一个 Delay，嵌套递归解析）
@@ -37,6 +40,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`LLMRegistry::new`** — 创建空注册中心
 - **`LLMProvider::new`** — 构造 Provider 实例（MimMax、OpenAI、Anthropic、Stub 各有）
 - **`OpenAIProvider::new_with_base_url`** — 以自定义 base URL 构造 OpenAI Provider 实例（用于测试环境注入 mock server）
+- **`GlmProvider::new`** — 构造 GlmProvider 实例（使用默认 GLM API URL）
+- **`GlmProvider::with_base_url`** — 以自定义 base URL 构造 GlmProvider 实例（用于测试环境注入 mock server）
 - **`FakeProvider::new`** — 构造无场景的 `FakeProvider`（首次调用必然 panic，用于严格测试）
 - **`FakeProvider::builder`** — 构造 `Builder`，开始编排 `FakeProvider` 场景
 - **`FallbackClient::new`** — 同步构造（加载持久化 cooldown）
@@ -62,6 +67,9 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`LLMProvider::name** — 返回 Provider 名称
 - **`LLMProvider::is_stub** — 返回该 Provider 是否为 stub（默认 false）
 - **`LLMError::kind** — 将错误分类为 ErrorKind
+- **`GlmProvider::fetch_usage`** — 查询 GLM Usage/Quota API，返回 `GlmQuotaResponse`（limits、usage、remaining 等配额信息）
+- **`GlmProvider::models** — 返回该 Provider 支持的模型列表
+- **`GlmProvider::name** — 返回 Provider 名称
 - **`FakeProvider::captured_requests`** — 返回所有已捕获请求（不消费）
 - **`FakeProvider::drain_requests`** — 移除并返回所有已捕获请求
 - **`FakeProvider::clear_requests`** — 清空已捕获请求
@@ -93,7 +101,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 |------|------|
 | `mod.rs` | 类型定义（Message、ChatRequest、ErrorKind 等）、LLMRegistry、LLMProvider trait、re-export 所有 Provider |
 | `minimax.rs` | MiniMax Chat Completions API adapter。推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 在内部解析（unit test 覆盖），暂未通过 `Usage` 暴露给调用方。 |
-| `glm.rs` | 智谱 GLM 系列模型（glm-5.1、glm-4.7、glm-4.5-air 等）adapter。错误格式为 top-level `error`（code 为字符串），code "1211" → ModelNotFound、"1214" → InvalidRequest；推理模型 `content` 为空时提取 `reasoning_content`；`usage` 中含 `prompt_tokens_details.cached_tokens` 和 `completion_tokens_details.reasoning_tokens`。 |
+| `glm/mod.rs` | 智谱 GLM 系列模型（glm-5.1、glm-4.7、glm-4.5-air 等）adapter。错误格式为 top-level `error`（code 为字符串），code "1211" → ModelNotFound、"1214" → InvalidRequest；推理模型 `content` 为空时提取 `reasoning_content`；`usage` 中含 `prompt_tokens_details.cached_tokens` 和 `completion_tokens_details.reasoning_tokens`。非流式 chat、流式 streaming、Usage API 均通过 mockito Mock Server 覆盖完整 HTTP 全链路（`glm/tests/mock_integration.rs` 13 个非流式用例 + `glm/tests/mock_extra.rs` 3 个非流式用例含错误场景 + `glm_stream/tests/mock_integration.rs` 3 个流式用例 + `glm/tests/mock_usage.rs` 3 个 Usage 用例）。 |
 | `minimax_stream.rs` | MiniMax 流式接口：SSE 解析、delta 提取、流式错误处理 |
 | `glm_stream.rs` | GLM 流式接口：SSE 解析、delta 提取（`reasoning_content` 优先、`content` 兜底）、流式错误处理；`GlmProvider::chat_streaming()` override 实现 |
 | `openai.rs` | OpenAI Chat Completions API adapter |

@@ -1,7 +1,7 @@
 //! Unit tests for GLM streaming SSE parsing.
 
 use crate::llm::glm_stream::{parse_sse_line, parse_stream_chunk, process_buffer};
-use crate::llm::{ChatStreamChunk, Usage};
+use crate::llm::{ChatRequest, ChatStreamChunk, GlmProvider, LLMProvider, Message, Usage};
 
 /// Collect all ChatStreamChunk items from a buffer processed through process_buffer.
 fn collect_chunks(buffer: &[u8]) -> Vec<ChatStreamChunk> {
@@ -25,7 +25,7 @@ fn collect_chunks(buffer: &[u8]) -> Vec<ChatStreamChunk> {
 
 #[test]
 fn test_glm_stream_parse_glm_4_7_fixture() {
-    let fixture = include_str!("../../../tests/fixtures/llm/glm/streaming-glm-4.7.txt");
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/streaming-glm-4.7.txt");
 
     // Find the first SSE stream in the fixture (starts at first "data: {")
     let start = fixture
@@ -82,7 +82,7 @@ fn test_glm_stream_parse_glm_4_7_fixture() {
 
 #[test]
 fn test_glm_stream_parse_glm_5_1_fixture() {
-    let fixture = include_str!("../../../tests/fixtures/llm/glm/streaming-glm-5.1.txt");
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/streaming-glm-5.1.txt");
 
     let start = fixture
         .find("data: {")
@@ -131,7 +131,7 @@ fn test_glm_stream_parse_glm_5_1_fixture() {
 
 #[test]
 fn test_glm_stream_parse_glm_5_1_v2_fixture() {
-    let fixture = include_str!("../../../tests/fixtures/llm/glm/streaming-glm-5.1-v2.txt");
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/streaming-glm-5.1-v2.txt");
 
     let start = fixture
         .find("data: {")
@@ -462,3 +462,11 @@ fn test_process_buffer_invalid_utf8_returns_error() {
     let err = process_buffer(data, &tx).unwrap_err();
     assert!(format!("{}", err).contains("UTF-8") || format!("{}", err).contains("invalid"));
 }
+
+// ---------------------------------------------------------------------------
+// mock_integration — HTTP-level mock tests for the full chat_streaming() path
+// These tests exercise the entire pipeline:
+//   GlmProvider::chat_streaming() → HTTP POST → mockito SSE → response parsing → ChatStreamChunk
+// ---------------------------------------------------------------------------
+
+mod mock_integration;

@@ -102,7 +102,7 @@ pub(crate) async fn send_streaming_request(
     provider: &GlmProvider,
     request: ChatRequest,
 ) -> Result<StreamingResponse, LLMError> {
-    let (tx, rx) = tokio::sync::mpsc::channel(32);
+    let (tx, rx) = tokio::sync::mpsc::channel(256);
 
     let stream_request = GlmStreamRequest {
         model: &request.model,
