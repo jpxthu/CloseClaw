@@ -35,14 +35,6 @@ pub struct FeishuCredentials {
     pub bot_name: Option<String>,
 }
 
-/// Tagged credentials, one variant per provider kind.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", tag = "provider")]
-pub enum TaggedCredentials {
-    #[serde(rename = "feishu")]
-    Feishu(FeishuCredentials),
-}
-
 /// Untagged credentials supporting multiple provider shapes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
