@@ -8,6 +8,7 @@ use mockito::Server;
 // ---------------------------------------------------------------------------//
 mod mock_extra;
 mod mock_integration;
+mod mock_usage;
 
 // --- Fixture-based deserialization and content extraction tests ---
 

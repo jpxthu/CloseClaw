@@ -88,6 +88,56 @@ struct GlmErrorBody {
     message: String,
 }
 
+// ---------------------------------------------------------------------------//
+// GLM Usage / Quota API types                                               //
+// ---------------------------------------------------------------------------//
+
+/// GLM quota API response wrapper.
+#[derive(Debug, Deserialize)]
+pub struct GlmQuotaResponse {
+    pub code: u16,
+    pub msg: String,
+    pub data: GlmQuotaData,
+    pub success: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GlmQuotaData {
+    pub limits: Vec<GlmLimit>,
+    #[serde(default)]
+    pub level: String,
+}
+
+/// A single quota limit entry.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct GlmLimit {
+    #[serde(rename = "type")]
+    limit_type: String,
+    unit: u32,
+    #[serde(default)]
+    number: Option<u32>,
+    #[serde(default)]
+    usage: Option<u64>,
+    #[serde(default)]
+    remaining: Option<u64>,
+    #[serde(default)]
+    percentage: Option<u32>,
+    #[serde(rename = "nextResetTime", default)]
+    next_reset_time: Option<u64>,
+    #[serde(rename = "usageDetails", default)]
+    usage_details: Option<Vec<GlmUsageDetail>>,
+}
+
+/// Per-model usage breakdown.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct GlmUsageDetail {
+    #[serde(rename = "modelCode")]
+    model_code: String,
+    usage: u64,
+}
+
 pub struct GlmProvider {
     pub(crate) api_key: String,
     pub(crate) base_url: String,
@@ -136,6 +186,40 @@ impl GlmProvider {
             "1214" => LLMError::InvalidRequest(message.to_string()),
             _ => LLMError::ApiError(format!("GLM API error {}: {}", code, message)),
         }
+    }
+
+    /// Fetch GLM account quota / usage info from the Usage API.
+    ///
+    /// The `base_url` should be the GLM API base (e.g. `https://open.bigmodel.cn/api`);
+    /// this method appends `/paas/quota` internally.
+    pub async fn fetch_usage(&self, base_url: &str) -> Result<GlmQuotaResponse, LLMError> {
+        let url = format!("{}/paas/quota", base_url.trim_end_matches('/'));
+        let resp = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await
+            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
+        }
+
+        let quota: GlmQuotaResponse = resp.json().await.map_err(|e| {
+            LLMError::ApiError(format!("failed to parse GLM quota response: {}", e))
+        })?;
+
+        if !quota.success {
+            return Err(LLMError::ApiError(format!(
+                "GLM quota API error {}: {}",
+                quota.code, quota.msg
+            )));
+        }
+
+        Ok(quota)
     }
 
     /// Extract visible content from a GLM message.
