@@ -1,0 +1,18 @@
+{
+  "schema": "2.0",
+  "event_id": "19fbca2af15d43f069f414ac9322735c",
+  "token": "",
+  "create_time": "1777229686731",
+  "event_type": "im.chat.member.bot.added_v1",
+  "tenant_key": "1ad1de837601dbe5",
+  "app_id": "cli_a964e565a9f8dcb3",
+  "chat_id": "oc_9502220df5875ceab6e4c45671359288",
+  "external": false,
+  "name": "消息测试",
+  "operator_id": {
+    "open_id": "ou_6e65df14620f95c902e4b0f9ef4562ee",
+    "union_id": "on_6c07735c93eab23fd37163334770ae6d",
+    "user_id": null
+  },
+  "operator_tenant_key": "1ad1de837601dbe5"
+}
