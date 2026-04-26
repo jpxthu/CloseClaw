@@ -22,9 +22,14 @@ struct MiniMaxRequest<'a> {
 /// MiniMax API response body
 #[derive(Debug, Deserialize)]
 struct MiniMaxResponse {
-    choices: Vec<MiniMaxChoice>,
-    usage: MiniMaxUsage,
+    #[serde(default)]
+    choices: Option<Vec<MiniMaxChoice>>,
+    #[serde(default)]
+    usage: Option<MiniMaxUsage>,
+    #[serde(default)]
     model: String,
+    #[serde(default)]
+    base_resp: Option<MiniMaxBaseResp>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,17 +42,36 @@ struct MiniMaxMessage {
     #[allow(dead_code)]
     role: String,
     content: String,
-    /// MiniMax thinking content (present for -think models).
-    /// Contains raw thinking output which should NOT be shown to the user.
+    /// MiniMax reasoning content for M2.5/M2.7 models.
+    /// When content is empty, the visible reply is in this field.
     #[serde(default)]
-    thinking: Option<String>,
+    reasoning_content: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 struct MiniMaxUsage {
+    #[serde(default)]
     prompt_tokens: u32,
+    #[serde(default)]
     completion_tokens: u32,
+    #[serde(default)]
     total_tokens: u32,
+    #[serde(default)]
+    completion_tokens_details: Option<MiniMaxCompletionTokensDetails>,
+}
+
+/// MiniMax completion tokens details
+#[derive(Debug, Deserialize)]
+struct MiniMaxCompletionTokensDetails {
+    #[serde(default)]
+    reasoning_tokens: Option<u32>,
+}
+
+/// MiniMax base response (business error status)
+#[derive(Debug, Deserialize)]
+struct MiniMaxBaseResp {
+    status_code: i32,
+    status_msg: String,
 }
 
 pub struct MiniMaxProvider {
@@ -58,68 +82,62 @@ pub struct MiniMaxProvider {
 
 impl MiniMaxProvider {
     pub fn new(api_key: String) -> Self {
+        Self::with_base_url(api_key, MINIMAX_API_URL.to_string())
+    }
+
+    pub fn from_env() -> Option<Self> {
+        Some(Self::new(std::env::var("MINIMAX_API_KEY").ok()?))
+    }
+
+    pub fn with_base_url(api_key: String, base_url: String) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
-            .expect("MiniMaxProvider: failed to build HTTP client");
-
+            .expect("Failed to create HTTP client");
         Self {
             api_key,
-            base_url: MINIMAX_API_URL.to_string(),
+            base_url,
             http_client,
         }
     }
 
-    /// Create a new provider from environment variable MINIMAX_API_KEY.
-    pub fn from_env() -> Option<Self> {
-        std::env::var("MINIMAX_API_KEY").ok().map(Self::new)
-    }
-
-    /// Map HTTP status code to the appropriate LLM error.
     fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
         match status.as_u16() {
-            401 => LLMError::AuthFailed(format!("MiniMax auth failed: {}", body)),
+            401 | 403 => LLMError::AuthFailed(body),
+            404 => LLMError::ModelNotFound(body),
+            422 => LLMError::InvalidRequest(body),
             429 => LLMError::RateLimitExceeded,
-            400 => LLMError::InvalidRequest(format!("MiniMax invalid request: {}", body)),
-            _ => LLMError::ApiError(format!("MiniMax API error ({}): {}", status, body)),
+            _ => LLMError::ApiError(format!("unexpected status {}: {}", status, body)),
         }
     }
 
-    /// Strip MiniMax thinking tags from content.
-    ///
-    /// MiniMax thinking models return reasoning wrapped in XML tags:
-    /// - `<think>...</think>` in the content field (visible thinking text)
-    ///
-    /// These tags and their content are NOT meant for end users and must be
-    /// stripped before returning the response.
-    fn strip_thinking_tags(content: &str) -> String {
-        // Remove thinking tags and their content, skipping orphaned closing tags
-        let bytes = content.as_bytes();
-        let mut result = Vec::new();
-        let mut i = 0;
-
-        while i < bytes.len() {
-            // If we see a closing tag with no opening tag before it, skip past it
-            if bytes[i..].starts_with(b"</think>") {
-                i += 8; // skip the closing tag
-                continue;
-            }
-            // If we see an opening tag, find its matching closing tag and skip both
-            if bytes[i..].starts_with("<think>".as_bytes()) {
-                if let Some(end) = content[i..].find("</think>") {
-                    i = end + 8; // skip past the closing tag
-                    continue;
+    /// Map MiniMax internal status_code to LLMError
+    fn map_base_resp_error(status_code: i32, status_msg: &str) -> LLMError {
+        match status_code {
+            1004 => LLMError::AuthFailed(status_msg.to_string()),
+            2013 => {
+                if status_msg.contains("unknown model") {
+                    LLMError::ModelNotFound(status_msg.to_string())
+                } else {
+                    LLMError::InvalidRequest(status_msg.to_string())
                 }
             }
-            // Regular character, keep it
-            result.push(bytes[i]);
-            i += 1;
+            _ => LLMError::ApiError(format!("MiniMax API error {}: {}", status_code, status_msg)),
         }
+    }
 
-        String::from_utf8(result)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
+    /// Extract visible content from a MiniMax message.
+    /// Prefer `content`; if it's empty or pure whitespace, fall back to `reasoning_content`.
+    fn extract_content(msg: &MiniMaxMessage) -> String {
+        if !msg.content.trim().is_empty() {
+            msg.content.trim().to_string()
+        } else {
+            msg.reasoning_content
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_default()
+        }
     }
 }
 
@@ -163,22 +181,34 @@ impl LLMProvider for MiniMaxProvider {
             .await
             .map_err(|e| LLMError::ApiError(format!("failed to parse MiniMax response: {}", e)))?;
 
+        // Check MiniMax internal business error code
+        if let Some(ref base_resp) = api_resp.base_resp {
+            if base_resp.status_code != 0 {
+                return Err(Self::map_base_resp_error(
+                    base_resp.status_code,
+                    &base_resp.status_msg,
+                ));
+            }
+        }
+
         let msg = api_resp
             .choices
-            .first()
+            .as_ref()
+            .and_then(|c| c.first())
             .map(|c| &c.message)
             .ok_or_else(|| LLMError::ApiError("no choices in MiniMax response".to_string()))?;
 
-        // Strip thinking tags from content before returning to user
-        let content = Self::strip_thinking_tags(&msg.content);
+        let content = Self::extract_content(msg);
+
+        let usage = api_resp.usage.as_ref();
 
         Ok(ChatResponse {
             content,
             model: api_resp.model,
             usage: Usage {
-                prompt_tokens: api_resp.usage.prompt_tokens,
-                completion_tokens: api_resp.usage.completion_tokens,
-                total_tokens: api_resp.usage.total_tokens,
+                prompt_tokens: usage.map(|u| u.prompt_tokens).unwrap_or(0),
+                completion_tokens: usage.map(|u| u.completion_tokens).unwrap_or(0),
+                total_tokens: usage.map(|u| u.total_tokens).unwrap_or(0),
             },
         })
     }
@@ -188,31 +218,138 @@ impl LLMProvider for MiniMaxProvider {
 mod tests {
     use super::*;
 
+    // --- Fixture-based deserialization and content extraction tests ---
+
     #[test]
-    fn test_strip_thinking_tags_simple() {
-        let input = "<think>Let me think about this...</think>Hello, world!";
-        let output = MiniMaxProvider::strip_thinking_tags(input);
-        assert_eq!(output, "Hello, world!");
+    fn test_simple_chat_deserialize_and_extract() {
+        // simple-chat.json: content="", reasoning_content non-empty → extract reasoning_content
+        let json = include_str!("../../tests/fixtures/llm/minimax/simple-chat.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
+        let msg = &choice.message;
+        let extracted = MiniMaxProvider::extract_content(msg);
+        // The visible reply is in reasoning_content (content is empty)
+        assert!(
+            !extracted.is_empty(),
+            "Expected non-empty extracted content from reasoning_content"
+        );
+        assert_eq!(extracted, msg.reasoning_content.as_ref().unwrap().trim());
     }
 
     #[test]
-    fn test_strip_thinking_tags_no_tags() {
-        let input = "Hello, world!";
-        let output = MiniMaxProvider::strip_thinking_tags(input);
-        assert_eq!(output, "Hello, world!");
+    fn test_m2_her_chat_deserialize_and_extract() {
+        // m2-her-chat.json: content non-empty, no reasoning_content → extract content
+        let json = include_str!("../../tests/fixtures/llm/minimax/m2-her-chat.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
+        let msg = &choice.message;
+        let extracted = MiniMaxProvider::extract_content(msg);
+        assert!(
+            !msg.content.trim().is_empty(),
+            "m2-her fixture should have non-empty content"
+        );
+        assert_eq!(extracted, msg.content.trim());
+        assert!(
+            msg.reasoning_content.is_none() || msg.reasoning_content.as_ref().unwrap().is_empty()
+        );
     }
 
     #[test]
-    fn test_strip_thinking_tags_only_tags() {
-        let input = "<think>thinking...</think>";
-        let output = MiniMaxProvider::strip_thinking_tags(input);
-        assert_eq!(output, "");
+    fn test_reasoning_heavy_deserialize_and_extract() {
+        // reasoning-heavy.json: both content and reasoning_content non-empty → extract content
+        let json = include_str!("../../tests/fixtures/llm/minimax/reasoning-heavy.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
+        let msg = &choice.message;
+        let extracted = MiniMaxProvider::extract_content(msg);
+        assert!(
+            !msg.content.trim().is_empty(),
+            "reasoning-heavy fixture should have non-empty content"
+        );
+        // content takes priority when non-empty
+        assert_eq!(extracted, msg.content.trim());
     }
 
     #[test]
-    fn test_strip_thinking_tags_multiple() {
-        let input = "<think>first...</think>Hello</think>World";
-        let output = MiniMaxProvider::strip_thinking_tags(input);
-        assert_eq!(output, "HelloWorld");
+    fn test_error_auth() {
+        // error-auth.json: status_code=1004 → AuthFailed
+        let json = include_str!("../../tests/fixtures/llm/minimax/error-auth.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.base_resp.is_some());
+        let base_resp = resp.base_resp.unwrap();
+        assert_eq!(base_resp.status_code, 1004);
+        let err =
+            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
+        matches!(err, LLMError::AuthFailed(msg) if msg.contains("login fail"));
+    }
+
+    #[test]
+    fn test_error_invalid_model() {
+        // error-invalid-model.json: status_code=2013 + "unknown model" → ModelNotFound
+        let json = include_str!("../../tests/fixtures/llm/minimax/error-invalid-model.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.base_resp.is_some());
+        let base_resp = resp.base_resp.unwrap();
+        assert_eq!(base_resp.status_code, 2013);
+        let err =
+            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
+        matches!(
+            err,
+            LLMError::ModelNotFound(msg) if msg.contains("unknown model")
+        );
+    }
+
+    #[test]
+    fn test_error_empty_messages() {
+        // error-empty-messages.json: status_code=2013 + "messages is empty" → InvalidRequest
+        let json = include_str!("../../tests/fixtures/llm/minimax/error-empty-messages.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.base_resp.is_some());
+        let base_resp = resp.base_resp.unwrap();
+        assert_eq!(base_resp.status_code, 2013);
+        let err =
+            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
+        matches!(
+            err,
+            LLMError::InvalidRequest(msg) if msg.contains("messages is empty")
+        );
+    }
+
+    #[test]
+    fn test_error_missing_model() {
+        // error-missing-model.json: status_code=2013 + "missing required parameter" → InvalidRequest
+        let json = include_str!("../../tests/fixtures/llm/minimax/error-missing-model.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.base_resp.is_some());
+        let base_resp = resp.base_resp.unwrap();
+        assert_eq!(base_resp.status_code, 2013);
+        let err =
+            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
+        matches!(
+            err,
+            LLMError::InvalidRequest(msg) if msg.contains("missing required parameter")
+        );
+    }
+
+    // --- Completion tokens details ---
+
+    #[test]
+    fn test_completion_tokens_details_present() {
+        // simple-chat.json has completion_tokens_details with reasoning_tokens
+        let json = include_str!("../../tests/fixtures/llm/minimax/simple-chat.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        let usage = resp.usage.unwrap();
+        assert!(usage.completion_tokens_details.is_some());
+        let details = usage.completion_tokens_details.unwrap();
+        assert_eq!(details.reasoning_tokens, Some(50));
+    }
+
+    #[test]
+    fn test_completion_tokens_details_absent() {
+        // m2-her-chat.json does NOT have completion_tokens_details
+        let json = include_str!("../../tests/fixtures/llm/minimax/m2-her-chat.json");
+        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
+        let usage = resp.usage.unwrap();
+        assert!(usage.completion_tokens_details.is_none());
     }
 }
