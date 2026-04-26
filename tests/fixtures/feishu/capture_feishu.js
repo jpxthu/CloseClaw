@@ -49,7 +49,9 @@ const client = new Lark.Client({
 });
 
 const wsClient = new Lark.WSClient({
-  ...Lark.Domain.Feishu,
+  appId: APP_ID,
+  appSecret: APP_SECRET,
+  domain: Lark.Domain.Feishu,
   loggerLevel: Lark.LoggerLevel.info,
 });
 
@@ -73,11 +75,11 @@ for (const eventType of EVENT_TYPES) {
   };
 }
 
-const dispatcher = new Lark.EventDispatcher({});
-
-for (const [eventType, handler] of Object.entries(handlers)) {
-  dispatcher.register(eventType, handler);
-}
+const dispatcher = new Lark.EventDispatcher({
+  encryptKey: '',
+  verificationToken: '',
+});
+dispatcher.register(handlers);
 
 console.log('='.repeat(60));
 console.log('Feishu Fixture Capture Script (WebSocket Mode)');
