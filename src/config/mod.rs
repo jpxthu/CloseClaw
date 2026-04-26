@@ -17,7 +17,8 @@ pub use manager::{
 
 pub use agents::{AgentDirectoryEntry, AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use providers::{
-    ConfigError, ConfigProvider, GatewayConfigData, ModelsConfigData, SystemConfigData,
+    ChannelsConfigData, ConfigError, ConfigProvider, GatewayConfigData, ModelsConfigData,
+    SystemConfigData,
 };
 pub use session::{
     JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfig, SessionConfigProvider,
