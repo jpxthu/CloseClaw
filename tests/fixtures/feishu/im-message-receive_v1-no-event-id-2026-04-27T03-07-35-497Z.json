@@ -4,10 +4,10 @@
   "token": "",
   "create_time": "1777259255215",
   "event_type": "im.message.receive_v1",
-  "tenant_key": "1ad1de837601dbe5",
-  "app_id": "cli_a964e565a9f8dcb3",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
   "message": {
-    "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+    "chat_id": "oc_REDACTED_CHAT",
     "chat_type": "p2p",
     "content": "{\"title\":\"\",\"content\":[[{\"tag\":\"text\",\"text\":\"普通\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"加粗\",\"style\":[\"bold\"]}],[{\"tag\":\"text\",\"text\":\"删除线\",\"style\":[\"lineThrough\"]}],[{\"tag\":\"text\",\"text\":\"下划线\",\"style\":[\"underline\"]}],[{\"tag\":\"text\",\"text\":\"加粗下划线\",\"style\":[\"underline\",\"bold\"]}],[{\"tag\":\"text\",\"text\":\"删除线+下划线\",\"style\":[\"lineThrough\",\"underline\"]}],[{\"tag\":\"text\",\"text\":\"加粗+删除线+下划线\",\"style\":[\"lineThrough\",\"underline\",\"bold\"]}],[{\"tag\":\"text\",\"text\":\"引用\",\"style\":[]}]]}",
     "create_time": "1777259254764",
@@ -17,11 +17,11 @@
   },
   "sender": {
     "sender_id": {
-      "open_id": "ou_6e65df14620f95c902e4b0f9ef4562ee",
-      "union_id": "on_6c07735c93eab23fd37163334770ae6d",
+      "open_id": "ou_REDACTED_USER",
+      "union_id": "on_REDACTED_UNION",
       "user_id": null
     },
     "sender_type": "user",
-    "tenant_key": "1ad1de837601dbe5"
+    "tenant_key": "REDACTED_TENANT"
   }
 }

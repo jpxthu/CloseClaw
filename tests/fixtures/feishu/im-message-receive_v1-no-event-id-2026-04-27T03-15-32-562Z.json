@@ -4,10 +4,10 @@
   "token": "",
   "create_time": "1777259732403",
   "event_type": "im.message.receive_v1",
-  "tenant_key": "1ad1de837601dbe5",
-  "app_id": "cli_a964e565a9f8dcb3",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
   "message": {
-    "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+    "chat_id": "oc_REDACTED_CHAT",
     "chat_type": "p2p",
     "content": "{\"text\":\"在话题（11:07 加粗、删除线、引用等等格式的消息）中回复的消息，都是普通文本\"}",
     "create_time": "1777259731862",
@@ -15,16 +15,16 @@
     "message_type": "text",
     "parent_id": "om_x100b51d961a4088cc42c33abed8140f",
     "root_id": "om_x100b51d961a4088cc42c33abed8140f",
-    "thread_id": "omt_1a8b5a3fbe4ddbee",
+    "thread_id": "omt_REDACTED_THREAD",
     "update_time": "1777259731862"
   },
   "sender": {
     "sender_id": {
-      "open_id": "ou_6e65df14620f95c902e4b0f9ef4562ee",
-      "union_id": "on_6c07735c93eab23fd37163334770ae6d",
+      "open_id": "ou_REDACTED_USER",
+      "union_id": "on_REDACTED_UNION",
       "user_id": null
     },
     "sender_type": "user",
-    "tenant_key": "1ad1de837601dbe5"
+    "tenant_key": "REDACTED_TENANT"
   }
 }

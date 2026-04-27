@@ -4,8 +4,8 @@
   "token": "",
   "create_time": "1777260410495",
   "event_type": "im.message.reaction.created_v1",
-  "tenant_key": "1ad1de837601dbe5",
-  "app_id": "cli_a964e565a9f8dcb3",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
   "action_time": "1777260410495",
   "message_id": "om_x100b51d9229123f8c2d286ae146ec12",
   "operator_type": "user",
@@ -13,8 +13,8 @@
     "emoji_type": "MediumDarkThumbsup"
   },
   "user_id": {
-    "open_id": "ou_6e65df14620f95c902e4b0f9ef4562ee",
-    "union_id": "on_6c07735c93eab23fd37163334770ae6d",
+    "open_id": "ou_REDACTED_USER",
+    "union_id": "on_REDACTED_UNION",
     "user_id": null
   }
 }

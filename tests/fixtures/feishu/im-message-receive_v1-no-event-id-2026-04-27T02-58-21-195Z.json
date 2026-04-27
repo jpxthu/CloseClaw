@@ -4,10 +4,10 @@
   "token": "",
   "create_time": "1777258684988",
   "event_type": "im.message.receive_v1",
-  "tenant_key": "1ad1de837601dbe5",
-  "app_id": "cli_a964e565a9f8dcb3",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
   "message": {
-    "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+    "chat_id": "oc_REDACTED_CHAT",
     "chat_type": "p2p",
     "content": "{\"title\":\"\",\"content\":[[{\"tag\":\"text\",\"text\":\"## 不使用富文本\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"1. 第一项\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"2. 第二项\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"3. 第三项\",\"style\":[]}],[],[{\"tag\":\"text\",\"text\":\"## 使用富文本\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"1. \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第一项（一级有序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  a. \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 1a 项（二级有序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  b. \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 1b 项（二级有序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"2. \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第二项（一级有序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  - \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 2a 项（二级无序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  - \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 2b 项（二级无序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"3. \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第三项（一级有序列表）\",\"style\":[]}],[],[{\"tag\":\"text\",\"text\":\"## 使用富文本\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"- \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第一项（一级无序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  a. \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 1a 项（二级有序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  b. \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 1b 项（二级有序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"- \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第二项（使用有序列表富文本）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  - \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 2a 项（二级无序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"  - \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第 2b 项（二级无序列表）\",\"style\":[]}],[{\"tag\":\"text\",\"text\":\"- \",\"style\":[]},{\"tag\":\"text\",\"text\":\"第三项（使用有序列表富文本）\",\"style\":[]}]]}",
     "create_time": "1777258684506",
@@ -17,11 +17,11 @@
   },
   "sender": {
     "sender_id": {
-      "open_id": "ou_6e65df14620f95c902e4b0f9ef4562ee",
-      "union_id": "on_6c07735c93eab23fd37163334770ae6d",
+      "open_id": "ou_REDACTED_USER",
+      "union_id": "on_REDACTED_UNION",
       "user_id": null
     },
     "sender_type": "user",
-    "tenant_key": "1ad1de837601dbe5"
+    "tenant_key": "REDACTED_TENANT"
   }
 }
