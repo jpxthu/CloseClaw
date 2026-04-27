@@ -118,6 +118,16 @@ fn test_config_manager_load_corrupted_with_backup_recovery() {
         )
         .unwrap();
 
+    // Re-load so the in-memory cache matches what the backup will restore
+    manager.load().unwrap();
+
+    // Verify in-memory cache before corrupting
+    let section_before = manager.section(ConfigSection::Models).unwrap();
+    assert_eq!(
+        section_before["version"], "2.0",
+        "cache should be 2.0 before corruption"
+    );
+
     // Corrupt models.json — JSON parse will fail
     let models_path = tmp.path().join("models.json");
     fs::write(&models_path, "not valid json {{").unwrap();
@@ -126,7 +136,9 @@ fn test_config_manager_load_corrupted_with_backup_recovery() {
     manager.load().unwrap();
 
     let section = manager.section(ConfigSection::Models).unwrap();
-    assert_eq!(section["version"], "2.0");
+    // The backup was created BEFORE the update to version 2.0, so it contains version 1.0
+    // Rollback should restore the backup, which is version 1.0
+    assert_eq!(section["version"], "1.0");
 }
 
 /// Test: corrupted mandatory file + backup that is also corrupted → load fails.

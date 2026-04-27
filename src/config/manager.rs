@@ -270,40 +270,11 @@ impl ConfigManager {
 
             let value: serde_json::Value = match serde_json::from_str(&content) {
                 Ok(v) => v,
-                Err(parse_err) => {
+                Err(_parse_err) => {
                     // Try rollback + retry before reporting the error
-                    match self.backup_manager.find_latest_backup(&path) {
-                        Ok(backup_path) => {
-                            if self.backup_manager.rollback(&path).is_ok() {
-                                let retry_content = fs::read_to_string(&path).ok();
-                                if let Some(retry_content) = retry_content {
-                                    if let Ok(retry_value) =
-                                        serde_json::from_str::<serde_json::Value>(&retry_content)
-                                    {
-                                        warn!(
-                                            "已用备份恢复 {}, 备份来源: {:?}",
-                                            section, backup_path
-                                        );
-                                        sections.insert(section, retry_value);
-                                        continue;
-                                    }
-                                }
-                            }
-                            // Retry failed
-                            error!("配置文件 {} 恢复后仍无法解析，daemon 无法启动", section);
-                            return Err(ConfigLoadError::ParseError {
-                                path,
-                                error: parse_err.to_string(),
-                            });
-                        }
-                        Err(_) => {
-                            // No backup found
-                            error!("配置文件 {} 损坏且无备份，daemon 无法启动", section);
-                            return Err(ConfigLoadError::ParseError {
-                                path,
-                                error: parse_err.to_string(),
-                            });
-                        }
+                    match self.try_rollback_and_retry(&path, section, &mut sections) {
+                        Ok(()) => continue,
+                        Err(e) => return Err(e),
                     }
                 }
             };
@@ -331,6 +302,48 @@ impl ConfigManager {
         }
 
         Ok(())
+    }
+
+    /// Attempt to rollback a corrupted config file and retry loading.
+    /// Returns Ok(()) if rollback succeeded and retry loading worked.
+    /// Returns Err(ConfigLoadError::ParseError) if rollback failed or retry still fails.
+    fn try_rollback_and_retry(
+        &self,
+        path: &Path,
+        section: ConfigSection,
+        sections: &mut HashMap<ConfigSection, serde_json::Value>,
+    ) -> Result<(), ConfigLoadError> {
+        // Try to find a backup
+        match self.backup_manager.find_latest_backup(path) {
+            Ok(backup_path) => {
+                if self.backup_manager.rollback(path).is_ok() {
+                    let retry_content = fs::read_to_string(path).ok();
+                    if let Some(retry_content) = retry_content {
+                        if let Ok(retry_value) =
+                            serde_json::from_str::<serde_json::Value>(&retry_content)
+                        {
+                            warn!("已用备份恢复 {}, 备份来源: {:?}", section, backup_path);
+                            sections.insert(section, retry_value);
+                            return Ok(());
+                        }
+                    }
+                }
+                // Retry failed
+                error!("配置文件 {} 恢复后仍无法解析，daemon 无法启动", section);
+                Err(ConfigLoadError::ParseError {
+                    path: path.to_path_buf(),
+                    error: "rollback succeeded but file still unparseable".to_string(),
+                })
+            }
+            Err(_) => {
+                // No backup found
+                error!("配置文件 {} 损坏且无备份，daemon 无法启动", section);
+                Err(ConfigLoadError::ParseError {
+                    path: path.to_path_buf(),
+                    error: "no backup available".to_string(),
+                })
+            }
+        }
     }
 
     /// Update a configuration section.
