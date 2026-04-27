@@ -8,10 +8,11 @@
 
 配置热加载系统，管理 JSON 配置文件的读取、验证、持久化和热重载。
 
-包含六个子模块：
+包含七个子模块：
 - **agents**：agents.json 和 per-agent 配置目录的 ConfigProvider 实现
 - **backup**：写前备份 + 滚动清理
 - **manager**：ConfigManager 统一配置管理入口，提供原子写入、备份集成和配置访问
+- **migration**：openclaw.json → config/ 目录的引导迁移
 - **providers**：ConfigProvider trait 和 ConfigError
 - **reload**：基于 notify 的文件监控 + 自动重载
 - **session**：per-agent per-role session 配置（idle/purge），供 ArchiveSweeper 和 Daemon 使用
@@ -47,6 +48,8 @@
 | `ConfigReloadEvent` | 热重载事件通知（Reloaded/Rollback/ValidationFailed） |
 | `ReloadResult` | 重载操作结果（Success/ValidationFailed/RolledBack） |
 | `WatcherHandle` | 文件监控句柄，drop 时停止监控 |
+| `migrate_if_needed` | 检测并执行 openclaw.json → config/ 目录的引导迁移 |
+| `ConfigMigrationError` | 迁移错误枚举（ReadError / ParseError / WriteError / MalformedJson / NotFound） |
 
 > 注：BackupManager、ConfigReloadManager<P>、ConfigReloadEvent、ReloadResult、WatcherHandle 存在但 mod.rs 未导出。SafeBackupManager 已 re-exported。
 
