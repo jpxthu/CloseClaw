@@ -5,6 +5,7 @@
 pub mod agents;
 pub mod backup;
 pub mod manager;
+pub mod migration;
 pub mod providers;
 pub mod reload;
 pub mod session;
@@ -16,6 +17,7 @@ pub use manager::{
 };
 
 pub use agents::{AgentDirectoryEntry, AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
+pub use migration::{migrate_if_needed, ConfigMigrationError};
 pub use providers::{
     ChannelsConfigData, ConfigError, ConfigProvider, GatewayConfigData, ModelsConfigData,
     SystemConfigData,
