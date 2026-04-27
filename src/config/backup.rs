@@ -206,6 +206,11 @@ impl SafeBackupManager {
     pub fn list_backups<P: AsRef<Path>>(&self, file_path: P) -> io::Result<Vec<PathBuf>> {
         self.0.lock().unwrap().list_backups(file_path)
     }
+
+    /// Find the most recent backup for a file within a locked context.
+    pub fn find_latest_backup<P: AsRef<Path>>(&self, file_path: P) -> io::Result<PathBuf> {
+        self.0.lock().unwrap().find_latest_backup(file_path)
+    }
 }
 
 #[cfg(test)]
