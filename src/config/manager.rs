@@ -10,7 +10,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use thiserror::Error;
-use tracing::warn;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::providers::{ConfigProvider, CredentialsProvider};
@@ -268,11 +268,45 @@ impl ConfigManager {
                 error: e.to_string(),
             })?;
 
-            let value: serde_json::Value =
-                serde_json::from_str(&content).map_err(|e| ConfigLoadError::ParseError {
-                    path: path.clone(),
-                    error: e.to_string(),
-                })?;
+            let value: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(parse_err) => {
+                    // Try rollback + retry before reporting the error
+                    match self.backup_manager.find_latest_backup(&path) {
+                        Ok(backup_path) => {
+                            if self.backup_manager.rollback(&path).is_ok() {
+                                let retry_content = fs::read_to_string(&path).ok();
+                                if let Some(retry_content) = retry_content {
+                                    if let Ok(retry_value) =
+                                        serde_json::from_str::<serde_json::Value>(&retry_content)
+                                    {
+                                        warn!(
+                                            "已用备份恢复 {}, 备份来源: {:?}",
+                                            section, backup_path
+                                        );
+                                        sections.insert(section, retry_value);
+                                        continue;
+                                    }
+                                }
+                            }
+                            // Retry failed
+                            error!("配置文件 {} 恢复后仍无法解析，daemon 无法启动", section);
+                            return Err(ConfigLoadError::ParseError {
+                                path,
+                                error: parse_err.to_string(),
+                            });
+                        }
+                        Err(_) => {
+                            // No backup found
+                            error!("配置文件 {} 损坏且无备份，daemon 无法启动", section);
+                            return Err(ConfigLoadError::ParseError {
+                                path,
+                                error: parse_err.to_string(),
+                            });
+                        }
+                    }
+                }
+            };
 
             sections.insert(section, value);
         }
