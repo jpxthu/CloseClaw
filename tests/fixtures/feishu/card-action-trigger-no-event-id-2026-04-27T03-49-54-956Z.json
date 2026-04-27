@@ -1,0 +1,22 @@
+{
+  "schema": "2.0",
+  "event_id": "5713fdb135168acf1e644e0024174955",
+  "token": "c-73063287d99f4c04c2d491d000d7d2a33188372e",
+  "create_time": "1777261794927153",
+  "event_type": "card.action.trigger",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
+  "operator": {
+    "tenant_key": "REDACTED_TENANT",
+    "open_id": "ou_REDACTED_USER",
+    "union_id": "on_REDACTED_UNION"
+  },
+  "action": {
+    "tag": "button"
+  },
+  "host": "im_message",
+  "context": {
+    "open_message_id": "om_x100b51d983f528a8b3d800233c8f5dc",
+    "open_chat_id": "oc_REDACTED_CHAT"
+  }
+}

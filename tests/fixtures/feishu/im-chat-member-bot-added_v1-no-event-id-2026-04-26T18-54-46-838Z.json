@@ -1,0 +1,18 @@
+{
+  "schema": "2.0",
+  "event_id": "19fbca2af15d43f069f414ac9322735c",
+  "token": "",
+  "create_time": "1777229686731",
+  "event_type": "im.chat.member.bot.added_v1",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
+  "chat_id": "oc_REDACTED_GROUP",
+  "external": false,
+  "name": "消息测试",
+  "operator_id": {
+    "open_id": "ou_REDACTED_USER",
+    "union_id": "on_REDACTED_UNION",
+    "user_id": null
+  },
+  "operator_tenant_key": "REDACTED_TENANT"
+}

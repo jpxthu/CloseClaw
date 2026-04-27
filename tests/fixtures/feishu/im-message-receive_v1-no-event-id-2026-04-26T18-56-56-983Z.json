@@ -1,0 +1,40 @@
+{
+  "schema": "2.0",
+  "event_id": "909b18d017d9047943140ed5e7a0da3d",
+  "token": "",
+  "create_time": "1777229816851",
+  "event_type": "im.message.receive_v1",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
+  "message": {
+    "chat_id": "oc_REDACTED_GROUP",
+    "chat_type": "group",
+    "content": "{\"text\":\"prefix @_user_1 suffix\"}",
+    "create_time": "1777229816602",
+    "mentions": [
+      {
+        "id": {
+          "open_id": "ou_29c257ed9cfb7fd7363f581ace9d3374",
+          "union_id": "on_b8a29684964a4c408c9f5003836294ee",
+          "user_id": null
+        },
+        "key": "@_user_1",
+        "mentioned_type": "bot",
+        "name": "供测试的机器人",
+        "tenant_key": "REDACTED_TENANT"
+      }
+    ],
+    "message_id": "om_x100b51d1b14a68a0c44f489eaaf0d56",
+    "message_type": "text",
+    "update_time": "1777229816602"
+  },
+  "sender": {
+    "sender_id": {
+      "open_id": "ou_REDACTED_USER",
+      "union_id": "on_REDACTED_UNION",
+      "user_id": null
+    },
+    "sender_type": "user",
+    "tenant_key": "REDACTED_TENANT"
+  }
+}
