@@ -30,9 +30,9 @@ pub struct ChatSession {
     /// Default model name (used for the ChatRequest)
     model: String,
     /// Chat history for context
-    chat_history: Vec<Message>,
+    pub chat_history: Vec<Message>,
     /// Max chat history entries (to prevent unbounded memory growth).
-    max_history: usize,
+    pub max_history: usize,
 }
 
 // --- Construction ---
@@ -89,7 +89,7 @@ impl ChatSession {
     }
 
     /// Truncate chat history to max_history entries, keeping the most recent messages.
-    fn truncate_history(&mut self) {
+    pub fn truncate_history(&mut self) {
         if self.chat_history.len() > self.max_history {
             let remove_count = self.chat_history.len() - self.max_history;
             self.chat_history.drain(0..remove_count);
@@ -128,7 +128,8 @@ impl ChatSession {
                             let msgs = self.handle_line(line).await;
                             for msg in msgs {
                                 if let Err(e) = self.send_message(msg).await {
-                                    error!(session_id = %self.session_id, error = %e, "send failed");
+                                    error!(session_id = %self.session_id,
+                                           error = %e, "send failed");
                                     break;
                                 }
                             }
@@ -181,7 +182,8 @@ impl ChatSession {
 
         match msg {
             ClientMessage::ChatStart { agent_id, id } => {
-                info!(session_id = %self.session_id, agent_id = %agent_id, id = %id, "session start");
+                info!(session_id = %self.session_id,
+                      agent_id = %agent_id, id = %id, "session start");
                 self.agent_id = agent_id;
                 vec![ServerMessage::ChatStarted {
                     session_id: self.session_id.clone(),
@@ -201,7 +203,8 @@ impl ChatSession {
 
     /// Process a ChatMessage: update history, call LLM, return response messages
     async fn handle_chat_message(&mut self, content: String, id: String) -> Vec<ServerMessage> {
-        info!(session_id = %self.session_id, content_len = %content.len(), id = %id, "chat message");
+        info!(session_id = %self.session_id,
+               content_len = %content.len(), id = %id, "chat message");
 
         self.chat_history.push(Message {
             role: "user".to_string(),
@@ -255,7 +258,243 @@ impl ChatSession {
             .await
             .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
 
-        debug!(session_id = %self.session_id, model = %response.model, usage = ?response.usage, "LLM response");
+        debug!(session_id = %self.session_id, model = %response.model,
+               usage = ?response.usage, "LLM response");
         Ok(response.content)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        chat::protocol::ServerMessage,
+        llm::{LLMRegistry, StubProvider},
+    };
+    use std::sync::Arc;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt, BufReader},
+        net::TcpListener,
+        sync::broadcast,
+    };
+
+    /// Set up a ChatSession with a real TCP pair and StubProvider registered.
+    pub(crate) async fn setup_session() -> (ChatSession, tokio::net::TcpStream) {
+        std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
+        let registry = Arc::new(LLMRegistry::new());
+        registry
+            .register("stub".to_string(), Arc::new(StubProvider::new()))
+            .await;
+        let session = ChatSession::new(
+            "test-session".to_string(),
+            "test-agent".to_string(),
+            accepted,
+            shutdown_rx.resubscribe(),
+            registry,
+        );
+        std::env::remove_var("LLM_FALLBACK_CHAIN");
+        (session, client)
+    }
+
+    #[tokio::test]
+    async fn test_truncate_history() {
+        let (mut session, _client) = setup_session().await;
+        session.max_history = 5;
+        // Over limit: should remove oldest entries, keep newest 5 (5–9)
+        session.chat_history = (0..10)
+            .map(|i| crate::llm::Message {
+                role: "user".to_string(),
+                content: format!("msg {}", i),
+            })
+            .collect();
+        session.truncate_history();
+        assert_eq!(session.chat_history.len(), 5);
+        assert_eq!(session.chat_history[0].content, "msg 5");
+        assert_eq!(session.chat_history[4].content, "msg 9");
+        // Under limit: no change
+        session.chat_history = (0..3)
+            .map(|i| crate::llm::Message {
+                role: "user".to_string(),
+                content: format!("msg {}", i),
+            })
+            .collect();
+        session.truncate_history();
+        assert_eq!(session.chat_history.len(), 3);
+        // Exact limit: no change
+        session.chat_history = (0..5)
+            .map(|i| crate::llm::Message {
+                role: "user".to_string(),
+                content: format!("msg {}", i),
+            })
+            .collect();
+        session.truncate_history();
+        assert_eq!(session.chat_history.len(), 5);
+        // Empty: no panic
+        session.chat_history.clear();
+        session.truncate_history();
+        assert_eq!(session.chat_history.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_handle_line_chat_start() {
+        let (mut session, _client) = setup_session().await;
+        let json = r#"{"type":"chat.start","agent_id":"my-agent","id":"req1"}"#;
+        let msgs = session.handle_line(json).await;
+        assert_eq!(msgs.len(), 1);
+        match &msgs[0] {
+            ServerMessage::ChatStarted { session_id, id } => {
+                assert_eq!(session_id, "test-session");
+                assert_eq!(id, "req1");
+            }
+            _ => panic!("expected ChatStarted"),
+        }
+        assert_eq!(session.agent_id, "my-agent");
+    }
+
+    #[tokio::test]
+    async fn test_handle_line_chat_message() {
+        let (mut session, _client) = setup_session().await;
+        let json = r#"{"type":"chat.message","content":"hello","id":"msg1"}"#;
+        let msgs = session.handle_line(json).await;
+        assert_eq!(msgs.len(), 2);
+        match &msgs[0] {
+            ServerMessage::ChatResponse { content, done, id } => {
+                assert!(done);
+                assert_eq!(id, "msg1");
+                assert_eq!(content, "stub response");
+            }
+            _ => panic!("expected ChatResponse"),
+        }
+        match &msgs[1] {
+            ServerMessage::ChatResponseDone { id } => {
+                assert_eq!(id, "msg1");
+            }
+            _ => panic!("expected ChatResponseDone"),
+        }
+        assert_eq!(session.chat_history.len(), 2);
+        assert_eq!(session.chat_history[0].role, "user");
+        assert_eq!(session.chat_history[0].content, "hello");
+        assert_eq!(session.chat_history[1].role, "assistant");
+    }
+    #[tokio::test]
+    async fn test_handle_line_chat_stop() {
+        let (mut session, _client) = setup_session().await;
+        assert!(session.active);
+        let json = r#"{"type":"chat.stop","id":"stop1"}"#;
+        let msgs = session.handle_line(json).await;
+        assert_eq!(msgs.len(), 1);
+        match &msgs[0] {
+            ServerMessage::ChatResponseDone { id } => {
+                assert_eq!(id, "stop1");
+            }
+            _ => panic!("expected ChatResponseDone"),
+        }
+        assert!(!session.active, "session should be inactive after stop");
+    }
+
+    #[tokio::test]
+    async fn test_handle_line_invalid_json() {
+        let (mut session, _client) = setup_session().await;
+        let msgs = session.handle_line("not valid json at all").await;
+        assert_eq!(msgs.len(), 1);
+        match &msgs[0] {
+            ServerMessage::ChatError { message, .. } => {
+                assert!(message.contains("invalid message"));
+            }
+            _ => panic!("expected ChatError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_send_message_writes_json() {
+        let (mut session, mut client) = setup_session().await;
+        let msg = ServerMessage::ChatResponse {
+            content: "hello world".to_string(),
+            done: true,
+            id: "req-x".to_string(),
+        };
+        session.send_message(msg).await.unwrap();
+        drop(session);
+        let mut reader = tokio::io::BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        assert!(line.contains(r#""type":"chat.response"#));
+        assert!(line.contains("hello world"));
+        assert!(line.ends_with("\n"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_session_new_fields() {
+        std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
+        std::env::set_var("LLM_MODEL", "custom-model");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
+        let registry = Arc::new(LLMRegistry::new());
+        registry
+            .register("stub".to_string(), Arc::new(StubProvider::new()))
+            .await;
+        let session = ChatSession::new(
+            "sid-123".to_string(),
+            "aid-456".to_string(),
+            stream,
+            shutdown_rx.resubscribe(),
+            registry,
+        );
+        std::env::remove_var("LLM_FALLBACK_CHAIN");
+        std::env::remove_var("LLM_MODEL");
+        assert_eq!(session.session_id, "sid-123");
+        assert_eq!(session.agent_id, "aid-456");
+        assert_eq!(session.model, "custom-model");
+        assert!(session.active);
+        assert_eq!(session.max_history, 100);
+    }
+
+    #[cfg(feature = "fake-llm")]
+    #[tokio::test]
+    async fn test_handle_chat_message_llm_failure() {
+        use crate::llm::fake::FakeProvider;
+        use crate::llm::LLMError;
+
+        std::env::set_var("LLM_FALLBACK_CHAIN", "fake/fake-model");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
+        let registry = Arc::new(LLMRegistry::new());
+        let fake = FakeProvider::builder()
+            .then_err(LLMError::InvalidRequest("test error".to_string()))
+            .build();
+        registry.register("fake".to_string(), Arc::new(fake)).await;
+        let mut session = ChatSession::new(
+            "fail-session".to_string(),
+            "fail-agent".to_string(),
+            accepted,
+            shutdown_rx.resubscribe(),
+            registry,
+        );
+        std::env::remove_var("LLM_FALLBACK_CHAIN");
+
+        let json = r#"{"type":"chat.message","content":"hello","id":"fail1"}"#;
+        let msgs = session.handle_line(json).await;
+        assert_eq!(msgs.len(), 2);
+        match &msgs[0] {
+            ServerMessage::ChatResponse { content, done, .. } => {
+                assert!(done);
+                assert!(
+                    content.contains("[error]"),
+                    "expected [error], got: {}",
+                    content
+                );
+            }
+            _ => panic!("expected ChatResponse with error"),
+        }
     }
 }
