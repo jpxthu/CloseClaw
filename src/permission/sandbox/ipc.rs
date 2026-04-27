@@ -244,4 +244,84 @@ mod tests {
             serde_json::to_string(&deserialized).unwrap()
         );
     }
+
+    #[test]
+    fn test_sandbox_request_evaluate_serialization() {
+        let req = SandboxRequest::Evaluate {
+            request: crate::permission::PermissionRequest::Bare(
+                crate::permission::PermissionRequestBody::FileOp {
+                    agent: "test-agent".to_string(),
+                    path: "/tmp/test.txt".to_string(),
+                    op: "read".to_string(),
+                },
+            ),
+        };
+        let json = serde_json::to_vec(&req).unwrap();
+        let deserialized: SandboxRequest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            serde_json::to_string(&deserialized).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sandbox_request_reload_rules_serialization() {
+        let rules = crate::permission::engine::RuleSet {
+            version: "1.0".to_string(),
+            rules: vec![],
+            defaults: Default::default(),
+            template_includes: vec![],
+            agent_creators: Default::default(),
+        };
+        let req = SandboxRequest::ReloadRules { rules };
+        let json = serde_json::to_vec(&req).unwrap();
+        let deserialized: SandboxRequest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            serde_json::to_string(&deserialized).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sandbox_response_permission_allowed_serialization() {
+        let resp =
+            SandboxResponse::PermissionResponse(crate::permission::PermissionResponse::Allowed {
+                token: "token123".to_string(),
+            });
+        let json = serde_json::to_vec(&resp).unwrap();
+        let deserialized: SandboxResponse = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&resp).unwrap(),
+            serde_json::to_string(&deserialized).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sandbox_response_rules_reloaded_serialization() {
+        let resp = SandboxResponse::RulesReloaded;
+        let json = serde_json::to_vec(&resp).unwrap();
+        let deserialized: SandboxResponse = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&resp).unwrap(),
+            serde_json::to_string(&deserialized).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_ipc_channel_new() {
+        let channel = IpcChannel::new("/tmp/test-socket.sock");
+        assert_eq!(
+            channel.path,
+            std::path::PathBuf::from("/tmp/test-socket.sock")
+        );
+    }
+
+    #[test]
+    fn test_ipc_channel_clean_up_nonexistent_path() {
+        // clean_up on a non-existent path should not panic (idempotent)
+        let channel = IpcChannel::new("/tmp/nonexistent-socket-12345.sock");
+        channel.clean_up(); // should not panic
+                            // Running it twice is also fine (idempotent)
+        channel.clean_up();
+    }
 }
