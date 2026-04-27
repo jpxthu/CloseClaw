@@ -8,6 +8,7 @@ pub mod shutdown;
 use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
 use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
+use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig};
@@ -67,6 +68,22 @@ impl Daemon {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
 
         Self::load_env(config_dir);
+
+        // Migrate legacy openclaw.json to config/ directory if needed
+        let openclaw_json_path = Path::new(config_dir).join("openclaw.json");
+        info!("Checking for legacy openclaw.json migration...");
+        match migrate_if_needed(&openclaw_json_path, config_dir) {
+            Ok(true) => {
+                info!("Legacy openclaw.json migration completed successfully");
+            }
+            Ok(false) => {
+                info!("No migration needed — config directory is up to date");
+            }
+            Err(e) => {
+                // Migration errors are non-fatal; log and continue
+                tracing::warn!(error = %e, "openclaw.json migration failed — continuing with existing config");
+            }
+        }
 
         // Initialize SQLite storage — fail hard if this fails (no MemoryStorage fallback)
         let data_dir = Path::new(config_dir);
