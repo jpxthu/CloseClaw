@@ -158,6 +158,16 @@ pub enum ConfigError {
 
 轮转规则：超过 `max_backups` 时删除最旧的备份文件。
 
+**`ConfigManager::load()` 的 rollback-on-corruption 行为** — 当 mandatory section（models / channels / gateway / plugins / system）的 JSON 文件解析失败时，ConfigManager::load() 会尝试从备份恢复：
+
+1. 调用 `backup_manager.find_latest_backup(&path)` 查找最新备份
+2. 如果存在备份：调用 `backup_manager.rollback(&path)` 恢复文件，重新解析
+   - 重试成功 → `tracing::warn!("已用备份恢复 {}", section)` + 继续加载
+   - 重试失败 → `tracing::error!("配置文件 {} 恢复后仍无法解析，daemon 无法启动")` → 返回 `ConfigLoadError::ParseError`
+3. 如果无备份 → `tracing::error!("配置文件 {} 损坏且无备份，daemon 无法启动")` → 返回 `ConfigLoadError::ParseError`
+
+credentials 文件损坏不影响启动（warn-and-continue），无需 rollback 处理。
+
 ---
 
 ### providers：配置源实现
