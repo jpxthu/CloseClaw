@@ -38,9 +38,30 @@
 - **`ChatSession::run()`** — 主事件循环：读客户端消息 → 分发处理 → 写回响应；并监听 shutdown 信号
 - **`ChatSession::handle_line()`** — 解析 ClientMessage，分发 ChatStart/ChatMessage/ChatStop
 - **`ChatSession::handle_chat_message()`** — 处理 ChatMessage：追加历史 → 截断 → 调用 LLM → 返回响应消息
-- **`ChatSession::call_llm()`** — 调用 LLM（通过 FallbackClient），返回响应内容
-- **`ChatSession::send_message()`** — 将 ServerMessage 写入 TCP（JSON + 换行 + flush）
 - **`ChatSession::truncate_history()`** — 裁剪 chat_history 到 max_history 条
+
+#### 测试可见字段/方法（供测试访问）
+
+session.rs 内 `#[cfg(test)] mod tests` 需要访问以下私有逻辑，设为 `pub` 仅用于测试：
+
+- **`chat_history: Vec<Message>`**（pub）— 会话消息历史，测试直接构造和断言
+- **`max_history: usize`**（pub）— 最大历史条数，测试直接修改以覆盖边界条件
+- **`truncate_history()`**（pub）— 测试直接调用验证截断行为
+
+#### 测试覆盖
+
+| 测试 | 覆盖场景 |
+|------|----------|
+| `test_truncate_history` | history 超过/未超限/恰好/为空的所有边界场景 |
+| `test_handle_line_chat_start` | ChatStart JSON → 返回 ChatStarted，agent_id 更新 |
+| `test_handle_line_chat_message` | ChatMessage JSON → 返回 ChatResponse + ChatResponseDone，history 正确追加 |
+| `test_handle_line_chat_stop` | ChatStop JSON → active 变 false，返回 ChatResponseDone |
+| `test_handle_line_invalid_json` | 非法 JSON → 返回 ChatError |
+| `test_send_message_writes_json` | send_message 写入合法 JSON + 换行 |
+| `test_chat_session_new_fields` | new() 构造后 session_id、agent_id、model、max_history 字段正确 |
+| `test_handle_chat_message_llm_failure`（fake-llm） | LLM 返回错误时返回含 `[error]` 的 ChatResponse |
+| `test_full_session_lifecycle`（tests/） | 完整 TCP 交互：ChatStart → ChatMessage → ChatStop |
+| `test_session_shutdown_signal`（tests/） | shutdown 信号 → 收到 ChatError("server shutting down") |
 
 ---
 
