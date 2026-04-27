@@ -1,0 +1,20 @@
+{
+  "schema": "2.0",
+  "event_id": "8e02f464503207a825c21fb3cf4635de",
+  "token": "",
+  "create_time": "1777260393915",
+  "event_type": "im.message.reaction.created_v1",
+  "tenant_key": "REDACTED_TENANT",
+  "app_id": "REDACTED_APP",
+  "action_time": "1777260393915",
+  "message_id": "om_x100b51d9229123f8c2d286ae146ec12",
+  "operator_type": "user",
+  "reaction_type": {
+    "emoji_type": "LightThumbsup"
+  },
+  "user_id": {
+    "open_id": "ou_REDACTED_USER",
+    "union_id": "on_REDACTED_UNION",
+    "user_id": null
+  }
+}

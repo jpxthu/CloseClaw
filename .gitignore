@@ -34,3 +34,9 @@ credentials.json
 .reviewer_audit
 *.backup
 .backup
+
+# Node
+node_modules/
+package-lock.json
+tests/fixtures/feishu/package-lock.json
+
