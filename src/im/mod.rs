@@ -3,6 +3,7 @@
 //! Each adapter implements the IMAdapter trait for a specific IM platform.
 
 pub mod feishu;
+pub mod processor;
 
 use crate::gateway::Message;
 use async_trait::async_trait;
