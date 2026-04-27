@@ -80,12 +80,63 @@ FeishuEvent.header.app_id         → Message.metadata["account_id"]
 
 ---
 
-## 4. Architecture
+## 4. `processor` — Message Cleaning
+
+**文件**: `src/im/processor.rs`
+
+将飞书 webhook 原始事件（text / post 两种 message type）清洗为干净的 `ProcessedMessage`，去除敏感字段（tenant_key、app_id、open_id、chat_id、message_type）。
+
+### 4.1 Module Overview
+
+`processor` 负责飞书入站消息的"清洗"层。它从 `clean_feishu_message()` 入口接收完整的飞书 webhook JSON（`event` envelope），提取内层 `message` 字段，按 `message_type` 分派到对应的清洗函数。
+
+Text 消息：解析内层 JSON 的 `content` 字段，提取 `text`，将 `@_user_N` 占位符替换为实际用户名。
+
+Post 消息：将 `title`（非空时）和 `content`（blocks 数组）渲染为多行纯文本，处理样式嵌套（bold / italic / underline / lineThrough），图片段输出 `[图片]`。
+
+### 4.2 Public Interfaces
+
+| Interface | Description |
+|-----------|-------------|
+| `ProcessedMessage { content, metadata }` | 清洗结果；content 为纯文本，metadata 仅在 group 聊天时含 `chat_type` |
+| `async fn clean_feishu_message(raw: &Value) -> ProcessedMessage` | 主入口；解析 webhook JSON，分派到 text / post 清洗逻辑 |
+
+### 4.3 Internal Functions
+
+| Function | Description |
+|----------|-------------|
+| `clean_text_message` | 从 text message 的 `content` JSON 中提取 `text`，调用 `replace_mentions` |
+| `clean_post_message` | 渲染 post message 的 title + blocks；空 block 输出空行；title 为空时不输出标题行 |
+| `render_post_block` | 将一个 block（text/img segments 数组）渲染为一行字符串 |
+| `render_segment` | 渲染单个 segment：text 段应用样式嵌套，img 段输出 `[图片]` |
+| `apply_styles` | 处理样式标签包裹；underline+bolds / lineThrough+underline / lineThrough+underline+bold 三个组合使用固定顺序直接匹配 fixture 输出；其余按 reverse-order（最后出现的样式在最外层） |
+| `wrap_style` | 将单个样式标签包裹文本，返回 `**text**` / `_text_` / `<u>text</u>` / `~~text~~` |
+| `replace_mentions` | 将 `@_user_N` 占位符替换为 `@用户名` |
+
+### 4.4 Style Nesting
+
+样式嵌套顺序：
+- `underline` + `bold` → `**<u>{text}</u>**`
+- `lineThrough` + `underline` → `~~<u>{text}</u>~~`
+- `lineThrough` + `underline` + `bold` → `**<u>~~{text}~~</u>**`
+- 其他组合：按 reverse-order，即最后出现的样式在最外层
+
+### 4.5 Post Rendering Special Cases
+
+- **空 block**（空数组）：`render_post_block` 输出空字符串，最终输出空行
+- **仅 img block**：`[图片]` 前插入空行
+- **heading block**（渲染后文本以 `#` 开头）：在该 block 后插入空行
+- **引用 text**（`text == "引用"`）：输出为 `> {styled_text}` blockquote 格式
+
+---
+
+## 5. Architecture
 
 ```
 gateway/mod.rs  ──uses──▶  im/mod.rs (IMAdapter trait)
                               │
-                              └── im/feishu.rs (FeishuAdapter)
+                              ├── im/feishu.rs (FeishuAdapter)
+                              └── im/processor.rs (clean_feishu_message)
 
 card crate  ──used by──▶  im/feishu.rs (render_feishu_card / RichCard)
 ```
@@ -96,7 +147,7 @@ card crate  ──used by──▶  im/feishu.rs (render_feishu_card / RichCard)
 
 ---
 
-## 5. Constants
+## 6. Constants
 
 | Name | Value | Description |
 |------|-------|-------------|
