@@ -98,6 +98,146 @@ fn test_config_validation_error_display() {
 }
 
 // ---------------------------------------------------------------------------
+// ConfigManager — corrupted file + rollback recovery
+// ---------------------------------------------------------------------------
+
+/// Test: corrupted mandatory file + valid backup → load succeeds via rollback.
+#[test]
+fn test_config_manager_load_corrupted_with_backup_recovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Update creates a backup of the current models.json
+    manager
+        .update(
+            ConfigSection::Models,
+            serde_json::json!({"version": "2.0"}),
+            |_| Ok(()),
+        )
+        .unwrap();
+
+    // Corrupt models.json — JSON parse will fail
+    let models_path = tmp.path().join("models.json");
+    fs::write(&models_path, "not valid json {{").unwrap();
+
+    // Load should succeed because rollback recovers from the backup made above
+    manager.load().unwrap();
+
+    let section = manager.section(ConfigSection::Models).unwrap();
+    assert_eq!(section["version"], "2.0");
+}
+
+/// Test: corrupted mandatory file + backup that is also corrupted → load fails.
+#[test]
+fn test_config_manager_load_corrupted_backup_also_corrupted() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Update creates a backup of the current models.json
+    manager
+        .update(
+            ConfigSection::Models,
+            serde_json::json!({"version": "2.0"}),
+            |_| Ok(()),
+        )
+        .unwrap();
+
+    // Corrupt the backup itself: find backup path and overwrite with bad JSON
+    let models_path = tmp.path().join("models.json");
+    let backup_path = manager
+        .backup_manager
+        .find_latest_backup(&models_path)
+        .unwrap();
+    fs::write(&backup_path, "also not valid json {{").unwrap();
+
+    // Corrupt models.json
+    fs::write(&models_path, "not valid json {{").unwrap();
+
+    // Load must fail because even the recovered backup is unparseable
+    let result = manager.load();
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::ParseError { .. }
+    ));
+}
+
+/// Test: corrupted mandatory file + no backup available → load fails.
+#[test]
+fn test_config_manager_load_corrupted_no_backup() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Ensure .backups directory does not exist
+    let backup_dir = tmp.path().join(".backups");
+    fs::remove_dir_all(&backup_dir).ok();
+
+    // Corrupt models.json
+    let models_path = tmp.path().join("models.json");
+    fs::write(&models_path, "not valid json {{").unwrap();
+
+    // Load must fail because there is no backup to recover from
+    let result = manager.load();
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::ParseError { .. }
+    ));
+}
+
+/// Test: normal load flow is unaffected when files are valid.
+#[test]
+fn test_config_manager_load_normal_unaffected() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // All mandatory sections should be loaded successfully
+    assert!(manager.section(ConfigSection::Models).is_some());
+    assert!(manager.section(ConfigSection::Channels).is_some());
+    assert!(manager.section(ConfigSection::Gateway).is_some());
+    assert!(manager.section(ConfigSection::Plugins).is_some());
+    assert!(manager.section(ConfigSection::System).is_some());
+}
+
+/// Test: credentials directory does not exist → load still succeeds.
+#[test]
+fn test_config_manager_load_credentials_missing_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // credentials/ directory does not exist — load should still succeed
+    assert!(manager.section(ConfigSection::Models).is_some());
+}
+
+/// Test: credentials directory contains a corrupted JSON file → load still succeeds.
+#[test]
+fn test_config_manager_load_credentials_corrupted_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+
+    // Create credentials/ directory with a bad JSON file
+    let creds_dir = tmp.path().join("credentials");
+    fs::create_dir_all(&creds_dir).unwrap();
+    fs::write(creds_dir.join("openai.json"), "not valid json {{").unwrap();
+
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Mandatory sections should load successfully despite corrupted credentials file
+    assert!(manager.section(ConfigSection::Models).is_some());
+}
+
+// ---------------------------------------------------------------------------
 // ConfigManager — happy path
 // ---------------------------------------------------------------------------
 
