@@ -1,0 +1,27 @@
+{
+  "schema": "2.0",
+  "event_id": "2095d939c4bd3d63c27cc44eaaac1d39",
+  "token": "",
+  "create_time": "1777260733055",
+  "event_type": "im.message.receive_v1",
+  "tenant_key": "1ad1de837601dbe5",
+  "app_id": "cli_a964e565a9f8dcb3",
+  "message": {
+    "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+    "chat_type": "p2p",
+    "content": "{\"title\":\"\",\"content\":[[{\"tag\":\"text\",\"text\":\"下面是一张图片，内容是刚才一条包含很多表情的消息的截图：\",\"style\":[]}],[{\"tag\":\"img\",\"image_key\":\"img_v3_02115_89c71a47-3396-4218-8142-e6efc88f494g\",\"width\":1451,\"height\":597}]]}",
+    "create_time": "1777260732563",
+    "message_id": "om_x100b51d9c50bc4a8c4dda40c042b281",
+    "message_type": "post",
+    "update_time": "1777260732563"
+  },
+  "sender": {
+    "sender_id": {
+      "open_id": "ou_6e65df14620f95c902e4b0f9ef4562ee",
+      "union_id": "on_6c07735c93eab23fd37163334770ae6d",
+      "user_id": null
+    },
+    "sender_type": "user",
+    "tenant_key": "1ad1de837601dbe5"
+  }
+}
