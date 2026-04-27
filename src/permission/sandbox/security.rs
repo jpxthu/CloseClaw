@@ -83,6 +83,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_security_policy_default_is_empty() {
+        let policy = SecurityPolicy::default();
+        assert!(!policy.seccomp, "default seccomp should be false");
+        assert!(!policy.landlock, "default landlock should be false");
+        assert!(
+            policy.allowed_fs_paths.is_empty(),
+            "default allowed_fs_paths should be empty"
+        );
+        assert!(
+            policy.blocked_syscalls.is_empty(),
+            "default blocked_syscalls should be empty"
+        );
+    }
+
+    #[test]
+    fn test_security_policy_apply_returns_ok() {
+        let policy = SecurityPolicy::default();
+        // apply() should return Ok on any platform (no-op on non-Linux, stub on Linux)
+        let result = policy.apply();
+        assert!(result.is_ok(), "apply() should succeed, got: {:?}", result);
+    }
+
+    #[test]
+    fn test_security_policy_custom() {
+        let policy = SecurityPolicy {
+            seccomp: false,
+            landlock: false,
+            allowed_fs_paths: vec![std::path::PathBuf::from("/tmp/custom")],
+            blocked_syscalls: vec!["read".to_string(), "write".to_string()],
+        };
+        assert!(!policy.seccomp);
+        assert!(!policy.landlock);
+        assert_eq!(policy.allowed_fs_paths.len(), 1);
+        assert_eq!(policy.blocked_syscalls.len(), 2);
+        let result = policy.apply();
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_default_restrictive_linux() {
         let policy = SecurityPolicy::default_restrictive();
         if cfg!(target_os = "linux") {

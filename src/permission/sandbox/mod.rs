@@ -293,41 +293,4 @@ pub async fn run_engine_subprocess(ipc_path: PathBuf, rules: RuleSet) -> anyhow:
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sandbox_state_default() {
-        let state = SandboxState::default();
-        assert_eq!(state, SandboxState::Unstarted);
-    }
-
-    #[test]
-    fn test_sandbox_error_display() {
-        let ipc_err = SandboxError::IpcTimeout;
-        let ipc_msg = ipc_err.to_string();
-        assert!(
-            ipc_msg.contains("timeout") || ipc_msg.contains("IPC"),
-            "IpcTimeout display should contain 'timeout' or 'IPC': {}",
-            ipc_msg
-        );
-
-        let process_err = SandboxError::ProcessError("engine died".to_string());
-        let process_msg = process_err.to_string();
-        assert!(
-            process_msg.contains("engine died"),
-            "ProcessError display should contain the message: {}",
-            process_msg
-        );
-
-        let invalid_state = SandboxError::InvalidState {
-            state: SandboxState::Running,
-        };
-        let invalid_msg = invalid_state.to_string();
-        assert!(
-            invalid_msg.contains("Running"),
-            "InvalidState display should contain the state: {}",
-            invalid_msg
-        );
-    }
-}
+mod tests;
