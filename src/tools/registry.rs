@@ -30,6 +30,47 @@ impl Default for ToolRegistry {
 }
 
 impl ToolRegistry {
+    /// Format a single group into a section line, returning (output, new_total_len).
+    /// Returns None if truncation was triggered.
+    fn format_group_line(
+        group_name: &str,
+        tools: Vec<(String, bool)>,
+        total_len: usize,
+        max_len: usize,
+    ) -> Option<(String, usize)> {
+        let tag = if tools.iter().any(|(_, deferred)| !deferred) {
+            "(always loaded)"
+        } else {
+            ""
+        };
+        let header = if tag.is_empty() {
+            format!("**{}**", group_name)
+        } else {
+            format!("**{}** — {}", group_name, tag)
+        };
+        let mut sorted_tools = tools;
+        sorted_tools.sort_by_key(|(n, _)| n.clone());
+        let tool_list: String = sorted_tools
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect::<Vec<_>>()
+            .join("、");
+        let line = format!("{}\n- {}\n", header, tool_list);
+        let new_len = total_len + line.chars().count();
+        if new_len > max_len {
+            let overflow = new_len - max_len;
+            let exceeded = format!(
+                "... ({} more tools, use ToolSearch to explore)",
+                overflow / 10 + 1
+            );
+            Some((exceeded, new_len))
+        } else {
+            Some((line, new_len))
+        }
+    }
+}
+
+impl ToolRegistry {
     /// Creates a new empty registry.
     pub fn new() -> Self {
         Self {
@@ -93,7 +134,9 @@ impl ToolRegistry {
     pub async fn len_for_test(&self) -> usize {
         self.tools.read().await.len()
     }
+}
 
+impl ToolRegistry {
     /// Build a first-level tools section string, grouped and truncated.
     ///
     /// Groups tools by `group()`, formats each group with a header and tool
@@ -111,41 +154,19 @@ impl ToolRegistry {
                 .push((d.name, d.is_deferred));
         }
 
-        // Build lines
         let mut lines: Vec<String> = Vec::new();
         let mut total_len = 0;
 
         let mut sorted_groups: Vec<_> = groups_map.into_iter().collect();
         sorted_groups.sort_by_key(|(g, _)| g.clone());
 
-        for (group_name, mut tools) in sorted_groups {
-            let tag = if tools.iter().any(|(_, deferred)| !deferred) {
-                "(always loaded)"
-            } else {
-                ""
-            };
-            let header = if tag.is_empty() {
-                format!("**{}**", group_name)
-            } else {
-                format!("**{}** — {}", group_name, tag)
-            };
-
-            tools.sort_by_key(|(n, _)| n.clone());
-            let tool_names: Vec<_> = tools.iter().map(|(n, _)| n.clone()).collect();
-            let tool_list = tool_names.join("、");
-            let line = format!("{}\n- {}\n", header, tool_list);
-            total_len += line.chars().count();
-
-            if total_len > TOOLS_SECTION_MAX_LEN {
-                let overflow = total_len - TOOLS_SECTION_MAX_LEN;
-                let exceeded = format!(
-                    "... ({} more tools, use ToolSearch to explore)",
-                    overflow / 10 + 1
-                );
-                lines.push(exceeded);
+        for (group_name, tools) in sorted_groups {
+            let Some((line, new_len)) =
+                Self::format_group_line(&group_name, tools, total_len, TOOLS_SECTION_MAX_LEN)
+            else {
                 break;
-            }
-
+            };
+            total_len = new_len;
             lines.push(line);
         }
 
