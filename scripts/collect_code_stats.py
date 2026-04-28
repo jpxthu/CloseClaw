@@ -131,6 +131,8 @@ def count_stats(commit):
                 elif s.startswith("//"):
                     continue
                 else:
+                    if s.startswith("#[test"):
+                        test_count += 1
                     total_loc += 1
             else:
                 if "*/" in s:
