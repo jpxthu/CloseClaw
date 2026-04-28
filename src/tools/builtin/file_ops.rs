@@ -9,21 +9,16 @@ use serde_json::Value;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
-// Shared helper
-// ---------------------------------------------------------------------------
-
-fn workdir_path(ctx: &ToolContext, path: &str) -> std::path::PathBuf {
-    match ctx.workdir {
-        Some(ref wd) => std::path::Path::new(&wd.path).join(path),
-        None => std::path::Path::new(path).to_path_buf(),
-    }
-}
-
-// ---------------------------------------------------------------------------
 // ReadTool
 // ---------------------------------------------------------------------------
 
 pub struct ReadTool;
+
+impl Default for ReadTool {
+    fn default() -> Self {
+        Self
+    }
+}
 
 impl ReadTool {
     pub fn new() -> Self {
@@ -78,6 +73,12 @@ impl Tool for ReadTool {
 // ---------------------------------------------------------------------------
 
 pub struct WriteTool;
+
+impl Default for WriteTool {
+    fn default() -> Self {
+        Self
+    }
+}
 
 impl WriteTool {
     pub fn new() -> Self {
@@ -138,6 +139,12 @@ impl Tool for WriteTool {
 // ---------------------------------------------------------------------------
 
 pub struct EditTool;
+
+impl Default for EditTool {
+    fn default() -> Self {
+        Self
+    }
+}
 
 impl EditTool {
     pub fn new() -> Self {
@@ -204,6 +211,12 @@ impl Tool for EditTool {
 
 pub struct GrepTool;
 
+impl Default for GrepTool {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl GrepTool {
     pub fn new() -> Self {
         Self
@@ -268,6 +281,12 @@ impl Tool for GrepTool {
 // ---------------------------------------------------------------------------
 
 pub struct LsTool;
+
+impl Default for LsTool {
+    fn default() -> Self {
+        Self
+    }
+}
 
 impl LsTool {
     pub fn new() -> Self {

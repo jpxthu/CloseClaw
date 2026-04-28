@@ -27,6 +27,12 @@ use serde_json::Value;
 /// - `is_deferred_by_default = false` (always loaded in index)
 pub struct ToolSearchTool;
 
+impl Default for ToolSearchTool {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl ToolSearchTool {
     pub fn new() -> Self {
         Self

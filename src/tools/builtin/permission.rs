@@ -24,6 +24,12 @@ use serde_json::Value;
 /// This tool is always loaded in the index (`is_deferred_by_default = false`).
 pub struct PermissionQueryTool;
 
+impl Default for PermissionQueryTool {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl PermissionQueryTool {
     pub fn new() -> Self {
         Self
