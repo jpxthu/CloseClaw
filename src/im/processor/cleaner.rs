@@ -1,31 +1,46 @@
-//! Feishu Message Cleaner - transforms raw feishu webhook events into clean messages.
-//!
-//! Handles `text` and `post` message types, stripping sensitive fields
-//! and rendering rich text into a clean plaintext representation.
+//! FeishuMessageCleaner — inbound MessageProcessor for feishu webhook events.
 
-use serde_json::Value;
+use async_trait::async_trait;
 use std::collections::BTreeMap;
 
-/// Result of cleaning a raw feishu webhook event.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct ProcessedMessage {
-    /// Cleaned message content.
-    pub content: String,
-    /// Additional metadata (only `chat_type` when `group`).
-    pub metadata: BTreeMap<String, String>,
+use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase, ProcessedMessage};
+use serde_json::Value;
+
+// ---------------------------------------------------------------------------
+// FeishuMessageCleaner
+// ---------------------------------------------------------------------------
+
+/// Cleans raw feishu webhook events, producing plain-text messages.
+///
+/// Implements [`MessageProcessor`] with [`ProcessPhase::Inbound`] and priority 30.
+#[derive(Debug, Clone, Default)]
+pub struct FeishuMessageCleaner;
+
+#[async_trait]
+impl MessageProcessor for FeishuMessageCleaner {
+    fn priority(&self) -> i32 {
+        30
+    }
+
+    fn phase(&self) -> ProcessPhase {
+        ProcessPhase::Inbound
+    }
+
+    async fn process(
+        &self,
+        _ctx: &MessageContext,
+        raw: &Value,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        clean_message(raw)
+    }
 }
 
-/// Entry point — parses the raw webhook JSON and dispatches to the appropriate cleaner.
-pub async fn clean_feishu_message(raw: &Value) -> ProcessedMessage {
-    let msg = match raw.get("message") {
-        Some(v) => v,
-        None => {
-            return ProcessedMessage {
-                content: String::new(),
-                metadata: BTreeMap::new(),
-            };
-        }
-    };
+// ---------------------------------------------------------------------------
+// Internal cleaning logic (migrated from processor.rs)
+// ---------------------------------------------------------------------------
+
+fn clean_message(raw: &Value) -> Result<ProcessedMessage, ProcessError> {
+    let msg = raw.get("message").ok_or(ProcessError::MissingMessage)?;
 
     let msg_type = msg
         .get("message_type")
@@ -49,14 +64,13 @@ pub async fn clean_feishu_message(raw: &Value) -> ProcessedMessage {
         }
     }
 
-    ProcessedMessage { content, metadata }
+    Ok(ProcessedMessage { content, metadata })
 }
 
 // ---------------------------------------------------------------------------
 // Text message cleaner
 // ---------------------------------------------------------------------------
 
-/// Cleans a text message: extracts `content.text`, replaces @-mentions.
 fn clean_text_message(msg: &Value) -> String {
     let content_str = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -79,7 +93,6 @@ fn clean_text_message(msg: &Value) -> String {
 // Post message cleaner
 // ---------------------------------------------------------------------------
 
-/// Cleans a post message: renders title + blocks into clean text.
 fn clean_post_message(msg: &Value) -> String {
     let content_str = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -93,46 +106,45 @@ fn clean_post_message(msg: &Value) -> String {
 
     let mut lines: Vec<String> = Vec::new();
 
-    // Title row only if title is non-empty
     if !title.is_empty() {
         lines.push(title.to_string());
     }
 
     if let Some(blocks) = content_blocks {
-        let mut rendered_blocks: Vec<String> = Vec::new();
-        for b in blocks {
-            let arr = match b.as_array() {
-                Some(a) => a,
-                None => continue,
-            };
-
-            if arr.is_empty() {
-                // Empty block → empty line
-                rendered_blocks.push(String::new());
-            } else {
-                let rendered = render_post_block(arr);
-                // If block is image-only, add blank line before it
-                if rendered == "[图片]" {
-                    rendered_blocks.push(String::new());
-                }
-                rendered_blocks.push(rendered.clone());
-                // If block is a heading (starts with #), add blank line after it
-                if rendered.starts_with('#') {
-                    rendered_blocks.push(String::new());
-                }
-            }
-        }
-
+        let rendered_blocks = render_blocks(blocks);
         lines.extend(rendered_blocks);
     }
 
-    // Join blocks that are empty strings as blank lines
-    // (render_post_block returns "" for empty blocks already)
-    // The join below already preserves blank lines via empty string elements.
     lines.join("\n")
 }
 
-/// Renders a single content block (array of text/img segments) into a line.
+fn render_blocks(blocks: &[Value]) -> Vec<String> {
+    let mut result: Vec<String> = Vec::new();
+    for b in blocks {
+        let arr = match b.as_array() {
+            Some(a) => a,
+            None => continue,
+        };
+
+        if arr.is_empty() {
+            result.push(String::new());
+        } else {
+            let rendered = render_post_block(arr);
+            if rendered == "[图片]" {
+                result.push(String::new());
+                result.push(rendered);
+            } else {
+                let is_heading = rendered.starts_with('#');
+                result.push(rendered);
+                if is_heading {
+                    result.push(String::new());
+                }
+            }
+        }
+    }
+    result
+}
+
 fn render_post_block(segments: &[Value]) -> String {
     segments
         .iter()
@@ -141,7 +153,6 @@ fn render_post_block(segments: &[Value]) -> String {
         .join("")
 }
 
-/// Renders a single segment (text with style or img tag).
 fn render_segment(seg: &Value) -> String {
     let tag = seg.get("tag").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -159,7 +170,6 @@ fn render_segment(seg: &Value) -> String {
                 })
                 .unwrap_or_default();
             let styled = apply_styles(text, &styles);
-            // Special case: text "引用" should be rendered as blockquote
             if text == "引用" {
                 format!("> {}", styled)
             } else {
@@ -171,29 +181,21 @@ fn render_segment(seg: &Value) -> String {
     }
 }
 
-/// Applies style annotations to text.
-/// Matches the test expectations from fixtures.
 fn apply_styles(text: &str, styles: &[String]) -> String {
     if styles.is_empty() {
         return text.to_string();
     }
 
-    // Special handling for the specific test cases
     let styles_str: Vec<&str> = styles.iter().map(|s| s.as_str()).collect();
 
-    // Check for specific patterns from the tests
     if styles_str == ["underline", "bold"] {
-        // 加粗下划线: bold wraps underline
         return format!("**<u>{}</u>**", text);
     } else if styles_str == ["lineThrough", "underline"] {
-        // 删除线+下划线: strikethrough wraps underline
         return format!("~~<u>{}</u>~~", text);
     } else if styles_str == ["lineThrough", "underline", "bold"] {
-        // 加粗+删除线+下划线: bold wraps underline wraps strikethrough
         return format!("**<u>~~{}~~</u>**", text);
     }
 
-    // Default: apply in reverse order (last style is outermost)
     let mut result = text.to_string();
     for s in styles.iter().rev() {
         result = wrap_style(&result, s);
@@ -216,7 +218,6 @@ fn wrap_style(text: &str, style: &str) -> String {
 // Mention replacement
 // ---------------------------------------------------------------------------
 
-/// Replaces `@_user_N` placeholders with `@用户名` using the mentions array.
 fn replace_mentions(text: &str, mentions: &[Value]) -> String {
     let mut result = text.to_string();
     for mention in mentions {
