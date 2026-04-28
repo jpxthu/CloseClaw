@@ -6,10 +6,10 @@
 
 | 文件 | 说明 |
 |------|------|
-| `collect_code_stats.py` | 采集脚本：从 git 历史中按天统计，输出 `daily_stats.jsonl` |
-| `draw_stats.py` | 画图脚本：读取 JSONL，生成 `code_stats_chart.html` |
-| `daily_stats.jsonl` | 采集结果（39 天数据） |
-| `code_stats_chart.html` | 生成的图表页面（用浏览器打开即可，无需服务器） |
+| `collect_code_stats.py` | 采集脚本：从 git 历史中按天统计，运行后生成 `daily_stats.jsonl` |
+| `draw_stats.py` | 画图脚本：读取 JSONL，运行后生成 `code_stats_chart.html` |
+| `README.md` | 本文档 |
+| `.gitignore` | 忽略 `daily_stats.jsonl` 和 `code_stats_chart.html`（生成物）|
 
 ## 快速开始
 
@@ -74,6 +74,8 @@ firefox scripts/code_stats_chart.html
 5. **测试覆盖率估算** — proxy (tests/max)，含均值线
 
 ## 数据统计（截至 2026-04-28）
+
+> 运行脚本后生成 `daily_stats.jsonl` 和 `code_stats_chart.html`（已列入 `.gitignore`）
 
 | 指标 | 起始 (2026-03-21) | 结束 (2026-04-28) | 增长 |
 |------|-------------------|-------------------|------|
