@@ -155,6 +155,21 @@ fn append_append_section(base: String) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Tools section builder
+// ---------------------------------------------------------------------------
+
+use crate::tools::{ToolContext, ToolRegistry};
+
+/// Build the Tools section content from a registry.
+///
+/// Groups tools by their group name, formats each group with a header and
+/// tool list, then truncates at `TOOLS_SECTION_MAX_LEN` (1500 chars) if needed.
+pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> Section {
+    let content = registry.build_tools_section(ctx).await;
+    Section::ToolsSection(content)
+}
+
+// ---------------------------------------------------------------------------
 // Convenience: build from file-based workspace sections
 // ---------------------------------------------------------------------------
 
@@ -195,7 +210,12 @@ pub fn build_from_workspace<P: AsRef<Path>>(
         if let Some((content, _)) = read_file_section(&memory_path) {
             sections.push(Section::MemorySection(content));
         }
+    } else {
+        sections.push(Section::MemorySection(String::new()));
     }
+
+    // Tools section — inserted between RoleSection and MemorySection
+    sections.push(Section::ToolsSection(String::new()));
 
     // Dynamic sections
     sections.extend(dynamic_sections);
@@ -205,8 +225,11 @@ pub fn build_from_workspace<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::sections::Section;
     use super::super::sections::{clear_append_section, set_append_section};
     use super::*;
+    use crate::tools::builtin::register_builtin_tools;
+    use crate::tools::ToolRegistry;
 
     #[test]
     fn test_build_system_prompt_with_override() {
@@ -278,7 +301,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_dynamic_sections_not_cached() {
         clear_append_section();
         let sections = vec![Section::SessionState {
@@ -288,5 +310,115 @@ mod tests {
         let result1 = build_system_prompt(sections.clone());
         let result2 = build_system_prompt(sections);
         assert_eq!(result1, result2);
+    }
+
+    #[tokio::test]
+    async fn test_build_tools_section_returns_tools_section() {
+        let registry = ToolRegistry::new();
+        register_builtin_tools(&registry).await;
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+        };
+        let section = build_tools_section(&registry, &ctx).await;
+        match section {
+            Section::ToolsSection(_) => {}
+            _ => panic!("expected ToolsSection, got {:?}", section),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_tools_section_contains_group_headers() {
+        let registry = ToolRegistry::new();
+        register_builtin_tools(&registry).await;
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+        };
+        let section = build_tools_section(&registry, &ctx).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        // Should contain file_ops and meta group headers
+        assert!(
+            content.contains("file_ops"),
+            "missing file_ops group: {}",
+            content
+        );
+        assert!(content.contains("meta"), "missing meta group: {}", content);
+    }
+
+    #[tokio::test]
+    async fn test_build_tools_section_contains_tool_names() {
+        let registry = ToolRegistry::new();
+        register_builtin_tools(&registry).await;
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+        };
+        let section = build_tools_section(&registry, &ctx).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        // All 7 tool names should appear
+        for name in &[
+            "Read",
+            "Write",
+            "Edit",
+            "Grep",
+            "Ls",
+            "ToolSearch",
+            "PermissionQuery",
+        ] {
+            assert!(
+                content.contains(name),
+                "tool {} not found in: {}",
+                name,
+                content
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_tools_section_respects_max_length() {
+        let registry = ToolRegistry::new();
+        register_builtin_tools(&registry).await;
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+        };
+        let section = build_tools_section(&registry, &ctx).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        // With 7 tools the section should be well under 1500 chars
+        assert!(
+            content.chars().count() <= 1500,
+            "section too long: {}",
+            content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_tools_section_empty_registry() {
+        let registry = ToolRegistry::new();
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+        };
+        let section = build_tools_section(&registry, &ctx).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        // Empty registry should produce empty content
+        assert!(
+            content.is_empty(),
+            "expected empty content, got: {}",
+            content
+        );
     }
 }
