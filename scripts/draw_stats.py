@@ -29,16 +29,55 @@ def load_data():
             records.append(json.loads(line))
     return records
 
-def estimate_time():
-    """Professional Rust engineer: normal FE/BE dev pace."""
+def estimate_time_vibe(style="mvp"):
+    """
+    古法编程工时估算 — Vibe Project 估算框架
+
+    style 选项:
+      prototype  原型级（质量系数 0.2）  → 约 Vibe天数 × 10
+      mvp        MVP级（质量系数 0.8）    → 约 Vibe天数 × 20
+      prod       生产级（质量系数 1.8）   → 约 Vibe天数 × 40
+
+    方法: 从实际产出（功能点）反推，
+          考虑质量债务系数 = 修复AI代码缺失的非功能质量所需额外工时比例
+    """
+    # 本脚本的产出规模（功能点估算）
+    # - commit 遍历逻辑          → 4 FP
+    # - LOC/test 统计计数        → 5 FP
+    # - HTML Chart.js 可视化     → 6 FP
+    # 总计约 15 FP
+    fp_total = 15
+
+    # 古法生产率（FP/人天）
+    # 内部工具，中等可靠性 → 6 FP/PD
+    fp_rate = 6
+
+    # 质量债务系数（按风格）
+    #   prototype: 仅跑通，阳光路径可用      → 0.2
+    #   mvp:       补充错误处理+基本测试      → 0.8
+    #   prod:      重构+安全+监控+完整测试    → 1.8
+    debt_factor = {"prototype": 0.2, "mvp": 0.8, "prod": 1.8}[style]
+
+    # 总人天（含质量债务）
+    total_pd = fp_total / fp_rate * (1 + debt_factor)
+
+    # 细分项（按比例拆解，仅作参考展示）
+    # 脚本开发（骨架+核心逻辑）占 ~45%
+    # commit 遍历（git 命令行驱动，机械）占 ~20%
+    # 数据清洗/图表调整占 ~20%
+    # 验证/修复问题占 ~15%
+    total_h = total_pd * 8
     return {
-        "script_dev_hours": 8.0,
-        "commit_traverse_hours": 3.2,
-        "coverage_runs_hours": 6.5,
-        "cleanup_hours": 4.0,
-        "verify_hours": 4.0,
-        "total_hours": 25.8,
-        "total_days_8h": 3.22,
+        "fp_total": fp_total,
+        "fp_rate": fp_rate,
+        "style": style,
+        "debt_factor": debt_factor,
+        "script_dev_hours":       round(total_h * 0.45),
+        "commit_traverse_hours":  round(total_h * 0.20),
+        "cleanup_hours":          round(total_h * 0.20),
+        "verify_hours":           round(total_h * 0.15),
+        "total_hours":            round(total_h),
+        "total_pd":               round(total_pd, 1),
     }
 
 def parse_args():
@@ -85,7 +124,11 @@ def main():
         return
 
     records = load_data()
-    te = estimate_time()
+
+    # 三种风格工时估算
+    tp  = estimate_time_vibe("prototype")
+    tm  = estimate_time_vibe("mvp")
+    tpr = estimate_time_vibe("prod")
 
     dates    = [r["date"] for r in records]
     rs_files = [r["rs_files"] for r in records]
@@ -131,12 +174,16 @@ def main():
   canvas {{ max-height: 200px; }}
   .bottom-grid {{ display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-top: 16px; }}
   .time-table {{ background: #1a2332; border-radius: 12px; padding: 16px; }}
-  .time-table h3 {{ font-size: 14px; color: #f28b82; margin-bottom: 12px; }}
+  .time-table h3 {{ font-size: 14px; color: #f28b82; margin-bottom: 6px; }}
+  .time-table .est-subtitle {{ font-size: 11px; color: #789; margin-bottom: 10px; }}
   table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
   th {{ color: #9aa0a6; text-align: left; padding: 4px 8px; border-bottom: 1px solid #2d3a4a; }}
-  td {{ color: #c4d4e4; padding: 5px 8px; border-bottom: 1px solid #1f2b3a; }}
+  td {{ color: #c4d4e4; padding: 5px 8px; border-bottom: 1px solid #1f2b3a; text-align: center; }}
+  td:first-child {{ text-align: left; }}
   tr:last-child td {{ border: none; }}
   tr.total-row td {{ color: #81c995; font-weight: bold; background: #1f3328; }}
+  tr.ratio-row td {{ color: #9aa0a6; font-size: 11px; background: #161f2a; }}
+  .est-note {{ font-size: 10px; color: #567; margin-top: 8px; text-align: center; }}
   .note {{ text-align: center; color: #555; font-size: 11px; margin-top: 20px; }}
   .wide {{ grid-column: 1 / -1; }}
 </style>
@@ -170,16 +217,18 @@ def main():
     <canvas id="covChart"></canvas>
   </div>
   <div class="time-table">
-    <h3>⏱ 专业 Rust 工程师工时估算</h3>
+    <h3>⏱ 古法工时估算（Vibe Project 框架）</h3>
+    <p class="est-subtitle">功能点法 · {tm['fp_total']} FP · {tm['fp_rate']} FP/人天</p>
     <table>
-      <tr><th>任务</th><th>小时</th></tr>
-      <tr><td>脚本开发</td><td>{te["script_dev_hours"]}h</td></tr>
-      <tr><td>遍历 336 个 commit</td><td>{te["commit_traverse_hours"]}h</td></tr>
-      <tr><td>每日 llvm-cov（39天）</td><td>{te["coverage_runs_hours"]}h</td></tr>
-      <tr><td>数据清洗 & 图表调整</td><td>{te["cleanup_hours"]}h</td></tr>
-      <tr><td>验证 & 修复问题</td><td>{te["verify_hours"]}h</td></tr>
-      <tr class="total-row"><td>合计</td><td>{te["total_hours"]}h ≈ {te["total_days_8h"]} 人天</td></tr>
+      <tr><th>任务</th><th>原型级</th><th>MVP级</th><th>生产级</th></tr>
+      <tr><td>脚本开发</td><td>{tp['script_dev_hours']}h</td><td>{tm['script_dev_hours']}h</td><td>{tpr['script_dev_hours']}h</td></tr>
+      <tr><td>commit 遍历</td><td>{tp['commit_traverse_hours']}h</td><td>{tm['commit_traverse_hours']}h</td><td>{tpr['commit_traverse_hours']}h</td></tr>
+      <tr><td>数据清洗 & 图表</td><td>{tp['cleanup_hours']}h</td><td>{tm['cleanup_hours']}h</td><td>{tpr['cleanup_hours']}h</td></tr>
+      <tr><td>验证 & 修复</td><td>{tp['verify_hours']}h</td><td>{tm['verify_hours']}h</td><td>{tpr['verify_hours']}h</td></tr>
+      <tr class="total-row"><td>合计</td><td>{tp['total_pd']} 人天</td><td>{tm['total_pd']} 人天</td><td>{tpr['total_pd']} 人天</td></tr>
+      <tr class="ratio-row"><td>Vibe 等效</td><td>~{int(tp['total_pd']/10)} 天</td><td>~{int(tm['total_pd']/20)} 天</td><td>~{int(tpr['total_pd']/40)} 天</td></tr>
     </table>
+    <p class="est-note">质量债务系数: 原型 0.2 / MVP 0.8 / 生产 1.8 &nbsp;|&nbsp; 覆盖率为 proxy（tests/max）</p>
   </div>
 </div>
 
