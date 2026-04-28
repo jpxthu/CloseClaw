@@ -155,6 +155,23 @@ fn append_append_section(base: String) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Tools section builder
+// ---------------------------------------------------------------------------
+
+use crate::tools::ToolRegistry;
+
+/// Build the Tools section content from a registry.
+///
+/// Groups tools by their group name, formats each group with a header and
+/// tool list, then truncates at `TOOLS_SECTION_MAX_LEN` (1500 chars) if needed.
+pub fn build_tools_section(registry: &ToolRegistry, ctx: &crate::tools::ToolContext) -> Section {
+    // Use the registry's own async build method via block_on
+    let rt = tokio::runtime::Handle::current();
+    let content = rt.block_on(registry.build_tools_section(ctx));
+    Section::ToolsSection(content)
+}
+
+// ---------------------------------------------------------------------------
 // Convenience: build from file-based workspace sections
 // ---------------------------------------------------------------------------
 
@@ -195,7 +212,12 @@ pub fn build_from_workspace<P: AsRef<Path>>(
         if let Some((content, _)) = read_file_section(&memory_path) {
             sections.push(Section::MemorySection(content));
         }
+    } else {
+        sections.push(Section::MemorySection(String::new()));
     }
+
+    // Tools section — inserted between RoleSection and MemorySection
+    sections.push(Section::ToolsSection(String::new()));
 
     // Dynamic sections
     sections.extend(dynamic_sections);
