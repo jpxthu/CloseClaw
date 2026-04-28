@@ -183,7 +183,7 @@ def main():
 </head>
 <body>
 <h1>🐟 CloseClaw — Master 分支每日代码统计</h1>
-<p class="subtitle">{dates[0]} → {dates[-1]} &nbsp;|&nbsp; {len(dates)} 天 &nbsp;|&nbsp; {sum(rs_files)} 行 &nbsp;|&nbsp; 巡检虾 🔭</p>
+<p class="subtitle">{dates[0]} → {dates[-1]} &nbsp;|&nbsp; {len(dates)} 天 &nbsp;|&nbsp; {loc[-1]:,} 行 &nbsp;|&nbsp; 巡检虾 🔭</p>
 
 <div class="charts">
   <div class="chart-box wide">
