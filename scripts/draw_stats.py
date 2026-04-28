@@ -31,53 +31,46 @@ def load_data():
 
 def estimate_time_vibe(style="mvp"):
     """
-    古法编程工时估算 — Vibe Project 估算框架
+    古法编程工时估算 — 估算对象: CloseClaw 整体工程
 
-    style 选项:
-      prototype  原型级（质量系数 0.2）  → 约 Vibe天数 × 10
-      mvp        MVP级（质量系数 0.8）    → 约 Vibe天数 × 20
-      prod       生产级（质量系数 1.8）   → 约 Vibe天数 × 40
+    基于实际产出（132 FP）套 Vibe Project 估算框架：
+      人天 = 净功能点 / 古法速率 × (1 + 质量债务系数)
 
-    方法: 从实际产出（功能点）反推，
-          考虑质量债务系数 = 修复AI代码缺失的非功能质量所需额外工时比例
+    style 选项（对应 DeepSeek V4 估算框架）:
+      prototype  原型级（质量系数 0.2）  → Vibe等效 ~2天生成
+      mvp        MVP级（质量系数 0.8）    → Vibe等效 ~5天迭代
+      prod       生产级（质量系数 1.8）   → Vibe等效 ~更长迭代
+
+    基准:
+      CloseClaw 最新快照（2026-04-28）：
+        170 .rs 文件 | 31830 LOC | 724 测试用例
+        功能点约 132 FP（含 API/WebSocket/后台任务/前端/数据层）
     """
-    # 本脚本的产出规模（功能点估算）
-    # - commit 遍历逻辑          → 4 FP
-    # - LOC/test 统计计数        → 5 FP
-    # - HTML Chart.js 可视化     → 6 FP
-    # 总计约 15 FP
-    fp_total = 15
+    fp_total = 132   # 功能点合计
+    fp_rate  = 5     # FP/人天（中等复杂度 Agent 系统）
 
-    # 古法生产率（FP/人天）
-    # 内部工具，中等可靠性 → 6 FP/PD
-    fp_rate = 6
-
-    # 质量债务系数（按风格）
-    #   prototype: 仅跑通，阳光路径可用      → 0.2
-    #   mvp:       补充错误处理+基本测试      → 0.8
-    #   prod:      重构+安全+监控+完整测试    → 1.8
     debt_factor = {"prototype": 0.2, "mvp": 0.8, "prod": 1.8}[style]
-
-    # 总人天（含质量债务）
     total_pd = fp_total / fp_rate * (1 + debt_factor)
 
-    # 细分项（按比例拆解，仅作参考展示）
-    # 脚本开发（骨架+核心逻辑）占 ~45%
-    # commit 遍历（git 命令行驱动，机械）占 ~20%
-    # 数据清洗/图表调整占 ~20%
-    # 验证/修复问题占 ~15%
+    # 细分参考（按比例分配）
+    # 脚本开发（含架构/设计）占 ~40%
+    # 编码实现占 ~35%
+    # 测试+调试占 ~15%
+    # 文档+部署+修复占 ~10%
     total_h = total_pd * 8
     return {
         "fp_total": fp_total,
         "fp_rate": fp_rate,
         "style": style,
         "debt_factor": debt_factor,
-        "script_dev_hours":       round(total_h * 0.45),
-        "commit_traverse_hours":  round(total_h * 0.20),
-        "cleanup_hours":          round(total_h * 0.20),
-        "verify_hours":           round(total_h * 0.15),
-        "total_hours":            round(total_h),
-        "total_pd":               round(total_pd, 1),
+        "script_dev_hours":   round(total_h * 0.40),
+        "coding_hours":        round(total_h * 0.35),
+        "testing_hours":       round(total_h * 0.15),
+        "finalize_hours":      round(total_h * 0.10),
+        "total_hours":         round(total_h),
+        "total_pd":            round(total_pd, 1),
+        # Vibe 等效（DeepSeek V4 参考: 原型×10, MVP×20, 生产×40）
+        "vibe_days_equiv":     round(total_pd / {"prototype": 10, "mvp": 20, "prod": 40}[style], 1),
     }
 
 def parse_args():
@@ -221,10 +214,10 @@ def main():
     <p class="est-subtitle">功能点法 · {tm['fp_total']} FP · {tm['fp_rate']} FP/人天</p>
     <table>
       <tr><th>任务</th><th>原型级</th><th>MVP级</th><th>生产级</th></tr>
-      <tr><td>脚本开发</td><td>{tp['script_dev_hours']}h</td><td>{tm['script_dev_hours']}h</td><td>{tpr['script_dev_hours']}h</td></tr>
-      <tr><td>commit 遍历</td><td>{tp['commit_traverse_hours']}h</td><td>{tm['commit_traverse_hours']}h</td><td>{tpr['commit_traverse_hours']}h</td></tr>
-      <tr><td>数据清洗 & 图表</td><td>{tp['cleanup_hours']}h</td><td>{tm['cleanup_hours']}h</td><td>{tpr['cleanup_hours']}h</td></tr>
-      <tr><td>验证 & 修复</td><td>{tp['verify_hours']}h</td><td>{tm['verify_hours']}h</td><td>{tpr['verify_hours']}h</td></tr>
+      <tr><td>架构 & 设计</td><td>{tp['script_dev_hours']}h</td><td>{tm['script_dev_hours']}h</td><td>{tpr['script_dev_hours']}h</td></tr>
+      <tr><td>编码实现</td><td>{tp['coding_hours']}h</td><td>{tm['coding_hours']}h</td><td>{tpr['coding_hours']}h</td></tr>
+      <tr><td>测试 & 调试</td><td>{tp['testing_hours']}h</td><td>{tm['testing_hours']}h</td><td>{tpr['testing_hours']}h</td></tr>
+      <tr><td>文档 & 部署 & 修复</td><td>{tp['finalize_hours']}h</td><td>{tm['finalize_hours']}h</td><td>{tpr['finalize_hours']}h</td></tr>
       <tr class="total-row"><td>合计</td><td>{tp['total_pd']} 人天</td><td>{tm['total_pd']} 人天</td><td>{tpr['total_pd']} 人天</td></tr>
       <tr class="ratio-row"><td>Vibe 等效</td><td>~{int(tp['total_pd']/10)} 天</td><td>~{int(tm['total_pd']/20)} 天</td><td>~{int(tpr['total_pd']/40)} 天</td></tr>
     </table>
