@@ -306,3 +306,7 @@ async fn read_line(stream: &mut TcpStream) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("server closed connection"))?;
     Ok(line)
 }
+
+#[cfg(test)]
+#[path = "chat_tests.rs"]
+mod tests;
