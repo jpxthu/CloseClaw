@@ -50,13 +50,14 @@ Inbound 链接收平台原始消息（`RawMessage`），经多个处理器顺序
 | `processor.rs` | `ProcessPhase` 枚举 + `MessageProcessor` trait |
 | `registry.rs` | `ProcessorRegistry` 实现 + 单元测试 |
 | `raw_log_processor.rs` | `RawLogProcessor`（入站处理器），Debug 模式或 enabled=true 时将 `RawMessage` 写入 JSON 日志文件，启动时清理超过 `retention_days` 的旧日志 |
+| `message_cleaner.rs` | `MessageCleaner`（入站处理器，priority=30），提取纯文本内容（text 类型直接取 text 字段，post 类型展开为 markdown），将 thread_id/root_id/parent_id 写入 metadata 的 `feishu_thread_id` 字段 |
 | `mod.rs` | 模块入口，re-export 公开类型 |
 
 ### 数据流
 
 ```
 Inbound:
-  RawMessage → [Processor sorted by priority asc] → ProcessedMessage
+  RawMessage → [message_cleaner (priority=30, extracts content, writes feishu_thread_id), ...other processors sorted by priority asc] → ProcessedMessage
 
 Outbound:
   ProcessedMessage (from LLM)
