@@ -138,9 +138,6 @@ def count_stats(commit):
                 if "*/" in s:
                     in_block = False
                 continue
-            if s.startswith("#[test"):
-                test_count += 1
-
     return {"rs_files": len(rs), "total_loc": total_loc, "test_cases": test_count}
 
 def iter_days(start, end):
