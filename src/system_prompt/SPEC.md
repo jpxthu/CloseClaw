@@ -21,7 +21,7 @@
 | 接口 | 功能 |
 |------|------|
 | `build_system_prompt` | 组装完整 system prompt，按覆盖链优先级拼接各 section |
-| `build_from_workspace` | 从 workspace 标准路径（IDENTITY.md、SOUL.md、MEMORY.md）构建 prompt |
+| `build_from_workspace(workspace_root, dynamic_sections, mode)` | 从 workspace 路径按 `BootstrapMode` 加载 bootstrap 文件（Minimal/Full）构建 prompt |
 | `set_override_prompt` | 设置最高优先级覆盖 prompt |
 | `set_agent_prompt` | 设置 agent 级 prompt（覆盖链第二层） |
 | `set_custom_prompt` | 设置用户自定义 prompt（覆盖链第三层） |
@@ -92,7 +92,13 @@
 
 ### Workspace 文件拼接约定
 
-`SOUL.md` 内容合并至 IDENTITY.md 生成的 RoleSection 末尾，而非独立 section。`MEMORY.md` 和 `HEARTBEAT.md` 使用 mtime-aware 缓存。
+**Builder 架构**：`build_from_workspace` 通过 `load_bootstrap_files`（session::bootstrap::loader ⚠️ 架构唯一入口）加载 bootstrap 文件，按 `BootstrapMode` 决定文件集合：
+- Minimal：AGENTS.md / SOUL.md / IDENTITY.md / USER.md / TOOLS.md
+- Full：上述 + BOOTSTRAP.md / MEMORY.md
+
+**HEARTBEAT.md 不属于 bootstrap**：HEARTBEAT.md 由 cron prompt 指示 agent 按需读取，不在任何 bootstrap 模式中，也不通过 `load_bootstrap_files` 加载。
+
+`SOUL.md` 内容合并至 IDENTITY.md 生成的 RoleSection 末尾，而非独立 section。`MEMORY.md` 使用 mtime-aware 缓存。
 
 ### 数据类型
 
