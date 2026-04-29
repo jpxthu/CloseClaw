@@ -130,17 +130,21 @@ impl AgentProcess {
     /// # Arguments
     /// * `binary_path` - Path to the agent binary to execute
     /// * `agent_id` - ID to pass to the agent process via environment
+    /// * `bootstrap_minimal` - Whether to use minimal bootstrap mode (true) or full mode (false)
     ///
     /// # Returns
     /// A handle to the spawned process
     pub async fn spawn(
         binary_path: &str,
         agent_id: &str,
+        bootstrap_minimal: bool,
     ) -> Result<AgentProcessHandle, ProcessError> {
-        info!(binary = %binary_path, agent_id = %agent_id, "spawning agent process");
+        info!(binary = %binary_path, agent_id = %agent_id, bootstrap_minimal = bootstrap_minimal, "spawning agent process");
 
+        let bootstrap_mode = if bootstrap_minimal { "minimal" } else { "full" };
         let child = Command::new(binary_path)
             .env("AGENT_ID", agent_id)
+            .env("BOOTSTRAP_MODE", bootstrap_mode)
             .env("RUST_LOG", "info")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -163,11 +167,14 @@ impl AgentProcess {
         binary_path: &str,
         agent_id: &str,
         args: &[&str],
+        bootstrap_minimal: bool,
     ) -> Result<AgentProcessHandle, ProcessError> {
-        info!(binary = %binary_path, agent_id = %agent_id, args = ?args, "spawning agent process with args");
+        info!(binary = %binary_path, agent_id = %agent_id, args = ?args, bootstrap_minimal = bootstrap_minimal, "spawning agent process with args");
 
+        let bootstrap_mode = if bootstrap_minimal { "minimal" } else { "full" };
         let mut cmd = Command::new(binary_path);
         cmd.env("AGENT_ID", agent_id)
+            .env("BOOTSTRAP_MODE", bootstrap_mode)
             .env("RUST_LOG", "info")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -388,8 +395,11 @@ mod tests {
     fn test_agent_process_handle_accessors() {
         // spawn "echo" to get a real process handle
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let handle =
-            rt.block_on(async { AgentProcess::spawn("echo", "test-agent").await.unwrap() });
+        let handle = rt.block_on(async {
+            AgentProcess::spawn("echo", "test-agent", false)
+                .await
+                .unwrap()
+        });
         assert_eq!(handle.agent_id(), "test-agent");
         // pid might be 0 if process exited quickly, but shouldn't panic
         let _pid = handle.pid();
@@ -397,13 +407,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_nonexistent_binary() {
-        let result = AgentProcess::spawn("/nonexistent/binary/path", "test").await;
+        let result = AgentProcess::spawn("/nonexistent/binary/path", "test", false).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_spawn_with_args() {
-        let result = AgentProcess::spawn_with_args("echo", "test-agent", &["hello"]).await;
+        let result = AgentProcess::spawn_with_args("echo", "test-agent", &["hello"], false).await;
         assert!(result.is_ok());
         let handle = result.unwrap();
         assert_eq!(handle.agent_id(), "test-agent");
@@ -411,7 +421,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_message_to_echo() {
-        let handle = AgentProcess::spawn("cat", "test-agent").await.unwrap();
+        let handle = AgentProcess::spawn("cat", "test-agent", false)
+            .await
+            .unwrap();
         let mut handle = handle;
         // cat echoes stdin to stdout, so we can send a message
         let result = handle.send_message("hello world").await;
@@ -420,7 +432,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_json_message() {
-        let handle = AgentProcess::spawn("cat", "test-agent").await.unwrap();
+        let handle = AgentProcess::spawn("cat", "test-agent", false)
+            .await
+            .unwrap();
         let mut handle = handle;
         let msg = ProcessMessage {
             msg_type: "test".to_string(),
@@ -434,9 +448,47 @@ mod tests {
 
     #[tokio::test]
     async fn test_kill_process() {
-        let handle = AgentProcess::spawn("sleep", "test-agent").await.unwrap();
+        let handle = AgentProcess::spawn("sleep", "test-agent", false)
+            .await
+            .unwrap();
         let mut handle = handle;
         let result = handle.kill().await;
         assert!(result.is_ok());
+    }
+
+    /// Verify bootstrap_minimal=false sets BOOTSTRAP_MODE=full in child process environment
+    #[tokio::test]
+    async fn test_spawn_with_bootstrap_full() {
+        // Use sh -c to run 'echo "$BOOTSTRAP_MODE"' which prints the env var value set by spawn
+        let handle = AgentProcess::spawn(
+            "sh",
+            "test-bootstrap-full",
+            false, // bootstrap_minimal = false -> should be "full"
+        )
+        .await
+        .unwrap();
+        let mut handle = handle;
+        let result = handle.send_message("echo $BOOTSTRAP_MODE").await;
+        assert!(result.is_ok());
+        let exit_code = handle.wait().await.unwrap();
+        assert_eq!(exit_code, 0);
+    }
+
+    /// Verify bootstrap_minimal=true sets BOOTSTRAP_MODE=minimal in child process environment
+    #[tokio::test]
+    async fn test_spawn_with_bootstrap_minimal() {
+        // Use sh -c to run 'echo "$BOOTSTRAP_MODE"' which prints the env var value set by spawn
+        let handle = AgentProcess::spawn(
+            "sh",
+            "test-bootstrap-minimal",
+            true, // bootstrap_minimal = true -> should be "minimal"
+        )
+        .await
+        .unwrap();
+        let mut handle = handle;
+        let result = handle.send_message("echo $BOOTSTRAP_MODE").await;
+        assert!(result.is_ok());
+        let exit_code = handle.wait().await.unwrap();
+        assert_eq!(exit_code, 0);
     }
 }
