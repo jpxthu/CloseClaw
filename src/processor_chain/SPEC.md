@@ -49,6 +49,7 @@ Inbound 链接收平台原始消息（`RawMessage`），经多个处理器顺序
 | `context.rs` | `RawMessage / MessageContext / ProcessedMessage / RawMessageLog` + 单元测试 |
 | `processor.rs` | `ProcessPhase` 枚举 + `MessageProcessor` trait |
 | `registry.rs` | `ProcessorRegistry` 实现 + 单元测试 |
+| `raw_log_processor.rs` | `RawLogProcessor`（入站处理器），Debug 模式或 enabled=true 时将 `RawMessage` 写入 JSON 日志文件，启动时清理超过 `retention_days` 的旧日志 |
 | `mod.rs` | 模块入口，re-export 公开类型 |
 
 ### 数据流

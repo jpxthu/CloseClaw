@@ -240,10 +240,7 @@ impl MessageProcessor for FailingProc {
         self.priority
     }
 
-    async fn process(
-        &self,
-        _: &MessageContext,
-    ) -> Result<Option<ProcessedMessage>, ProcessError> {
+    async fn process(&self, _: &MessageContext) -> Result<Option<ProcessedMessage>, ProcessError> {
         Err(ProcessError::processor_failed(
             self.name(),
             "intentional failure",
@@ -342,7 +339,11 @@ async fn test_suppress_halts_inbound_chain() {
 
     assert!(result.suppress);
     assert_eq!(c1.load(Ordering::SeqCst), 1, "p1 should be called");
-    assert_eq!(c3.load(Ordering::SeqCst), 0, "p3 should NOT run after suppress");
+    assert_eq!(
+        c3.load(Ordering::SeqCst),
+        0,
+        "p3 should NOT run after suppress"
+    );
 }
 
 // ── metadata merging ────────────────────────────────────────────────────────

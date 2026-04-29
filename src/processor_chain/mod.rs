@@ -13,6 +13,7 @@
 pub mod context;
 pub mod error;
 pub mod processor;
+pub mod raw_log_processor;
 pub mod registry;
 pub mod registry_tests;
 
