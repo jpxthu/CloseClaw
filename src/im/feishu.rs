@@ -298,7 +298,7 @@ impl IMAdapter for FeishuAdapter {
             content: text,
             channel: "feishu".to_string(),
             timestamp: chrono::Utc::now().timestamp(),
-            metadata: HashMap::new(),
+            metadata: HashMap::from([("account_id".to_string(), event.header.app_id.clone())]),
         })
     }
 
@@ -423,6 +423,7 @@ mod tests {
         assert_eq!(msg.id, "evt_1");
         assert_eq!(msg.from, "ou_abc");
         assert_eq!(msg.content, "hello");
+        assert_eq!(msg.metadata.get("account_id"), Some(&"a".to_string()));
     }
 
     #[tokio::test]
@@ -443,6 +444,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(msg.content, "");
+        assert_eq!(msg.metadata.get("account_id"), Some(&"a".to_string()));
     }
 
     #[test]
