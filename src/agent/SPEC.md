@@ -94,8 +94,8 @@ Agent 模块负责 CloseClaw 多智能体系统的核心运行时管理。
 
 ### 2.7 进程管理
 
-- `AgentProcess::spawn` — 启动 Agent 子进程（传入 binary_path 和 agent_id）
-- `AgentProcess::spawn_with_args` — 启动带额外命令行参数的 Agent 子进程
+- `AgentProcess::spawn` — 启动 Agent 子进程（传入 binary_path、agent_id、bootstrap_minimal；通过 `BOOTSTRAP_MODE` 环境变量控制子进程 bootstrap 模式）
+- `AgentProcess::spawn_with_args` — 启动带额外命令行参数的 Agent 子进程（同样支持 bootstrap_minimal 参数）
 - `AgentProcessHandle::send_message` — 通过 stdin 发送原始字符串消息
 - `AgentProcessHandle::send_json` — 发送结构化 ProcessMessage（自动序列化，末尾追加 `\n`）
 - `AgentProcessHandle::kill` — 终止进程
@@ -143,6 +143,8 @@ Agent 模块负责 CloseClaw 多智能体系统的核心运行时管理。
 ```json
 {"type": "heartbeat" | "task" | "result" | "error", "from": "agent_id", "to": "agent_id" | null, "payload": {...}}
 ```
+
+**环境变量**：`BOOTSTRAP_MODE` — 值 `"full"` 或 `"minimal"`，子进程据此调用 `load_bootstrap_files(workspace_dir, bootstrap_minimal)` 加载对应 bootstrap 集合。
 
 **ProcessMessage** — JSON 消息信封结构，包含 `msg_type`、`from`、`to`、`payload` 字段。
 **ProcessError** — 进程管理错误（SpawnError / ProcessNotFound / ProcessAlreadyRunning / CommunicationError / UnexpectedExit）。
