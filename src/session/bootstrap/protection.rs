@@ -28,12 +28,10 @@ impl BootstrapProtection {
     pub fn new() -> Self {
         Self {
             workspace_path: None,
-            bootstrap_files: vec![
-                "AGENTS.md".to_string(),
-                "SOUL.md".to_string(),
-                "IDENTITY.md".to_string(),
-                "USER.md".to_string(),
-            ],
+            bootstrap_files: super::bootstrap_file_list(super::BootstrapMode::Full)
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect(),
             size_limit: 60 * 1024, // 60K chars
         }
     }
@@ -47,6 +45,16 @@ impl BootstrapProtection {
     /// Set custom bootstrap file list
     pub fn with_bootstrap_files(mut self, files: Vec<String>) -> Self {
         self.bootstrap_files = files;
+        self
+    }
+
+    /// Set bootstrap files based on a [`BootstrapMode`].
+    ///
+    /// Minimal mode: `["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"]`
+    /// Full mode: `["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md", "BOOTSTRAP.md", "MEMORY.md"]`
+    pub fn with_mode(mut self, mode: super::BootstrapMode) -> Self {
+        let names = super::bootstrap_file_list(mode);
+        self.bootstrap_files = names.into_iter().map(|s| s.to_string()).collect();
         self
     }
 

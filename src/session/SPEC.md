@@ -12,6 +12,10 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 
 **子模块组织**：
 - `bootstrap` — compaction 期间保护 agent bootstrap 文件不被摘要扭曲
+  - `loader.rs` — **架构唯一入口**，提供 `BootstrapMode`、`bootstrap_file_list`、`load_bootstrap_files`
+  - `protection` — Bootstrap 区域标记、完整性校验、reinject
+  - `context` — BootstrapContext 元数据容器
+  - `types` — BootstrapRegion 标记结构、错误类型
 - `persistence` — Checkpoint 数据结构 + 持久化服务接口 + 本地缓存管理器
 - `events` — Checkpoint 触发时机定义（模式切换/消息发送/网关关闭/compaction）
 - `recovery` — 网关启动时从存储恢复会话
@@ -31,7 +35,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `BootstrapProtection::new()` | 创建无 workspace 的保护器（用于 transcript 扫描） |
 | `BootstrapProtection::with_workspace(PathBuf)` | 创建带 workspace 路径的保护器（用于 reinject） |
 | `BootstrapProtection::with_bootstrap_files(Vec<String>)` | 自定义要保护的 bootstrap 文件列表 |
-| `BootstrapProtection::with_size_limit(usize)` | 设置 reinject 字符数上限（默认 60K） |
+| `BootstrapProtection::with_mode(BootstrapMode)` | 以指定 mode 创建保护器，文件列表由 `bootstrap_file_list` 派生 |
 | `MemoryStorage::new()` | 创建内存存储后端（测试/单实例用） |
 | `RedisStorage::new(&str, &str) -> Result<Self, PersistenceError>` | 从 URL 创建 Redis 存储后端 |
 | `ArchiveSweeper::new(Arc<dyn PersistenceService>, Arc<dyn SessionConfigProvider>)` | 创建 Archive Sweeper 实例 |
@@ -53,6 +57,8 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `CheckpointManager::save_sync(SessionCheckpoint)` | 同步保存 checkpoint（用于网关关闭） |
 | `SessionRecoveryService::set_restore_callback(F)` | 设置恢复回调，接收 session_id 和 checkpoint |
 | `SessionRecoveryService::recover() -> Result<RecoveryReport, PersistenceError>` | 扫描所有活跃 session 并逐个恢复 |
+| `bootstrap_file_list(mode: BootstrapMode) -> Vec<&'static str>` | 返回模式对应的 bootstrap 文件名列表 |
+| `load_bootstrap_files(workspace_dir: &Path, mode: BootstrapMode) -> Result<HashMap<String, String>, BootstrapLoaderError>` | ⚠️ 架构唯一入口：加载 workspace 下 bootstrap 文件集合 |
 
 ### 查询
 
@@ -84,7 +90,8 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `BootstrapContext` | bootstrap 区域元数据容器，含 regions 列表和 integrity hash |
 | `BootstrapRegion` | 单个 bootstrap 文件的区域标记（含 hash 用于完整性校验） |
 | `ArchiveSweeperError` | Sweeper 操作错误（Storage/Config 变体） |
-| `BootstrapProtectionError` | bootstrap 保护操作错误（FileNotFound/IntegrityCheckFailed/IoError/MarkerParseError/WorkspacePathRequired） |
+| `BootstrapLoaderError` | loader 操作错误（InvalidWorkspace / IoError） |
+| `BootstrapMode` | bootstrap 文件集合模式（Minimal / Full）；Minimal 含 AGENTS.md/SOUL.md/IDENTITY.md/USER.md/TOOLS.md（5个），Full 额外包含 BOOTSTRAP.md/MEMORY.md（共7个）；HEARTBEAT.md 不属于任何模式 |
 | `SessionCheckpoint` | 会话持久化状态快照（含 status/last_message_at/message_count/channel/chat_id 等生命周期字段） |
 | `SessionStatus` | 会话生命周期状态枚举（Active/Archived） |
 | `ReasoningMode` | 推理模式枚举（Direct/Plan/Stream/Hidden） |

@@ -22,12 +22,14 @@
 
 pub mod context;
 pub mod helpers;
+pub mod loader;
 pub mod protection;
 pub mod tests;
 pub mod types;
 
 // Re-exports for convenience
 pub use context::BootstrapContext;
+pub use loader::{bootstrap_file_list, load_bootstrap_files, BootstrapLoaderError, BootstrapMode};
 pub use protection::BootstrapProtection;
 pub use types::{
     BootstrapProtectionError, BootstrapRegion, BOOTSTRAP_REGION_END, BOOTSTRAP_REGION_START,

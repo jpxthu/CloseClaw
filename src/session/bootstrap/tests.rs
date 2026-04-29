@@ -203,3 +203,70 @@ fn test_region_id_unique() {
     // (because hash is part of region_id)
     assert_ne!(r1.region_id, r2.region_id);
 }
+
+#[test]
+fn test_bootstrap_protection_with_mode_minimal() {
+    let protection = BootstrapProtection::new().with_mode(BootstrapMode::Minimal);
+    let files = protection.bootstrap_files();
+    assert_eq!(
+        files,
+        vec!["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"]
+    );
+}
+
+#[test]
+fn test_bootstrap_protection_with_mode_full() {
+    let protection = BootstrapProtection::new().with_mode(BootstrapMode::Full);
+    let files = protection.bootstrap_files();
+    assert_eq!(
+        files,
+        vec![
+            "AGENTS.md",
+            "SOUL.md",
+            "IDENTITY.md",
+            "USER.md",
+            "TOOLS.md",
+            "BOOTSTRAP.md",
+            "MEMORY.md"
+        ]
+    );
+}
+
+#[test]
+fn test_bootstrap_protection_default_uses_full_mode() {
+    // BootstrapProtection::new() should default to Full mode
+    let protection = BootstrapProtection::new();
+    let files = protection.bootstrap_files();
+    assert!(
+        files.contains(&"BOOTSTRAP.md".to_string()),
+        "default should include BOOTSTRAP.md (Full mode)"
+    );
+    assert!(
+        files.contains(&"MEMORY.md".to_string()),
+        "default should include MEMORY.md (Full mode)"
+    );
+    assert!(!files.contains(&"HEARTBEAT.md".to_string()));
+}
+
+#[test]
+fn test_bootstrap_protection_with_mode_switches_correctly() {
+    // Clone to avoid consuming protection in with_mode chain
+    let protection = BootstrapProtection::new().with_mode(BootstrapMode::Minimal);
+    let minimal_files = protection.bootstrap_files().to_vec();
+
+    let protection2 = BootstrapProtection::new().with_mode(BootstrapMode::Full);
+    let full_files = protection2.bootstrap_files().to_vec();
+
+    // Full should have more files than Minimal
+    assert!(full_files.len() > minimal_files.len());
+    // Minimal should not have BOOTSTRAP.md or MEMORY.md
+    assert!(!minimal_files.contains(&"BOOTSTRAP.md".to_string()));
+    assert!(!minimal_files.contains(&"MEMORY.md".to_string()));
+    // Full should have all Minimal files
+    for f in &minimal_files {
+        assert!(full_files.contains(f), "Full mode missing: {}", f);
+    }
+    // HEARTBEAT.md not in either mode
+    assert!(!full_files.contains(&"HEARTBEAT.md".to_string()));
+    assert!(!minimal_files.contains(&"HEARTBEAT.md".to_string()));
+}
