@@ -19,6 +19,7 @@ pub mod llm;
 pub mod mode;
 pub mod permission;
 pub mod platform;
+pub mod processor_chain;
 pub mod session;
 pub mod skills;
 pub mod system_prompt;
