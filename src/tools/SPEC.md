@@ -9,7 +9,7 @@
 - `ToolRegistry` 是并发安全的注册中心，内部用 `tokio::sync::RwLock` 包裹 `HashMap<String, Arc<dyn Tool>>`
 - `ToolDescriptor` 仅含 name / group / summary / is_deferred，用于 system prompt 一级索引
 - 工具 detail 和 input_schema 按需通过 `ToolSearch` 触发注入，不在一级索引展开
-- `builtin` 子模块提供 5 个 file_ops 工具和 2 个 meta 工具，全部通过 `register_builtin_tools()` 一键注册
+- `builtin` 子模块提供 5 个 file_ops 工具、2 个 meta 工具、5 个 git_ops 工具和 2 个 stub 工具，全部通过 `register_builtin_tools()` 一键注册
 - System prompt 集成：builder.rs 提供 `build_tools_section(registry, ctx)` async 函数，返回 `Section::ToolsSection`；`build_from_workspace` 中预埋 `Section::ToolsSection(String::new())` 占位符（位于 RoleSection 之后 MemorySection 之前）。当前 `build_tools_section` 尚未在 sync 路径中与 `build_from_workspace` 打通，内容通过 dynamic_sections 外部传入
 
 边界：builtin tools 不依赖 `crate::skills` 模块；`ToolRegistry` 依赖 `tokio`（异步运行时）。
@@ -37,9 +37,12 @@
 
 ### 内建工具（builtin/）
 
-- `register_builtin_tools(registry)` — 将全部 7 个内建工具注册到指定注册表
+- `register_builtin_tools(registry)` — 将全部 14 个内建工具注册到指定注册表
 - `ReadTool` / `WriteTool` / `EditTool` / `GrepTool` / `LsTool` — file_ops 组，group = "file_ops"
 - `ToolSearchTool` / `PermissionQueryTool` — meta 组，group = "meta"，is_deferred_by_default = false
+- `GitStatusTool` / `GitLogTool` / `GitCommitTool` / `GitPushTool` / `GitPullTool` — git_ops 组，group = "git_ops"；GitStatusTool/GitLogTool 标记 is_read_only，GitCommitTool/GitPushTool/GitPullTool 标记 is_destructive
+- `CodingAgentTool` — coding_agent 组，is_deferred_by_default
+- `SkillCreatorTool` — skill_creator 组，is_deferred_by_default + is_destructive
 
 ---
 
@@ -49,13 +52,16 @@
 
 ```
 tools/
-├── mod.rs          # Tool trait、ToolFlags、ToolContext、ToolDescriptor、ToolError
-├── registry.rs     # ToolRegistry 并发注册中心 + build_tools_section
+├── mod.rs              # Tool trait、ToolFlags、ToolContext、ToolDescriptor、ToolError
+├── registry.rs         # ToolRegistry 并发注册中心 + build_tools_section
 └── builtin/
-    ├── mod.rs      # register_builtin_tools 统一入口
-    ├── file_ops.rs # Read / Write / Edit / Grep / Ls
-    ├── search.rs   # ToolSearchTool
-    └── permission.rs # PermissionQueryTool
+    ├── mod.rs          # register_builtin_tools 统一入口（14 个工具）
+    ├── file_ops.rs     # Read / Write / Edit / Grep / Ls
+    ├── git_ops.rs      # GitStatus / GitLog / GitCommit / GitPush / GitPull
+    ├── coding_agent.rs # CodingAgentTool (stub)
+    ├── skill_creator.rs # SkillCreatorTool (stub)
+    ├── search.rs       # ToolSearchTool
+    └── permission.rs   # PermissionQueryTool
 ```
 
 ### 两级设计
@@ -68,4 +74,4 @@ tools/
 
 - `ToolFlags::is_eager()` 返回 `!is_deferred_by_default`
 - `build_tools_section` 按 group 名排序，保证输出稳定
-- `register_builtin_tools` 中 file_ops 工具不依赖 `crate::skills`
+- `register_builtin_tools` 中 builtin 工具不依赖 `crate::skills`
