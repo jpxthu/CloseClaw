@@ -429,6 +429,7 @@ dependencies = [
  "notify-debouncer-mini",
  "proptest",
  "redis",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",
