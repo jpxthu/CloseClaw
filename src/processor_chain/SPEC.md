@@ -28,6 +28,12 @@ Inbound 链接收平台原始消息（`RawMessage`），经多个处理器顺序
 
 - **`ProcessPhase`** — `Inbound` / `Outbound`，决定处理器加入哪条链
 
+### 配置与加载器
+
+- **`ProcessorChainConfig`** — 入站 processor 列表配置，支持 serde 反序列化
+- **`ProcessorConfig`** — 单个 processor 配置枚举，通过 `type` 字段区分 RawLog / MessageCleaner / MarkdownNormalizer
+- **`ProcessorChainLoader::load(config)`** — 从 `ProcessorChainConfig` 构造 `ProcessorRegistry`（按 priority 排序注册）
+
 ### 核心 API
 
 - **`ProcessorRegistry::new()`** — 创建空 registry
@@ -52,6 +58,7 @@ Inbound 链接收平台原始消息（`RawMessage`），经多个处理器顺序
 | `raw_log_processor.rs` | `RawLogProcessor`（入站处理器），Debug 模式或 enabled=true 时将 `RawMessage` 写入 JSON 日志文件，启动时清理超过 `retention_days` 的旧日志 |
 | `message_cleaner.rs` | `MessageCleaner`（入站处理器，priority=30），提取纯文本内容（text 类型直接取 text 字段，post 类型展开为 markdown），将 thread_id/root_id/parent_id 写入 metadata 的 `feishu_thread_id` 字段 |
 | `markdown_normalizer.rs` | `MarkdownNormalizer`（入站处理器，priority=40），标准化 markdown 内容后再送 LLM：压缩连续空行、去除每行尾随空格、为裸 URL 补全 https:// 前缀、为无语言标识的代码块补全 ` ```text` 标记 |
+| `loader.rs` | `ProcessorChainLoader`，根据 YAML/TOML 配置构造 processor 实例并注册到 `ProcessorRegistry` |
 | `mod.rs` | 模块入口，re-export 公开类型 |
 
 ### 数据流
