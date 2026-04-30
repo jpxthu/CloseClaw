@@ -12,6 +12,7 @@
 
 pub mod context;
 pub mod error;
+pub mod loader;
 pub mod markdown_normalizer;
 pub mod message_cleaner;
 pub mod processor;
@@ -19,6 +20,7 @@ pub mod raw_log_processor;
 pub mod registry;
 pub mod registry_tests;
 
+pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
 pub use registry::ProcessorRegistry;
 
 pub use context::{MessageContext, ProcessedMessage, RawMessage, RawMessageLog};

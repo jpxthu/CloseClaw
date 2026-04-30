@@ -43,7 +43,7 @@ impl IMAdapter for MockAdapter {
         Ok(())
     }
 
-    async fn validate_signature(&self, _payload: &[u8], _sig: &str) -> bool {
+    async fn validate_signature(&self, _signature: &str, _payload: &[u8]) -> bool {
         true
     }
 }
