@@ -11,7 +11,7 @@ use crate::config::agents::AgentsConfigProvider;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
-use crate::gateway::{DmScope, Gateway, GatewayConfig};
+use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
 use crate::llm::{AnthropicProvider, LLMRegistry, MiniMaxProvider, OpenAIProvider};
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
@@ -140,13 +140,17 @@ impl Daemon {
             agents_config.agents().len()
         );
 
-        let mut gateway = Gateway::new(GatewayConfig {
+        let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
             max_message_size: 16_384,
             dm_scope: DmScope::default(),
-        });
-        gateway.set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>);
+        };
+        let session_manager = Arc::new(SessionManager::new(&gateway_config, None));
+        let gateway = Gateway::new(gateway_config, Arc::clone(&session_manager));
+        gateway
+            .set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>)
+            .await;
         let gateway = Arc::new(gateway);
         info!("Gateway initialized");
 
