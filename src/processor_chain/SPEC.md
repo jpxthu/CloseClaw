@@ -51,6 +51,7 @@ Inbound 链接收平台原始消息（`RawMessage`），经多个处理器顺序
 | `registry.rs` | `ProcessorRegistry` 实现 + 单元测试 |
 | `raw_log_processor.rs` | `RawLogProcessor`（入站处理器），Debug 模式或 enabled=true 时将 `RawMessage` 写入 JSON 日志文件，启动时清理超过 `retention_days` 的旧日志 |
 | `message_cleaner.rs` | `MessageCleaner`（入站处理器，priority=30），提取纯文本内容（text 类型直接取 text 字段，post 类型展开为 markdown），将 thread_id/root_id/parent_id 写入 metadata 的 `feishu_thread_id` 字段 |
+| `markdown_normalizer.rs` | `MarkdownNormalizer`（入站处理器，priority=40），标准化 markdown 内容后再送 LLM：压缩连续空行、去除每行尾随空格、为裸 URL 补全 https:// 前缀、为无语言标识的代码块补全 ` ```text` 标记 |
 | `mod.rs` | 模块入口，re-export 公开类型 |
 
 ### 数据流
