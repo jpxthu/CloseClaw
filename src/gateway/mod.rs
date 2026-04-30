@@ -3,13 +3,16 @@
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
 
 pub mod message;
+pub mod session_manager;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::session::persistence::{PersistenceService, SessionStatus};
+use crate::session::persistence::PersistenceService;
+
+pub use session_manager::SessionManager;
 
 /// DM session scope - controls how session keys are partitioned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -34,7 +37,7 @@ impl Default for DmScope {
 
 impl DmScope {
     /// Compute a session key for the given context.
-    fn compute_session_key(
+    pub fn compute_session_key(
         &self,
         channel: &str,
         message: &Message,
@@ -43,7 +46,9 @@ impl DmScope {
         match self {
             DmScope::Main => format!("{}:{}", channel, message.to),
             DmScope::PerPeer => format!("{}:{}", message.from, message.to),
-            DmScope::PerChannelPeer => format!("{}:{}:{}", channel, message.from, message.to),
+            DmScope::PerChannelPeer => {
+                format!("{}:{}:{}", channel, message.from, message.to)
+            }
             DmScope::PerAccountChannelPeer => {
                 let acc = account_id.unwrap_or("default");
                 format!("{}:{}:{}:{}", acc, channel, message.from, message.to)
@@ -77,14 +82,6 @@ pub struct GatewayConfig {
     pub dm_scope: DmScope,
 }
 
-/// Gateway - routes messages between IM adapters and agents
-pub struct Gateway {
-    config: GatewayConfig,
-    adapters: RwLock<HashMap<String, Arc<dyn super::im::IMAdapter>>>,
-    sessions: RwLock<HashMap<String, Session>>,
-    storage: Option<Arc<dyn PersistenceService>>,
-}
-
 /// Session - represents an active conversation
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -94,158 +91,76 @@ pub struct Session {
     pub created_at: i64,
 }
 
+/// Gateway - routes messages between IM adapters and agents
+pub struct Gateway {
+    config: GatewayConfig,
+    adapters: RwLock<HashMap<String, Arc<dyn super::im::IMAdapter>>>,
+    session_manager: Arc<SessionManager>,
+}
+
 impl Gateway {
-    /// Create a new Gateway
-    pub fn new(config: GatewayConfig) -> Self {
+    /// Create a new Gateway with the given config and a shared SessionManager.
+    pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
         Self {
             config,
             adapters: RwLock::new(HashMap::new()),
-            sessions: RwLock::new(HashMap::new()),
-            storage: None,
+            session_manager,
         }
     }
 
-    /// Configure the persistence storage backend.
-    pub fn set_storage(&mut self, storage: Arc<dyn PersistenceService>) {
-        self.storage = Some(storage);
+    /// Configure the persistence storage backend (proxied to SessionManager).
+    pub async fn set_storage(&self, storage: Arc<dyn PersistenceService>) {
+        self.session_manager.set_storage(storage).await;
     }
 
-    /// Attempt to restore an archived session.
-    ///
-    /// Checks whether `session_id` has an archived checkpoint in storage; if so,
-    /// sends a "正在恢复会话..." notification to the user and calls
-    /// `storage.restore_checkpoint`. Returns `true` iff restoration was attempted
-    /// and succeeded.
-    async fn try_restore_archived_session(&self, session_id: &str, channel: &str) -> bool {
-        let Some(storage) = &self.storage else {
-            return false;
-        };
-
-        let checkpoint = match storage.load_checkpoint(session_id).await {
-            Ok(Some(cp)) => cp,
-            Ok(None) | Err(_) => return false,
-        };
-
-        if checkpoint.status != SessionStatus::Archived {
-            return false;
-        }
-
-        // Send restoration notification to user
-        let adapters = self.adapters.read().await;
-        if let Some(adapter) = adapters.get(channel) {
-            let notification = Message {
-                id: format!("restore-{}", session_id),
-                from: "system".to_string(),
-                to: checkpoint
-                    .chat_id
-                    .as_deref()
-                    .unwrap_or(session_id)
-                    .to_string(),
-                content: "正在恢复会话...".to_string(),
-                channel: channel.to_string(),
-                timestamp: chrono::Utc::now().timestamp(),
-                metadata: HashMap::new(),
-            };
-            if let Err(e) = adapter.send_message(&notification).await {
-                tracing::warn!(session_id = %session_id, error = %e, "failed to send restore notification");
-            }
-        }
-
-        // Restore the archived session
-        if let Err(e) = storage.restore_checkpoint(session_id).await {
-            tracing::warn!(session_id = %session_id, error = %e, "failed to restore archived session");
-            return false;
-        }
-
-        true
-    }
-
-    /// Register an IM adapter
+    /// Register an IM adapter.
     pub async fn register_adapter(&self, name: String, adapter: Arc<dyn super::im::IMAdapter>) {
         let mut adapters = self.adapters.write().await;
-        adapters.insert(name.clone(), adapter);
+        adapters.insert(name, adapter);
     }
 
-    /// Route an incoming message to the appropriate agent
+    /// Route an incoming message to the appropriate agent.
     ///
-    /// If `account_id` is `None`, automatically extracts it from
-    /// `message.metadata.get("account_id")`. Explicit `account_id`
-    /// parameter takes precedence over metadata.
+    /// Reads `session_id` from `message.metadata`. Returns `MissingSessionId`
+    /// if absent. Validates the session exists in the active sessions table
+    /// before forwarding to the adapter.
     pub async fn route_message(
         &self,
         channel: &str,
         message: Message,
-        account_id: Option<&str>,
+        _account_id: Option<&str>,
     ) -> Result<(), GatewayError> {
-        // Find the adapter for this channel
+        // Read session_id from metadata (written there by SessionRouter).
+        let session_id = message
+            .metadata
+            .get("session_id")
+            .ok_or(GatewayError::MissingSessionId)?;
+
+        // Verify session exists in the active sessions table.
+        if !self.session_manager.has_session(session_id).await {
+            return Err(GatewayError::MissingSessionId);
+        }
+
+        // Find the adapter for this channel.
         let adapters = self.adapters.read().await;
         let adapter = adapters
             .get(channel)
             .ok_or(GatewayError::UnknownChannel(channel.to_string()))?;
 
-        // Validate message size
+        // Validate message size.
         if message.content.len() > self.config.max_message_size {
             return Err(GatewayError::MessageTooLarge);
         }
 
-        // Resolve account_id: explicit parameter wins, else fall back to metadata
-        let resolved_account_id =
-            account_id.or_else(|| message.metadata.get("account_id").map(|s| s.as_str()));
-
-        // Create session if needed
-        let session_id =
-            self.config
-                .dm_scope
-                .compute_session_key(channel, &message, resolved_account_id);
-        let mut sessions = self.sessions.write().await;
-        if !sessions.contains_key(&session_id) {
-            // Attempt to restore an archived session before creating a new one
-            let restored = self
-                .try_restore_archived_session(&session_id, channel)
-                .await;
-            if restored {
-                // Reload checkpoint to obtain chat_id / agent_id for the new Session
-                if let Some(storage) = &self.storage {
-                    if let Ok(Some(cp)) = storage.load_checkpoint(&session_id).await {
-                        sessions.insert(
-                            session_id.clone(),
-                            Session {
-                                id: session_id.clone(),
-                                agent_id: cp.chat_id.unwrap_or_else(|| message.to.clone()),
-                                channel: channel.to_string(),
-                                created_at: chrono::Utc::now().timestamp(),
-                            },
-                        );
-                    }
-                }
-            } else {
-                // No archived session — create a brand-new Session
-                sessions.insert(
-                    session_id.clone(),
-                    Session {
-                        id: session_id.clone(),
-                        agent_id: message.to.clone(),
-                        channel: channel.to_string(),
-                        created_at: chrono::Utc::now().timestamp(),
-                    },
-                );
-            }
-        }
-
-        // Send to adapter for delivery to agent
+        // Forward to adapter for delivery.
         adapter.send_message(&message).await?;
 
         Ok(())
     }
 
-    /// Get active sessions for an agent
+    /// Get active sessions for an agent (proxied to SessionManager).
     pub async fn get_agent_sessions(&self, agent_id: &str) -> Vec<Session> {
-        let sessions = self.sessions.read().await;
-        sessions
-            .values()
-            .filter(|s| s.agent_id == agent_id)
-            .cloned()
-            .collect()
+        self.session_manager.get_agent_sessions(agent_id).await
     }
 }
 
@@ -262,6 +177,9 @@ pub enum GatewayError {
 
     #[error("Rate limit exceeded")]
     RateLimitExceeded,
+
+    #[error("Missing session ID in message metadata")]
+    MissingSessionId,
 }
 
 impl From<super::im::AdapterError> for GatewayError {
@@ -273,3 +191,4 @@ impl From<super::im::AdapterError> for GatewayError {
 #[cfg(test)]
 mod tests;
 mod tests_archive;
+mod tests_dmscope;

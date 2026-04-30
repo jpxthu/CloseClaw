@@ -306,6 +306,7 @@ mod tests {
 
         let content = get_append_section().unwrap();
         assert_eq!(content.chars().count(), APPEND_SECTION_MAX_LEN);
+        clear_append_section();
     }
 
     #[test]
@@ -315,6 +316,7 @@ mod tests {
         let warning = set_append_section(text.clone());
         assert!(warning.is_none());
         assert_eq!(get_append_section(), Some(text));
+        clear_append_section();
     }
 
     #[test]

@@ -1,6 +1,11 @@
-//! Tests for archived session restore functionality in Gateway
+//! Tests for archived session restore functionality.
+//!
+//! In the new architecture, session lifecycle is managed by SessionManager.
+//! Gateway.route_message reads session_id from metadata (set by SessionRouter).
+//! These tests verify that SessionManager.find_or_create correctly restores
+//! archived sessions and sends notifications.
 
-use crate::gateway::{Gateway, GatewayConfig, Message};
+use crate::gateway::{GatewayConfig, Message, SessionManager};
 use crate::im::IMAdapter;
 use crate::session::persistence::{
     AgentRole, PersistenceService, SessionCheckpoint, SessionStatus,
@@ -232,6 +237,30 @@ fn make_message() -> Message {
     }
 }
 
+/// Helper to create a Gateway with a SessionManager that uses the given storage.
+async fn make_gateway_with_storage(
+    storage: Arc<MockPersistenceService>,
+) -> (crate::gateway::Gateway, Arc<SessionManager>) {
+    let config = make_config();
+    let session_manager = Arc::new(SessionManager::new(&config, Some(storage)));
+    let gateway = crate::gateway::Gateway::new(config, Arc::clone(&session_manager));
+    (gateway, session_manager)
+}
+
+/// Helper to create a message with session_id already set in metadata.
+async fn make_message_with_session(session_manager: &SessionManager) -> Message {
+    let msg = make_message();
+    let session_id = session_manager
+        .find_or_create("test_channel", &msg, None)
+        .await
+        .unwrap();
+    let mut msg_with_session = msg;
+    msg_with_session
+        .metadata
+        .insert("session_id".to_string(), session_id);
+    msg_with_session
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
@@ -242,17 +271,26 @@ async fn test_route_message_archived_session_restores() {
     let storage = MockPersistenceService::with_archived(session_id, "user_1");
     let adapter = Arc::new(MockAdapter::new());
 
-    let mut gateway = {
-        let mut g = Gateway::new(make_config());
-        g.set_storage(storage.clone());
-        g.register_adapter("test_channel".to_string(), adapter.clone())
-            .await;
-        g
-    };
-
-    let restored_before = storage.restored.read().await.len();
+    let (gateway, session_manager) = make_gateway_with_storage(storage.clone()).await;
+    // Register adapter on gateway (for route_message) and session_manager (for notifications)
     gateway
-        .route_message("test_channel", make_message(), None)
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+    session_manager
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+
+    // SessionManager.find_or_create triggers archived session restoration
+    let restored_before = storage.restored.read().await.len();
+    let msg_with_session = make_message_with_session(&session_manager).await;
+    gateway
+        .route_message("test_channel", msg_with_session, None)
         .await
         .unwrap();
     let restored_after = storage.restored.read().await.len();
@@ -270,16 +308,23 @@ async fn test_route_message_archived_session_sends_notification() {
     let storage = MockPersistenceService::with_archived(session_id, "user_1");
     let adapter = Arc::new(MockAdapter::new());
 
-    let mut gateway = {
-        let mut g = Gateway::new(make_config());
-        g.set_storage(storage.clone());
-        g.register_adapter("test_channel".to_string(), adapter.clone())
-            .await;
-        g
-    };
-
+    let (gateway, session_manager) = make_gateway_with_storage(storage.clone()).await;
     gateway
-        .route_message("test_channel", make_message(), None)
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+    session_manager
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+
+    let msg_with_session = make_message_with_session(&session_manager).await;
+    gateway
+        .route_message("test_channel", msg_with_session, None)
         .await
         .unwrap();
 
@@ -294,17 +339,26 @@ async fn test_route_message_archived_session_sends_notification() {
 async fn test_route_message_active_session_no_restore() {
     let session_id = "test_channel:user_1:agent_1";
     let storage = MockPersistenceService::with_active(session_id, "user_1");
+    let adapter = Arc::new(MockAdapter::new());
 
-    let mut gateway = {
-        let mut g = Gateway::new(make_config());
-        g.set_storage(storage.clone());
-        g.register_adapter("test_channel".to_string(), Arc::new(MockAdapter::new()))
-            .await;
-        g
-    };
-
+    let (gateway, session_manager) = make_gateway_with_storage(storage.clone()).await;
     gateway
-        .route_message("test_channel", make_message(), None)
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+    session_manager
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+
+    // find_or_create should NOT try to restore an active session
+    let msg_with_session = make_message_with_session(&session_manager).await;
+    gateway
+        .route_message("test_channel", msg_with_session, None)
         .await
         .unwrap();
 
@@ -317,16 +371,23 @@ async fn test_route_message_no_stored_session_creates_new() {
     let storage = Arc::new(MockPersistenceService::default());
     let adapter = Arc::new(MockAdapter::new());
 
-    let mut gateway = {
-        let mut g = Gateway::new(make_config());
-        g.set_storage(storage.clone());
-        g.register_adapter("test_channel".to_string(), adapter.clone())
-            .await;
-        g
-    };
-
+    let (gateway, session_manager) = make_gateway_with_storage(storage.clone()).await;
     gateway
-        .route_message("test_channel", make_message(), None)
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+    session_manager
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+
+    let msg_with_session = make_message_with_session(&session_manager).await;
+    gateway
+        .route_message("test_channel", msg_with_session, None)
         .await
         .unwrap();
 
@@ -345,20 +406,27 @@ async fn test_restore_notification_failure_does_not_block() {
     let storage = MockPersistenceService::with_archived(session_id, "user_1");
     let adapter = Arc::new(MockAdapter::new());
 
-    let mut gateway = {
-        let mut g = Gateway::new(make_config());
-        g.set_storage(storage.clone());
-        g.register_adapter("test_channel".to_string(), adapter.clone())
-            .await;
-        g
-    };
+    let (gateway, session_manager) = make_gateway_with_storage(storage.clone()).await;
+    gateway
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+    session_manager
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
 
-    // Make adapter fail on next send
+    // Make adapter fail on next send (notification failure)
     *adapter.fail_next.write().await = true;
 
     // Should not error out even if notification fails
+    let msg_with_session = make_message_with_session(&session_manager).await;
     gateway
-        .route_message("test_channel", make_message(), None)
+        .route_message("test_channel", msg_with_session, None)
         .await
         .unwrap();
 
@@ -371,13 +439,26 @@ async fn test_restore_notification_failure_does_not_block() {
 
 #[tokio::test]
 async fn test_no_storage_no_restore() {
-    let mut gateway = Gateway::new(make_config());
+    let config = make_config();
+    let session_manager = Arc::new(SessionManager::new(&config, None));
+    let gateway = crate::gateway::Gateway::new(config, Arc::clone(&session_manager));
+    let adapter = Arc::new(MockAdapter::new());
     gateway
-        .register_adapter("test_channel".to_string(), Arc::new(MockAdapter::new()))
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
+        .await;
+    session_manager
+        .register_adapter(
+            "test_channel".to_string(),
+            Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+        )
         .await;
 
+    let msg_with_session = make_message_with_session(&session_manager).await;
     gateway
-        .route_message("test_channel", make_message(), None)
+        .route_message("test_channel", msg_with_session, None)
         .await
         .unwrap();
 

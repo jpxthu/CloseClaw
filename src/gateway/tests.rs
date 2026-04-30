@@ -2,13 +2,13 @@
 //!
 //! All tests live here so that src/gateway/mod.rs stays under 500 lines.
 
-use crate::gateway::{DmScope, GatewayConfig, GatewayError, Message};
+use crate::gateway::{DmScope, GatewayConfig, GatewayError, Message, SessionManager};
 use crate::im::{AdapterError, IMAdapter};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// Mock adapter
+// ── Mock adapter ────────────────────────────────────────────────────────────
 
 struct MockAdapter {
     should_fail: bool,
@@ -44,7 +44,7 @@ impl IMAdapter for MockAdapter {
     }
 }
 
-// Test helpers
+// ── Test helpers ────────────────────────────────────────────────────────────
 
 fn make_config() -> GatewayConfig {
     GatewayConfig {
@@ -67,6 +67,45 @@ fn make_message(to: &str, content: &str) -> Message {
     }
 }
 
+fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManager>) {
+    let sm = Arc::new(SessionManager::new(&config, None));
+    let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
+    (gw, sm)
+}
+
+/// Setup: gateway + session_manager + registered mock adapter.
+async fn setup(
+    config: GatewayConfig,
+    channel: &str,
+) -> (crate::gateway::Gateway, Arc<SessionManager>) {
+    let (gw, sm) = make_gw(config);
+    gw.register_adapter(
+        channel.to_string(),
+        Arc::new(MockAdapter { should_fail: false }),
+    )
+    .await;
+    (gw, sm)
+}
+
+/// Create a message with session_id in metadata.
+async fn msg_with_session(sm: &SessionManager, channel: &str, to: &str, content: &str) -> Message {
+    let mut msg = make_message(to, content);
+    let sid = sm.find_or_create(channel, &msg, None).await.unwrap();
+    msg.metadata.insert("session_id".into(), sid);
+    msg
+}
+
+/// Add session_id to an existing message.
+async fn add_session(
+    sm: &SessionManager,
+    channel: &str,
+    msg: &mut Message,
+    account_id: Option<&str>,
+) {
+    let sid = sm.find_or_create(channel, msg, account_id).await.unwrap();
+    msg.metadata.insert("session_id".into(), sid);
+}
+
 fn feishu_msg(from: &str, to: &str) -> Message {
     Message {
         id: "x".into(),
@@ -79,7 +118,7 @@ fn feishu_msg(from: &str, to: &str) -> Message {
     }
 }
 
-// Serialisation tests
+// ── Serialization tests ─────────────────────────────────────────────────────
 
 #[test]
 fn test_gateway_config_serialization() {
@@ -100,7 +139,7 @@ fn test_message_serialization() {
     assert_eq!(parsed.content, "hello");
 }
 
-// DmScope + compute_session_key unit tests
+// ── DmScope + compute_session_key ───────────────────────────────────────────
 
 fn msg(from: &str, to: &str) -> Message {
     Message {
@@ -116,44 +155,33 @@ fn msg(from: &str, to: &str) -> Message {
 
 #[test]
 fn test_dm_scope_main_session_key() {
-    let scope = DmScope::Main;
-    let m = msg("alice", "bob");
-    // Main → channel:agent_id (agent_id = message.to = "bob")
-    let key = scope.compute_session_key("channel_x", &m, None);
-    assert_eq!(key, "channel_x:bob");
+    let key = DmScope::Main.compute_session_key("ch_x", &msg("a", "b"), None);
+    assert_eq!(key, "ch_x:b");
 }
 
 #[test]
 fn test_dm_scope_per_peer_session_key() {
-    let scope = DmScope::PerPeer;
-    let m = msg("alice", "bob");
-    let key = scope.compute_session_key("channel_x", &m, None);
-    assert_eq!(key, "alice:bob");
+    let key = DmScope::PerPeer.compute_session_key("ch_x", &msg("a", "b"), None);
+    assert_eq!(key, "a:b");
 }
 
 #[test]
 fn test_dm_scope_per_channel_peer_session_key() {
-    let scope = DmScope::PerChannelPeer;
-    let m = msg("alice", "bob");
-    let key = scope.compute_session_key("channel_x", &m, None);
-    assert_eq!(key, "channel_x:alice:bob");
+    let key = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None);
+    assert_eq!(key, "ch_x:a:b");
 }
 
 #[test]
 fn test_dm_scope_per_account_channel_peer_with_account() {
-    let scope = DmScope::PerAccountChannelPeer;
-    let m = msg("alice", "bob");
-    let key = scope.compute_session_key("channel_x", &m, Some("acc_tenant1"));
-    assert_eq!(key, "acc_tenant1:channel_x:alice:bob");
+    let key =
+        DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), Some("acc1"));
+    assert_eq!(key, "acc1:ch_x:a:b");
 }
 
 #[test]
 fn test_dm_scope_per_account_channel_peer_without_account() {
-    let scope = DmScope::PerAccountChannelPeer;
-    let m = msg("alice", "bob");
-    let key = scope.compute_session_key("channel_x", &m, None);
-    // account part falls back to "default"
-    assert_eq!(key, "default:channel_x:alice:bob");
+    let key = DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None);
+    assert_eq!(key, "default:ch_x:a:b");
 }
 
 #[test]
@@ -161,93 +189,71 @@ fn test_dm_scope_default_is_per_channel_peer() {
     assert_eq!(DmScope::default(), DmScope::PerChannelPeer);
 }
 
-// GatewayConfig serde: dm_scope values
+// ── GatewayConfig serde: dm_scope values ─────────────────────────────────────
 
 #[test]
-fn test_gateway_config_dm_scope_main() {
-    let json = r#"{"name":"g","dm_scope":"main"}"#;
-    let cfg: GatewayConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(cfg.dm_scope, DmScope::Main);
-}
-
-#[test]
-fn test_gateway_config_dm_scope_per_peer() {
-    let json = r#"{"name":"g","dm_scope":"per-peer"}"#;
-    let cfg: GatewayConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(cfg.dm_scope, DmScope::PerPeer);
-}
-
-#[test]
-fn test_gateway_config_dm_scope_per_channel_peer() {
-    let json = r#"{"name":"g","dm_scope":"per-channel-peer"}"#;
-    let cfg: GatewayConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(cfg.dm_scope, DmScope::PerChannelPeer);
-}
-
-#[test]
-fn test_gateway_config_dm_scope_per_account_channel_peer() {
-    let json = r#"{"name":"g","dm_scope":"per-account-channel-peer"}"#;
-    let cfg: GatewayConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(cfg.dm_scope, DmScope::PerAccountChannelPeer);
-}
-
-#[test]
-fn test_gateway_config_dm_scope_defaults_when_missing() {
-    let json = r#"{"name":"g"}"#;
-    let cfg: GatewayConfig = serde_json::from_str(json).unwrap();
+fn test_gateway_config_dm_scope_values() {
+    let cases = [
+        ("\"main\"", DmScope::Main),
+        ("\"per-peer\"", DmScope::PerPeer),
+        ("\"per-channel-peer\"", DmScope::PerChannelPeer),
+        (
+            "\"per-account-channel-peer\"",
+            DmScope::PerAccountChannelPeer,
+        ),
+    ];
+    for (json_val, expected) in cases {
+        let json = format!("{{\"name\":\"g\",\"dm_scope\":{}}}", json_val);
+        let cfg: GatewayConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg.dm_scope, expected);
+    }
+    let cfg: GatewayConfig = serde_json::from_str("{\"name\":\"g\"}").unwrap();
     assert_eq!(cfg.dm_scope, DmScope::PerChannelPeer);
     assert_eq!(cfg.rate_limit_per_minute, 0);
     assert_eq!(cfg.max_message_size, 0);
 }
 
-// Gateway integration tests
+// ── Gateway integration tests ───────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_register_and_route() {
-    let gw = crate::gateway::Gateway::new(make_config());
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("mock".to_string(), adapter).await;
-    let msg = make_message("agent-1", "hello");
-    let result = gw.route_message("mock", msg, None).await;
-    assert!(result.is_ok());
+    let (gw, sm) = setup(make_config(), "mock").await;
+    let msg = msg_with_session(&sm, "mock", "agent-1", "hello").await;
+    gw.route_message("mock", msg, None).await.unwrap();
 }
 
 #[tokio::test]
 async fn test_route_unknown_channel() {
-    let gw = crate::gateway::Gateway::new(make_config());
-    let msg = make_message("agent-1", "hello");
+    let (gw, sm) = setup(make_config(), "mock").await;
+    let msg = msg_with_session(&sm, "mock", "agent-1", "hello").await;
     let result = gw.route_message("unknown", msg, None).await;
     assert!(matches!(result, Err(GatewayError::UnknownChannel(_))));
 }
 
 #[tokio::test]
 async fn test_route_message_too_large() {
-    let mut config = make_config();
-    config.max_message_size = 5;
-    let gw = crate::gateway::Gateway::new(config);
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("mock".to_string(), adapter).await;
-    let msg = make_message("agent-1", "this is too long");
+    let mut cfg = make_config();
+    cfg.max_message_size = 5;
+    let (gw, sm) = setup(cfg, "mock").await;
+    let msg = msg_with_session(&sm, "mock", "agent-1", "this is too long").await;
     let result = gw.route_message("mock", msg, None).await;
     assert!(matches!(result, Err(GatewayError::MessageTooLarge)));
 }
 
 #[tokio::test]
 async fn test_route_adapter_error() {
-    let gw = crate::gateway::Gateway::new(make_config());
-    let adapter = Arc::new(MockAdapter { should_fail: true });
-    gw.register_adapter("mock".to_string(), adapter).await;
-    let msg = make_message("agent-1", "hello");
+    let (gw, sm) = make_gw(make_config());
+    gw.register_adapter("mock".into(), Arc::new(MockAdapter { should_fail: true }))
+        .await;
+    let msg = msg_with_session(&sm, "mock", "agent-1", "hello").await;
     let result = gw.route_message("mock", msg, None).await;
     assert!(matches!(result, Err(GatewayError::AdapterError(_))));
 }
 
 #[tokio::test]
 async fn test_session_created_on_route() {
-    let gw = crate::gateway::Gateway::new(make_config());
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("mock".to_string(), adapter).await;
-    let msg = make_message("agent-1", "hello");
+    let (gw, sm) = setup(make_config(), "mock").await;
+    let msg = msg_with_session(&sm, "mock", "agent-1", "hello").await;
     gw.route_message("mock", msg, None).await.unwrap();
     let sessions = gw.get_agent_sessions("agent-1").await;
     assert_eq!(sessions.len(), 1);
@@ -257,22 +263,45 @@ async fn test_session_created_on_route() {
 
 #[tokio::test]
 async fn test_no_sessions_for_unknown_agent() {
-    let gw = crate::gateway::Gateway::new(make_config());
-    let sessions = gw.get_agent_sessions("nobody").await;
-    assert!(sessions.is_empty());
+    let gw = crate::gateway::Gateway::new(
+        make_config(),
+        Arc::new(SessionManager::new(&make_config(), None)),
+    );
+    assert!(gw.get_agent_sessions("nobody").await.is_empty());
 }
 
 #[tokio::test]
 async fn test_session_not_duplicated() {
-    let gw = crate::gateway::Gateway::new(make_config());
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("mock".to_string(), adapter).await;
-    let msg1 = make_message("agent-1", "first");
-    let msg2 = make_message("agent-1", "second");
-    gw.route_message("mock", msg1, None).await.unwrap();
-    gw.route_message("mock", msg2, None).await.unwrap();
-    let sessions = gw.get_agent_sessions("agent-1").await;
-    assert_eq!(sessions.len(), 1);
+    let (gw, sm) = setup(make_config(), "mock").await;
+    let m1 = msg_with_session(&sm, "mock", "agent-1", "first").await;
+    let m2 = msg_with_session(&sm, "mock", "agent-1", "second").await;
+    gw.route_message("mock", m1, None).await.unwrap();
+    gw.route_message("mock", m2, None).await.unwrap();
+    assert_eq!(gw.get_agent_sessions("agent-1").await.len(), 1);
+}
+
+#[tokio::test]
+async fn test_route_message_no_session_id_returns_missing_session_id() {
+    // When a message arrives WITHOUT session_id in metadata,
+    // Gateway::route_message should return MissingSessionId.
+    let (gw, _sm) = setup(make_config(), "mock").await;
+    let msg_without_session = make_message("agent-1", "hello");
+    let result = gw.route_message("mock", msg_without_session, None).await;
+    assert!(matches!(result, Err(GatewayError::MissingSessionId)));
+}
+
+#[tokio::test]
+async fn test_route_message_nonexistent_session_returns_missing_session_id() {
+    // When a message arrives WITH a session_id that doesn't exist in the
+    // active sessions table, Gateway::route_message should return MissingSessionId.
+    let (gw, _sm) = setup(make_config(), "mock").await;
+    let mut msg = make_message("agent-1", "hello");
+    msg.metadata.insert(
+        "session_id".to_string(),
+        "nonexistent-session-id".to_string(),
+    );
+    let result = gw.route_message("mock", msg, None).await;
+    assert!(matches!(result, Err(GatewayError::MissingSessionId)));
 }
 
 #[test]
@@ -289,16 +318,14 @@ fn test_gateway_error_display() {
     assert!(GatewayError::RateLimitExceeded.to_string().contains("Rate"));
 }
 
-// Session isolation tests
+// ── Session isolation tests ─────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_per_channel_peer_different_senders_different_sessions() {
+async fn test_per_channel_peer_different_senders() {
     let mut cfg = make_config();
     cfg.dm_scope = DmScope::PerChannelPeer;
-    let gw = crate::gateway::Gateway::new(cfg);
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("ch".to_string(), adapter).await;
-    let m1 = Message {
+    let (gw, sm) = setup(cfg, "ch").await;
+    let mut m1 = Message {
         id: "1".into(),
         from: "alice".into(),
         to: "bob".into(),
@@ -307,7 +334,7 @@ async fn test_per_channel_peer_different_senders_different_sessions() {
         timestamp: 0,
         metadata: HashMap::new(),
     };
-    let m2 = Message {
+    let mut m2 = Message {
         id: "2".into(),
         from: "carol".into(),
         to: "bob".into(),
@@ -316,21 +343,22 @@ async fn test_per_channel_peer_different_senders_different_sessions() {
         timestamp: 0,
         metadata: HashMap::new(),
     };
+    add_session(&sm, "ch", &mut m1, None).await;
+    add_session(&sm, "ch", &mut m2, None).await;
     gw.route_message("ch", m1, None).await.unwrap();
     gw.route_message("ch", m2, None).await.unwrap();
-    let sessions = gw.get_agent_sessions("bob").await;
-    assert_eq!(sessions.len(), 2);
+    assert_eq!(gw.get_agent_sessions("bob").await.len(), 2);
 }
 
 #[tokio::test]
-async fn test_main_scope_all_messages_share_one_session() {
+async fn test_main_scope_all_share_one_session() {
     let mut cfg = make_config();
     cfg.dm_scope = DmScope::Main;
-    let gw = crate::gateway::Gateway::new(cfg);
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("ch".to_string(), adapter).await;
-    let m1 = make_message("bob", "hi");
-    let m2 = make_message("bob", "hi");
+    let (gw, sm) = setup(cfg, "ch").await;
+    let mut m1 = make_message("bob", "hi");
+    let mut m2 = make_message("bob", "hi");
+    add_session(&sm, "ch", &mut m1, None).await;
+    add_session(&sm, "ch", &mut m2, None).await;
     gw.route_message("ch", m1, None).await.unwrap();
     gw.route_message("ch", m2, None).await.unwrap();
     let sessions = gw.get_agent_sessions("bob").await;
@@ -339,143 +367,66 @@ async fn test_main_scope_all_messages_share_one_session() {
 }
 
 #[tokio::test]
-async fn test_per_account_channel_peer_different_accounts_different_sessions() {
+async fn test_per_account_peer_different_accounts() {
     let mut cfg = make_config();
     cfg.dm_scope = DmScope::PerAccountChannelPeer;
-    let gw = crate::gateway::Gateway::new(cfg);
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("ch".to_string(), adapter).await;
-    let m1 = make_message("bob", "hi");
-    let m2 = make_message("bob", "hi");
+    let (gw, sm) = setup(cfg, "ch").await;
+    let mut m1 = make_message("bob", "hi");
+    let mut m2 = make_message("bob", "hi");
+    add_session(&sm, "ch", &mut m1, Some("acc_a")).await;
+    add_session(&sm, "ch", &mut m2, Some("acc_b")).await;
     gw.route_message("ch", m1, Some("acc_a")).await.unwrap();
     gw.route_message("ch", m2, Some("acc_b")).await.unwrap();
-    let sessions = gw.get_agent_sessions("bob").await;
-    assert_eq!(sessions.len(), 2);
+    assert_eq!(gw.get_agent_sessions("bob").await.len(), 2);
 }
 
-// account_id metadata extraction tests
-
 #[tokio::test]
-async fn test_route_message_extracts_account_id_from_metadata() {
+async fn test_account_id_from_metadata() {
     let mut cfg = make_config();
     cfg.dm_scope = DmScope::PerAccountChannelPeer;
-    let gw = crate::gateway::Gateway::new(cfg);
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("feishu".to_string(), adapter).await;
-
+    let (gw, sm) = setup(cfg, "feishu").await;
     let mut msg = make_message("agent-1", "hello");
-    msg.metadata
-        .insert("account_id".to_string(), "tenant_abc".to_string());
-
-    // Pass None for account_id — should fall back to metadata
+    msg.metadata.insert("account_id".into(), "t_abc".into());
+    let aid = msg.metadata.get("account_id").cloned();
+    add_session(&sm, "feishu", &mut msg, aid.as_deref()).await;
+    let sid = msg.metadata.get("session_id").unwrap();
+    assert!(sid.starts_with("t_abc:"), "sid: {}", sid);
     gw.route_message("feishu", msg, None).await.unwrap();
-
-    let sessions = gw.get_agent_sessions("agent-1").await;
-    assert_eq!(sessions.len(), 1);
-    // Session key should include the account_id from metadata via PerAccountChannelPeer
-    assert!(sessions[0].id.starts_with("tenant_abc:"));
+    assert_eq!(gw.get_agent_sessions("agent-1").await.len(), 1);
 }
 
 #[tokio::test]
-async fn test_route_message_explicit_account_id_overrides_metadata() {
+async fn test_explicit_account_id_overrides_metadata() {
     let mut cfg = make_config();
     cfg.dm_scope = DmScope::PerAccountChannelPeer;
-    let gw = crate::gateway::Gateway::new(cfg);
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("feishu".to_string(), adapter).await;
-
+    let (gw, sm) = setup(cfg, "feishu").await;
     let mut msg = make_message("agent-1", "hello");
-    msg.metadata
-        .insert("account_id".to_string(), "metadata_tenant".to_string());
-
-    // Explicit account_id should take precedence over metadata
-    gw.route_message("feishu", msg, Some("explicit_tenant"))
+    msg.metadata.insert("account_id".into(), "meta_t".into());
+    add_session(&sm, "feishu", &mut msg, Some("explicit_t")).await;
+    let sid = msg.metadata.get("session_id").unwrap();
+    assert!(sid.starts_with("explicit_t:"), "sid: {}", sid);
+    gw.route_message("feishu", msg, Some("explicit_t"))
         .await
         .unwrap();
-
-    let sessions = gw.get_agent_sessions("agent-1").await;
-    assert_eq!(sessions.len(), 1);
-    assert!(sessions[0].id.starts_with("explicit_tenant:"));
+    assert_eq!(gw.get_agent_sessions("agent-1").await.len(), 1);
 }
 
 #[tokio::test]
-async fn test_per_channel_peer_feishu_session_isolation() {
-    // Simulates Feishu DM scenario: two different users (different `from` open_ids)
-    // messaging the same agent on the same channel — must get different sessions.
+async fn test_feishu_session_isolation() {
     let mut cfg = make_config();
     cfg.dm_scope = DmScope::PerChannelPeer;
-    let gw = crate::gateway::Gateway::new(cfg);
-    let adapter = Arc::new(MockAdapter { should_fail: false });
-    gw.register_adapter("feishu".to_string(), adapter).await;
-
-    let mut msg_alice = make_message("agent-1", "hello from alice");
-    msg_alice.from = "ou_alice".to_string();
-
-    let mut msg_carol = make_message("agent-1", "hello from carol");
-    msg_carol.from = "ou_carol".to_string();
-
-    gw.route_message("feishu", msg_alice, None).await.unwrap();
-    gw.route_message("feishu", msg_carol, None).await.unwrap();
-
+    let (gw, sm) = setup(cfg, "feishu").await;
+    let mut m_a = make_message("agent-1", "hi");
+    m_a.from = "ou_alice".into();
+    let mut m_c = make_message("agent-1", "hi");
+    m_c.from = "ou_carol".into();
+    add_session(&sm, "feishu", &mut m_a, None).await;
+    add_session(&sm, "feishu", &mut m_c, None).await;
+    gw.route_message("feishu", m_a, None).await.unwrap();
+    gw.route_message("feishu", m_c, None).await.unwrap();
     let sessions = gw.get_agent_sessions("agent-1").await;
     assert_eq!(sessions.len(), 2);
     let ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
     assert!(ids.iter().any(|k| k.contains("ou_alice")));
     assert!(ids.iter().any(|k| k.contains("ou_carol")));
-}
-
-// DmScope Feishu isolation tests
-
-// Combined test: per_channel_peer isolation, main shared session, per_account_channel_peer multi-tenant
-#[tokio::test]
-async fn test_feishu_dm_scope_isolation_variants() {
-    // Variant 1: PerChannelPeer — different open_ids → different sessions
-    {
-        let mut cfg = make_config();
-        cfg.dm_scope = DmScope::PerChannelPeer;
-        let gw = crate::gateway::Gateway::new(cfg);
-        let adapter = Arc::new(MockAdapter { should_fail: false });
-        gw.register_adapter("feishu".to_string(), adapter).await;
-        let m1 = feishu_msg("ou_u1", "ag");
-        let m2 = feishu_msg("ou_u2", "ag");
-        gw.route_message("feishu", m1, None).await.unwrap();
-        gw.route_message("feishu", m2, None).await.unwrap();
-        let sessions = gw.get_agent_sessions("ag").await;
-        assert_eq!(sessions.len(), 2);
-        assert_ne!(sessions[0].id, sessions[1].id);
-    }
-    // Variant 2: Main — all users share one session
-    {
-        let mut cfg = make_config();
-        cfg.dm_scope = DmScope::Main;
-        let gw = crate::gateway::Gateway::new(cfg);
-        let adapter = Arc::new(MockAdapter { should_fail: false });
-        gw.register_adapter("feishu".to_string(), adapter).await;
-        let m1 = feishu_msg("ou_u1", "ag");
-        let m2 = feishu_msg("ou_u2", "ag");
-        gw.route_message("feishu", m1, None).await.unwrap();
-        gw.route_message("feishu", m2, None).await.unwrap();
-        let sessions = gw.get_agent_sessions("ag").await;
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].id, "feishu:ag");
-    }
-    // Variant 3: PerAccountChannelPeer — different tenants → different sessions
-    {
-        let mut cfg = make_config();
-        cfg.dm_scope = DmScope::PerAccountChannelPeer;
-        let gw = crate::gateway::Gateway::new(cfg);
-        let adapter = Arc::new(MockAdapter { should_fail: false });
-        gw.register_adapter("feishu".to_string(), adapter).await;
-        let mut m1 = feishu_msg("ou_u1", "ag");
-        m1.metadata.insert("account_id".into(), "tenant_a".into());
-        let mut m2 = feishu_msg("ou_u1", "ag");
-        m2.metadata.insert("account_id".into(), "tenant_b".into());
-        gw.route_message("feishu", m1, None).await.unwrap();
-        gw.route_message("feishu", m2, None).await.unwrap();
-        let sessions = gw.get_agent_sessions("ag").await;
-        assert_eq!(sessions.len(), 2);
-        let ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
-        assert!(ids.iter().any(|k| k.starts_with("tenant_a:")));
-        assert!(ids.iter().any(|k| k.starts_with("tenant_b:")));
-    }
 }

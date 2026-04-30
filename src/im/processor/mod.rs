@@ -5,18 +5,23 @@
 //!   `ProcessError`, `ProcessorRegistry`, `ProcessedMessage`
 //! - `cleaner.rs` — `FeishuMessageCleaner` (inbound processor) + cleaning logic
 //! - `dsl_parser.rs` — `DslParser` (outbound processor) + DSL types
+//! - `session_router.rs` — `SessionRouter` (inbound, priority 20) + session routing
 
 mod cleaner;
 mod dsl_parser;
+mod session_router;
 
 use async_trait::async_trait;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use crate::gateway::SessionManager;
+
 pub use cleaner::FeishuMessageCleaner;
 pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
 use serde_json::Value;
+pub use session_router::SessionRouter;
 
 // ---------------------------------------------------------------------------
 // ProcessPhase
@@ -86,6 +91,9 @@ pub enum ProcessError {
 
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Session not supported for channel: {0}")]
+    SessionNotSupportedForChannel(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -114,10 +122,12 @@ pub struct ProcessorRegistry {
 
 impl ProcessorRegistry {
     /// Create a new registry with default processors registered:
+    /// - [`SessionRouter`] (inbound, priority 20) — resolves session IDs
     /// - [`FeishuMessageCleaner`] (inbound, priority 30)
     /// - [`DslParser`] (outbound, priority 10)
-    pub fn new() -> Self {
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
         let mut registry = Self::default();
+        registry.register(SessionRouter::new(session_manager));
         registry.register(FeishuMessageCleaner);
         registry.register(DslParser);
         registry
@@ -227,6 +237,18 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
+    fn test_session_manager() -> Arc<SessionManager> {
+        Arc::new(SessionManager::new(
+            &crate::gateway::GatewayConfig {
+                name: "test".to_string(),
+                rate_limit_per_minute: 100,
+                max_message_size: 65536,
+                dm_scope: crate::gateway::DmScope::PerChannelPeer,
+            },
+            None,
+        ))
+    }
+
     /// A no-op inbound processor that records how many times it was called
     /// and at what priority.
     struct SpyProcessor {
@@ -313,11 +335,12 @@ mod tests {
     // --- Registration and priority ordering ---
 
     #[tokio::test]
-    async fn test_registry_default_has_both_processors() {
-        let registry = ProcessorRegistry::new();
-        // FeishuMessageCleaner (inbound, prio 30) should be registered
+    async fn test_registry_default_has_all_processors() {
+        let mgr = test_session_manager();
+        let registry = ProcessorRegistry::new(mgr);
+        // SessionRouter (inbound, prio 20) + FeishuMessageCleaner (inbound, prio 30)
         assert!(!registry.inbound.is_empty());
-        // DslParser (outbound, prio 10) should be registered
+        // DslParser (outbound, prio 10)
         assert!(!registry.outbound.is_empty());
     }
 
@@ -372,7 +395,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_inbound_chain_simple_text() {
-        let registry = ProcessorRegistry::new();
+        let mgr = test_session_manager();
+        let registry = ProcessorRegistry::new(mgr);
         let raw =
             load_raw_fixture("im-message-receive_v1-no-event-id-2026-04-26T18-53-09-967Z.json");
         let expected = load_expected_fixture("expected/01_text_simple.json");
@@ -383,7 +407,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_inbound_chain_post_lists() {
-        let registry = ProcessorRegistry::new();
+        let mgr = test_session_manager();
+        let registry = ProcessorRegistry::new(mgr);
         let raw =
             load_raw_fixture("im-message-receive_v1-no-event-id-2026-04-27T02-58-21-195Z.json");
         let expected = load_expected_fixture("expected/03_post_lists.json");
@@ -396,7 +421,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_outbound_chain_no_dsl() {
-        let registry = ProcessorRegistry::new();
+        let mgr = test_session_manager();
+        let registry = ProcessorRegistry::new(mgr);
         let msg = serde_json::json!({"content": "Hello, this is a normal message."});
 
         let result = registry.process_outbound(&msg).await.unwrap();
@@ -410,8 +436,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_outbound_chain_with_dsl() {
-        let registry = ProcessorRegistry::new();
-        let msg = serde_json::json!({"content": "Hello world\n::button[label:Click Me;action:navigate;value:/home]\nGoodbye"});
+        let mgr = test_session_manager();
+        let registry = ProcessorRegistry::new(mgr);
+        let content = [
+            "Hello world",
+            "::button[label:Click Me;action:navigate;value:/home]",
+            "Goodbye",
+        ]
+        .join("\n");
+        let msg = serde_json::json!({"content": content});
 
         let result = registry.process_outbound(&msg).await.unwrap();
         assert_eq!(result.content, "Hello world\nGoodbye");
@@ -434,8 +467,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_outbound_chain_multiple_dsl() {
-        let registry = ProcessorRegistry::new();
-        let msg = serde_json::json!({"content": "::button[label:Yes;action:confirm;value:1]\n::button[label:No;action:cancel;value:0]"});
+        let mgr = test_session_manager();
+        let registry = ProcessorRegistry::new(mgr);
+        let content = [
+            "::button[label:Yes;action:confirm;value:1]",
+            "::button[label:No;action:cancel;value:0]",
+        ]
+        .join("\n");
+        let msg = serde_json::json!({"content": content});
 
         let result = registry.process_outbound(&msg).await.unwrap();
         assert_eq!(result.content, ""); // all lines are DSL
