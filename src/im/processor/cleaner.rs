@@ -6,6 +6,10 @@ use std::collections::BTreeMap;
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase, ProcessedMessage};
 use serde_json::Value;
 
+/// Metadata key for the original feishu `message` object (preserved by
+/// FeishuMessageCleaner so downstream processors can still access raw fields).
+const META_ORIGINAL_MESSAGE: &str = "_orig_message";
+
 // ---------------------------------------------------------------------------
 // FeishuMessageCleaner
 // ---------------------------------------------------------------------------
@@ -28,10 +32,10 @@ impl MessageProcessor for FeishuMessageCleaner {
 
     async fn process(
         &self,
-        _ctx: &MessageContext,
+        ctx: &MessageContext,
         raw: &Value,
     ) -> Result<ProcessedMessage, ProcessError> {
-        clean_message(raw)
+        clean_message(raw, ctx)
     }
 }
 
@@ -39,28 +43,78 @@ impl MessageProcessor for FeishuMessageCleaner {
 // Internal cleaning logic (migrated from processor.rs)
 // ---------------------------------------------------------------------------
 
-fn clean_message(raw: &Value) -> Result<ProcessedMessage, ProcessError> {
-    let msg = raw.get("message").ok_or(ProcessError::MissingMessage)?;
-
-    let msg_type = msg
-        .get("message_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    let content = match msg_type {
-        "text" => clean_text_message(msg),
-        "post" => clean_post_message(msg),
-        _ => msg
-            .get("content")
+fn clean_message(raw: &Value, ctx: &MessageContext) -> Result<ProcessedMessage, ProcessError> {
+    // Detect whether raw is a raw feishu webhook (has "message" field) or a
+    // ProcessedMessage from an earlier processor (has "content" field).
+    let (content, orig_msg_opt) = if let Some(msg) = raw.get("message") {
+        // Raw feishu webhook.
+        let msg_type = msg
+            .get("message_type")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
+            .unwrap_or("");
+
+        let content = match msg_type {
+            "text" => clean_text_message(msg),
+            "post" => clean_post_message(msg),
+            _ => msg
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        };
+        (content, Some(msg.clone()))
+    } else {
+        // Already a ProcessedMessage — content is a JSON string from SessionRouter
+        // that encodes the feishu inner message content (e.g. {"text":"..."} or
+        // {"title":"...","content":[[...]]}). Detect message type from the content keys.
+        let content_str = raw.get("content").and_then(|v| v.as_str()).unwrap_or("");
+
+        let content = if let Ok(parsed) = serde_json::from_str::<Value>(content_str) {
+            // Detect type from content keys: "text" → text msg, "title" → post msg.
+            if parsed.get("text").is_some() {
+                // Text message: extract the "text" field value.
+                parsed
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(content_str)
+                    .to_string()
+            } else if parsed.get("title").is_some() || parsed.get("content").is_some() {
+                // Post message: render title + content blocks.
+                let title = parsed.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let blocks = parsed
+                    .get("content")
+                    .and_then(|v| v.as_array())
+                    .map(|v| render_blocks(v.as_slice()))
+                    .unwrap_or_default();
+                let mut lines = Vec::new();
+                if !title.is_empty() {
+                    lines.push(title.to_string());
+                }
+                lines.extend(blocks);
+                lines.join("\n")
+            } else {
+                // Unknown format: return as-is.
+                content_str.to_string()
+            }
+        } else {
+            content_str.to_string()
+        };
+        (content, None)
     };
 
-    let mut metadata = BTreeMap::new();
-    if let Some(chat_type) = msg.get("chat_type").and_then(|v| v.as_str()) {
-        if chat_type == "group" {
-            metadata.insert("chat_type".to_string(), chat_type.to_string());
+    // Preserve upstream metadata (e.g. session_id from SessionRouter) and
+    // only add/override with what this cleaner produces.
+    let mut metadata = ctx.metadata.clone();
+
+    // If we saw a raw feishu message, preserve it for downstream processors.
+    if let Some(msg_val) = orig_msg_opt {
+        metadata.insert(META_ORIGINAL_MESSAGE.to_string(), msg_val.to_string());
+        if let Some(chat_type) = msg_val.get("chat_type").and_then(|v| v.as_str()) {
+            if chat_type == "group" {
+                metadata.insert("chat_type".to_string(), chat_type.to_string());
+            } else {
+                metadata.remove("chat_type");
+            }
         }
     }
 
