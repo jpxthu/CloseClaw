@@ -6,9 +6,10 @@
 
 | 文件 | 说明 |
 |------|------|
-| `collect_code_stats.py` | 采集脚本：从 git 历史中按天统计，运行后生成 `daily_stats.jsonl` |
-| `collect_coverage.py` | 覆盖率采集：运行 `cargo llvm-cov`，记录真实 UT 覆盖率到 `coverage_history.jsonl` |
+| `collect_code_stats.py` | 采集脚本：从 git 历史中按天统计，运行后生成 `data/daily_stats.jsonl` |
+| `collect_coverage.py` | 覆盖率采集：运行 `cargo llvm-cov`，记录真实 UT 覆盖率到 `data/coverage_history.jsonl` |
 | `draw_stats.py` | 画图脚本：读取 JSONL，运行后生成 `code_stats_chart.html` |
+| `data/` | 数据目录（JSONL 数据文件，已 gitignore） |
 | `README.md` | 本文档 |
 | `.gitignore` | 忽略生成物 |
 
@@ -40,7 +41,7 @@ open scripts/code_stats_chart.html
   - 代码总行数（排除空行、单行注释 //）
   - 测试用例数量（#[test] 函数）
 
-输出: scripts/daily_stats.jsonl（每行一个 JSON 对象）
+输出: scripts/data/daily_stats.jsonl（每行一个 JSON 对象）
 
 选项:
   --verbose, -v   输出每日的详细处理记录
@@ -64,7 +65,7 @@ open scripts/code_stats_chart.html
 提取: 平均覆盖率（TOTAL 行）、最高单文件覆盖率。
 追加一条记录到 scripts/coverage_history.jsonl。
 
-输出: scripts/coverage_history.jsonl（每行一个 JSON 对象）
+输出: scripts/data/coverage_history.jsonl（每行一个 JSON 对象）
 
 选项:
   --verbose, -v   输出 llvm-cov 完整输出和解析详情
@@ -79,7 +80,7 @@ open scripts/code_stats_chart.html
 
 ### 注意事项
 
-- 同一天不会重复记录（删除 `coverage_history.jsonl` 中对应行可重新采集）
+- 同一天不会重复记录（删除 `data/coverage_history.jsonl` 中对应行可重新采集）
 - 运行耗时取决于编译缓存状态，通常 3-10 分钟
 - 需要 LLVM 工具链（通过环境变量 `LLVM_CONFIG` / `LLVM_COV` / `LLVM_PROFDATA` 指定）
 - 画图时自动识别：有真实数据用 llvm-cov，没有则 fallback 到 proxy
@@ -92,8 +93,8 @@ open scripts/code_stats_chart.html
 依赖: 无（纯 Python 标准库，无需 pip install）
 
 输入:
-  - scripts/daily_stats.jsonl（代码统计）
-  - scripts/coverage_history.jsonl（覆盖率，可选）
+  - scripts/data/daily_stats.jsonl（代码统计）
+  - scripts/data/coverage_history.jsonl（覆盖率，可选）
 输出: scripts/code_stats_chart.html（Chart.js CDN，无需安装任何 Python 包）
 
 选项:

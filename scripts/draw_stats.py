@@ -16,8 +16,9 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO = SCRIPT_DIR.parent
-JSONL = SCRIPT_DIR / "daily_stats.jsonl"
-COVERAGE_HISTORY = SCRIPT_DIR / "coverage_history.jsonl"
+DATA_DIR = SCRIPT_DIR / "data"
+JSONL = DATA_DIR / "daily_stats.jsonl"
+COVERAGE_HISTORY = DATA_DIR / "coverage_history.jsonl"
 HTML_OUT = SCRIPT_DIR / "code_stats_chart.html"
 
 def load_coverage_history():

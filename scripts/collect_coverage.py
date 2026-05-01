@@ -18,7 +18,11 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO = SCRIPT_DIR.parent
-HISTORY_FILE = SCRIPT_DIR / "coverage_history.jsonl"
+DATA_DIR = SCRIPT_DIR / "data"
+HISTORY_FILE = DATA_DIR / "coverage_history.jsonl"
+
+# Ensure data directory exists
+DATA_DIR.mkdir(exist_ok=True)
 
 LLVM_ENV = {
     "LLVM_CONFIG": "/home/linuxbrew/.linuxbrew/bin/llvm-config",
