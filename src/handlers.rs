@@ -63,7 +63,7 @@ pub async fn handle_rule(action: RuleAction) -> Result<()> {
 }
 
 pub async fn handle_skill(action: SkillAction) -> Result<()> {
-    use closeclaw::skills::builtin_skills_with_engine;
+    use closeclaw::skills::{builtin_skills_with_engine, init_disk_skills, ScanConfig};
     match action {
         SkillAction::List => {
             let rs = RuleSet {
@@ -74,9 +74,23 @@ pub async fn handle_skill(action: SkillAction) -> Result<()> {
                 agent_creators: std::collections::HashMap::new(),
             };
             let eng = Arc::new(PermissionEngine::new(rs));
-            println!("Installed skills:");
+            let config = ScanConfig::default();
+            let disk_reg = init_disk_skills(&config);
+            if disk_reg.is_empty() {
+                println!("Installed skills (bundled):");
+            } else {
+                println!("Installed skills (disk):");
+                for name in disk_reg.list() {
+                    println!("  {} [disk]", name);
+                }
+                println!("Installed skills (bundled):");
+            }
             for s in builtin_skills_with_engine(eng).iter() {
-                println!("  {} v{}", s.manifest().name, s.manifest().version);
+                println!(
+                    "  {} v{} [bundled]",
+                    s.manifest().name,
+                    s.manifest().version
+                );
             }
         }
         SkillAction::Install { name } => {
