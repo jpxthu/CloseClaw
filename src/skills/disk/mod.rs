@@ -4,11 +4,17 @@
 //! hierarchical directories to find, parse, and load skill definitions.
 
 pub mod frontmatter;
+pub mod init;
 pub mod loader;
+pub mod registry;
+pub mod resolve;
 pub mod types;
 
 pub use frontmatter::parse_skill_md;
+pub use init::init_disk_skills;
 pub use loader::scan_all_skills;
+pub use registry::DiskSkillRegistry;
+pub use resolve::{resolve_skill, ResolvedSkill};
 pub use types::{
     DiskSkill, ParseError, ParsedSkill, ScanConfig, SkillContext, SkillEffort, SkillManifest,
     SkillSource,
