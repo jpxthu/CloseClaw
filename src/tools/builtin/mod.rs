@@ -9,6 +9,7 @@ pub mod git_ops;
 pub mod permission;
 pub mod search;
 pub mod skill_creator;
+pub mod skill_tool;
 
 pub use coding_agent::CodingAgentTool;
 pub use file_ops::{EditTool, GrepTool, LsTool, ReadTool, WriteTool};
@@ -16,10 +17,15 @@ pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatus
 pub use permission::PermissionQueryTool;
 pub use search::ToolSearchTool;
 pub use skill_creator::SkillCreatorTool;
+pub use skill_tool::SkillTool;
+
+use std::sync::Arc;
+
+use crate::skills::DiskSkillRegistry;
 
 /// Registers all built-in tools with the given registry.
 ///
-/// Currently registers 14 tools:
+/// Currently registers 15 tools:
 ///
 /// 5 file_ops tools:
 /// - [`ReadTool`]
@@ -39,10 +45,14 @@ pub use skill_creator::SkillCreatorTool;
 /// - [`GitPushTool`]
 /// - [`GitPullTool`]
 ///
-/// 2 stub tools:
+/// 3 stub tools:
 /// - [`CodingAgentTool`]
 /// - [`SkillCreatorTool`]
-pub async fn register_builtin_tools(registry: &crate::tools::ToolRegistry) {
+/// - [`SkillTool`]
+pub async fn register_builtin_tools(
+    registry: &crate::tools::ToolRegistry,
+    disk_registry: Arc<DiskSkillRegistry>,
+) {
     // file_ops
     registry.register(ReadTool::new()).await.ok();
     registry.register(WriteTool::new()).await.ok();
@@ -61,4 +71,6 @@ pub async fn register_builtin_tools(registry: &crate::tools::ToolRegistry) {
     // stub
     registry.register(CodingAgentTool::new()).await.ok();
     registry.register(SkillCreatorTool::new()).await.ok();
+    // skills
+    registry.register(SkillTool::new(disk_registry)).await.ok();
 }
