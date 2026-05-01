@@ -228,8 +228,10 @@ mod tests {
     use super::super::sections::Section;
     use super::super::sections::{clear_append_section, set_append_section};
     use super::*;
+    use crate::skills::DiskSkillRegistry;
     use crate::tools::builtin::register_builtin_tools;
     use crate::tools::ToolRegistry;
+    use std::sync::Arc;
 
     #[test]
     fn test_build_system_prompt_with_override() {
@@ -315,7 +317,8 @@ mod tests {
     #[tokio::test]
     async fn test_build_tools_section_returns_tools_section() {
         let registry = ToolRegistry::new();
-        register_builtin_tools(&registry).await;
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        register_builtin_tools(&registry, disk_registry).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -330,7 +333,8 @@ mod tests {
     #[tokio::test]
     async fn test_build_tools_section_contains_group_headers() {
         let registry = ToolRegistry::new();
-        register_builtin_tools(&registry).await;
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        register_builtin_tools(&registry, disk_registry).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -352,7 +356,8 @@ mod tests {
     #[tokio::test]
     async fn test_build_tools_section_contains_tool_names() {
         let registry = ToolRegistry::new();
-        register_builtin_tools(&registry).await;
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        register_builtin_tools(&registry, disk_registry).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -384,7 +389,8 @@ mod tests {
     #[tokio::test]
     async fn test_build_tools_section_respects_max_length() {
         let registry = ToolRegistry::new();
-        register_builtin_tools(&registry).await;
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        register_builtin_tools(&registry, disk_registry).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
