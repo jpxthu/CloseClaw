@@ -30,6 +30,13 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `SkillInput` | registry | 技能执行输入（skill_name、method、args、agent_id） |
 | `SkillOutput` | registry | 技能执行输出（success、result、error） |
 | `SkillError` | registry | 错误类型：`NotFound`、`MethodNotFound`、`ExecutionFailed`、`InvalidArgs`、`PermissionDenied` |
+| `DiskSkill` | disk | 磁盘上发现的技能，包含 manifest、来源、路径 |
+| `ParsedSkill` | disk | 解析后的 SKILL.md，包含 manifest、是否仅描述、原始 frontmatter |
+| `ScanConfig` | disk | 技能目录扫描配置 |
+| `SkillSource` | disk | 技能来源优先级：`Bundled` < `ExtraDirs` < `Global` < `Agent` < `Project` |
+| `SkillContext` | disk | 技能执行上下文：`Inline` 或 `Agent { agent_id }` |
+| `SkillEffort` | disk | 工作量估算：`Trivial` / `Small` / `Medium` / `Large` / `Unknown` |
+| `ParseError` | disk | 解析错误：`MissingDelimiter` / `InvalidYaml` / `MissingDescription` |
 
 ### 构造
 
@@ -49,6 +56,8 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `SkillCreatorSkill::new()` | SkillCreatorSkill | 创建实例 |
 | `builtin_skills()` | builtin | 获取全部 7 个内置技能（无引擎） |
 | `builtin_skills_with_engine(engine)` | builtin | 获取全部 7 个内置技能（带引擎） |
+| `parse_skill_md(raw)` | disk | 解析 SKILL.md YAML frontmatter |
+| `scan_all_skills(config)` | disk | 扫描所有技能目录，返回按优先级去重的技能列表 |
 
 ### 内置类型
 
@@ -111,8 +120,21 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 
 - **`registry`**：核心类型定义（Skill trait、SkillRegistry、SkillManifest、SkillInput、SkillOutput、SkillError）
 - **`builtin`**：7 个内置技能实现 + BuiltinSkills 聚合
+- **`disk`**：基于磁盘的技能发现，扫描层级目录并解析 SKILL.md frontmatter
 - **`coding_agent`**：CodingAgentSkill（stub 状态）
 - **`skill_creator`**：SkillCreatorSkill
+
+### disk 子模块结构
+
+| 文件 | 职责 |
+|------|------|
+| `types.rs` | 类型定义（DiskSkill、ParsedSkill、ScanConfig、SkillSource、SkillContext、SkillEffort、ParseError） |
+| `frontmatter.rs` | SKILL.md YAML frontmatter 解析器 |
+| `loader.rs` | 技能目录扫描器，按优先级聚合多来源技能 |
+
+### 技能发现优先级
+
+从高到低：`Bundled` → `ExtraDirs` → `Global` → `Agent` → `Project`。相同名称的技能，高优先级覆盖低优先级。
 
 ### 内置技能
 
