@@ -22,6 +22,8 @@ Disk Skill 模块提供基于文件系统的技能发现机制。扫描层级目
 | 类型 | 功能 |
 |------|------|
 | `DiskSkill` | 磁盘上发现的技能：来源、manifest、SKILL.md 路径、技能目录路径 |
+| `DiskSkillRegistry` | 内存注册表：持有 `Vec<DiskSkill>`，提供 `get` / `list` / `contains` / `filter_by_source` / `len` / `is_empty` |
+| `ResolvedSkill<'a>` | 技能解析结果枚举：`Disk(&DiskSkill)` 或 `Bundled(Arc<dyn Skill>)` |
 | `ParsedSkill` | 解析结果：manifest、是否仅描述字段、原始 frontmatter 文本 |
 | `ScanConfig` | 扫描配置：bundled_dir / extra_dirs / global_dir / project_root / agent_id |
 | `SkillSource` | 技能来源枚举：`Bundled` / `ExtraDirs` / `Global` / `Agent` / `Project` |
@@ -36,6 +38,8 @@ Disk Skill 模块提供基于文件系统的技能发现机制。扫描层级目
 |------|------|
 | `parse_skill_md(raw)` | 解析 SKILL.md 文件内容，返回 ParsedSkill 或 ParseError |
 | `scan_all_skills(config)` | 扫描所有配置的技能目录，返回按优先级去重的 Vec<DiskSkill> |
+| `init_disk_skills(config)` | 初始化磁盘技能注册表：调用 `scan_all_skills`，返回 DiskSkillRegistry |
+| `resolve_skill(name, disk_registry, skill_registry)` | 查询路由：先查 DiskSkillRegistry（同步），未命中再查 SkillRegistry（async），返回 ResolvedSkill |
 
 ---
 
@@ -48,6 +52,9 @@ Disk Skill 模块提供基于文件系统的技能发现机制。扫描层级目
 | `types.rs` | 所有类型定义，包含 SkillManifest、DiskSkill、ParsedSkill、ScanConfig、SkillSource、SkillContext、SkillEffort、ParseError |
 | `frontmatter.rs` | SKILL.md YAML frontmatter 解析实现 |
 | `loader.rs` | 技能目录扫描实现，按 SkillSource 优先级聚合 |
+| `registry.rs` | DiskSkillRegistry 内存注册表：持有 `Vec<DiskSkill>`，提供 `get` / `list` / `contains` / `filter_by_source` / `len` / `is_empty` |
+| `resolve.rs` | 技能查询路由函数 `resolve_skill`：先查 DiskSkillRegistry（同步），未命中再查 SkillRegistry（async），返回 `ResolvedSkill` |
+| `init.rs` | `init_disk_skills` 初始化入口：调用 `scan_all_skills` 并构造 DiskSkillRegistry |
 
 ### 扫描优先级
 

@@ -31,6 +31,8 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `SkillOutput` | registry | 技能执行输出（success、result、error） |
 | `SkillError` | registry | 错误类型：`NotFound`、`MethodNotFound`、`ExecutionFailed`、`InvalidArgs`、`PermissionDenied` |
 | `DiskSkill` | disk | 磁盘上发现的技能，包含 manifest、来源、路径 |
+| `DiskSkillRegistry` | disk | 磁盘技能内存注册表，持有一组 `DiskSkill`，提供 `get`/`list`/`contains`/`filter_by_source` 查询 |
+| `ResolvedSkill<'a>` | disk | 技能解析结果枚举：`Disk(&DiskSkill)` 或 `Bundled(Arc<dyn Skill>)` |
 | `ParsedSkill` | disk | 解析后的 SKILL.md，包含 manifest、是否仅描述、原始 frontmatter |
 | `ScanConfig` | disk | 技能目录扫描配置 |
 | `SkillSource` | disk | 技能来源优先级：`Bundled` < `ExtraDirs` < `Global` < `Agent` < `Project` |
@@ -44,6 +46,7 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 |------|------|------|
 | `SkillRegistry::new()` | SkillRegistry | 创建空注册表 |
 | `SkillRegistry::default()` | SkillRegistry | 创建默认注册表（同 `new()`） |
+| `DiskSkillRegistry::new(skills)` | DiskSkillRegistry | 创建注册表，持有已扫描的 `Vec<DiskSkill>` |
 | `FileOpsSkill::new()` | FileOpsSkill | 创建无权限引擎实例 |
 | `FileOpsSkill::with_engine(engine)` | FileOpsSkill | 创建带权限引擎实例 |
 | `GitOpsSkill::new()` | GitOpsSkill | 创建实例 |
@@ -58,6 +61,7 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `builtin_skills_with_engine(engine)` | builtin | 获取全部 7 个内置技能（带引擎） |
 | `parse_skill_md(raw)` | disk | 解析 SKILL.md YAML frontmatter |
 | `scan_all_skills(config)` | disk | 扫描所有技能目录，返回按优先级去重的技能列表 |
+| `init_disk_skills(config)` | disk | 初始化磁盘技能注册表，扫描配置路径并加载所有磁盘技能 |
 
 ### 内置类型
 
@@ -109,6 +113,13 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `SkillRegistry::get(name)` | SkillRegistry | 按名称查找技能 |
 | `SkillRegistry::list()` | SkillRegistry | 列出所有已注册技能名 |
 | `SkillRegistry::contains(name)` | SkillRegistry | 检查技能是否存在 |
+| `DiskSkillRegistry::get(name)` | DiskSkillRegistry | 按名称查找磁盘技能 |
+| `DiskSkillRegistry::list()` | DiskSkillRegistry | 列出所有磁盘技能名称 |
+| `DiskSkillRegistry::contains(name)` | DiskSkillRegistry | 检查磁盘技能是否存在 |
+| `DiskSkillRegistry::filter_by_source(source)` | DiskSkillRegistry | 按来源过滤磁盘技能 |
+| `DiskSkillRegistry::len()` | DiskSkillRegistry | 返回已注册技能数量 |
+| `resolve_skill(name, disk_registry, skill_registry)` | disk | 查询路由：先查 disk registry，未命中再查 bundled registry |
+| `init_disk_skills(config)` | disk | 初始化磁盘技能注册表，扫描配置路径并加载所有磁盘技能 |
 | `Skill::manifest()` | Skill trait | 获取技能元数据 |
 | `Skill::methods()` | Skill trait | 列出技能支持的方法 |
 
@@ -131,6 +142,20 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `types.rs` | 类型定义（DiskSkill、ParsedSkill、ScanConfig、SkillSource、SkillContext、SkillEffort、ParseError） |
 | `frontmatter.rs` | SKILL.md YAML frontmatter 解析器 |
 | `loader.rs` | 技能目录扫描器，按优先级聚合多来源技能 |
+| `registry.rs` | DiskSkillRegistry 内存注册表 |
+| `resolve.rs` | 技能查询路由函数 resolve_skill |
+| `init.rs` | init_disk_skills 初始化入口 |
+
+### 两套 Registry 并存架构
+
+Phase 2 引入双 Registry 设计，实现 disk skill 与 bundled skill 的平稳过渡：
+
+- **`SkillRegistry`**（旧）：管理所有 bundled skill（`builtin` + 运行时注册），所有操作 async，通过 `tokio::sync::RwLock` 保护 `HashMap`
+- **`DiskSkillRegistry`**（新）：管理从磁盘扫描加载的 skill，纯同步结构体，持有 `Vec<DiskSkill>`
+
+**查询路由**：`resolve_skill(name, disk_registry, skill_registry)` 先查 DiskSkillRegistry（同步），未命中再查 SkillRegistry（async）。
+
+**Session 集成**：通过 `init_disk_skills(config)` 在启动时加载 disk skills，返回 `DiskSkillRegistry` 供后续查询使用。
 
 ### 技能发现优先级
 
