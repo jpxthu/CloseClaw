@@ -9,7 +9,7 @@
 - `ToolRegistry` 是并发安全的注册中心，内部用 `tokio::sync::RwLock` 包裹 `HashMap<String, Arc<dyn Tool>>`
 - `ToolDescriptor` 仅含 name / group / summary / is_deferred，用于 system prompt 一级索引
 - 工具 detail 和 input_schema 按需通过 `ToolSearch` 触发注入，不在一级索引展开
-- `builtin` 子模块提供 5 个 file_ops 工具、2 个 meta 工具、5 个 git_ops 工具和 2 个 stub 工具，全部通过 `register_builtin_tools()` 一键注册
+- `builtin` 子模块提供 5 个 file_ops 工具、2 个 meta 工具、5 个 git_ops 工具、1 个 SkillTool 和 2 个 stub 工具，全部通过 `register_builtin_tools()` 一键注册
 - System prompt 集成：builder.rs 提供 `build_tools_section(registry, ctx)` async 函数，返回 `Section::ToolsSection`；`build_from_workspace` 中预埋 `Section::ToolsSection(String::new())` 占位符（位于 RoleSection 之后 MemorySection 之前）。当前 `build_tools_section` 尚未在 sync 路径中与 `build_from_workspace` 打通，内容通过 dynamic_sections 外部传入
 
 边界：builtin tools 不依赖 `crate::skills` 模块；`ToolRegistry` 依赖 `tokio`（异步运行时）。
@@ -20,11 +20,15 @@
 
 ### 核心类型（mod.rs）
 
-- `Tool` trait — 工具核心接口，6 个方法：name / group / summary / detail / input_schema / flags
+- `Tool` trait — 工具核心接口，6 个方法：name / group / summary / detail / input_schema / flags；第 7 个方法 call() 用于执行（默认返回 NotImplemented）
 - `ToolFlags` — bitflags 风格运行时标记（is_concurrency_safe / is_read_only / is_destructive / is_expensive / is_deferred_by_default）
 - `ToolContext` — 运行时上下文（agent_id + workdir）
 - `ToolDescriptor` — 一级摘要数据（name / group / summary / is_deferred）
 - `ToolError` — 工具层错误类型，用 thiserror 定义（NotFound / AlreadyRegistered / Serialization / Io）
+- `ToolCallError` — 工具执行错误（NotFound / PermissionDenied / InvalidArgs / ExecutionFailed / NotImplemented）
+- `ToolMessage` — 注入上下文的元消息（content + is_meta）
+- `ContextModifier` — 上下文修改器（allowed_tools 列表）
+- `ToolResult` — 工具执行结果（data + new_messages + context_modifier）
 
 ### 注册中心（registry.rs）
 
@@ -37,7 +41,8 @@
 
 ### 内建工具（builtin/）
 
-- `register_builtin_tools(registry)` — 将全部 14 个内建工具注册到指定注册表
+- `SkillTool` — skills 组，从 DiskSkillRegistry 查找 skill 并注入 SKILL.md 内容到 agent 上下文；group = "skills"，is_deferred_by_default = false；输入参数 skill_name（必填）和 args（可选）
+- `register_builtin_tools(registry, disk_registry)` — 将全部 16 个内建工具注册到指定注册表
 - `ReadTool` / `WriteTool` / `EditTool` / `GrepTool` / `LsTool` — file_ops 组，group = "file_ops"
 - `ToolSearchTool` / `PermissionQueryTool` — meta 组，group = "meta"，is_deferred_by_default = false
 - `GitStatusTool` / `GitLogTool` / `GitCommitTool` / `GitPushTool` / `GitPullTool` — git_ops 组，group = "git_ops"；GitStatusTool/GitLogTool 标记 is_read_only，GitCommitTool/GitPushTool/GitPullTool 标记 is_destructive
@@ -55,11 +60,12 @@ tools/
 ├── mod.rs              # Tool trait、ToolFlags、ToolContext、ToolDescriptor、ToolError
 ├── registry.rs         # ToolRegistry 并发注册中心 + build_tools_section
 └── builtin/
-    ├── mod.rs          # register_builtin_tools 统一入口（14 个工具）
+    ├── mod.rs          # register_builtin_tools 统一入口（15 个工具）
     ├── file_ops.rs     # Read / Write / Edit / Grep / Ls
     ├── git_ops.rs      # GitStatus / GitLog / GitCommit / GitPush / GitPull
     ├── coding_agent.rs # CodingAgentTool (stub)
     ├── skill_creator.rs # SkillCreatorTool (stub)
+    ├── skill_tool.rs   # SkillTool
     ├── search.rs       # ToolSearchTool
     └── permission.rs   # PermissionQueryTool
 ```

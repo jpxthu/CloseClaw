@@ -16,6 +16,7 @@ pub mod registry;
 
 pub use registry::ToolRegistry;
 
+use async_trait::async_trait;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -104,6 +105,68 @@ pub enum ToolError {
 }
 
 // ---------------------------------------------------------------------------
+// ToolCallError —工具执行错误
+// ---------------------------------------------------------------------------
+
+/// Errors raised during tool execution.
+#[derive(Debug, Error, Clone)]
+pub enum ToolCallError {
+    #[error("skill not found: {0}")]
+    NotFound(String),
+
+    #[error("permission denied for skill: {0}")]
+    PermissionDenied(String),
+
+    #[error("invalid arguments: {0}")]
+    InvalidArgs(String),
+
+    #[error("execution failed: {0}")]
+    ExecutionFailed(String),
+
+    #[error("call not implemented for this tool")]
+    NotImplemented,
+}
+
+// ---------------------------------------------------------------------------
+// ToolMessage —注入上下文的消息
+// ---------------------------------------------------------------------------
+
+/// A message to be injected into the agent context.
+#[derive(Debug, Clone)]
+pub struct ToolMessage {
+    /// The content of the message.
+    pub content: String,
+    /// Whether this message is metadata (not from a real user).
+    pub is_meta: bool,
+}
+
+// ---------------------------------------------------------------------------
+// ContextModifier —上下文修改器
+// ---------------------------------------------------------------------------
+
+/// Modifies the agent session context after tool execution.
+#[derive(Debug, Clone)]
+pub struct ContextModifier {
+    /// List of tools the agent is allowed to use.
+    pub allowed_tools: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// ToolResult —工具执行结果
+// ---------------------------------------------------------------------------
+
+/// Result of a tool call.
+#[derive(Debug, Clone)]
+pub struct ToolResult {
+    /// The structured result data (JSON value).
+    pub data: Value,
+    /// Messages to inject into the agent context.
+    pub new_messages: Vec<ToolMessage>,
+    /// Optional context modifier.
+    pub context_modifier: Option<ContextModifier>,
+}
+
+// ---------------------------------------------------------------------------
 // Tool —核心 trait
 // ---------------------------------------------------------------------------
 
@@ -111,6 +174,7 @@ pub enum ToolError {
 ///
 /// Each tool is a named, grouped capability that the LLM can invoke.
 /// Implementations must be `Send + Sync + 'static`.
+#[async_trait]
 pub trait Tool: Send + Sync {
     /// Returns the unique name of this tool.
     fn name(&self) -> &str;
@@ -130,6 +194,13 @@ pub trait Tool: Send + Sync {
 
     /// Returns the JSON Schema for this tool's input parameters.
     fn input_schema(&self) -> Value;
+
+    /// Call the tool with the given arguments and runtime context.
+    ///
+    /// Default implementation returns `ToolCallError::NotImplemented`.
+    async fn call(&self, _args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Err(ToolCallError::NotImplemented)
+    }
 
     /// Returns this tool's runtime flags.
     fn flags(&self) -> ToolFlags;

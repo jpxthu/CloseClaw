@@ -10,5 +10,6 @@ pub mod skill_creator;
 
 pub use builtin::{builtin_skills, builtin_skills_with_engine};
 pub use coding_agent::CodingAgentSkill;
+pub use disk::{init_disk_skills, resolve_skill, DiskSkillRegistry, ResolvedSkill, ScanConfig};
 pub use registry::{Skill, SkillError, SkillInput, SkillManifest, SkillOutput, SkillRegistry};
 pub use skill_creator::SkillCreatorSkill;
