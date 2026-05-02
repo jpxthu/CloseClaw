@@ -15,6 +15,7 @@ pub mod dsl_parser;
 pub mod error;
 pub mod loader;
 pub mod markdown_normalizer;
+pub mod markdown_to_card;
 pub mod message_cleaner;
 pub mod processor;
 pub mod raw_log_processor;
