@@ -181,6 +181,8 @@ def main():
         running = max(running, v)
         cum.append(running)
 
+    cov_history_count = len(cov_history)
+
     if has_real_cov:
         # Build date → coverage lookup from history
         hist_avg = {r["date"]: r["avg_coverage"] for r in cov_history}
@@ -241,6 +243,9 @@ def main():
   tr.ratio-row td {{ color: #9aa0a6; font-size: 11px; background: #161f2a; }}
   .est-note {{ font-size: 10px; color: #567; margin-top: 8px; text-align: center; }}
   .note {{ text-align: center; color: #555; font-size: 11px; margin-top: 20px; }}
+  .cov-placeholder {{ display: flex; align-items: center; justify-content: center; height: 180px; color: #5f6b7a; font-size: 14px; text-align: center; }}
+  .cov-placeholder .cov-num {{ color: #8ab4f8; font-size: 32px; font-weight: 600; display: block; margin-bottom: 8px; }}
+  .cov-placeholder .cov-sub {{ color: #9aa0a6; font-size: 12px; margin-top: 4px; }}
   .wide {{ grid-column: 1 / -1; }}
 </style>
 </head>
@@ -270,7 +275,8 @@ def main():
 <div class="bottom-grid">
   <div class="chart-box">
     <div class="chart-title">{cov_subtitle}</div>
-    <canvas id="covChart"></canvas>
+    <div class="chart-title">{cov_subtitle}</div>
+    {'<canvas id="covChart"></canvas>' if cov_history_count >= 2 else f'<div class="cov-placeholder"><div><span class="cov-num">{latest_avg}%</span>平均覆盖率（{cov_history_count} 个数据点）<div class="cov-sub">最高: {latest_max}% · 多跑几天自动生成趋势图</div></div></div>' if has_real_cov else '<canvas id="covChart"></canvas>'}
   </div>
   <div class="time-table">
     <h3>⏱ 古法工时估算（Vibe Project 框架）</h3>
@@ -338,17 +344,20 @@ new Chart(document.getElementById('covChart'), {{
         data: {cv_avg},
         borderColor: '#ea4335',
         tension: 0.4,
-        pointRadius: 2
+        spanGaps: true,
+        pointRadius: {cv_avg}.filter(v => v !== null).length <= 3 ? 6 : 2
       }},
       ...(function() {{
-        if ({cv_max} !== null) {{
+        var maxData = {cv_max};
+        if (maxData !== null && maxData.some(v => v !== null)) {{
           return [{{
             label: '最高覆盖率 (%)',
-            data: {cv_max},
+            data: maxData,
             borderColor: '#34a853',
             borderDash: [5, 5],
             tension: 0.4,
-            pointRadius: 2
+            spanGaps: true,
+            pointRadius: maxData.filter(v => v !== null).length <= 3 ? 6 : 2
           }}];
         }}
         return [];
