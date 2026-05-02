@@ -92,8 +92,8 @@ def run_llvm_cov():
 def parse_coverage(output):
     """
     Parse llvm-cov summary output.
-    Returns (avg_coverage, max_coverage) or None on failure.
-    
+    Returns avg_coverage (TOTAL line) or None on failure.
+
     Output format (whitespace-separated):
       Filename    Regions Missed  Covered  Coverage  Functions Missed  Covered  Coverage  Lines Missed  Covered  Coverage  Branches ...
       TOTAL       31217           5198     83.35%    3005              589      80.40%    20751         3265     84.27%    0           0         -
@@ -101,54 +101,25 @@ def parse_coverage(output):
     if not output:
         return None
 
-    avg_cov = None
-    max_cov = 0.0
-    file_coverages = []
-
     for line in output.splitlines():
         line = line.strip()
         if not line or line.startswith("---") or line.startswith("Filename"):
             continue
 
-        # Split by whitespace
         parts = line.split()
         if len(parts) < 4:
             continue
 
-        # Check if this is the TOTAL line
-        is_total = parts[0] == "TOTAL"
+        if parts[0] == "TOTAL":
+            for p in parts:
+                if p.endswith("%"):
+                    try:
+                        return float(p.rstrip("%"))
+                    except ValueError:
+                        continue
 
-        # Find the first percentage (region coverage)
-        # Format: name  missed  covered  XX.XX%  ...
-        # For TOTAL: TOTAL  missed  covered  XX.XX%  ...
-        pct = None
-        for i, p in enumerate(parts):
-            if p.endswith("%"):
-                try:
-                    pct = float(p.rstrip("%"))
-                    break
-                except ValueError:
-                    continue
-
-        if pct is None:
-            continue
-
-        if is_total:
-            avg_cov = pct
-            log(f"  TOTAL coverage: {pct}%")
-        else:
-            file_coverages.append(pct)
-            if pct > max_cov:
-                max_cov = pct
-
-    if avg_cov is None:
-        print("ERROR: could not find TOTAL line in llvm-cov output", file=sys.stderr)
-        return None
-
-    log(f"  Max file coverage: {max_cov}%")
-    log(f"  Files scanned: {len(file_coverages)}")
-
-    return avg_cov, max_cov
+    print("ERROR: could not find TOTAL line in llvm-cov output", file=sys.stderr)
+    return None
 
 
 def load_existing_dates():
@@ -195,19 +166,18 @@ def main():
         print("FAILED: could not parse coverage", file=sys.stderr)
         sys.exit(1)
 
-    avg_cov, max_cov = result
+    avg_cov = result
 
     record = {
         "date": today,
         "commit": commit,
         "avg_coverage": avg_cov,
-        "max_coverage": max_cov,
     }
 
     with open(HISTORY_FILE, "a") as f:
         f.write(json.dumps(record) + "\n")
 
-    print(f"Recorded: avg={avg_cov}%, max={max_cov}% → {HISTORY_FILE}")
+    print(f"Recorded: avg={avg_cov}% → {HISTORY_FILE}")
 
 
 if __name__ == "__main__":

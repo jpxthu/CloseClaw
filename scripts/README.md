@@ -75,7 +75,7 @@ open scripts/code_stats_chart.html
 ### 输出格式
 
 ```jsonl
-{"date": "2026-05-02", "commit": "b345471", "avg_coverage": 83.35, "max_coverage": 100.0}
+{"date": "2026-05-02", "commit": "b345471", "avg_coverage": 83.44}
 ```
 
 ### 注意事项

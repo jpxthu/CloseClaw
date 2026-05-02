@@ -23,7 +23,7 @@ HTML_OUT = SCRIPT_DIR / "code_stats_chart.html"
 
 def load_coverage_history():
     """Load real coverage data from coverage_history.jsonl.
-    Returns list of {date, avg_coverage, max_coverage} or empty list."""
+    Returns list of {date, avg_coverage} or empty list."""
     records = []
     if not COVERAGE_HISTORY.exists():
         return records
@@ -34,7 +34,7 @@ def load_coverage_history():
                 continue
             try:
                 rec = json.loads(line)
-                if "avg_coverage" in rec and "max_coverage" in rec:
+                if "avg_coverage" in rec:
                     records.append(rec)
             except json.JSONDecodeError:
                 pass
@@ -196,8 +196,7 @@ def main():
 
         # Stats for display
         latest_avg = cov_history[-1]["avg_coverage"]
-        latest_max = cov_history[-1]["max_coverage"]
-        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}%, max={latest_max}% | 最高覆盖率 = proxy（tests/max）"
+        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}% | 最高覆盖率 = proxy（tests/max）"
         cov_subtitle = "⚡ 测试覆盖率（avg 实测 + max 估算）"
     else:
         cov_avg_data = None
@@ -384,7 +383,7 @@ new Chart(document.getElementById('covChart'), {{
     with open(HTML_OUT, "w") as f:
         f.write(html)
     if has_real_cov:
-        print(f"Written: {HTML_OUT}  (real coverage: avg={latest_avg}%, max={latest_max}%)")
+        print(f"Written: {HTML_OUT}  (real coverage: avg={latest_avg}%)")
     else:
         print(f"Written: {HTML_OUT}  (proxy coverage, no real data)")
 
