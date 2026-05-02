@@ -9,8 +9,10 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
+use super::dsl_parser::DslParser;
 use super::error::ProcessError;
 use super::markdown_normalizer::MarkdownNormalizer;
+use super::markdown_to_card::MarkdownToCard;
 use super::message_cleaner::MessageCleaner;
 use super::processor::MessageProcessor;
 use super::raw_log_processor::{RawLogConfig, RawLogProcessor};
@@ -21,9 +23,13 @@ use super::registry::ProcessorRegistry;
 /// Deserialized from the `processor_chain.inbound` section of the config file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProcessorChainConfig {
-    /// Ordered list of processor configurations (execution order is by `priority`).
+    /// Ordered list of inbound processor configurations.
     #[serde(default)]
     pub inbound: Vec<ProcessorConfig>,
+
+    /// Ordered list of outbound processor configurations.
+    #[serde(default)]
+    pub outbound: Vec<ProcessorConfig>,
 }
 
 /// Configuration for a single processor.
@@ -52,6 +58,12 @@ pub enum ProcessorConfig {
     /// [`MarkdownNormalizer`](super::markdown_normalizer::MarkdownNormalizer) —
     /// standardises markdown formatting before LLM input.
     MarkdownNormalizer,
+    /// [`DslParser`](super::dsl_parser::DslParser) — outbound processor that
+    /// parses `::button[...]` DSL instructions and stores them in metadata.
+    DslParser,
+    /// [`MarkdownToCard`](super::markdown_to_card::MarkdownToCard) — outbound
+    /// processor that renders markdown as Feishu interactive cards.
+    MarkdownToCard,
 }
 
 fn default_log_dir() -> PathBuf {
@@ -84,6 +96,10 @@ impl ProcessorChainLoader {
             let processor = Self::build_processor(processor_config)?;
             registry.register(processor);
         }
+        for processor_config in &config.outbound {
+            let processor = Self::build_processor(processor_config)?;
+            registry.register(processor);
+        }
         Ok(registry)
     }
 
@@ -105,6 +121,8 @@ impl ProcessorChainLoader {
             }
             ProcessorConfig::MessageCleaner => Ok(Arc::new(MessageCleaner::new())),
             ProcessorConfig::MarkdownNormalizer => Ok(Arc::new(MarkdownNormalizer::new())),
+            ProcessorConfig::DslParser => Ok(Arc::new(DslParser::default())),
+            ProcessorConfig::MarkdownToCard => Ok(Arc::new(MarkdownToCard::default())),
         }
     }
 }
@@ -115,9 +133,13 @@ mod tests {
 
     #[test]
     fn test_load_empty_config_returns_empty_registry() {
-        let config = ProcessorChainConfig { inbound: vec![] };
+        let config = ProcessorChainConfig {
+            inbound: vec![],
+            outbound: vec![],
+        };
         let registry = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 0);
+        assert_eq!(registry.outbound_len(), 0);
     }
 
     #[test]
@@ -129,6 +151,7 @@ mod tests {
                 dir: tmp.path().to_path_buf(),
                 retention_days: 7,
             }],
+            outbound: vec![],
         };
         let registry = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
@@ -138,6 +161,7 @@ mod tests {
     fn test_load_message_cleaner() {
         let config = ProcessorChainConfig {
             inbound: vec![ProcessorConfig::MessageCleaner],
+            outbound: vec![],
         };
         let registry = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
@@ -147,6 +171,7 @@ mod tests {
     fn test_load_markdown_normalizer() {
         let config = ProcessorChainConfig {
             inbound: vec![ProcessorConfig::MarkdownNormalizer],
+            outbound: vec![],
         };
         let registry = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
@@ -165,9 +190,41 @@ mod tests {
                 ProcessorConfig::MessageCleaner,
                 ProcessorConfig::MarkdownNormalizer,
             ],
+            outbound: vec![],
         };
         let registry = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 3);
+    }
+
+    #[test]
+    fn test_load_dsl_parser_outbound() {
+        let config = ProcessorChainConfig {
+            inbound: vec![],
+            outbound: vec![ProcessorConfig::DslParser],
+        };
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.outbound_len(), 1);
+    }
+
+    #[test]
+    fn test_load_markdown_to_card_outbound() {
+        let config = ProcessorChainConfig {
+            inbound: vec![],
+            outbound: vec![ProcessorConfig::MarkdownToCard],
+        };
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.outbound_len(), 1);
+    }
+
+    #[test]
+    fn test_load_both_inbound_and_outbound() {
+        let config = ProcessorChainConfig {
+            inbound: vec![ProcessorConfig::MessageCleaner],
+            outbound: vec![ProcessorConfig::DslParser, ProcessorConfig::MarkdownToCard],
+        };
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.inbound_len(), 1);
+        assert_eq!(registry.outbound_len(), 2);
     }
 
     #[test]
@@ -205,6 +262,26 @@ mod tests {
         match config {
             ProcessorConfig::MarkdownNormalizer => {}
             _ => panic!("expected MarkdownNormalizer variant"),
+        }
+    }
+
+    #[test]
+    fn test_dsl_parser_deserialization() {
+        let json = r#"{"type":"dsl_parser"}"#;
+        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
+        match config {
+            ProcessorConfig::DslParser => {}
+            _ => panic!("expected DslParser variant"),
+        }
+    }
+
+    #[test]
+    fn test_markdown_to_card_deserialization() {
+        let json = r#"{"type":"markdown_to_card"}"#;
+        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
+        match config {
+            ProcessorConfig::MarkdownToCard => {}
+            _ => panic!("expected MarkdownToCard variant"),
         }
     }
 }
