@@ -156,10 +156,16 @@ async fn handle_stdin_line_none_eof() {
 
 async fn mock_server_seq(
     responses: Vec<serde_json::Value>,
-) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+) -> (
+    std::net::SocketAddr,
+    tokio::task::JoinHandle<()>,
+    tokio::sync::oneshot::Receiver<()>,
+) {
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
+        let _ = ready_tx.send(());
         if let Ok((mut s, _)) = l.accept().await {
             for (i, resp) in responses.iter().enumerate() {
                 if i > 0 {
@@ -170,15 +176,16 @@ async fn mock_server_seq(
             }
         }
     });
-    (addr, h)
+    (addr, h, ready_rx)
 }
 
 #[tokio::test]
 async fn start_session_success() {
-    let (addr, h) = mock_server_seq(vec![
+    let (addr, h, ready_rx) = mock_server_seq(vec![
         json!({"type":"chat.started","session_id":"s1","id":"r1"}),
     ])
     .await;
+    ready_rx.await.unwrap();
     let (stream, sid) = ChatCommand::start_session(addr, "agent").await.unwrap();
     assert_eq!(sid, "s1");
     drop(stream);
@@ -186,13 +193,34 @@ async fn start_session_success() {
 }
 
 #[tokio::test]
-async fn start_session_fails_on_wrong_response() {
-    let (addr, h) = mock_server_seq(vec![
+async fn test_error_response_handling() {
+    let (addr, h, ready_rx) = mock_server_seq(vec![
         json!({"type":"chat.error","message":"boom","id":"r1"}),
     ])
     .await;
+    ready_rx.await.unwrap();
     assert!(ChatCommand::start_session(addr, "agent").await.is_err());
     h.await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "depends on #478 read timeout mechanism"]
+async fn test_read_timeout_silent_server() {
+    // Mock server accepts but never responds.
+    // Will fully validate timeout behavior once #478 adds read_line_timeout.
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+    let h = tokio::spawn(async move {
+        let _ = ready_tx.send(());
+        let _ = l.accept().await;
+        // intentionally never write — simulates silent server
+    });
+    ready_rx.await.unwrap();
+    // Without timeout, this would hang forever.
+    // After #478, start_session will return a timeout error.
+    let _ = ChatCommand::start_session(addr, "agent").await;
+    h.abort();
 }
 
 #[tokio::test]
@@ -234,11 +262,12 @@ async fn send_stop_sends_correct_json() {
 
 #[tokio::test]
 async fn handle_single_response_normal() {
-    let (addr, h) = mock_server_seq(vec![
+    let (addr, h, ready_rx) = mock_server_seq(vec![
         json!({"type":"chat.response","content":"ok","id":"r1"}),
         json!({"type":"chat.response.done","id":"r1"}),
     ])
     .await;
+    ready_rx.await.unwrap();
     let mut s = TcpStream::connect(addr).await.unwrap();
     assert!(ChatCommand::handle_single_response(&mut s).await.is_ok());
     h.await.unwrap();
@@ -246,11 +275,12 @@ async fn handle_single_response_normal() {
 
 #[tokio::test]
 async fn handle_single_response_error() {
-    let (addr, h) = mock_server_seq(vec![
+    let (addr, h, ready_rx) = mock_server_seq(vec![
         json!({"type":"chat.response","content":"ok","id":"r1"}),
         json!({"type":"chat.error","message":"boom","id":"r1"}),
     ])
     .await;
+    ready_rx.await.unwrap();
     let mut s = TcpStream::connect(addr).await.unwrap();
     assert!(ChatCommand::handle_single_response(&mut s).await.is_err());
     h.await.unwrap();
