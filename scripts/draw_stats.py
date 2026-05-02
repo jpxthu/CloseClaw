@@ -186,33 +186,15 @@ def main():
         hist_avg = {r["date"]: r["avg_coverage"] for r in cov_history}
         hist_max = {r["date"]: r["max_coverage"] for r in cov_history}
 
-        # Proxy fallback for dates before first real coverage point
-        max_t = max(tests) if tests else 1
-        proxy = [round(t / max_t * 100, 1) for t in tests]
-
-        # Use real data where available, proxy for earlier dates
-        first_cov_date = min(hist_avg.keys())
-        cov_avg_data = []
-        cov_max_data = []
-        for d in dates:
-            if d in hist_avg:
-                cov_avg_data.append(hist_avg[d])
-                cov_max_data.append(hist_max[d])
-            elif d < first_cov_date:
-                cov_avg_data.append(proxy[dates.index(d)])
-                cov_max_data.append(None)  # no max data for proxy
-            else:
-                cov_avg_data.append(hist_avg.get(d))
-                cov_max_data.append(hist_max.get(d))
-
-        # Forward-fill the max coverage line (real data only)
-        cov_max_data = forward_fill(cov_max_data)
+        # Only show real data points; no proxy backfill
+        cov_avg_data = [hist_avg.get(d) for d in dates]
+        cov_max_data = [hist_max.get(d) for d in dates]
 
         # Stats for display
         latest_avg = cov_history[-1]["avg_coverage"]
         latest_max = cov_history[-1]["max_coverage"]
-        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}%, max={latest_max}% | 虚线 = proxy 估算"
-        cov_subtitle = "⚡ 测试覆盖率（llvm-cov 实测 + proxy 回填）"
+        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}%, max={latest_max}% | 仅显示采集过的日期"
+        cov_subtitle = "⚡ 测试覆盖率（llvm-cov 实测）"
     else:
         # Fallback: proxy estimate
         max_t = max(tests) or 1
