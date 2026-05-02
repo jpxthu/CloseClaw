@@ -70,11 +70,9 @@ impl ChatCommand {
         addr: SocketAddr,
         agent_id: &str,
     ) -> anyhow::Result<(TcpStream, String)> {
-        tracing::info!(%addr, %agent_id, "start_session: connecting");
         let mut stream = TcpStream::connect(addr)
             .await
             .with_context(|| format!("cannot connect to {} — is the daemon running?", addr))?;
-        tracing::info!("start_session: connected, sending chat.start");
 
         let request_id = uuid::Uuid::new_v4().to_string();
         let start_json = serde_json::json!({
@@ -83,10 +81,8 @@ impl ChatCommand {
             "id": request_id,
         });
         send_json_line(&mut stream, &start_json).await?;
-        tracing::info!("start_session: sent chat.start, reading response (30s timeout)");
 
         let resp = read_line_timeout(&mut stream, std::time::Duration::from_secs(30)).await?;
-        tracing::info!(%resp, "start_session: got response");
         let resp_val: serde_json::Value = serde_json::from_str(&resp)?;
         if resp_val.get("type").and_then(|v| v.as_str()) != Some("chat.started") {
             anyhow::bail!("unexpected response to chat.start: {}", resp);
@@ -304,14 +300,11 @@ async fn send_json_line(
 
 /// Read a single newline-delimited JSON line from a stream
 async fn read_line(stream: &mut TcpStream) -> anyhow::Result<String> {
-    tracing::debug!(peer = ?stream.peer_addr(), "read_line: creating BufReader");
     let mut buf = tokio::io::BufReader::new(stream).lines();
-    tracing::debug!("read_line: awaiting next_line()");
     let line = buf
         .next_line()
         .await?
         .ok_or_else(|| anyhow::anyhow!("server closed connection"))?;
-    tracing::debug!(%line, "read_line: got line");
     Ok(line)
 }
 
@@ -320,16 +313,9 @@ async fn read_line_timeout(
     stream: &mut TcpStream,
     timeout: std::time::Duration,
 ) -> anyhow::Result<String> {
-    tracing::debug!(secs = timeout.as_secs(), "read_line_timeout: starting");
     match tokio::time::timeout(timeout, read_line(stream)).await {
-        Ok(result) => {
-            tracing::debug!("read_line_timeout: completed within timeout");
-            result
-        }
-        Err(_) => {
-            tracing::warn!(secs = timeout.as_secs(), "read_line_timeout: TIMED OUT");
-            anyhow::bail!("read timeout after {}s", timeout.as_secs())
-        }
+        Ok(result) => result,
+        Err(_) => anyhow::bail!("read timeout after {}s", timeout.as_secs()),
     }
 }
 

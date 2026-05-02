@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::json;
+use std::io::{Read, Write as StdWrite};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -75,14 +76,59 @@ async fn handle_server_message_variants() {
     }
 }
 
-async fn bind_accept() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+// ---------------------------------------------------------------------------
+// Test TCP helpers — WSL2-safe design
+// ---------------------------------------------------------------------------
+//
+// WSL2 has a known issue where tokio's edge-triggered epoll does not wake
+// `TcpListener::accept().await` when a connection arrives on the accept
+// queue.  The kernel completes the TCP handshake (so connect() succeeds on
+// the client side), but the listener task never gets notified.
+//
+// Workaround: use `spawn_blocking` + `std::net::TcpListener::accept()`,
+// which is a plain blocking syscall and does not depend on epoll.
+// After accepting, convert to `tokio::net::TcpStream` for async I/O.
+
+/// Bind a TCP listener and return the address + std listener.
+async fn bind_tcp() -> (std::net::SocketAddr, std::net::TcpListener) {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
-    eprintln!("[bind_accept] bound to {}, spawning accept task", addr);
-    let h = tokio::spawn(async move {
-        eprintln!("[bind_accept] task started, calling accept() on {}", addr);
-        let _ = l.accept().await;
-        eprintln!("[bind_accept] accept() returned on {}", addr);
+    let std_listener = l.into_std().unwrap();
+    std_listener.set_nonblocking(false).unwrap();
+    (addr, std_listener)
+}
+
+/// Mock TCP server: blocking accept, then write all responses.
+async fn mock_server_seq(
+    responses: Vec<serde_json::Value>,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let (addr, std_listener) = bind_tcp().await;
+    let h = tokio::task::spawn_blocking(move || {
+        match std_listener.accept() {
+            Ok((std_stream, _)) => {
+                let rt = tokio::runtime::Handle::current();
+                rt.block_on(async move {
+                    let mut s = TcpStream::from_std(std_stream).unwrap();
+                    for (i, resp) in responses.iter().enumerate() {
+                        if i > 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        }
+                        let _ = s.write_all((resp.to_string() + "\n").as_bytes()).await;
+                        let _ = s.flush().await;
+                    }
+                });
+            }
+            Err(e) => eprintln!("[mock_server_seq] accept error: {}", e),
+        }
+    });
+    (addr, h)
+}
+
+/// Blocking accept one connection (no processing).
+async fn bind_accept() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let (addr, std_listener) = bind_tcp().await;
+    let h = tokio::task::spawn_blocking(move || {
+        let _ = std_listener.accept();
     });
     (addr, h)
 }
@@ -121,13 +167,12 @@ async fn handle_stdin_line_empty_and_whitespace() {
 
 #[tokio::test]
 async fn handle_stdin_line_normal_message() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
+    let (addr, std_listener) = bind_tcp().await;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let h = tokio::spawn(async move {
-        let (mut s, _) = l.accept().await.unwrap();
+    let h = tokio::task::spawn_blocking(move || {
+        let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 1024];
-        let n = s.read(&mut buf).await.unwrap();
+        let n = stream.read(&mut buf).unwrap();
         tx.send(String::from_utf8(buf[..n].to_vec()).unwrap())
             .unwrap();
     });
@@ -157,45 +202,12 @@ async fn handle_stdin_line_none_eof() {
     h.abort();
 }
 
-async fn mock_server_seq(
-    responses: Vec<serde_json::Value>,
-) -> (
-    std::net::SocketAddr,
-    tokio::task::JoinHandle<()>,
-    tokio::sync::oneshot::Receiver<()>,
-) {
-    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    eprintln!("[mock_server_seq] bound to {}, spawning server task", addr);
-    let h = tokio::spawn(async move {
-        eprintln!("[mock_server_seq] server task started, sending ready_tx");
-        let _ = ready_tx.send(());
-        eprintln!("[mock_server_seq] ready_tx sent, calling accept()");
-        if let Ok((mut s, _)) = l.accept().await {
-            eprintln!("[mock_server_seq] accepted connection, writing {} responses", responses.len());
-            for (i, resp) in responses.iter().enumerate() {
-                if i > 0 {
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-                let _ = s.write_all((resp.to_string() + "\n").as_bytes()).await;
-                let _ = s.flush().await;
-            }
-            eprintln!("[mock_server_seq] done writing responses");
-        } else {
-            eprintln!("[mock_server_seq] accept() failed!");
-        }
-    });
-    (addr, h, ready_rx)
-}
-
 #[tokio::test]
 async fn start_session_success() {
-    let (addr, h, ready_rx) = mock_server_seq(vec![
+    let (addr, h) = mock_server_seq(vec![
         json!({"type":"chat.started","session_id":"s1","id":"r1"}),
     ])
     .await;
-    ready_rx.await.unwrap();
     let (stream, sid) = ChatCommand::start_session(addr, "agent").await.unwrap();
     assert_eq!(sid, "s1");
     drop(stream);
@@ -204,48 +216,34 @@ async fn start_session_success() {
 
 #[tokio::test]
 async fn test_error_response_handling() {
-    eprintln!("[test_error_response] calling mock_server_seq");
-    let (addr, h, ready_rx) = mock_server_seq(vec![
+    let (addr, h) = mock_server_seq(vec![
         json!({"type":"chat.error","message":"boom","id":"r1"}),
     ])
     .await;
-    eprintln!("[test_error_response] waiting for ready_rx");
-    ready_rx.await.unwrap();
-    eprintln!("[test_error_response] ready_rx returned, calling start_session({})", addr);
-    let result = ChatCommand::start_session(addr, "agent").await;
-    eprintln!("[test_error_response] start_session returned: {:?}", result.is_err());
-    assert!(result.is_err());
+    assert!(ChatCommand::start_session(addr, "agent").await.is_err());
     h.await.unwrap();
 }
 
 #[tokio::test]
 #[ignore = "slow test: 30s read timeout; run with --ignored to verify timeout mechanism"]
 async fn test_read_timeout_silent_server() {
-    // Mock server accepts but never responds.
-    // Will fully validate timeout behavior once #478 adds read_line_timeout.
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
-    let h = tokio::spawn(async move {
-        let _ = ready_tx.send(());
-        let _ = l.accept().await;
+    let (addr, std_listener) = bind_tcp().await;
+    let h = tokio::task::spawn_blocking(move || {
+        let _ = std_listener.accept();
         // intentionally never write — simulates silent server
+        std::thread::sleep(std::time::Duration::from_secs(60));
     });
-    ready_rx.await.unwrap();
-    // Without timeout, this would hang forever.
-    // After #478, start_session will return a timeout error.
     let _ = ChatCommand::start_session(addr, "agent").await;
     h.abort();
 }
 
 #[tokio::test]
 async fn send_user_message_sends_correct_json() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    let h = tokio::spawn(async move {
-        let (mut s, _) = l.accept().await.unwrap();
+    let (addr, std_listener) = bind_tcp().await;
+    let h = tokio::task::spawn_blocking(move || {
+        let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 1024];
-        let n = s.read(&mut buf).await.unwrap();
+        let n = stream.read(&mut buf).unwrap();
         let v: serde_json::Value =
             serde_json::from_str(std::str::from_utf8(&buf[..n]).unwrap().trim()).unwrap();
         assert_eq!(v["type"], "chat.message");
@@ -260,12 +258,11 @@ async fn send_user_message_sends_correct_json() {
 
 #[tokio::test]
 async fn send_stop_sends_correct_json() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    let h = tokio::spawn(async move {
-        let (mut s, _) = l.accept().await.unwrap();
+    let (addr, std_listener) = bind_tcp().await;
+    let h = tokio::task::spawn_blocking(move || {
+        let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 1024];
-        let n = s.read(&mut buf).await.unwrap();
+        let n = stream.read(&mut buf).unwrap();
         let v: serde_json::Value =
             serde_json::from_str(std::str::from_utf8(&buf[..n]).unwrap().trim()).unwrap();
         assert_eq!(v["type"], "chat.stop");
@@ -277,12 +274,11 @@ async fn send_stop_sends_correct_json() {
 
 #[tokio::test]
 async fn handle_single_response_normal() {
-    let (addr, h, ready_rx) = mock_server_seq(vec![
+    let (addr, h) = mock_server_seq(vec![
         json!({"type":"chat.response","content":"ok","id":"r1"}),
         json!({"type":"chat.response.done","id":"r1"}),
     ])
     .await;
-    ready_rx.await.unwrap();
     let mut s = TcpStream::connect(addr).await.unwrap();
     assert!(ChatCommand::handle_single_response(&mut s).await.is_ok());
     h.await.unwrap();
@@ -290,12 +286,11 @@ async fn handle_single_response_normal() {
 
 #[tokio::test]
 async fn handle_single_response_error() {
-    let (addr, h, ready_rx) = mock_server_seq(vec![
+    let (addr, h) = mock_server_seq(vec![
         json!({"type":"chat.response","content":"ok","id":"r1"}),
         json!({"type":"chat.error","message":"boom","id":"r1"}),
     ])
     .await;
-    ready_rx.await.unwrap();
     let mut s = TcpStream::connect(addr).await.unwrap();
     assert!(ChatCommand::handle_single_response(&mut s).await.is_err());
     h.await.unwrap();
@@ -303,12 +298,11 @@ async fn handle_single_response_error() {
 
 #[tokio::test]
 async fn send_json_line_produces_newline_delimited_json() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    let h = tokio::spawn(async move {
-        let (mut s, _) = l.accept().await.unwrap();
+    let (addr, std_listener) = bind_tcp().await;
+    let h = tokio::task::spawn_blocking(move || {
+        let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 1024];
-        let n = s.read(&mut buf).await.unwrap();
+        let n = stream.read(&mut buf).unwrap();
         assert!(buf[..n].ends_with(&[b'\n']));
         let nl = buf[..n].iter().position(|&b| b == b'\n').unwrap();
         let v: serde_json::Value = serde_json::from_slice(&buf[..nl]).unwrap();
@@ -324,36 +318,47 @@ async fn send_json_line_produces_newline_delimited_json() {
 #[tokio::test]
 #[ignore = "CI environment memory不足时跳过"]
 async fn run_single_end_to_end() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    let h = tokio::spawn(async move {
-        let (mut s, _) = l.accept().await.unwrap();
+    let (addr, std_listener) = bind_tcp().await;
+    let h = tokio::task::spawn_blocking(move || {
+        let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 2048];
-        let n = s.read(&mut buf).await.unwrap();
+
+        // Read chat.start
+        let n = stream.read(&mut buf).unwrap();
         let sv: serde_json::Value =
             serde_json::from_str(std::str::from_utf8(&buf[..n]).unwrap().trim()).unwrap();
         assert_eq!(sv["type"], "chat.start");
+
+        // Write chat.started
         let started = json!({"type":"chat.started","session_id":"t","id":sv["id"]});
-        s.write_all((started.to_string() + "\n").as_bytes())
-            .await
+        stream
+            .write_all((started.to_string() + "\n").as_bytes())
             .unwrap();
-        s.flush().await.unwrap();
-        let n = s.read(&mut buf).await.unwrap();
+        stream.flush().unwrap();
+
+        // Read chat.message
+        let n = stream.read(&mut buf).unwrap();
         let mv: serde_json::Value =
             serde_json::from_str(std::str::from_utf8(&buf[..n]).unwrap().trim()).unwrap();
         assert_eq!(mv["type"], "chat.message");
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // Write chat.response
+        std::thread::sleep(std::time::Duration::from_millis(10));
         let resp = json!({"type":"chat.response","content":"ok","id":mv["id"]});
-        s.write_all((resp.to_string() + "\n").as_bytes())
-            .await
+        stream
+            .write_all((resp.to_string() + "\n").as_bytes())
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // Write chat.response.done
+        std::thread::sleep(std::time::Duration::from_millis(10));
         let done = json!({"type":"chat.response.done","id":mv["id"]});
-        s.write_all((done.to_string() + "\n").as_bytes())
-            .await
+        stream
+            .write_all((done.to_string() + "\n").as_bytes())
             .unwrap();
-        s.flush().await.unwrap();
-        let n = s.read(&mut buf).await.unwrap();
+        stream.flush().unwrap();
+
+        // Read chat.stop
+        let n = stream.read(&mut buf).unwrap();
         let stv: serde_json::Value =
             serde_json::from_str(std::str::from_utf8(&buf[..n]).unwrap().trim()).unwrap();
         assert_eq!(stv["type"], "chat.stop");
