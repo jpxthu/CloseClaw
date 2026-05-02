@@ -145,10 +145,34 @@ def main():
     tm  = estimate_time_vibe("mvp")
     tpr = estimate_time_vibe("prod")
 
-    dates    = [r["date"] for r in records]
-    rs_files = [r["rs_files"] for r in records]
-    loc      = [r["total_loc"] for r in records]
-    tests    = [r["test_cases"] for r in records]
+    cov_history = load_coverage_history()
+    has_real_cov = len(cov_history) > 0
+
+    # Build date → value lookups for daily stats
+    daily_dates = [r["date"] for r in records]
+    daily_map = {r["date"]: r for r in records}
+
+    # Merge dates from daily_stats and coverage_history
+    all_dates = sorted(set(daily_dates) | {r["date"] for r in cov_history})
+
+    dates    = all_dates
+    rs_files = [daily_map.get(d, {}).get("rs_files") for d in all_dates]
+    loc      = [daily_map.get(d, {}).get("total_loc") for d in all_dates]
+    tests    = [daily_map.get(d, {}).get("test_cases") for d in all_dates]
+
+    # Forward-fill daily stats for gap days
+    def forward_fill(arr):
+        result = []
+        last = None
+        for v in arr:
+            if v is not None:
+                last = v
+            result.append(last)
+        return result
+
+    rs_files = forward_fill(rs_files)
+    loc = forward_fill(loc)
+    tests = forward_fill(tests)
 
     # FIX: cumulative should be running max (monotonic increase, ends at total)
     cum = []
@@ -157,36 +181,38 @@ def main():
         running = max(running, v)
         cum.append(running)
 
-    cov_history = load_coverage_history()
-    has_real_cov = len(cov_history) > 0
-
     if has_real_cov:
         # Build date → coverage lookup from history
         hist_avg = {r["date"]: r["avg_coverage"] for r in cov_history}
         hist_max = {r["date"]: r["max_coverage"] for r in cov_history}
 
-        # Map to daily_stats dates; use None for missing days
-        real_avg = [hist_avg.get(d) for d in dates]
-        real_max = [hist_max.get(d) for d in dates]
+        # Proxy fallback for dates before first real coverage point
+        max_t = max(tests) if tests else 1
+        proxy = [round(t / max_t * 100, 1) for t in tests]
 
-        # For chart: forward-fill last known value for gap days
-        def forward_fill(arr):
-            result = []
-            last = None
-            for v in arr:
-                if v is not None:
-                    last = v
-                result.append(last)
-            return result
+        # Use real data where available, proxy for earlier dates
+        first_cov_date = min(hist_avg.keys())
+        cov_avg_data = []
+        cov_max_data = []
+        for d in dates:
+            if d in hist_avg:
+                cov_avg_data.append(hist_avg[d])
+                cov_max_data.append(hist_max[d])
+            elif d < first_cov_date:
+                cov_avg_data.append(proxy[dates.index(d)])
+                cov_max_data.append(None)  # no max data for proxy
+            else:
+                cov_avg_data.append(hist_avg.get(d))
+                cov_max_data.append(hist_max.get(d))
 
-        cov_avg_data = forward_fill(real_avg)
-        cov_max_data = forward_fill(real_max)
+        # Forward-fill the max coverage line (real data only)
+        cov_max_data = forward_fill(cov_max_data)
 
         # Stats for display
         latest_avg = cov_history[-1]["avg_coverage"]
         latest_max = cov_history[-1]["max_coverage"]
-        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}%, max={latest_max}%"
-        cov_subtitle = "⚡ 测试覆盖率（llvm-cov 实测）"
+        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}%, max={latest_max}% | 虚线 = proxy 估算"
+        cov_subtitle = "⚡ 测试覆盖率（llvm-cov 实测 + proxy 回填）"
     else:
         # Fallback: proxy estimate
         max_t = max(tests) or 1
