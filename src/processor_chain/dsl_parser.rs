@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
-use serde_json::Value;
 
 // ---------------------------------------------------------------------------
 // DSL data types
@@ -130,7 +129,11 @@ fn parse_dsl_line(line: &str) -> Option<DslInstruction> {
 
 #[async_trait]
 impl MessageProcessor for DslParser {
-    fn priority(&self) -> i32 {
+    fn name(&self) -> &str {
+        "DslParser"
+    }
+
+    fn priority(&self) -> u8 {
         10
     }
 
@@ -141,21 +144,21 @@ impl MessageProcessor for DslParser {
     async fn process(
         &self,
         ctx: &MessageContext,
-        msg: &Value,
-    ) -> Result<super::ProcessedMessage, ProcessError> {
-        // Expect `msg` to be a JSON object with a "content" string field (LLM output)
-        let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
+    ) -> Result<Option<super::ProcessedMessage>, ProcessError> {
+        let content = &ctx.content;
 
         let result = self.parse(content);
-        let json = serde_json::to_string(&result)?;
+        let json = serde_json::to_string(&result)
+            .map_err(|e| ProcessError::processor_failed("DslParser", e))?;
 
         let mut metadata = ctx.metadata.clone();
-        metadata.insert("dsl_result".to_string(), json);
+        metadata.insert("dsl_result".to_string(), serde_json::Value::String(json));
 
-        Ok(super::ProcessedMessage {
+        Ok(Some(super::ProcessedMessage {
             content: result.clean_content,
             metadata,
-        })
+            suppress: false,
+        }))
     }
 }
 
@@ -287,6 +290,4 @@ mod tests {
         assert_eq!(result.instructions.len(), 3);
         assert_eq!(result.clean_content, "Text A\nText B");
     }
-
-    // No helper needed — fields accessed via direct match in each test
 }
