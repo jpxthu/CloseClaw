@@ -195,6 +195,22 @@ async fn start_session_success() {
 }
 
 #[tokio::test]
+async fn start_session_with_timeout_success() {
+    // timeout = Some but server responds normally — no timeout fired.
+    let (addr, h, ready_rx) = mock_server_seq(vec![
+        json!({"type":"chat.started","session_id":"s1","id":"r1"}),
+    ])
+    .await;
+    ready_rx.await.unwrap();
+    let (stream, sid) = ChatCommand::start_session(addr, "agent", Some(Duration::from_secs(5)))
+        .await
+        .unwrap();
+    assert_eq!(sid, "s1");
+    drop(stream);
+    h.await.unwrap();
+}
+
+#[tokio::test]
 async fn test_error_response_handling() {
     let (addr, h, ready_rx) = mock_server_seq(vec![
         json!({"type":"chat.error","message":"boom","id":"r1"}),
