@@ -183,27 +183,26 @@ def main():
 
     cov_history_count = len(cov_history)
 
+    # Max coverage proxy from daily stats (full timeline)
+    max_t = max(tests) if tests else 1
+    cov_max_proxy = [round(t / max_t * 100, 1) for t in tests]
+
     if has_real_cov:
         # Build date → coverage lookup from history
         hist_avg = {r["date"]: r["avg_coverage"] for r in cov_history}
-        hist_max = {r["date"]: r["max_coverage"] for r in cov_history}
 
-        # Only show real data points; no proxy backfill
+        # Avg coverage: only real data points
         cov_avg_data = [hist_avg.get(d) for d in dates]
-        cov_max_data = [hist_max.get(d) for d in dates]
 
         # Stats for display
         latest_avg = cov_history[-1]["avg_coverage"]
         latest_max = cov_history[-1]["max_coverage"]
-        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}%, max={latest_max}% | 仅显示采集过的日期"
-        cov_subtitle = "⚡ 测试覆盖率（llvm-cov 实测）"
+        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}%, max={latest_max}% | 最高覆盖率 = proxy（tests/max）"
+        cov_subtitle = "⚡ 测试覆盖率（avg 实测 + max 估算）"
     else:
-        # Fallback: proxy estimate
-        max_t = max(tests) or 1
-        cov_avg_data = [round(t / max_t * 100, 1) for t in tests]
-        cov_max_data = None
-        proxy_avg = round(sum(cov_avg_data) / len(cov_avg_data), 1)
-        cov_note = f"⚠️ 覆盖率为 proxy（tests/max）；均值 {proxy_avg}%。运行 collect_coverage.py 获取真实数据"
+        cov_avg_data = None
+        proxy_avg = round(sum(cov_max_proxy) / len(cov_max_proxy), 1)
+        cov_note = f"⚠️ 平均覆盖率未采集。运行 collect_coverage.py 获取真实数据"
         cov_subtitle = "⚡ 测试覆盖率估算（proxy: tests/max%）"
 
     d  = json.dumps(dates)
@@ -211,14 +210,12 @@ def main():
     cj = json.dumps(cum)
     lj = json.dumps(loc)
     tj = json.dumps(tests)
-    cv_avg = json.dumps(cov_avg_data)
-    cv_max = json.dumps(cov_max_data) if cov_max_data else "null"
+    cv_avg = json.dumps(cov_avg_data) if cov_avg_data else "null"
+    cv_max = json.dumps(cov_max_proxy)
 
     # Build coverage chart HTML
-    if has_real_cov and cov_history_count >= 2:
+    if has_real_cov:
         cov_html = f'<div class="chart-title">{cov_subtitle}</div><canvas id="covChart"></canvas>'
-    elif has_real_cov:
-        cov_html = f'<div class="cov-placeholder"><div><span class="cov-num">{latest_avg}%</span>平均覆盖率（{cov_history_count} 个数据点）<div class="cov-sub">最高: {latest_max}% · 多跑几天自动生成趋势图</div></div></div>'
     else:
         cov_html = f'<div class="chart-title">{cov_subtitle}</div><canvas id="covChart"></canvas>'
 
@@ -345,29 +342,33 @@ new Chart(document.getElementById('covChart'), {{
   data: {{
     labels: L,
     datasets: [
-      {{
-        label: '平均覆盖率 (%)',
-        data: {cv_avg},
-        borderColor: '#ea4335',
-        tension: 0.4,
-        spanGaps: true,
-        pointRadius: {cv_avg}.filter(v => v !== null).length <= 3 ? 6 : 2
-      }},
       ...(function() {{
-        var maxData = {cv_max};
-        if (maxData !== null && maxData.some(v => v !== null)) {{
+        var avgData = {cv_avg};
+        if (avgData !== null && avgData.some(v => v !== null)) {{
+          var n = avgData.filter(v => v !== null).length;
           return [{{
-            label: '最高覆盖率 (%)',
-            data: maxData,
-            borderColor: '#34a853',
-            borderDash: [5, 5],
+            label: '平均覆盖率 (%)',
+            data: avgData,
+            borderColor: '#ea4335',
+            borderWidth: n <= 5 ? 3 : 1.5,
             tension: 0.4,
             spanGaps: true,
-            pointRadius: maxData.filter(v => v !== null).length <= 3 ? 6 : 2
+            pointRadius: n <= 3 ? 8 : (n <= 10 ? 5 : 2),
+            pointBackgroundColor: '#ea4335',
+            fill: {{ target: 'origin', above: 'rgba(234,67,53,0.08)' }}
           }}];
         }}
         return [];
-      }})()
+      }})(),
+      {{
+        label: '最高覆盖率 (%)',
+        data: {cv_max},
+        borderColor: '#34a853',
+        borderDash: [5, 5],
+        tension: 0.4,
+        pointRadius: 0,
+        fill: false
+      }}
     ]
   }},
   options: {{
