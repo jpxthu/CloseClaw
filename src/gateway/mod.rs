@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 
 use crate::session::persistence::PersistenceService;
 
+pub use crate::processor_chain::ProcessorRegistry;
 pub use session_manager::SessionManager;
 
 /// DM session scope - controls how session keys are partitioned.
@@ -96,6 +97,7 @@ pub struct Gateway {
     config: GatewayConfig,
     adapters: RwLock<HashMap<String, Arc<dyn super::im::IMAdapter>>>,
     session_manager: Arc<SessionManager>,
+    processor_registry: Option<Arc<ProcessorRegistry>>,
 }
 
 impl Gateway {
@@ -105,6 +107,21 @@ impl Gateway {
             config,
             adapters: RwLock::new(HashMap::new()),
             session_manager,
+            processor_registry: None,
+        }
+    }
+
+    /// Create a new Gateway with the given config, SessionManager and ProcessorRegistry.
+    pub fn with_processor_registry(
+        config: GatewayConfig,
+        session_manager: Arc<SessionManager>,
+        registry: Arc<ProcessorRegistry>,
+    ) -> Self {
+        Self {
+            config,
+            adapters: RwLock::new(HashMap::new()),
+            session_manager,
+            processor_registry: Some(registry),
         }
     }
 
@@ -162,6 +179,111 @@ impl Gateway {
     pub async fn get_agent_sessions(&self, agent_id: &str) -> Vec<Session> {
         self.session_manager.get_agent_sessions(agent_id).await
     }
+
+    /// Send an outbound message (agent response) through the processor chain.
+    ///
+    /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
+    /// 2. If `processor_registry` is absent → send `raw_output` as plain text (bypass).
+    /// 3. If `processor_registry` is present → run `process_outbound` on a
+    ///    `ProcessedMessage { content: raw_output, .. }`.
+    /// 4. If `suppress == true` → return `Ok` without sending.
+    /// 5. Inspect `msg_type` from processed content JSON:
+    ///    - `"text"` → `adapter.send_message`
+    ///    - `"interactive"` → `adapter.send_card_json`
+    ///    - other → `GatewayError::OutboundError`
+    pub async fn send_outbound(
+        &self,
+        session_id: &str,
+        channel: &str,
+        raw_output: &str,
+    ) -> Result<(), GatewayError> {
+        // Step 1: resolve chat_id
+        let chat_id = self
+            .session_manager
+            .get_chat_id(session_id)
+            .await
+            .ok_or(GatewayError::MissingSessionId)?;
+
+        // Step 2: resolve adapter
+        let adapter = {
+            let adapters = self.adapters.read().await;
+            adapters
+                .get(channel)
+                .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?
+                .clone()
+        };
+
+        // Step 3: bypass or process
+        let processed_content = if let Some(ref registry) = self.processor_registry {
+            let processed = crate::processor_chain::ProcessedMessage {
+                content: raw_output.to_string(),
+                metadata: serde_json::Map::new(),
+                suppress: false,
+            };
+            let result = registry.process_outbound(processed).await;
+            match result {
+                Ok(p) => {
+                    if p.suppress {
+                        return Ok(());
+                    }
+                    p.content
+                }
+                Err(e) => return Err(GatewayError::OutboundError(e.to_string())),
+            }
+        } else {
+            raw_output.to_string()
+        };
+
+        // Step 4: inspect msg_type and dispatch
+        if let Ok(json) =
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&processed_content)
+        {
+            if let Some(msg_type) = json.get("msg_type") {
+                match msg_type.as_str().unwrap_or("") {
+                    "text" => {
+                        let msg = Message {
+                            id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
+                            from: "agent".to_string(),
+                            to: chat_id.clone(),
+                            content: json
+                                .get("content")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&processed_content)
+                                .to_string(),
+                            channel: channel.to_string(),
+                            timestamp: chrono::Utc::now().timestamp(),
+                            metadata: std::collections::HashMap::new(),
+                        };
+                        adapter.send_message(&msg).await?;
+                        return Ok(());
+                    }
+                    "interactive" => {
+                        let card_json = json
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&processed_content)
+                            .to_string();
+                        adapter.send_card_json(&chat_id, &card_json).await?;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Fallback: treat as plain text
+        let msg = Message {
+            id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
+            from: "agent".to_string(),
+            to: chat_id,
+            content: processed_content,
+            channel: channel.to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            metadata: std::collections::HashMap::new(),
+        };
+        adapter.send_message(&msg).await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -180,6 +302,9 @@ pub enum GatewayError {
 
     #[error("Missing session ID in message metadata")]
     MissingSessionId,
+
+    #[error("Outbound error: {0}")]
+    OutboundError(String),
 }
 
 impl From<super::im::AdapterError> for GatewayError {

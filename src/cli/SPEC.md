@@ -31,7 +31,8 @@
 
 ### 子模块
 
-- `chat` — 空模块（保留扩展位）
+- `chat` — `src/cli/chat.rs`，包含全部 CLI 实现（命令解析、会话管理、REPL、数据流）
+- `args` — `src/cli/args.rs`，reserved（未来参数扩展位）
 
 ### 数据流
 
@@ -46,7 +47,7 @@ server → chat.response.done
 client → chat.stop
 ```
 
-连接失败时报告 "cannot connect to {addr} — is the daemon running?"。
+- **超时兜底**：连接和读取阶段各有一层 30s timeout safety net，daemon 无响应时 CLI 明确报错而非悬停。连接超时返回 `connect timeout after {n}s`，读取超时返回 `read timeout after {n}s`。
 
 ### 关键设计
 

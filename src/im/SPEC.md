@@ -17,6 +17,7 @@
 | `name(&self) -> &str` | 返回平台名称字符串（如 `"feishu"`），作为 gateway 中的适配器查找键 |
 | `async fn handle_webhook(&self, payload: &[u8]) -> Result<Message, AdapterError>` | 解析原始 webhook HTTP body，返回内部 `Message`；解析失败返回 `InvalidPayload` |
 | `async fn send_message(&self, message: &Message) -> Result<(), AdapterError>` | 将 `message.content` 发送至 `message.to`；API 错误返回 `SendFailed` |
+| `async fn send_card_json(&self, chat_id: &str, card_json: &str) -> Result<(), AdapterError>` | 将 pre-serialized JSON card content 发送为 interactive card；默认实现返回 `UnsupportedOperation` |
 | `async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool` | 验证 webhook 真实性；有效返回 `true`，无效返回 `false` |
 
 实现必须线程安全（trait 要求 `Send + Sync`），以便通过 `Arc` 在异步任务间共享。
@@ -30,6 +31,7 @@
 | `SendFailed(String)` | 上游 API 错误，携带上游错误信息 |
 | `InvalidSignature` | Webhook 签名不匹配 |
 | `IoError(std::io::Error)` | 网络或文件 IO 错误（带 `#[from]` 自动转换） |
+| `UnsupportedOperation` | `send_card_json` 默认实现返回，表示该适配器不支持此操作 |
 
 ---
 
@@ -73,6 +75,8 @@ FeishuEvent.header.app_id         → Message.metadata["account_id"]
 ### 3.5 Card Operations
 
 `async fn send_card(chat_id, card)` — 调用 `render_feishu_card` 渲染卡片，POST 至 `/im/v1/messages?receive_id_type=open_id`（`msg_type: "interactive"`），成功返回飞书 `message_id`。
+
+`async fn send_card_json(chat_id, card_json)` — 直接将 pre-serialized JSON content POST 至飞书 `/im/v1/messages`（`msg_type: "interactive"`），由 `IMAdapter` trait 默认实现委托给此方法。
 
 `async fn update_message(message_id, patch)` — 通过 `PATCH /im/v1/messages/{message_id}` 更新已有卡片消息，携带完整卡片内容（飞书要求全量 patch）。
 
