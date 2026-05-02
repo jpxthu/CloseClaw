@@ -63,8 +63,29 @@ pub struct Daemon {
 // --- Lifecycle: start, run ---
 
 impl Daemon {
-    /// Start the daemon with the given config directory
+    /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
+        let audit_logger = Self::spawn_audit_tasks(config_dir);
+        Self::start_with_audit_logger(config_dir, audit_logger).await
+    }
+
+    /// Start the daemon with a custom audit logger (useful for testing).
+    /// Production code should use [`start()`](Self::start) instead.
+    pub async fn start_with_audit_logger(
+        config_dir: &str,
+        audit_logger: Arc<AuditLogger>,
+    ) -> anyhow::Result<Self> {
+        let permission_engine = Self::build_permission_engine(config_dir);
+        Self::start_with_audit_logger_and_engine(config_dir, audit_logger, permission_engine).await
+    }
+
+    /// Start the daemon with custom audit logger and permission engine (useful for testing).
+    /// Production code should use [`start()`](Self::start) instead.
+    pub async fn start_with_audit_logger_and_engine(
+        config_dir: &str,
+        audit_logger: Arc<AuditLogger>,
+        permission_engine: Arc<PermissionEngine>,
+    ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
 
         Self::load_env(config_dir);
@@ -132,13 +153,8 @@ impl Daemon {
         });
         info!("ArchiveSweeper spawned");
 
-        let agents_config = Self::load_agents_config(config_dir)?;
-        let permission_engine = Self::build_permission_engine(config_dir);
         let agent_registry = Arc::new(RwLock::new(crate::agent::registry::AgentRegistry::new(30)));
-        info!(
-            "Agent registry initialized ({} agents)",
-            agents_config.agents().len()
-        );
+        info!("Agent registry initialized",);
 
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
@@ -161,7 +177,9 @@ impl Daemon {
 
         let llm_registry = Self::init_llm_registry().await;
         let chat_server = Self::spawn_chat_server(&llm_registry, &shutdown);
-        let audit_logger = Self::spawn_audit_tasks(config_dir);
+
+        // Spawn the background flush task for the (possibly injected) audit logger
+        Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
 
         info!(
             "CloseClaw daemon started successfully (v{})",
@@ -345,21 +363,19 @@ impl Daemon {
         chat_server
     }
 
-    /// Create audit logger and spawn background flush + startup-log tasks.
-    fn spawn_audit_tasks(config_dir: &str) -> Arc<AuditLogger> {
-        let audit_logger = Arc::new(AuditLogger::new());
-
+    /// Spawn background flush + startup-log tasks for the given audit logger.
+    /// Used by both production [`start()`](Self::start) and test entry points.
+    fn spawn_audit_background_tasks(audit_logger: Arc<AuditLogger>) {
         // Log daemon start as a config reload event
-        let start_event = AuditEventBuilder::new(AuditEventType::ConfigReload)
-            .details(serde_json::json!({
-                "component": "daemon",
-                "version": env!("CARGO_PKG_VERSION"),
-                "config_dir": config_dir,
-            }))
-            .result(AuditResult::Allow)
-            .build();
         let logger_for_start = Arc::clone(&audit_logger);
         tokio::spawn(async move {
+            let start_event = AuditEventBuilder::new(AuditEventType::ConfigReload)
+                .details(serde_json::json!({
+                    "component": "daemon",
+                    "version": env!("CARGO_PKG_VERSION"),
+                }))
+                .result(AuditResult::Allow)
+                .build();
             logger_for_start.log(start_event).await;
             logger_for_start.flush().await;
         });
@@ -377,7 +393,12 @@ impl Daemon {
                 }
             }
         });
+    }
 
+    /// Create audit logger and spawn background flush + startup-log tasks (production path).
+    fn spawn_audit_tasks(_config_dir: &str) -> Arc<AuditLogger> {
+        let audit_logger = Arc::new(AuditLogger::new());
+        Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
         audit_logger
     }
 }
