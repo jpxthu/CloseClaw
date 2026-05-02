@@ -411,5 +411,4 @@ mod tests {
         let result = registry.process_inbound(&raw).await.unwrap();
         assert_eq!(result.content, expected.content);
     }
-
 }
