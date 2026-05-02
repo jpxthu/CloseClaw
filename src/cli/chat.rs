@@ -6,8 +6,10 @@
 use anyhow::Context;
 use clap::Parser;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 use tracing::info;
 
 const DEFAULT_CHAT_ADDR: &str = "127.0.0.1:18889";
@@ -64,15 +66,20 @@ impl ChatCommand {
 // --- Session lifecycle helpers ---
 
 impl ChatCommand {
-    /// Connect and start a chat session, returning the connected stream.
     /// Connect and start a chat session. Returns (stream, session_id).
     async fn start_session(
         addr: SocketAddr,
         agent_id: &str,
+        connect_timeout: Option<Duration>,
     ) -> anyhow::Result<(TcpStream, String)> {
-        let mut stream = TcpStream::connect(addr)
-            .await
-            .with_context(|| format!("cannot connect to {} — is the daemon running?", addr))?;
+        let mut stream = match connect_timeout {
+            Some(d) => tokio::time::timeout(d, TcpStream::connect(addr))
+                .await
+                .map_err(|_| anyhow::anyhow!("connect timeout after {}s", d.as_secs()))??,
+            None => TcpStream::connect(addr).await.map_err(|e| {
+                anyhow::anyhow!("cannot connect to {} — is the daemon running?: {}", addr, e)
+            })?,
+        };
 
         let request_id = uuid::Uuid::new_v4().to_string();
         let start_json = serde_json::json!({
@@ -82,7 +89,7 @@ impl ChatCommand {
         });
         send_json_line(&mut stream, &start_json).await?;
 
-        let resp = read_line(&mut stream).await?;
+        let resp = read_line_timeout(&mut stream, connect_timeout).await?;
         let resp_val: serde_json::Value = serde_json::from_str(&resp)?;
         if resp_val.get("type").and_then(|v| v.as_str()) != Some("chat.started") {
             anyhow::bail!("unexpected response to chat.start: {}", resp);
@@ -127,7 +134,8 @@ impl ChatCommand {
         agent_id: &str,
         message: &str,
     ) -> anyhow::Result<()> {
-        let (mut stream, _) = Self::start_session(addr, agent_id).await?;
+        let (mut stream, _) =
+            Self::start_session(addr, agent_id, Some(Duration::from_secs(30))).await?;
         Self::send_user_message(&mut stream, message).await?;
         Self::handle_single_response(&mut stream).await?;
         Self::send_stop(&mut stream).await?;
@@ -169,7 +177,8 @@ impl ChatCommand {
 impl ChatCommand {
     /// Connect and run an interactive REPL.
     async fn run_repl(&self, addr: SocketAddr, agent_id: &str) -> anyhow::Result<()> {
-        let (stream, session_id) = Self::start_session(addr, agent_id).await?;
+        let (stream, session_id) =
+            Self::start_session(addr, agent_id, Some(Duration::from_secs(30))).await?;
         info!(session_id = %session_id, "chat session started");
         println!("Connected to CloseClaw chat (session: {})", session_id);
         println!("Type your messages and press Enter to send. Type 'quit' or 'exit' to stop.\n");
@@ -305,6 +314,32 @@ async fn read_line(stream: &mut TcpStream) -> anyhow::Result<String> {
         .await?
         .ok_or_else(|| anyhow::anyhow!("server closed connection"))?;
     Ok(line)
+}
+
+/// Read a single newline-delimited JSON line from a stream, with optional timeout per read.
+async fn read_line_timeout(
+    stream: &mut TcpStream,
+    timeout: Option<Duration>,
+) -> anyhow::Result<String> {
+    match timeout {
+        Some(d) => {
+            let result = tokio::time::timeout(d, async {
+                let mut buf = tokio::io::BufReader::new(stream).lines();
+                match buf.next_line().await {
+                    Ok(Some(line)) => Ok(line),
+                    Ok(None) => Err(anyhow::anyhow!("server closed connection")),
+                    Err(e) => Err(anyhow::anyhow!("{}", e)),
+                }
+            })
+            .await;
+            match result {
+                Ok(Ok(line)) => Ok(line),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err(anyhow::anyhow!("read timeout after {}s", d.as_secs())),
+            }
+        }
+        None => read_line(stream).await,
+    }
 }
 
 #[cfg(test)]
