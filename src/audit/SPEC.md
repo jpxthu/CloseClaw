@@ -34,6 +34,7 @@
 |--------|-----------|
 | `AuditLogger::log(AuditEvent)` | 异步记录事件；先发往 tracing，再入缓冲队列，队列≥500条时自动刷盘 |
 | `AuditLogger::flush()` | 同步将缓冲队列中的所有事件写入当日 JSONL 文件 |
+| `AuditLogger::buffer_len()` | 返回当前缓冲队列中的事件数量 |
 | `AuditLogger::shutdown()` | 退出时调用，等价于一次 `flush()` |
 | `AuditLogger::rotate_if_needed()` | 检测日期变化；若跨天则刷盘并切换到新日期文件 |
 
