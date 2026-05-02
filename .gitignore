@@ -40,3 +40,8 @@ node_modules/
 package-lock.json
 tests/fixtures/feishu/package-lock.json
 
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo
