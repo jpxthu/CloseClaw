@@ -169,6 +169,12 @@ impl AuditLogger {
             self.flush().await;
         }
     }
+
+    /// Get the current number of events in the buffer.
+    pub async fn buffer_len(&self) -> usize {
+        let buf = self.buffer.lock().await;
+        buf.len()
+    }
 }
 
 impl Default for AuditLogger {
