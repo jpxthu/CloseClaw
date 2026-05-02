@@ -8,7 +8,7 @@ use crate::im::IMAdapter;
 use crate::session::persistence::{PersistenceService, SessionStatus};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tracing::warn;
 
 /// SessionManager holds all session state previously belonging to Gateway.
@@ -195,6 +195,13 @@ impl SessionManager {
     pub async fn has_session(&self, session_id: &str) -> bool {
         let sessions = self.sessions.read().await;
         sessions.contains_key(session_id)
+    }
+
+    /// Get chat_id for a session.
+    /// Returns the `agent_id` field of the session (which holds the chat_id per SessionManager convention).
+    pub async fn get_chat_id(&self, session_id: &str) -> Option<String> {
+        let sessions = self.sessions.read().await;
+        sessions.get(session_id).map(|s| s.agent_id.clone())
     }
 }
 
@@ -385,5 +392,31 @@ mod tests {
         ) -> Result<Vec<String>, PersistenceError> {
             Ok(Vec::new())
         }
+    }
+
+    // ── get_chat_id tests ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_session_manager_get_chat_id() {
+        let mgr = SessionManager::new(&test_config(), None);
+        let msg = test_message();
+        let sid = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+
+        // get_chat_id should return the agent_id field (= chat_id)
+        let chat_id = mgr.get_chat_id(&sid).await;
+        assert!(chat_id.is_some(), "expected Some(chat_id), got None");
+        assert_eq!(chat_id.unwrap(), "agent-b");
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_get_chat_id_missing() {
+        let mgr = SessionManager::new(&test_config(), None);
+
+        // Non-existent session_id → None
+        let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
+        assert!(
+            chat_id.is_none(),
+            "expected None for missing session, got {chat_id:?}"
+        );
     }
 }

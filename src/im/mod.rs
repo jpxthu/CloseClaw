@@ -22,6 +22,12 @@ pub trait IMAdapter: Send + Sync {
 
     /// Validate webhook signature
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool;
+
+    /// Send an interactive card message using pre-serialized JSON.
+    /// Returns `AdapterError::UnsupportedOperation` by default.
+    async fn send_card_json(&self, _chat_id: &str, _card_json: &str) -> Result<(), AdapterError> {
+        Err(AdapterError::UnsupportedOperation)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,4 +46,7 @@ pub enum AdapterError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Unsupported operation")]
+    UnsupportedOperation,
 }
