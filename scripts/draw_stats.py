@@ -214,6 +214,14 @@ def main():
     cv_avg = json.dumps(cov_avg_data)
     cv_max = json.dumps(cov_max_data) if cov_max_data else "null"
 
+    # Build coverage chart HTML
+    if has_real_cov and cov_history_count >= 2:
+        cov_html = f'<div class="chart-title">{cov_subtitle}</div><canvas id="covChart"></canvas>'
+    elif has_real_cov:
+        cov_html = f'<div class="cov-placeholder"><div><span class="cov-num">{latest_avg}%</span>平均覆盖率（{cov_history_count} 个数据点）<div class="cov-sub">最高: {latest_max}% · 多跑几天自动生成趋势图</div></div></div>'
+    else:
+        cov_html = f'<div class="chart-title">{cov_subtitle}</div><canvas id="covChart"></canvas>'
+
     html = f"""<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -274,9 +282,7 @@ def main():
 
 <div class="bottom-grid">
   <div class="chart-box">
-    <div class="chart-title">{cov_subtitle}</div>
-    <div class="chart-title">{cov_subtitle}</div>
-    {'<canvas id="covChart"></canvas>' if cov_history_count >= 2 else f'<div class="cov-placeholder"><div><span class="cov-num">{latest_avg}%</span>平均覆盖率（{cov_history_count} 个数据点）<div class="cov-sub">最高: {latest_max}% · 多跑几天自动生成趋势图</div></div></div>' if has_real_cov else '<canvas id="covChart"></canvas>'}
+    {cov_html}
   </div>
   <div class="time-table">
     <h3>⏱ 古法工时估算（Vibe Project 框架）</h3>
