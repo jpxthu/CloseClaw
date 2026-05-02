@@ -16,6 +16,10 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO = SCRIPT_DIR.parent  # closeclaw-test repo root
+DATA_DIR = SCRIPT_DIR / "data"
+
+# Ensure data directory exists
+DATA_DIR.mkdir(exist_ok=True)
 
 def parse_args():
     help_flag = "--help" in sys.argv or "-h" in sys.argv
@@ -166,7 +170,7 @@ def main():
     newest = commits[0][0]
     log(f"Commits: {len(commits)}, range {oldest} → {newest}")
 
-    jsonl_path = REPO / "scripts" / "daily_stats.jsonl"
+    jsonl_path = DATA_DIR / "daily_stats.jsonl"
     results = []
 
     for day in iter_days(oldest, newest):

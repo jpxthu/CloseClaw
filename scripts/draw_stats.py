@@ -16,8 +16,30 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO = SCRIPT_DIR.parent
-JSONL = SCRIPT_DIR / "daily_stats.jsonl"
+DATA_DIR = SCRIPT_DIR / "data"
+JSONL = DATA_DIR / "daily_stats.jsonl"
+COVERAGE_HISTORY = DATA_DIR / "coverage_history.jsonl"
 HTML_OUT = SCRIPT_DIR / "code_stats_chart.html"
+
+def load_coverage_history():
+    """Load real coverage data from coverage_history.jsonl.
+    Returns list of {date, avg_coverage} or empty list."""
+    records = []
+    if not COVERAGE_HISTORY.exists():
+        return records
+    with open(COVERAGE_HISTORY) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                if "avg_coverage" in rec:
+                    records.append(rec)
+            except json.JSONDecodeError:
+                pass
+    return records
+
 
 def load_data():
     records = []
@@ -123,10 +145,34 @@ def main():
     tm  = estimate_time_vibe("mvp")
     tpr = estimate_time_vibe("prod")
 
-    dates    = [r["date"] for r in records]
-    rs_files = [r["rs_files"] for r in records]
-    loc      = [r["total_loc"] for r in records]
-    tests    = [r["test_cases"] for r in records]
+    cov_history = load_coverage_history()
+    has_real_cov = len(cov_history) > 0
+
+    # Build date → value lookups for daily stats
+    daily_dates = [r["date"] for r in records]
+    daily_map = {r["date"]: r for r in records}
+
+    # Merge dates from daily_stats and coverage_history
+    all_dates = sorted(set(daily_dates) | {r["date"] for r in cov_history})
+
+    dates    = all_dates
+    rs_files = [daily_map.get(d, {}).get("rs_files") for d in all_dates]
+    loc      = [daily_map.get(d, {}).get("total_loc") for d in all_dates]
+    tests    = [daily_map.get(d, {}).get("test_cases") for d in all_dates]
+
+    # Forward-fill daily stats for gap days
+    def forward_fill(arr):
+        result = []
+        last = None
+        for v in arr:
+            if v is not None:
+                last = v
+            result.append(last)
+        return result
+
+    rs_files = forward_fill(rs_files)
+    loc = forward_fill(loc)
+    tests = forward_fill(tests)
 
     # FIX: cumulative should be running max (monotonic increase, ends at total)
     cum = []
@@ -135,19 +181,42 @@ def main():
         running = max(running, v)
         cum.append(running)
 
-    # Coverage proxy: tests / max_tests * 100
-    max_t = max(tests) or 1
-    cov   = [round(t / max_t * 100, 1) for t in tests]
+    cov_history_count = len(cov_history)
 
-    # Average coverage line (horizontal)
-    avg_cov = round(sum(cov) / len(cov), 1)
+    # Max coverage proxy from daily stats (full timeline)
+    max_t = max(tests) if tests else 1
+    cov_max_proxy = [round(t / max_t * 100, 1) for t in tests]
+
+    if has_real_cov:
+        # Build date → coverage lookup from history
+        hist_avg = {r["date"]: r["avg_coverage"] for r in cov_history}
+
+        # Avg coverage: only real data points
+        cov_avg_data = [hist_avg.get(d) for d in dates]
+
+        # Stats for display
+        latest_avg = cov_history[-1]["avg_coverage"]
+        cov_note = f"真实覆盖率（llvm-cov）: 最新 avg={latest_avg}% | 最高覆盖率 = proxy（tests/max）"
+        cov_subtitle = "⚡ 测试覆盖率（avg 实测 + max 估算）"
+    else:
+        cov_avg_data = None
+        proxy_avg = round(sum(cov_max_proxy) / len(cov_max_proxy), 1)
+        cov_note = f"⚠️ 平均覆盖率未采集。运行 collect_coverage.py 获取真实数据"
+        cov_subtitle = "⚡ 测试覆盖率估算（proxy: tests/max%）"
 
     d  = json.dumps(dates)
     fj = json.dumps(rs_files)
     cj = json.dumps(cum)
     lj = json.dumps(loc)
     tj = json.dumps(tests)
-    cv = json.dumps(cov)
+    cv_avg = json.dumps(cov_avg_data) if cov_avg_data else "null"
+    cv_max = json.dumps(cov_max_proxy)
+
+    # Build coverage chart HTML
+    if has_real_cov:
+        cov_html = f'<div class="chart-title">{cov_subtitle}</div><canvas id="covChart"></canvas>'
+    else:
+        cov_html = f'<div class="chart-title">{cov_subtitle}</div><canvas id="covChart"></canvas>'
 
     html = f"""<!DOCTYPE html>
 <html lang="zh">
@@ -178,6 +247,9 @@ def main():
   tr.ratio-row td {{ color: #9aa0a6; font-size: 11px; background: #161f2a; }}
   .est-note {{ font-size: 10px; color: #567; margin-top: 8px; text-align: center; }}
   .note {{ text-align: center; color: #555; font-size: 11px; margin-top: 20px; }}
+  .cov-placeholder {{ display: flex; align-items: center; justify-content: center; height: 180px; color: #5f6b7a; font-size: 14px; text-align: center; }}
+  .cov-placeholder .cov-num {{ color: #8ab4f8; font-size: 32px; font-weight: 600; display: block; margin-bottom: 8px; }}
+  .cov-placeholder .cov-sub {{ color: #9aa0a6; font-size: 12px; margin-top: 4px; }}
   .wide {{ grid-column: 1 / -1; }}
 </style>
 </head>
@@ -206,8 +278,7 @@ def main():
 
 <div class="bottom-grid">
   <div class="chart-box">
-    <div class="chart-title">⚡ 测试覆盖率估算（proxy: tests/max%）</div>
-    <canvas id="covChart"></canvas>
+    {cov_html}
   </div>
   <div class="time-table">
     <h3>⏱ 古法工时估算（Vibe Project 框架）</h3>
@@ -225,7 +296,7 @@ def main():
   </div>
 </div>
 
-<p class="note">⚠️ 覆盖率为 proxy（tests/max）；均值 {avg_cov}% 来自此估算。真实覆盖率需每日运行 llvm-cov</p>
+<p class="note">{cov_note}</p>
 
 <script>
 const L = {d};
@@ -270,19 +341,30 @@ new Chart(document.getElementById('covChart'), {{
   data: {{
     labels: L,
     datasets: [
+      ...(function() {{
+        var avgData = {cv_avg};
+        if (avgData !== null && avgData.some(v => v !== null)) {{
+          var n = avgData.filter(v => v !== null).length;
+          return [{{
+            label: '平均覆盖率 (%)',
+            data: avgData,
+            borderColor: '#ea4335',
+            borderWidth: n <= 5 ? 3 : 1.5,
+            tension: 0.4,
+            spanGaps: true,
+            pointRadius: n <= 3 ? 8 : (n <= 10 ? 5 : 2),
+            pointBackgroundColor: '#ea4335',
+            fill: {{ target: 'origin', above: 'rgba(234,67,53,0.08)' }}
+          }}];
+        }}
+        return [];
+      }})(),
       {{
-        label: '覆盖率',
-        data: {cv},
-        borderColor: '#ea4335',
+        label: '最高覆盖率 (%)',
+        data: {cv_max},
+        borderColor: '#34a853',
         borderDash: [5, 5],
         tension: 0.4,
-        pointRadius: 2
-      }},
-      {{
-        label: '均值 {avg_cov}%',
-        data: Array(L.length).fill({avg_cov}),
-        borderColor: 'rgba(138,180,248,0.5)',
-        borderDash: [2, 4],
         pointRadius: 0,
         fill: false
       }}
@@ -300,7 +382,10 @@ new Chart(document.getElementById('covChart'), {{
 
     with open(HTML_OUT, "w") as f:
         f.write(html)
-    print(f"Written: {HTML_OUT}  (avg_cov={avg_cov}%)")
+    if has_real_cov:
+        print(f"Written: {HTML_OUT}  (real coverage: avg={latest_avg}%)")
+    else:
+        print(f"Written: {HTML_OUT}  (proxy coverage, no real data)")
 
 if __name__ == "__main__":
     main()
