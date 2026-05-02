@@ -78,8 +78,11 @@ async fn handle_server_message_variants() {
 async fn bind_accept() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
+    eprintln!("[bind_accept] bound to {}, spawning accept task", addr);
     let h = tokio::spawn(async move {
+        eprintln!("[bind_accept] task started, calling accept() on {}", addr);
         let _ = l.accept().await;
+        eprintln!("[bind_accept] accept() returned on {}", addr);
     });
     (addr, h)
 }
@@ -164,16 +167,13 @@ async fn mock_server_seq(
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
+    eprintln!("[mock_server_seq] bound to {}, spawning server task", addr);
     let h = tokio::spawn(async move {
-        // Signal that the task has been spawned and the listener is bound.
-        // The client should wait for this before connecting.
-        // NOTE: This does NOT guarantee that accept() has been called.
-        // On most platforms the kernel TCP backlog handles early connects,
-        // but on some (notably WSL2) the server task may not be scheduled
-        // before the client proceeds. The read_line_timeout in start_session
-        // provides the safety net for that case.
+        eprintln!("[mock_server_seq] server task started, sending ready_tx");
         let _ = ready_tx.send(());
+        eprintln!("[mock_server_seq] ready_tx sent, calling accept()");
         if let Ok((mut s, _)) = l.accept().await {
+            eprintln!("[mock_server_seq] accepted connection, writing {} responses", responses.len());
             for (i, resp) in responses.iter().enumerate() {
                 if i > 0 {
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -181,6 +181,9 @@ async fn mock_server_seq(
                 let _ = s.write_all((resp.to_string() + "\n").as_bytes()).await;
                 let _ = s.flush().await;
             }
+            eprintln!("[mock_server_seq] done writing responses");
+        } else {
+            eprintln!("[mock_server_seq] accept() failed!");
         }
     });
     (addr, h, ready_rx)
@@ -201,12 +204,17 @@ async fn start_session_success() {
 
 #[tokio::test]
 async fn test_error_response_handling() {
+    eprintln!("[test_error_response] calling mock_server_seq");
     let (addr, h, ready_rx) = mock_server_seq(vec![
         json!({"type":"chat.error","message":"boom","id":"r1"}),
     ])
     .await;
+    eprintln!("[test_error_response] waiting for ready_rx");
     ready_rx.await.unwrap();
-    assert!(ChatCommand::start_session(addr, "agent").await.is_err());
+    eprintln!("[test_error_response] ready_rx returned, calling start_session({})", addr);
+    let result = ChatCommand::start_session(addr, "agent").await;
+    eprintln!("[test_error_response] start_session returned: {:?}", result.is_err());
+    assert!(result.is_err());
     h.await.unwrap();
 }
 
