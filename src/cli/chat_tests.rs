@@ -89,23 +89,26 @@ async fn handle_server_message_variants() {
 // which is a plain blocking syscall and does not depend on epoll.
 // After accepting, convert to `tokio::net::TcpStream` for async I/O.
 
-/// Bind a TCP listener and return the address + std listener.
-async fn bind_tcp() -> (std::net::SocketAddr, std::net::TcpListener) {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+/// Bind a TCP listener using std only (bypasses tokio socket management).
+/// Returns (addr, std_listener).
+fn bind_tcp_std() -> (std::net::SocketAddr, std::net::TcpListener) {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    l.set_nonblocking(false).unwrap();
     let addr = l.local_addr().unwrap();
-    let std_listener = l.into_std().unwrap();
-    std_listener.set_nonblocking(false).unwrap();
-    (addr, std_listener)
+    eprintln!("[bind_tcp_std] bound to {}", addr);
+    (addr, l)
 }
 
-/// Mock TCP server: blocking accept, then write all responses.
+/// Mock TCP server: blocking accept on std thread, then async writes via block_on.
 async fn mock_server_seq(
     responses: Vec<serde_json::Value>,
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let h = tokio::task::spawn_blocking(move || {
+        eprintln!("[mock_server_seq] calling blocking accept on {}", addr);
         match std_listener.accept() {
             Ok((std_stream, _)) => {
+                eprintln!("[mock_server_seq] accepted!");
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(async move {
                     let mut s = TcpStream::from_std(std_stream).unwrap();
@@ -116,6 +119,7 @@ async fn mock_server_seq(
                         let _ = s.write_all((resp.to_string() + "\n").as_bytes()).await;
                         let _ = s.flush().await;
                     }
+                    eprintln!("[mock_server_seq] done writing");
                 });
             }
             Err(e) => eprintln!("[mock_server_seq] accept error: {}", e),
@@ -126,9 +130,11 @@ async fn mock_server_seq(
 
 /// Blocking accept one connection (no processing).
 async fn bind_accept() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let h = tokio::task::spawn_blocking(move || {
+        eprintln!("[bind_accept] calling blocking accept on {}", addr);
         let _ = std_listener.accept();
+        eprintln!("[bind_accept] accept returned");
     });
     (addr, h)
 }
@@ -167,7 +173,7 @@ async fn handle_stdin_line_empty_and_whitespace() {
 
 #[tokio::test]
 async fn handle_stdin_line_normal_message() {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let h = tokio::task::spawn_blocking(move || {
         let (mut stream, _) = std_listener.accept().unwrap();
@@ -227,7 +233,7 @@ async fn test_error_response_handling() {
 #[tokio::test]
 #[ignore = "slow test: 30s read timeout; run with --ignored to verify timeout mechanism"]
 async fn test_read_timeout_silent_server() {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let h = tokio::task::spawn_blocking(move || {
         let _ = std_listener.accept();
         // intentionally never write — simulates silent server
@@ -239,7 +245,7 @@ async fn test_read_timeout_silent_server() {
 
 #[tokio::test]
 async fn send_user_message_sends_correct_json() {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let h = tokio::task::spawn_blocking(move || {
         let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 1024];
@@ -258,7 +264,7 @@ async fn send_user_message_sends_correct_json() {
 
 #[tokio::test]
 async fn send_stop_sends_correct_json() {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let h = tokio::task::spawn_blocking(move || {
         let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 1024];
@@ -298,7 +304,7 @@ async fn handle_single_response_error() {
 
 #[tokio::test]
 async fn send_json_line_produces_newline_delimited_json() {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let h = tokio::task::spawn_blocking(move || {
         let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 1024];
@@ -318,7 +324,7 @@ async fn send_json_line_produces_newline_delimited_json() {
 #[tokio::test]
 #[ignore = "CI environment memory不足时跳过"]
 async fn run_single_end_to_end() {
-    let (addr, std_listener) = bind_tcp().await;
+    let (addr, std_listener) = bind_tcp_std();
     let h = tokio::task::spawn_blocking(move || {
         let (mut stream, _) = std_listener.accept().unwrap();
         let mut buf = [0u8; 2048];
