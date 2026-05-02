@@ -3,15 +3,21 @@
 Generate a self-contained HTML chart for CloseClaw daily stats.
 
 Usage:
-    python3 draw_stats.py [--verbose]
+    python3 draw_stats.py [--verbose] [--screenshot]
     python3 draw_stats.py --help
 
 No external Python packages required. Chart.js loaded from CDN.
 Input: scripts/daily_stats.jsonl (from collect_code_stats.py)
-Output: scripts/code_stats_chart.html
+Output:
+    scripts/code_stats_chart.html
+    scripts/code_stats_chart.png  (when --screenshot is given, 2800x2475, 2x DPR)
+
+Screenshot: Chrome headless -> 2800x4950 (2x DPR * viewport 2475 CSS px)
+            then auto-cropped to 2800x2475.
+Requires: google-chrome (in PATH), PIL (for crop).
 """
 
-import json, os, sys
+import argparse, json, os, shutil, subprocess, sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -20,6 +26,10 @@ DATA_DIR = SCRIPT_DIR / "data"
 JSONL = DATA_DIR / "daily_stats.jsonl"
 COVERAGE_HISTORY = DATA_DIR / "coverage_history.jsonl"
 HTML_OUT = SCRIPT_DIR / "code_stats_chart.html"
+
+_verbose = False
+_screenshot = False
+
 
 def load_coverage_history():
     """Load real coverage data from coverage_history.jsonl.
@@ -56,12 +66,12 @@ def estimate_time_vibe(style="mvp"):
     古法编程工时估算 — 估算对象: CloseClaw 整体工程
 
     基于实际产出（132 FP）套 Vibe Project 估算框架：
-      人天 = 净功能点 / 古法速率 × (1 + 质量债务系数)
+      人天 = 净功能点 / 古法速率 * (1 + 质量债务系数)
 
     style 选项（对应 DeepSeek V4 估算框架）:
-      prototype  原型级（质量系数 0.2）  → Vibe等效 ~2天生成
-      mvp        MVP级（质量系数 0.8）    → Vibe等效 ~5天迭代
-      prod       生产级（质量系数 1.8）   → Vibe等效 ~更长迭代
+      prototype  原型级（质量系数 0.2）  -> Vibe等效 ~2天生成
+      mvp        MVP级（质量系数 0.8）    -> Vibe等效 ~5天迭代
+      prod       生产级（质量系数 1.8）   -> Vibe等效 ~更长迭代
 
     基准:
       CloseClaw 最新快照（2026-04-28）：
@@ -91,19 +101,15 @@ def estimate_time_vibe(style="mvp"):
         "finalize_hours":      round(total_h * 0.10),
         "total_hours":         round(total_h),
         "total_pd":            round(total_pd, 1),
-        # Vibe 等效（DeepSeek V4 参考: 原型×10, MVP×20, 生产×40）
+        # Vibe 等效（DeepSeek V4 参考: 原型*10, MVP*20, 生产*40）
         "vibe_days_equiv":     round(total_pd / {"prototype": 10, "mvp": 20, "prod": 40}[style], 1),
     }
 
-def parse_args():
-    help_flag = "--help" in sys.argv or "-h" in sys.argv
-    verbose = "--verbose" in sys.argv or "-v" in sys.argv
-    return help_flag, verbose
 
 HELP_TEXT = f"""CloseClaw Code Statistics HTML Chart Generator
 
 Usage:
-    python3 {os.path.basename(__file__)} [--verbose]
+    python3 {os.path.basename(__file__)} [--verbose] [--screenshot]
     python3 {os.path.basename(__file__)} --help
 
 Description:
@@ -116,25 +122,97 @@ Input:
 
 Output:
     {HTML_OUT}
+    {SCRIPT_DIR / 'code_stats_chart.png'}  (when --screenshot given, 2800x2475)
 
 Options:
     --verbose, -v   Print extra info while generating
-    --help, -h       Show this help message
+    --screenshot    Capture PNG screenshot (2800x2475, 2x DPR, auto-cropped)
+    --help, -h      Show this help message
 
 Examples:
-    # Generate chart
+    # Generate chart only
     python3 draw_stats.py
 
-    # With verbose output
-    python3 draw_stats.py --verbose
+    # Generate chart + screenshot
+    python3 draw_stats.py --screenshot
 """
 
-_verbose = False
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate CloseClaw code stats chart.")
+    parser.add_argument("--verbose", "-v", action="store_true", help="extra output")
+    parser.add_argument("--screenshot", action="store_true",
+                        help="capture PNG screenshot (2800x2475, 2x DPR, auto-cropped)")
+    args = parser.parse_args()
+    return args.verbose, args.screenshot
+
+
+def take_screenshot(html_path):
+    """Capture 2800x2475 screenshot (2x DPR, viewport 2475 CSS px, auto-cropped)."""
+    try:
+        from PIL import Image
+    except ImportError:
+        print("WARNING: PIL not available, skipping screenshot", file=sys.stderr)
+        return
+
+    # Chrome binary
+    chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable")
+    if not chrome:
+        print("WARNING: google-chrome not found, skipping screenshot", file=sys.stderr)
+        return
+
+    out_png = html_path.with_suffix(".png")
+    # Full-size: viewport=1400x2475 CSS px -> 2800x4950 at 2x DPR
+    full_png = out_png.parent / (out_png.stem + "_full.png")
+
+    cmd = [
+        chrome,
+        "--headless=new",
+        "--disable-gpu",
+        f"--screenshot={full_png}",
+        "--window-size=1400,2475",
+        "--force-device-scale-factor=2",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        f"file://{html_path}",
+    ]
+    if _verbose:
+        print(f"[screenshot] Running: {' '.join(cmd)}", file=sys.stderr)
+
+    result = subprocess.run(cmd, capture_output=True, timeout=30)
+    if result.returncode != 0:
+        if result.stderr:
+            for line in result.stderr.decode(errors="replace").splitlines()[:3]:
+                print(f"[screenshot] Chrome stderr: {line}", file=sys.stderr)
+        print(f"[screenshot] WARNING: chrome exited {result.returncode}, skipping crop",
+              file=sys.stderr)
+        return
+
+    # Crop: full is 2800x4950 -> 2800x2475 (top portion, remove bottom blank)
+    try:
+        img = Image.open(full_png)
+        cropped = img.crop((0, 0, 2800, 2475))
+        cropped.save(out_png)
+        if _verbose:
+            print(f"[screenshot] Cropped {img.size} -> {cropped.size} -> {out_png}",
+                  file=sys.stderr)
+        else:
+            print(f"Screenshot: {out_png}  (2800x2475, 2x DPR)")
+        full_png.unlink(missing_ok=True)
+    except Exception as e:
+        print(f"[screenshot] WARNING: crop failed ({e}), full screenshot at {full_png}",
+              file=sys.stderr)
+
 
 def main():
-    global _verbose
-    help_flag, _verbose = parse_args()
-    if help_flag:
+    global _verbose, _screenshot
+    _verbose, _screenshot = parse_args()
+
+    if _verbose and "--help" not in sys.argv and "-h" not in sys.argv:
+        print(HELP_TEXT)
+        return
+
+    if "--help" in sys.argv or "-h" in sys.argv:
         print(HELP_TEXT)
         return
 
@@ -148,7 +226,7 @@ def main():
     cov_history = load_coverage_history()
     has_real_cov = len(cov_history) > 0
 
-    # Build date → value lookups for daily stats
+    # Build date -> value lookups for daily stats
     daily_dates = [r["date"] for r in records]
     daily_map = {r["date"]: r for r in records}
 
@@ -188,7 +266,7 @@ def main():
     cov_max_proxy = [round(t / max_t * 100, 1) for t in tests]
 
     if has_real_cov:
-        # Build date → coverage lookup from history
+        # Build date -> coverage lookup from history
         hist_avg = {r["date"]: r["avg_coverage"] for r in cov_history}
 
         # Avg coverage: only real data points
@@ -386,6 +464,11 @@ new Chart(document.getElementById('covChart'), {{
         print(f"Written: {HTML_OUT}  (real coverage: avg={latest_avg}%)")
     else:
         print(f"Written: {HTML_OUT}  (proxy coverage, no real data)")
+
+    # Screenshot: HTML -> PNG (2800x2475)
+    if _screenshot:
+        take_screenshot(HTML_OUT)
+
 
 if __name__ == "__main__":
     main()
