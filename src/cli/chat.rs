@@ -82,7 +82,7 @@ impl ChatCommand {
         });
         send_json_line(&mut stream, &start_json).await?;
 
-        let resp = read_line(&mut stream).await?;
+        let resp = read_line_timeout(&mut stream, std::time::Duration::from_secs(30)).await?;
         let resp_val: serde_json::Value = serde_json::from_str(&resp)?;
         if resp_val.get("type").and_then(|v| v.as_str()) != Some("chat.started") {
             anyhow::bail!("unexpected response to chat.start: {}", resp);
@@ -136,8 +136,9 @@ impl ChatCommand {
 
     /// Read responses until chat.response.done.
     async fn handle_single_response(stream: &mut TcpStream) -> anyhow::Result<()> {
+        let timeout = std::time::Duration::from_secs(30);
         loop {
-            let resp = read_line(stream).await?;
+            let resp = read_line_timeout(stream, timeout).await?;
             let resp_val: serde_json::Value = serde_json::from_str(&resp)?;
             let msg_type = resp_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -305,6 +306,17 @@ async fn read_line(stream: &mut TcpStream) -> anyhow::Result<String> {
         .await?
         .ok_or_else(|| anyhow::anyhow!("server closed connection"))?;
     Ok(line)
+}
+
+/// Read a single newline-delimited JSON line with a timeout.
+async fn read_line_timeout(
+    stream: &mut TcpStream,
+    timeout: std::time::Duration,
+) -> anyhow::Result<String> {
+    match tokio::time::timeout(timeout, read_line(stream)).await {
+        Ok(result) => result,
+        Err(_) => anyhow::bail!("read timeout after {}s", timeout.as_secs()),
+    }
 }
 
 #[cfg(test)]

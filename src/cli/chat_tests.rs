@@ -165,6 +165,13 @@ async fn mock_server_seq(
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
+        // Signal that the task has been spawned and the listener is bound.
+        // The client should wait for this before connecting.
+        // NOTE: This does NOT guarantee that accept() has been called.
+        // On most platforms the kernel TCP backlog handles early connects,
+        // but on some (notably WSL2) the server task may not be scheduled
+        // before the client proceeds. The read_line_timeout in start_session
+        // provides the safety net for that case.
         let _ = ready_tx.send(());
         if let Ok((mut s, _)) = l.accept().await {
             for (i, resp) in responses.iter().enumerate() {
@@ -204,7 +211,7 @@ async fn test_error_response_handling() {
 }
 
 #[tokio::test]
-#[ignore = "depends on #478 read timeout mechanism"]
+#[ignore = "slow test: 30s read timeout; run with --ignored to verify timeout mechanism"]
 async fn test_read_timeout_silent_server() {
     // Mock server accepts but never responds.
     // Will fully validate timeout behavior once #478 adds read_line_timeout.
