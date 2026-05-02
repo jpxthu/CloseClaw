@@ -4,11 +4,9 @@
 //! - `mod.rs` — `ProcessPhase`, `MessageProcessor` trait, `MessageContext`,
 //!   `ProcessError`, `ProcessorRegistry`, `ProcessedMessage`
 //! - `cleaner.rs` — `FeishuMessageCleaner` (inbound processor) + cleaning logic
-//! - `dsl_parser.rs` — `DslParser` (outbound processor) + DSL types
 //! - `session_router.rs` — `SessionRouter` (inbound, priority 20) + session routing
 
 mod cleaner;
-mod dsl_parser;
 mod session_router;
 
 use async_trait::async_trait;
@@ -17,9 +15,9 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use crate::gateway::SessionManager;
+use crate::processor_chain::{DslInstruction, DslParseResult};
 
 pub use cleaner::FeishuMessageCleaner;
-pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
 use serde_json::Value;
 pub use session_router::SessionRouter;
 
@@ -124,12 +122,11 @@ impl ProcessorRegistry {
     /// Create a new registry with default processors registered:
     /// - [`SessionRouter`] (inbound, priority 20) — resolves session IDs
     /// - [`FeishuMessageCleaner`] (inbound, priority 30)
-    /// - [`DslParser`] (outbound, priority 10)
+    /// - [`FeishuMessageCleaner`] (inbound, priority 30)
     pub fn new(session_manager: Arc<SessionManager>) -> Self {
         let mut registry = Self::default();
         registry.register(SessionRouter::new(session_manager));
         registry.register(FeishuMessageCleaner);
-        registry.register(DslParser);
         registry
     }
 
@@ -338,10 +335,8 @@ mod tests {
     async fn test_registry_default_has_all_processors() {
         let mgr = test_session_manager();
         let registry = ProcessorRegistry::new(mgr);
-        // SessionRouter (inbound, prio 20) + FeishuMessageCleaner (inbound, prio 30)
+        // FeishuMessageCleaner (inbound, prio 30)
         assert!(!registry.inbound.is_empty());
-        // DslParser (outbound, prio 10)
-        assert!(!registry.outbound.is_empty());
     }
 
     #[tokio::test]
@@ -417,70 +412,4 @@ mod tests {
         assert_eq!(result.content, expected.content);
     }
 
-    // --- Outbound chain end-to-end ---
-
-    #[tokio::test]
-    async fn test_outbound_chain_no_dsl() {
-        let mgr = test_session_manager();
-        let registry = ProcessorRegistry::new(mgr);
-        let msg = serde_json::json!({"content": "Hello, this is a normal message."});
-
-        let result = registry.process_outbound(&msg).await.unwrap();
-        // DslParser removes DSL lines; since there are none, content is unchanged
-        assert_eq!(result.content, "Hello, this is a normal message.");
-        // dsl_result metadata should be present with empty instructions
-        let dsl_result_json = result.metadata.get("dsl_result").unwrap();
-        let dsl_result: DslParseResult = serde_json::from_str(dsl_result_json).unwrap();
-        assert!(dsl_result.instructions.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_outbound_chain_with_dsl() {
-        let mgr = test_session_manager();
-        let registry = ProcessorRegistry::new(mgr);
-        let content = [
-            "Hello world",
-            "::button[label:Click Me;action:navigate;value:/home]",
-            "Goodbye",
-        ]
-        .join("\n");
-        let msg = serde_json::json!({"content": content});
-
-        let result = registry.process_outbound(&msg).await.unwrap();
-        assert_eq!(result.content, "Hello world\nGoodbye");
-
-        let dsl_result_json = result.metadata.get("dsl_result").unwrap();
-        let dsl_result: DslParseResult = serde_json::from_str(dsl_result_json).unwrap();
-        assert_eq!(dsl_result.instructions.len(), 1);
-        match &dsl_result.instructions[0] {
-            DslInstruction::Button {
-                label,
-                action,
-                value,
-            } => {
-                assert_eq!(label, "Click Me");
-                assert_eq!(action, "navigate");
-                assert_eq!(value, "/home");
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_outbound_chain_multiple_dsl() {
-        let mgr = test_session_manager();
-        let registry = ProcessorRegistry::new(mgr);
-        let content = [
-            "::button[label:Yes;action:confirm;value:1]",
-            "::button[label:No;action:cancel;value:0]",
-        ]
-        .join("\n");
-        let msg = serde_json::json!({"content": content});
-
-        let result = registry.process_outbound(&msg).await.unwrap();
-        assert_eq!(result.content, ""); // all lines are DSL
-
-        let dsl_result_json = result.metadata.get("dsl_result").unwrap();
-        let dsl_result: DslParseResult = serde_json::from_str(dsl_result_json).unwrap();
-        assert_eq!(dsl_result.instructions.len(), 2);
-    }
 }

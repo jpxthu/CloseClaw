@@ -11,6 +11,7 @@
 //! - [`ProcessError`] — error types
 
 pub mod context;
+pub mod dsl_parser;
 pub mod error;
 pub mod loader;
 pub mod markdown_normalizer;
@@ -20,6 +21,7 @@ pub mod raw_log_processor;
 pub mod registry;
 pub mod registry_tests;
 
+pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
 pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
 pub use registry::ProcessorRegistry;
 
