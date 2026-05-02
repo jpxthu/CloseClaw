@@ -123,7 +123,7 @@ impl FeishuAdapter {
     }
 
     /// Fetch a fresh tenant access token from Feishu API (no caching).
-    async fn fetch_tenant_token(&self) -> Result<String, AdapterError> {
+    pub async fn fetch_tenant_token(&self) -> Result<String, AdapterError> {
         #[derive(Serialize)]
         struct TokenRequest<'a> {
             app_id: &'a str,
@@ -169,7 +169,7 @@ impl FeishuAdapter {
 /// Card send and update operations
 impl FeishuAdapter {
     /// Build the JSON content string for a card send request.
-    fn build_card_body(card: &RichCard) -> Result<String, AdapterError> {
+    pub fn build_card_body(card: &RichCard) -> Result<String, AdapterError> {
         let payload = render_feishu_card(card);
         serde_json::to_string(&payload).map_err(|e| AdapterError::SendFailed(e.to_string()))
     }

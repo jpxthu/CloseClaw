@@ -1,16 +1,14 @@
 //! Integration tests for FeishuAdapter
 //!
-//! These tests exercise the Feishu adapter's public API.
-//! They were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
+//! These tests were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
 
-use crate::card::RichCard;
-use crate::gateway::Message;
-use crate::im::feishu::FeishuAdapter;
+use closeclaw::card::RichCard;
+use closeclaw::gateway::Message;
+use closeclaw::im::feishu::{CachedToken, FeishuAdapter};
+use closeclaw::im::IMAdapter;
+use sha2::Digest;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-
-// Re-export CachedToken for tests that need it
-pub use crate::im::feishu::CachedToken;
 
 #[test]
 fn test_feishu_adapter_name() {
