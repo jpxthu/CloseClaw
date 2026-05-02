@@ -89,7 +89,7 @@ async fn handle_server_message_variants() {
 
 /// Bind a tokio listener on a random port.
 async fn bind_listener() -> (std::net::SocketAddr, TcpListener) {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     (addr, l)
 }
