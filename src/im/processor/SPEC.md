@@ -18,8 +18,8 @@
 
 | 接口 | 功能 |
 |------|------|
-| `ProcessorRegistry::new` | 创建注册表，自动注册 SessionRouter（inbound, prio 20）、FeishuMessageCleaner（inbound, prio 30）、DslParser（outbound, prio 10） |
-| `ProcessorRegistry::register` | 按 processor 的 phase 和 priority 注册 |
+| `ProcessorRegistry::new` | 创建注册表，自动注册 SessionRouter（inbound, prio 20）、FeishuMessageCleaner（inbound, prio 30） |
+| `ProcessorRegistry::register` | 按 processor 的 phase 和 priority 注册，手动调用以注册其他 processor（如 DslParser） |
 | `ProcessorRegistry::process_inbound` | 执行 Inbound 链，按 priority 升序调用各 processor |
 | `ProcessorRegistry::process_outbound` | 执行 Outbound 链，按 priority 升序调用各 processor |
 
