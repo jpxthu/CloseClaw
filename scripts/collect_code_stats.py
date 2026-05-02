@@ -135,7 +135,7 @@ def count_stats(commit):
                 elif s.startswith("//"):
                     continue
                 else:
-                    if s.startswith("#[test"):
+                    if s.startswith("#[test") or s.startswith("#[tokio::test"):
                         test_count += 1
                     total_loc += 1
             else:
