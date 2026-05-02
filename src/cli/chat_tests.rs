@@ -186,7 +186,25 @@ async fn start_session_success() {
     ])
     .await;
     ready_rx.await.unwrap();
-    let (stream, sid) = ChatCommand::start_session(addr, "agent").await.unwrap();
+    let (stream, sid) = ChatCommand::start_session(addr, "agent", None)
+        .await
+        .unwrap();
+    assert_eq!(sid, "s1");
+    drop(stream);
+    h.await.unwrap();
+}
+
+#[tokio::test]
+async fn start_session_with_timeout_success() {
+    // timeout = Some but server responds normally — no timeout fired.
+    let (addr, h, ready_rx) = mock_server_seq(vec![
+        json!({"type":"chat.started","session_id":"s1","id":"r1"}),
+    ])
+    .await;
+    ready_rx.await.unwrap();
+    let (stream, sid) = ChatCommand::start_session(addr, "agent", Some(Duration::from_secs(5)))
+        .await
+        .unwrap();
     assert_eq!(sid, "s1");
     drop(stream);
     h.await.unwrap();
@@ -199,28 +217,57 @@ async fn test_error_response_handling() {
     ])
     .await;
     ready_rx.await.unwrap();
-    assert!(ChatCommand::start_session(addr, "agent").await.is_err());
+    assert!(ChatCommand::start_session(addr, "agent", None)
+        .await
+        .is_err());
     h.await.unwrap();
 }
 
+// NOTE: Mock server accepts the connection but never sends chat.started.
+// start_session waits for the first line and should hit read_line_timeout.
 #[tokio::test]
-#[ignore = "depends on #478 read timeout mechanism"]
 async fn test_read_timeout_silent_server() {
-    // Mock server accepts but never responds.
-    // Will fully validate timeout behavior once #478 adds read_line_timeout.
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
     let h = tokio::spawn(async move {
         let _ = ready_tx.send(());
-        let _ = l.accept().await;
-        // intentionally never write — simulates silent server
+        if let Ok((mut s, _)) = l.accept().await {
+            // Read the chat.start request but never respond.
+            let mut buf = [0u8; 1024];
+            let _ = s.read(&mut buf).await;
+            // Intentionally never write — simulates silent server.
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        }
     });
     ready_rx.await.unwrap();
-    // Without timeout, this would hang forever.
-    // After #478, start_session will return a timeout error.
-    let _ = ChatCommand::start_session(addr, "agent").await;
+    let result = ChatCommand::start_session(addr, "agent", Some(Duration::from_secs(1))).await;
+    assert!(result.is_err(), "expected timeout error, got {:?}", result);
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("read timeout"),
+        "error should mention 'read timeout', got: {}",
+        err
+    );
     h.abort();
+}
+
+#[tokio::test]
+async fn test_connect_timeout() {
+    // Non-routable address causes connect to time out (no ICMP, TCP SYN retransmits).
+    let addr: std::net::SocketAddr = "10.255.255.1:1".parse().unwrap();
+    let result = ChatCommand::start_session(addr, "agent", Some(Duration::from_secs(1))).await;
+    assert!(
+        result.is_err(),
+        "expected connect timeout error, got {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("connect timeout"),
+        "error should mention 'connect timeout', got: {}",
+        err
+    );
 }
 
 #[tokio::test]
