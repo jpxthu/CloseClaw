@@ -144,8 +144,9 @@ impl ChatCommand {
 
     /// Read responses until chat.response.done.
     async fn handle_single_response(stream: &mut TcpStream) -> anyhow::Result<()> {
+        let timeout = Duration::from_secs(30);
         loop {
-            let resp = read_line(stream).await?;
+            let resp = read_line_timeout(stream, Some(timeout)).await?;
             let resp_val: serde_json::Value = serde_json::from_str(&resp)?;
             let msg_type = resp_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
