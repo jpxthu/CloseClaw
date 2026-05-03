@@ -7,10 +7,11 @@ mod tests {
     use chrono::Utc;
 
     use crate::session::persistence::{
-        CheckpointManager, PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState,
-        SessionCheckpoint, SessionStatus,
+        PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState, SessionCheckpoint,
+        SessionStatus,
     };
     use crate::session::storage::memory::MemoryStorage;
+    use crate::session::CheckpointManager;
 
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         let mut state = ReasoningModeState::default();
