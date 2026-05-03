@@ -21,7 +21,7 @@
 | 接口 | 功能 |
 |------|------|
 | `build_system_prompt` | 组装完整 system prompt，按覆盖链优先级拼接各 section |
-| `build_from_workspace(workspace_root, dynamic_sections, mode)` | 从 workspace 路径按 `BootstrapMode` 加载 bootstrap 文件（Minimal/Full）构建 prompt |
+| `build_from_workspace(workspace_root, dynamic_sections, skill_info)` | 从 workspace 路径加载 bootstrap 文件（IDENTITY.md / SOUL.md / MEMORY.md）构建 prompt，skill_info 为 `Some((registry, agent_id))` 时注入 SkillListingSection |
 | `set_override_prompt` | 设置最高优先级覆盖 prompt |
 | `set_agent_prompt` | 设置 agent 级 prompt（覆盖链第二层） |
 | `set_custom_prompt` | 设置用户自定义 prompt（覆盖链第三层） |
@@ -79,8 +79,10 @@
 
 ### Section 分类
 
-- **静态（缓存）**：RoleSection、WorkspaceSection、ToolsSection、MemorySection、HeartbeatSection
+- **静态（缓存）**：RoleSection、WorkspaceSection、ToolsSection、MemorySection、HeartbeatSection、SkillListingSection
 - **动态（每次重建）**：ChannelContext、SessionState、AppendSection、GitStatus
+
+`SkillListingSection` 在 `build_from_workspace` 中从 `DiskSkillRegistry::generate_listing` 注入，位于 ToolsSection 之后、dynamic_sections 之前；内容为空时不渲染。
 
 ### 覆盖优先级（从高到低）
 
