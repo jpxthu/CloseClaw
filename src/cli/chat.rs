@@ -25,8 +25,8 @@ pub struct ChatCommand {
     message: Option<String>,
 
     /// TCP address of the chat server
-    #[arg(long, default_value = DEFAULT_CHAT_ADDR)]
-    addr: String,
+    #[arg(long)]
+    addr: Option<String>,
 
     /// Agent ID to use when starting a session (default: guide, or CLOSEWCLAW_DEFAULT_AGENT env)
     #[arg(long, default_value = DEFAULT_AGENT_ID)]
@@ -39,10 +39,11 @@ impl ChatCommand {
     /// Run the chat CLI — either single-shot or REPL mode
     pub async fn run(&self) -> anyhow::Result<()> {
         let agent_id = self.resolve_agent_id();
-        let addr: SocketAddr = self.addr.parse().with_context(|| {
+        let addr_str = self.resolve_addr();
+        let addr: SocketAddr = addr_str.parse().with_context(|| {
             format!(
                 "invalid address '{}' (expected format: 127.0.0.1:18889)",
-                self.addr
+                addr_str
             )
         })?;
 
@@ -50,6 +51,16 @@ impl ChatCommand {
             self.run_single(addr, &agent_id, msg).await
         } else {
             self.run_repl(addr, &agent_id).await
+        }
+    }
+
+    fn resolve_addr(&self) -> String {
+        if let Some(ref a) = self.addr {
+            a.clone()
+        } else if let Ok(env_val) = std::env::var("CHAT_SERVER_ADDR") {
+            env_val
+        } else {
+            DEFAULT_CHAT_ADDR.to_string()
         }
     }
 
