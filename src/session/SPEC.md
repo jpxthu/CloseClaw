@@ -66,6 +66,10 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `CompactionService::token_warning_state(&self, used_tokens: usize, model: &str) -> TokenWarningState` | 返回分级警告状态（Normal / Warning / AutoCompactTriggered / Blocking） |
 | `CompactionService::record_failure(&mut self)` | 记录压缩失败，递增连续失败计数 |
 | `CompactionService::record_success(&mut self)` | 记录压缩成功，重置连续失败计数 |
+| `build_compact_prompt(custom_instructions: Option<&str>) -> String` | 构建 LLM 压缩 prompt（NO_TOOLS 约束 + 9 项摘要结构 + 可选保留指令） |
+| `extract_summary(response: &str) -> Option<String>` | 从 LLM 响应中提取 `<summary>` 内容（丢弃 `<analysis>` 草稿） |
+| `format_boundary_message(summary: &str, is_auto: bool) -> String` | 格式化压缩边界系统消息（标记"自动压缩"/"手动压缩"） |
+| `execute_compact(messages, llm, model_name, custom_instructions, is_auto) -> Result<CompactionResult, CompactionError>` | 异步执行会话压缩：构建 prompt → 调用 LLM → 解析摘要 → 格式化结果 |
 
 ### 查询
 
@@ -118,7 +122,8 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `UserIntent` | 解析后的用户意图（raw_input/parsed_goal/entities） |
 | `RecoveryReport` | 恢复结果报告（recovered/failed 列表 + is_full_success/total） |
 | `CompactConfig` | compaction 配置（chars_per_token=0.25 / auto_compact_buffer_tokens=13_000 / max_consecutive_failures=3） |
-| `CompactionResult` | 压缩结果（是否执行 / 原 token 数 / 压缩后 token 数 / 消息） |
+| `CompactionResult` | 压缩结果（含 performed / original_tokens / compacted_tokens / message / before_char_count / after_char_count / before_token_count / after_token_count / boundary_message / is_auto） |
+| `CompactionError` | 压缩执行错误（LLMCallFailed / SummaryParseFailed / EmptyMessages） |
 | `TokenWarningState` | 分级警告状态枚举（Normal / Warning / AutoCompactTriggered / Blocking） |
 
 ---
