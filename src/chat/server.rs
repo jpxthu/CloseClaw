@@ -7,8 +7,8 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{error, info};
 
-/// Chat server bind address
-const CHAT_BIND_ADDR: &str = "127.0.0.1:18889";
+/// Default chat server bind address
+const DEFAULT_CHAT_BIND_ADDR: &str = "127.0.0.1:18889";
 /// Default agent for chat sessions (when client doesn't specify).
 const DEFAULT_AGENT_ID: &str = "guide";
 
@@ -18,22 +18,27 @@ pub struct ChatServer {
     shutdown_tx: broadcast::Sender<()>,
     /// LLM registry for chat completions
     llm_registry: Arc<LLMRegistry>,
+    /// Bind address for the TCP listener
+    bind_addr: String,
 }
 
 impl ChatServer {
-    /// Create a new ChatServer with the given LLM registry
-    pub fn new(llm_registry: Arc<LLMRegistry>) -> Self {
+    /// Create a new ChatServer with the given LLM registry and optional bind address.
+    /// If `bind_addr` is `None`, defaults to `127.0.0.1:18889`.
+    pub fn new(llm_registry: Arc<LLMRegistry>, bind_addr: Option<&str>) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
+        let bind_addr = bind_addr.unwrap_or(DEFAULT_CHAT_BIND_ADDR).to_string();
         Self {
             shutdown_tx,
             llm_registry,
+            bind_addr,
         }
     }
 
     /// Run the server — accepts connections until `shutdown_rx` is triggered
     pub async fn run(&self, mut shutdown_rx: broadcast::Receiver<()>) -> anyhow::Result<()> {
-        let listener = TcpListener::bind(CHAT_BIND_ADDR).await?;
-        info!(addr = %CHAT_BIND_ADDR, "chat TCP server listening");
+        let listener = TcpListener::bind(&self.bind_addr).await?;
+        info!(addr = %self.bind_addr, "chat TCP server listening");
 
         loop {
             tokio::select! {
@@ -80,13 +85,13 @@ impl ChatServer {
 
 impl Default for ChatServer {
     fn default() -> Self {
-        Self::new(Arc::new(LLMRegistry::new()))
+        Self::new(Arc::new(LLMRegistry::new()), None)
     }
 }
 
 /// Spawn the chat server as a background task, returning a handle to it
 pub fn spawn_chat_server(llm_registry: Arc<LLMRegistry>) -> ChatServer {
-    ChatServer::new(llm_registry)
+    ChatServer::new(llm_registry, None)
 }
 
 #[cfg(test)]
@@ -96,14 +101,32 @@ mod tests {
     #[test]
     fn test_chat_server_new() {
         let registry = Arc::new(LLMRegistry::new());
-        let server = ChatServer::new(registry);
+        let server = ChatServer::new(registry, None);
         // shutdown should work without panic
+        server.shutdown();
+    }
+
+    #[test]
+    fn test_chat_server_with_custom_addr() {
+        let registry = Arc::new(LLMRegistry::new());
+        let server = ChatServer::new(registry, Some("127.0.0.1:0"));
+        // bind_addr should be set to the custom value
+        assert_eq!(server.bind_addr, "127.0.0.1:0");
+        server.shutdown();
+    }
+
+    #[test]
+    fn test_chat_server_new_with_default_addr() {
+        let registry = Arc::new(LLMRegistry::new());
+        let server = ChatServer::new(registry, None);
+        assert_eq!(server.bind_addr, DEFAULT_CHAT_BIND_ADDR);
         server.shutdown();
     }
 
     #[test]
     fn test_chat_server_default() {
         let server = ChatServer::default();
+        assert_eq!(server.bind_addr, DEFAULT_CHAT_BIND_ADDR);
         server.shutdown();
     }
 
@@ -120,11 +143,5 @@ mod tests {
         server.shutdown();
         // second shutdown should not panic
         server.shutdown();
-    }
-
-    #[test]
-    fn test_constants() {
-        assert_eq!(CHAT_BIND_ADDR, "127.0.0.1:18889");
-        assert_eq!(DEFAULT_AGENT_ID, "guide");
     }
 }

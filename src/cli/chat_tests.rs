@@ -4,10 +4,57 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 #[test]
+fn resolve_addr_uses_cli_param() {
+    let cmd = ChatCommand {
+        message: None,
+        addr: Some("192.168.1.100:9000".into()),
+        agent_id: "guide".into(),
+    };
+    assert_eq!(cmd.resolve_addr(), "192.168.1.100:9000");
+}
+
+#[test]
+fn resolve_addr_uses_env_var() {
+    std::env::set_var("CHAT_SERVER_ADDR", "192.168.1.200:9000");
+    let cmd = ChatCommand {
+        message: None,
+        addr: None,
+        agent_id: "guide".into(),
+    };
+    let r = cmd.resolve_addr();
+    std::env::remove_var("CHAT_SERVER_ADDR");
+    assert_eq!(r, "192.168.1.200:9000");
+}
+
+#[test]
+fn resolve_addr_falls_back_to_default() {
+    std::env::remove_var("CHAT_SERVER_ADDR");
+    let cmd = ChatCommand {
+        message: None,
+        addr: None,
+        agent_id: "guide".into(),
+    };
+    assert_eq!(cmd.resolve_addr(), "127.0.0.1:18889");
+}
+
+#[test]
+fn resolve_addr_cli_overrides_env() {
+    std::env::set_var("CHAT_SERVER_ADDR", "192.168.1.200:9000");
+    let cmd = ChatCommand {
+        message: None,
+        addr: Some("10.0.0.1:7777".into()),
+        agent_id: "guide".into(),
+    };
+    let r = cmd.resolve_addr();
+    std::env::remove_var("CHAT_SERVER_ADDR");
+    assert_eq!(r, "10.0.0.1:7777");
+}
+
+#[test]
 fn chat_command_defaults() {
     let cmd = ChatCommand::parse_from(&["chat"]);
     assert_eq!(cmd.agent_id, "guide");
-    assert_eq!(cmd.addr, "127.0.0.1:18889");
+    assert_eq!(cmd.addr, None);
     assert!(cmd.message.is_none());
 }
 
@@ -21,7 +68,7 @@ fn chat_command_with_message() {
 fn resolve_agent_id_uses_cli_param() {
     let cmd = ChatCommand {
         message: None,
-        addr: "127.0.0.1:18889".into(),
+        addr: None,
         agent_id: "custom".into(),
     };
     assert_eq!(cmd.resolve_agent_id(), "custom");
@@ -32,7 +79,7 @@ fn resolve_agent_id_uses_env_var() {
     std::env::set_var("CLOSEWCLAW_DEFAULT_AGENT", "env-agent");
     let cmd = ChatCommand {
         message: None,
-        addr: "127.0.0.1:18889".into(),
+        addr: None,
         agent_id: "guide".into(),
     };
     let r = cmd.resolve_agent_id();
@@ -45,7 +92,7 @@ fn resolve_agent_id_falls_back_to_guide() {
     std::env::remove_var("CLOSEWCLAW_DEFAULT_AGENT");
     let cmd = ChatCommand {
         message: None,
-        addr: "127.0.0.1:18889".into(),
+        addr: None,
         agent_id: "guide".into(),
     };
     assert_eq!(cmd.resolve_agent_id(), "guide");
@@ -392,7 +439,7 @@ async fn run_single_end_to_end() {
     });
     let cmd = ChatCommand {
         message: Some("test".into()),
-        addr: addr.to_string(),
+        addr: Some(addr.to_string()),
         agent_id: "test-agent".into(),
     };
     assert!(cmd.run_single(addr, "test-agent", "test").await.is_ok());
