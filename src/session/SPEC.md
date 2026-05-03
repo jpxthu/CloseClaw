@@ -16,7 +16,6 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
   - `protection` — Bootstrap 区域标记、完整性校验、reinject
   - `context` — BootstrapContext 元数据容器
   - `types` — BootstrapRegion 标记结构、错误类型
-- `checkpoint_manager` — Checkpoint 持久化管理器（save/load/archive/restore/purge）
 - `persistence` — Checkpoint 数据结构 + 持久化服务接口 + 本地缓存管理器
 - `events` — Checkpoint 触发时机定义（模式切换/消息发送/网关关闭/compaction）
 - `recovery` — 网关启动时从存储恢复会话
