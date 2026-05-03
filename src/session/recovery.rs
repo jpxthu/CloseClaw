@@ -132,6 +132,8 @@ mod tests {
             message_count: 0,
             channel: None,
             chat_id: None,
+            agent_id: None,
+            role: None,
         }
     }
 
