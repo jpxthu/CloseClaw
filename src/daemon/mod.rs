@@ -351,7 +351,7 @@ impl Daemon {
         llm_registry: &Arc<LLMRegistry>,
         shutdown: &shutdown::ShutdownHandle,
     ) -> Arc<ChatServer> {
-        let chat_server = Arc::new(ChatServer::new(Arc::clone(llm_registry)));
+        let chat_server = Arc::new(ChatServer::new(Arc::clone(llm_registry), None));
         let chat_server_for_task = Arc::clone(&chat_server);
         let shutdown_rx = shutdown.subscribe_drain();
         tokio::spawn(async move {
@@ -359,7 +359,10 @@ impl Daemon {
                 tracing::warn!(error = %e, "chat server exited with error");
             }
         });
-        info!(addr = "127.0.0.1:18889", "chat TCP server spawned");
+        info!(
+            addr = "127.0.0.1:18889 (default)",
+            "chat TCP server spawned"
+        );
         chat_server
     }
 

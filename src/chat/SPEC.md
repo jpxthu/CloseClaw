@@ -2,9 +2,7 @@
 
 ## 模块概述
 
-提供进程内 TCP 聊天服务，监听 `127.0.0.1:18889`，通过 JSON 换行分隔协议（NDJSON）
-与客户端交互。每个 TCP 连接对应一个独立会话，会话将用户消息委托给 LLM
-（带 fallback 链），完整响应后一次性写回客户端。
+提供进程内 TCP 聊天服务，默认监听 `127.0.0.1:18889`，支持动态指定绑定地址。通过 JSON 换行分隔协议（NDJSON）与客户端交互。每个 TCP 连接对应一个独立会话，会话将用户消息委托给 LLM（带 fallback 链），完整响应后一次性写回客户端。
 
 核心设计：per-connection session + broadcast shutdown + LLM fallback 链 + 历史窗口截断。
 
@@ -27,10 +25,10 @@
 
 ### server.rs
 
-- **`ChatServer::new()`** — 构造服务器，创建 broadcast channel
+- **`ChatServer::new()`** — 构造服务器；接受可选 `bind_addr` 参数为 `None` 时默认绑定 `127.0.0.1:18889`
 - **`ChatServer::run()`** — 异步主循环：bind TCP listener，循环 accept，每连接 spawn 一个 ChatSession
 - **`ChatServer::shutdown()`** — 发送广播信号，通知所有 session 停止
-- **`spawn_chat_server()`** — 便捷工厂函数，返回 ChatServer 实例
+- **`spawn_chat_server()`** — 便捷工厂函数，默认绑定 `127.0.0.1:18889`，返回 ChatServer 实例
 
 ### session.rs
 
@@ -113,7 +111,7 @@ TCP Client
 
 ### 连接与生命周期
 
-1. 服务器绑定 `127.0.0.1:18889`，接受 TCP 连接。
+1. 服务器绑定地址（可配置，默认 `127.0.0.1:18889`），接受 TCP 连接。
 2. 每条连接生成 UUID V4 作为 `session_id`，独立 `shutdown_rx` 订阅。
 3. 服务器 `shutdown()` 调用时，给所有活跃 session 发送 `ChatError{message: "server shutting down"}`，然后终止。
 
@@ -160,6 +158,7 @@ TCP Client
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `CHAT_MAX_HISTORY` | `100` | 最大历史消息条数 |
+| `CHAT_SERVER_ADDR` | `127.0.0.1:18889` | CLI 连接 chat server 的地址（优先级：CLI参数 > 环境变量 > 默认值） |
 | `LLM_FALLBACK_CHAIN` | `"<LLM_PROVIDER>/<LLM_MODEL>"` | 逗号分隔的模型回退链 |
 | `LLM_PROVIDER` | `"minimax"` | LLM 提供商 |
 | `LLM_MODEL` | `"MiniMax-M2.5"` | 默认模型 |
