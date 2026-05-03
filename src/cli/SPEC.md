@@ -18,7 +18,7 @@
 `closeclaw chat` 子命令的 clap 命令结构体。
 
 **配置字段：**
-- `--addr`：TCP 地址（默认 `127.0.0.1:18889`）
+- `--addr`：TCP 地址（优先级：CLI参数 > `CHAT_SERVER_ADDR` 环境变量 > 默认值 `127.0.0.1:18889`）
 - `--agent-id`：指定会话使用的 agent（默认 `"guide"`）
 - `--message`：单次模式，传入要发送的消息
 
