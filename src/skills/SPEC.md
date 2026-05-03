@@ -117,6 +117,7 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `DiskSkillRegistry::list()` | DiskSkillRegistry | 列出所有磁盘技能名称 |
 | `DiskSkillRegistry::contains(name)` | DiskSkillRegistry | 检查磁盘技能是否存在 |
 | `DiskSkillRegistry::filter_by_source(source)` | DiskSkillRegistry | 按来源过滤磁盘技能 |
+| `DiskSkillRegistry::generate_listing(agent_id)` | DiskSkillRegistry | 生成格式化 skill listing 字符串，含优先级排序和 agent_id 过滤 |
 | `DiskSkillRegistry::len()` | DiskSkillRegistry | 返回已注册技能数量 |
 | `resolve_skill(name, disk_registry, skill_registry)` | disk | 查询路由：先查 disk registry，未命中再查 bundled registry |
 | `init_disk_skills(config)` | disk | 初始化磁盘技能注册表，扫描配置路径并加载所有磁盘技能 |

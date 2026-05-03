@@ -6,6 +6,7 @@ use super::sections::{
     get_append_section, get_cached_section, invalidate_all_sections, invalidate_section,
     load_cached_file_section, read_file_section, Section,
 };
+use crate::skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::RwLock;
 
@@ -177,9 +178,13 @@ pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> 
 ///
 /// Reads IDENTITY.md, SOUL.md, and MEMORY.md from the workspace root
 /// and assembles them with the provided dynamic sections.
+///
+/// The `skill_info` parameter, when provided as `Some((registry, agent_id))`,
+/// injects a `SkillListingSection` after the ToolsSection for skill discovery.
 pub fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     dynamic_sections: Vec<Section>,
+    skill_info: Option<(&DiskSkillRegistry, &str)>,
 ) -> String {
     let root = workspace_root.as_ref();
     let mut sections: Vec<Section> = Vec::new();
@@ -216,6 +221,14 @@ pub fn build_from_workspace<P: AsRef<Path>>(
 
     // Tools section — inserted between RoleSection and MemorySection
     sections.push(Section::ToolsSection(String::new()));
+
+    // Skill listing section — injected after ToolsSection, before dynamic_sections
+    if let Some((registry, agent_id)) = skill_info {
+        let listing = registry.generate_listing(Some(agent_id));
+        if !listing.is_empty() {
+            sections.push(Section::SkillListingSection(listing));
+        }
+    }
 
     // Dynamic sections
     sections.extend(dynamic_sections);

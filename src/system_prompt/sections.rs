@@ -22,6 +22,7 @@ pub enum Section {
     ToolsSection(String),
     MemorySection(String),
     HeartbeatSection(String),
+    SkillListingSection(String),
     // --- Dynamic sections (always rebuilt) ---
     ChannelContext {
         chat_name: String,
@@ -46,6 +47,7 @@ impl Section {
                 | Section::ToolsSection(_)
                 | Section::MemorySection(_)
                 | Section::HeartbeatSection(_)
+                | Section::SkillListingSection(_)
         )
     }
 
@@ -57,6 +59,7 @@ impl Section {
             Section::ToolsSection(_) => "tools",
             Section::MemorySection(_) => "memory",
             Section::HeartbeatSection(_) => "heartbeat",
+            Section::SkillListingSection(_) => "skill_listing",
             Section::ChannelContext { .. } => "channel_context",
             Section::SessionState { .. } => "session_state",
             Section::AppendSection(_) => "append",
@@ -97,6 +100,13 @@ impl Section {
             }
             Section::HeartbeatSection(content) => {
                 format!("## Heartbeat Context\n{}\n", content)
+            }
+            Section::SkillListingSection(content) => {
+                if content.is_empty() {
+                    String::new()
+                } else {
+                    format!("## Available Skills\n\n{}\n", content)
+                }
             }
             Section::ChannelContext {
                 chat_name,
@@ -372,6 +382,39 @@ mod tests {
         std::fs::write(&file_path, "updated content").unwrap();
         let result3 = load_cached_file_section("test", &file_path);
         assert_eq!(result3, Some("updated content".to_string()));
+    }
+
+    #[test]
+    fn test_skill_listing_section_is_cacheable() {
+        let s = Section::SkillListingSection("some skills".to_string());
+        assert!(s.is_cacheable());
+    }
+
+    #[test]
+    fn test_skill_listing_section_name() {
+        let s = Section::SkillListingSection("some skills".to_string());
+        assert_eq!(s.name(), "skill_listing");
+    }
+
+    #[test]
+    fn test_skill_listing_section_render_format() {
+        let s = Section::SkillListingSection(
+            "- **foo**: desc — use when needed
+- **bar**: desc"
+                .to_string(),
+        );
+        let rendered = s.render();
+        assert!(rendered.starts_with("## Available Skills\n\n"));
+        assert!(rendered.contains("**foo**"));
+        assert!(rendered.contains("**bar**"));
+        assert!(rendered.contains(" — use when needed"));
+        assert!(rendered.ends_with("\n"));
+    }
+
+    #[test]
+    fn test_skill_listing_section_render_empty() {
+        let s = Section::SkillListingSection(String::new());
+        assert_eq!(s.render(), "");
     }
 
     #[test]
