@@ -42,7 +42,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `RedisStorage::key_prefix(&self) -> &str` | 查询存储使用的 key 前缀 |
 | `CheckpointManager::new(Arc<S>)` | 创建带存储后端的 Checkpoint 管理器（identity 为空，保存时不填充 agent_id/role） |
 | `CheckpointManager::new_with_identity(Arc<S>, agent_id: String, role: AgentRole)` | 创建带存储后端且指定 identity 的 Checkpoint 管理器（保存时自动填充 checkpoint 的 agent_id/role） |
-| `ArchiveSweeper::run(&self, tokio::sync::watch::Receiver<()>)` | 启动 sweeper 主循环，监听 shutdown 信号优雅退出 |
+| `ArchiveSweeper::run(&self, tokio::sync::watch::Receiver<()>)` | 启动 sweeper 主循环，固定调度时刻（首次延迟一个完整 interval），Unix 平台降 nice 为 10，监听 shutdown 信号优雅退出 |
 | `SessionRecoveryService::new(Arc<S>)` | 创建恢复服务 |
 
 ### 主操作

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use tokio::sync::watch;
+use tokio::time::Instant;
 use tracing::{error, info, warn};
 
 use crate::config::session::SessionConfigProvider;
@@ -46,9 +47,12 @@ impl ArchiveSweeper {
     ///   should exit gracefully
     pub async fn run(&self, mut shutdown: watch::Receiver<()>) {
         let interval_secs = self.config.sweeper_interval_secs();
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+        let interval = tokio::time::Duration::from_secs(interval_secs);
 
-        info!(interval_secs, "ArchiveSweeper started");
+        #[cfg(unix)]
+        self.lower_priority();
+
+        let mut next_fire = Instant::now() + interval;
 
         loop {
             tokio::select! {
@@ -56,12 +60,27 @@ impl ArchiveSweeper {
                     info!("ArchiveSweeper received shutdown signal, exiting");
                     break;
                 }
-                _ = interval.tick() => {
+                _ = tokio::time::sleep_until(next_fire) => {
                     if let Err(e) = self.run_once().await {
                         error!(%e, "run_once returned error, continuing loop");
                     }
+                    next_fire += interval;
+                    if Instant::now() > next_fire + interval {
+                        next_fire = Instant::now() + interval;
+                    }
                 }
             }
+        }
+    }
+
+    /// Lower the process nice value on Unix to reduce sweeper priority.
+    #[cfg(unix)]
+    fn lower_priority(&self) {
+        if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } != 0 {
+            let err = std::io::Error::last_os_error();
+            warn!("failed to set sweeper nice value: {}", err);
+        } else {
+            info!("Sweeper process priority set to nice=10");
         }
     }
 
