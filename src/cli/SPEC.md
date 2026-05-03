@@ -25,6 +25,13 @@
 **主操作：**
 - `run()` — 异步入口，根据是否传入 `--message` 路由到单次模式或 REPL 模式
 
+### ConfigCommand
+
+`closeclaw config setup` 子命令，交互式配置 API key。
+
+**操作：**
+- `handle_config_setup(skip)` — 引导用户选择要配置的 provider（MiniMax/OpenAI/Anthropic），逐个输入 API key，写入 `configs/.env`。输入使用 `Input`（不回显 mask，但用户可见输入内容）。
+
 ---
 
 ## 架构与结构
