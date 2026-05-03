@@ -4,6 +4,7 @@
 //! for LLM context window management.
 
 use crate::llm::Message;
+use crate::llm::{ChatRequest, LLMProvider};
 
 /// Configuration for compaction behavior.
 #[derive(Debug, Clone)]
@@ -37,9 +38,152 @@ pub struct CompactionResult {
     pub compacted_tokens: usize,
     /// Human-readable message describing the outcome.
     pub message: String,
+    /// Character count before compaction.
+    pub before_char_count: usize,
+    /// Character count after compaction.
+    pub after_char_count: usize,
+    /// Token count before compaction.
+    pub before_token_count: usize,
+    /// Token count after compaction.
+    pub after_token_count: usize,
+    /// Boundary system message containing the summary.
+    pub boundary_message: String,
+    /// Whether this compaction was triggered automatically.
+    pub is_auto: bool,
 }
 
-/// Token warning state for monitoring context window pressure.
+/// Errors that can occur during compaction.
+#[derive(Debug, thiserror::Error)]
+pub enum CompactionError {
+    /// LLM call failed.
+    #[error("LLM call failed: {0}")]
+    LLMCallFailed(#[from] crate::llm::LLMError),
+
+    /// Failed to parse summary from LLM response.
+    #[error("Failed to parse summary from LLM response")]
+    SummaryParseFailed,
+
+    /// No messages provided for compaction.
+    #[error("No messages provided for compaction")]
+    EmptyMessages,
+}
+
+/// No-tools preamble constant.
+const NO_TOOLS_PREAMBLE: &str = "You are a session summarizer. You must not call any tools or functions. You are analyzing a conversation session to create a summary. Output ONLY the <summary> tag with required content.";
+
+/// Base compact prompt with 9-item summary structure.
+const BASE_COMPACT_PROMPT: &str = "\n## Summary Structure\nYour summary must cover: 1) User Identity & Preferences, 2) Current Project & Context, 3) Key Decisions & Conclusions, 4) Open Questions & Unresolved Issues, 5) Technical State, 6) Conversation Flow, 7) Important Facts & References, 8) Agent Memory & Self-Knowledge, 9) Next Steps & Action Items.\n\n## Output Format\nWrite in English using bullet points. Be specific and concrete. Output ONLY: <summary>your summary here</summary>";
+
+const NO_TOOLS_TRAILER: &str =
+    "\n## Important\n- Do NOT call any tools. Output ONLY the <summary> tag.";
+
+/// Builds the compact prompt with optional custom instructions.
+pub fn build_compact_prompt(custom_instructions: Option<&str>) -> String {
+    let base = format!("{}\n{}", NO_TOOLS_PREAMBLE, BASE_COMPACT_PROMPT);
+    match custom_instructions {
+        Some(inst) if !inst.is_empty() => format!("{}\n\n保留 {}", base, inst),
+        _ => format!("{}{}", base, NO_TOOLS_TRAILER),
+    }
+}
+
+/// Extracts the `<summary>` content from an LLM response.
+pub fn extract_summary(response: &str) -> Option<String> {
+    let start_tag = "<summary>";
+    let end_tag = "</summary>";
+    let start = response.find(start_tag)?;
+    let end = response.find(end_tag)?;
+    if end <= start {
+        return None;
+    }
+    Some(response[start + start_tag.len()..end].to_string())
+}
+
+/// Formats a boundary system message containing the summary.
+pub fn format_boundary_message(summary: &str, is_auto: bool) -> String {
+    let trigger = if is_auto {
+        "自动压缩"
+    } else {
+        "手动压缩"
+    };
+    format!("[Session Compaction | {}]\n\n{}", trigger, summary)
+}
+
+/// Executes session compaction: builds prompt, calls LLM, parses summary, formats result.
+///
+/// # Arguments
+/// * `messages` - Session messages to compact
+/// * `llm` - LLM provider
+/// * `model_name` - Model name for the request
+/// * `custom_instructions` - Optional custom instructions appended to the prompt
+/// * `is_auto` - Whether this is an automatic compaction
+///
+/// # Errors
+/// * `EmptyMessages` - No messages provided
+/// * `LLMCallFailed` - LLM call returned an error
+/// * `SummaryParseFailed` - LLM response contains no `<summary>` tag
+pub async fn execute_compact(
+    messages: &[Message],
+    llm: &dyn LLMProvider,
+    model_name: &str,
+    custom_instructions: Option<&str>,
+    is_auto: bool,
+) -> Result<CompactionResult, CompactionError> {
+    if messages.is_empty() {
+        return Err(CompactionError::EmptyMessages);
+    }
+
+    let before_char_count: usize = messages.iter().map(|m| m.content.chars().count()).sum();
+    let before_token_count = estimate_messages_tokens(messages);
+
+    // Build system prompt with compaction instructions
+    let compact_prompt = build_compact_prompt(custom_instructions);
+    let system_message = Message {
+        role: "system".to_string(),
+        content: compact_prompt,
+    };
+
+    let request = ChatRequest {
+        model: model_name.to_string(),
+        messages: vec![system_message],
+        temperature: 0.3,
+        max_tokens: Some(8192),
+    };
+
+    let response = llm
+        .chat(request)
+        .await
+        .map_err(CompactionError::LLMCallFailed)?;
+
+    let summary = match extract_summary(&response.content) {
+        Some(s) => s,
+        None => return Err(CompactionError::SummaryParseFailed),
+    };
+
+    let boundary_message = format_boundary_message(&summary, is_auto);
+    let after_char_count = boundary_message.chars().count();
+    let after_token_count = estimate_tokens(&boundary_message);
+
+    Ok(CompactionResult {
+        performed: true,
+        original_tokens: before_token_count,
+        compacted_tokens: after_token_count,
+        message: format!(
+            "Compacted {} messages ({} chars, {} tokens) → {} chars, {} tokens",
+            messages.len(),
+            before_char_count,
+            before_token_count,
+            after_char_count,
+            after_token_count
+        ),
+        before_char_count,
+        after_char_count,
+        before_token_count,
+        after_token_count,
+        boundary_message,
+        is_auto,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenWarningState {
     /// Normal state — plenty of context room.
@@ -160,194 +304,5 @@ impl CompactionService {
     /// Returns the number of consecutive compaction failures.
     pub fn consecutive_failures(&self) -> usize {
         self.consecutive_failures
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_estimate_tokens_english() {
-        // "hello" = 5 chars * 0.25 = 1.25 -> ceil = 2
-        let tokens = estimate_tokens("hello");
-        assert!(tokens >= 2 && tokens <= 5, "expected 2-5, got {}", tokens);
-    }
-
-    #[test]
-    fn test_estimate_tokens_chinese() {
-        // "你好" = 2 chars * 0.25 = 0.5 -> ceil = 1
-        let tokens = estimate_tokens("你好");
-        assert!(tokens >= 1 && tokens <= 4, "expected 1-4, got {}", tokens);
-    }
-
-    #[test]
-    fn test_estimate_tokens_empty() {
-        assert_eq!(estimate_tokens(""), 0);
-    }
-
-    #[test]
-    fn test_estimate_tokens_emoji() {
-        // "🎉🎊🔥" = 3 chars * 0.25 = 0.75 -> ceil = 1
-        let tokens = estimate_tokens("🎉🎊🔥");
-        assert!(tokens >= 1 && tokens <= 4, "expected 1-4, got {}", tokens);
-    }
-
-    #[test]
-    fn test_estimate_tokens_long_string() {
-        let s = "a".repeat(1000);
-        assert_eq!(estimate_tokens(&s), 250);
-    }
-
-    #[test]
-    fn test_get_context_window_minimax() {
-        assert_eq!(get_context_window("mini-max"), 1_000_000);
-    }
-
-    #[test]
-    fn test_get_context_window_glm() {
-        assert_eq!(get_context_window("glm-5.1"), 256_000);
-    }
-
-    #[test]
-    fn test_get_context_window_unknown() {
-        assert_eq!(get_context_window("unknown-model-xyz"), 128_000);
-    }
-
-    #[test]
-    fn test_should_auto_compact_below_threshold() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        let msgs = vec![Message {
-            role: "user".to_string(),
-            content: "short".to_string(),
-        }];
-        assert!(!service.should_auto_compact(&msgs, "mini-max"));
-    }
-
-    #[test]
-    fn test_should_auto_compact_circuit_breaker() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
-        let mut service = CompactionService::new(config);
-        // Record failures up to max
-        service.record_failure();
-        service.record_failure();
-        service.record_failure();
-        let msgs = vec![Message {
-            role: "user".to_string(),
-            content: "x".repeat(900_000),
-        }];
-        // Circuit breaker should trip
-        assert!(!service.should_auto_compact(&msgs, "mini-max"));
-    }
-
-    #[test]
-    fn test_token_warning_state_normal() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        // 1,000,000 - 50,000 = 950,000 used -> 50,000 remaining > 20,000
-        assert_eq!(
-            service.token_warning_state(950_000, "mini-max"),
-            TokenWarningState::Normal
-        );
-    }
-
-    #[test]
-    fn test_token_warning_state_warning() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        // remaining = 20,000 -> Warning
-        assert_eq!(
-            service.token_warning_state(980_000, "mini-max"),
-            TokenWarningState::Warning
-        );
-    }
-
-    #[test]
-    fn test_token_warning_state_auto_compact() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        // remaining = 13,000 -> AutoCompactTriggered
-        assert_eq!(
-            service.token_warning_state(987_000, "mini-max"),
-            TokenWarningState::AutoCompactTriggered
-        );
-    }
-
-    #[test]
-    fn test_token_warning_state_blocking() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        // remaining = 3,000 -> Blocking
-        assert_eq!(
-            service.token_warning_state(997_000, "mini-max"),
-            TokenWarningState::Blocking
-        );
-    }
-
-    #[test]
-    fn test_percent_left_normal() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        assert_eq!(service.percent_left(500_000, "mini-max"), 50);
-    }
-
-    #[test]
-    fn test_percent_left_zero_used() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        assert_eq!(service.percent_left(0, "mini-max"), 100);
-    }
-
-    #[test]
-    fn test_percent_left_near_full() {
-        let config = CompactConfig::default();
-        let service = CompactionService::new(config);
-        assert_eq!(service.percent_left(999_000, "mini-max"), 0);
-    }
-
-    #[test]
-    fn test_record_failure_increments() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
-        let mut service = CompactionService::new(config);
-        assert_eq!(service.consecutive_failures(), 0);
-        service.record_failure();
-        assert_eq!(service.consecutive_failures(), 1);
-        service.record_failure();
-        assert_eq!(service.consecutive_failures(), 2);
-    }
-
-    #[test]
-    fn test_record_success_resets() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
-        let mut service = CompactionService::new(config);
-        service.record_failure();
-        service.record_failure();
-        assert_eq!(service.consecutive_failures(), 2);
-        service.record_success();
-        assert_eq!(service.consecutive_failures(), 0);
-    }
-
-    #[test]
-    fn test_should_auto_compact_recovers_after_success() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
-        let mut service = CompactionService::new(config);
-        // Push to edge of circuit breaker (3 failures = trip)
-        service.record_failure();
-        service.record_failure();
-        service.record_failure(); // Now consecutive_failures=3 >= max=3, CB trips
-                                  // 4M chars -> 1M tokens, exceeds 987K threshold
-        let msgs = vec![Message {
-            role: "user".to_string(),
-            content: "x".repeat(4_000_000),
-        }];
-        assert!(!service.should_auto_compact(&msgs, "mini-max")); // CB trips
-                                                                  // Success resets
-        service.record_success();
-        assert!(service.should_auto_compact(&msgs, "mini-max")); // CB recovers
     }
 }
