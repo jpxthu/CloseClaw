@@ -63,7 +63,20 @@ impl SessionCheckpoint {
             channel: None,
             chat_id: None,
             agent_id: None,
+            role: None,
         }
+    }
+
+    /// Update the agent_id
+    pub fn with_agent_id(mut self, agent_id: String) -> Self {
+        self.agent_id = Some(agent_id);
+        self
+    }
+
+    /// Update the role
+    pub fn with_role(mut self, role: AgentRole) -> Self {
+        self.role = Some(role);
+        self
     }
 
     /// Update the last message ID
@@ -357,6 +370,10 @@ pub struct CheckpointManager<S: PersistenceService> {
     storage: Arc<S>,
     /// 本地缓存（减少对存储的访问）
     local_cache: RwLock<HashMap<String, SessionCheckpoint>>,
+    /// Identity: agent_id
+    agent_id: Option<String>,
+    /// Identity: role
+    role: Option<AgentRole>,
 }
 
 impl<S: PersistenceService + 'static> CheckpointManager<S> {
@@ -365,6 +382,22 @@ impl<S: PersistenceService + 'static> CheckpointManager<S> {
         Self {
             storage,
             local_cache: RwLock::new(HashMap::new()),
+            agent_id: Some(String::new()),
+            role: Some(AgentRole::MainAgent),
+        }
+    }
+
+    /// Create a new CheckpointManager with explicit identity
+    pub fn new_with_identity(
+        storage: Arc<S>,
+        agent_id: String,
+        role: AgentRole,
+    ) -> Self {
+        Self {
+            storage,
+            local_cache: RwLock::new(HashMap::new()),
+            agent_id: Some(agent_id),
+            role: Some(role),
         }
     }
 
@@ -374,8 +407,16 @@ impl<S: PersistenceService + 'static> CheckpointManager<S> {
     }
 
     /// 保存 Checkpoint（异步写入，不阻塞主流程）
-    pub async fn save(&self, checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
+    pub async fn save(&self, mut checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
         let session_id = checkpoint.session_id.clone();
+
+        // Inject identity into checkpoint (manager's identity always overrides)
+        if let Some(ref agent_id) = self.agent_id {
+            checkpoint.agent_id = Some(agent_id.clone());
+        }
+        if let Some(ref role) = self.role {
+            checkpoint.role = Some(*role);
+        }
 
         // 先更新本地缓存
         {
@@ -395,8 +436,16 @@ impl<S: PersistenceService + 'static> CheckpointManager<S> {
     }
 
     /// 保存 Checkpoint（同步写入，用于网关关闭时）
-    pub async fn save_sync(&self, checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
+    pub async fn save_sync(&self, mut checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
         let session_id = checkpoint.session_id.clone();
+
+        // Inject identity into checkpoint (manager's identity always overrides)
+        if let Some(ref agent_id) = self.agent_id {
+            checkpoint.agent_id = Some(agent_id.clone());
+        }
+        if let Some(ref role) = self.role {
+            checkpoint.role = Some(*role);
+        }
 
         // 先更新本地缓存
         {
