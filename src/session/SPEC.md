@@ -17,6 +17,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
   - `context` — BootstrapContext 元数据容器
   - `types` — BootstrapRegion 标记结构、错误类型
 - `checkpoint_manager` — Checkpoint 持久化管理器（save/load/archive/restore/purge）
+- `compaction` — Token 估算、自动压缩阈值检测、分级警告、Circuit Breaker；为 LLM 压缩执行（#505）和 Session 集成（#507/#508）提供基础接口
 - `persistence` — Checkpoint 数据结构 + 持久化服务接口 + 本地缓存管理器
 - `events` — Checkpoint 触发时机定义（模式切换/消息发送/网关关闭/compaction）
 - `recovery` — 网关启动时从存储恢复会话
@@ -61,6 +62,10 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `SessionRecoveryService::recover() -> Result<RecoveryReport, PersistenceError>` | 扫描所有活跃 session 并逐个恢复 |
 | `bootstrap_file_list(mode: BootstrapMode) -> Vec<&'static str>` | 返回模式对应的 bootstrap 文件名列表 |
 | `load_bootstrap_files(workspace_dir: &Path, mode: BootstrapMode) -> Result<HashMap<String, String>, BootstrapLoaderError>` | ⚠️ 架构唯一入口：加载 workspace 下 bootstrap 文件集合 |
+| `CompactionService::should_auto_compact(&self, messages: &[Message], model: &str) -> bool` | 基于 token 阈值和 Circuit Breaker 状态判断是否应触发自动压缩 |
+| `CompactionService::token_warning_state(&self, used_tokens: usize, model: &str) -> TokenWarningState` | 返回分级警告状态（Normal / Warning / AutoCompactTriggered / Blocking） |
+| `CompactionService::record_failure(&mut self)` | 记录压缩失败，递增连续失败计数 |
+| `CompactionService::record_success(&mut self)` | 记录压缩成功，重置连续失败计数 |
 
 ### 查询
 
@@ -73,6 +78,13 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `CheckpointManager::cached_session_ids() -> Vec<String>` | 获取本地缓存中的所有 session_id |
 | `CheckpointManager::storage(&self) -> &S` | 获取底层存储服务引用 |
 | `SessionRecoveryService::storage(&self) -> &S` | 获取底层存储服务引用 |
+| `CompactionService::new(CompactConfig)` | 创建 compaction 服务实例 |
+| `CompactConfig::default()` | 默认配置（chars_per_token=0.25, auto_compact_buffer_tokens=13_000, max_consecutive_failures=3） |
+| `estimate_tokens(text: &str) -> usize` | 使用字符数系数估算 token（chars * 0.25，向上取整） |
+| `estimate_messages_tokens(messages: &[Message]) -> usize` | 估算消息数组的总 token 数 |
+| `get_context_window(model: &str) -> usize` | 查询模型 context window 大小，未知模型返回 128_000 |
+| `CompactionService::consecutive_failures(&self) -> usize` | 查询当前连续失败计数 |
+| `CompactionService::percent_left(&self, used_tokens: usize, model: &str) -> usize` | 返回剩余 context window 百分比（0-100） |
 
 ### 清理
 
@@ -105,6 +117,9 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `ModeSwitchEvent` | 模式切换事件（含 from/to mode 和 user_intent） |
 | `UserIntent` | 解析后的用户意图（raw_input/parsed_goal/entities） |
 | `RecoveryReport` | 恢复结果报告（recovered/failed 列表 + is_full_success/total） |
+| `CompactConfig` | compaction 配置（chars_per_token=0.25 / auto_compact_buffer_tokens=13_000 / max_consecutive_failures=3） |
+| `CompactionResult` | 压缩结果（是否执行 / 原 token 数 / 压缩后 token 数 / 消息） |
+| `TokenWarningState` | 分级警告状态枚举（Normal / Warning / AutoCompactTriggered / Blocking） |
 
 ---
 

@@ -12,6 +12,7 @@
 
 pub mod bootstrap;
 pub mod checkpoint_manager;
+pub mod compaction;
 pub mod events;
 pub mod persistence;
 #[cfg(test)]
@@ -23,5 +24,6 @@ pub mod sweeper;
 // Re-export commonly used types
 pub use bootstrap::{BootstrapContext, BootstrapProtection, BootstrapRegion};
 pub use checkpoint_manager::CheckpointManager;
+pub use compaction::{CompactConfig, CompactionResult, CompactionService, TokenWarningState};
 pub use events::{CheckpointTrigger, ModeSwitchEvent, UserIntent};
 pub use persistence::{PersistenceError, PersistenceService, ReasoningMode, SessionCheckpoint};
