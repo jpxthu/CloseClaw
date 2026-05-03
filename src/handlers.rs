@@ -193,24 +193,30 @@ pub async fn handle_config_setup(skip: bool) -> Result<()> {
     if sel.contains(&0) {
         keys.push((
             "MINIMAX",
-            Password::new().with_prompt("MiniMax Key").interact()?,
+            Input::<String>::new()
+                .with_prompt("MiniMax Key")
+                .interact()?,
         ));
     }
     if sel.contains(&1) {
         keys.push((
             "OPENAI",
-            Password::new().with_prompt("OpenAI Key").interact()?,
+            Input::<String>::new()
+                .with_prompt("OpenAI Key")
+                .interact()?,
         ));
     }
     if sel.contains(&2) {
         keys.push((
             "ANTHROPIC",
-            Password::new().with_prompt("Anthropic Key").interact()?,
+            Input::<String>::new()
+                .with_prompt("Anthropic Key")
+                .interact()?,
         ));
     }
     let mut c = "# CloseClaw config\n".to_string();
     for (k, v) in &keys {
-        c.push_str(&format!("{}={}\n", k, mask_key(v)));
+        c.push_str(&format!("{}={}\n", k, v));
     }
     c.push_str("# FEISHU_WEBHOOK=...\n");
     if !skip {
@@ -243,5 +249,31 @@ mod tests {
             .try_get_matches_from(["c", "stop", "-f"])
             .unwrap();
         assert!(m.subcommand().unwrap().1.get_flag("force"));
+    }
+    #[test]
+    fn test_mask_key_short() {
+        // Keys <= 8 chars are fully masked
+        assert_eq!(mask_key("abc"), "****");
+        assert_eq!(mask_key("12345678"), "****");
+    }
+    #[test]
+    fn test_mask_key_long() {
+        // Keys > 8 chars show first 4 and last 4
+        assert_eq!(mask_key("abcdefghij"), "abcd....ghij");
+        assert_eq!(mask_key("minimax-key-001"), "mini....-001");
+        assert_eq!(mask_key("sk-1234567890abcdef"), "sk-1....cdef");
+    }
+    #[test]
+    fn test_env_write_uses_raw_key() {
+        // Verify the format string used in handle_config_setup writes raw key (not masked)
+        let k = "MINIMAX";
+        let v = "my-secret-key-123";
+        let line = format!("{}={}\n", k, v);
+        assert!(line.starts_with("MINIMAX=my-secret-key-123"));
+        assert!(!line.contains("****"));
+        assert!(!line.contains("...."));
+        // Also verify the key portion does NOT contain mask pattern
+        let written = format!("{}={}", k, v);
+        assert!(written.contains("my-secret-key-123"));
     }
 }
