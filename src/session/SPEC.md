@@ -40,7 +40,8 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `RedisStorage::new(&str, &str) -> Result<Self, PersistenceError>` | 从 URL 创建 Redis 存储后端 |
 | `ArchiveSweeper::new(Arc<dyn PersistenceService>, Arc<dyn SessionConfigProvider>)` | 创建 Archive Sweeper 实例 |
 | `RedisStorage::key_prefix(&self) -> &str` | 查询存储使用的 key 前缀 |
-| `CheckpointManager::new(Arc<S>)` | 创建带存储后端的 Checkpoint 管理器 |
+| `CheckpointManager::new(Arc<S>)` | 创建带存储后端的 Checkpoint 管理器（identity 为空，保存时不填充 agent_id/role） |
+| `CheckpointManager::new_with_identity(Arc<S>, agent_id: String, role: AgentRole)` | 创建带存储后端且指定 identity 的 Checkpoint 管理器（保存时自动填充 checkpoint 的 agent_id/role） |
 | `ArchiveSweeper::run(&self, tokio::sync::watch::Receiver<()>)` | 启动 sweeper 主循环，监听 shutdown 信号优雅退出 |
 | `SessionRecoveryService::new(Arc<S>)` | 创建恢复服务 |
 
@@ -92,7 +93,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `ArchiveSweeperError` | Sweeper 操作错误（Storage/Config 变体） |
 | `BootstrapLoaderError` | loader 操作错误（InvalidWorkspace / IoError） |
 | `BootstrapMode` | bootstrap 文件集合模式（Minimal / Full）；Minimal 含 AGENTS.md/SOUL.md/IDENTITY.md/USER.md/TOOLS.md（5个），Full 额外包含 BOOTSTRAP.md/MEMORY.md（共7个）；HEARTBEAT.md 不属于任何模式 |
-| `SessionCheckpoint` | 会话持久化状态快照（含 status/last_message_at/message_count/channel/chat_id 等生命周期字段） |
+| `SessionCheckpoint` | 会话持久化状态快照（含 status/last_message_at/message_count/channel/chat_id/agent_id/role 等生命周期字段）；`agent_id` 和 `role` 用于按真实身份过滤；保存时若为 `None` 则由 `CheckpointManager` 自动填充；若 `CheckpointManager` 也未设置则回退到默认值 `"unknown"` / `"main_agent"` |
 | `SessionStatus` | 会话生命周期状态枚举（Active/Archived） |
 | `ReasoningMode` | 推理模式枚举（Direct/Plan/Stream/Hidden） |
 | `ReasoningModeState` | 推理模式运行时状态（步骤计数/步骤消息/完成标志） |

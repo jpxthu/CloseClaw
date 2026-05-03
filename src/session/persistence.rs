@@ -40,6 +40,8 @@ pub struct SessionCheckpoint {
     pub channel: Option<String>,
     /// 聊天 ID
     pub chat_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub role: Option<AgentRole>,
 }
 
 impl SessionCheckpoint {
@@ -60,6 +62,7 @@ impl SessionCheckpoint {
             message_count: 0,
             channel: None,
             chat_id: None,
+            agent_id: None,
         }
     }
 

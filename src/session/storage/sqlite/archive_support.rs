@@ -175,8 +175,8 @@ pub fn load_checkpoint_inner(
     };
 
     let (
-        _agent_id,
-        _role,
+        agent_id_str,
+        role_str,
         channel,
         chat_id,
         status_db,
@@ -259,6 +259,16 @@ pub fn load_checkpoint_inner(
             None
         } else {
             Some(chat_id)
+        },
+        agent_id: if agent_id_str.is_empty() {
+            None
+        } else {
+            Some(agent_id_str)
+        },
+        role: match role_str.as_str() {
+            "main_agent" => Some(crate::session::persistence::AgentRole::MainAgent),
+            "sub_agent" => Some(crate::session::persistence::AgentRole::SubAgent),
+            _ => None,
         },
     }))
 }
