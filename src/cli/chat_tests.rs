@@ -76,7 +76,7 @@ async fn handle_server_message_variants() {
 }
 
 async fn bind_accept() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
         let _ = l.accept().await;
@@ -118,7 +118,7 @@ async fn handle_stdin_line_empty_and_whitespace() {
 
 #[tokio::test]
 async fn handle_stdin_line_normal_message() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let h = tokio::spawn(async move {
@@ -162,7 +162,7 @@ async fn mock_server_seq(
     tokio::sync::oneshot::Receiver<()>,
 ) {
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
         let _ = ready_tx.send(());
@@ -227,7 +227,7 @@ async fn test_error_response_handling() {
 // start_session waits for the first line and should hit read_line_timeout.
 #[tokio::test]
 async fn test_read_timeout_silent_server() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
     let h = tokio::spawn(async move {
@@ -272,7 +272,7 @@ async fn test_connect_timeout() {
 
 #[tokio::test]
 async fn send_user_message_sends_correct_json() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
         let (mut s, _) = l.accept().await.unwrap();
@@ -292,7 +292,7 @@ async fn send_user_message_sends_correct_json() {
 
 #[tokio::test]
 async fn send_stop_sends_correct_json() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
         let (mut s, _) = l.accept().await.unwrap();
@@ -335,7 +335,7 @@ async fn handle_single_response_error() {
 
 #[tokio::test]
 async fn send_json_line_produces_newline_delimited_json() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
         let (mut s, _) = l.accept().await.unwrap();
@@ -356,7 +356,7 @@ async fn send_json_line_produces_newline_delimited_json() {
 #[tokio::test]
 #[ignore = "CI environment memory不足时跳过"]
 async fn run_single_end_to_end() {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = TcpListener::bind("[::1]:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let h = tokio::spawn(async move {
         let (mut s, _) = l.accept().await.unwrap();
