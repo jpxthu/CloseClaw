@@ -26,6 +26,8 @@ mod tests {
             message_count: 5,
             channel: Some("test-channel".to_string()),
             chat_id: Some("test-chat".to_string()),
+            agent_id: None,
+            role: None,
         }
     }
 
@@ -329,6 +331,137 @@ mod tests {
         // After successful archive, session should be archived
         let archived = storage.list_archived_sessions().await?;
         assert!(archived.contains(&"s-atomic".to_string()));
+
+        Ok(())
+    }
+
+    // ===================================================================
+    // agent_id / role save & load tests
+    // ===================================================================
+    #[tokio::test]
+    async fn test_save_checkpoint_writes_agent_id_role_none() -> Result<(), PersistenceError> {
+        use crate::session::persistence::AgentRole;
+
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path())?;
+
+        // Checkpoint with no agent_id/role — SqliteStorage should write defaults
+        let checkpoint = make_checkpoint("s-none", SessionStatus::Active);
+        storage.save_checkpoint(&checkpoint).await?;
+
+        let loaded = storage.load_checkpoint("s-none").await?;
+        let loaded = loaded.expect("expected checkpoint");
+        // None falls back to "unknown" / "main_agent"
+        assert_eq!(loaded.agent_id, Some("unknown".to_string()));
+        assert_eq!(loaded.role, Some(AgentRole::MainAgent));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_save_checkpoint_writes_agent_id_role_some() -> Result<(), PersistenceError> {
+        use crate::session::persistence::AgentRole;
+
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path())?;
+
+        let checkpoint = SessionCheckpoint {
+            session_id: "s-some".to_string(),
+            last_message_id: None,
+            mode_state: ReasoningModeState::default(),
+            pending_messages: vec![],
+            mode: ReasoningMode::Direct,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            ttl_seconds: 604800,
+            status: SessionStatus::Active,
+            last_message_at: Some(chrono::Utc::now()),
+            message_count: 1,
+            channel: Some("test-channel".to_string()),
+            chat_id: Some("test-chat".to_string()),
+            agent_id: Some("agent-eda".to_string()),
+            role: Some(AgentRole::SubAgent),
+        };
+        storage.save_checkpoint(&checkpoint).await?;
+
+        let loaded = storage.load_checkpoint("s-some").await?;
+        let loaded = loaded.expect("expected checkpoint");
+        assert_eq!(loaded.agent_id, Some("agent-eda".to_string()));
+        assert_eq!(loaded.role, Some(AgentRole::SubAgent));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_save_checkpoint_agent_id_none_uses_unknown() -> Result<(), PersistenceError> {
+        use crate::session::persistence::AgentRole;
+
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path())?;
+
+        // agent_id is None, role is Some
+        let checkpoint = SessionCheckpoint {
+            session_id: "s-partial".to_string(),
+            last_message_id: None,
+            mode_state: ReasoningModeState::default(),
+            pending_messages: vec![],
+            mode: ReasoningMode::Direct,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            ttl_seconds: 604800,
+            status: SessionStatus::Active,
+            last_message_at: Some(chrono::Utc::now()),
+            message_count: 1,
+            channel: None,
+            chat_id: None,
+            agent_id: None,
+            role: Some(AgentRole::SubAgent),
+        };
+        storage.save_checkpoint(&checkpoint).await?;
+
+        let loaded = storage.load_checkpoint("s-partial").await?;
+        let loaded = loaded.expect("expected checkpoint");
+        // agent_id falls back to "unknown", role is preserved
+        assert_eq!(loaded.agent_id, Some("unknown".to_string()));
+        assert_eq!(loaded.role, Some(AgentRole::SubAgent));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_checkpoint_roundtrips_agent_id_role() -> Result<(), PersistenceError> {
+        use crate::session::persistence::AgentRole;
+
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path())?;
+
+        let checkpoint = SessionCheckpoint {
+            session_id: "s-roundtrip".to_string(),
+            last_message_id: Some("msg-abc".to_string()),
+            mode_state: ReasoningModeState::default(),
+            pending_messages: vec![],
+            mode: ReasoningMode::Plan,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            ttl_seconds: 86400,
+            status: SessionStatus::Active,
+            last_message_at: Some(chrono::Utc::now()),
+            message_count: 10,
+            channel: Some("feishu".to_string()),
+            chat_id: Some("oc_123456".to_string()),
+            agent_id: Some("my-agent".to_string()),
+            role: Some(AgentRole::MainAgent),
+        };
+        storage.save_checkpoint(&checkpoint).await?;
+
+        let loaded = storage.load_checkpoint("s-roundtrip").await?;
+        let loaded = loaded.expect("expected checkpoint");
+
+        assert_eq!(loaded.session_id, "s-roundtrip");
+        assert_eq!(loaded.agent_id, Some("my-agent".to_string()));
+        assert_eq!(loaded.role, Some(AgentRole::MainAgent));
+        assert_eq!(loaded.mode, ReasoningMode::Plan);
+        assert_eq!(loaded.message_count, 10);
 
         Ok(())
     }

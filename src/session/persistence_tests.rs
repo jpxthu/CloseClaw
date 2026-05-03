@@ -7,8 +7,8 @@ mod tests {
     use chrono::Utc;
 
     use crate::session::persistence::{
-        CheckpointManager, PendingMessage, ReasoningMode, ReasoningModeState, SessionCheckpoint,
-        SessionStatus,
+        CheckpointManager, PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState,
+        SessionCheckpoint, SessionStatus,
     };
     use crate::session::storage::memory::MemoryStorage;
 
@@ -148,6 +148,150 @@ mod tests {
         assert_eq!(cp.message_count, 42);
         assert_eq!(cp.channel, Some("feishu".to_string()));
         assert_eq!(cp.chat_id, Some("oc_123".to_string()));
+    }
+
+    // ===================================================================
+    // agent_id / role field tests
+    // ===================================================================
+    #[test]
+    fn test_session_checkpoint_new_agent_id_role_none() {
+        let cp = SessionCheckpoint::new("test-session".to_string());
+        assert!(
+            cp.agent_id.is_none(),
+            "agent_id should be None on new checkpoint"
+        );
+        assert!(cp.role.is_none(), "role should be None on new checkpoint");
+    }
+
+    #[test]
+    fn test_session_checkpoint_with_agent_id() {
+        let cp = SessionCheckpoint::new("test-session".to_string())
+            .with_agent_id("agent-eda".to_string());
+        assert_eq!(cp.agent_id, Some("agent-eda".to_string()));
+        // role should still be None
+        assert!(cp.role.is_none());
+    }
+
+    #[test]
+    fn test_session_checkpoint_with_role_main_agent() {
+        use crate::session::persistence::AgentRole;
+        let cp = SessionCheckpoint::new("test-session".to_string()).with_role(AgentRole::MainAgent);
+        assert_eq!(cp.role, Some(AgentRole::MainAgent));
+        // agent_id should still be None
+        assert!(cp.agent_id.is_none());
+    }
+
+    #[test]
+    fn test_session_checkpoint_with_role_sub_agent() {
+        use crate::session::persistence::AgentRole;
+        let cp = SessionCheckpoint::new("test-session".to_string()).with_role(AgentRole::SubAgent);
+        assert_eq!(cp.role, Some(AgentRole::SubAgent));
+    }
+
+    #[test]
+    fn test_session_checkpoint_with_both_identity_fields() {
+        use crate::session::persistence::AgentRole;
+        let cp = SessionCheckpoint::new("test-session".to_string())
+            .with_agent_id("agent-eda".to_string())
+            .with_role(AgentRole::SubAgent);
+        assert_eq!(cp.agent_id, Some("agent-eda".to_string()));
+        assert_eq!(cp.role, Some(AgentRole::SubAgent));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_manager_new_with_identity_fills_on_save() {
+        use crate::session::persistence::AgentRole;
+        let storage = Arc::new(MemoryStorage::new());
+        let manager = CheckpointManager::new_with_identity(
+            storage.clone(),
+            "agent-eda".to_string(),
+            AgentRole::SubAgent,
+        );
+
+        // Create checkpoint without identity fields
+        let checkpoint =
+            SessionCheckpoint::new("session-identity".to_string()).with_message_count(5);
+
+        manager.save_sync(checkpoint).await.unwrap();
+
+        // Load from storage and verify identity was filled by manager
+        let storage = manager.storage();
+        let loaded = storage.load_checkpoint("session-identity").await.unwrap();
+        assert!(loaded.is_some(), "checkpoint should exist in storage");
+        let loaded = loaded.unwrap();
+        assert_eq!(
+            loaded.agent_id,
+            Some("agent-eda".to_string()),
+            "agent_id should be filled by CheckpointManager"
+        );
+        assert_eq!(
+            loaded.role,
+            Some(AgentRole::SubAgent),
+            "role should be filled by CheckpointManager"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_manager_new_does_not_fill_identity() {
+        let storage = Arc::new(MemoryStorage::new());
+        // Using new() (not new_with_identity): agent_id=String::new(), role=MainAgent
+        // These get written to storage via with_agent_id/with_role, then loaded back.
+        // Empty string "" is stored and treated as empty → loaded as None
+        let manager = CheckpointManager::new(storage.clone());
+
+        let checkpoint =
+            SessionCheckpoint::new("session-no-identity".to_string()).with_message_count(3);
+
+        manager.save_sync(checkpoint).await.unwrap();
+
+        let loaded = storage
+            .load_checkpoint("session-no-identity")
+            .await
+            .unwrap();
+        assert!(loaded.is_some());
+        let loaded = loaded.unwrap();
+        // CheckpointManager::new() uses empty string agent_id, which becomes
+        // Some("") in checkpoint, then MemoryStorage saves/restores it as-is.
+        // SqliteStorage would convert "" to None via load_checkpoint_inner,
+        // but MemoryStorage returns the value directly.
+        // For agent_id we expect Some("") for MemoryStorage.
+        assert_eq!(
+            loaded.agent_id,
+            Some(String::new()),
+            "agent_id should be empty string with MemoryStorage round-trip"
+        );
+        // For role, "main_agent" round-trips to Some(MainAgent)
+        use crate::session::persistence::AgentRole;
+        assert_eq!(
+            loaded.role,
+            Some(AgentRole::MainAgent),
+            "role should be MainAgent with MemoryStorage round-trip"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_manager_save_existing_identity_preserved() {
+        use crate::session::persistence::AgentRole;
+        let storage = Arc::new(MemoryStorage::new());
+        let manager = CheckpointManager::new_with_identity(
+            storage.clone(),
+            "manager-agent".to_string(),
+            AgentRole::MainAgent,
+        );
+
+        // Checkpoint already has identity set — manager should overwrite with its own
+        let checkpoint = SessionCheckpoint::new("session-preserve".to_string())
+            .with_agent_id("pre-existing-agent".to_string())
+            .with_role(AgentRole::SubAgent);
+
+        manager.save_sync(checkpoint).await.unwrap();
+
+        let loaded = storage.load_checkpoint("session-preserve").await.unwrap();
+        assert!(loaded.is_some());
+        let loaded = loaded.unwrap();
+        // Manager identity takes precedence
+        assert_eq!(loaded.agent_id, Some("manager-agent".to_string()));
+        assert_eq!(loaded.role, Some(AgentRole::MainAgent));
     }
 
     #[tokio::test]

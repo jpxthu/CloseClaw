@@ -268,6 +268,7 @@ impl PersistenceService for SqliteStorage {
             let pending_json = serde_json::to_string(&checkpoint.pending_messages)
                 .map_err(PersistenceError::Serialization)?;
             let metadata_json = json!({
+                "mode": mode_to_db(&checkpoint.mode),
                 "mode_state": mode_state_json,
                 "pending_messages": pending_json,
             })
@@ -285,8 +286,14 @@ impl PersistenceService for SqliteStorage {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     checkpoint.session_id,
-                    "unknown",    // agent_id — not in SessionCheckpoint
-                    "main_agent", // role — not in SessionCheckpoint
+                    checkpoint.agent_id.as_deref().unwrap_or("unknown"),
+                    checkpoint
+                        .role
+                        .map(|r| match r {
+                            crate::session::persistence::AgentRole::MainAgent => "main_agent",
+                            crate::session::persistence::AgentRole::SubAgent => "sub_agent",
+                        })
+                        .unwrap_or("main_agent"),
                     checkpoint.channel.as_deref().unwrap_or(""),
                     checkpoint.chat_id.as_deref().unwrap_or(""),
                     status,
