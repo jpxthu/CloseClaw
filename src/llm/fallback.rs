@@ -7,6 +7,7 @@ use crate::llm::retry::{
     TRANSIENT_BASE_DELAY, TRANSIENT_MAX_DELAY,
 };
 use crate::llm::{ChatRequest, ChatResponse, ErrorKind, LLMError, LLMProvider};
+use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -416,5 +417,20 @@ mod tests {
         let registry = Arc::new(crate::llm::LLMRegistry::new());
         let client = FallbackClient::new(registry, vec![]).with_timeout(60);
         assert_eq!(client.call_timeout, Duration::from_secs(60));
+    }
+}
+
+#[async_trait]
+impl crate::llm::LLMProvider for FallbackClient {
+    fn name(&self) -> &str {
+        "fallback"
+    }
+
+    fn models(&self) -> Vec<&str> {
+        vec!["fallback"]
+    }
+
+    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, crate::llm::LLMError> {
+        self.try_fallback_chain(request).await
     }
 }

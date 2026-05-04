@@ -23,9 +23,11 @@
 pub mod protocol;
 pub mod server;
 pub mod session;
+mod session_compaction_tests;
 
 pub use protocol::{ClientMessage, ServerMessage};
 pub use server::{spawn_chat_server, ChatServer};
+pub use session::ChatSession;
 
 #[cfg(test)]
 mod tests {

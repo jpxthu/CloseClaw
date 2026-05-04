@@ -3,6 +3,7 @@
 use crate::chat::protocol::{ClientMessage, ServerMessage};
 use crate::llm::fallback::FallbackClient;
 use crate::llm::{ChatRequest, LLMRegistry, Message};
+use crate::session::compaction::{execute_compact, CompactConfig, CompactionService};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -33,6 +34,8 @@ pub struct ChatSession {
     pub chat_history: Vec<Message>,
     /// Max chat history entries (to prevent unbounded memory growth).
     pub max_history: usize,
+    /// Session compaction service with auto-trigger and circuit breaker.
+    pub(crate) compaction_service: CompactionService,
 }
 
 // --- Construction ---
@@ -85,6 +88,7 @@ impl ChatSession {
             model: std::env::var("LLM_MODEL").unwrap_or_else(|_| "MiniMax-M2.5".to_string()),
             chat_history: Vec::new(),
             max_history,
+            compaction_service: CompactionService::new(CompactConfig::default()),
         }
     }
 
@@ -168,7 +172,7 @@ impl ChatSession {
 
 impl ChatSession {
     /// Handle a single incoming JSON line, return zero or more server messages to send back
-    async fn handle_line(&mut self, line: &str) -> Vec<ServerMessage> {
+    pub(crate) async fn handle_line(&mut self, line: &str) -> Vec<ServerMessage> {
         let msg: ClientMessage = match serde_json::from_str(line) {
             Ok(m) => m,
             Err(e) => {
@@ -191,7 +195,11 @@ impl ChatSession {
                 }]
             }
             ClientMessage::ChatMessage { content, id } => {
-                self.handle_chat_message(content, id).await
+                if content.trim_start().starts_with("/compact") {
+                    self.handle_compact_command(content, id).await
+                } else {
+                    self.handle_chat_message(content, id).await
+                }
             }
             ClientMessage::ChatStop { id } => {
                 info!(session_id = %self.session_id, id = %id, "session stop");
@@ -206,12 +214,15 @@ impl ChatSession {
         info!(session_id = %self.session_id,
                content_len = %content.len(), id = %id, "chat message");
 
-        self.chat_history.push(Message {
-            role: "user".to_string(),
-            content: content.clone(),
-        });
+        self.push_history(content.clone());
         self.truncate_history();
 
+        // Auto-compaction check: after truncate, before calling LLM
+        if self.should_auto_compact_and_execute().await {
+            // history replaced with summary
+        }
+
+        // Call LLM and return response
         let response = self.call_llm().await;
         if let Ok(ref resp) = response {
             self.chat_history.push(Message {
@@ -220,6 +231,58 @@ impl ChatSession {
             });
         }
 
+        self.response_to_messages(response, id)
+    }
+
+    /// Push a user message to history
+    fn push_history(&mut self, content: String) {
+        self.chat_history.push(Message {
+            role: "user".to_string(),
+            content,
+        });
+    }
+
+    /// Check and execute auto-compaction; returns true if compaction ran and replaced history
+    async fn should_auto_compact_and_execute(&mut self) -> bool {
+        if !self
+            .compaction_service
+            .should_auto_compact(&self.chat_history, &self.model)
+        {
+            return false;
+        }
+
+        match execute_compact(
+            &self.chat_history,
+            &*self.fallback_client,
+            &self.model,
+            None,
+            true,
+        )
+        .await
+        {
+            Ok(comp_result) => {
+                self.chat_history = vec![Message {
+                    role: "system".to_string(),
+                    content: comp_result.boundary_message,
+                }];
+                self.compaction_service.record_success();
+                debug!(session_id = %self.session_id, before_tokens = %comp_result.before_token_count, after_tokens = %comp_result.after_token_count, "auto compaction succeeded");
+                true
+            }
+            Err(e) => {
+                self.compaction_service.record_failure();
+                warn!(session_id = %self.session_id, error = %e, "auto compaction failed, continuing normally");
+                false
+            }
+        }
+    }
+
+    /// Convert LLM response to ServerMessages
+    fn response_to_messages(
+        &self,
+        response: Result<String, anyhow::Error>,
+        id: String,
+    ) -> Vec<ServerMessage> {
         match response {
             Ok(content) => vec![
                 ServerMessage::ChatResponse {
@@ -262,239 +325,94 @@ impl ChatSession {
                usage = ?response.usage, "LLM response");
         Ok(response.content)
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        chat::protocol::ServerMessage,
-        llm::{LLMRegistry, StubProvider},
-    };
-    use std::sync::Arc;
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt, BufReader},
-        net::TcpListener,
-        sync::broadcast,
-    };
-
-    /// Set up a ChatSession with a real TCP pair and StubProvider registered.
-    pub(crate) async fn setup_session() -> (ChatSession, tokio::net::TcpStream) {
-        std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let client = tokio::net::TcpStream::connect(addr).await.unwrap();
-        let (accepted, _) = listener.accept().await.unwrap();
-        let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
-        let registry = Arc::new(LLMRegistry::new());
-        registry
-            .register("stub".to_string(), Arc::new(StubProvider::new()))
-            .await;
-        let session = ChatSession::new(
-            "test-session".to_string(),
-            "test-agent".to_string(),
-            accepted,
-            shutdown_rx.resubscribe(),
-            registry,
-        );
-        std::env::remove_var("LLM_FALLBACK_CHAIN");
-        (session, client)
-    }
-
-    #[tokio::test]
-    async fn test_truncate_history() {
-        let (mut session, _client) = setup_session().await;
-        session.max_history = 5;
-        // Over limit: should remove oldest entries, keep newest 5 (5–9)
-        session.chat_history = (0..10)
-            .map(|i| crate::llm::Message {
-                role: "user".to_string(),
-                content: format!("msg {}", i),
-            })
-            .collect();
-        session.truncate_history();
-        assert_eq!(session.chat_history.len(), 5);
-        assert_eq!(session.chat_history[0].content, "msg 5");
-        assert_eq!(session.chat_history[4].content, "msg 9");
-        // Under limit: no change
-        session.chat_history = (0..3)
-            .map(|i| crate::llm::Message {
-                role: "user".to_string(),
-                content: format!("msg {}", i),
-            })
-            .collect();
-        session.truncate_history();
-        assert_eq!(session.chat_history.len(), 3);
-        // Exact limit: no change
-        session.chat_history = (0..5)
-            .map(|i| crate::llm::Message {
-                role: "user".to_string(),
-                content: format!("msg {}", i),
-            })
-            .collect();
-        session.truncate_history();
-        assert_eq!(session.chat_history.len(), 5);
-        // Empty: no panic
-        session.chat_history.clear();
-        session.truncate_history();
-        assert_eq!(session.chat_history.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_handle_line_chat_start() {
-        let (mut session, _client) = setup_session().await;
-        let json = r#"{"type":"chat.start","agent_id":"my-agent","id":"req1"}"#;
-        let msgs = session.handle_line(json).await;
-        assert_eq!(msgs.len(), 1);
-        match &msgs[0] {
-            ServerMessage::ChatStarted { session_id, id } => {
-                assert_eq!(session_id, "test-session");
-                assert_eq!(id, "req1");
-            }
-            _ => panic!("expected ChatStarted"),
-        }
-        assert_eq!(session.agent_id, "my-agent");
-    }
-
-    #[tokio::test]
-    async fn test_handle_line_chat_message() {
-        let (mut session, _client) = setup_session().await;
-        let json = r#"{"type":"chat.message","content":"hello","id":"msg1"}"#;
-        let msgs = session.handle_line(json).await;
-        assert_eq!(msgs.len(), 2);
-        match &msgs[0] {
-            ServerMessage::ChatResponse { content, done, id } => {
-                assert!(done);
-                assert_eq!(id, "msg1");
-                assert_eq!(content, "stub response");
-            }
-            _ => panic!("expected ChatResponse"),
-        }
-        match &msgs[1] {
-            ServerMessage::ChatResponseDone { id } => {
-                assert_eq!(id, "msg1");
-            }
-            _ => panic!("expected ChatResponseDone"),
-        }
-        assert_eq!(session.chat_history.len(), 2);
-        assert_eq!(session.chat_history[0].role, "user");
-        assert_eq!(session.chat_history[0].content, "hello");
-        assert_eq!(session.chat_history[1].role, "assistant");
-    }
-    #[tokio::test]
-    async fn test_handle_line_chat_stop() {
-        let (mut session, _client) = setup_session().await;
-        assert!(session.active);
-        let json = r#"{"type":"chat.stop","id":"stop1"}"#;
-        let msgs = session.handle_line(json).await;
-        assert_eq!(msgs.len(), 1);
-        match &msgs[0] {
-            ServerMessage::ChatResponseDone { id } => {
-                assert_eq!(id, "stop1");
-            }
-            _ => panic!("expected ChatResponseDone"),
-        }
-        assert!(!session.active, "session should be inactive after stop");
-    }
-
-    #[tokio::test]
-    async fn test_handle_line_invalid_json() {
-        let (mut session, _client) = setup_session().await;
-        let msgs = session.handle_line("not valid json at all").await;
-        assert_eq!(msgs.len(), 1);
-        match &msgs[0] {
-            ServerMessage::ChatError { message, .. } => {
-                assert!(message.contains("invalid message"));
-            }
-            _ => panic!("expected ChatError"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_send_message_writes_json() {
-        let (mut session, mut client) = setup_session().await;
-        let msg = ServerMessage::ChatResponse {
-            content: "hello world".to_string(),
-            done: true,
-            id: "req-x".to_string(),
+    /// Handle a /compact command: run compaction and return results.
+    async fn handle_compact_command(&mut self, content: String, id: String) -> Vec<ServerMessage> {
+        let cmd = match crate::mode::slash_command::parse_slash_command(&content) {
+            Some(c) => c,
+            None => return self.invalid_compact_cmd(&id),
         };
-        session.send_message(msg).await.unwrap();
-        drop(session);
-        let mut reader = tokio::io::BufReader::new(client);
-        let mut line = String::new();
-        reader.read_line(&mut line).await.unwrap();
-        assert!(line.contains(r#""type":"chat.response"#));
-        assert!(line.contains("hello world"));
-        assert!(line.ends_with("\n"));
-    }
-
-    #[tokio::test]
-    async fn test_chat_session_new_fields() {
-        std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
-        std::env::set_var("LLM_MODEL", "custom-model");
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-        let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
-        let registry = Arc::new(LLMRegistry::new());
-        registry
-            .register("stub".to_string(), Arc::new(StubProvider::new()))
-            .await;
-        let session = ChatSession::new(
-            "sid-123".to_string(),
-            "aid-456".to_string(),
-            stream,
-            shutdown_rx.resubscribe(),
-            registry,
-        );
-        std::env::remove_var("LLM_FALLBACK_CHAIN");
-        std::env::remove_var("LLM_MODEL");
-        assert_eq!(session.session_id, "sid-123");
-        assert_eq!(session.agent_id, "aid-456");
-        assert_eq!(session.model, "custom-model");
-        assert!(session.active);
-        assert_eq!(session.max_history, 100);
-    }
-
-    #[cfg(feature = "fake-llm")]
-    #[tokio::test]
-    async fn test_handle_chat_message_llm_failure() {
-        use crate::llm::fake::FakeProvider;
-        use crate::llm::LLMError;
-
-        std::env::set_var("LLM_FALLBACK_CHAIN", "fake/fake-model");
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let client = tokio::net::TcpStream::connect(addr).await.unwrap();
-        let (accepted, _) = listener.accept().await.unwrap();
-        let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
-        let registry = Arc::new(LLMRegistry::new());
-        let fake = FakeProvider::builder()
-            .then_err(LLMError::InvalidRequest("test error".to_string()))
-            .build();
-        registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
-            "fail-session".to_string(),
-            "fail-agent".to_string(),
-            accepted,
-            shutdown_rx.resubscribe(),
-            registry,
-        );
-        std::env::remove_var("LLM_FALLBACK_CHAIN");
-
-        let json = r#"{"type":"chat.message","content":"hello","id":"fail1"}"#;
-        let msgs = session.handle_line(json).await;
-        assert_eq!(msgs.len(), 2);
-        match &msgs[0] {
-            ServerMessage::ChatResponse { content, done, .. } => {
-                assert!(done);
-                assert!(
-                    content.contains("[error]"),
-                    "expected [error], got: {}",
-                    content
-                );
+        let _ = crate::mode::slash_command::handle_slash_command(&cmd);
+        // Execute compaction
+        match execute_compact(
+            &self.chat_history,
+            &*self.fallback_client,
+            &self.model,
+            None,
+            false,
+        )
+        .await
+        {
+            Ok(result) => {
+                self.set_history_to_compact_result(&result);
+                self.compaction_service.record_success();
+                self.compact_success_msg(&result, &id)
             }
-            _ => panic!("expected ChatResponse with error"),
+            Err(e) => {
+                warn!(session_id = %self.session_id, error = %e, "/compact failed");
+                self.compaction_service.record_failure();
+                self.compact_error_msg(&e, &id)
+            }
         }
+    }
+
+    /// Return invalid command error
+    fn invalid_compact_cmd(&self, id: &str) -> Vec<ServerMessage> {
+        vec![
+            ServerMessage::ChatResponse {
+                content: "[error] invalid /compact command".to_string(),
+                done: true,
+                id: id.to_string(),
+            },
+            ServerMessage::ChatResponseDone { id: id.to_string() },
+        ]
+    }
+
+    /// Replace history with compaction result
+    fn set_history_to_compact_result(
+        &mut self,
+        result: &crate::session::compaction::CompactionResult,
+    ) {
+        self.chat_history = vec![Message {
+            role: "system".to_string(),
+            content: result.boundary_message.clone(),
+        }];
+    }
+
+    /// Build success message for compaction
+    fn compact_success_msg(
+        &self,
+        result: &crate::session::compaction::CompactionResult,
+        id: &str,
+    ) -> Vec<ServerMessage> {
+        vec![
+            ServerMessage::ChatResponse {
+                content: format!(
+                    "✅ 压缩成功: 共 {} 条消息 ({} tokens → {} tokens)",
+                    self.chat_history.len(),
+                    result.before_token_count,
+                    result.after_token_count
+                ),
+                done: true,
+                id: id.to_string(),
+            },
+            ServerMessage::ChatResponseDone { id: id.to_string() },
+        ]
+    }
+
+    /// Build error message for compaction
+    fn compact_error_msg(
+        &self,
+        e: &crate::session::compaction::CompactionError,
+        id: &str,
+    ) -> Vec<ServerMessage> {
+        vec![
+            ServerMessage::ChatResponse {
+                content: format!("[error] 压缩失败: {}", e),
+                done: true,
+                id: id.to_string(),
+            },
+            ServerMessage::ChatResponseDone { id: id.to_string() },
+        ]
     }
 }
