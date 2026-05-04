@@ -36,7 +36,7 @@ fn test_build_from_workspace_skill_listing_injected() {
     let skill = make_test_skill("testskill", "A test skill", "Use when testing", "eda");
     let registry = DiskSkillRegistry::new(vec![skill]);
 
-    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")));
+    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")), None);
 
     assert!(
         result.contains("## Available Skills"),
@@ -62,7 +62,7 @@ fn test_build_from_workspace_no_skill_info_no_section() {
     std::fs::write(dir.path().join("SOUL.md"), "test soul").unwrap();
     std::fs::write(dir.path().join("MEMORY.md"), "test memory").unwrap();
 
-    let result = build_from_workspace(dir.path(), vec![], None);
+    let result = build_from_workspace(dir.path(), vec![], None, None);
     assert!(!result.contains("## Available Skills"));
 }
 
@@ -74,7 +74,7 @@ fn test_build_from_workspace_empty_listing_no_section() {
     std::fs::write(dir.path().join("MEMORY.md"), "test memory").unwrap();
 
     let registry = DiskSkillRegistry::new(vec![]);
-    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")));
+    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")), None);
     assert!(!result.contains("## Available Skills"));
 }
 
@@ -88,7 +88,7 @@ fn test_build_from_workspace_skill_section_not_duplicated() {
     let skill = make_test_skill("unique_skill", "desc", "", "eda");
     let registry = DiskSkillRegistry::new(vec![skill]);
 
-    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")));
+    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")), None);
 
     let count = result.matches("## Available Skills").count();
     assert_eq!(
