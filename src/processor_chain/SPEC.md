@@ -63,6 +63,19 @@ Inbound 链接收平台原始消息（`RawMessage`），经多个处理器顺序
 | `registry.rs` | `ProcessorRegistry` 实现 + 单元测试 |
 | `registry_tests.rs` | `ProcessorRegistry` 的集成测试（通过 `#[cfg(test)] mod tests` 间接测试） |
 
+### Outbound Fixtures
+
+| 文件 | 场景 |
+|------|------|
+| `tests/fixtures/outbound/fixture_E1.json` | 纯文本 → text 消息 |
+| `tests/fixtures/outbound/fixture_E2.json` | 加粗/斜体/行内代码 → interactive card |
+| `tests/fixtures/outbound/fixture_E3.json` | DSL 按钮 → 卡片 action 按钮 |
+| `tests/fixtures/outbound/fixture_E4.json` | 标题提取（`# 标题`）→ header.title |
+| `tests/fixtures/outbound/fixture_E5.json` | 分割线 `---` → hr 元素 |
+| `tests/fixtures/outbound/fixture_E6.json` | 代码块 → card code 元素 |
+| `tests/fixtures/outbound/fixture_E7.json` | 混合格式（含标题+分割线+代码块）→ interactive card |
+| `tests/fixtures/outbound/fixture_E8.json` | 无 markdown 纯文本 → text 消息（边界）|
+
 ### 数据流
 
 ```

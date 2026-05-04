@@ -1,0 +1,17 @@
+{
+  "name": "E6: horizontal rule",
+  "description": "包含 --- 分割线的 markdown 内容，预期 card elements 中包含 hr 元素",
+  "input": {
+    "content": "第一段\n\n---\n\n第二段"
+  },
+  "expected": {
+    "msg_type": "interactive",
+    "card": {
+      "elements": [
+        {
+          "tag": "hr"
+        }
+      ]
+    }
+  }
+}

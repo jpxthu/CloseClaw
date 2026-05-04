@@ -1,0 +1,25 @@
+{
+  "name": "E3: DSL button",
+  "description": "包含 DSL 按钮（::button）的 markdown，预期渲染为带 primary 按钮的 interactive card",
+  "input": {
+    "content": "::button[label:发送;action:send]"
+  },
+  "expected": {
+    "msg_type": "interactive",
+    "card": {
+      "elements": [
+        {
+          "tag": "button",
+          "action": {
+            "type": "click",
+            "value": "send"
+          },
+          "text": {
+            "tag": "lark_md",
+            "content": "发送"
+          }
+        }
+      ]
+    }
+  }
+}
