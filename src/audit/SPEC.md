@@ -18,7 +18,8 @@
 | `AuditResult` | 操作结果枚举：Allow、Deny、Error |
 | `AuditEvent` | 单条审计事件结构体，含时间戳、类型、详情、结果；含 `new()` 构造方法、`serialize_to_json()` 序列化方法 |
 | `AuditEventBuilder` | AuditEvent 的建造者，支持链式构造 |
-| `AuditQueryFilter` | 查询过滤器结构体：天数、事件类型（模糊匹配）、Agent名称（模糊匹配）、返回条数上限 |
+| `AuditQueryFilter` | 查询过滤器结构体：天数、事件类型（模糊匹配）、Agent名称（模糊匹配）、返回条数上限、`home_dir` 覆盖路径 |
+
 | `AuditLogger` | 异步审计日志写入器，内置缓冲队列 |
 
 ### 构造
