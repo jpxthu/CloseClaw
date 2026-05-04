@@ -114,6 +114,7 @@ pub async fn handle_audit(action: AuditAction) -> Result<()> {
                 event_type,
                 agent,
                 limit,
+                home_dir: None,
             };
             let evs = query_audit_events(&f);
             if evs.is_empty() {
@@ -136,6 +137,7 @@ pub async fn handle_audit(action: AuditAction) -> Result<()> {
                 event_type: None,
                 agent: None,
                 limit: None,
+                home_dir: None,
             };
             let cnt = export_audit_events(&f, &output, &format)?;
             println!("Exported {} audit event(s) to {} ({})", cnt, output, format);
