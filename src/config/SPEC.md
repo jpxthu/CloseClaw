@@ -33,7 +33,8 @@
 | `ConfigValidationError` | 配置验证错误（path + message） |
 | `write_atomically` | 原子写入函数（写临时文件 + fsync + rename） |
 | `PerAgentSessionConfig` | 单个 agent-role 的 session 配置（idle_minutes / purge_after_minutes） |
-| `SessionConfig` | 完整 session 配置容器（defaults / agents / sweeper_interval_secs） |
+| `CompactConfig` | compaction 配置（chars_per_token / auto_compact_buffer_tokens / max_consecutive_failures），从 `crate::session::compaction` re-exported |
+| `SessionConfig` | 完整 session 配置容器（defaults / agents / sweeper_interval_secs / compact） |
 | `SessionConfigProvider` | Trait，获取 per-agent session 配置和 sweeper 间隔 |
 | `JsonSessionConfigProvider` | JSON 文件实现的 SessionConfigProvider |
 | `AgentRole` | Agent 角色枚举（MainAgent / SubAgent），imported from `crate::session::persistence` |
@@ -94,12 +95,13 @@ pub enum ConfigError {
 
 **数据结构**：
 - `PerAgentSessionConfig`：单个 agent-role 的配置（idle_minutes、purge_after_minutes）
-- `SessionConfig`：完整配置容器（defaults: BTreeMap<AgentRole, PerAgentSessionConfig>、agents: BTreeMap<agent_id, BTreeMap<AgentRole, PerAgentSessionConfig>>、sweeper_interval_secs）
+- `SessionConfig`：完整配置容器（defaults: BTreeMap<AgentRole, PerAgentSessionConfig>、agents: BTreeMap<agent_id, BTreeMap<AgentRole, PerAgentSessionConfig>>、sweeper_interval_secs、compact: Option<CompactConfig>）
 
 **Trait `SessionConfigProvider`**（Send + Sync）：
 - `session_config_for(agent_id, role)` — 按 agent/role 查询配置，使用 fallback 链：per-agent override → defaults → hardcoded defaults
 - `sweeper_interval_secs()` — sweeper 轮询间隔
 - `list_agents()` — 所有配置了 per-agent override 的 agent_id 列表
+- `compact_config()` — compaction 配置，JSON 中无 `compact` 字段时返回 `CompactConfig::default()`
 
 **`JsonSessionConfigProvider`** 构造与行为：
 - `new(path)` — 读取 JSON 文件

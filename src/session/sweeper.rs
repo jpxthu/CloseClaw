@@ -366,6 +366,10 @@ mod tests {
         fn list_agents(&self) -> Vec<String> {
             self.agents.lock().unwrap().clone()
         }
+
+        fn compact_config(&self) -> crate::session::CompactConfig {
+            crate::session::CompactConfig::default()
+        }
     }
 
     // -----------------------------------------------------------------
