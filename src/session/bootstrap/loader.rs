@@ -230,4 +230,74 @@ mod tests {
         assert!(!minimal.contains(&"HEARTBEAT.md"));
         assert!(!full.contains(&"HEARTBEAT.md"));
     }
+
+    #[test]
+    fn test_bootstrap_kv_cache_consistency() {
+        // 文件内容不变时，两次加载结果应完全一致
+        let tmp = TempDir::new().unwrap();
+        create_test_files(
+            tmp.path(),
+            &["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"],
+        );
+
+        let result1 = load_bootstrap_files(tmp.path(), BootstrapMode::Minimal).unwrap();
+        let result2 = load_bootstrap_files(tmp.path(), BootstrapMode::Minimal).unwrap();
+
+        assert_eq!(
+            result1, result2,
+            "same files should produce identical results"
+        );
+        assert_eq!(result1.len(), 5);
+        for (name, content) in &result1 {
+            assert_eq!(
+                *content,
+                format!("content of {}", name),
+                "content should match expected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_bootstrap_content_changed() {
+        // 文件被修改后，再次加载结果应不同
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("AGENTS.md"), "original content").unwrap();
+
+        let result1 = load_bootstrap_files(tmp.path(), BootstrapMode::Minimal).unwrap();
+        let original_content = result1.get("AGENTS.md").unwrap().clone();
+
+        // 修改文件内容
+        std::fs::write(tmp.path().join("AGENTS.md"), "modified content").unwrap();
+
+        let result2 = load_bootstrap_files(tmp.path(), BootstrapMode::Minimal).unwrap();
+        let modified_content = result2.get("AGENTS.md").unwrap();
+
+        assert_ne!(
+            original_content.as_str(),
+            modified_content.as_str(),
+            "modified file should produce different content"
+        );
+        assert_eq!(modified_content, "modified content");
+    }
+
+    #[test]
+    fn test_bootstrap_file_deleted() {
+        // 文件被删除后，加载结果应缺少该文件
+        let tmp = TempDir::new().unwrap();
+        create_test_files(tmp.path(), &["AGENTS.md", "SOUL.md"]);
+
+        let result1 = load_bootstrap_files(tmp.path(), BootstrapMode::Minimal).unwrap();
+        assert!(result1.contains_key("AGENTS.md"));
+        assert!(result1.contains_key("SOUL.md"));
+
+        // 删除文件
+        std::fs::remove_file(tmp.path().join("AGENTS.md")).unwrap();
+
+        let result2 = load_bootstrap_files(tmp.path(), BootstrapMode::Minimal).unwrap();
+        assert!(
+            !result2.contains_key("AGENTS.md"),
+            "deleted file should not appear in results"
+        );
+        assert!(result2.contains_key("SOUL.md"), "other files should remain");
+    }
 }
