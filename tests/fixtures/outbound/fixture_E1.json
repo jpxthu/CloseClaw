@@ -1,0 +1,10 @@
+{
+  "name": "E1: plain text",
+  "description": "纯文本消息，无任何格式或特殊元素，直接作为 text 消息发出",
+  "input": {
+    "content": "Hello world"
+  },
+  "expected": {
+    "msg_type": "text"
+  }
+}

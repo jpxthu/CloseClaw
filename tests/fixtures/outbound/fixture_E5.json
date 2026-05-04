@@ -1,0 +1,15 @@
+{
+  "name": "E5: title + content",
+  "description": "以 # 开头的标题行 + 正文内容，预期提取为 card header.title",
+  "input": {
+    "content": "# 文档标题\n\n这是正文内容"
+  },
+  "expected": {
+    "msg_type": "interactive",
+    "card": {
+      "header": {
+        "title": "文档标题"
+      }
+    }
+  }
+}
