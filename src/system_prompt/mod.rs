@@ -17,11 +17,8 @@ pub use builder::{
     build_from_workspace, build_system_prompt, build_tools_section, set_agent_prompt,
     set_custom_prompt, set_override_prompt,
 };
-pub use sections::{
-    clear_append_section, get_append_section, get_cached_section, invalidate_all_sections,
-    invalidate_section, set_append_section, Section,
-};
+pub use sections::{get_cached_section, invalidate_all_sections, invalidate_section, Section};
 pub use workdir::{get_workdir, set_workdir, WorkdirContext};
 
 /// Maximum character length for append_section content
-pub const APPEND_SECTION_MAX_LEN: usize = sections::APPEND_SECTION_MAX_LEN;
+pub const APPEND_SECTION_MAX_LEN: usize = 500;

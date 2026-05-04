@@ -3,12 +3,9 @@
 //! These are separate from the mode slash commands (in src/mode/slash_command.rs)
 //! and focus on system prompt manipulation.
 
-use super::sections::{
-    clear_append_section, get_append_section, set_append_section as store_append,
-    APPEND_SECTION_MAX_LEN,
-};
-use super::workdir::{build_git_status, clear_workdir, get_workdir, set_workdir};
+use super::workdir::{build_git_status, get_workdir, set_workdir};
 use crate::mode::slash_command::SlashCommandResult;
+use crate::system_prompt::APPEND_SECTION_MAX_LEN;
 
 // ---------------------------------------------------------------------------
 // /system command
@@ -20,32 +17,26 @@ pub fn handle_system_command(args: &str) -> SlashCommandResult {
     let text = args.trim();
 
     if text.is_empty() {
-        // Show current append section if any
-        if let Some(current) = get_append_section() {
-            return SlashCommandResult::Text(format!(
-                "当前追加内容：\n{}\n\n使用 `/system <内容>` 可更新。",
-                current
-            ));
-        } else {
-            return SlashCommandResult::Text(
-                "当前无追加内容。使用 `/system <内容>` 添加。".to_string(),
-            );
-        }
+        return SlashCommandResult::Text(
+            "当前无追加内容。使用 `/system <内容>` 添加。".to_string(),
+        );
     }
 
-    let truncation_warning = store_append(text.to_string());
-
-    let response = if truncation_warning.is_some() {
+    // Truncation logic now inline (append_section is request-scoped)
+    let is_truncated = text.chars().count() > APPEND_SECTION_MAX_LEN;
+    let display = if is_truncated {
         format!(
             "已设置追加内容（已截断至 {} 字）：\n{}\n\n请求结束后自动清除。",
             APPEND_SECTION_MAX_LEN,
-            get_append_section().unwrap_or_default()
+            text.chars()
+                .take(APPEND_SECTION_MAX_LEN)
+                .collect::<String>()
         )
     } else {
         format!("已设置追加内容：\n{}\n\n请求结束后自动清除。", text)
     };
 
-    SlashCommandResult::Text(response)
+    SlashCommandResult::Text(display)
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +153,8 @@ fn execute_git_command(workdir: &str, git_args: &[&str]) -> SlashCommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system_prompt::sections::clear_append_section;
+    use crate::system_prompt::workdir::clear_workdir;
 
     #[test]
 

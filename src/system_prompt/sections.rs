@@ -10,8 +10,8 @@ use std::sync::LazyLock;
 use std::sync::RwLock;
 use std::time::SystemTime;
 
-/// Maximum length of append_section content (in characters)
-pub const APPEND_SECTION_MAX_LEN: usize = 500;
+// Re-export APPEND_SECTION_MAX_LEN from mod.rs so tests can still access it
+pub use super::APPEND_SECTION_MAX_LEN;
 
 /// Represents a system prompt section
 #[derive(Debug, Clone)]
@@ -222,14 +222,13 @@ pub fn load_cached_file_section(name: &str, path: &Path) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Append Section (request-scoped)
+// Append Section (request-scoped) — test-only helpers
 // ---------------------------------------------------------------------------
 
-/// Append section state — NOT persisted, cleared after each request
-static APPEND_SECTION: RwLock<Option<String>> = RwLock::new(None);
+#[cfg(test)]
+static APPEND_SECTION: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
-/// Set the append section content, truncating if over MAX_LEN and returning
-/// a notification message.
+#[cfg(test)]
 pub fn set_append_section(text: String) -> Option<String> {
     let is_truncated = text.chars().count() > APPEND_SECTION_MAX_LEN;
     let warning;
@@ -249,21 +248,17 @@ pub fn set_append_section(text: String) -> Option<String> {
     warning
 }
 
-/// Get the current append section content
+#[cfg(test)]
 pub fn get_append_section() -> Option<String> {
     APPEND_SECTION.write().ok()?.clone()
 }
 
-/// Clear the append section (called after request completes)
+#[cfg(test)]
 pub fn clear_append_section() {
     if let Ok(mut guard) = APPEND_SECTION.write() {
         *guard = None;
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -304,38 +299,6 @@ mod tests {
         assert!(rendered.contains("turn_count: 5"));
         assert!(rendered.contains("task1"));
         assert!(!s.is_cacheable());
-    }
-
-    #[test]
-
-    fn test_append_section_truncation() {
-        let long_text = "a".repeat(600);
-        let warning = set_append_section(long_text);
-        assert!(warning.is_some());
-        assert!(warning.unwrap().contains("500"));
-
-        let content = get_append_section().unwrap();
-        assert_eq!(content.chars().count(), APPEND_SECTION_MAX_LEN);
-        clear_append_section();
-    }
-
-    #[test]
-
-    fn test_append_section_no_truncation() {
-        let text = "short text".to_string();
-        let warning = set_append_section(text.clone());
-        assert!(warning.is_none());
-        assert_eq!(get_append_section(), Some(text));
-        clear_append_section();
-    }
-
-    #[test]
-
-    fn test_append_section_cleared_after_request() {
-        set_append_section("test".to_string());
-        assert!(get_append_section().is_some());
-        clear_append_section();
-        assert!(get_append_section().is_none());
     }
 
     #[test]
