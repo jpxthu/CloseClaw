@@ -4,6 +4,7 @@
 //! Handles graceful shutdown via ShutdownCoordinator.
 
 pub mod shutdown;
+pub mod skill_reload;
 
 use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
 use crate::chat::ChatServer;
@@ -18,10 +19,10 @@ use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use crate::session::persistence::PersistenceService;
 use crate::session::storage::SqliteStorage;
 use crate::session::sweeper::ArchiveSweeper;
+use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
-use tokio::sync::RwLock;
 use tracing::info;
 
 /// Load key=value pairs from a .env file and set them as environment variables.
@@ -58,6 +59,10 @@ pub struct Daemon {
     pub storage: Arc<SqliteStorage>,
     /// Shutdown sender for ArchiveSweeper
     pub sweeper_shutdown_tx: watch::Sender<()>,
+    /// Shared skill registry, updated on hot reload
+    pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
+    /// Skill file watcher handle (RAII: stops on drop)
+    _skill_watcher: Option<SkillWatcherHandle>,
 }
 
 // --- Lifecycle: start, run ---
@@ -181,6 +186,10 @@ impl Daemon {
         // Spawn the background flush task for the (possibly injected) audit logger
         Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
 
+        // Initialize skill hot reload system
+        let (skill_registry, skill_watcher) =
+            skill_reload::init_skill_hot_reload(config_dir).await?;
+
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -195,6 +204,8 @@ impl Daemon {
             audit_logger,
             storage,
             sweeper_shutdown_tx: sweeper_tx,
+            skill_registry,
+            _skill_watcher: Some(skill_watcher),
         })
     }
 
