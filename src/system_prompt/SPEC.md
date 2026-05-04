@@ -10,7 +10,7 @@
 
 覆盖链（override → agent → custom → default）加 append 始终追加在最末。静态 section 基于 mtime 被动失效（无主动文件监听）；动态 section 每次请求重新渲染。Workspace 路径下 IDENTITY.md/SOUL.md/MEMORY.md 自动参与 RoleSection 拼接。
 
-权限校验由调用方负责；不主动监听文件变化；append 内容请求结束后自动清除。
+`build_system_prompt` 和 `build_from_workspace` 显式接收 `append_section: Option<String>` 参数，`append_append_section` 为纯函数，不再从全局读取——彻底消除并行测试时的状态竞争。
 
 ---
 
@@ -20,8 +20,8 @@
 
 | 接口 | 功能 |
 |------|------|
-| `build_system_prompt` | 组装完整 system prompt，按覆盖链优先级拼接各 section |
-| `build_from_workspace(workspace_root, dynamic_sections, skill_info)` | 从 workspace 路径加载 bootstrap 文件（IDENTITY.md / SOUL.md / MEMORY.md）构建 prompt，skill_info 为 `Some((registry, agent_id))` 时注入 SkillListingSection |
+| `build_system_prompt(sections, append_section)` | 组装完整 system prompt，按覆盖链优先级拼接各 section，append_section 追加在最末 |
+| `build_from_workspace(workspace_root, dynamic_sections, skill_info, append_section)` | 从 workspace 路径加载 bootstrap 文件构建 prompt，skill_info 为 `Some((registry, agent_id))` 时注入 SkillListingSection，append_section 追加在最末 |
 | `set_override_prompt` | 设置最高优先级覆盖 prompt |
 | `set_agent_prompt` | 设置 agent 级 prompt（覆盖链第二层） |
 | `set_custom_prompt` | 设置用户自定义 prompt（覆盖链第三层） |

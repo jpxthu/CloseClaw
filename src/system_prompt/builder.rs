@@ -3,8 +3,8 @@
 //! Orchestrates section assembly and renders the final system prompt string.
 
 use super::sections::{
-    get_append_section, get_cached_section, invalidate_all_sections, invalidate_section,
-    load_cached_file_section, read_file_section, Section,
+    get_cached_section, invalidate_all_sections, invalidate_section, load_cached_file_section,
+    read_file_section, Section,
 };
 use crate::skills::DiskSkillRegistry;
 use std::path::Path;
@@ -59,10 +59,10 @@ pub fn set_custom_prompt(prompt: Option<String>) {
 ///  3. CustomSystemPrompt (if set)
 ///  4. defaultSystemPrompt
 ///  5. appendSection (always appended last)
-pub fn build_system_prompt(sections: Vec<Section>) -> String {
+pub fn build_system_prompt(sections: Vec<Section>, append_section: Option<String>) -> String {
     // Check priority prompts first (early return)
     if let Some(prompt) = get_priority_prompt() {
-        return append_append_section(prompt);
+        return append_append_section(prompt, append_section);
     }
 
     // Render sections
@@ -73,7 +73,7 @@ pub fn build_system_prompt(sections: Vec<Section>) -> String {
         rendered.join("\n")
     };
 
-    append_append_section(base)
+    append_append_section(base, append_section)
 }
 
 /// Get the highest-priority prompt that is set
@@ -147,8 +147,8 @@ fn render_section(section: Section) -> String {
 }
 
 /// Append the current append_section to a base prompt
-fn append_append_section(base: String) -> String {
-    if let Some(append) = get_append_section() {
+fn append_append_section(base: String, append: Option<String>) -> String {
+    if let Some(append) = append {
         format!("{}\n\n## Append\n{}\n", base, append)
     } else {
         base
@@ -185,6 +185,7 @@ pub fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     dynamic_sections: Vec<Section>,
     skill_info: Option<(&DiskSkillRegistry, &str)>,
+    append_section: Option<String>,
 ) -> String {
     let root = workspace_root.as_ref();
     let mut sections: Vec<Section> = Vec::new();
@@ -233,13 +234,12 @@ pub fn build_from_workspace<P: AsRef<Path>>(
     // Dynamic sections
     sections.extend(dynamic_sections);
 
-    build_system_prompt(sections)
+    build_system_prompt(sections, append_section)
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::sections::Section;
-    use super::super::sections::{clear_append_section, set_append_section};
     use super::*;
     use crate::skills::DiskSkillRegistry;
     use crate::tools::builtin::register_builtin_tools;
@@ -248,82 +248,116 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_override() {
-        clear_append_section();
         set_override_prompt(Some("override prompt".to_string()));
         let sections = vec![Section::RoleSection("should not appear".to_string())];
-        let result = build_system_prompt(sections);
+        let result = build_system_prompt(sections, None);
         assert!(result.contains("override prompt"));
         set_override_prompt(None);
     }
 
     #[test]
     fn test_build_system_prompt_with_agent_prompt() {
-        clear_append_section();
         set_agent_prompt(Some("agent prompt".to_string()));
         let sections = vec![];
-        let result = build_system_prompt(sections);
+        let result = build_system_prompt(sections, None);
         assert!(result.contains("agent prompt"));
         set_agent_prompt(None);
     }
 
     #[test]
     fn test_build_system_prompt_with_custom_prompt() {
-        clear_append_section();
         set_custom_prompt(Some("custom prompt".to_string()));
         let sections = vec![];
-        let result = build_system_prompt(sections);
+        let result = build_system_prompt(sections, None);
         assert!(result.contains("custom prompt"));
         set_custom_prompt(None);
     }
 
     #[test]
-
     fn test_build_system_prompt_default() {
         // Clear global state that could affect this test
-        clear_append_section();
         set_override_prompt(None);
         set_agent_prompt(None);
         set_custom_prompt(None);
         invalidate_all_sections();
 
         let sections = vec![Section::RoleSection("role content".to_string())];
-        let result = build_system_prompt(sections);
+        let result = build_system_prompt(sections, None);
         assert!(result.contains("role content"));
     }
 
     #[test]
-
-    fn test_build_append_section_appended() {
-        set_override_prompt(None);
-        clear_append_section();
-        set_append_section("extra notes".to_string());
-        let sections = vec![Section::RoleSection("base".to_string())];
-        let result = build_system_prompt(sections);
-        assert!(result.contains("base"));
+    fn test_build_system_prompt_with_override_and_append() {
+        set_override_prompt(Some("override prompt".to_string()));
+        let sections = vec![Section::RoleSection("should not appear".to_string())];
+        let result = build_system_prompt(sections, Some("extra notes".to_string()));
+        assert!(result.contains("override prompt"));
         assert!(result.contains("extra notes"));
-        clear_append_section();
+        assert!(result.contains("## Append"));
+        set_override_prompt(None);
     }
 
     #[test]
+    fn test_build_system_prompt_with_agent_prompt_and_append() {
+        set_agent_prompt(Some("agent prompt".to_string()));
+        let sections = vec![];
+        let result = build_system_prompt(sections, Some("append content".to_string()));
+        assert!(result.contains("agent prompt"));
+        assert!(result.contains("append content"));
+        assert!(result.contains("## Append"));
+        set_agent_prompt(None);
+    }
 
-    fn test_append_section_not_shown_when_empty() {
-        clear_append_section();
+    #[test]
+    fn test_build_system_prompt_with_custom_prompt_and_append() {
+        set_custom_prompt(Some("custom prompt".to_string()));
+        let sections = vec![];
+        let result = build_system_prompt(sections, Some("append notes".to_string()));
+        assert!(result.contains("custom prompt"));
+        assert!(result.contains("append notes"));
+        assert!(result.contains("## Append"));
+        set_custom_prompt(None);
+    }
+
+    #[test]
+    fn test_build_system_prompt_default_with_append() {
+        set_override_prompt(None);
+        set_agent_prompt(None);
+        set_custom_prompt(None);
+        invalidate_all_sections();
+
+        let sections = vec![Section::RoleSection("role content".to_string())];
+        let result = build_system_prompt(sections, Some("additional info".to_string()));
+        assert!(result.contains("role content"));
+        assert!(result.contains("additional info"));
+        assert!(result.contains("## Append"));
+    }
+
+    #[test]
+    fn test_build_append_section_appended() {
+        set_override_prompt(None);
         let sections = vec![Section::RoleSection("base".to_string())];
-        let result = build_system_prompt(sections);
+        let result = build_system_prompt(sections, Some("extra notes".to_string()));
+        assert!(result.contains("base"));
+        assert!(result.contains("extra notes"));
+    }
+
+    #[test]
+    fn test_append_section_not_shown_when_empty() {
+        let sections = vec![Section::RoleSection("base".to_string())];
+        let result = build_system_prompt(sections, None);
         // append section should not appear at all
         assert!(!result.contains("## Append"));
-        clear_append_section();
     }
 
     #[test]
     fn test_dynamic_sections_not_cached() {
-        clear_append_section();
         let sections = vec![Section::SessionState {
             turn_count: 1,
             pending_tasks: vec![],
         }];
-        let result1 = build_system_prompt(sections.clone());
-        let result2 = build_system_prompt(sections);
+        let result1 = build_system_prompt(sections.clone(), None);
+        let result2 = build_system_prompt(sections, None);
         assert_eq!(result1, result2);
     }
 
