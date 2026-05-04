@@ -1,0 +1,26 @@
+{
+  "name": "E4: pure button card",
+  "description": "纯按钮卡片，无 content header（无标题、无正文），只有按钮的卡片",
+  "input": {
+    "content": "::button[label:确认;action:confirm]"
+  },
+  "expected": {
+    "msg_type": "interactive",
+    "card": {
+      "header": null,
+      "elements": [
+        {
+          "tag": "button",
+          "action": {
+            "type": "click",
+            "value": "confirm"
+          },
+          "text": {
+            "tag": "lark_md",
+            "content": "确认"
+          }
+        }
+      ]
+    }
+  }
+}

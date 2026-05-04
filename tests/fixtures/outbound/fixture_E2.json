@@ -1,0 +1,10 @@
+{
+  "name": "E2: bold markdown",
+  "description": "包含加粗格式的 markdown，预期渲染为 interactive card（飞书消息卡片）",
+  "input": {
+    "content": "**粗体** 和普通文本"
+  },
+  "expected": {
+    "msg_type": "interactive"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "E8: mixed format",
+  "description": "混合格式：标题 + 加粗 + 斜体 + DSL 按钮，预期完整渲染为含 header、markdown、按钮的 card",
+  "input": {
+    "content": "# 标题\n\n**粗体** + *斜体*\n\n::button[label:发送;action:send]"
+  },
+  "expected": {
+    "msg_type": "interactive",
+    "card": {
+      "header": {
+        "title": "标题"
+      },
+      "elements": [
+        {
+          "tag": "markdown",
+          "content": "**粗体** + *斜体*"
+        },
+        {
+          "tag": "button",
+          "action": {
+            "type": "click",
+            "value": "send"
+          },
+          "text": {
+            "tag": "lark_md",
+            "content": "发送"
+          }
+        }
+      ]
+    }
+  }
+}
