@@ -189,6 +189,14 @@ pub fn invalidate_all_sections() {
     }
 }
 
+/// Invalidate the skill listing section cache.
+///
+/// Call this when skill files change so the next system prompt build
+/// regenerates the listing from the current registry state.
+pub fn invalidate_skill_listing() {
+    invalidate_section("skill_listing");
+}
+
 // ---------------------------------------------------------------------------
 // File-based section helpers
 // ---------------------------------------------------------------------------
@@ -424,5 +432,22 @@ mod tests {
         assert!(rendered.contains("## Git Status"));
         assert!(rendered.contains("On branch master"));
         assert!(!s.is_cacheable());
+    }
+
+    #[test]
+    fn test_invalidate_skill_listing() {
+        // Pre-populate the skill_listing cache with known content
+        put_cached_section("skill_listing", "old skill content".to_string(), Some(999));
+        // Verify it's cached
+        assert_eq!(
+            get_cached_section("skill_listing", Some(999)),
+            Some("old skill content".to_string())
+        );
+
+        // Invalidate via the public API
+        invalidate_skill_listing();
+
+        // Cache should be cleared
+        assert_eq!(get_cached_section("skill_listing", Some(999)), None);
     }
 }

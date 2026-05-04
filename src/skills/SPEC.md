@@ -14,6 +14,7 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 子模块：
 - `registry` — Skill trait + SkillRegistry 注册中心
 - `builtin` — 7 个内置技能实现（file_ops, git_ops, search, permission, discovery）
+- `disk` — 磁盘技能发现与加载（含 hot_reload 热重载）
 - `coding_agent` — 编码委托技能（stub）
 - `skill_creator` — 技能创建辅助技能
 
@@ -39,6 +40,8 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `SkillContext` | disk | 技能执行上下文：`Inline` 或 `Agent { agent_id }` |
 | `SkillEffort` | disk | 工作量估算：`Trivial` / `Small` / `Medium` / `Large` / `Unknown` |
 | `ParseError` | disk | 解析错误：`MissingDelimiter` / `InvalidYaml` / `MissingDescription` |
+| `SkillWatcherHandle` | disk | 文件监听 RAII 句柄，drop 时自动停止 watcher |
+| `HotReloadError` | disk | 热重载错误：`WatcherCreate` / `WatchPath` / `NoDirectories` |
 
 ### 构造
 
@@ -62,6 +65,8 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `parse_skill_md(raw)` | disk | 解析 SKILL.md YAML frontmatter |
 | `scan_all_skills(config)` | disk | 扫描所有技能目录，返回按优先级去重的技能列表 |
 | `init_disk_skills(config)` | disk | 初始化磁盘技能注册表，扫描配置路径并加载所有磁盘技能 |
+| `start_skill_watcher(skill_dirs, on_change)` | disk | 启动技能目录文件监听，300ms debounce 后触发回调，返回 `SkillWatcherHandle` |
+| `invalidate_skill_listing()` | sections | 使 skill_listing 缓存失效，下次 system prompt 构建时重新生成 |
 
 ### 内置类型
 
@@ -120,7 +125,6 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `DiskSkillRegistry::generate_listing(agent_id)` | DiskSkillRegistry | 生成格式化 skill listing 字符串，含优先级排序和 agent_id 过滤 |
 | `DiskSkillRegistry::len()` | DiskSkillRegistry | 返回已注册技能数量 |
 | `resolve_skill(name, disk_registry, skill_registry)` | disk | 查询路由：先查 disk registry，未命中再查 bundled registry |
-| `init_disk_skills(config)` | disk | 初始化磁盘技能注册表，扫描配置路径并加载所有磁盘技能 |
 | `Skill::manifest()` | Skill trait | 获取技能元数据 |
 | `Skill::methods()` | Skill trait | 列出技能支持的方法 |
 
@@ -146,6 +150,7 @@ Skills 模块为 Agent 提供可复用工具能力，采用插件化架构。所
 | `registry.rs` | DiskSkillRegistry 内存注册表 |
 | `resolve.rs` | 技能查询路由函数 resolve_skill |
 | `init.rs` | init_disk_skills 初始化入口 |
+| `hot_reload.rs` | 文件监听热重载，通过 notify 检测变更 → 300ms debounce → 触发回调 |
 
 ### 两套 Registry 并存架构
 

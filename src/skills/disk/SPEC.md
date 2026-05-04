@@ -31,6 +31,8 @@ Disk Skill 模块提供基于文件系统的技能发现机制。扫描层级目
 | `SkillEffort` | 工作量估算：`Trivial` / `Small` / `Medium` / `Large` / `Unknown` |
 | `SkillManifest` | 从 frontmatter 解析的技能元数据（name / description / allowed_tools / when_to_use / context / agent / agent_id / effort / paths / user_invocable） |
 | `ParseError` | 解析错误：`MissingDelimiter` / `InvalidYaml` / `MissingDescription` |
+| `SkillWatcherHandle` | 文件监听 RAII 句柄，drop 时自动停止 watcher |
+| `HotReloadError` | 热重载错误：`WatcherCreate` / `WatchPath` / `NoDirectories` |
 
 ### 入口函数
 
@@ -40,6 +42,7 @@ Disk Skill 模块提供基于文件系统的技能发现机制。扫描层级目
 | `scan_all_skills(config)` | 扫描所有配置的技能目录，返回按优先级去重的 Vec<DiskSkill> |
 | `init_disk_skills(config)` | 初始化磁盘技能注册表：调用 `scan_all_skills`，返回 DiskSkillRegistry |
 | `resolve_skill(name, disk_registry, skill_registry)` | 查询路由：先查 DiskSkillRegistry（同步），未命中再查 SkillRegistry（async），返回 ResolvedSkill |
+| `start_skill_watcher(skill_dirs, on_change)` | 启动技能目录文件监听，300ms debounce 后触发回调，返回 SkillWatcherHandle |
 
 ---
 
@@ -55,6 +58,7 @@ Disk Skill 模块提供基于文件系统的技能发现机制。扫描层级目
 | `registry.rs` | DiskSkillRegistry 内存注册表：持有 `Vec<DiskSkill>`，提供 `get` / `list` / `contains` / `filter_by_source` / `len` / `is_empty` |
 | `resolve.rs` | 技能查询路由函数 `resolve_skill`：先查 DiskSkillRegistry（同步），未命中再查 SkillRegistry（async），返回 `ResolvedSkill` |
 | `init.rs` | `init_disk_skills` 初始化入口：调用 `scan_all_skills` 并构造 DiskSkillRegistry |
+| `hot_reload.rs` | 文件监听热重载，通过 notify 检测变更 → 300ms debounce → 触发回调 |
 
 ### 扫描优先级
 
