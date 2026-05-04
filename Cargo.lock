@@ -422,6 +422,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "flume",
+ "glob",
  "hex",
  "libc",
  "mockito",

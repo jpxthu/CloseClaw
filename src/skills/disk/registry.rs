@@ -1,5 +1,8 @@
 //! DiskSkillRegistry - in-memory registry for disk-loaded skills.
 
+use std::path::Path;
+
+use super::path_matcher::PathMatcher;
 use super::types::{DiskSkill, SkillSource};
 
 /// In-memory registry holding all discovered disk skills.
@@ -12,6 +15,42 @@ impl DiskSkillRegistry {
     /// Creates a new registry with the given skills.
     pub fn new(skills: Vec<DiskSkill>) -> Self {
         Self { skills }
+    }
+
+    /// Returns skills that have path-based conditional activation (`paths` is non-empty).
+    ///
+    /// These skills are only auto-activated when the current operation context
+    /// involves files matching one of their glob patterns.
+    pub fn conditional_skills(&self) -> Vec<&DiskSkill> {
+        self.skills
+            .iter()
+            .filter(|s| !s.manifest.paths.is_empty())
+            .collect()
+    }
+
+    /// Returns `true` if any path in `paths` matches one of the glob patterns
+    /// defined in the named skill's manifest `paths` field.
+    ///
+    /// Returns `false` when:
+    /// - The skill does not exist
+    /// - The skill has no paths conditions
+    /// - `paths` is empty
+    pub fn matches_paths(&self, skill_name: &str, paths: &[&Path]) -> bool {
+        if paths.is_empty() {
+            return false;
+        }
+        let skill = match self.get(skill_name) {
+            Some(s) => s,
+            None => return false,
+        };
+        if skill.manifest.paths.is_empty() {
+            return false;
+        }
+        let matcher = match PathMatcher::new(&skill.manifest.paths) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+        paths.iter().any(|p| matcher.matches(p))
     }
 
     /// Returns the number of registered skills.
@@ -85,9 +124,14 @@ impl DiskSkillRegistry {
                 } else {
                     format!(" — {}", s.manifest.when_to_use)
                 };
+                let paths_anno = if s.manifest.paths.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ⚡ auto-activates on: {}", s.manifest.paths.join(", "))
+                };
                 format!(
-                    "- **{}**: {}{}",
-                    s.manifest.name, s.manifest.description, when
+                    "- **{}**: {}{}{}",
+                    s.manifest.name, s.manifest.description, when, paths_anno
                 )
             })
             .collect();
@@ -97,188 +141,5 @@ impl DiskSkillRegistry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
-    use super::DiskSkill;
-    use super::DiskSkillRegistry;
-    use std::path::PathBuf;
-
-    fn skill(name: &str, source: SkillSource) -> DiskSkill {
-        DiskSkill {
-            source,
-            manifest: SkillManifest {
-                name: name.into(),
-                description: format!("desc of {}", name),
-                allowed_tools: vec![],
-                when_to_use: String::new(),
-                context: SkillContext::default(),
-                agent: String::new(),
-                agent_id: String::new(),
-                effort: SkillEffort::default(),
-                paths: vec![],
-                user_invocable: false,
-            },
-            readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
-            skill_dir: PathBuf::from(format!("/skills/{}", name)),
-        }
-    }
-
-    #[test]
-    fn test_new_and_len() {
-        let r = DiskSkillRegistry::new(vec![skill("a", SkillSource::Bundled)]);
-        assert_eq!(r.len(), 1);
-        assert!(!r.is_empty());
-    }
-
-    #[test]
-    fn test_empty_registry() {
-        let r = DiskSkillRegistry::new(vec![]);
-        assert!(r.is_empty());
-        assert!(r.get("any").is_none());
-        assert!(!r.contains("any"));
-        assert!(r.list().is_empty());
-        assert!(r.filter_by_source(SkillSource::Bundled).is_empty());
-    }
-
-    #[test]
-    fn test_get() {
-        let r = DiskSkillRegistry::new(vec![
-            skill("foo", SkillSource::Agent),
-            skill("bar", SkillSource::Project),
-        ]);
-        assert_eq!(r.get("foo").unwrap().manifest.name, "foo");
-        assert!(r.get("baz").is_none());
-    }
-
-    #[test]
-    fn test_contains() {
-        let r = DiskSkillRegistry::new(vec![skill("x", SkillSource::Global)]);
-        assert!(r.contains("x"));
-        assert!(!r.contains("y"));
-    }
-
-    #[test]
-    fn test_list() {
-        let r = DiskSkillRegistry::new(vec![
-            skill("z", SkillSource::Bundled),
-            skill("a", SkillSource::Global),
-        ]);
-        assert_eq!(r.list(), vec!["z", "a"]);
-    }
-
-    #[test]
-    fn test_filter_by_source() {
-        let r = DiskSkillRegistry::new(vec![
-            skill("b1", SkillSource::Bundled),
-            skill("g1", SkillSource::Global),
-            skill("b2", SkillSource::Bundled),
-        ]);
-        assert_eq!(r.filter_by_source(SkillSource::Bundled).len(), 2);
-        assert_eq!(r.filter_by_source(SkillSource::Global).len(), 1);
-        assert_eq!(r.filter_by_source(SkillSource::Agent).len(), 0);
-    }
-
-    fn skill_with_agent_id(name: &str, source: SkillSource, agent_id: &str) -> DiskSkill {
-        DiskSkill {
-            source,
-            manifest: SkillManifest {
-                name: name.into(),
-                description: format!("desc of {}", name),
-                allowed_tools: vec![],
-                when_to_use: String::new(),
-                context: SkillContext::default(),
-                agent: String::new(),
-                agent_id: agent_id.into(),
-                effort: SkillEffort::default(),
-                paths: vec![],
-                user_invocable: false,
-            },
-            readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
-            skill_dir: PathBuf::from(format!("/skills/{}", name)),
-        }
-    }
-
-    fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) -> DiskSkill {
-        DiskSkill {
-            source,
-            manifest: SkillManifest {
-                name: name.into(),
-                description: format!("desc of {}", name),
-                allowed_tools: vec![],
-                when_to_use: when_to_use.into(),
-                context: SkillContext::default(),
-                agent: String::new(),
-                agent_id: String::new(),
-                effort: SkillEffort::default(),
-                paths: vec![],
-                user_invocable: false,
-            },
-            readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
-            skill_dir: PathBuf::from(format!("/skills/{}", name)),
-        }
-    }
-
-    #[test]
-    fn test_generate_listing_empty() {
-        let r = DiskSkillRegistry::new(vec![]);
-        assert_eq!(r.generate_listing(None), "");
-        assert_eq!(r.generate_listing(Some("agent1")), "");
-    }
-
-    #[test]
-    fn test_generate_listing_single() {
-        let r = DiskSkillRegistry::new(vec![skill("foo", SkillSource::Bundled)]);
-        let listing = r.generate_listing(None);
-        assert!(listing.contains("**foo**"));
-        assert!(listing.contains("desc of foo"));
-    }
-
-    #[test]
-    fn test_generate_listing_sorted_by_priority_and_name() {
-        let r = DiskSkillRegistry::new(vec![
-            skill("z_bundled", SkillSource::Bundled),
-            skill("a_bundled", SkillSource::Bundled),
-            skill("z_global", SkillSource::Global),
-            skill("a_global", SkillSource::Global),
-            skill("z_agent", SkillSource::Agent),
-            skill("a_agent", SkillSource::Agent),
-        ]);
-        let listing = r.generate_listing(None);
-        let lines: Vec<&str> = listing.lines().collect();
-        assert_eq!(lines.len(), 6);
-        // Bundled before Global before Agent
-        assert!(listing.find("**a_bundled**").unwrap() < listing.find("**a_global**").unwrap());
-        assert!(listing.find("**a_global**").unwrap() < listing.find("**a_agent**").unwrap());
-        // Within Bundled, alphabetical order
-        assert!(listing.find("**a_bundled**").unwrap() < listing.find("**z_bundled**").unwrap());
-    }
-
-    #[test]
-    fn test_generate_listing_agent_id_filter() {
-        let r = DiskSkillRegistry::new(vec![
-            skill_with_agent_id("skill_a", SkillSource::Agent, "agent1"),
-            skill_with_agent_id("skill_b", SkillSource::Agent, "agent2"),
-            skill_with_agent_id("skill_c", SkillSource::Agent, ""), // no restriction
-        ]);
-        // None = no filter, all 3 returned
-        assert_eq!(r.generate_listing(None).lines().count(), 3);
-        // agent1 filter = skill_a (matches) + skill_c (no restriction)
-        let listing = r.generate_listing(Some("agent1"));
-        assert!(listing.contains("**skill_a**"));
-        assert!(listing.contains("**skill_c**"));
-        assert!(!listing.contains("**skill_b**"));
-    }
-
-    #[test]
-    fn test_generate_listing_when_to_use() {
-        let r = DiskSkillRegistry::new(vec![
-            skill_with_when_to_use("foo", SkillSource::Bundled, "Use when you need foo"),
-            skill("bar", SkillSource::Bundled), // no when_to_use
-        ]);
-        let listing = r.generate_listing(None);
-        assert!(listing.contains(" — Use when you need foo"));
-        // bar should NOT have the dash separator
-        let bar_line = listing.lines().find(|l| l.contains("**bar**")).unwrap();
-        assert!(!bar_line.contains(" — "));
-    }
-}
+#[path = "registry_tests.rs"]
+mod tests;

@@ -7,6 +7,7 @@ pub mod frontmatter;
 pub mod hot_reload;
 pub mod init;
 pub mod loader;
+pub mod path_matcher;
 pub mod registry;
 pub mod resolve;
 pub mod types;
