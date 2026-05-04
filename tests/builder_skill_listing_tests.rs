@@ -4,7 +4,9 @@ use closeclaw::skills::disk::types::{SkillContext, SkillEffort, SkillManifest, S
 use closeclaw::skills::disk::DiskSkill;
 use closeclaw::skills::DiskSkillRegistry;
 use closeclaw::system_prompt::builder::build_from_workspace;
+use closeclaw::system_prompt::sections::invalidate_all_sections;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 fn make_test_skill(name: &str, description: &str, when_to_use: &str, agent_id: &str) -> DiskSkill {
     DiskSkill {
@@ -28,6 +30,8 @@ fn make_test_skill(name: &str, description: &str, when_to_use: &str, agent_id: &
 
 #[test]
 fn test_build_from_workspace_skill_listing_injected() {
+    invalidate_all_sections();
+
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("IDENTITY.md"), "test identity").unwrap();
     std::fs::write(dir.path().join("SOUL.md"), "test soul").unwrap();
@@ -35,8 +39,9 @@ fn test_build_from_workspace_skill_listing_injected() {
 
     let skill = make_test_skill("testskill", "A test skill", "Use when testing", "eda");
     let registry = DiskSkillRegistry::new(vec![skill]);
+    let registry_arc = Arc::new(RwLock::new(Some(registry)));
 
-    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")), None);
+    let result = build_from_workspace(dir.path(), vec![], Some(registry_arc), Some("eda"), None);
 
     assert!(
         result.contains("## Available Skills"),
@@ -57,29 +62,36 @@ fn test_build_from_workspace_skill_listing_injected() {
 
 #[test]
 fn test_build_from_workspace_no_skill_info_no_section() {
+    invalidate_all_sections();
+
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("IDENTITY.md"), "test identity").unwrap();
     std::fs::write(dir.path().join("SOUL.md"), "test soul").unwrap();
     std::fs::write(dir.path().join("MEMORY.md"), "test memory").unwrap();
 
-    let result = build_from_workspace(dir.path(), vec![], None, None);
+    let result = build_from_workspace(dir.path(), vec![], None, None, None);
     assert!(!result.contains("## Available Skills"));
 }
 
 #[test]
 fn test_build_from_workspace_empty_listing_no_section() {
+    invalidate_all_sections();
+
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("IDENTITY.md"), "test identity").unwrap();
     std::fs::write(dir.path().join("SOUL.md"), "test soul").unwrap();
     std::fs::write(dir.path().join("MEMORY.md"), "test memory").unwrap();
 
     let registry = DiskSkillRegistry::new(vec![]);
-    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")), None);
+    let registry_arc = Arc::new(RwLock::new(Some(registry)));
+    let result = build_from_workspace(dir.path(), vec![], Some(registry_arc), Some("eda"), None);
     assert!(!result.contains("## Available Skills"));
 }
 
 #[test]
 fn test_build_from_workspace_skill_section_not_duplicated() {
+    invalidate_all_sections();
+
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("IDENTITY.md"), "test identity").unwrap();
     std::fs::write(dir.path().join("SOUL.md"), "test soul").unwrap();
@@ -87,8 +99,9 @@ fn test_build_from_workspace_skill_section_not_duplicated() {
 
     let skill = make_test_skill("unique_skill", "desc", "", "eda");
     let registry = DiskSkillRegistry::new(vec![skill]);
+    let registry_arc = Arc::new(RwLock::new(Some(registry)));
 
-    let result = build_from_workspace(dir.path(), vec![], Some((&registry, "eda")), None);
+    let result = build_from_workspace(dir.path(), vec![], Some(registry_arc), Some("eda"), None);
 
     let count = result.matches("## Available Skills").count();
     assert_eq!(

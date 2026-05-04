@@ -3,12 +3,12 @@
 //! Orchestrates section assembly and renders the final system prompt string.
 
 use super::sections::{
-    get_cached_section, invalidate_all_sections, invalidate_section, load_cached_file_section,
-    read_file_section, Section,
+    get_cached_section, invalidate_all_sections, load_cached_file_section, read_file_section,
+    Section,
 };
 use crate::skills::DiskSkillRegistry;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 /// Static override: if set, replaces the entire prompt
 static OVERRIDE_PROMPT: RwLock<Option<String>> = RwLock::new(None);
@@ -179,12 +179,18 @@ pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> 
 /// Reads IDENTITY.md, SOUL.md, and MEMORY.md from the workspace root
 /// and assembles them with the provided dynamic sections.
 ///
-/// The `skill_info` parameter, when provided as `Some((registry, agent_id))`,
+/// The `skill_registry` parameter, when provided as `Some(Arc(...)`,
 /// injects a `SkillListingSection` after the ToolsSection for skill discovery.
+///
+/// When `skill_registry` is an `Arc<RwLock<Option<DiskSkillRegistry>>>`, the current
+/// registry value is read at build time and used to generate the listing.
+/// Callers should populate this shared registry at startup and update it via
+/// `invalidate_skill_listing()` + `start_skill_watcher` for hot-reload support.
 pub fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     dynamic_sections: Vec<Section>,
-    skill_info: Option<(&DiskSkillRegistry, &str)>,
+    skill_registry: Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
+    agent_id: Option<&str>,
     append_section: Option<String>,
 ) -> String {
     let root = workspace_root.as_ref();
@@ -224,10 +230,15 @@ pub fn build_from_workspace<P: AsRef<Path>>(
     sections.push(Section::ToolsSection(String::new()));
 
     // Skill listing section — injected after ToolsSection, before dynamic_sections
-    if let Some((registry, agent_id)) = skill_info {
-        let listing = registry.generate_listing(Some(agent_id));
-        if !listing.is_empty() {
-            sections.push(Section::SkillListingSection(listing));
+    // Uses cache if available; regenerated on cache invalidation
+    if let Some(registry_lock) = skill_registry {
+        if let Ok(guard) = registry_lock.read() {
+            if let Some(registry) = guard.as_ref() {
+                let listing = registry.generate_listing(agent_id);
+                if !listing.is_empty() {
+                    sections.push(Section::SkillListingSection(listing));
+                }
+            }
         }
     }
 
