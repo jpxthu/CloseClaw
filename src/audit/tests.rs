@@ -161,15 +161,12 @@ mod tests {
     #[test]
     fn test_query_audit_events_empty_dir() {
         let temp_dir = TempDir::new().unwrap();
-        // Override HOME to use the empty temp dir as audit base
-        let temp_home = temp_dir.path().to_str().unwrap();
-        std::env::set_var("HOME", temp_home);
-
         let filter = AuditQueryFilter {
             days: 1,
             event_type: None,
             agent: None,
             limit: None,
+            home_dir: Some(temp_dir.path().to_path_buf()),
         };
 
         let results = query_audit_events(&filter);
@@ -180,7 +177,6 @@ mod tests {
     #[test]
     fn test_query_audit_events_max_days_cap() {
         let temp_dir = TempDir::new().unwrap();
-        std::env::set_var("HOME", temp_dir.path().to_str().unwrap());
 
         // u32::MAX should be capped to MAX_QUERY_DAYS without panicking
         let filter = AuditQueryFilter {
@@ -188,6 +184,7 @@ mod tests {
             event_type: None,
             agent: None,
             limit: None,
+            home_dir: Some(temp_dir.path().to_path_buf()),
         };
 
         // Should not panic even with u32::MAX days
@@ -231,12 +228,13 @@ mod tests {
         );
         fs::write(&log_file, content).unwrap();
 
-        // Query all
+        // Query all (not actually used since we test file-reading directly)
         let _filter_all = AuditQueryFilter {
             days: 7,
             event_type: None,
             agent: None,
             limit: None,
+            ..Default::default()
         };
 
         // Since we can't easily override HOME for query_audit_events,

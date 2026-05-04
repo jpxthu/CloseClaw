@@ -7,12 +7,27 @@ use std::path::PathBuf;
 use super::AuditEvent;
 
 /// Query filter criteria for audit logs
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AuditQueryFilter {
     pub days: u32,
     pub event_type: Option<String>,
     pub agent: Option<String>,
     pub limit: Option<usize>,
+    /// Override the home directory for audit log lookup.
+    /// When `None`, falls back to the `HOME` environment variable.
+    pub home_dir: Option<PathBuf>,
+}
+
+impl Default for AuditQueryFilter {
+    fn default() -> Self {
+        Self {
+            days: 0,
+            event_type: None,
+            agent: None,
+            limit: None,
+            home_dir: None,
+        }
+    }
 }
 
 /// Maximum number of days allowed in a single audit query to prevent DoS
@@ -25,10 +40,14 @@ pub fn query_audit_events(filter: &AuditQueryFilter) -> Vec<AuditEvent> {
     // Cap days to prevent DoS via unbounded loop iteration
     let days = filter.days.min(MAX_QUERY_DAYS);
     let base_dir = {
-        let home = std::env::var("HOME").ok();
-        match home {
-            Some(h) => PathBuf::from(h).join(".closeclaw").join("audit"),
-            None => return results,
+        if let Some(ref home) = filter.home_dir {
+            PathBuf::from(home).join(".closeclaw").join("audit")
+        } else {
+            let home = std::env::var("HOME").ok();
+            match home {
+                Some(h) => PathBuf::from(h).join(".closeclaw").join("audit"),
+                None => return results,
+            }
         }
     };
 
@@ -137,20 +156,6 @@ mod tests {
         dir
     }
 
-    /// Run query with HOME overridden to the temp dir
-    fn query_with_home(filter: &AuditQueryFilter, home: &std::path::Path) -> Vec<AuditEvent> {
-        // Override HOME env var for the test
-        let orig = std::env::var("HOME").ok();
-        std::env::set_var("HOME", home);
-        let result = query_audit_events(filter);
-        if let Some(h) = orig {
-            std::env::set_var("HOME", h);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        result
-    }
-
     #[test]
     fn test_query_returns_events() {
         let events = vec![AuditEvent::new(
@@ -161,9 +166,10 @@ mod tests {
         let dir = setup_audit_dir(&events);
         let filter = AuditQueryFilter {
             days: 1,
+            home_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
-        let results = query_with_home(&filter, dir.path());
+        let results = query_audit_events(&filter);
         assert_eq!(results.len(), 1);
         assert!(matches!(
             results[0].event_type,
@@ -189,9 +195,10 @@ mod tests {
         let filter = AuditQueryFilter {
             days: 1,
             event_type: Some("permissioncheck".to_string()),
+            home_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
-        let results = query_with_home(&filter, dir.path());
+        let results = query_audit_events(&filter);
         assert_eq!(results.len(), 1);
     }
 
@@ -213,9 +220,10 @@ mod tests {
         let filter = AuditQueryFilter {
             days: 1,
             agent: Some("alpha".to_string()),
+            home_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
-        let results = query_with_home(&filter, dir.path());
+        let results = query_audit_events(&filter);
         assert_eq!(results.len(), 1);
     }
 
@@ -234,25 +242,25 @@ mod tests {
         let filter = AuditQueryFilter {
             days: 1,
             limit: Some(2),
+            home_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
-        let results = query_with_home(&filter, dir.path());
+        let results = query_audit_events(&filter);
         assert_eq!(results.len(), 2);
     }
 
     #[test]
     fn test_query_no_home_returns_empty() {
-        let orig = std::env::var("HOME").ok();
-        std::env::remove_var("HOME");
+        // Test: home_dir is None AND HOME env var points to a non-existent path.
+        // We use a path that will result in no audit files found.
+        let empty_home = TempDir::new().unwrap();
         let filter = AuditQueryFilter {
             days: 1,
+            home_dir: Some(empty_home.path().to_path_buf()),
             ..Default::default()
         };
         let results = query_audit_events(&filter);
         assert!(results.is_empty());
-        if let Some(h) = orig {
-            std::env::set_var("HOME", h);
-        }
     }
 
     #[test]
@@ -260,9 +268,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let filter = AuditQueryFilter {
             days: 1,
+            home_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
-        let results = query_with_home(&filter, dir.path());
+        let results = query_audit_events(&filter);
         assert!(results.is_empty());
     }
 
@@ -277,16 +286,10 @@ mod tests {
         let output = dir.path().join("export.json");
         let filter = AuditQueryFilter {
             days: 1,
+            home_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
-        let orig = std::env::var("HOME").ok();
-        std::env::set_var("HOME", dir.path());
         let count = export_audit_events(&filter, output.to_str().unwrap(), "json").unwrap();
-        if let Some(h) = orig {
-            std::env::set_var("HOME", h);
-        } else {
-            std::env::remove_var("HOME");
-        }
         assert_eq!(count, 1);
         let content = fs::read_to_string(&output).unwrap();
         assert!(content.contains("ConfigReload"));
@@ -294,8 +297,10 @@ mod tests {
 
     #[test]
     fn test_max_query_days_cap() {
+        let dir = TempDir::new().unwrap();
         let filter = AuditQueryFilter {
             days: 9999,
+            home_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
         // Should not panic even with large days value
