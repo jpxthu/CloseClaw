@@ -11,7 +11,12 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::config::providers::ConfigError;
+use crate::session::compaction::CompactConfig;
 use crate::session::persistence::AgentRole;
+
+#[cfg(test)]
+#[path = "session_compact_tests.rs"]
+mod session_compact_tests;
 
 /// Default idle time in minutes before a session is considered idle
 pub const DEFAULT_IDLE_MINUTES: i64 = 30;
@@ -66,6 +71,9 @@ pub struct SessionConfig {
     /// Sweeper interval in seconds (default: 5 minutes)
     #[serde(default = "default_sweeper_interval")]
     pub sweeper_interval_secs: u64,
+    /// Compaction configuration (optional, falls back to CompactConfig::default())
+    #[serde(default)]
+    pub compact: Option<CompactConfig>,
 }
 
 fn default_sweeper_interval() -> u64 {
@@ -78,6 +86,7 @@ impl Default for SessionConfig {
             defaults: BTreeMap::new(),
             agents: BTreeMap::new(),
             sweeper_interval_secs: DEFAULT_SWEEPER_INTERVAL_SECS,
+            compact: None,
         }
     }
 }
@@ -92,6 +101,9 @@ pub trait SessionConfigProvider: Send + Sync {
 
     /// List all agent IDs that have per-agent overrides
     fn list_agents(&self) -> Vec<String>;
+
+    /// Get compaction configuration
+    fn compact_config(&self) -> CompactConfig;
 }
 
 /// JSON-based session configuration provider
@@ -223,6 +235,13 @@ impl SessionConfigProvider for JsonSessionConfigProvider {
         self.config
             .as_ref()
             .map(|c| c.agents.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn compact_config(&self) -> CompactConfig {
+        self.config
+            .as_ref()
+            .and_then(|c| c.compact.clone())
             .unwrap_or_default()
     }
 }

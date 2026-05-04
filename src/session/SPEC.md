@@ -17,7 +17,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
   - `context` — BootstrapContext 元数据容器
   - `types` — BootstrapRegion 标记结构、错误类型
 - `checkpoint_manager` — Checkpoint 持久化管理器（save/load/archive/restore/purge）
-- `compaction` — Token 估算、自动压缩阈值检测、分级警告、Circuit Breaker；为 LLM 压缩执行（#505）和 Session 集成（#507/#508）提供基础接口
+- `compaction` — Token 估算、自动压缩阈值检测、分级警告、Circuit Breaker；JSON 配置集成（#508）；为 LLM 压缩执行（#505）和 Session 集成（#507/#508）提供基础接口
 - `persistence` — Checkpoint 数据结构 + 持久化服务接口 + 本地缓存管理器
 - `events` — Checkpoint 触发时机定义（模式切换/消息发送/网关关闭/compaction）
 - `recovery` — 网关启动时从存储恢复会话

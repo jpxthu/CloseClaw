@@ -3,11 +3,14 @@
 //! Provides token estimation, auto-compaction threshold detection, and circuit breaker
 //! for LLM context window management.
 
+use serde::{Deserialize, Serialize};
+
 use crate::llm::Message;
 use crate::llm::{ChatRequest, LLMProvider};
 
 /// Configuration for compaction behavior.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactConfig {
     /// Characters per token (linear estimation coefficient).
     pub chars_per_token: f64,

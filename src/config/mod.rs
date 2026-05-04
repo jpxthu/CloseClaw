@@ -16,6 +16,7 @@ pub use manager::{
     ConfigWriteError, SafeBackupManager,
 };
 
+pub use crate::session::compaction::CompactConfig;
 pub use agents::{AgentDirectoryEntry, AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use migration::{migrate_if_needed, ConfigMigrationError};
 pub use providers::{
