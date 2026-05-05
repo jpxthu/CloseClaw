@@ -271,4 +271,153 @@ mod tests {
         let names = registry.list().await;
         assert!(names.contains(&"test-provider".to_string()));
     }
+
+    // ---------------------------------------------------------------------------
+    // Test 5: Cooldown skip — Auth failure on primary triggers 1h cooldown,
+    // second call skips primary and goes directly to fallback.
+    // ---------------------------------------------------------------------------
+
+    /// Verifies that after an AuthFailed error on the primary provider:
+    /// 1. The primary is placed in cooldown for 1 hour (Auth error cooldown)
+    /// 2. On the second call, FallbackClient skips the cooled primary
+    /// 3. The fallback provider succeeds on both calls
+    /// 4. captured_requests() confirms minimax was only called once.
+    #[tokio::test]
+    async fn test_cooldown_skip_after_auth_failure() {
+        let registry = Arc::new(LLMRegistry::new());
+
+        // Primary: always fails with AuthFailed (non-Transient → immediate fallback,
+        // no retry, triggers cooldown recording)
+        let primary = FakeProvider::builder()
+            .then_err(closeclaw::llm::LLMError::AuthFailed(
+                "credentials rejected".to_string(),
+            ))
+            .build();
+
+        // Fallback: always succeeds — use .or_else() to avoid panic after scenarios
+        // exhaust (though we only expect 2 calls, so won't exhaust here)
+        let fallback = FakeProvider::builder()
+            .then_ok("fallback-ok", "fake-openai")
+            .then_ok("fallback-ok", "fake-openai")
+            .or_else("fallback-ok")
+            .build();
+
+        // Keep strong refs so captured_requests works on the original Arc
+        let primary_ref = primary.clone();
+        let fallback_ref = fallback.clone();
+
+        registry
+            .register("fake-minimax".to_string(), Arc::new(primary))
+            .await;
+        registry
+            .register("fake-openai".to_string(), Arc::new(fallback))
+            .await;
+
+        let client = FallbackClient::new(
+            registry,
+            vec![
+                ModelEntry {
+                    provider: "fake-minimax".to_string(),
+                    model: "MiniMax-M2.7".to_string(),
+                },
+                ModelEntry {
+                    provider: "fake-openai".to_string(),
+                    model: "gpt-4o".to_string(),
+                },
+            ],
+        )
+        .with_timeout(30);
+
+        // First call: minimax fails → fallback succeeds
+        let resp1 = client
+            .chat(make_request())
+            .await
+            .expect("first call should succeed via fallback");
+        assert_eq!(resp1.content, "fallback-ok");
+        assert_eq!(resp1.model, "fake-openai");
+
+        // Second call: minimax is in cooldown → skip → fallback succeeds again
+        let resp2 = client
+            .chat(make_request())
+            .await
+            .expect("second call should succeed via fallback (primary in cooldown)");
+        assert_eq!(resp2.content, "fallback-ok");
+        assert_eq!(resp2.model, "fake-openai");
+
+        // Verify captured requests: minimax should have been called exactly once
+        // (the first call tried it and failed; the second call skipped it)
+        let captured = primary_ref.captured_requests();
+        assert_eq!(
+            captured.len(),
+            1,
+            "minimax should be called exactly once (first call), got {}",
+            captured.len()
+        );
+
+        // Verify openai was called twice (once per each call)
+        let openai_captured = fallback_ref.captured_requests();
+        assert_eq!(
+            openai_captured.len(),
+            2,
+            "openai should be called twice (once per each call), got {}",
+            openai_captured.len()
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Test 6: All providers exhausted — all models fail, verify exhausted error
+    // ---------------------------------------------------------------------------
+
+    /// Verifies that when all providers in the fallback chain fail,
+    /// FallbackClient returns an ApiError containing "exhausted".
+    #[tokio::test]
+    async fn test_all_providers_exhausted() {
+        let registry = Arc::new(LLMRegistry::new());
+
+        // Provider A: always fails with AuthFailed
+        let provider_a = FakeProvider::builder()
+            .then_err(closeclaw::llm::LLMError::AuthFailed(
+                "key rejected".to_string(),
+            ))
+            .build();
+
+        // Provider B: always fails with AuthFailed
+        let provider_b = FakeProvider::builder()
+            .then_err(closeclaw::llm::LLMError::AuthFailed(
+                "key rejected".to_string(),
+            ))
+            .build();
+
+        registry
+            .register("fake-a".to_string(), Arc::new(provider_a))
+            .await;
+        registry
+            .register("fake-b".to_string(), Arc::new(provider_b))
+            .await;
+
+        let client = FallbackClient::new(
+            registry,
+            vec![
+                ModelEntry {
+                    provider: "fake-a".to_string(),
+                    model: "model-a".to_string(),
+                },
+                ModelEntry {
+                    provider: "fake-b".to_string(),
+                    model: "model-b".to_string(),
+                },
+            ],
+        )
+        .with_timeout(30);
+
+        let err = client
+            .chat(make_request())
+            .await
+            .expect_err("all providers exhausted should return error");
+        assert!(
+            err.to_string().contains("exhausted"),
+            "error should mention exhausted, got: {}",
+            err
+        );
+    }
 }
