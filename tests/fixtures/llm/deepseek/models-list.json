@@ -1,0 +1,56 @@
+{
+  "data": [
+    {
+      "id": "deepseek-v4-flash",
+      "display_name": "DeepSeek V4 Flash",
+      "status": "online",
+      "context_window": 64000,
+      "max_output_tokens": 8192,
+      "input_modalities": ["text"],
+      "output_modalities": ["text"],
+      "pricing": {
+        "prompt": "0.001",
+        "completion": "0.004"
+      }
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "display_name": "DeepSeek V4 Pro",
+      "status": "online",
+      "context_window": 64000,
+      "max_output_tokens": 8192,
+      "input_modalities": ["text"],
+      "output_modalities": ["text"],
+      "pricing": {
+        "prompt": "0.008",
+        "completion": "0.032"
+      }
+    },
+    {
+      "id": "deepseek-chat",
+      "display_name": "DeepSeek Chat (Deprecated)",
+      "status": "deprecated",
+      "context_window": 32000,
+      "max_output_tokens": 4096,
+      "input_modalities": ["text"],
+      "output_modalities": ["text"],
+      "pricing": {
+        "prompt": "0.001",
+        "completion": "0.002"
+      }
+    },
+    {
+      "id": "deepseek-reasoner",
+      "display_name": "DeepSeek Reasoner (Deprecated)",
+      "status": "deprecated",
+      "context_window": 64000,
+      "max_output_tokens": 8192,
+      "input_modalities": ["text"],
+      "output_modalities": ["text"],
+      "pricing": {
+        "prompt": "0.001",
+        "completion": "0.002"
+      }
+    }
+  ]
+}

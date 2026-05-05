@@ -12,12 +12,16 @@ pub mod openai;
 pub mod retry;
 pub mod stub;
 
+pub mod deepseek;
+pub mod volcengine;
+
 #[cfg(feature = "fake-llm")]
 pub mod fake;
 #[cfg(feature = "fake-llm")]
 pub use fake::FakeProvider;
 
 pub use anthropic::AnthropicProvider;
+pub use deepseek::DeepSeekProvider;
 pub use glm::GlmProvider;
 pub use knowledge::{ModelRecommendParams, ProviderModelKnowledge, ReasoningLevels};
 pub use minimax::MiniMaxProvider;
@@ -25,6 +29,7 @@ pub use model_cache::{CacheEntry, ModelCache};
 pub use model_info::{InputType, ModelInfo};
 pub use openai::OpenAIProvider;
 pub use stub::StubProvider;
+pub use volcengine::VolcEngineProvider;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -110,6 +115,21 @@ pub trait LLMProvider: Send + Sync {
     /// When true, callers should treat this as a configuration error.
     fn is_stub(&self) -> bool {
         false
+    }
+
+    /// Human-readable display name for this provider.
+    /// Defaults to `self.name()`.
+    fn provider_display_name(&self) -> &str {
+        self.name()
+    }
+
+    /// Fetch the list of available models from this provider via the API.
+    /// Returns `ModelNotFound` by default, indicating the provider does not support
+    /// dynamic model discovery.
+    async fn fetch_model_list(&self, _bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        Err(LLMError::ModelNotFound(
+            "fetch_model_list not supported by this provider".to_string(),
+        ))
     }
 }
 
@@ -238,5 +258,26 @@ mod tests {
         // Registry should start empty
         let providers = registry.list().await;
         assert!(providers.is_empty());
+    }
+
+    // Test default implementations for new trait methods added in issue #525.
+    // provider_display_name defaults to name(); fetch_model_list defaults to ModelNotFound.
+    // All concrete providers (MiniMax, GLM, OpenAI, Anthropic, Stub, Fake) use these
+    // defaults, so we verify the defaults via StubProvider.
+
+    #[tokio::test]
+    async fn test_provider_display_name_default() {
+        let provider = StubProvider::new();
+        // Default impl of provider_display_name returns self.name()
+        assert_eq!(provider.provider_display_name(), provider.name());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_model_list_default_returns_model_not_found() {
+        let provider = StubProvider::new();
+        let result = provider.fetch_model_list("fake-token").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LLMError::ModelNotFound(_)));
     }
 }

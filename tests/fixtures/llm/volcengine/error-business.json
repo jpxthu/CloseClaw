@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "1103",
+    "message": "Model not found: unknown-model"
+  }
+}

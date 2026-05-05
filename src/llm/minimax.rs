@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
+use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, Usage};
 
 #[path = "minimax_stream.rs"]
 pub(crate) mod minimax_stream;
@@ -75,6 +75,30 @@ struct MiniMaxCompletionTokensDetails {
 struct MiniMaxBaseResp {
     status_code: i32,
     status_msg: String,
+}
+
+// ---------------------------------------------------------------------------//
+// MiniMax /models API types                                                 //
+// ---------------------------------------------------------------------------//
+
+/// Response from GET /v1/models (MiniMax model list API, OpenAI-compatible)
+#[derive(Debug, Deserialize)]
+struct MiniMaxModelsResponse {
+    data: Vec<MiniMaxModel>,
+    #[serde(default)]
+    object: String,
+}
+
+/// A single model entry from the /models API
+#[derive(Debug, Deserialize)]
+struct MiniMaxModel {
+    id: String,
+    #[serde(default)]
+    object: String,
+    #[serde(default)]
+    created: u64,
+    #[serde(default)]
+    owned_by: String,
 }
 
 pub struct MiniMaxProvider {
@@ -154,6 +178,69 @@ impl LLMProvider for MiniMaxProvider {
         vec!["MiniMax-M2", "MiniMax-M2.1", "MiniMax-M2.5", "MiniMax-M2.7"]
     }
 
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        // MiniMax /v1/models uses OpenAI-compatible format.
+        // The base_url is the chat endpoint; strip /chat/completions if present.
+        let base = self
+            .base_url
+            .trim_end_matches("/chat/completions")
+            .trim_end_matches("/v1");
+        let url = format!("{}/v1/models", base);
+
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", bearer_token))
+            .send()
+            .await
+            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
+        }
+
+        let api_resp: MiniMaxModelsResponse = response.json().await.map_err(|e| {
+            LLMError::ApiError(format!("failed to parse MiniMax /models response: {}", e))
+        })?;
+
+        let models: Vec<ModelInfo> = api_resp
+            .data
+            .into_iter()
+            .map(|m| {
+                use crate::llm::InputType;
+                let model_id = m.id.clone();
+                // Look up knowledge base for metadata; safe defaults if not found.
+                let kb = crate::llm::ProviderModelKnowledge::new();
+                let params = kb.find("minimax", &model_id);
+                let (context_window, max_tokens, default_temperature, reasoning, input_types) =
+                    match params {
+                        Some(p) => (
+                            p.context_window,
+                            p.max_tokens,
+                            Some(p.default_temperature),
+                            p.reasoning,
+                            p.input_types,
+                        ),
+                        None => (32_768, 8_192, Some(0.7), false, vec![InputType::Text]),
+                    };
+                ModelInfo {
+                    id: model_id.clone(),
+                    name: format!("MiniMax {}", model_id.trim_start_matches("MiniMax-")),
+                    context_window,
+                    max_tokens,
+                    default_temperature,
+                    // reasoning: we cannot determine from /models alone, use KB default
+                    reasoning,
+                    input_types,
+                }
+            })
+            .collect();
+
+        Ok(models)
+    }
+
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
         let req_body = MiniMaxRequest {
             model: &request.model,
@@ -225,236 +312,5 @@ impl LLMProvider for MiniMaxProvider {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // --- Fixture-based deserialization and content extraction tests ---
-
-    #[test]
-    fn test_simple_chat_deserialize_and_extract() {
-        // simple-chat.json: content="", reasoning_content non-empty → extract reasoning_content
-        let json = include_str!("../../tests/fixtures/llm/minimax/simple-chat.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
-        let msg = &choice.message;
-        let extracted = MiniMaxProvider::extract_content(msg);
-        // The visible reply is in reasoning_content (content is empty)
-        assert!(
-            !extracted.is_empty(),
-            "Expected non-empty extracted content from reasoning_content"
-        );
-        assert_eq!(extracted, msg.reasoning_content.as_ref().unwrap().trim());
-    }
-
-    #[test]
-    fn test_m2_her_chat_deserialize_and_extract() {
-        // m2-her-chat.json: content non-empty, no reasoning_content → extract content
-        let json = include_str!("../../tests/fixtures/llm/minimax/m2-her-chat.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
-        let msg = &choice.message;
-        let extracted = MiniMaxProvider::extract_content(msg);
-        assert!(
-            !msg.content.trim().is_empty(),
-            "m2-her fixture should have non-empty content"
-        );
-        assert_eq!(extracted, msg.content.trim());
-        assert!(
-            msg.reasoning_content.is_none() || msg.reasoning_content.as_ref().unwrap().is_empty()
-        );
-    }
-
-    #[test]
-    fn test_reasoning_heavy_deserialize_and_extract() {
-        // reasoning-heavy.json: both content and reasoning_content non-empty → extract content
-        let json = include_str!("../../tests/fixtures/llm/minimax/reasoning-heavy.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
-        let msg = &choice.message;
-        let extracted = MiniMaxProvider::extract_content(msg);
-        assert!(
-            !msg.content.trim().is_empty(),
-            "reasoning-heavy fixture should have non-empty content"
-        );
-        // content takes priority when non-empty
-        assert_eq!(extracted, msg.content.trim());
-    }
-
-    #[test]
-    fn test_error_auth() {
-        // error-auth.json: status_code=1004 → AuthFailed
-        let json = include_str!("../../tests/fixtures/llm/minimax/error-auth.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.base_resp.is_some());
-        let base_resp = resp.base_resp.unwrap();
-        assert_eq!(base_resp.status_code, 1004);
-        let err =
-            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
-        matches!(err, LLMError::AuthFailed(msg) if msg.contains("login fail"));
-    }
-
-    #[test]
-    fn test_error_invalid_model() {
-        // error-invalid-model.json: status_code=2013 + "unknown model" → ModelNotFound
-        let json = include_str!("../../tests/fixtures/llm/minimax/error-invalid-model.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.base_resp.is_some());
-        let base_resp = resp.base_resp.unwrap();
-        assert_eq!(base_resp.status_code, 2013);
-        let err =
-            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
-        matches!(
-            err,
-            LLMError::ModelNotFound(msg) if msg.contains("unknown model")
-        );
-    }
-
-    #[test]
-    fn test_error_empty_messages() {
-        // error-empty-messages.json: status_code=2013 + "messages is empty" → InvalidRequest
-        let json = include_str!("../../tests/fixtures/llm/minimax/error-empty-messages.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.base_resp.is_some());
-        let base_resp = resp.base_resp.unwrap();
-        assert_eq!(base_resp.status_code, 2013);
-        let err =
-            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
-        matches!(
-            err,
-            LLMError::InvalidRequest(msg) if msg.contains("messages is empty")
-        );
-    }
-
-    #[test]
-    fn test_error_missing_model() {
-        // error-missing-model.json: status_code=2013 + "missing required parameter" → InvalidRequest
-        let json = include_str!("../../tests/fixtures/llm/minimax/error-missing-model.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.base_resp.is_some());
-        let base_resp = resp.base_resp.unwrap();
-        assert_eq!(base_resp.status_code, 2013);
-        let err =
-            MiniMaxProvider::map_base_resp_error(base_resp.status_code, &base_resp.status_msg);
-        matches!(
-            err,
-            LLMError::InvalidRequest(msg) if msg.contains("missing required parameter")
-        );
-    }
-
-    // --- Completion tokens details ---
-
-    #[test]
-    fn test_completion_tokens_details_present() {
-        // simple-chat.json has completion_tokens_details with reasoning_tokens
-        let json = include_str!("../../tests/fixtures/llm/minimax/simple-chat.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        let usage = resp.usage.unwrap();
-        assert!(usage.completion_tokens_details.is_some());
-        let details = usage.completion_tokens_details.unwrap();
-        assert_eq!(details.reasoning_tokens, Some(50));
-    }
-
-    #[test]
-    fn test_completion_tokens_details_absent() {
-        // m2-her-chat.json does NOT have completion_tokens_details
-        let json = include_str!("../../tests/fixtures/llm/minimax/m2-her-chat.json");
-        let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-        let usage = resp.usage.unwrap();
-        assert!(usage.completion_tokens_details.is_none());
-    }
-
-    // --- map_status_error: HTTP status code branches ---
-
-    #[test]
-    fn test_map_status_error_403() {
-        let err = MiniMaxProvider::map_status_error(
-            reqwest::StatusCode::FORBIDDEN,
-            "forbidden".to_string(),
-        );
-        matches!(err, LLMError::AuthFailed(msg) if msg == "forbidden");
-    }
-
-    #[test]
-    fn test_map_status_error_404() {
-        let err = MiniMaxProvider::map_status_error(
-            reqwest::StatusCode::NOT_FOUND,
-            "not found".to_string(),
-        );
-        matches!(err, LLMError::ModelNotFound(msg) if msg == "not found");
-    }
-
-    #[test]
-    fn test_map_status_error_422() {
-        let err = MiniMaxProvider::map_status_error(
-            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
-            "validation error".to_string(),
-        );
-        matches!(err, LLMError::InvalidRequest(msg) if msg == "validation error");
-    }
-
-    #[test]
-    fn test_map_status_error_429() {
-        let err = MiniMaxProvider::map_status_error(
-            reqwest::StatusCode::TOO_MANY_REQUESTS,
-            "rate limit".to_string(),
-        );
-        matches!(err, LLMError::RateLimitExceeded);
-    }
-
-    #[test]
-    fn test_map_status_error_other() {
-        let err = MiniMaxProvider::map_status_error(
-            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-            "internal error".to_string(),
-        );
-        matches!(err, LLMError::ApiError(msg) if msg.contains("500") && msg.contains("internal error"));
-    }
-
-    // --- extract_content: empty/whitespace edge cases ---
-
-    #[test]
-    fn test_extract_content_both_empty() {
-        let msg = MiniMaxMessage {
-            role: "assistant".to_string(),
-            content: "".to_string(),
-            reasoning_content: None,
-        };
-        let extracted = MiniMaxProvider::extract_content(&msg);
-        assert_eq!(extracted, "");
-    }
-
-    #[test]
-    fn test_extract_content_whitespace_only_content() {
-        let msg = MiniMaxMessage {
-            role: "assistant".to_string(),
-            content: "   \n\t  ".to_string(),
-            reasoning_content: Some("reasoning".to_string()),
-        };
-        let extracted = MiniMaxProvider::extract_content(&msg);
-        // whitespace-only content should fall back to reasoning_content
-        assert_eq!(extracted, "reasoning");
-    }
-
-    #[test]
-    fn test_extract_content_whitespace_only_reasoning_content() {
-        let msg = MiniMaxMessage {
-            role: "assistant".to_string(),
-            content: "".to_string(),
-            reasoning_content: Some("   \n\t  ".to_string()),
-        };
-        let extracted = MiniMaxProvider::extract_content(&msg);
-        // whitespace-only reasoning_content should also yield empty
-        assert_eq!(extracted, "");
-    }
-
-    #[test]
-    fn test_extract_content_whitespace_trimmed() {
-        let msg = MiniMaxMessage {
-            role: "assistant".to_string(),
-            content: "  Hello  ".to_string(),
-            reasoning_content: None,
-        };
-        let extracted = MiniMaxProvider::extract_content(&msg);
-        assert_eq!(extracted, "Hello");
-    }
-}
+#[path = "tests.rs"]
+mod tests;

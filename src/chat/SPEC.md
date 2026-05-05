@@ -32,11 +32,13 @@
 
 ### session.rs
 
-- **`ChatSession::new()`** — 构造 session；从环境变量初始化 fallback_client、max_history、timeout
+- **`ChatSession::new()`** — 构造 session；从环境变量初始化 fallback_client、max_history、timeout；初始化 `CompactionService`
 - **`ChatSession::run()`** — 主事件循环：读客户端消息 → 分发处理 → 写回响应；并监听 shutdown 信号
-- **`ChatSession::handle_line()`** — 解析 ClientMessage，分发 ChatStart/ChatMessage/ChatStop
-- **`ChatSession::handle_chat_message()`** — 处理 ChatMessage：追加历史 → 截断 → 调用 LLM → 返回响应消息
+- **`ChatSession::handle_line()`** — 解析 ClientMessage，分发 ChatStart/ChatMessage/ChatStop；`ChatMessage` 中 content 以 `/compact` 开头时路由至 `handle_compact_command`
+- **`ChatSession::handle_chat_message()`** — 处理 ChatMessage：追加历史 → 截断 → 自动压缩检测 → 调用 LLM → 返回响应消息
 - **`ChatSession::truncate_history()`** — 裁剪 chat_history 到 max_history 条
+- **`ChatSession::handle_compact_command()`** — 执行手动压缩：解析 `/compact` 命令 → 调用 `execute_compact` → 替换 history 为 boundary message → 返回压缩统计
+- **`ChatSession::should_auto_compact_and_execute()`** — 检测 token 阈值是否达到自动压缩条件；若达到则执行压缩并替换 history
 
 #### 测试可见字段/方法（供测试访问）
 
@@ -45,6 +47,8 @@ session.rs 内 `#[cfg(test)] mod tests` 需要访问以下私有逻辑，设为 
 - **`chat_history: Vec<Message>`**（pub）— 会话消息历史，测试直接构造和断言
 - **`max_history: usize`**（pub）— 最大历史条数，测试直接修改以覆盖边界条件
 - **`truncate_history()`**（pub）— 测试直接调用验证截断行为
+- **`handle_line()`**（pub(crate)）— 测试直接调用验证消息分发行为
+- **`should_auto_compact_and_execute()`**（pub(crate)）— 测试直接调用验证自动压缩逻辑
 
 #### 测试覆盖
 
@@ -57,7 +61,14 @@ session.rs 内 `#[cfg(test)] mod tests` 需要访问以下私有逻辑，设为 
 | `test_handle_line_invalid_json` | 非法 JSON → 返回 ChatError |
 | `test_send_message_writes_json` | send_message 写入合法 JSON + 换行 |
 | `test_chat_session_new_fields` | new() 构造后 session_id、agent_id、model、max_history 字段正确 |
-| `test_handle_chat_message_llm_failure`（fake-llm） | LLM 返回错误时返回含 `[error]` 的 ChatResponse |
+| `test_auto_compact_triggers_at_threshold`（fake-llm） | 消息 token 达到自动压缩阈值时触发压缩，history 被替换为 boundary system message |
+| `test_auto_compact_not_triggered_below_threshold`（fake-llm） | 消息 token 未达阈值时不触发，chat_history 保持不变 |
+| `test_auto_compact_circuit_breaker`（fake-llm） | 连续失败达到上限后 circuit breaker 生效，不再触发自动压缩 |
+| `test_auto_compact_failure_does_not_block`（fake-llm） | 压缩失败后正常返回 LLM 响应，不阻塞消息流程 |
+| `test_manual_compact_basic`（fake-llm） | `/compact` 基本压缩功能，替换 history 为 boundary message |
+| `test_manual_compact_with_instructions`（fake-llm） | `/compact [指令]` 携带自定义指令执行压缩（字段已定义，逻辑待完善） |
+| `test_manual_compact_failure`（fake-llm） | 压缩失败时返回 `[error]` 友好错误消息 |
+| `test_manual_compact_does_not_add_to_history`（fake-llm） | `/compact` 命令不追加用户消息到 chat_history |
 | `test_full_session_lifecycle`（tests/） | 完整 TCP 交互：ChatStart → ChatMessage → ChatStop |
 | `test_session_shutdown_signal`（tests/） | shutdown 信号 → 收到 ChatError("server shutting down") |
 
@@ -85,11 +96,17 @@ ClientMessage ──► ChatSession::handle_line
                         │
                         ├─ ChatMessage ──► handle_chat_message()
                         │                   ──► append user to history → truncate_history()
+                        │                   ──► should_auto_compact_and_execute() ──► [auto-compact]
+                        │                       └─► true: execute_compact → replace history with boundary msg
+                        │                       └─► false: continue
                         │                   ──► call_llm() via FallbackClient
                         │                   ──► append assistant to history
                         │                   ──► ChatResponse + ChatResponseDone
                         │
-                        └─ ChatStop ──► active = false  ──► ChatResponseDone
+                        └─ `/compact`  ──► handle_compact_command()
+                                            ──► execute_compact(custom_instructions=None, is_auto=false)
+                                            ──► replace history with boundary message
+                                            ──► ChatResponse(压缩统计) + ChatResponseDone
 
 ChatSession::send_message
     │

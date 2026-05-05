@@ -50,7 +50,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 
 - **`LLMRegistry::new`** — 创建空注册中心
 - **`LLMProvider::new`** — 构造 Provider 实例（MimMax、OpenAI、Anthropic、Stub 各有）
-- **`OpenAIProvider::new_with_base_url`** — 以自定义 base URL 构造 OpenAI Provider 实例（用于测试环境注入 mock server）
+- **`OpenAIProvider::new_with_base_url(api_key: String, base_url: &str)`** — 以自定义 base URL 构造 OpenAI Provider 实例（用于测试环境注入 mock server）
 - **`GlmProvider::new`** — 构造 GlmProvider 实例（使用默认 GLM API URL）
 - **`GlmProvider::with_base_url`** — 以自定义 base URL 构造 GlmProvider 实例（用于测试环境注入 mock server）
 - **`FakeProvider::new`** — 构造无场景的 `FakeProvider`（首次调用必然 panic，用于严格测试）
@@ -78,11 +78,13 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 
 - **`LLMRegistry::get** — 按名字查找已注册的 Provider
 - **`LLMRegistry::list** — 列出所有已注册 Provider 名字
-- **`LLMProvider::models** — 返回该 Provider 支持的模型列表
+- **`LLMProvider::models** — 返回该 Provider 支持的模型列表（各 Provider 内部 hardcode 返回）
 - **`LLMProvider::name** — 返回 Provider 名称
 - **`LLMProvider::is_stub** — 返回该 Provider 是否为 stub（默认 false）
+- **`LLMProvider::provider_display_name`** — 返回人类可读的 Provider 显示名称（如 "VolcEngine"、"DeepSeek"），默认返回 `name()`
+- **`LLMProvider::fetch_model_list`** — 从 Provider API 获取可用模型列表，返回 `Vec<ModelInfo>`；默认返回 `ModelNotFound` 表示不支持动态发现；各 Provider 可 override：MiniMax/GLM 通过知识库补充 reasoning 标记，VolcEngine/DeepSeek 从 `/models` API 解析
 - **`LLMError::kind** — 将错误分类为 ErrorKind
-- **`GlmProvider::fetch_usage`** — 查询 GLM Usage/Quota API，返回 `GlmQuotaResponse`（limits、usage、remaining 等配额信息）
+- **`GlmProvider::fetch_usage`** — 查询 GLM Usage/Quota API，返回 `GlmQuotaResponse`（limits、usage、remaining 等配额信息）；`fetch_usage` 接收的 `base_url` 应为 GLM API 根 URL（如 `https://open.bigmodel.cn/api`），方法内部追加 `/paas/quota`
 - **`GlmProvider::models** — 返回该 Provider 支持的模型列表
 - **`GlmProvider::name** — 返回 Provider 名称
 - **`FakeProvider::captured_requests`** — 返回所有已捕获请求（不消费）
@@ -125,6 +127,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `openai.rs` | OpenAI Chat Completions API adapter |
 | `anthropic.rs` | Anthropic API adapter（当前为 stub） |
 | `stub.rs` | 测试用固定响应 Provider |
+| `volcengine.rs` | VolcEngine（火山方舟）Chat Completions API adapter。`provider_display_name` 返回 "VolcEngine"；`fetch_model_list` GET `/models`（火山方舟格式），按 `domain=="LLM"` 且 `status` 非 Shutdown/Retiring 过滤，`reasoning` 保守设为 false。 |
+| `deepseek.rs` | DeepSeek Chat Completions API adapter。`provider_display_name` 返回 "DeepSeek"；`fetch_model_list` GET `/models`（OpenAI 兼容格式），按 `status` 非 deprecated/shutdown 过滤，`reasoning` 保守设为 false。 |
 | `fake.rs` | `FakeProvider`：场景编排 Provider，支持 Ok/Err/Delay 场景、FIFO 消耗、请求捕获（feature `fake-llm`） |
 | `fallback.rs` | FallbackClient：两层重试（内层同模型指数退避、外层模型切换） |
 | `retry.rs` | CooldownManager：按 (provider, model) 分组的冷却持久化；backoff_delay 计算 |

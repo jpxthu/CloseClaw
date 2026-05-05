@@ -111,7 +111,8 @@ decide_mode(user_input)
 | `/direct` | 切换到 Direct 模式 |
 | `/think` | 切换到 Hidden 模式 |
 | `/mode [arg]` | 无参数返回用法提示；有参数切换到指定模式 |
-| `/compact` | 返回上下文压缩占位结果 `{before:0, after:0}`，实际压缩由调用方实现 |
+| `/compact [指令]` | 执行上下文压缩，可选附带自定义指令；返回占位结果 `{before:0, after:0}`，实际压缩由调用方（ChatSession）执行 |
+| `/compact` | 无参数时返回 `{before:0, after:0}`，调用方（ChatSession）执行实际压缩 |
 | `/help` | 返回帮助文本 |
 | 未知指令 | 返回 `SlashCommandResult::Unknown` |
 

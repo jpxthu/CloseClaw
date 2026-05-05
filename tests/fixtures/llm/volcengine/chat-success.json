@@ -1,0 +1,20 @@
+{
+  "id": "chatcmpl-volc-test-001",
+  "model": "doubao-1.5-pro",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! I'm doing well, thank you for asking."
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 9,
+    "total_tokens": 21
+  },
+  "created": 1715000000
+}
