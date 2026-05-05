@@ -43,6 +43,9 @@ pub enum SkillContext {
         /// Agent identifier.
         agent_id: String,
     },
+    /// Skill signals a fork: the caller should execute it in an
+    /// isolated sub-agent rather than inline.
+    Fork,
 }
 
 /// Effort level required to execute a skill.
@@ -187,6 +190,12 @@ mod tests {
             agent_id: "my-agent".to_string(),
         };
         assert!(matches!(ctx, SkillContext::Agent { .. }));
+    }
+
+    #[test]
+    fn test_skill_context_fork() {
+        let ctx = SkillContext::Fork;
+        assert!(matches!(ctx, SkillContext::Fork));
     }
 
     #[test]

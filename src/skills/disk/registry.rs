@@ -81,6 +81,36 @@ impl DiskSkillRegistry {
             .collect()
     }
 
+    /// Returns all conditional skills (those with non-empty `paths`) that
+    /// match any of the given file paths, sorted by [`SkillSource`] priority
+    /// (Bundled > ExtraDirs > Global > Agent > Project) with deduplication
+    /// by name (higher-priority skill wins).
+    ///
+    /// Returns an empty vec when `paths` is empty or no conditional skills match.
+    pub fn find_matching_skills(&self, paths: &[&Path]) -> Vec<&DiskSkill> {
+        if paths.is_empty() {
+            return Vec::new();
+        }
+        let mut matched: Vec<&DiskSkill> = self
+            .skills
+            .iter()
+            .filter(|s| {
+                if s.manifest.paths.is_empty() {
+                    return false;
+                }
+                let matcher = match PathMatcher::new(&s.manifest.paths) {
+                    Ok(m) => m,
+                    Err(_) => return false,
+                };
+                paths.iter().any(|p| matcher.matches(p))
+            })
+            .collect();
+        matched.sort_by_key(|s| s.source);
+        let mut seen = std::collections::HashMap::new();
+        matched.retain(|s| seen.insert(s.manifest.name.clone(), s.source).is_none());
+        matched
+    }
+
     /// Returns all skills that originated from the given source.
     pub fn filter_by_source(&self, source: SkillSource) -> Vec<&DiskSkill> {
         self.skills.iter().filter(|s| s.source == source).collect()

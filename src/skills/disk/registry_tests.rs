@@ -372,74 +372,12 @@ fn test_generate_listing_conditional_annotation_mixed() {
 
 #[test]
 fn test_generate_listing_conditional_with_agent_id_filter() {
-    let s1 = DiskSkill {
-        source: SkillSource::Agent,
-        manifest: SkillManifest {
-            name: "agent1-cond".into(),
-            description: "desc".into(),
-            allowed_tools: vec![],
-            when_to_use: String::new(),
-            context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: "agent1".into(),
-            effort: SkillEffort::default(),
-            paths: vec!["**/*.rs".into()],
-            user_invocable: false,
-        },
-        readme_path: PathBuf::from("/skills/agent1-cond/SKILL.md"),
-        skill_dir: PathBuf::from("/skills/agent1-cond"),
-    };
-    let s2 = DiskSkill {
-        source: SkillSource::Agent,
-        manifest: SkillManifest {
-            name: "any-cond".into(),
-            description: "desc".into(),
-            allowed_tools: vec![],
-            when_to_use: String::new(),
-            context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
-            effort: SkillEffort::default(),
-            paths: vec!["**/*.md".into()],
-            user_invocable: false,
-        },
-        readme_path: PathBuf::from("/skills/any-cond/SKILL.md"),
-        skill_dir: PathBuf::from("/skills/any-cond"),
-    };
-    let s3 = DiskSkill {
-        source: SkillSource::Agent,
-        manifest: SkillManifest {
-            name: "agent2-cond".into(),
-            description: "desc".into(),
-            allowed_tools: vec![],
-            when_to_use: String::new(),
-            context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: "agent2".into(),
-            effort: SkillEffort::default(),
-            paths: vec!["**/*.toml".into()],
-            user_invocable: false,
-        },
-        readme_path: PathBuf::from("/skills/agent2-cond/SKILL.md"),
-        skill_dir: PathBuf::from("/skills/agent2-cond"),
-    };
-    let s4 = DiskSkill {
-        source: SkillSource::Agent,
-        manifest: SkillManifest {
-            name: "plain".into(),
-            description: "desc".into(),
-            allowed_tools: vec![],
-            when_to_use: String::new(),
-            context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
-            effort: SkillEffort::default(),
-            paths: vec![],
-            user_invocable: false,
-        },
-        readme_path: PathBuf::from("/skills/plain/SKILL.md"),
-        skill_dir: PathBuf::from("/skills/plain"),
-    };
+    let mut s1 = skill_with_paths("agent1-cond", SkillSource::Agent, vec!["**/*.rs".into()]);
+    s1.manifest.agent_id = "agent1".into();
+    let s2 = skill_with_paths("any-cond", SkillSource::Agent, vec!["**/*.md".into()]);
+    let mut s3 = skill_with_paths("agent2-cond", SkillSource::Agent, vec!["**/*.toml".into()]);
+    s3.manifest.agent_id = "agent2".into();
+    let s4 = skill("plain", SkillSource::Agent);
 
     let r = DiskSkillRegistry::new(vec![s1, s2, s3, s4]);
 
@@ -464,4 +402,72 @@ fn test_generate_listing_conditional_with_agent_id_filter() {
     // plain has no annotation
     let plain_line = listing.lines().find(|l| l.contains("**plain**")).unwrap();
     assert!(!plain_line.contains("⚡"));
+}
+
+// --- find_matching_skills tests ---
+
+#[test]
+fn test_find_matching_skills_basic_and_edge_cases() {
+    let rs = vec![skill_with_paths(
+        "s",
+        SkillSource::Bundled,
+        vec!["**/*.rs".into()],
+    )];
+    let r = DiskSkillRegistry::new(rs);
+    assert!(r.find_matching_skills(&[]).is_empty()); // empty input
+    assert!(r.find_matching_skills(&[Path::new("a.ts")]).is_empty()); // no match
+    assert!(DiskSkillRegistry::new(vec![])
+        .find_matching_skills(&[Path::new("a.rs")])
+        .is_empty()); // empty reg
+    assert!(
+        DiskSkillRegistry::new(vec![skill("a", SkillSource::Bundled)])
+            .find_matching_skills(&[Path::new("a.rs")])
+            .is_empty()
+    ); // no cond
+    let r2 = DiskSkillRegistry::new(vec![
+        skill_with_paths("rs", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("md", SkillSource::Bundled, vec!["**/*.md".into()]),
+    ]);
+    let m = r2.find_matching_skills(&[Path::new("a.rs")]);
+    assert_eq!(m.len(), 1);
+    assert_eq!(m[0].manifest.name, "rs");
+    assert!(r2.find_matching_skills(&[Path::new("a.ts")]).is_empty());
+}
+
+#[test]
+fn test_find_matching_skills_priority_dedup_mixed() {
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("low", SkillSource::Project, vec!["**/*.rs".into()]),
+        skill_with_paths("high", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("mid", SkillSource::Global, vec!["**/*.rs".into()]),
+    ]);
+    let m = r.find_matching_skills(&[Path::new("a.rs")]);
+    assert_eq!(
+        m.iter()
+            .map(|s| s.manifest.name.as_str())
+            .collect::<Vec<_>>(),
+        ["high", "mid", "low"]
+    );
+    // dedup: same name, higher priority wins
+    let r2 = DiskSkillRegistry::new(vec![
+        skill_with_paths("x", SkillSource::Project, vec!["**/*.rs".into()]),
+        skill_with_paths("x", SkillSource::Bundled, vec!["**/*.rs".into()]),
+    ]);
+    let m2 = r2.find_matching_skills(&[Path::new("a.rs")]);
+    assert_eq!(m2.len(), 1);
+    assert_eq!(m2[0].source, SkillSource::Bundled);
+    // mixed + invalid glob skipped
+    let r3 = DiskSkillRegistry::new(vec![
+        skill_with_paths("rs", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("md", SkillSource::Bundled, vec!["**/*.md".into()]),
+        skill_with_paths("bad", SkillSource::Global, vec!["[invalid".into()]),
+        skill("plain", SkillSource::Bundled),
+    ]);
+    let m3 = r3.find_matching_skills(&[Path::new("a.rs"), Path::new("a.md")]);
+    assert_eq!(
+        m3.iter()
+            .map(|s| s.manifest.name.as_str())
+            .collect::<Vec<_>>(),
+        ["rs", "md"]
+    );
 }
