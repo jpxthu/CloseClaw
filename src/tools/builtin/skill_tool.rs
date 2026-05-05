@@ -4,6 +4,7 @@
 //! reading its SKILL.md file, and returning the content as a meta message
 //! to be injected into the agent context.
 
+use crate::skills::disk::types::SkillContext;
 use crate::skills::disk::DiskSkillRegistry;
 use crate::tools::{
     ContextModifier, Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult,
@@ -113,17 +114,46 @@ impl Tool for SkillTool {
             })
         };
 
-        Ok(ToolResult {
-            data: serde_json::json!({
-                "skill_name": skill_name,
-                "status": "loaded"
+        // Determine execution_mode from context type
+        match &skill.manifest.context {
+            SkillContext::Inline => Ok(ToolResult {
+                data: serde_json::json!({
+                    "skill_name": skill_name,
+                    "status": "loaded",
+                    "execution_mode": "inline"
+                }),
+                new_messages: vec![ToolMessage {
+                    content: readme_content,
+                    is_meta: true,
+                }],
+                context_modifier,
             }),
-            new_messages: vec![ToolMessage {
-                content: readme_content,
-                is_meta: true,
-            }],
-            context_modifier,
-        })
+            SkillContext::Agent { agent_id } => Ok(ToolResult {
+                data: serde_json::json!({
+                    "skill_name": skill_name,
+                    "status": "loaded",
+                    "execution_mode": "agent",
+                    "agent_id": agent_id
+                }),
+                new_messages: vec![ToolMessage {
+                    content: readme_content,
+                    is_meta: true,
+                }],
+                context_modifier,
+            }),
+            SkillContext::Fork => Ok(ToolResult {
+                data: serde_json::json!({
+                    "skill_name": skill_name,
+                    "status": "loaded",
+                    "execution_mode": "fork"
+                }),
+                new_messages: vec![ToolMessage {
+                    content: readme_content,
+                    is_meta: true,
+                }],
+                context_modifier,
+            }),
+        }
     }
 }
 
@@ -279,7 +309,7 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[tokio::test]
-    async fn test_call_normal_with_empty_allowed_tools() {
+    async fn test_call_inline_mode() {
         let temp = TempDir::new().unwrap();
         let readme_path = temp.path().join("SKILL.md");
         let skill_content =
@@ -297,10 +327,56 @@ mod tests {
 
         assert_eq!(result.data["skill_name"], "testskill");
         assert_eq!(result.data["status"], "loaded");
+        assert_eq!(result.data["execution_mode"], "inline");
         assert_eq!(result.new_messages.len(), 1);
         assert!(result.new_messages[0].is_meta);
         assert_eq!(result.new_messages[0].content, skill_content);
         assert!(result.context_modifier.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_call_agent_mode() {
+        let temp = TempDir::new().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        let skill_content = "---\ndescription: An agent skill\n---\n\n# Agent Skill\n";
+        std::fs::write(&readme_path, skill_content).unwrap();
+
+        let mut skill = make_skill("agentskill", vec![], readme_path);
+        skill.manifest.context = SkillContext::Agent {
+            agent_id: "my-agent".to_string(),
+        };
+        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(registry);
+
+        let result = tool
+            .call(serde_json::json!({"skill_name": "agentskill"}), &new_ctx())
+            .await
+            .unwrap();
+
+        assert_eq!(result.data["execution_mode"], "agent");
+        assert_eq!(result.data["agent_id"], "my-agent");
+    }
+
+    #[tokio::test]
+    async fn test_call_fork_mode() {
+        let temp = TempDir::new().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        let skill_content = "---\ndescription: A fork skill\n---\n\n# Fork Skill\n";
+        std::fs::write(&readme_path, skill_content).unwrap();
+
+        let mut skill = make_skill("forkskill", vec![], readme_path);
+        skill.manifest.context = SkillContext::Fork;
+        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(registry);
+
+        let result = tool
+            .call(serde_json::json!({"skill_name": "forkskill"}), &new_ctx())
+            .await
+            .unwrap();
+
+        assert_eq!(result.data["execution_mode"], "fork");
+        assert_eq!(result.data["skill_name"], "forkskill");
+        assert_eq!(result.data["status"], "loaded");
     }
 
     #[tokio::test]
@@ -326,5 +402,6 @@ mod tests {
         assert!(result.context_modifier.is_some());
         let cm = result.context_modifier.unwrap();
         assert_eq!(cm.allowed_tools, vec!["ReadTool", "WriteTool"]);
+        assert_eq!(result.data["execution_mode"], "inline");
     }
 }
