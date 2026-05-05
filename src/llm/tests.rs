@@ -7,9 +7,9 @@ mod tests {
     use crate::llm::{
         minimax::minimax_stream::{
             extract_message_text, parse_sse_line, parse_stream_chunk, process_buffer,
-            process_chunk, ChatStreamChunk, MiniMaxStreamChunk, MiniMaxStreamMessage,
+            process_chunk, MiniMaxStreamChunk, MiniMaxStreamMessage,
         },
-        LLMError, MiniMaxProvider,
+        ChatStreamChunk, LLMError, MiniMaxProvider,
     };
 
     // --- SSE line parsing ---
