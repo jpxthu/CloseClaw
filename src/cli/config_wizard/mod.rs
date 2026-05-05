@@ -446,7 +446,7 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         credential: out_credential.clone(),
         selected_models: out_selected_models.clone(),
     }) {
-        ederr!("[ERROR] Failed to write config: {}", e);
+        eprintln!("[ERROR] Failed to write config: {}", e);
         anyhow::bail!("write_wizard_config failed: {}", e);
     }
 
