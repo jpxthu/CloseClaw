@@ -205,3 +205,66 @@ fn test_glm_5_1_reasoning_tokens_details() {
     let prompt_details = usage.prompt_tokens_details.as_ref().unwrap();
     assert_eq!(prompt_details.cached_tokens, Some(0));
 }
+
+// --- fetch_model_list mock HTTP tests ---
+
+#[tokio::test]
+async fn test_fetch_model_list_success_mock() {
+    let mut server = mockito::Server::new_async().await;
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/models-list.json");
+    let m = server
+        .mock("GET", "/api/paas/v4/models")
+        .match_header(
+            "authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(fixture)
+        .create_async()
+        .await;
+
+    // Pass a base_url that ends with /chat/completions (the normal configuration)
+    let provider = GlmProvider::with_base_url(
+        "fake-key".into(),
+        format!("{}/api/coding/paas/v4/chat/completions", server.url()),
+    );
+    let models = provider.fetch_model_list("fake-key").await.unwrap();
+
+    m.assert_async().await;
+    assert!(!models.is_empty(), "expected at least one model");
+    // Verify reasoning=true for glm-5.1 from knowledge base
+    let glm_5_1 = models.iter().find(|m| m.id == "glm-5.1").unwrap();
+    assert!(glm_5_1.reasoning, "glm-5.1 should be marked as reasoning");
+    // Verify reasoning=true for glm-4.7
+    let glm_4_7 = models.iter().find(|m| m.id == "glm-4.7").unwrap();
+    assert!(glm_4_7.reasoning, "glm-4.7 should be marked as reasoning");
+    // Verify reasoning=false for glm-4.5-air
+    let glm_4_5 = models.iter().find(|m| m.id == "glm-4.5-air").unwrap();
+    assert!(!glm_4_5.reasoning, "glm-4.5-air should not be reasoning");
+}
+
+#[tokio::test]
+async fn test_fetch_model_list_http_auth_failure_mock() {
+    let mut server = mockito::Server::new_async().await;
+    let m = server
+        .mock("GET", "/api/paas/v4/models")
+        .match_header(
+            "authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
+        .with_status(401)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":{"code":"1210","message":"invalid api key"}}"#)
+        .create_async()
+        .await;
+
+    let provider = GlmProvider::with_base_url(
+        "fake-key".into(),
+        format!("{}/api/coding/paas/v4/chat/completions", server.url()),
+    );
+    let err = provider.fetch_model_list("fake-key").await.unwrap_err();
+
+    m.assert_async().await;
+    matches!(err, LLMError::AuthFailed(_));
+}
