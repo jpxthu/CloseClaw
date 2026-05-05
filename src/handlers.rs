@@ -180,59 +180,33 @@ pub async fn handle_stop(force: bool) -> Result<()> {
 }
 
 pub async fn handle_config_setup(skip: bool) -> Result<()> {
-    use dialoguer::*;
+    use closeclaw::cli::config_wizard;
+
     println!("\n=== CloseClaw Setup Wizard ===\n");
-    let sel = MultiSelect::new()
-        .with_prompt("Select providers")
-        .items(&["MiniMax", "OpenAI", "Anthropic"])
-        .defaults(&[true])
-        .interact()?;
-    if sel.is_empty() {
-        println!("Cancelled.");
-        return Ok(());
-    }
-    let mut keys = vec![];
-    if sel.contains(&0) {
-        keys.push((
-            "MINIMAX",
-            Input::<String>::new()
-                .with_prompt("MiniMax Key")
-                .interact()?,
-        ));
-    }
-    if sel.contains(&1) {
-        keys.push((
-            "OPENAI",
-            Input::<String>::new()
-                .with_prompt("OpenAI Key")
-                .interact()?,
-        ));
-    }
-    if sel.contains(&2) {
-        keys.push((
-            "ANTHROPIC",
-            Input::<String>::new()
-                .with_prompt("Anthropic Key")
-                .interact()?,
-        ));
-    }
-    let mut c = "# CloseClaw config\n".to_string();
-    for (k, v) in &keys {
-        c.push_str(&format!("{}={}\n", k, v));
-    }
-    c.push_str("# FEISHU_WEBHOOK=...\n");
+
+    let output = match config_wizard::run_wizard() {
+        Ok(Some(output)) => output,
+        Ok(None) => {
+            println!("Wizard cancelled.");
+            return Ok(());
+        }
+        Err(e) => anyhow::bail!("Wizard error: {}", e),
+    };
+
+    // If skip (yes mode), skip the confirm step and write config directly.
     if !skip {
+        use dialoguer::Confirm;
         let confirmed = Confirm::new()
-            .with_prompt("Write to configs/.env?")
+            .with_prompt("Write config now?")
             .default(true)
             .interact()?;
         if !confirmed {
+            println!("Aborted.");
             return Ok(());
         }
     }
-    std::fs::create_dir_all("configs")?;
-    std::fs::write("configs/.env", &c)?;
-    println!("Written.");
+
+    config_wizard::write_wizard_config(&output)?;
     Ok(())
 }
 
