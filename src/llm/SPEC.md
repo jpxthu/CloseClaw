@@ -172,7 +172,16 @@ GLM API 通过响应体中的 top-level `error` 字段（code 为字符串）返
 - **内层**（`chat_with_retry`）：仅对 `Transient` / `Unknown` 错误重试，耗尽后切模型
 - **外层**（`chat`）：`InvalidRequest` / `Auth` / `Billing` 立即切模型；`Transient` / `Unknown` 重试耗尽后切模型；成功则清除 cooldown
 
+### E2E 测试覆盖
 
+| 测试 | 场景 | 验证点 |
+|------|------|--------|
+| `test_fallback_on_rate_limit` | primary Auth 失败 → fallback 成功 | fallback 链正确切换 |
+| `test_success_then_fallback` | FakeProvider FIFO 场景依次消耗 | 顺序调用正确消费场景 |
+| `test_delay_triggers_timeout` | Delay 场景触发超时 | FakeProvider delay 行为 |
+| `test_registry_roundtrip` | LLMRegistry get → call | 注册中心查找和调用 |
+| `test_cooldown_skip_after_auth_failure` | primary Auth 失败 → cooldown → 再次调用跳过冷却 provider | Auth 错误触发 1h cooldown，第二次调用跳过冷却 provider |
+| `test_all_providers_exhausted` | 所有 provider 都失败 | 返回 `ApiError("all models in fallback chain exhausted")` |
 
 ### 冷却持久化
 
