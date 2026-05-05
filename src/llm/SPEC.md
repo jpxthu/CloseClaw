@@ -4,7 +4,7 @@
 
 LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `LLMProvider` trait + `LLMRegistry` 实现插件式架构，支持同时注册多个 Provider（MiniMax、OpenAI、Anthropic、Stub）。核心设计：Provider 只负责 HTTP 调用和响应解析，错误分类由 `ErrorKind` 统一处理；重试和 fallback 逻辑由 `FallbackClient` 包装，对调用方透明。
 
-`model_info.rs` 定义模型元数据类型（`ModelInfo`、`InputType`），承载模型标识、上下文窗口、温度等元数据。`knowledge.rs` 提供内嵌知识库（`ProviderModelKnowledge`），手填 MiniMax、GLM、VolcEngine、DeepSeek 四个 Provider 的推荐参数，供 Model Discovery & Auto-Config Wizard 使用。
+`model_info.rs` 定义模型元数据类型（`ModelInfo`、`InputType`），承载模型标识、上下文窗口、温度等元数据。`knowledge.rs` 提供内嵌知识库（`ProviderModelKnowledge`），手填 MiniMax、GLM、VolcEngine、DeepSeek 四个 Provider 的推荐参数，供 Model Discovery & Auto-Config Wizard 使用。`model_cache.rs` 提供本地缓存层，按 (provider, SHA256hex(provider:token_prefix)) 组织，TTL 3600 秒自动过期，避免每次启动调 API 获取模型列表；缓存文件损坏或 key 不存在时静默返回 None。
 
 边界：模块不负责 prompt 工程、不做缓存、不做 token 估算（Usage 数字由 Provider 透传）。冷却状态通过 `CooldownManager` 持久化到 `~/.closeclaw/llm_cooldowns.json`。
 
@@ -59,6 +59,10 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`FallbackClient::new_async`** — 异步构造
 - **`FallbackClient::from_strings`** — 从 `"provider/model"` 字符串列表构造
 
+- **`CacheEntry`** — 缓存条目（fetched_at + ttl_secs + models），含 `is_expired()` 判断过期
+- **`CacheKey`** — 缓存 key 辅助工具，`token_prefix()` 截取 token 前 4 位，`compute()` 计算 SHA256 hex key
+- **`ModelCache`** — 模型列表缓存管理器，按 (provider, token) 查缓存，TTL 3600 秒；文件不存在或损坏时静默返回 None
+
 ### 配置
 
 - **`LLMRegistry::register** — 注册一个 Provider 实例
@@ -111,6 +115,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | 文件 | 职责 |
 |------|------|
 | `mod.rs` | 类型定义（Message、ChatRequest、ErrorKind 等）、LLMRegistry、LLMProvider trait、re-export 所有 Provider |
+| `model_cache.rs` | 本地模型列表缓存：按 (provider, token) 查询，`CacheKey` 计算 key，`ModelCache` 读写 `~/.closeclaw/model_cache.json`（`MODEL_CACHE_FILE` 环境变量可覆盖），TTL 3600 秒，过期/损坏时静默返回 None |
 | `model_info.rs` | 模型元数据类型：`InputType`（Text/Image 模态枚举）、`ModelInfo`（模型元数据 struct，含 `FromStr` 从 `"provider/model_id"` 解析）、`ParseModelInfoError` |
 | `knowledge.rs` | 内嵌知识库：`ReasoningLevels`（思考强度枚举）、`ModelRecommendParams`（推荐参数）、`ProviderModelKnowledge`（知识库，含 `find` 和 `all_models` 查询接口）；覆盖 MiniMax、GLM、VolcEngine、DeepSeek 四个 Provider |
 | `minimax.rs` | MiniMax Chat Completions API adapter。推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 在内部解析（unit test 覆盖），暂未通过 `Usage` 暴露给调用方。 |
