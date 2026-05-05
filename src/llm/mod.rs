@@ -4,7 +4,9 @@ pub mod anthropic;
 pub mod fallback;
 pub mod glm;
 pub mod glm_stream;
+pub mod knowledge;
 pub mod minimax;
+pub mod model_info;
 pub mod openai;
 pub mod retry;
 pub mod stub;
@@ -16,7 +18,9 @@ pub use fake::FakeProvider;
 
 pub use anthropic::AnthropicProvider;
 pub use glm::GlmProvider;
+pub use knowledge::{ModelRecommendParams, ProviderModelKnowledge, ReasoningLevels};
 pub use minimax::MiniMaxProvider;
+pub use model_info::{InputType, ModelInfo};
 pub use openai::OpenAIProvider;
 pub use stub::StubProvider;
 

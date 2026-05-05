@@ -4,6 +4,8 @@
 
 LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `LLMProvider` trait + `LLMRegistry` 实现插件式架构，支持同时注册多个 Provider（MiniMax、OpenAI、Anthropic、Stub）。核心设计：Provider 只负责 HTTP 调用和响应解析，错误分类由 `ErrorKind` 统一处理；重试和 fallback 逻辑由 `FallbackClient` 包装，对调用方透明。
 
+`model_info.rs` 定义模型元数据类型（`ModelInfo`、`InputType`），承载模型标识、上下文窗口、温度等元数据。`knowledge.rs` 提供内嵌知识库（`ProviderModelKnowledge`），手填 MiniMax、GLM、VolcEngine、DeepSeek 四个 Provider 的推荐参数，供 Model Discovery & Auto-Config Wizard 使用。
+
 边界：模块不负责 prompt 工程、不做缓存、不做 token 估算（Usage 数字由 Provider 透传）。冷却状态通过 `CooldownManager` 持久化到 `~/.closeclaw/llm_cooldowns.json`。
 
 ---
@@ -24,6 +26,15 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`Scenario`** — `FakeProvider` 场景枚举：Ok（成功响应）、Err（错误响应）、Delay（sleep 后执行内部场景，内部场景可为 Ok/Err/另一个 Delay，嵌套递归解析）
 - **`StreamingResponse`** — 流式聊天响应接收器，`tokio::sync::mpsc::Receiver<ChatStreamChunk>`，调用方通过 `recv().await` 逐块消费
 - **`ChatStreamChunk`** — 流式响应中的单个 chunk：`Text(String)`（文本片段）、`Done { model, usage }`（流结束元数据）、`Error(LLMError)`（流式过程中的错误）
+
+### 数据类型（模型元数据）
+
+- **`InputType`** — 模型支持的输入模态：Text（纯文本）、Image（多模态图文）
+- **`ModelInfo`** — 模型元数据（id、name、context_window、max_tokens、default_temperature、reasoning、input_types），可从 `"provider/model_id"` 字符串解析（实现 `FromStr`）
+- **`ParseModelInfoError`** — `ModelInfo` 解析错误（格式非法时返回）
+- **`ReasoningLevels`** — 模型支持的思考强度级别：None（不支持）、Toggle { on }（GLM 开关式）、Levels { off, base, reasoner }（DeepSeek 多档）
+- **`ModelRecommendParams`** — 知识库中单模型的推荐参数（context_window、max_tokens、default_temperature、reasoning、reasoning_levels、input_types）
+- **`ProviderModelKnowledge`** — 内嵌知识库，按 provider 存储多模型推荐参数；支持 `find(provider, model_id)` 查询和 `all_models(provider)` 列表
 
 ### 数据类型（Provider 注册与管理）
 
@@ -100,6 +111,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | 文件 | 职责 |
 |------|------|
 | `mod.rs` | 类型定义（Message、ChatRequest、ErrorKind 等）、LLMRegistry、LLMProvider trait、re-export 所有 Provider |
+| `model_info.rs` | 模型元数据类型：`InputType`（Text/Image 模态枚举）、`ModelInfo`（模型元数据 struct，含 `FromStr` 从 `"provider/model_id"` 解析）、`ParseModelInfoError` |
+| `knowledge.rs` | 内嵌知识库：`ReasoningLevels`（思考强度枚举）、`ModelRecommendParams`（推荐参数）、`ProviderModelKnowledge`（知识库，含 `find` 和 `all_models` 查询接口）；覆盖 MiniMax、GLM、VolcEngine、DeepSeek 四个 Provider |
 | `minimax.rs` | MiniMax Chat Completions API adapter。推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 在内部解析（unit test 覆盖），暂未通过 `Usage` 暴露给调用方。 |
 | `glm/mod.rs` | 智谱 GLM 系列模型（glm-5.1、glm-4.7、glm-4.5-air 等）adapter。错误格式为 top-level `error`（code 为字符串），code "1211" → ModelNotFound、"1214" → InvalidRequest；推理模型 `content` 为空时提取 `reasoning_content`；`usage` 中含 `prompt_tokens_details.cached_tokens` 和 `completion_tokens_details.reasoning_tokens`。非流式 chat、流式 streaming、Usage API 均通过 mockito Mock Server 覆盖完整 HTTP 全链路（`glm/tests/mock_integration.rs` 13 个非流式用例 + `glm/tests/mock_extra.rs` 3 个非流式用例含错误场景 + `glm_stream/tests/mock_integration.rs` 3 个流式用例 + `glm/tests/mock_usage.rs` 3 个 Usage 用例）。 |
 | `minimax_stream.rs` | MiniMax 流式接口：SSE 解析、delta 提取、流式错误处理 |
