@@ -1,7 +1,11 @@
 //! Types for the Config Wizard
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use crate::llm::{model_info::ModelInfo, LLMProvider};
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
 
 /// Represents the current state in the wizard state machine
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,14 +60,15 @@ pub const PROVIDERS: &[ProviderInfo] = &[
 ];
 
 /// Context carried through the wizard
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WizardContext {
     pub current_state: WizardState,
     pub selected_provider: Option<ProviderInfo>,
     pub credential: Option<String>,
-    pub fetched_models: Vec<String>,
-    pub selected_models: Vec<String>,
+    pub fetched_models: Vec<ModelInfo>,
+    pub selected_models: Vec<ModelInfo>,
     pub existing_config: HashMap<String, serde_json::Value>,
+    pub provider: Option<Arc<dyn LLMProvider>>,
 }
 
 impl Default for WizardContext {
@@ -75,6 +80,7 @@ impl Default for WizardContext {
             fetched_models: Vec::new(),
             selected_models: Vec::new(),
             existing_config: HashMap::new(),
+            provider: None,
         }
     }
 }
@@ -84,5 +90,5 @@ impl Default for WizardContext {
 pub struct WizardOutput {
     pub provider_id: String,
     pub credential: String,
-    pub selected_models: Vec<String>,
+    pub selected_models: Vec<ModelInfo>,
 }

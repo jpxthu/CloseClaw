@@ -27,10 +27,10 @@
 
 ### ConfigCommand
 
-`closeclaw config setup` 子命令，交互式配置 API key。
+`closeclaw config setup` 子命令，交互式配置向导。
 
 **操作：**
-- `handle_config_setup(skip)` — 引导用户选择要配置的 provider（MiniMax/OpenAI/Anthropic），逐个输入 API key，写入 `configs/.env`。输入使用 `Input`（不回显 mask，但用户可见输入内容）。
+- `handle_config_setup(skip)` — 启动 `config_wizard::run_wizard()`，用户依次经历 SelectProvider → InputCredential → FetchModels → SelectModels → Confirm → WriteConfig，最终将配置写入 `~/.closeclaw/config/models.json` 和 `~/.closeclaw/config/credentials/<provider_id>.json`。InputCredential 使用 `Password`（不回显）；skip 参数用于跳过 Confirm 步骤。
 
 ---
 
@@ -40,6 +40,32 @@
 
 - `chat` — `src/cli/chat.rs`，包含全部 CLI 实现（命令解析、会话管理、REPL、数据流）
 - `args` — `src/cli/args.rs`，reserved（未来参数扩展位）
+- `config_wizard` — `src/cli/config_wizard/`，交互式配置向导，替代 `handle_config_setup` 的简单循环逻辑
+
+### ConfigWizard 模块
+
+`config_wizard` 提供 `closeclaw config setup` 的交互式配置流程。用户依次经历线性状态机：SelectProvider → InputCredential → FetchModels → SelectModels → Confirm → WriteConfig，最终将配置写入 `~/.closeclaw/config/models.json` 和 `~/.closeclaw/config/credentials/<provider_id>.json`。
+
+FetchModels 阶段通过 `LLMProvider::fetch_model_list()` 获取模型列表，10s 超时或失败时回退到 `ProviderModelKnowledge` 知识库。SelectModels 支持空格分隔编号、范围语法（`1-3,5,7`）和 `all` 关键字。写入时采用合并策略：当前 provider 的模型整体替换，其他 provider 的已配置模型保留。
+
+**公开接口：**
+
+- `run_wizard()` — 入口函数，返回 `Ok(Some(WizardOutput))` 或 `Ok(None)`（Ctrl+C 干净退出）
+- `parse_model_selection(input, total)` — 解析用户模型选择输入，返回 0-based 索引向量
+- `write_wizard_config(output)` — 将 WizardOutput 写入 models.json 和凭据文件
+
+**核心数据结构：**
+
+- `WizardState` — 6 变体状态枚举，对应状态机各阶段
+- `WizardContext` — 携带 current_state、selected_provider、credential、fetched_models、selected_models、existing_config、provider
+- `WizardOutput` — Wizard 的最终输出，含 provider_id、credential、selected_models
+- `ProviderInfo` — Provider 元数据（id、display_name、ProviderType），PROVIDERS 常量列出全部 4 个 Provider
+- `ProviderType` — 枚举变体：Minimax / Glm / Volcengine / Deepseek
+
+**模块结构：**
+
+- `types.rs` — WizardState、ProviderType、ProviderInfo、PROVIDERS 常量、WizardContext、WizardOutput
+- `mod.rs` — run_wizard()、parse_model_selection()、write_wizard_config()、fetch_models_with_fallback()、知识库回退、UT
 
 ### 数据流
 
