@@ -5,7 +5,9 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, StreamingResponse, Usage};
+use crate::llm::{
+    ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, StreamingResponse, Usage,
+};
 
 /// GLM API endpoint
 const GLM_API_URL: &str = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions";
@@ -86,6 +88,29 @@ struct GlmPromptTokensDetails {
 struct GlmErrorBody {
     code: String,
     message: String,
+}
+// ---------------------------------------------------------------------------//
+// GLM /models API types                                                     //
+// ---------------------------------------------------------------------------//
+
+/// Response from GET /api/coding/paas/v4/models (GLM model list API)
+#[derive(Debug, Deserialize)]
+struct GlmModelsResponse {
+    data: Vec<GlmModel>,
+    #[serde(default)]
+    object: Option<String>,
+}
+
+/// A single model entry from the /models API
+#[derive(Debug, Deserialize)]
+struct GlmModel {
+    id: String,
+    #[serde(default)]
+    object: Option<String>,
+    #[serde(default)]
+    created: Option<u64>,
+    #[serde(default)]
+    owned_by: Option<String>,
 }
 
 // ---------------------------------------------------------------------------//
@@ -275,6 +300,73 @@ impl LLMProvider for GlmProvider {
             "GLM-4.7",
             "glm-5-turbo",
         ]
+    }
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        // GLM /models endpoint is at /api/paas/v4/models (not /coding/paas/v4!)
+        // base_url is the chat endpoint (e.g. https://open.bigmodel.cn/api/coding/paas/v4/chat/completions);
+        // Replace /coding/paas/v4/chat/completions with /paas/v4/models
+        let models_url = self
+            .base_url
+            .replace("/coding/paas/v4/chat/completions", "/paas/v4/models")
+            .replace("/chat/completions", "/models");
+
+        let response = self
+            .http_client
+            .get(&models_url)
+            .header("Authorization", format!("Bearer {}", bearer_token))
+            .send()
+            .await
+            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
+        }
+
+        let api_resp: GlmModelsResponse = response.json().await.map_err(|e| {
+            LLMError::ApiError(format!("failed to parse GLM /models response: {}", e))
+        })?;
+
+        let models: Vec<ModelInfo> = api_resp
+            .data
+            .into_iter()
+            .map(|m| {
+                use crate::llm::InputType;
+                let model_id = m.id.clone();
+                // Look up knowledge base for metadata; safe defaults if not found.
+                let kb = crate::llm::ProviderModelKnowledge::new();
+                let params = kb.find("glm", &model_id);
+                let (context_window, max_tokens, default_temperature, reasoning, input_types) =
+                    match params {
+                        Some(p) => (
+                            p.context_window,
+                            p.max_tokens,
+                            Some(p.default_temperature),
+                            p.reasoning,
+                            p.input_types,
+                        ),
+                        None => (128_000, 8_192, Some(0.7), false, vec![InputType::Text]),
+                    };
+                let name = format!(
+                    "GLM {}",
+                    model_id
+                        .trim_start_matches("glm-")
+                        .trim_start_matches("GLM-")
+                );
+                ModelInfo {
+                    id: model_id,
+                    name,
+                    context_window,
+                    max_tokens,
+                    default_temperature,
+                    reasoning,
+                    input_types,
+                }
+            })
+            .collect();
+
+        Ok(models)
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {

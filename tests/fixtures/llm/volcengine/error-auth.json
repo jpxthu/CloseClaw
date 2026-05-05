@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "1001",
+    "message": "Authentication failed: invalid API key"
+  }
+}
