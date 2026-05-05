@@ -70,6 +70,8 @@ session.rs 内 `#[cfg(test)] mod tests` 需要访问以下私有逻辑，设为 
 | `test_manual_compact_failure`（fake-llm） | 压缩失败时返回 `[error]` 友好错误消息 |
 | `test_manual_compact_does_not_add_to_history`（fake-llm） | `/compact` 命令不追加用户消息到 chat_history |
 | `test_full_session_lifecycle`（tests/） | 完整 TCP 交互：ChatStart → ChatMessage → ChatStop |
+| `test_multi_client_concurrent_sessions`（tests/） | 3 个 TCP 客户端并发连接，验证 session_id 唯一性、响应隔离性、broadcast shutdown 正确关闭所有连接 |
+| `test_multi_client_history_isolation`（tests/） | 2 个并发 session 各自发送多轮消息，验证响应 id 对应关系正确，shutdown 后双方均收到 ChatError |
 | `test_session_shutdown_signal`（tests/） | shutdown 信号 → 收到 ChatError("server shutting down") |
 
 ---
@@ -193,5 +195,6 @@ TCP Client
 ---
 
 *变更历史*
+- 2026-05-06：#497 新增多会话并发隔离测试（`test_multi_client_concurrent_sessions`、`test_multi_client_history_isolation`）
 - 2026-04-20：#226 提取 `handle_chat_message` 方法，同步 SPEC
 - 2026-04-14：按 v3 标准重写，精简接口签名、补充架构/数据流章节
