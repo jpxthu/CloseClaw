@@ -34,72 +34,74 @@ pub(crate) struct MiniMaxStreamRequest<'a> {
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamChunk {
     #[serde(default)]
-    choices: Option<Vec<MiniMaxStreamChoice>>,
+    pub(crate) choices: Option<Vec<MiniMaxStreamChoice>>,
     #[serde(default)]
-    usage: Option<MiniMaxStreamUsage>,
+    pub(crate) usage: Option<MiniMaxStreamUsage>,
     #[serde(default)]
-    model: String,
+    pub(crate) model: String,
     #[serde(default)]
-    base_resp: Option<MiniMaxStreamBaseResp>,
+    pub(crate) base_resp: Option<MiniMaxStreamBaseResp>,
     #[serde(default)]
-    object: String,
+    pub(crate) object: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamChoice {
     #[serde(default)]
-    index: u32,
+    pub(crate) index: u32,
     #[serde(default)]
-    delta: Option<MiniMaxStreamDelta>,
+    pub(crate) delta: Option<MiniMaxStreamDelta>,
     #[serde(default)]
-    finish_reason: Option<String>,
+    pub(crate) finish_reason: Option<String>,
     /// Final chunk has message instead of delta
     #[serde(default)]
-    message: Option<MiniMaxStreamMessage>,
+    pub(crate) message: Option<MiniMaxStreamMessage>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamDelta {
     #[serde(default)]
-    role: Option<String>,
+    pub(crate) role: Option<String>,
     #[serde(default)]
-    content: Option<String>,
+    pub(crate) content: Option<String>,
     #[serde(default)]
-    reasoning_content: Option<String>,
+    pub(crate) reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamMessage {
     #[serde(default)]
-    role: String,
+    pub(crate) role: String,
     #[serde(default)]
-    content: Option<String>,
+    pub(crate) content: Option<String>,
     #[serde(default)]
-    reasoning_content: Option<String>,
+    pub(crate) reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamUsage {
     #[serde(default)]
-    prompt_tokens: u32,
+    pub(crate) prompt_tokens: u32,
     #[serde(default)]
-    completion_tokens: u32,
+    pub(crate) completion_tokens: u32,
     #[serde(default)]
-    total_tokens: u32,
+    pub(crate) total_tokens: u32,
     #[serde(default)]
-    completion_tokens_details: Option<MiniMaxStreamCompletionTokensDetails>,
+    pub(crate) completion_tokens_details: Option<MiniMaxStreamCompletionTokensDetails>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamCompletionTokensDetails {
     #[serde(default)]
-    reasoning_tokens: Option<u32>,
+    pub(crate) reasoning_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamBaseResp {
-    status_code: i32,
-    status_msg: String,
+    #[serde(default)]
+    pub(crate) status_code: i32,
+    #[serde(default)]
+    pub(crate) status_msg: String,
 }
 
 /// Send a streaming chat request to MiniMax.
