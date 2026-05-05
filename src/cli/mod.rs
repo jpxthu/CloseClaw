@@ -2,3 +2,4 @@
 
 pub mod args;
 pub mod chat;
+pub mod config_wizard;
