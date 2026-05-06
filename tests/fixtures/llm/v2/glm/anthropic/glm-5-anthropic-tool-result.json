@@ -1,11 +1,11 @@
 {
   "protocol": "anthropic",
   "streaming": false,
-  "scenario": "glm-anthropic-tool-result",
-  "model": "glm-5.1",
+  "scenario": "anthropic-tool-result",
+  "model": "glm-5",
   "expect": "tool_result",
   "request": {
-    "model": "glm-5.1",
+    "model": "glm-5",
     "messages": [
       {
         "role": "user",
@@ -34,14 +34,14 @@
   ],
   "response": {
     "round1": {
-      "id": "msg_20260507010203c62826b75692493e",
+      "id": "msg_2026050701110395327e7b8a9e4b1e",
       "type": "message",
       "role": "assistant",
       "model": "glm-5.1",
       "content": [
         {
           "type": "tool_use",
-          "id": "call_03d8ec3a70b943c899932f2e",
+          "id": "call_b5b837b9c91548fda01661ec",
           "name": "get_weather",
           "input": {
             "location": "San Francisco"
@@ -61,22 +61,22 @@
       }
     },
     "round2": {
-      "id": "msg_20260507010205b9c5863e065d4270",
+      "id": "msg_20260507011105b8f936c222634198",
       "type": "message",
       "role": "assistant",
       "model": "glm-5.1",
       "content": [
         {
           "type": "text",
-          "text": "The weather in San Francisco is currently **24°C (75°F)** and **sunny** ☀️. It's a beautiful day out there! Let me know if you'd like to know anything else."
+          "text": "The weather in San Francisco is currently **24°C (75°F)** and **sunny**! It's a beautiful day out there. ☀️"
         }
       ],
       "stop_reason": "end_turn",
       "stop_sequence": null,
       "usage": {
-        "input_tokens": 189,
-        "output_tokens": 44,
-        "cache_read_input_tokens": 0,
+        "input_tokens": 61,
+        "output_tokens": 32,
+        "cache_read_input_tokens": 128,
         "server_tool_use": {
           "web_search_requests": 0
         },
@@ -94,7 +94,7 @@
         }
       ],
       "tool_call": {
-        "id": "call_03d8ec3a70b943c899932f2e",
+        "id": "call_b5b837b9c91548fda01661ec",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"
@@ -102,14 +102,14 @@
       },
       "mock_tool_response": "24℃, sunny",
       "response": {
-        "id": "msg_20260507010203c62826b75692493e",
+        "id": "msg_2026050701110395327e7b8a9e4b1e",
         "type": "message",
         "role": "assistant",
         "model": "glm-5.1",
         "content": [
           {
             "type": "tool_use",
-            "id": "call_03d8ec3a70b943c899932f2e",
+            "id": "call_b5b837b9c91548fda01661ec",
             "name": "get_weather",
             "input": {
               "location": "San Francisco"
@@ -141,7 +141,7 @@
           "content": [
             {
               "type": "tool_use",
-              "id": "call_03d8ec3a70b943c899932f2e",
+              "id": "call_b5b837b9c91548fda01661ec",
               "name": "get_weather",
               "input": {
                 "location": "San Francisco"
@@ -154,29 +154,29 @@
           "content": [
             {
               "type": "tool_result",
-              "tool_use_id": "call_03d8ec3a70b943c899932f2e",
+              "tool_use_id": "call_b5b837b9c91548fda01661ec",
               "content": "24℃, sunny"
             }
           ]
         }
       ],
       "response": {
-        "id": "msg_20260507010205b9c5863e065d4270",
+        "id": "msg_20260507011105b8f936c222634198",
         "type": "message",
         "role": "assistant",
         "model": "glm-5.1",
         "content": [
           {
             "type": "text",
-            "text": "The weather in San Francisco is currently **24°C (75°F)** and **sunny** ☀️. It's a beautiful day out there! Let me know if you'd like to know anything else."
+            "text": "The weather in San Francisco is currently **24°C (75°F)** and **sunny**! It's a beautiful day out there. ☀️"
           }
         ],
         "stop_reason": "end_turn",
         "stop_sequence": null,
         "usage": {
-          "input_tokens": 189,
-          "output_tokens": 44,
-          "cache_read_input_tokens": 0,
+          "input_tokens": 61,
+          "output_tokens": 32,
+          "cache_read_input_tokens": 128,
           "server_tool_use": {
             "web_search_requests": 0
           },

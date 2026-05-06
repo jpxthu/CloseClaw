@@ -1,7 +1,7 @@
 {
   "protocol": "anthropic",
   "streaming": false,
-  "scenario": "glm-anthropic-tool-use",
+  "scenario": "anthropic-tool-use",
   "model": "glm-5.1",
   "expect": "tool_use",
   "request": {
@@ -15,14 +15,14 @@
   },
   "extra_body_sent": null,
   "response": {
-    "id": "msg_20260507010201a844abe013c04bd0",
+    "id": "msg_2026050701021188c9334d154c4283",
     "type": "message",
     "role": "assistant",
     "model": "glm-5.1",
     "content": [
       {
         "type": "tool_use",
-        "id": "call_4d6aecf15aa54d5ba0fe155c",
+        "id": "call_0b7cbb84022b4ee69da2444a",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"

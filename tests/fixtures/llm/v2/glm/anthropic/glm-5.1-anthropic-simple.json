@@ -1,0 +1,41 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-simple",
+  "model": "glm-5.1",
+  "expect": "text",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "id": "msg_20260507010149e39828da7cc64180",
+    "type": "message",
+    "role": "assistant",
+    "model": "glm-5.1",
+    "content": [
+      {
+        "type": "text",
+        "text": "Hello to you!"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 12,
+      "output_tokens": 5,
+      "cache_read_input_tokens": 0,
+      "server_tool_use": {
+        "web_search_requests": 0
+      },
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 1024
+}

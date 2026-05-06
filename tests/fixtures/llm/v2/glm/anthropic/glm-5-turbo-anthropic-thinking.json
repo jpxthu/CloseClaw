@@ -1,0 +1,41 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-thinking",
+  "model": "glm-5-turbo",
+  "expect": "reasoning",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "id": "msg_20260507011043eb05c15b39a14730",
+    "type": "message",
+    "role": "assistant",
+    "model": "glm-5-turbo",
+    "content": [
+      {
+        "type": "text",
+        "text": "Here is the step-by-step calculation for 17 × 23 using the standard multiplication method:\n\n**Step 1: Multiply 17 by the ones digit of 23 (which is 3).**\n   17 × 3 = 51\n   *Write down 51.*\n\n**Step 2: Multiply 17 by the tens digit of 23 (which is 2). Because it is actually 20, you need to add a placeholder zero before you multiply.**\n   17 × 20 = 340\n   *Write down 340 shifted one place to the left.*\n\n**Step 3: Add the two partial products together.**\n     51\n   + 340\n   ______\n     391\n\n**Answer:**\n17 × 23 = **391**\n\n***\n\n*Alternative method (Mental Math):*\nYou can also use the \"difference of squares\" trick by finding the average of the two numbers (20) and how far they are from that average (3). \nFormula: (Average)² - (Difference)²\n20² - 3² = 400 - 9 = **391**"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 19,
+      "output_tokens": 238,
+      "cache_read_input_tokens": 0,
+      "server_tool_use": {
+        "web_search_requests": 0
+      },
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 2048
+}

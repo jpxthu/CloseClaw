@@ -1,0 +1,96 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-cache",
+  "model": "glm-4.6",
+  "expect": "cache",
+  "request": {
+    "model": "glm-4.6",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": [
+    {
+      "id": "msg_20260507011124f75701d4aa5c476d",
+      "type": "message",
+      "role": "assistant",
+      "model": "glm-4.6",
+      "content": [
+        {
+          "type": "text",
+          "text": "The sky is blue."
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 26,
+        "output_tokens": 6,
+        "cache_read_input_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      }
+    },
+    {
+      "id": "msg_20260507011125f01a3cb3879b48d8",
+      "type": "message",
+      "role": "assistant",
+      "model": "glm-4.6",
+      "content": [
+        {
+          "type": "text",
+          "text": "The sky is blue."
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 26,
+        "output_tokens": 6,
+        "cache_read_input_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      }
+    },
+    {
+      "id": "msg_20260507011126be24f5ddba754fd4",
+      "type": "message",
+      "role": "assistant",
+      "model": "glm-4.6",
+      "content": [
+        {
+          "type": "text",
+          "text": "The sky is blue."
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 26,
+        "output_tokens": 6,
+        "cache_read_input_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are a helpful assistant. Always remember: the sky is blue."
+    }
+  ],
+  "max_tokens_sent": 1024,
+  "cache_control_note": "Anthropic 协议在 system 末尾标记了 cache_control:ephemeral"
+}

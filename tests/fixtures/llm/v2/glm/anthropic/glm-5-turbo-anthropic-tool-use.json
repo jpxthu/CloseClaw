@@ -1,11 +1,11 @@
 {
   "protocol": "anthropic",
   "streaming": false,
-  "scenario": "glm-anthropic-tool-use",
-  "model": "glm-5.1",
+  "scenario": "anthropic-tool-use",
+  "model": "glm-5-turbo",
   "expect": "tool_use",
   "request": {
-    "model": "glm-5.1",
+    "model": "glm-5-turbo",
     "messages": [
       {
         "role": "user",
@@ -15,14 +15,14 @@
   },
   "extra_body_sent": null,
   "response": {
-    "id": "msg_20260507010201a844abe013c04bd0",
+    "id": "msg_202605070111014f33a6b9869b48b0",
     "type": "message",
     "role": "assistant",
-    "model": "glm-5.1",
+    "model": "glm-5-turbo",
     "content": [
       {
         "type": "tool_use",
-        "id": "call_4d6aecf15aa54d5ba0fe155c",
+        "id": "call_979dbcda304d4572a9c63664",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"
@@ -32,9 +32,9 @@
     "stop_reason": "tool_use",
     "stop_sequence": null,
     "usage": {
-      "input_tokens": 170,
+      "input_tokens": 133,
       "output_tokens": 12,
-      "cache_read_input_tokens": 0,
+      "cache_read_input_tokens": 42,
       "server_tool_use": {
         "web_search_requests": 0
       },

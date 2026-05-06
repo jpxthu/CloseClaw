@@ -1,11 +1,11 @@
 {
   "protocol": "anthropic",
   "streaming": false,
-  "scenario": "glm-anthropic-tool-use",
-  "model": "glm-5.1",
+  "scenario": "anthropic-tool-use",
+  "model": "glm-4.7",
   "expect": "tool_use",
   "request": {
-    "model": "glm-5.1",
+    "model": "glm-4.7",
     "messages": [
       {
         "role": "user",
@@ -15,14 +15,18 @@
   },
   "extra_body_sent": null,
   "response": {
-    "id": "msg_20260507010201a844abe013c04bd0",
+    "id": "msg_202605070111029d990222996e4a21",
     "type": "message",
     "role": "assistant",
-    "model": "glm-5.1",
+    "model": "glm-4.7",
     "content": [
       {
+        "type": "text",
+        "text": "I'll check the current weather in San Francisco for you."
+      },
+      {
         "type": "tool_use",
-        "id": "call_4d6aecf15aa54d5ba0fe155c",
+        "id": "call_81b6a845220746c89d43f332",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"
@@ -32,8 +36,8 @@
     "stop_reason": "tool_use",
     "stop_sequence": null,
     "usage": {
-      "input_tokens": 170,
-      "output_tokens": 12,
+      "input_tokens": 175,
+      "output_tokens": 24,
       "cache_read_input_tokens": 0,
       "server_tool_use": {
         "web_search_requests": 0
