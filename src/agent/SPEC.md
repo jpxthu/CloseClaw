@@ -167,6 +167,7 @@ Agent 模块负责 CloseClaw 多智能体系统的核心运行时管理。
 ### 3.5 核心类型
 
 - `AgentState` — 运行时状态（Idle / Running / Waiting / Suspended / Stopped / Error）
+- `ErrorInfo` — 错误信息（message + recoverable 标志）
 - `SuspendedReason` — 暂停原因（Forced / SelfRequested）
 - `TransitionTrigger` — 状态转换触发原因（UserRequest / SystemShutdown / Error / ParentCascade / Scheduler）
 - `MessageType` — 消息类型（Task 需确认且重试 / Heartbeat 不持久化不重试 / Lateral 持久化但不重试）
@@ -174,6 +175,7 @@ Agent 模块负责 CloseClaw 多智能体系统的核心运行时管理。
 - `InboxMessage` — 收件箱消息（带重试状态）
 - `DeadLetterRecord` — 死信持久化记录
 - `CommStats` — 通讯统计快照
+- `DestroyConfirmation` — 两阶段销毁确认凭证（含 confirm_token）
 - `CommunicationCheckResult` — 通信检查结果（Allowed / SourceNotInTargetInbound / TargetNotInSourceOutbound）
 - `MaxDepthCheckResult` — 深度检查结果（Allowed / ExceedsMaxDepth）
 - `PermissionLimits` — 对 exec 类动作的细化限制（允许的命令/路径/超时）
