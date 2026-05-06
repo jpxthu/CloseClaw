@@ -1,0 +1,50 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "glm-thinking",
+  "model": "glm-5-turbo",
+  "expect": "reasoning",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "extra_body_sent": {
+    "thinking": {
+      "type": "enabled"
+    }
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "17 * 23 is **391**.\n\nHere are two step-by-step ways to solve this:\n\n### Method 1: Standard Long Multiplication\n\n**Step 1: Multiply 17 by the ones digit of 23 (which is 3).**\n*   7 × 3 = 21 (Write down the 1, carry over the 2)\n*   1 × 3 = 3 \n*   3 + 2 (carried over) = 5\n*   *Result so far: 51*\n\n**Step 2: Multiply 17 by the tens digit of 23 (which is 2).**\n*Because we are multiplying by a tens digit, we start by writing a 0 as a placeholder.*\n*   7 × 2 = 14 (Write down the 4, carry over the 1)\n*   1 × 2 = 2\n*   2 + 1 (carried over) = 3\n*   *Result so far: 340*\n\n**Step 3: Add the two partial products together.**\n```text\n   51\n+ 340\n-----\n  391\n```\n\n***\n\n### Method 2: The Distributive Property (Breaking the numbers apart)\n\nThis method is often easier to do in your head.\n\n**Step 1: Break apart the number 23 into 20 and 3.**\n*   17 × 23 becomes (17 × 20) + (17 × 3)\n\n**Step 2: Solve the first part (17 × 20).**\n*   17 × 2 = 34\n*   Add the zero back to the end: **340**\n\n**Step 3: Solve the second part (17 × 3).**\n*   10 × 3 = 30\n*   7 × 3 = 21\n*   30 + 21 = **51**\n\n**Step 4: Add the two results together.**\n*   340 + 51 = **391**",
+          "reasoning_content": "1.  **Understand the Goal:** The user wants to know the product of 17 and 23, and specifically requested to see the work step-by-step.\n\n2.  **Choose a Method:** There are several ways to multiply two 2-digit numbers. I should choose a clear, standard method. The standard algorithm (long multiplication) is the most universally understood. I can also show an alternative method (like the distributive property / FOIL method) to add value and show flexibility, but the primary focus should be the standard algorithm. Let's stick to the standard algorithm as the main step-by-step, and maybe briefly mention the distributive property as a second way. Actually, keeping it simple with just the standard algorithm but explaining it clearly is best.\n\n3.  **Execute the Standard Algorithm (Mental Draft):**\n    *   Write it down:\n        ```\n          17\n        x 23\n        ```\n    *   Multiply 17 by the ones digit of 23 (which is 3):\n        *   $7 \\times 3 = 21$ (Write down 1, carry over 2)\n        *   $1 \\times 3 = 3$\n        *   $3 + 2 \\text{ (carry)} = 5$\n        *   First partial product: $51$\n    *   Multiply 17 by the tens digit of 23 (which is 2). *Crucial step: remember to put a zero placeholder!*\n        *   $7 \\times 2 = 14$ (Write down 4, carry over 1)\n        *   $1 \\times 2 = 2$\n        *   $2 + 1 \\text{ (carry)} = 3$\n        *   Second partial product: $340$\n    *   Add the partial products:\n        ```\n           51\n        + 340\n        -----\n          391\n        ```\n\n4.  **Execute the Distributive Property Method (Mental Draft - just in case):**\n    *   $17 \\times 23$\n    *   $= 17 \\times (20 + 3)$\n    *   $= (17 \\times 20) + (17 \\times 3)$\n    *   $17 \\times 20 = 340$\n    *   $17 \\times 3 = 51$\n    *   $340 + 51 = 391$\n    *   *Self-Correction:* This is actually much easier to type out and read than long multiplication formatting. I'll show *both* methods! It makes the answer excellent.\n\n5.  **Draft the Response:**\n\n    *   *Direct Answer:* State the final answer clearly at the beginning or end.\n    *   *Method 1: Standard Algorithm (Long Multiplication)*\n        *   Use code blocks or monospace text to align the numbers properly.\n        *   Explain the \"ones\" step.\n        *   Explain the \"tens\" step (highlighting the placeholder zero).\n        *   Explain the addition step.\n    *   *Method 2: Distributive Property (Mental Math friendly)*\n        *   Break 23 into 20 + 3.\n        *   Show the two separate multiplications.\n        *   Show the final addition.\n\n6.  **Refine the Formatting:** Ensure the steps are bolded or clearly separated so it's easy to read. (e.g., \"Step 1:\", \"Step 2:\").\n\n    *(Self-Correction during drafting Method 1 formatting)*:\n    ```text\n      17\n    x 23\n    ----\n     51   <-- (17 x 3)\n    340   <-- (17 x 20, note the zero placeholder)\n    ----\n    391\n    ```\n    This looks great and is highly readable.\n\n7.  **Final Review:** Does the answer directly address the prompt? Yes. Is it step-by-step? Yes. Is the math correct? $17 \\times 23 = 391$. Let's double check: $10 \\times 23 = 230$, $7 \\times 23 = 161$. $230 + 161 = 391$. Correct.\n\n8.  **Output Generation:** (This matches the provided good response).",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778083959,
+    "id": "202605070012096b6bdfd934534b39",
+    "model": "glm-5-turbo",
+    "object": "chat.completion",
+    "request_id": "202605070012096b6bdfd934534b39",
+    "usage": {
+      "completion_tokens": 1325,
+      "completion_tokens_details": {
+        "reasoning_tokens": 895
+      },
+      "prompt_tokens": 19,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 1344
+    }
+  }
+}

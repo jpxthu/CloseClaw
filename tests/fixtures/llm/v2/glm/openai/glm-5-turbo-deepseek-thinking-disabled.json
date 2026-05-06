@@ -1,0 +1,46 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "deepseek-thinking-disabled",
+  "model": "glm-5-turbo",
+  "expect": "no-reasoning",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "17 * 23 is 391.",
+          "reasoning_content": "1.  Identify the core request: The user is asking for the product of 17 and 23.\n2.  Perform the calculation:\n    *   Method 1: Standard algorithm\n        *   17 * 20 = 340\n        *   17 * 3 = 51\n        *   340 + 51 = 391\n    *   Method 2: Difference of squares (a+b)(a-b) = a^2 - b^2\n        *   (20 - 3) * (20 + 3) = 20^2 - 3^2 = 400 - 9 = 391\n3.  Formulate the response: State the answer clearly and concisely.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778083994,
+    "id": "202605070013108867e34c5fd54419",
+    "model": "glm-5-turbo",
+    "object": "chat.completion",
+    "request_id": "202605070013108867e34c5fd54419",
+    "usage": {
+      "completion_tokens": 167,
+      "completion_tokens_details": {
+        "reasoning_tokens": 156
+      },
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 179
+    }
+  }
+}

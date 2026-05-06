@@ -1,0 +1,46 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-5.1",
+  "expect": "text",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello to you!",
+          "reasoning_content": "1.  **Analyze the Request:**\n    *   Task: Say hello.\n    *   Constraint: Exactly 3 words.\n\n2.  **Brainstorm 3-word greetings:**\n    *   \"Hello to you.\"\n    *   \"Hi, how are...\" (Wait, \"Hi, how are you?\" is 4).\n    *   \"Hello right there.\" (A bit weird).\n    *   \"Hello, my friend.\"\n    *   \"Hi there, friend.\"\n    *   \"Greetings and salutations.\" (Wait, that's 3 words! But is it \"hello\"? Yes, effectively).\n    *   \"I say hello.\" (3 words).\n    *   \"Hello to everyone.\"\n    *   \"A warm hello.\"\n    *   \"Hello to you!\" (3 words).\n    *   \"Hey, hello, hi.\" (3 words).\n\n3.  **Select the best option:**\n    *   \"Hello to you.\" is very natural and directly answers the prompt.\n    *   \"Hello, my friend.\" is also very natural.\n\n4.  **Verify the constraint:**\n    *   \"Hello\" (1) \"to\" (2) \"you.\" (3). - Exactly 3 words.\n    *   \"Hello,\" (1) \"my\" (2) \"friend.\" (3). - Exactly 3 words.\n\n5.  **Final Output Generation:**\n    *   Let's go with \"Hello to you.\"",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778083559,
+    "id": "20260507000550b8de572b08de4c76",
+    "model": "glm-5.1",
+    "object": "chat.completion",
+    "request_id": "20260507000550b8de572b08de4c76",
+    "usage": {
+      "completion_tokens": 315,
+      "completion_tokens_details": {
+        "reasoning_tokens": 309
+      },
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 327
+    }
+  }
+}

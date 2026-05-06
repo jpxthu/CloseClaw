@@ -1,0 +1,230 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "glm-tool-result",
+  "model": "glm-4.6",
+  "expect": "tool_result",
+  "request": {
+    "model": "glm-4.6",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "extra_body_sent": {
+    "thinking": {
+      "type": "enabled",
+      "clear_thinking": false
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ],
+  "response": {
+    "round1": {
+      "choices": [
+        {
+          "finish_reason": "tool_calls",
+          "index": 0,
+          "message": {
+            "content": "I'll check the current weather in San Francisco for you.",
+            "reasoning_content": "The user is asking about the weather in San Francisco. I have access to a get_weather function that takes a location parameter. The user has provided \"San Francisco\" as the location, so I have all the required parameters to make the function call.",
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "function": {
+                  "arguments": "{\"location\":\"San Francisco\"}",
+                  "name": "get_weather"
+                },
+                "id": "call_-7666511881716100374",
+                "index": 0,
+                "type": "function"
+              }
+            ]
+          }
+        }
+      ],
+      "created": 1778084940,
+      "id": "202605070028444c58eef512024efe",
+      "model": "glm-4.6",
+      "object": "chat.completion",
+      "request_id": "202605070028444c58eef512024efe",
+      "usage": {
+        "completion_tokens": 75,
+        "completion_tokens_details": {
+          "reasoning_tokens": 50
+        },
+        "prompt_tokens": 175,
+        "prompt_tokens_details": {
+          "cached_tokens": 173
+        },
+        "total_tokens": 250
+      }
+    },
+    "round2": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The weather in San Francisco is currently 24°C and sunny. It's a beautiful day!",
+            "reasoning_content": "The function returned that it's 24°C and sunny in San Francisco. I should provide this information to the user in a clear and helpful way.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778084941,
+      "id": "202605070029004f1251a714f54188",
+      "model": "glm-4.6",
+      "object": "chat.completion",
+      "request_id": "202605070029004f1251a714f54188",
+      "usage": {
+        "completion_tokens": 51,
+        "completion_tokens_details": {
+          "reasoning_tokens": 30
+        },
+        "prompt_tokens": 257,
+        "prompt_tokens_details": {
+          "cached_tokens": 248
+        },
+        "total_tokens": 308
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_-7666511881716100374",
+        "name": "get_weather",
+        "arguments": "{\"location\":\"San Francisco\"}"
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "I'll check the current weather in San Francisco for you.",
+              "reasoning_content": "The user is asking about the weather in San Francisco. I have access to a get_weather function that takes a location parameter. The user has provided \"San Francisco\" as the location, so I have all the required parameters to make the function call.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"location\":\"San Francisco\"}",
+                    "name": "get_weather"
+                  },
+                  "id": "call_-7666511881716100374",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            }
+          }
+        ],
+        "created": 1778084940,
+        "id": "202605070028444c58eef512024efe",
+        "model": "glm-4.6",
+        "object": "chat.completion",
+        "request_id": "202605070028444c58eef512024efe",
+        "usage": {
+          "completion_tokens": 75,
+          "completion_tokens_details": {
+            "reasoning_tokens": 50
+          },
+          "prompt_tokens": 175,
+          "prompt_tokens_details": {
+            "cached_tokens": 173
+          },
+          "total_tokens": 250
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "content": "I'll check the current weather in San Francisco for you.",
+          "reasoning_content": "The user is asking about the weather in San Francisco. I have access to a get_weather function that takes a location parameter. The user has provided \"San Francisco\" as the location, so I have all the required parameters to make the function call.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"location\":\"San Francisco\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7666511881716100374",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_-7666511881716100374",
+          "content": "24℃, sunny"
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "The weather in San Francisco is currently 24°C and sunny. It's a beautiful day!",
+              "reasoning_content": "The function returned that it's 24°C and sunny in San Francisco. I should provide this information to the user in a clear and helpful way.",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1778084941,
+        "id": "202605070029004f1251a714f54188",
+        "model": "glm-4.6",
+        "object": "chat.completion",
+        "request_id": "202605070029004f1251a714f54188",
+        "usage": {
+          "completion_tokens": 51,
+          "completion_tokens_details": {
+            "reasoning_tokens": 30
+          },
+          "prompt_tokens": 257,
+          "prompt_tokens_details": {
+            "cached_tokens": 248
+          },
+          "total_tokens": 308
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-auth",
+  "model": "glm-5-turbo",
+  "expect": "error",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "error": true,
+    "http_code": 401,
+    "reason": "Unauthorized",
+    "body": {
+      "error": {
+        "code": "401",
+        "message": "令牌已过期或验证不正确"
+      }
+    }
+  }
+}

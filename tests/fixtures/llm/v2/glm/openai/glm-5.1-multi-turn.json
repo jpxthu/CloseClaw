@@ -1,0 +1,54 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "glm-5.1",
+  "expect": "context",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Your name is Alice!",
+          "reasoning_content": "1.  **Analyze the user's input:** The user is asking \"What is my name?\".\n2.  **Access context/memory:** Look back at the previous turns in the conversation.\n    *   Turn 1: User said \"My name is Alice.\"\n    *   Turn 2: Model said \"Hi Alice! Nice to meet you.\"\n    *   Turn 3 (Current): User asks \"What is my name?\"\n3.  **Extract the answer:** The user's name, based on the provided context, is Alice.\n4.  **Formulate the response:** State the name clearly and politely. (e.g., \"Your name is Alice.\")\n5.  **Output generation:** \"Your name is Alice!\" or \"You told me your name is Alice.\"",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778083571,
+    "id": "20260507000604b9fc7919ae244943",
+    "model": "glm-5.1",
+    "object": "chat.completion",
+    "request_id": "20260507000604b9fc7919ae244943",
+    "usage": {
+      "completion_tokens": 168,
+      "completion_tokens_details": {
+        "reasoning_tokens": 161
+      },
+      "prompt_tokens": 26,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 194
+    }
+  }
+}

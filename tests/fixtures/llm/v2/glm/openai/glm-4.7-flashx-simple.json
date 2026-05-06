@@ -1,0 +1,46 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-4.7-flashx",
+  "expect": "text",
+  "request": {
+    "model": "glm-4.7-flashx",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello there.",
+          "reasoning_content": "1.  **Analyze the Request:** The user wants a greeting in exactly 3 words.\n\n2.  **Brainstorming Greetings:**\n    *   Hello there.\n    *   Hi everyone.\n    *   How are you? (This is a question, not strictly a greeting, though often used interchangeably. The prompt asks to \"Say hello\", implying the act of greeting.)\n    *   Nice to meet you.\n    *   Greetings to all.\n    *   Good morning.\n    *   Hello world.\n    *   Hey there.\n    *   Hi how are you? (Wait, that's 4 words if I count \"how\" and \"are\". No, \"Hi how are you\" is 4 words. \"Hi, how are you?\" is 4 words. \"Hi there\" is 3.)\n\n3.  **Filtering for \"Saying Hello\":**\n    *   \"Hello there\" is a classic, polite 3-word greeting.\n    *   \"Hi there\" is also 3 words but \"Hi\" is technically a short form of \"Hello\". The user asked to \"Say hello\", so maybe \"Hello\" should be explicit?\n    *   \"How do you do?\" (4 words)\n    *   \"What's up?\" (2 words)\n    *   \"Long time no see.\" (4 words)\n    *   \"Nice to meet you.\" (4 words)\n\n4.  **Selecting the Best Option:**\n    *   \"Hello there\" fits the constraints perfectly and uses the word \"Hello\".\n\n5.  **Final Output Generation:** \"Hello there.\"",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778084118,
+    "id": "20260507001511a2bf55f0a5fe4310",
+    "model": "glm-4.7-flashx",
+    "object": "chat.completion",
+    "request_id": "20260507001511a2bf55f0a5fe4310",
+    "usage": {
+      "completion_tokens": 343,
+      "completion_tokens_details": {
+        "reasoning_tokens": 338
+      },
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 2
+      },
+      "total_tokens": 355
+    }
+  }
+}

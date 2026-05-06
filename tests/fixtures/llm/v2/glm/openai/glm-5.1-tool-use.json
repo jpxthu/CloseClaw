@@ -1,0 +1,78 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-use",
+  "model": "glm-5.1",
+  "expect": "tool_calls",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "",
+          "reasoning_content": "The user wants to know the current weather in San Francisco. I'll call the get_weather function with \"San Francisco\" as the location.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"location\":\"San Francisco\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7666551739012608143",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "created": 1778083704,
+    "id": "202605070008214bd15b311aec42e8",
+    "model": "glm-5.1",
+    "object": "chat.completion",
+    "request_id": "202605070008214bd15b311aec42e8",
+    "usage": {
+      "completion_tokens": 41,
+      "completion_tokens_details": {
+        "reasoning_tokens": 28
+      },
+      "prompt_tokens": 170,
+      "prompt_tokens_details": {
+        "cached_tokens": 128
+      },
+      "total_tokens": 211
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
+}

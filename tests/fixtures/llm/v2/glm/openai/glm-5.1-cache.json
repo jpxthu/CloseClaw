@@ -1,0 +1,110 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "glm-5.1",
+  "expect": "cache",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": [
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "1.  **Analyze the user's input**: The user is asking \"What color is the sky?\".\n2.  **Analyze the system prompt**: The system prompt says \"Always remember: the sky is blue.\"\n3.  **Formulate the answer**: Since I need to follow the instruction to remember that the sky is blue, I will answer that the sky is blue.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778083574,
+      "id": "202605070006114b0ca81371514527",
+      "model": "glm-5.1",
+      "object": "chat.completion",
+      "request_id": "202605070006114b0ca81371514527",
+      "usage": {
+        "completion_tokens": 86,
+        "completion_tokens_details": {
+          "reasoning_tokens": 79
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 112
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "1.  **Analyze the user's input:** The user is asking \"What color is the sky?\".\n2.  **Analyze the system prompt:** The system prompt instructs me to be a \"helpful assistant\" and adds a specific constraint/instruction: \"Always remember: the sky is blue.\"\n3.  **Formulate the response:** The user's question directly relates to the system instruction. I must answer that the sky is blue to comply with the system prompt and answer the user's question accurately based on my instructions (and general knowledge).\n4.  **Draft the response:** \"The sky is blue.\"",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778083581,
+      "id": "2026050700061431ae05dbbdf04247",
+      "model": "glm-5.1",
+      "object": "chat.completion",
+      "request_id": "2026050700061431ae05dbbdf04247",
+      "usage": {
+        "completion_tokens": 135,
+        "completion_tokens_details": {
+          "reasoning_tokens": 128
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 161
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "1.  **Analyze the user's input:** The user is asking \"What color is the sky?\".\n2.  **Consult the system instructions:** The system instructions state: \"Always remember: the sky is blue.\"\n3.  **Formulate the response:** Based on the system instruction and general knowledge, the sky is blue.\n4.  **Draft the response:** \"The sky is blue.\"",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778083586,
+      "id": "20260507000622d284aa23d96049bd",
+      "model": "glm-5.1",
+      "object": "chat.completion",
+      "request_id": "20260507000622d284aa23d96049bd",
+      "usage": {
+        "completion_tokens": 90,
+        "completion_tokens_details": {
+          "reasoning_tokens": 83
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 116
+      }
+    }
+  ]
+}

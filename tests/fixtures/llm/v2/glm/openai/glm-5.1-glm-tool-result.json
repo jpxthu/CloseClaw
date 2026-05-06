@@ -1,0 +1,230 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "glm-tool-result",
+  "model": "glm-5.1",
+  "expect": "tool_result",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "extra_body_sent": {
+    "thinking": {
+      "type": "enabled",
+      "clear_thinking": false
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ],
+  "response": {
+    "round1": {
+      "choices": [
+        {
+          "finish_reason": "tool_calls",
+          "index": 0,
+          "message": {
+            "content": "",
+            "reasoning_content": "The user wants to know the current weather in San Francisco. I'll call the get_weather function.",
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "function": {
+                  "arguments": "{\"location\":\"San Francisco\"}",
+                  "name": "get_weather"
+                },
+                "id": "call_-7666560260227724046",
+                "index": 0,
+                "type": "function"
+              }
+            ]
+          }
+        }
+      ],
+      "created": 1778083662,
+      "id": "20260507000738fbc5567761fa461f",
+      "model": "glm-5.1",
+      "object": "chat.completion",
+      "request_id": "20260507000738fbc5567761fa461f",
+      "usage": {
+        "completion_tokens": 33,
+        "completion_tokens_details": {
+          "reasoning_tokens": 20
+        },
+        "prompt_tokens": 170,
+        "prompt_tokens_details": {
+          "cached_tokens": 128
+        },
+        "total_tokens": 203
+      }
+    },
+    "round2": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The weather in San Francisco is currently **24°C (75°F)** and **sunny** ☀️. It's a beautiful day there! Is there anything else you'd like to know?",
+            "reasoning_content": "The weather in San Francisco is 24°C and sunny. Let me share this with the user.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778083667,
+      "id": "2026050700074290b0fa4fafe44a3f",
+      "model": "glm-5.1",
+      "object": "chat.completion",
+      "request_id": "2026050700074290b0fa4fafe44a3f",
+      "usage": {
+        "completion_tokens": 62,
+        "completion_tokens_details": {
+          "reasoning_tokens": 20
+        },
+        "prompt_tokens": 210,
+        "prompt_tokens_details": {
+          "cached_tokens": 128
+        },
+        "total_tokens": 272
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_-7666560260227724046",
+        "name": "get_weather",
+        "arguments": "{\"location\":\"San Francisco\"}"
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "The user wants to know the current weather in San Francisco. I'll call the get_weather function.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"location\":\"San Francisco\"}",
+                    "name": "get_weather"
+                  },
+                  "id": "call_-7666560260227724046",
+                  "index": 0,
+                  "type": "function"
+                }
+              ]
+            }
+          }
+        ],
+        "created": 1778083662,
+        "id": "20260507000738fbc5567761fa461f",
+        "model": "glm-5.1",
+        "object": "chat.completion",
+        "request_id": "20260507000738fbc5567761fa461f",
+        "usage": {
+          "completion_tokens": 33,
+          "completion_tokens_details": {
+            "reasoning_tokens": 20
+          },
+          "prompt_tokens": 170,
+          "prompt_tokens_details": {
+            "cached_tokens": 128
+          },
+          "total_tokens": 203
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "content": "",
+          "reasoning_content": "The user wants to know the current weather in San Francisco. I'll call the get_weather function.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"location\":\"San Francisco\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7666560260227724046",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_-7666560260227724046",
+          "content": "24℃, sunny"
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "The weather in San Francisco is currently **24°C (75°F)** and **sunny** ☀️. It's a beautiful day there! Is there anything else you'd like to know?",
+              "reasoning_content": "The weather in San Francisco is 24°C and sunny. Let me share this with the user.",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1778083667,
+        "id": "2026050700074290b0fa4fafe44a3f",
+        "model": "glm-5.1",
+        "object": "chat.completion",
+        "request_id": "2026050700074290b0fa4fafe44a3f",
+        "usage": {
+          "completion_tokens": 62,
+          "completion_tokens_details": {
+            "reasoning_tokens": 20
+          },
+          "prompt_tokens": 210,
+          "prompt_tokens_details": {
+            "cached_tokens": 128
+          },
+          "total_tokens": 272
+        }
+      }
+    }
+  ]
+}

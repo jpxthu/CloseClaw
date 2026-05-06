@@ -55,7 +55,7 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
             "Content-Type": "application/json",
         },
         # ---- Anthropic 协议 ----
-        # ⚠️ 路径未文档化，基于 Anthropic 标准路径反推，待实测
+        # 确认路径：Claude API 兼容页明确给出 cURL 示例
         "anthropic_url": "https://open.bigmodel.cn/api/anthropic/v1/messages",
         "anthropic_headers": {
             "x-api-key": None,

@@ -1,0 +1,43 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-4.5-air",
+  "expect": "text",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Here are 3 three-word greetings, each with a slightly different feel:\n\n1.  **Hey beautiful human!** (Warm, friendly, complimentary)\n2.  **Yo, what's up?** (Casual, energetic, modern slang)\n3.  **Morning, lovely day!** (Cheerful, positive, references the time)",
+          "reasoning_content": "\nOkay, user wants a greeting in exactly three words. That's oddly specific but fun. They probably want something punchy or clever rather than a standard \"Hello there.\" \n\nHmm, let me brainstorm approaches: \nFirst option could be super warm - \"Hey beautiful human!\" covers greeting + compliment. \nSecond might be playful - \"Yo, what's up?\" feels casual but might be too slangy depending on their vibe. \nThird could be poetic - \"Morning, lovely day!\" adds a sensory touch. \n\nWait, should I consider cultural context? \"Hey beautiful human\" might not work if they're in a formal setting. But since they didn't specify, I'll assume informal. \n\n...Double-checking word count: all three options are exactly three words. Good. User seems to want creativity - maybe they're tired of clichés. I'll pick the most universally friendly one first.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778084992,
+    "id": "20260507002948e9d3703f827c4ffb",
+    "model": "glm-4.5-air",
+    "object": "chat.completion",
+    "request_id": "20260507002948e9d3703f827c4ffb",
+    "usage": {
+      "completion_tokens": 258,
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 4
+      },
+      "total_tokens": 270
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "glm-4.7",
+  "expect": "context",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Your name is Alice.",
+          "reasoning_content": "1.  **Identify the user's question:** The user is asking \"What is my name?\".\n2.  **Recall context:** In the previous turn, the user stated, \"My name is Alice.\"\n3.  **Retrieve the specific information:** The name provided is \"Alice\".\n4.  **Formulate the answer:** State the name clearly based on the information given.\n5.  **Draft response:** \"Your name is Alice.\"",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778084009,
+    "id": "202605070013278a16e6099a1d49f1",
+    "model": "glm-4.7",
+    "object": "chat.completion",
+    "request_id": "202605070013278a16e6099a1d49f1",
+    "usage": {
+      "completion_tokens": 100,
+      "completion_tokens_details": {
+        "reasoning_tokens": 93
+      },
+      "prompt_tokens": 26,
+      "prompt_tokens_details": {
+        "cached_tokens": 2
+      },
+      "total_tokens": 126
+    }
+  }
+}

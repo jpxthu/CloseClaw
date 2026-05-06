@@ -1,0 +1,23 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-empty",
+  "model": "glm-5",
+  "expect": "error",
+  "request": {
+    "model": "glm-5",
+    "messages": []
+  },
+  "extra_body_sent": null,
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "1214",
+        "message": "输入不能为空"
+      }
+    }
+  }
+}

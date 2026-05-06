@@ -1,0 +1,78 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-use",
+  "model": "glm-4.7",
+  "expect": "tool_calls",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "I'll check the current weather in San Francisco for you.",
+          "reasoning_content": "The user is asking about the weather in San Francisco. I have a function called \"get_weather\" that can get the current weather for a given location. The required parameter is \"location\" and the user has provided \"San Francisco\" as the location. I have all the required parameters to make this function call.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"location\":\"San Francisco\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7666541740328745102",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "created": 1778084105,
+    "id": "20260507001503ae05f3a6f7ab413d",
+    "model": "glm-4.7",
+    "object": "chat.completion",
+    "request_id": "20260507001503ae05f3a6f7ab413d",
+    "usage": {
+      "completion_tokens": 88,
+      "completion_tokens_details": {
+        "reasoning_tokens": 63
+      },
+      "prompt_tokens": 175,
+      "prompt_tokens_details": {
+        "cached_tokens": 173
+      },
+      "total_tokens": 263
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
+}

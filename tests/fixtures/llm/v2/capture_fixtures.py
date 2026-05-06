@@ -313,6 +313,51 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "extra_body": {"thinking": {"type": "enabled"}},
     },
 
+    # GLM: thinking disabled
+    "glm-thinking-disabled": {
+        "protocol": "openai",
+        "provider": "glm",
+        "description": "GLM thinking disabled，验证无 reasoning_content",
+        "messages": [
+            {"role": "user", "content": "What is 17*23?"}
+        ],
+        "expect": "no-reasoning",
+        "extra_body": {"thinking": {"type": "disabled"}},
+    },
+
+    # GLM: tool-use-streaming（仅 glm-5/glm-4.7/glm-4.6 支持，glm-5.1 不支持）
+    "glm-tool-use-streaming": {
+        "protocol": "openai",
+        "provider": "glm",
+        "description": "GLM 流式工具调用，验证 delta.tool_calls 增量格式（仅 GLM-5/GLM-4.7/GLM-4.6）",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_calls_streaming",
+        "tools": OPENAI_TOOLS,
+        "extra_body": {"thinking": {"type": "enabled"}, "tool_stream": True},
+    },
+
+    # GLM: 工具调用 + Preserved Thinking 多轮（Round 2 必须回传 reasoning_content）
+    "glm-tool-result": {
+        "protocol": "openai",
+        "provider": "glm",
+        "description": "GLM 完整工具调用多轮：call → tool_result → final_response（必须回传 reasoning_content）",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_result",
+        "tools": OPENAI_TOOLS,
+        "extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}},
+        "_mock_tool_response": "24℃, sunny",
+    },
+
     # DeepSeek: reasoning_effort（顶层字段）—— reasoning_content 字段
     "deepseek-thinking-high": {
         "protocol": "openai",
@@ -426,6 +471,39 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         ],
         "expect": "reasoning",
         "max_tokens": 2048,
+    },
+
+    # GLM Anthropic: 工具调用
+    "glm-anthropic-tool-use": {
+        "protocol": "anthropic",
+        "provider": "glm",
+        "description": "GLM Anthropic 协议工具调用，验证 content[].type=tool_use 和 id/name/input 字段",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_use",
+        "tools": ANTHROPIC_TOOLS,
+        "max_tokens": 2048,
+    },
+
+    # GLM Anthropic: 工具调用完整多轮
+    "glm-anthropic-tool-result": {
+        "protocol": "anthropic",
+        "provider": "glm",
+        "description": "GLM Anthropic 完整工具调用多轮：call → tool_result → final_response",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_result",
+        "tools": ANTHROPIC_TOOLS,
+        "max_tokens": 2048,
+        "_mock_tool_response": "24℃, sunny",
     },
 
     # ---------- Anthropic: Streaming ----------
@@ -726,6 +804,12 @@ def capture(
     # 2. Anthropic Streaming + 工具调用（验证 SSE 中 tool_use_delta 事件）
     if expect == "tool_use_streaming":
         return _capture_anthropic_tool_streaming(
+            client, scenario, model, output_base, spec, messages, protocol
+        )
+
+    # 2b. GLM 流式工具调用（GLM OpenAI 协议 + tool_stream=True）
+    if scenario == "glm-tool-use-streaming":
+        return _capture_glm_tool_streaming(
             client, scenario, model, output_base, spec, messages, protocol
         )
 
@@ -1037,6 +1121,55 @@ def _capture_anthropic_tool_streaming(
     return out_file
 
 
+def _capture_glm_tool_streaming(
+    client: LLMClient,
+    scenario: str,
+    model: str,
+    output_base: Path,
+    spec: dict[str, Any],
+    messages: list[dict],
+    protocol: str,
+) -> Path:
+    """GLM OpenAI 流式工具调用（tool_stream=True）：
+    验证 SSE chunk 中 delta.tool_calls 增量格式（index / function.name / function.arguments）。
+    GLM 的 delta.tool_calls 格式与标准 OpenAI 类似，但可含 reasoning_content。
+    """
+    request_kwargs = _build_request_kwargs(spec, model, messages)
+
+    print(f"  → GLM 流式工具调用请求...")
+    try:
+        raw = client.chat_streaming(messages, model, **request_kwargs)
+    except HTTPResponseError as e:
+        raw = f"Error: HTTP {e.code} {e.reason}: {e.body}"
+
+    out_dir = output_base / protocol
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{model}-{scenario}.txt"
+    out_file.write_text(raw, encoding="utf-8")
+
+    extra_body_sent = request_kwargs.pop("extra_body", None)
+    tools_sent = request_kwargs.pop("tools", None)
+
+    meta = {
+        "protocol": protocol,
+        "streaming": True,
+        "scenario": scenario,
+        "model": model,
+        "expect": spec["expect"],
+        "request": {"model": model, "messages": messages},
+        "extra_body_sent": extra_body_sent,
+    }
+    if tools_sent is not None:
+        meta["tools_sent"] = tools_sent
+
+    meta_file = out_dir / f"{model}-{scenario}-meta.json"
+    meta_file.write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"  ✓ {protocol}/streaming/{scenario} → {out_file.name}")
+    return out_file
+
+
 def _capture_cache(
     client: LLMClient,
     scenario: str,
@@ -1127,50 +1260,85 @@ def main() -> None:
         description="LLM Provider Fixture 采集脚本（v2，基于 Phase 0 文档）"
     )
     parser.add_argument("--provider", required=True, choices=list(PROVIDER_CONFIG.keys()))
-    parser.add_argument("--model", required=True)
-    parser.add_argument(
-        "--scenario",
-        required=True,
-        help=f"可用场景: {', '.join(sorted(SCENARIOS.keys()))}",
-    )
-    parser.add_argument(
-        "--api-key",
-        default=os.environ.get("LLM_API_KEY", ""),
-    )
+    parser.add_argument("--api-key", default=os.environ.get("LLM_API_KEY", ""))
     parser.add_argument(
         "--output-base",
-        default="tests/fixtures/llm/v2",
-        help="默认: tests/fixtures/llm/v2",
+        default="/home/admin/code/closeclaw-test/tests/fixtures/llm/v2",
+        help="默认: /home/admin/code/closeclaw-test/tests/fixtures/llm/v2",
     )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--model", help="单模型采集（与 --scenario 配合）")
+    group.add_argument("--all", action="store_true", help="批量采集：遍历 provider 下全部模型 × 全部场景")
+    parser.add_argument("--scenario", help="单场景采集（与 --model 配合）")
     args = parser.parse_args()
 
     if not args.api_key:
-        print(
-            "Error: --api-key 或环境变量 LLM_API_KEY 未设置",
-            file=sys.stderr,
-        )
+        print("Error: --api-key 或环境变量 LLM_API_KEY 未设置", file=sys.stderr)
         sys.exit(1)
 
-    spec = SCENARIOS.get(args.scenario)
-    if not spec:
-        raise ValueError(f"Unknown scenario: {args.scenario}")
+    provider = args.provider
+    output_base = Path(args.output_base)
 
-    protocol = spec["protocol"]
-    provider = spec.get("provider", args.provider)
+    if args.all:
+        _run_all(provider, args.api_key, output_base)
+    else:
+        if not args.model or not args.scenario:
+            parser.print_help()
+            sys.exit(1)
+        spec = SCENARIOS.get(args.scenario)
+        if not spec:
+            raise ValueError(f"Unknown scenario: {args.scenario}")
+        protocol = spec["protocol"]
+        client = make_client(provider, args.api_key, protocol)
+        print(f"[{provider}/{protocol}] {args.model} × {args.scenario}")
+        try:
+            out_path = capture(client, args.scenario, args.model, output_base, args.api_key)
+            print(f"Done: {out_path}")
+        except HTTPResponseError as e:
+            print(f"HTTP Error {e.code} {e.reason}: {e.body}", file=sys.stderr)
+            sys.exit(1)
 
-    output_base = Path(args.output_base) / provider
-    client = make_client(provider, args.api_key, protocol)
 
-    print(f"[{provider}/{protocol}] {args.model} × {args.scenario}")
-    try:
-        out_path = capture(
-            client, args.scenario, args.model, output_base, args.api_key
-        )
-        print(f"Done: {out_path}")
-    except HTTPResponseError as e:
-        print(f"HTTP Error {e.code} {e.reason}: {e.body}", file=sys.stderr)
-        sys.exit(1)
+def _run_all(provider: str, api_key: str, output_base: Path) -> None:
+    """批量采集：遍历该 provider 下所有模型 × 所有场景，错误不中断。"""
+    cfg = PROVIDER_CONFIG[provider]
+    openai_models = cfg.get("openai_models", [])
+    anthropic_models = cfg.get("anthropic_models", [])
 
+    # 聚合同一 protocol 下的所有场景
+    protocol_scenarios: dict[str, list[str]] = {}
+    for name, spec in SCENARIOS.items():
+        p = spec["protocol"]
+        protocol_scenarios.setdefault(p, []).append(name)
 
-if __name__ == "__main__":
-    main()
+    all_done = 0
+    all_fail = 0
+
+    for protocol, scenarios in protocol_scenarios.items():
+        models = openai_models if protocol == "openai" else anthropic_models
+        if not models:
+            print(f"[WARN] {provider} 没有注册 {protocol} 模型，跳过")
+            continue
+        client = make_client(provider, api_key, protocol)
+        for model in models:
+            for scenario in scenarios:
+                out_dir = output_base / provider / protocol
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_file = out_dir / f"{model}-{scenario}.json"
+                # 已有的非空文件跳过（避免重复采集覆盖有效数据）
+                if out_file.exists() and out_file.stat().st_size > 100:
+                    print(f"[SKIP] {model}/{scenario} — 文件已存在")
+                    continue
+                print(f"[{provider}/{protocol}] {model} × {scenario} ...", end=" ", flush=True)
+                try:
+                    capture(client, scenario, model, output_base / provider, api_key)
+                    print("OK")
+                    all_done += 1
+                except HTTPResponseError as e:
+                    print(f"HTTP {e.code} {e.reason}")
+                    all_fail += 1
+                except Exception as e:
+                    print(f"ERROR {e}")
+                    all_fail += 1
+
+    print(f"\n批量完成: {all_done} 成功, {all_fail} 失败")

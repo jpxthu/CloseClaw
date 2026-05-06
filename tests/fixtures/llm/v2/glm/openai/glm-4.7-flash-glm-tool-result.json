@@ -1,0 +1,55 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "glm-tool-result",
+  "model": "glm-4.7-flash",
+  "expect": "tool_result",
+  "request": {
+    "model": "glm-4.7-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "extra_body_sent": {
+    "thinking": {
+      "type": "enabled",
+      "clear_thinking": false
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ],
+  "response": {
+    "error": true,
+    "http_code": 429,
+    "reason": "Too Many Requests",
+    "body": {
+      "error": {
+        "code": "1302",
+        "message": "您的账户已达到速率限制，请您控制请求频率"
+      }
+    }
+  },
+  "rounds": []
+}
