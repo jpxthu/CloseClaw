@@ -24,7 +24,6 @@ Fixture 顶层字段（仅文档有记录的字段）：
 """
 
 
-
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -189,6 +188,50 @@ def make_client(provider: str, api_key: str, protocol: str) -> LLMClient:
 
 
 # ============================================================
+# 共享工具定义（文档标准格式）
+# ============================================================
+
+# OpenAI 协议 tools 格式
+OPENAI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the current weather in a given location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "City name, e.g. Tokyo",
+                    }
+                },
+                "required": ["location"],
+            },
+        },
+    }
+]
+
+# Anthropic 协议 tools 格式（注意：name 而非 function.name，input_schema 而非 function.parameters）
+ANTHROPIC_TOOLS = [
+    {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "City name, e.g. Tokyo",
+                }
+            },
+            "required": ["location"],
+        },
+    }
+]
+
+
+# ============================================================
 # 场景定义
 #
 # 字段来源规则：
@@ -227,10 +270,13 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     },
 
     # ---------- OpenAI: Cache ----------
-    # MiniMax / GLM / DeepSeek 均使用 prompt_tokens_details.cached_tokens
+    # MiniMax 主动缓存需在 system 末尾使用 cache_control 标记断点
+    # Anthropic 协议：system 数组中最后一个块加 cache_control
+    # OpenAI 协议：MiniMax 不直接支持 cache_control，需通过 anthropic_url + cache_control
+    # 这里使用 Anthropic 协议的 cache 场景
     "cache": {
         "protocol": "openai",
-        "description": "多轮重复请求，验证 cached_tokens 字段出现",
+        "description": "验证 OpenAI 协议下 prompt_tokens_details.cached_tokens 字段",
         "messages": [
             {
                 "role": "system",
@@ -239,12 +285,10 @@ SCENARIOS: dict[str, dict[str, Any]] = {
             {"role": "user", "content": "What color is the sky?"},
         ],
         "expect": "cache",
-        "repeat": 3,  # 首次写入缓存，后续命中 cached_tokens 应 > 0
+        "repeat": 3,
     },
 
     # ---------- OpenAI: Reasoning / Thinking ----------
-    # 各 provider 参数名不同，场景独立定义
-
     # MiniMax: reasoning_split（extra_body）—— content 仍含 ‖标签，reasoning_details 数组独立出现
     "minimax-reasoning-split": {
         "protocol": "openai",
@@ -293,35 +337,48 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     },
 
     # ---------- OpenAI: 工具调用（Tool Use）----------
+    # 第一步：触发工具调用
     "tool-use": {
         "protocol": "openai",
-        "description": "工具调用，验证 tool_calls 响应格式和 finish_reason=tool_calls",
+        "description": "工具调用触发，验证 finish_reason=tool_calls 和 tool_calls 格式",
         "messages": [
             {
                 "role": "user",
-                "content": "What is the weather in Tokyo?",
+                "content": "How's the weather in San Francisco?",
             }
         ],
         "expect": "tool_calls",
-        "tools": [
+        "tools": OPENAI_TOOLS,
+    },
+
+    # 第二步：工具结果回传 + 获取最终回复（多轮交互）
+    "tool-result": {
+        "protocol": "openai",
+        "description": "完整工具调用多轮交互：call → tool_result → final_response",
+        "messages": [
             {
-                "type": "function",
-                "function": {
-                    "name": "get_weather",
-                    "description": "Get the current weather in a given location.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "location": {
-                                "type": "string",
-                                "description": "City name, e.g. Tokyo",
-                            }
-                        },
-                        "required": ["location"],
-                    },
-                },
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
             }
         ],
+        "expect": "tool_result",
+        "tools": OPENAI_TOOLS,
+        "extra_body": {"reasoning_split": True},
+        "_mock_tool_response": "24℃, sunny",
+    },
+
+    # Streaming + 工具调用
+    "tool-use-streaming": {
+        "protocol": "openai",
+        "description": "Streaming 下工具调用，验证 SSE chunk 中 tool_calls delta 格式",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_calls_streaming",
+        "tools": OPENAI_TOOLS,
     },
 
     # ---------- OpenAI: 错误场景 ----------
@@ -349,10 +406,9 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     },
 
     # ---------- Anthropic: 通用 ----------
-    # ⚠️ GLM Anthropic 端点路径未文档化，基于标准路径反推，待实测
     "anthropic-simple": {
         "protocol": "anthropic",
-        "description": "Anthropic 协议基础请求，验证响应 content[].type 和 usage 字段 【⚠️待实测-GLM】",
+        "description": "Anthropic 协议基础请求，验证响应 content[].type 和 usage 字段",
         "messages": [{"role": "user", "content": "Say hello in 3 words."}],
         "expect": "text",
         "max_tokens": 1024,
@@ -360,11 +416,11 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 
     # ---------- Anthropic: Thinking block ----------
     # MiniMax: content[].type=="thinking" + thinking/signature
-    # ⚠️ GLM: 文档无 Anthropic 端点响应格式记录，【⚠️待实测】
+    # 模型默认输出 thinking，thinking 参数实际被忽略
     "anthropic-thinking": {
         "protocol": "anthropic",
         "provider": "minimax",
-        "description": "MiniMax Anthropic 端点 thinking block 【⚠️待实测-GLM】",
+        "description": "MiniMax Anthropic 端点 thinking block（默认出现，thinking 参数被忽略）",
         "messages": [
             {"role": "user", "content": "What is 17*23? Show your work step by step."}
         ],
@@ -373,19 +429,69 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     },
 
     # ---------- Anthropic: Streaming ----------
-    # ⚠️ GLM: 文档无 Anthropic SSE 事件序列记录，【⚠️待实测】
     "anthropic-streaming": {
         "protocol": "anthropic",
-        "description": "Anthropic SSE stream，验证事件序列 【⚠️待实测-GLM】",
+        "description": "Anthropic SSE stream，验证事件序列（message_start / content_block_* / message_delta）",
         "messages": [{"role": "user", "content": "Count from 1 to 3."}],
         "expect": "streaming",
+        "max_tokens": 1024,
+    },
+
+    # ---------- Anthropic: 工具调用（Tool Use）----------
+    # 第一步：触发工具调用
+    "anthropic-tool-use": {
+        "protocol": "anthropic",
+        "provider": "minimax",
+        "description": "Anthropic 协议工具调用，验证 content[].type=tool_use 和 id/name/input 字段",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_use",
+        "tools": ANTHROPIC_TOOLS,
+        "max_tokens": 2048,
+    },
+
+    # 第二步：完整工具调用多轮交互
+    "anthropic-tool-result": {
+        "protocol": "anthropic",
+        "provider": "minimax",
+        "description": "Anthropic 完整工具调用多轮：call → tool_result → final_response",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_result",
+        "tools": ANTHROPIC_TOOLS,
+        "max_tokens": 2048,
+        "_mock_tool_response": "24℃, sunny",
+    },
+
+    # ---------- Anthropic: Cache ----------
+    # 使用 cache_control 标记 system 断点
+    "anthropic-cache": {
+        "protocol": "anthropic",
+        "provider": "minimax",
+        "description": "Anthropic cache_control 主动缓存，验证 cache_creation / cache_read 字段",
+        "messages": [
+            {"role": "user", "content": "What color is the sky?"}
+        ],
+        "expect": "cache",
+        "system": [
+            {"type": "text", "text": "You are a helpful assistant. Always remember: the sky is blue."},
+        ],
+        "repeat": 3,
         "max_tokens": 1024,
     },
 
     # ---------- Anthropic: 错误场景 ----------
     "anthropic-error-auth": {
         "protocol": "anthropic",
-        "description": "Anthropic 端点无效 key 【⚠️待实测-GLM】",
+        "description": "Anthropic 端点无效 key",
         "messages": [{"role": "user", "content": "hi"}],
         "expect": "error",
         "max_tokens": 1024,
@@ -394,7 +500,7 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 
     "anthropic-error-empty": {
         "protocol": "anthropic",
-        "description": "Anthropic 端点空 messages 【⚠️待实测-GLM】",
+        "description": "Anthropic 端点空 messages",
         "messages": [],
         "expect": "error",
         "max_tokens": 1024,
@@ -406,48 +512,151 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 # 采集逻辑
 # ============================================================
 
-def _build_payload(
+def _build_request_kwargs(
     spec: dict[str, Any],
     model: str,
     messages: list[dict],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """构造请求体。
+) -> dict[str, Any]:
+    """构造 API 请求关键字参数（全部通过 **kwargs 传给 client.chat()）。
 
-    返回 (payload, http_kwargs)：
-      payload  → 发送给 API 的请求体
-      http_kwargs → chat()/chat_streaming() 的关键字参数（stream 等）
+    返回的 dict 包含所有请求体字段：
+      - model, messages
+      - OpenAI 特有：temperature, top_p, tools, extra_body
+      - Anthropic 特有：max_tokens, system, temperature, top_p
+      - 顶层字段（如 DeepSeek reasoning_effort）
     """
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-    }
+    # model 和 messages 由 caller 以 positional 参数传入，kwargs 仅含可选字段
+    kwargs: dict[str, Any] = {}
 
-    # Anthropic 协议特有字段
+    # Anthropic 协议特有字段（独立顶层字段，非 extra_body）
     if spec["protocol"] == "anthropic":
         for field in ("max_tokens", "system", "temperature", "top_p"):
             if field in spec:
-                payload[field] = spec[field]
+                kwargs[field] = spec[field]
+        # Anthropic tools 格式（name + input_schema）
+        if spec.get("tools"):
+            kwargs["tools"] = spec["tools"]
 
     # OpenAI 协议特有字段
     if spec["protocol"] == "openai":
         for field in ("temperature", "top_p"):
             if field in spec:
-                payload[field] = spec[field]
+                kwargs[field] = spec[field]
+        # OpenAI tools 格式（type: "function" + function.name/parameters）
+        if spec.get("tools"):
+            kwargs["tools"] = spec["tools"]
 
-    # extra_body（仅文档确认的字段）
+    # extra_body（仅文档确认的字段，如 MiniMax reasoning_split）
     if spec.get("extra_body"):
-        payload["extra_body"] = spec["extra_body"]
+        kwargs["extra_body"] = spec["extra_body"]
 
     # 顶层字段（如 DeepSeek reasoning_effort）
     if spec.get("_top_level"):
-        payload.update(spec["_top_level"])
+        kwargs.update(spec["_top_level"])
 
-    # tools
-    if spec.get("tools"):
-        payload["tools"] = spec["tools"]
+    return kwargs
 
-    http_kwargs: dict[str, Any] = {}
-    return payload, http_kwargs
+
+def _capture_single(
+    client: LLMClient,
+    messages: list[dict],
+    model: str,
+    request_kwargs: dict[str, Any],
+    is_streaming: bool,
+) -> dict | str:
+    """执行单次 API 调用（流式或非流式）。"""
+    if is_streaming:
+        return client.chat_streaming(messages, model, **request_kwargs)
+    else:
+        return client.chat(messages, model, **request_kwargs)
+
+
+def _write_output(
+    output_base: Path,
+    protocol: str,
+    scenario: str,
+    model: str,
+    request_messages: list[dict],
+    request_kwargs: dict[str, Any],
+    is_streaming: bool,
+    result: dict | str,
+    expect: str,
+) -> Path:
+    """将采集结果写入文件。"""
+    out_dir = output_base / protocol
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 提取 extra_body_sent（仅记录文档有定义的字段）
+    extra_body_sent = request_kwargs.pop("extra_body", None)
+    # 提取 tools（从 kwargs 取出，不放入 meta）
+    tools_sent = request_kwargs.pop("tools", None)
+    # 提取 system（Anthropic 协议）
+    system_sent = request_kwargs.pop("system", None)
+    # 提取 max_tokens（Anthropic）
+    max_tokens_sent = request_kwargs.pop("max_tokens", None)
+    # 提取 temperature/top_p
+    temperature_sent = request_kwargs.pop("temperature", None)
+    top_p_sent = request_kwargs.pop("top_p", None)
+
+    if is_streaming:
+        raw = result  # str
+        out_file = out_dir / f"{model}-{scenario}.txt"
+        out_file.write_text(raw, encoding="utf-8")
+
+        meta = {
+            "protocol": protocol,
+            "streaming": True,
+            "scenario": scenario,
+            "model": model,
+            "expect": expect,
+            "request": {"model": model, "messages": request_messages},
+            "extra_body_sent": extra_body_sent,
+        }
+        if tools_sent is not None:
+            meta["tools_sent"] = tools_sent
+        if max_tokens_sent is not None:
+            meta["max_tokens_sent"] = max_tokens_sent
+        if system_sent is not None:
+            meta["system_sent"] = system_sent
+        if temperature_sent is not None:
+            meta["temperature_sent"] = temperature_sent
+        if top_p_sent is not None:
+            meta["top_p_sent"] = top_p_sent
+
+        meta_file = out_dir / f"{model}-{scenario}-meta.json"
+        meta_file.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  ✓ {protocol}/streaming → {out_file.name}")
+        return out_file
+    else:
+        output: dict[str, Any] = {
+            "protocol": protocol,
+            "streaming": False,
+            "scenario": scenario,
+            "model": model,
+            "expect": expect,
+            "request": {"model": model, "messages": request_messages},
+            "extra_body_sent": extra_body_sent,
+            "response": result,
+        }
+        if tools_sent is not None:
+            output["tools_sent"] = tools_sent
+        if max_tokens_sent is not None:
+            output["max_tokens_sent"] = max_tokens_sent
+        if system_sent is not None:
+            output["system_sent"] = system_sent
+        if temperature_sent is not None:
+            output["temperature_sent"] = temperature_sent
+        if top_p_sent is not None:
+            output["top_p_sent"] = top_p_sent
+
+        out_file = out_dir / f"{model}-{scenario}.json"
+        out_file.write_text(
+            json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  ✓ {protocol}/{scenario} → {out_file.name}")
+        return out_file
 
 
 def capture(
@@ -458,11 +667,20 @@ def capture(
     api_key: str,
 ) -> Path:
     spec = SCENARIOS[scenario]
-    messages = spec["messages"]
+    messages = list(spec["messages"])  # 深拷贝，避免修改原始定义
     protocol = spec["protocol"]
-    is_streaming = spec["expect"] == "streaming"
+    is_streaming = spec["expect"] in ("streaming", "tool_calls_streaming")
+    expect = spec["expect"]
 
-    # 无效 key 场景：临时替换 header
+    # ---------- 特殊场景处理 ----------
+
+    # 1. 工具多轮交互场景（tool-result / anthropic-tool-result）
+    if expect in ("tool_result",):
+        return _capture_tool_result(
+            client, scenario, model, output_base, spec, messages, protocol, expect
+        )
+
+    # 2. 无效 key 场景：临时替换 header
     headers_backup: dict[str, str] | None = None
     if spec.get("_invalid_key"):
         headers_backup = dict(client.headers)
@@ -474,39 +692,25 @@ def capture(
     req_model = spec.get("_invalid_model", model)
 
     try:
-        payload, http_kwargs = _build_payload(spec, req_model, messages)
+        request_kwargs = _build_request_kwargs(spec, req_model, messages)
 
-        if is_streaming:
-            raw = client.chat_streaming(messages, req_model, **http_kwargs)
-            out_dir = output_base / protocol
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_file = out_dir / f"{model}-{scenario}.txt"
-            out_file.write_text(raw, encoding="utf-8")
-
-            meta = {
-                "protocol": protocol,
-                "streaming": True,
-                "scenario": scenario,
-                "model": req_model,
-                "expect": spec["expect"],
-                "request": {"model": req_model, "messages": messages},
-                "extra_body_sent": spec.get("extra_body", {}),
-            }
-            meta_file = out_dir / f"{model}-{scenario}-meta.json"
-            meta_file.write_text(
-                json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+        # ---------- Cache 场景：需要在 system 末尾加 cache_control ----------
+        if scenario in ("cache", "anthropic-cache"):
+            return _capture_cache(
+                client, scenario, model, output_base, spec, messages, protocol,
+                request_kwargs
             )
-            print(f"  ✓ {protocol}/streaming → {out_file.name}")
-            return out_file
 
-        # 非流式
+        # ---------- 常规单次或重复请求 ----------
         repeat = spec.get("repeat", 1)
         results: list[dict] = []
 
         for i in range(repeat):
             try:
-                result = client.chat(messages, req_model, **http_kwargs)
-                results.append(result)
+                result = _capture_single(
+                    client, messages, req_model, request_kwargs, is_streaming
+                )
+                results.append(result)  # type: ignore
             except HTTPResponseError as e:
                 results.append(
                     {
@@ -519,30 +723,289 @@ def capture(
             if i < repeat - 1:
                 time.sleep(0.5)
 
-        out_dir = output_base / protocol
-        out_dir.mkdir(parents=True, exist_ok=True)
+        final_result = results[0] if len(results) == 1 else results  # type: ignore
 
-        output: dict[str, Any] = {
-            "protocol": protocol,
-            "streaming": False,
-            "scenario": scenario,
-            "model": req_model,
-            "expect": spec["expect"],
-            "request": {"model": req_model, "messages": messages},
-            "extra_body_sent": spec.get("extra_body", {}),
-            "response": results if len(results) != 1 else results[0],
-        }
-
-        out_file = out_dir / f"{model}-{scenario}.json"
-        out_file.write_text(
-            json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
+        return _write_output(
+            output_base, protocol, scenario, req_model,
+            messages, request_kwargs, is_streaming,
+            final_result, expect,
         )
-        print(f"  ✓ {protocol}/{scenario} → {out_file.name}")
-        return out_file
 
     finally:
         if headers_backup is not None:
             client.headers = headers_backup
+
+
+def _capture_tool_result(
+    client: LLMClient,
+    scenario: str,
+    model: str,
+    output_base: Path,
+    spec: dict[str, Any],
+    messages: list[dict],
+    protocol: str,
+    expect: str,
+) -> Path:
+    """工具调用多轮交互采集：
+    1. 发送带 tools 的请求，触发工具调用
+    2. 解析 tool_call / tool_use，获取 id 和参数
+    3. 构造 tool_result 消息并回传
+    4. 发送第二轮请求，获取最终回复
+
+    文档参考：
+    - OpenAI: messages.append(response_message) → messages.append({role:"tool", tool_call_id, content})
+    - Anthropic: messages.append({role:"assistant", content: response.content})
+              → messages.append({role:"user", content: [{type:"tool_result", tool_use_id, content}]})
+    """
+    is_openai = protocol == "openai"
+    mock_response = spec.get("_mock_tool_response", "fake result")
+    request_kwargs = _build_request_kwargs(spec, model, messages)
+
+    print(f"  → Round 1: 发送工具调用请求...")
+
+    # ---- Round 1: 触发工具调用 ----
+    try:
+        round1 = client.chat(messages, model, **request_kwargs)
+    except HTTPResponseError as e:
+        # 如果直接返回错误，记录并退出
+        out_dir = output_base / protocol
+        out_dir.mkdir(parents=True, exist_ok=True)
+        output: dict[str, Any] = {
+            "protocol": protocol,
+            "streaming": False,
+            "scenario": scenario,
+            "model": model,
+            "expect": spec["expect"],
+            "request": {"model": model, "messages": messages},
+            "extra_body_sent": spec.get("extra_body"),
+            "tools_sent": spec.get("tools"),
+            "response": {
+                "error": True,
+                "http_code": e.code,
+                "reason": e.reason,
+                "body": e.body,
+            },
+            "rounds": [],
+        }
+        out_file = out_dir / f"{model}-{scenario}.json"
+        out_file.write_text(
+            json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  ✓ {protocol}/{scenario} → {out_file.name} (error)")
+        return out_file
+
+    # ---- 解析 Round 1 的工具调用 ----
+    tool_call_info: dict | None = None
+
+    if is_openai:
+        choice = round1.get("choices", [{}])[0]
+        msg = choice.get("message", {})
+        tool_calls = msg.get("tool_calls", [])
+        if tool_calls:
+            tc = tool_calls[0]
+            tool_call_info = {
+                "id": tc.get("id"),
+                "name": tc.get("function", {}).get("name"),
+                "arguments": tc.get("function", {}).get("arguments"),
+            }
+            finish_reason = choice.get("finish_reason")
+            reasoning_details = msg.get("reasoning_details")
+    else:
+        # Anthropic: content 数组中找 tool_use 块
+        content = round1.get("content", [])
+        for block in content:
+            if block.get("type") == "tool_use":
+                tool_call_info = {
+                    "id": block.get("id"),
+                    "name": block.get("name"),
+                    "input": block.get("input"),
+                }
+                break
+        stop_reason = round1.get("stop_reason")
+
+    print(f"  → Round 1 响应: finish_reason={choice.get('finish_reason') if is_openai else stop_reason}")
+    if tool_call_info:
+        print(f"  → 解析到工具调用: {tool_call_info.get('name')}({tool_call_info.get('arguments') or tool_call_info.get('input')})")
+    else:
+        print(f"  → 未触发工具调用（模型直接返回文本）")
+
+    # ---- 构造 Round 2 消息 ----
+    round2_messages = list(messages)
+
+    if is_openai:
+        # OpenAI: 追加完整的 assistant 消息（含 tool_calls）
+        round1_msg = round1.get("choices", [{}])[0].get("message", {})
+        round2_messages.append(round1_msg)
+        # 追加 tool result
+        tc = tool_call_info
+        round2_messages.append({
+            "role": "tool",
+            "tool_call_id": tc["id"] if tc else "unknown",
+            "content": mock_response,
+        })
+    else:
+        # Anthropic: 追加 {role:"assistant", content: [...blocks...]}
+        round1_content = round1.get("content", [])
+        round2_messages.append({
+            "role": "assistant",
+            "content": round1_content,
+        })
+        # 追加 tool_result（注意是 type:"tool_result"，不是 tool_use_id）
+        if tool_call_info:
+            round2_messages.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_call_info["id"],
+                        "content": mock_response,
+                    }
+                ],
+            })
+
+    print(f"  → Round 2: 回传 tool_result，获取最终回复...")
+
+    # ---- Round 2: 获取最终回复 ----
+    try:
+        round2 = client.chat(round2_messages, model, **request_kwargs)
+    except HTTPResponseError as e:
+        round2 = {
+            "error": True,
+            "http_code": e.code,
+            "reason": e.reason,
+            "body": e.body,
+        }
+
+    # ---- 写入文件 ----
+    out_dir = output_base / protocol
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 提取 extra_body_sent
+    extra_body_sent = request_kwargs.pop("extra_body", None)
+    tools_sent = request_kwargs.pop("tools", None)
+    system_sent = request_kwargs.pop("system", None)
+    max_tokens_sent = request_kwargs.pop("max_tokens", None)
+
+    output = {
+        "protocol": protocol,
+        "streaming": False,
+        "scenario": scenario,
+        "model": model,
+        "expect": expect,
+        "request": {"model": model, "messages": messages},
+        "extra_body_sent": extra_body_sent,
+        "tools_sent": tools_sent,
+        "response": {
+            "round1": round1,
+            "round2": round2,
+        },
+        "rounds": [
+            {
+                "round": 1,
+                "request_messages": messages,
+                "tool_call": tool_call_info,
+                "mock_tool_response": mock_response,
+                "response": round1,
+            },
+            {
+                "round": 2,
+                "request_messages": round2_messages,
+                "response": round2,
+            },
+        ],
+    }
+    if system_sent is not None:
+        output["system_sent"] = system_sent
+    if max_tokens_sent is not None:
+        output["max_tokens_sent"] = max_tokens_sent
+
+    out_file = out_dir / f"{model}-{scenario}.json"
+    out_file.write_text(
+        json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"  ✓ {protocol}/{scenario} → {out_file.name}")
+    return out_file
+
+
+def _capture_cache(
+    client: LLMClient,
+    scenario: str,
+    model: str,
+    output_base: Path,
+    spec: dict[str, Any],
+    messages: list[dict],
+    protocol: str,
+    request_kwargs: dict[str, Any],
+) -> Path:
+    """Cache 场景采集：
+    - OpenAI: 无显式 cache_control，仅验证 prompt_tokens_details.cached_tokens 字段
+    - Anthropic: 在 system 末尾添加 cache_control:{"type":"ephemeral"} 标记断点
+    """
+    is_anthropic = protocol == "anthropic"
+    results: list[dict] = []
+
+    for i in range(spec.get("repeat", 3)):
+        round_kwargs = dict(request_kwargs)
+
+        if is_anthropic:
+            # Anthropic: 在 system 最后一块加 cache_control
+            system = spec.get("system", round_kwargs.get("system", []))
+            if system:
+                system = list(system)
+                # 给最后一块加 cache_control
+                last_system = dict(system[-1])
+                last_system["cache_control"] = {"type": "ephemeral"}
+                system[-1] = last_system
+                round_kwargs["system"] = system
+
+        try:
+            result = client.chat(messages, model, **round_kwargs)
+            results.append(result)
+        except HTTPResponseError as e:
+            results.append({
+                "error": True,
+                "http_code": e.code,
+                "reason": e.reason,
+                "body": e.body,
+            })
+
+        if i < spec.get("repeat", 3) - 1:
+            time.sleep(0.5)
+
+    # 提取 sent 字段
+    extra_body_sent = request_kwargs.pop("extra_body", None)
+    tools_sent = request_kwargs.pop("tools", None)
+    system_sent = request_kwargs.pop("system", None)
+    max_tokens_sent = request_kwargs.pop("max_tokens", None)
+
+    output: dict[str, Any] = {
+        "protocol": protocol,
+        "streaming": False,
+        "scenario": scenario,
+        "model": model,
+        "expect": spec["expect"],
+        "request": {"model": model, "messages": messages},
+        "extra_body_sent": extra_body_sent,
+        "response": results if len(results) != 1 else results[0],
+    }
+    if tools_sent is not None:
+        output["tools_sent"] = tools_sent
+    if system_sent is not None:
+        output["system_sent"] = system_sent
+    if max_tokens_sent is not None:
+        output["max_tokens_sent"] = max_tokens_sent
+    # 标注 Anthropic 缓存专用字段
+    if is_anthropic:
+        output["cache_control_note"] = "Anthropic 协议在 system 末尾标记了 cache_control:ephemeral"
+
+    out_dir = output_base / protocol
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{model}-{scenario}.json"
+    out_file.write_text(
+        json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"  ✓ {protocol}/{scenario} → {out_file.name}")
+    return out_file
 
 
 # ============================================================

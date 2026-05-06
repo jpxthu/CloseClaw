@@ -13,5 +13,6 @@
       }
     ]
   },
-  "extra_body_sent": {}
+  "extra_body_sent": null,
+  "max_tokens_sent": 1024
 }

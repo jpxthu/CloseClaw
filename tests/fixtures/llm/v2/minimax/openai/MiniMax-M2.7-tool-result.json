@@ -1,0 +1,256 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-result",
+  "model": "MiniMax-M2.7",
+  "expect": "tool_result",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "extra_body_sent": {
+    "reasoning_split": true
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ],
+  "response": {
+    "round1": {
+      "id": "064a6f58df01dbaf8ddbe577930a788d",
+      "choices": [
+        {
+          "finish_reason": "tool_calls",
+          "index": 0,
+          "message": {
+            "content": "<think>\nThe user is asking about the weather in San Francisco. I'll use the get_weather function with \"San Francisco\" as the location parameter.\n</think>\n\n\n",
+            "role": "assistant",
+            "name": "MiniMax AI",
+            "tool_calls": [
+              {
+                "id": "call_function_2exp43hticvy_1",
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "arguments": "{\"location\": \"San Francisco\"}"
+                },
+                "index": 0
+              }
+            ],
+            "audio_content": ""
+          }
+        }
+      ],
+      "created": 1778072664,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 269,
+        "total_characters": 0,
+        "prompt_tokens": 212,
+        "completion_tokens": 57,
+        "completion_tokens_details": {
+          "reasoning_tokens": 32
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": ""
+      }
+    },
+    "round2": {
+      "id": "064a6f596339615cbe082be16501a868",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "<think>\nThe weather function returned the current weather for San Francisco. It shows it's 24°C and sunny. I'll report this to the user in a friendly way.\n</think>\n\nThe weather in San Francisco is currently **24°C and sunny**! ☀️ Perfect weather for the city by the bay.",
+            "role": "assistant",
+            "name": "MiniMax AI",
+            "audio_content": ""
+          }
+        }
+      ],
+      "created": 1778072665,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 349,
+        "total_characters": 0,
+        "prompt_tokens": 289,
+        "completion_tokens": 60,
+        "completion_tokens_details": {
+          "reasoning_tokens": 35
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": ""
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_function_2exp43hticvy_1",
+        "name": "get_weather",
+        "arguments": "{\"location\": \"San Francisco\"}"
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "064a6f58df01dbaf8ddbe577930a788d",
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "<think>\nThe user is asking about the weather in San Francisco. I'll use the get_weather function with \"San Francisco\" as the location parameter.\n</think>\n\n\n",
+              "role": "assistant",
+              "name": "MiniMax AI",
+              "tool_calls": [
+                {
+                  "id": "call_function_2exp43hticvy_1",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"location\": \"San Francisco\"}"
+                  },
+                  "index": 0
+                }
+              ],
+              "audio_content": ""
+            }
+          }
+        ],
+        "created": 1778072664,
+        "model": "MiniMax-M2.7",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 269,
+          "total_characters": 0,
+          "prompt_tokens": 212,
+          "completion_tokens": 57,
+          "completion_tokens_details": {
+            "reasoning_tokens": 32
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "content": "<think>\nThe user is asking about the weather in San Francisco. I'll use the get_weather function with \"San Francisco\" as the location parameter.\n</think>\n\n\n",
+          "role": "assistant",
+          "name": "MiniMax AI",
+          "tool_calls": [
+            {
+              "id": "call_function_2exp43hticvy_1",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\": \"San Francisco\"}"
+              },
+              "index": 0
+            }
+          ],
+          "audio_content": ""
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_function_2exp43hticvy_1",
+          "content": "24℃, sunny"
+        }
+      ],
+      "response": {
+        "id": "064a6f596339615cbe082be16501a868",
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "<think>\nThe weather function returned the current weather for San Francisco. It shows it's 24°C and sunny. I'll report this to the user in a friendly way.\n</think>\n\nThe weather in San Francisco is currently **24°C and sunny**! ☀️ Perfect weather for the city by the bay.",
+              "role": "assistant",
+              "name": "MiniMax AI",
+              "audio_content": ""
+            }
+          }
+        ],
+        "created": 1778072665,
+        "model": "MiniMax-M2.7",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 349,
+          "total_characters": 0,
+          "prompt_tokens": 289,
+          "completion_tokens": 60,
+          "completion_tokens_details": {
+            "reasoning_tokens": 35
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    }
+  ]
+}
