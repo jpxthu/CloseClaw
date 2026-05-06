@@ -1,0 +1,19 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-simple",
+  "model": "deepseek-v4-pro",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ],
+    "max_tokens": 512
+  },
+  "response_raw": "{\"id\":\"123c30c2-6091-442a-8f39-e922b524b5dc\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-pro\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"We need to respond with a three-word greeting. The user says \\\"Say hello in 3 words.\\\" So I need to output a greeting that consists exactly of three words. The simplest is \\\"Hello, how are?\\\" but that's not grammatically correct. \\\"Hello, how are you?\\\" is 4 words. \\\"Hello, good day!\\\" is 3 words? \\\"Hello, good day.\\\" -> \\\"Hello\\\" (1), \\\"good\\\" (2), \\\"day\\\" (3). Yes, that works. \\\"Hi, nice seeing.\\\" no. \\\"Hello, greetings everyone.\\\" 3 words? \\\"Hello, greetings everyone.\\\" -> Hello (1), greetings (2), everyone (3). But \\\"greetings everyone\\\" is a phrase, still 3 words. I could just say \\\"Hello, hello, hello.\\\" But I'd like a natural three-word greeting. Common three-word greetings: \\\"How are you?\\\" That's three words, but it's a question, not exactly \\\"hello\\\". The instruction is \\\"Say hello\\\", meaning a greeting. So \\\"Hello, how are?\\\" is incomplete. \\\"Good day, sir!\\\" 3 words? \\\"Good\\\" (1), \\\"day\\\" (2), \\\"sir\\\" (3). That works. \\\"Hey, what's up?\\\" That's three words: Hey, what's, up? Contractions count as one. \\\"Hey, what's up?\\\" is 3 words. That's a friendly hello. I'll go with that. \\\"Hey, what's up?\\\" Perfect. So answer: Hey, what's up?\",\"signature\":\"123c30c2-6091-442a-8f39-e922b524b5dc\"},{\"type\":\"text\",\"text\":\"Hey, what's up?\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":11,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":331,\"service_tier\":\"standard\"}}",
+  "http_status": 200
+}

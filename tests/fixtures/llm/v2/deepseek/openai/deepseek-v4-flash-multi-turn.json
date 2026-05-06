@@ -1,0 +1,26 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "deepseek-v4-flash",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice!"
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response_raw": "{\"id\":\"0e7e4344-4e85-4974-a687-2b20d0ce8dd9\",\"object\":\"chat.completion\",\"created\":1778088635,\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Your name is Alice.\",\"reasoning_content\":\"We need to answer the user's question: \\\"What is my name?\\\" The user previously said \\\"My name is Alice.\\\" So the answer is Alice.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":21,\"completion_tokens\":37,\"total_tokens\":58,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":31},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":21},\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}

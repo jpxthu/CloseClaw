@@ -1,0 +1,19 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "deepseek-thinking-high",
+  "model": "deepseek-v4-pro",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23?"
+      }
+    ],
+    "reasoning_effort": "high"
+  },
+  "response_raw": "{\"id\":\"9e8eab75-cb15-4848-aa36-6f5c1c109937\",\"object\":\"chat.completion\",\"created\":1778088670,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"17 × 23 = 391.\",\"reasoning_content\":\"We are asked: \\\"What is 17*23?\\\" This is a simple multiplication problem. 17 * 23 = ? I'll compute it.\\n\\n17 * 20 = 340\\n17 * 3 = 51\\n340 + 51 = 391\\n\\nSo the answer is 391.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":71,\"total_tokens\":82,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":62},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":11},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}

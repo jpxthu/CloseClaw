@@ -1,0 +1,7 @@
+{
+  "protocol": "anthropic",
+  "scenario": "anthropic-tool-result",
+  "model": "deepseek-v4-flash",
+  "response_raw": "{\"id\":\"f87c00ef-87a7-4233-9997-379b44267570\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-flash\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"The weather API returned data for San Francisco: 24\u00b0C and sunny. Now I can give the user a friendly answer.\",\"signature\":\"f87c00ef-87a7-4233-9997-379b44267570\"},{\"type\":\"text\",\"text\":\"San Francisco is currently **sunny** with a temperature of about **24\u00b0C (75\u00b0F)**. \\n\\nIt's a beautiful day out there! If you're planning to be outside, it's perfect weather for a walk or enjoying the city. Just keep in mind that SF weather can change quickly, especially near the coast, so you might want to bring a light jacket in case the fog rolls in later.\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":98,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":112,\"service_tier\":\"standard\"}}",
+  "http_status": 200
+}

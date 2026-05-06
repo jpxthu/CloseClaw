@@ -1,0 +1,11 @@
+{
+  "protocol": "openai",
+  "scenario": "error-empty",
+  "model": "deepseek-v4-pro",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": []
+  },
+  "response_raw": "{\"error\":{\"message\":\"Empty input messages\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}}",
+  "http_status": 400
+}

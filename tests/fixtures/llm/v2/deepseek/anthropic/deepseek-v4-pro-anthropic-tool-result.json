@@ -1,0 +1,7 @@
+{
+  "protocol": "anthropic",
+  "scenario": "anthropic-tool-result",
+  "model": "deepseek-v4-pro",
+  "response_raw": "{\"id\": \"85894850-7953-4778-aafd-d2d6a6888f00\", \"type\": \"message\", \"role\": \"assistant\", \"model\": \"deepseek-v4-pro\", \"content\": [{\"type\": \"thinking\", \"thinking\": \"Got the weather for San Francisco: 24\\u00b0C and sunny. I'll summarize this in a clean, friendly response.\", \"signature\": \"85894850-7953-4778-aafd-d2d6a6888f00\"}, {\"type\": \"text\", \"text\": \"The weather in San Francisco is sunny and 24\\u00b0C (75\\u00b0F) right now\\u2014pretty perfect! Let me know if you'd like a forecast or anything else.\"}], \"stop_reason\": \"end_turn\", \"stop_sequence\": null, \"usage\": {\"input_tokens\": 116, \"cache_creation_input_tokens\": 0, \"cache_read_input_tokens\": 0, \"output_tokens\": 62, \"service_tier\": \"standard\"}}",
+  "http_status": 200
+}

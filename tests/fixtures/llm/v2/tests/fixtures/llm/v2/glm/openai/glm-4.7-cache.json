@@ -1,0 +1,110 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "glm-4.7",
+  "expect": "cache",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": [
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "The user is asking for the color of the sky.\nMy instructions include the constraint: \"Always remember: the sky is blue.\"\nTherefore, the answer is blue.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778077199,
+      "id": "202605062219588b751bbd594c48d8",
+      "model": "glm-4.7",
+      "object": "chat.completion",
+      "request_id": "202605062219588b751bbd594c48d8",
+      "usage": {
+        "completion_tokens": 40,
+        "completion_tokens_details": {
+          "reasoning_tokens": 33
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 2
+        },
+        "total_tokens": 66
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "The user is asking a straightforward question: \"What color is the sky?\"\n\nThe user also provided a specific instruction in the system prompt: \"Always remember: the sky is blue.\"\n\nThis instruction is direct, simple, and aligns with general scientific fact (during the day, under clear conditions).\n\nTherefore, the response should be direct and confirm that the sky is blue.\n\nNo complex reasoning is required, but I should ensure I adhere to the constraint \"Always remember: the sky is blue\" implicitly or explicitly.\n\nPlan:\n1. Answer the question directly.\n2. State that the sky is blue.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778077203,
+      "id": "20260506222000baed6dc74fe04fd0",
+      "model": "glm-4.7",
+      "object": "chat.completion",
+      "request_id": "20260506222000baed6dc74fe04fd0",
+      "usage": {
+        "completion_tokens": 127,
+        "completion_tokens_details": {
+          "reasoning_tokens": 120
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 24
+        },
+        "total_tokens": 153
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "The user is asking \"What color is the sky?\".\nMy instructions state: \"Always remember: the sky is blue.\"\nTherefore, I should answer that the sky is blue.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778077204,
+      "id": "20260506222003c4fbf326476f437a",
+      "model": "glm-4.7",
+      "object": "chat.completion",
+      "request_id": "20260506222003c4fbf326476f437a",
+      "usage": {
+        "completion_tokens": 43,
+        "completion_tokens_details": {
+          "reasoning_tokens": 36
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 24
+        },
+        "total_tokens": 69
+      }
+    }
+  ]
+}

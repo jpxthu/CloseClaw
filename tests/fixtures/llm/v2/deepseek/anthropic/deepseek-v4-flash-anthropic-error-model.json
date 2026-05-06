@@ -1,0 +1,17 @@
+{
+  "protocol": "anthropic",
+  "scenario": "anthropic-error-model",
+  "model": "deepseek-v4-flash",
+  "request": {
+    "model": "deepseek-v4-flash-FAKE",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ],
+    "max_tokens": 10
+  },
+  "response_raw": "{\"error\":{\"message\":\"The supported API model names are deepseek-v4-pro or deepseek-v4-flash, but you passed deepseek-v4-flash-FAKE.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}}",
+  "http_status": 400
+}

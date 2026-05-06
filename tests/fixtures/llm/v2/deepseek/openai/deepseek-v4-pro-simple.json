@@ -1,0 +1,18 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "deepseek-v4-pro",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response_raw": "{\"id\":\"698e36b0-34be-40f7-b6ad-5deee2154938\",\"object\":\"chat.completion\",\"created\":1778088647,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello, hi, hey.\",\"reasoning_content\":\"We need to respond with \\\"Say hello in 3 words.\\\" The instruction is to say hello in exactly 3 words. I need to produce a response that is just three words, like \\\"Hello, howdy, hi\\\" or \\\"Greetings, salutations, hi\\\" but need to be a greeting. The user asked: \\\"Say hello in 3 words.\\\" So I should output three words that together form a greeting, or just three words that mean hello? The prompt is straightforward. I'll respond with something like \\\"Hello, hi, hey.\\\" That's three words. Or \\\"Hello there, friend\\\" but that's three words: \\\"Hello there, friend.\\\" Could be \\\"Hello, world, greetings.\\\" I need to keep it to exactly three words. I'll just say: \\\"Hello, hi, hey.\\\" No punctuation needed. The response should be just those three words. I'll output that.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":193,\"total_tokens\":204,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":186},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":11},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}

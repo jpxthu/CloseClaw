@@ -1,0 +1,12 @@
+{
+  "protocol": "anthropic",
+  "scenario": "anthropic-error-empty",
+  "model": "deepseek-v4-flash",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [],
+    "max_tokens": 10
+  },
+  "response_raw": "{\"error\":{\"message\":\"messages: at least one message is required\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}}",
+  "http_status": 400
+}

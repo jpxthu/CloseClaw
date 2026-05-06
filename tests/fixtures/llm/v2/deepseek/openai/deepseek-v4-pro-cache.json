@@ -1,0 +1,22 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "deepseek-v4-pro",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are helpful."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response_raw": "{\"id\":\"0011372a-e95b-4a1e-9666-30dbbe3eb6c5\",\"object\":\"chat.completion\",\"created\":1778088666,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"The sky is typically blue during a clear day. This blue color is due to Rayleigh scattering, where air molecules scatter shorter (blue) wavelengths of sunlight more than longer (red) wavelengths. At sunrise or sunset, the sky often appears red, orange, or pink, and at night it is dark.\",\"reasoning_content\":\"We are asked: \\\"What color is the sky?\\\" A simple question. I need to answer it. The sky typically appears blue during a clear day due to Rayleigh scattering. At sunrise/sunset it can be red/orange. At night it's dark. But the most common answer is blue. I'll give a concise answer.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":14,\"completion_tokens\":130,\"total_tokens\":144,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":68},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":14},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}

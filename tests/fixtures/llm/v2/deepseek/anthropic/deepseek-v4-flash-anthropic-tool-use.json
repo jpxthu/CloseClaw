@@ -1,0 +1,36 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-use",
+  "model": "deepseek-v4-flash",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's weather in SF?"
+      }
+    ],
+    "max_tokens": 512,
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Get weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    ]
+  },
+  "response_raw": "{\"id\":\"e23629af-6b27-4adf-b6a9-846c8515dfa3\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-flash\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"The user is asking about the weather in SF (San Francisco). Let me use the get_weather tool to find out.\",\"signature\":\"e23629af-6b27-4adf-b6a9-846c8515dfa3\"},{\"type\":\"tool_use\",\"id\":\"call_00_MSH2SsQFKfIvc4ry359f9148\",\"name\":\"get_weather\",\"input\":{\"location\":\"San Francisco\"}}],\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":19,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":256,\"output_tokens\":71,\"service_tier\":\"standard\"}}",
+  "http_status": 200
+}

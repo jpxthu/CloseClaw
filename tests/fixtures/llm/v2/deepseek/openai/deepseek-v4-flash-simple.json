@@ -1,0 +1,18 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "deepseek-v4-flash",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response_raw": "{\"id\":\"40416fc1-70ee-42ae-8f80-b4bf5434a1e2\",\"object\":\"chat.completion\",\"created\":1778088628,\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello my friend\",\"reasoning_content\":\"We need to say hello in 3 words. Possible: \\\"Hello to you\\\" or \\\"Hi there friend\\\" but simplest: \\\"Hello there!\\\" That's two words? \\\"Hello there\\\" is two. \\\"Hello my friend\\\" is three. Or \\\"Good day sir\\\" but generic. \\\"Hello everyone\\\" is two. \\\"Hello world\\\" two. \\\"Hello and welcome\\\" three? \\\"Hello, how are you?\\\" too many. The instruction: \\\"Say hello in 3 words.\\\" So produce exactly three words. \\\"Hello to you\\\" works. \\\"Hello, my friend\\\" with comma? But just words. \\\"Hello, friend\\\" two. \\\"Hello, dear friend\\\" three. But simplest: \\\"Hello there!\\\" is two. \\\"Hi, how are you?\\\" three? \\\"Hi how are\\\" not. \\\"Greetings to all\\\" three. \\\"Warm greetings\\\" two. I'll go with \\\"Hello to you.\\\" Or \\\"Hello, my friend.\\\" But without punctuation: \\\"Hello my friend\\\" is three words. That's fine. Answer: Hello my friend\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":224,\"total_tokens\":235,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":220},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":11},\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}

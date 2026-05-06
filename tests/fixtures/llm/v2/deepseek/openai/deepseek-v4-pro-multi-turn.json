@@ -1,0 +1,26 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "deepseek-v4-pro",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice!"
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response_raw": "{\"id\":\"6b125ff5-9aed-4c04-b4dc-6c84027c99c3\",\"object\":\"chat.completion\",\"created\":1778088663,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Your name is Alice! 😊\",\"reasoning_content\":\"We need to parse the user's query. The user asked: \\\"What is my name?\\\" The conversation history shows: \\\"My name is Alice.\\\" and the assistant responded \\\"Hi Alice!\\\". The user is now asking what their name is. The assistant should respond with \\\"Your name is Alice.\\\" or something similar. No need for additional complications.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":21,\"completion_tokens\":78,\"total_tokens\":99,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":70},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":21},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}

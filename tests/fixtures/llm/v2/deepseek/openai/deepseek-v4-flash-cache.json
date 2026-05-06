@@ -1,0 +1,22 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "deepseek-v4-flash",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are helpful."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response_raw": "{\"id\":\"f8e79c7b-30d9-4ab7-ad45-31cc4dbb6b90\",\"object\":\"chat.completion\",\"created\":1778088637,\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"The sky appears blue during the day due to Rayleigh scattering of sunlight by the atmosphere. At sunrise or sunset, it can look orange or red, and at night it's black. But the typical answer is **blue**.\",\"reasoning_content\":\"We need to answer the question \\\"What color is the sky?\\\" This is a simple factual question. The typical answer is blue, but we might consider variations like during sunrise/sunset it can be orange/red, or at night it's black. However, the most common answer is blue. Since the user didn't specify time of day, the standard answer is blue. I'll respond concisely.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":14,\"completion_tokens\":128,\"total_tokens\":142,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":83},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":14},\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}

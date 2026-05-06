@@ -1,0 +1,7 @@
+{
+  "protocol": "openai",
+  "scenario": "tool-result",
+  "model": "deepseek-v4-pro",
+  "response_raw": "{\"id\":\"b3181fd7-5189-4ea2-83a6-bfd5838eb1ba\",\"object\":\"chat.completion\",\"created\":1778090901,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"I wasn't able to get the actual weather details for San Francisco right now due to a data limitation. But typically, SF weather is cool and often foggy \u2014 average highs around 60-65\u00b0F this time of year. For the most accurate and current conditions, I'd recommend checking a reliable weather service or site like weather.com. Let me know if you'd like help with anything else!\",\"reasoning_content\":\"The get_weather function returned just \\\"location\\\": \\\"San Francisco\\\" without actual weather data. This is unexpected - I should have received temperature, conditions, etc. I'll need to let the user know that I wasn't able to retrieve the actual weather details and suggest they check a weather service.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":97,\"completion_tokens\":142,\"total_tokens\":239,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":60},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":97},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
+  "http_status": 200
+}
