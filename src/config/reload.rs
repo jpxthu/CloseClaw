@@ -3,6 +3,7 @@
 //! Watches config files for changes and automatically reloads them.
 //! Validates new config before applying, maintains backup of last known good config.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -57,6 +58,8 @@ pub struct ConfigReloadManager<P> {
     debounce_duration: Duration,
     /// Parsing function for the config provider
     parse_fn: ParseFn<P>,
+    /// Watcher handle (keeps watcher alive)
+    watcher_handle: Option<WatcherHandle>,
 }
 
 impl<P> std::fmt::Debug for ConfigReloadManager<P> {
@@ -84,6 +87,7 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
             event_sender: None,
             debounce_duration,
             parse_fn: Arc::new(parse_fn),
+            watcher_handle: None,
         }
     }
 
@@ -102,6 +106,7 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
             event_sender: Some(event_sender),
             debounce_duration,
             parse_fn: Arc::new(parse_fn),
+            watcher_handle: None,
         }
     }
 
@@ -166,11 +171,17 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
         drop(_guard);
 
         if let Err(result) = self.backup_current_content(&path_buf) {
+            // Try to rollback to previous backup
+            self.try_rollback(&path_buf);
             return result;
         }
         let temp_provider = match self.load_and_validate(path, &path_buf) {
             Ok(p) => p,
-            Err(result) => return result,
+            Err(result) => {
+                // Try to rollback to previous backup
+                self.try_rollback(&path_buf);
+                return result;
+            }
         };
 
         // Validation passed, apply the new config
@@ -192,6 +203,15 @@ impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
         }
     }
 
+    /// Try to rollback to previous backup if available.
+    fn try_rollback(&self, path: &PathBuf) {
+        if let Ok(backup_path) = self.backup_manager.find_latest_backup(path) {
+            if backup_path.exists() {
+                let _ = self.backup_manager.rollback(path);
+            }
+        }
+    }
+
     /// Get a snapshot of the current config provider.
     pub fn snapshot(&self) -> P
     where
@@ -205,7 +225,7 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
     /// Start watching config files for changes using notify.
     /// This spawns a background task that handles file change events.
     /// Returns a handle that can be used to stop watching.
-    pub fn watch(&mut self, paths: Vec<PathBuf>) -> Result<WatcherHandle, ConfigError> {
+    pub fn watch(&mut self, paths: Vec<PathBuf>) -> Result<(), ConfigError> {
         self.watched_paths = paths.clone();
 
         let provider = Arc::clone(&self.provider);
