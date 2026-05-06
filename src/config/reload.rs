@@ -225,7 +225,7 @@ impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
     /// Start watching config files for changes using notify.
     /// This spawns a background task that handles file change events.
     /// Returns a handle that can be used to stop watching.
-    pub fn watch(&mut self, paths: Vec<PathBuf>) -> Result<(), ConfigError> {
+    pub fn watch(&mut self, paths: Vec<PathBuf>) -> Result<WatcherHandle, ConfigError> {
         self.watched_paths = paths.clone();
 
         let provider = Arc::clone(&self.provider);
