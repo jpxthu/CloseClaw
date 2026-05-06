@@ -1,0 +1,48 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "minimax-reasoning-split",
+  "model": "glm-4.6",
+  "expect": "reasoning",
+  "request": {
+    "model": "glm-4.6",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "extra_body_sent": {
+    "reasoning_split": true
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Here is the step-by-step calculation to find the product of 17 and 23.\n\n### Method 1: Standard Multiplication\n\nWe can solve this by setting up the problem vertically, multiplying the ones digit first, then the tens digit.\n\n**Step 1: Multiply 23 by the ones digit of 17 (which is 7).**\n*   $3 \\times 7 = 21$ (Write down the 1, carry the 2)\n*   $2 \\times 7 = 14$\n*   Add the carried 2 to 14: $14 + 2 = 16$\n*   **Partial product:** 161\n\n**Step 2: Multiply 23 by the tens digit of 17 (which is 1).**\nSince we are multiplying by a number in the tens place, we write a placeholder zero (0) in the ones place first.\n*   $3 \\times 1 = 3$\n*   $2 \\times 1 = 2$\n*   **Partial product:** 230\n\n**Step 3: Add the two partial products together.**\n\n```text\n  161\n+ 230\n-----\n  391\n```\n\n**Answer:** $17 \\times 23 = \\mathbf{391}$\n\n***\n\n### Method 2: Distributive Property (Mental Math)\n\nYou can also break the numbers apart to make the math easier.\n\n**Step 1: Break 17 into 10 and 7.**\nMultiply 23 by each part:\n*   $23 \\times 10 = 230$\n*   $23 \\times 7 = 161$\n\n**Step 2: Add the results.**\n$$230 + 161 = 391$$\n\n**Answer:** $\\mathbf{391}$",
+          "reasoning_content": "The user wants to know the product of 17 and 23 and needs to see the work step-by-step.\n\n**Method 1: Standard Vertical Multiplication**\n\n1.  Write the numbers vertically:\n      23\n    x 17\n    -----\n\n2.  Multiply the top number (23) by the ones digit of the bottom number (7).\n    *   $3 \\times 7 = 21$. Write down 1, carry over 2.\n    *   $2 \\times 7 = 14$. Add the carried-over 2: $14 + 2 = 16$.\n    *   Result: 161.\n\n3.  Multiply the top number (23) by the tens digit of the bottom number (1). Since it's the tens place, put a placeholder 0 (or shift one to the left).\n    *   $3 \\times 1 = 3$.\n    *   $2 \\times 1 = 2$.\n    *   Result: 230.\n\n4.  Add the two partial products together.\n      161\n    + 230\n    -----\n    *   $1 + 0 = 1$\n    *   $6 + 3 = 9$\n    *   $1 + 2 = 3$\n    *   Total: 391.\n\n**Method 2: Distributive Property (Box Method / Expanded Form)**\n\n1.  Break down one of the numbers into place values. Let's break down 23 into $20 + 3$.\n2.  Multiply 17 by each part.\n    *   $17 \\times 20$: $17 \\times 2 = 34$, so $17 \\times 20 = 340$.\n    *   $17 \\times 3$: $10 \\times 3 = 30$, $7 \\times 3 = 21$. $30 + 21 = 51$.\n3.  Add the results.\n    *   $340 + 51 = 391$.\n\n*Alternative breakdown:* Break down 17 into $10 + 7$.\n1.  Multiply 23 by each part.\n    *   $23 \\times 10 = 230$.\n    *   $23 \\times 7$: $20 \\times 7 = 140$, $3 \\times 7 = 21$. $140 + 21 = 161$.\n2.  Add the results.\n    *   $230 + 161 = 391$.\n\n**Method 3: Finding the Average / Difference of Squares (Mental Math Trick)**\n\n1.  Notice that 17 and 23 are symmetric around 20.\n2.  Formula: $(a - b)(a + b) = a^2 - b^2$.\n3.  Here, $a = 20$, $b = 3$.\n4.  $20^2 - 3^2 = 400 - 9 = 391$.\n\n**Selecting the best approach:**\nThe standard vertical method is the most universally understood \"show your work\" method for arithmetic. The distributive property is also good for explaining *why* it works. The difference of squares is cool but might be confusing if not explained as a \"trick.\"\n\nI will present the standard vertical method as the primary explanation because it's what teachers usually expect when asked to \"show work.\" I will also briefly mention the distributive property as an alternative way to visualize it.\n\n**Drafting the response:**\n\n*   **Step 1:** Set up the problem vertically.\n*   **Step 2:** Multiply by the ones digit (7). Show carrying.\n*   **Step 3:** Multiply by the tens digit (1). Show the zero placeholder.\n*   **Step 4:** Add the columns.\n*   **Step 5:** State final answer.\n\nLet's double check the math.\n$23 \\times 7 = (20+3) \\times 7 = 140 + 21 = 161$. Correct.\n$23 \\times 10 = 230$. Correct.\n$161 + 230 = 391$. Correct.\n\nDifference of squares check:\n$400 - 9 = 391$. Correct.\n\nI will structure the output clearly with headers.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778086082,
+    "id": "2026050700471103ca8ec77da34bfa",
+    "model": "glm-4.6",
+    "object": "chat.completion",
+    "request_id": "2026050700471103ca8ec77da34bfa",
+    "usage": {
+      "completion_tokens": 1268,
+      "completion_tokens_details": {
+        "reasoning_tokens": 894
+      },
+      "prompt_tokens": 19,
+      "prompt_tokens_details": {
+        "cached_tokens": 2
+      },
+      "total_tokens": 1287
+    }
+  }
+}

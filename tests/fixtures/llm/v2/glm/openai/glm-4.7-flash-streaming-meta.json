@@ -1,0 +1,17 @@
+{
+  "protocol": "openai",
+  "streaming": true,
+  "scenario": "streaming",
+  "model": "glm-4.7-flash",
+  "expect": "streaming",
+  "request": {
+    "model": "glm-4.7-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count from 1 to 3."
+      }
+    ]
+  },
+  "extra_body_sent": null
+}

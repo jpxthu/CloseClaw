@@ -1,0 +1,63 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "glm-anthropic-tool-use",
+  "model": "glm-5.1",
+  "expect": "tool_use",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "id": "msg_202605070050072e9a6ce26cc34935",
+    "type": "message",
+    "role": "assistant",
+    "model": "glm-5.1",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "call_1fa15f573ca74114b5deb3d1",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 170,
+      "output_tokens": 12,
+      "cache_read_input_tokens": 0,
+      "server_tool_use": {
+        "web_search_requests": 0
+      },
+      "service_tier": "standard"
+    }
+  },
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}
