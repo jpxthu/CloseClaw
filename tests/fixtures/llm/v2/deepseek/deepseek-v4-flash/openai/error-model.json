@@ -1,9 +1,11 @@
 {
   "protocol": "openai",
+  "streaming": false,
   "scenario": "error-model",
   "model": "deepseek-v4-flash",
+  "expect": "error",
   "request": {
-    "model": "deepseek-v4-flash-FAKE",
+    "model": "deepseek-v4-flash",
     "messages": [
       {
         "role": "user",
@@ -11,6 +13,17 @@
       }
     ]
   },
-  "response_raw": "{\"error\":{\"message\":\"The supported API model names are deepseek-v4-pro or deepseek-v4-flash, but you passed deepseek-v4-flash-FAKE.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}}",
-  "http_status": 400
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "message": "The supported API model names are deepseek-v4-pro or deepseek-v4-flash, but you passed this-model-does-not-exist-999.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_request_error"
+      }
+    }
+  }
 }

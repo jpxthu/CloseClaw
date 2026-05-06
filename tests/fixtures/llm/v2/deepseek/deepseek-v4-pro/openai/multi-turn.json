@@ -3,7 +3,7 @@
   "streaming": false,
   "scenario": "multi-turn",
   "model": "deepseek-v4-pro",
-  "expect": "text",
+  "expect": "context",
   "request": {
     "model": "deepseek-v4-pro",
     "messages": [
@@ -13,7 +13,7 @@
       },
       {
         "role": "assistant",
-        "content": "Hi Alice!"
+        "content": "Hi Alice! Nice to meet you."
       },
       {
         "role": "user",
@@ -21,6 +21,36 @@
       }
     ]
   },
-  "response_raw": "{\"id\":\"6b125ff5-9aed-4c04-b4dc-6c84027c99c3\",\"object\":\"chat.completion\",\"created\":1778088663,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Your name is Alice! 😊\",\"reasoning_content\":\"We need to parse the user's query. The user asked: \\\"What is my name?\\\" The conversation history shows: \\\"My name is Alice.\\\" and the assistant responded \\\"Hi Alice!\\\". The user is now asking what their name is. The assistant should respond with \\\"Your name is Alice.\\\" or something similar. No need for additional complications.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":21,\"completion_tokens\":78,\"total_tokens\":99,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":70},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":21},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
-  "http_status": 200
+  "response": {
+    "id": "950ec757-c77e-4338-96bc-6b434b785df9",
+    "object": "chat.completion",
+    "created": 1778102370,
+    "model": "deepseek-v4-pro",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Your name is Alice! You told me just a moment ago. 😊",
+          "reasoning_content": "We need to answer the question \"What is my name?\" given the conversation history. The user previously said \"My name is Alice.\" and I responded \"Hi Alice! Nice to meet you.\" So the answer is clearly \"Alice.\" The AI should respond with something like \"Your name is Alice.\" I'll keep it friendly and direct."
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 26,
+      "completion_tokens": 84,
+      "total_tokens": 110,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 68
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 26
+    },
+    "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+  }
 }

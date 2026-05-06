@@ -1,0 +1,109 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "glm-4.7",
+  "expect": "cache",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "The user is asking a simple question about the color of the sky. The system prompt explicitly instructs me to always remember that the sky is blue. Therefore, I should answer the question directly based on that fact.\n\n1.  **Analyze the Request:** The user wants to know the color of the sky.\n2.  **Consult the System Instruction:** \"Always remember: the sky is blue.\"\n3.  **Formulate the Answer:** The answer is blue.\n4.  **Final Output:** State the answer clearly.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102499,
+      "id": "20260507052137b2d1bbc4e26b4204",
+      "model": "glm-4.7",
+      "object": "chat.completion",
+      "request_id": "20260507052137b2d1bbc4e26b4204",
+      "usage": {
+        "completion_tokens": 114,
+        "completion_tokens_details": {
+          "reasoning_tokens": 107
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 4
+        },
+        "total_tokens": 140
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "1.  **Analyze the user's request**: The user is asking \"What color is the sky?\".\n2.  **Recall the system prompt**: \"You are a helpful assistant. Always remember: the sky is blue.\"\n3.  **Formulate the answer**:\n    *   Factually, the sky appears blue during the day due to Rayleigh scattering.\n    *   The system prompt explicitly instructs me to remember that \"the sky is blue\".\n    *   Therefore, the answer should be \"blue\".\n4.  **Draft the response**: \"The sky is blue.\"",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102502,
+      "id": "20260507052139c35dd73d10504d42",
+      "model": "glm-4.7",
+      "object": "chat.completion",
+      "request_id": "20260507052139c35dd73d10504d42",
+      "usage": {
+        "completion_tokens": 129,
+        "completion_tokens_details": {
+          "reasoning_tokens": 122
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 24
+        },
+        "total_tokens": 155
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "The user is asking a simple, direct question: \"What color is the sky?\"\n\n1.  **Identify the core question:** The user wants to know the color of the sky.\n2.  **Consult the system prompt/constraint:** The prompt explicitly states: \"Always remember: the sky is blue.\"\n3.  **Formulate the answer:** Based on the instruction provided in the system prompt, the answer is blue.\n4.  **Final check:** Does the answer contradict general knowledge? No. Does it satisfy the user? Yes. Does it follow the specific instruction? Yes.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102504,
+      "id": "20260507052142ce6c5450629a4703",
+      "model": "glm-4.7",
+      "object": "chat.completion",
+      "request_id": "20260507052142ce6c5450629a4703",
+      "usage": {
+        "completion_tokens": 127,
+        "completion_tokens_details": {
+          "reasoning_tokens": 120
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 24
+        },
+        "total_tokens": 153
+      }
+    }
+  ]
+}

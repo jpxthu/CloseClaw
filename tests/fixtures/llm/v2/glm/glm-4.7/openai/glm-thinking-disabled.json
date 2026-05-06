@@ -1,0 +1,50 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "glm-thinking-disabled",
+  "model": "glm-4.7",
+  "expect": "no-reasoning",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23?"
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "17*23 is 391.",
+          "reasoning_content": "The user is asking for the product of 17 and 23.\n\n1.  **Identify the operation:** Multiplication ($17 \\times 23$).\n2.  **Choose a method:**\n    *   Standard multiplication algorithm:\n        $17$\n        $\\times 23$\n        $---$\n        $51$ ($3 \\times 17$)\n        $340$ ($20 \\times 17$)\n        $---$\n        $391$\n\n    *   Decomposition/Distributive Property:\n        $17 \\times 23 = 17 \\times (20 + 3)$\n        $= (17 \\times 20) + (17 \\times 3)$\n        $= 340 + 51$\n        $= 391$\n\n        Or:\n        $17 \\times 23 = (20 - 3) \\times 23$\n        $= (20 \\times 23) - (3 \\times 23)$\n        $= 460 - 69$\n        $= 391$\n\n    *   Difference of Squares (since 17 and 23 are equidistant from 20):\n        $17 \\times 23 = (20 - 3)(20 + 3) = 20^2 - 3^2 = 400 - 9 = 391$\n\n3.  **Verify:** All methods yield 391.\n4.  **Formulate the answer:** State the result clearly.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102527,
+    "id": "202605070522045e1f969732774e6d",
+    "model": "glm-4.7",
+    "object": "chat.completion",
+    "request_id": "202605070522045e1f969732774e6d",
+    "usage": {
+      "completion_tokens": 317,
+      "completion_tokens_details": {
+        "reasoning_tokens": 307
+      },
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 9
+      },
+      "total_tokens": 329
+    }
+  },
+  "extra_body_sent": {
+    "thinking": {
+      "type": "disabled"
+    }
+  }
+}

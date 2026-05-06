@@ -1,9 +1,0 @@
-data: {"id":"064a6f62c6ca023b9b5b92c019427642","choices":[{"index":0,"delta":{"content":"<think>\nThe user","role":"assistant","name":"MiniMax AI","audio_content":""}}],"created":1778072674,"model":"MiniMax-M2.7","object":"chat.completion.chunk","usage":null,"input_sensitive":false,"output_sensitive":false,"input_sensitive_type":0,"output_sensitive_type":0,"output_sensitive_int":0}
-
-data: {"id":"064a6f62c6ca023b9b5b92c019427642","choices":[{"index":0,"delta":{"content":" is asking about the weather in San Francisco. I'll use the get_weather function to retrieve the current weather information for this city.\n</think>\n\n\n","role":"assistant","name":"MiniMax AI","audio_content":""}}],"created":1778072674,"model":"MiniMax-M2.7","object":"chat.completion.chunk","usage":null,"input_sensitive":false,"output_sensitive":false,"input_sensitive_type":0,"output_sensitive_type":0,"output_sensitive_int":0}
-
-data: {"id":"064a6f62c6ca023b9b5b92c019427642","choices":[{"index":0,"delta":{"role":"assistant","name":"MiniMax AI","tool_calls":[{"id":"call_function_cidu301ju295_1","type":"function","function":{"name":"get_weather","arguments":"{"},"index":0}],"audio_content":""}}],"created":1778072674,"model":"MiniMax-M2.7","object":"chat.completion.chunk","usage":null,"input_sensitive":false,"output_sensitive":false,"input_sensitive_type":0,"output_sensitive_type":0,"output_sensitive_int":0}
-
-data: {"id":"064a6f62c6ca023b9b5b92c019427642","choices":[{"finish_reason":"tool_calls","index":0,"delta":{"role":"assistant","name":"MiniMax AI","tool_calls":[{"function":{"arguments":"\"location\": \"San Francisco\"}"},"index":0}],"audio_content":""}}],"created":1778072674,"model":"MiniMax-M2.7","object":"chat.completion.chunk","usage":null,"input_sensitive":false,"output_sensitive":false,"input_sensitive_type":0,"output_sensitive_type":0,"output_sensitive_int":0}
-
-data: [DONE]

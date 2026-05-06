@@ -3,17 +3,46 @@
   "streaming": false,
   "scenario": "deepseek-thinking-high",
   "model": "deepseek-v4-pro",
-  "expect": "text",
+  "expect": "reasoning",
   "request": {
     "model": "deepseek-v4-pro",
     "messages": [
       {
         "role": "user",
-        "content": "What is 17*23?"
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "ca2965da-305c-4e30-ac10-ec443a5ea71f",
+    "object": "chat.completion",
+    "created": 1778102359,
+    "model": "deepseek-v4-pro",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "To compute \\( 17 \\times 23 \\), we can break it down using the distributive property.\n\n**Step 1:** Break 23 into \\( 20 + 3 \\).\n\\[\n17 \\times 23 = 17 \\times (20 + 3)\n\\]\n\n**Step 2:** Distribute \\( 17 \\) to both terms.\n\\[\n= (17 \\times 20) + (17 \\times 3)\n\\]\n\n**Step 3:** Calculate each product.\n\\[\n17 \\times 20 = 340\n\\]\n\\[\n17 \\times 3 = 51\n\\]\n\n**Step 4:** Add the results together.\n\\[\n340 + 51 = 391\n\\]\n\nTherefore, \\( 17 \\times 23 = 391 \\).",
+          "reasoning_content": "We are asked: \"What is 17*23? Show your work step by step.\" So we need to compute 17 multiplied by 23, showing steps. Possibly break it down using distributive property, or standard multiplication algorithm. Both are fine. Let's do it step by step.\n\n17 * 23 can be done as:\nMethod 1: (10+7)*23 = 10*23 + 7*23 = 230 + 161 = 391.\nMethod 2: 17*(20+3) = 17*20 + 17*3 = 340 + 51 = 391.\nMethod 3: Standard algorithm:\n   17\n x 23\n ----\n   51  (17*3)\n  340  (17*20)\n ----\n  391.\n\nChoose method 2 and show steps clearly."
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
       }
     ],
-    "reasoning_effort": "high"
-  },
-  "response_raw": "{\"id\":\"9e8eab75-cb15-4848-aa36-6f5c1c109937\",\"object\":\"chat.completion\",\"created\":1778088670,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"17 × 23 = 391.\",\"reasoning_content\":\"We are asked: \\\"What is 17*23?\\\" This is a simple multiplication problem. 17 * 23 = ? I'll compute it.\\n\\n17 * 20 = 340\\n17 * 3 = 51\\n340 + 51 = 391\\n\\nSo the answer is 391.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":71,\"total_tokens\":82,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":62},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":11},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
-  "http_status": 200
+    "usage": {
+      "prompt_tokens": 18,
+      "completion_tokens": 336,
+      "total_tokens": 354,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 175
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 18
+    },
+    "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+  }
 }

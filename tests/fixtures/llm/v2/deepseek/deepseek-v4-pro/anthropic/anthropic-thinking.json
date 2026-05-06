@@ -1,0 +1,43 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-thinking",
+  "model": "deepseek-v4-pro",
+  "expect": "reasoning",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "2d64a8d7-2ac8-46bd-a5a3-dc5ae3716a04",
+    "type": "message",
+    "role": "assistant",
+    "model": "deepseek-v4-pro",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "We need to compute 17 * 23 step by step. Simple multiplication. We can do it manually using standard multiplication or use mental math tricks like distributive property. Let's show steps:\n\nMethod 1: Standard multiplication\n  17\n× 23\n-----\n  51  (17 * 3)\n 340  (17 * 20)\n-----\n 391\n\nOr distributive: 17 * 23 = 17 * (20 + 3) = 340 + 51 = 391.\nOr 17 * 23 = (10+7)*23 = 230 + 161 = 391.\nWe'll present step-by-step clearly.",
+        "signature": "2d64a8d7-2ac8-46bd-a5a3-dc5ae3716a04"
+      },
+      {
+        "type": "text",
+        "text": "To calculate \\(17 \\times 23\\), we can break it down using the distributive property:\n\n**Step 1:** Split 23 into \\(20 + 3\\).  \n\\[\n17 \\times 23 = 17 \\times (20 + 3)\n\\]\n\n**Step 2:** Distribute \\(17\\) to both terms.  \n\\[\n= (17 \\times 20) + (17 \\times 3)\n\\]\n\n**Step 3:** Calculate each multiplication.  \n\\[\n17 \\times 20 = 340\n\\]\n\\[\n17 \\times 3 = 51\n\\]\n\n**Step 4:** Add the results.  \n\\[\n340 + 51 = 391\n\\]\n\n**Final Answer:** \\(\\boxed{391}\\)"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 18,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 291,
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 2048
+}

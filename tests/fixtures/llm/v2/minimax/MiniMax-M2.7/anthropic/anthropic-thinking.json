@@ -1,0 +1,45 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-thinking",
+  "model": "MiniMax-M2.7",
+  "expect": "reasoning",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "064ae374a1d74ea246f665bc00ceb0db",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M2.7",
+    "content": [
+      {
+        "thinking": "The user asks: \"What is 17*23? Show your work step by step.\" The request is straightforward: compute multiplication 17 * 23, and show steps. The user wants to see steps; we can show using distributive property: 17*23 = 17*(20+3) = 17*20 + 17*3 = 340 + 51 = 391. Or show column multiplication. Should we present the calculation clearly. So final answer: 391.\n\nWe must comply with policy. No issues. Provide step-by-step with explanation.\n\nThus final answer.",
+        "signature": "cd208d4133f1f03cba9d448fd3bc335ff5d2b90bd13da7ab39555a3e87f97a34",
+        "type": "thinking"
+      },
+      {
+        "text": "**Step‑by‑step multiplication**\n\nWe want to compute  \n\n\\[\n17 \\times 23.\n\\]\n\nA convenient way is to break the multiplier (23) into tens and units:\n\n\\[\n23 = 20 + 3.\n\\]\n\nNow use the distributive property of multiplication over addition:\n\n\\[\n17 \\times 23 = 17 \\times (20 + 3) = 17 \\times 20 \\;+\\; 17 \\times 3.\n\\]\n\n1. **Multiply by 20**  \n   \\(17 \\times 20 = 17 \\times 2 \\times 10 = 34 \\times 10 = 340.\\)\n\n2. **Multiply by 3**  \n   \\(17 \\times 3 = 51.\\)\n\n3. **Add the two partial products**\n\n\\[\n340 + 51 = 391.\n\\]\n\n---\n\n\\[\n\\boxed{17 \\times 23 = 391}\n\\]",
+        "type": "text"
+      }
+    ],
+    "usage": {
+      "input_tokens": 35,
+      "output_tokens": 312,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    },
+    "stop_reason": "end_turn",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+    }
+  },
+  "max_tokens_sent": 2048
+}

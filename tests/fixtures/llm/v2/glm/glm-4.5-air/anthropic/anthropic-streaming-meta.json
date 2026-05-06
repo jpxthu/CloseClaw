@@ -1,0 +1,17 @@
+{
+  "protocol": "anthropic",
+  "streaming": true,
+  "scenario": "anthropic-streaming",
+  "model": "glm-4.5-air",
+  "expect": "streaming",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count from 1 to 3."
+      }
+    ]
+  },
+  "max_tokens_sent": 1024
+}

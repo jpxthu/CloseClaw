@@ -1,0 +1,43 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-simple",
+  "model": "deepseek-v4-flash",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "ddb4cab7-54d7-40d9-aff0-e2fc601dfb77",
+    "type": "message",
+    "role": "assistant",
+    "model": "deepseek-v4-flash",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "We need to say hello in 3 words. Common greetings: \"Hello there friend\" or \"Hi how are\" but that's not a complete greeting. \"Hello my friend\" is 3 words. Or \"Greetings to you\". Probably the simplest: \"Hello, world.\" is 2 words. \"Hello everyone\" is 2. \"Good morning\" is 2. \"Hi there!\" is 2. So 3 words: \"Hello to you\" or \"Hello my friend\". The instruction is straightforward. I'll respond with \"Hello, my friend.\"",
+        "signature": "ddb4cab7-54d7-40d9-aff0-e2fc601dfb77"
+      },
+      {
+        "type": "text",
+        "text": "Hello, my friend."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 11,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 124,
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 1024
+}

@@ -3,36 +3,78 @@
   "streaming": false,
   "scenario": "tool-use",
   "model": "deepseek-v4-pro",
-  "expect": "text",
+  "expect": "tool_calls",
   "request": {
     "model": "deepseek-v4-pro",
     "messages": [
       {
         "role": "user",
-        "content": "How's weather in SF?"
-      }
-    ],
-    "tools": [
-      {
-        "type": "function",
-        "function": {
-          "name": "get_weather",
-          "description": "Get weather",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "location": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "location"
-            ]
-          }
-        }
+        "content": "How's the weather in San Francisco?"
       }
     ]
   },
-  "response_raw": "{\"id\":\"1d377e8c-f1d0-4a88-93ea-9ec97249f9f2\",\"object\":\"chat.completion\",\"created\":1778088677,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_content\":\"The user is asking about the weather in SF (San Francisco). I'll use the get_weather function.\",\"tool_calls\":[{\"index\":0,\"id\":\"call_00_8RWxidcsllYCFcIq1PhI6408\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\": \\\"San Francisco\\\"}\"}}]},\"logprobs\":null,\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":275,\"completion_tokens\":68,\"total_tokens\":343,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":22},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":275},\"system_fingerprint\":\"fp_9954b31ca7_prod0820_fp8_kvcache_20260402\"}",
-  "http_status": 200
+  "response": {
+    "id": "a64b0fb8-7500-456e-83f8-c01f11925bab",
+    "object": "chat.completion",
+    "created": 1778102395,
+    "model": "deepseek-v4-pro",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "reasoning_content": "The user is asking about the weather in San Francisco. Let me use the get_weather tool to fetch this information.",
+          "tool_calls": [
+            {
+              "index": 0,
+              "id": "call_00_yXbUdnzBALMPnrl4UWNW0132",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\": \"San Francisco\"}"
+              }
+            }
+          ]
+        },
+        "logprobs": null,
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 295,
+      "completion_tokens": 70,
+      "total_tokens": 365,
+      "prompt_tokens_details": {
+        "cached_tokens": 256
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 24
+      },
+      "prompt_cache_hit_tokens": 256,
+      "prompt_cache_miss_tokens": 39
+    },
+    "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
 }

@@ -3,7 +3,7 @@
   "streaming": false,
   "scenario": "deepseek-thinking-disabled",
   "model": "deepseek-v4-flash",
-  "expect": "text",
+  "expect": "no-reasoning",
   "request": {
     "model": "deepseek-v4-flash",
     "messages": [
@@ -11,14 +11,38 @@
         "role": "user",
         "content": "What is 17*23?"
       }
-    ],
-    "reasoning_effort": "low",
-    "extra_body": {
-      "thinking": {
-        "type": "disabled"
-      }
-    }
+    ]
   },
-  "response_raw": "{\"id\":\"dd550ca2-08a8-47dc-8810-d4a38e1b34ff\",\"object\":\"chat.completion\",\"created\":1778088641,\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"17 × 23 = 391.\",\"reasoning_content\":\"We need to calculate 17 times 23. This is a simple multiplication. 17*20 = 340, 17*3 = 51, sum = 391. Alternatively, 23*17 = 23*10=230, 23*7=161, sum=391. So answer is 391.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":77,\"total_tokens\":88,\"prompt_tokens_details\":{\"cached_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":68},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":11},\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\"}",
-  "http_status": 200
+  "response": {
+    "id": "4cd58f89-5b25-42d5-b9e1-2d6e5706e000",
+    "object": "chat.completion",
+    "created": 1778102303,
+    "model": "deepseek-v4-flash",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "17 * 23 = 391",
+          "reasoning_content": "We need to compute 17*23. This is a simple multiplication. 17*20 = 340, 17*3 = 51, sum = 391. Alternatively, 20*23=460 minus 3*23=69 gives 391. So answer is 391."
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 11,
+      "completion_tokens": 69,
+      "total_tokens": 80,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 61
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 11
+    },
+    "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+  }
 }

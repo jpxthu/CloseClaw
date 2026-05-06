@@ -1,0 +1,25 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-empty",
+  "model": "MiniMax-M2.7",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": []
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "invalid_request_error",
+        "message": "invalid params, messages must not be empty (2013)"
+      },
+      "request_id": "064ae3691e1f2d08c2136eb011495cab"
+    }
+  },
+  "max_tokens_sent": 1024
+}

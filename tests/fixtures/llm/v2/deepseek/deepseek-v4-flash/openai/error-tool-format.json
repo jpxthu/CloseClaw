@@ -1,7 +1,41 @@
 {
   "protocol": "openai",
+  "streaming": false,
   "scenario": "error-tool-format",
   "model": "deepseek-v4-flash",
-  "response_raw": "{\"error\":{\"message\":\"Failed to deserialize the JSON body into the target type: tools[0].function: missing field `name` at line 1 column 149\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}}",
-  "http_status": 400
+  "expect": "error",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "message": "Failed to deserialize the JSON body into the target type: tools[0].function: missing field `name` at line 1 column 198",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_request_error"
+      }
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "description": "test",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  ]
 }

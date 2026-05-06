@@ -1,0 +1,53 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "glm-5-turbo",
+  "expect": "context",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Your name is Alice.",
+          "reasoning_content": "1.  **Analyze the Input:** The user is asking \"What is my name?\".\n2.  **Access Context:** Recall previous interactions in the conversation.\n3.  **Retrieve Information:** In the first turn, the user explicitly stated \"My name is Alice.\"\n4.  **Formulate Response:** State the user's name clearly and concisely based on the retrieved information.\n5.  **Draft Output:** \"Your name is Alice.\" (Add a polite/friendly touch if appropriate, but keep it direct).",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102440,
+    "id": "20260507052038c4ce990999444995",
+    "model": "glm-5-turbo",
+    "object": "chat.completion",
+    "request_id": "20260507052038c4ce990999444995",
+    "usage": {
+      "completion_tokens": 115,
+      "completion_tokens_details": {
+        "reasoning_tokens": 108
+      },
+      "prompt_tokens": 26,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 141
+    }
+  }
+}

@@ -1,0 +1,200 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-result",
+  "model": "glm-4.5-air",
+  "expect": "tool_result",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "round1": {
+      "id": "msg_2026050705233666e1b4e9fe784a8b",
+      "type": "message",
+      "role": "assistant",
+      "model": "glm-4.5-air",
+      "content": [
+        {
+          "type": "text",
+          "text": "\nI'll check the current weather in San Francisco for you.\n"
+        },
+        {
+          "type": "tool_use",
+          "id": "call_80db8e30eb604d219a1a818c",
+          "name": "get_weather",
+          "input": {
+            "location": "San Francisco"
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 43,
+        "cache_read_input_tokens": 279,
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      }
+    },
+    "round2": {
+      "id": "msg_202605070523374c5eeec4edd741ce",
+      "type": "message",
+      "role": "assistant",
+      "model": "glm-4.5-air",
+      "content": [
+        {
+          "type": "text",
+          "text": "\nThe weather in San Francisco is currently 24°C (75°F) and sunny! It's a beautiful day there."
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 20,
+        "output_tokens": 40,
+        "cache_read_input_tokens": 329,
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_80db8e30eb604d219a1a818c",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "msg_2026050705233666e1b4e9fe784a8b",
+        "type": "message",
+        "role": "assistant",
+        "model": "glm-4.5-air",
+        "content": [
+          {
+            "type": "text",
+            "text": "\nI'll check the current weather in San Francisco for you.\n"
+          },
+          {
+            "type": "tool_use",
+            "id": "call_80db8e30eb604d219a1a818c",
+            "name": "get_weather",
+            "input": {
+              "location": "San Francisco"
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 43,
+          "cache_read_input_tokens": 279,
+          "server_tool_use": {
+            "web_search_requests": 0
+          },
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "\nI'll check the current weather in San Francisco for you.\n"
+            },
+            {
+              "type": "tool_use",
+              "id": "call_80db8e30eb604d219a1a818c",
+              "name": "get_weather",
+              "input": {
+                "location": "San Francisco"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "call_80db8e30eb604d219a1a818c",
+              "content": "24℃, sunny"
+            }
+          ]
+        }
+      ],
+      "response": {
+        "id": "msg_202605070523374c5eeec4edd741ce",
+        "type": "message",
+        "role": "assistant",
+        "model": "glm-4.5-air",
+        "content": [
+          {
+            "type": "text",
+            "text": "\nThe weather in San Francisco is currently 24°C (75°F) and sunny! It's a beautiful day there."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 40,
+          "cache_read_input_tokens": 329,
+          "server_tool_use": {
+            "web_search_requests": 0
+          },
+          "service_tier": "standard"
+        }
+      }
+    }
+  ],
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}
