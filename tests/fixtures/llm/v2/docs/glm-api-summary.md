@@ -2,7 +2,16 @@
 
 > 来源：https://docs.bigmodel.cn/ 官方文档
 > 整理日期：2026-05-06
-> 文档版本：Phase 0.2
+> 文档版本：Phase 0.3（官方文档核实修正版）
+
+## 修订记录
+
+| 版本 | 日期 | 修正内容 |
+|------|------|---------|
+| Phase 0.2 | 2026-05-06 | 初始版本 |
+| Phase 0.3 | 2026-05-06 | Anthropic URL 路径修正；tool_stream 支持模型修正（GLM-5.1 不支持）；多轮工具调用 Round 2 格式修正 |
+
+---
 
 ## 目录
 
@@ -34,7 +43,7 @@
 | 协议 | Base URL |
 |------|----------|
 | OpenAI 兼容 | `https://open.bigmodel.cn/api/paas/v4/` |
-| Anthropic 兼容 | `https://open.bigmodel.cn/api/anthropic` |
+| Anthropic 兼容 | `https://open.bigmodel.cn/api/anthropic/v1/messages` |
 | GLM Coding Plan | `https://open.bigmodel.cn/api/coding/paas/v4/` |
 
 > ⚠️ Coding Plan 端点仅限 Coding 场景，不适用通用 API 场景。
@@ -75,7 +84,7 @@
 | do_sample | boolean | true | 是否启用采样策略。为 false 时忽略 temperature 和 top_p |
 | tools | array | - | 可调用的函数列表，最多 128 个 |
 | tool_choice | string | "auto" | 工具选择策略，**仅支持 auto** |
-| tool_stream | boolean | false | 工具流式输出（仅 GLM-5.1/5/5-Turbo/4.7/4.6） |
+| tool_stream | boolean | false | 工具流式输出（仅 **GLM-5 / GLM-5-Turbo / GLM-4.7 / GLM-4.6**，GLM-5.1 **不支持**） |
 | stop | array | - | 停止词列表，最多 1 个 |
 | response_format | object | `{"type": "text"}` | 输出格式：text 或 json_object |
 | request_id | string | 自动生成 | 请求唯一标识符 |
@@ -209,6 +218,8 @@ extra_body={
 - 通过 `clear_thinking: False` 开启
 - **必须将完整、未修改的 reasoning_content 传回 API**
 - ⚠️ **不得对 reasoning_content 进行重新排序或修改**，否则会降低效果并影响缓存命中。reasoning_content 必须与模型原始生成序列完全一致
+- **Round 2 时 assistant 消息格式**：必须包含 `reasoning_content` 和 `tool_calls` 数组（见 8.7 节）
+- ⚠️ **不得对 reasoning_content 进行重新排序或修改**，否则会降低效果并影响缓存命中。reasoning_content 必须与模型原始生成序列完全一致
 
 #### 3.5.3 轮级思考（Turn-level Thinking）
 
@@ -270,7 +281,7 @@ message = client.messages.create(
 )
 ```
 
-> ⚠️ **官方文档缺失**：docs.bigmodel.cn 上**没有关于 Anthropic 兼容接口响应格式的文档**。
+> ⚠️ **官方文档缺失**：Anthropic 兼容接口的响应格式在 docs.bigmodel.cn 上**没有详细文档**，以下信息待实测验证（参考 Claude API 兼容页 + Claude 官方文档）：
 > 以下信息待实测验证（参考 Claude 官方 API 文档）：
 >
 > - 响应根字段：`id`（string）、`type: "message"`、`role: "assistant"`、`content[]`（数组）
@@ -532,6 +543,25 @@ response = client.chat.completions.create(
 - 支持交错式思考（Interleaved Thinking）
 - 在工具调用之间继续思考
 - **必须保留并返回 reasoning_content**
+
+### 8.7 多轮工具调用 Round 2 格式（关键修正）
+
+⚠️ **与 MiniMax / DeepSeek 不同**：GLM 在 Round 2 回传时，assistant 消息必须包含完整的 `tool_calls` 数组，而不仅仅是 `content`。
+
+```python
+# 错误：只传 content
+messages.append({"role": "assistant", "content": "..."})
+
+# 正确：传完整 assistant 消息（含 tool_calls 和 reasoning_content）
+messages.append({
+    "role": "assistant",
+    "content": content,
+    "reasoning_content": reasoning,  # 如果启用了 thinking
+    "tool_calls": [{"id": "call_xxx", "type": "function", "function": {"name": "...", "arguments": "{}"}}]
+})
+```
+
+> 来源：[思考模式 - 使用示例](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode.md)
 
 > 来源：[工具调用](https://docs.bigmodel.cn/cn/guide/capabilities/function-calling.md)、[工具流式输出](https://docs.bigmodel.cn/cn/guide/capabilities/stream-tool.md)
 
