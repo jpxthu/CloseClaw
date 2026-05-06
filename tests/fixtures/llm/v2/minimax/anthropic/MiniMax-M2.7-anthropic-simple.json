@@ -1,0 +1,45 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-simple",
+  "model": "MiniMax-M2.7",
+  "expect": "text",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "extra_body_sent": {},
+  "response": {
+    "id": "064a5b2e3bdbf9a77c704fa65ce46aa9",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M2.7",
+    "content": [
+      {
+        "thinking": "The user asks: \"Say hello in 3 words.\" So we need to say something like \"Hello, how are?\" That's three words: Hello there friend (but that's three? Actually \"Hello there friend\" is three words). However they want a greeting, a hello in three words. We can do \"Hello, nice to meet you\" that's three words if we count as three? Actually that's three separate words: Hello, nice, to? No. \"Hello, friend!\" is two words. \"Hey there, buddy!\" is three words maybe \"Hey there buddy\". \"Hi, how are?\" That's two? \"Hi, you all!\" two. \"Hello, world!\" two. \"Hello there, friend\" three words? Actually \"Hello\" is one, \"there,\" is second, \"friend!\" is third. So \"Hello there friend\". That's three words. Or \"Hey you, welcome!\" That's three? \"Hey you welcome\". Better: \"Hello there friend\". Or \"Hi there, buddy\" Actually \"Hi there buddy\" is three words. The user asks \"Say hello in 3 words.\" So we respond with three words: \"Hello there friend\". That is indeed three words. Should we include punctuation? The instruction: \"Say hello in 3 words.\" So I think we can respond with exactly three words; that seems fine. Let's do \"Hello there friend\". Alternatively \"Hey there buddy\". Let's do \"Hello there friend\". That's three words and a greeting. We'll comply.\n\nThus final answer: Hello there friend.\n",
+        "signature": "4eb23d2c82043c31a4bdad9376745def8cd97af244601c92eaf0ba6d9212e714",
+        "type": "thinking"
+      },
+      {
+        "text": "\nHello there friend.",
+        "type": "text"
+      }
+    ],
+    "usage": {
+      "input_tokens": 45,
+      "output_tokens": 323,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    },
+    "stop_reason": "end_turn",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+event: message_start
+data: {"type":"message_start","message":{"id":"064a5b530a848e12cd33406ce7f9ceb6","type":"message","role":"assistant","content":[],"model":"MiniMax-M2.7","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":49,"output_tokens":0},"service_tier":"standard"}}
+
+event: ping
+data: {"type":"ping"}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The user"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" asks: \"Count from 1 to 3.\" This is a straightforward request. There's no disallowed content. The answer should be \"1, 2, 3\"."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" Possibly add formatting: \"1 2 3\" or \"1, 2, 3\". Should we include any explanation? The user asks to"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" count from 1 to 3. Likely they want the numbers in order. So we respond with \"1, 2, 3.\" That's all.\n\nWe should ensure no extraneous"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" output. Also check if there's any policy about not providing plain numbers? There's no issue. So final answer is just the"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" count."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"0e98f9752a85a87024346dcae668df0ce57de15bad426dcf99185e6dc8484b42"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"1, 2, 3."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":49,"output_tokens":143}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+data: [DONE]

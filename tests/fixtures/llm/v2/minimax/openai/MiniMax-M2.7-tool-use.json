@@ -1,0 +1,53 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-use",
+  "model": "MiniMax-M2.7",
+  "expect": "tool_calls",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather in Tokyo?"
+      }
+    ]
+  },
+  "extra_body_sent": {},
+  "response": {
+    "id": "064a5b1873c7a26fd2f17f8c23ee11e1",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "<think>\nThe user asks: \"What is the weather in Tokyo?\" The user wants real-time weather info. As an AI language model, I cannot fetch real-time data. My knowledge cutoff is 2024-06 (the system says knowledge cutoff 2025-06?), but presumably up to some date, but the weather is dynamic. So I need to respond with a disclaimer that I cannot provide real-time weather. Offer suggestions: check weather websites, use weather apps, give typical climate. Provide general climate for Tokyo. Also ask if they need other info.\n\nThus respond: \"I cannot access live data. The typical weather for Tokyo in [current month] is X. If you need specifics, check weather.com, etc.\"\n\nI need to comply with policy. No disallowed content. This is straightforward. Provide typical weather for current season (assuming date now is 2026-01-25). But we need approximate current weather. It's January 25, 2026. Tokyo in January is winter, cold, average temperature about 5°C (41°F) low, high around 10°C (50°F). Usually some rain, occasional snow but not common. I could give typical average. However, I must clarify it's approximate and not actual.\n\nThus produce answer: \"I don't have real-time data; here's typical climate; suggest checking a weather service.\" That satisfies.\n\nOk let's respond.\n</think>\n\nI’m not able to pull live weather data, but I can give you the typical climate for Tokyo this time of year.\n\n**Typical January weather in Tokyo (average values)**  \n\n|                     | Daytime (high) | Nighttime (low) | Average precipitation |\n|---------------------|----------------|----------------|-----------------------|\n| January             | ~10 °C (50 °F) | ~2 °C (36 °F)   | ~50 mm (≈2 in) over the month |\n\n- **What to expect:** Cold, often dry with occasional overcast skies. Rain or drizzle is more common than snow, though light snow can fall a few times during the month.\n- **Clothing:** A warm coat, layered clothing, a scarf, gloves, and a hat will keep you comfortable outdoors.\n\nFor the **current conditions** (temperature, humidity, wind, rain chances, UV index, etc.), I recommend checking a live weather source such as:\n\n- **Weather.com** (weather.com/weather/today/l/Japan)\n- **AccuWeather** (accuweather.com/en/jp/tokyo/…)\n- **The Japan Meteorological Agency** (jma.go.jp/en/forecast/)\n- **Google Weather** (search “weather Tokyo”)\n\nThose sites update in real time and can give you the exact temperature, forecast for the next few days, and any active alerts (e.g., winter storm warnings).  \n\nIf you need help packing, planning outdoor activities, or anything else about Tokyo, just let me know!",
+          "role": "assistant",
+          "name": "MiniMax AI",
+          "audio_content": ""
+        }
+      }
+    ],
+    "created": 1778067480,
+    "model": "MiniMax-M2.7",
+    "object": "chat.completion",
+    "usage": {
+      "total_tokens": 647,
+      "total_characters": 0,
+      "prompt_tokens": 48,
+      "completion_tokens": 599,
+      "completion_tokens_details": {
+        "reasoning_tokens": 285
+      }
+    },
+    "input_sensitive": false,
+    "output_sensitive": false,
+    "input_sensitive_type": 0,
+    "output_sensitive_type": 0,
+    "output_sensitive_int": 0,
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  }
+}

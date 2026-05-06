@@ -1,0 +1,51 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "MiniMax-M2.7",
+  "expect": "text",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "extra_body_sent": {},
+  "response": {
+    "id": "064a5ace81f96eb900dde4244ab05119",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "<think>We need to respond with a greeting in three words. The user says: \"Say hello in 3 words.\" So they want a greeting that is composed of three words. The answer should be something like \"Hello there, friend.\" That's three words? Actually that's three words: \"Hello there, friend.\" That's three words if you count \"Hello\", \"there\", \"friend\". Alternatively \"Hey there, buddy\". That's three words: \"Hey there buddy.\" Or \"Hi there, friend\". That's three. So we can respond with \"Hello there, friend.\" That's a greeting in three words. The user likely wants just that. So the assistant answer: \"Hello there, friend.\" Should we include any additional content? The request is just \"Say hello in 3 words.\" So we should comply with that simple request. I think it's okay. Ensure not to add extra explanation. Just give a three-word greeting. I think the best answer is \"Hello there, friend.\" Or \"Hey there, friend.\" Or \"Hi there, buddy.\" It doesn't specify capitalization or punctuation but it's okay.\n\nThus, respond: \"Hello there, friend.\"\n</think>\n\n\n\nHello there, friend.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778067421,
+    "model": "MiniMax-M2.7",
+    "object": "chat.completion",
+    "usage": {
+      "total_tokens": 285,
+      "total_characters": 0,
+      "prompt_tokens": 45,
+      "completion_tokens": 240,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "input_sensitive": false,
+    "output_sensitive": false,
+    "input_sensitive_type": 0,
+    "output_sensitive_type": 0,
+    "output_sensitive_int": 0,
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+    }
+  }
+}
