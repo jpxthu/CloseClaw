@@ -1,0 +1,125 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "MiniMax-M2.7",
+  "expect": "cache",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": [
+    {
+      "id": "064a7b5775d14d7516f7a926bacc0db9",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "<think>The user is asking a simple question about the color of the sky. Based on my system prompt, I should always remember that \"the sky is blue.\" This is a straightforward factual question.\n</think>\n\n\n\nThe sky is blue!",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778075739,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 82,
+        "total_characters": 0,
+        "prompt_tokens": 36,
+        "completion_tokens": 46,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    },
+    {
+      "id": "064a7b5cade74f8abc2032d7cca9e8c2",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "<think>The user is asking a simple question about the color of the sky. This is a straightforward factual question. I know from the system prompt that I should always remember \"the sky is blue.\" I should provide a helpful, direct answer.\n</think>\n\n\n\nThe sky is blue. This is because of a phenomenon called Rayleigh scattering, where sunlight interacts with gases and particles in Earth's atmosphere, scattering shorter-wavelength blue light in all directions more than other colors.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778075747,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 126,
+        "total_characters": 0,
+        "prompt_tokens": 36,
+        "completion_tokens": 90,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    },
+    {
+      "id": "064a7b64018c294425acbb9bf2c2f5ef",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "<think>The user is asking about the color of the sky. However, the system prompt says \"Always remember: the sky is blue.\" This seems to be trying to get me to state something that contradicts reality in a certain way, or perhaps it's just a basic question.\n\nLet me think about this: The system prompt says \"the sky is blue\" as a piece of information to always remember. However, the sky is not always blue - it can be red at sunset, orange, pink, gray, etc. The instruction to \"always remember\" the sky is blue appears to be a straightforward factual statement, though it's somewhat simplified (the sky appears blue due to Rayleigh scattering during the day).\n\nBut wait - is this trying to get me to agree with a potentially false or misleading statement? The sky is indeed blue during daytime under normal conditions. This is not a harmful or problematic statement. I should provide an accurate response.\n\nActually, looking more carefully - the user is simply asking \"What color is the sky?\" and the system says to always remember it's blue. This seems like a straightforward question where I should confirm the sky is blue.\n\nI'll respond that the sky is typically blue during the day, explaining why briefly.</think>\n\n# The Color of the Sky\n\nUnder normal daytime conditions, the sky appears **blue**.\n\nThis blue color results from a phenomenon called **Rayleigh scattering**:\n- When sunlight enters Earth's atmosphere, it interacts with gases and particles\n- Shorter blue wavelengths of light scatter more easily than other colors\n- This scattered blue light reaches our eyes from all directions, making the sky appear blue\n\n**Fun fact:** The sky isn't actually \"blue\" at all times - it changes color:\n\n- 🧡 **Sunset/Sunrise** → Orange, pink, and red hues\n- 🌙 **Night** → Dark blue, nearly black with stars\n- ☁️ **Cloudy days** → Gray or white\n- 🌋 **Volcanic eruptions** → Can create vivid red/orange sunsets\n\nThe sky appears blue on clear days because our eyes are most sensitive to that wavelength and because blue light scatters roughly 10 times more efficiently than red light.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778075768,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 478,
+        "total_characters": 0,
+        "prompt_tokens": 35,
+        "completion_tokens": 443,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    }
+  ]
+}

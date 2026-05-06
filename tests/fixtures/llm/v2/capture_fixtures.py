@@ -498,12 +498,55 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "_invalid_key": True,
     },
 
+    "anthropic-error-model": {
+        "protocol": "anthropic",
+        "description": "Anthropic 端点无效 model name",
+        "messages": [{"role": "user", "content": "hi"}],
+        "expect": "error",
+        "max_tokens": 1024,
+        "_invalid_model": "this-model-does-not-exist-999",
+    },
+
     "anthropic-error-empty": {
         "protocol": "anthropic",
         "description": "Anthropic 端点空 messages",
         "messages": [],
         "expect": "error",
         "max_tokens": 1024,
+    },
+
+    # ---------- Anthropic: Streaming + 工具调用 ----------
+    "anthropic-tool-use-streaming": {
+        "protocol": "anthropic",
+        "provider": "minimax",
+        "description": "Anthropic SSE stream 下工具调用，验证 content_block_start(type=tool_use) / tool_use_delta 事件",
+        "messages": [
+            {
+                "role": "user",
+                "content": "How's the weather in San Francisco?",
+            }
+        ],
+        "expect": "tool_use_streaming",
+        "tools": ANTHROPIC_TOOLS,
+        "max_tokens": 2048,
+    },
+
+    # ---------- OpenAI: 工具格式错误 ----------
+    "error-tool-format": {
+        "protocol": "openai",
+        "description": "tools 数组格式错误，验证错误码 2013",
+        "messages": [{"role": "user", "content": "hi"}],
+        "expect": "error",
+        # 发送格式错误的 tools：缺少 function.name
+        "_tools_invalid": [
+            {
+                "type": "function",
+                "function": {
+                    "description": "test",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            }
+        ],
     },
 }
 
@@ -669,7 +712,7 @@ def capture(
     spec = SCENARIOS[scenario]
     messages = list(spec["messages"])  # 深拷贝，避免修改原始定义
     protocol = spec["protocol"]
-    is_streaming = spec["expect"] in ("streaming", "tool_calls_streaming")
+    is_streaming = spec["expect"] in ("streaming", "tool_calls_streaming", "tool_use_streaming")
     expect = spec["expect"]
 
     # ---------- 特殊场景处理 ----------
@@ -678,6 +721,12 @@ def capture(
     if expect in ("tool_result",):
         return _capture_tool_result(
             client, scenario, model, output_base, spec, messages, protocol, expect
+        )
+
+    # 2. Anthropic Streaming + 工具调用（验证 SSE 中 tool_use_delta 事件）
+    if expect == "tool_use_streaming":
+        return _capture_anthropic_tool_streaming(
+            client, scenario, model, output_base, spec, messages, protocol
         )
 
     # 2. 无效 key 场景：临时替换 header
@@ -689,10 +738,17 @@ def capture(
         else:
             client.headers["x-api-key"] = "invalid_key_xxx"
 
+    # req_model: 用于发送请求（可能是无效值）
+    # file_model: 用于写入文件的名称（始终用真实 model 名）
     req_model = spec.get("_invalid_model", model)
+    file_model = model
 
     try:
         request_kwargs = _build_request_kwargs(spec, req_model, messages)
+
+        # ---------- 工具格式错误场景：用 _tools_invalid 覆盖正常的 tools ----------
+        if spec.get("_tools_invalid") is not None:
+            request_kwargs["tools"] = spec["_tools_invalid"]
 
         # ---------- Cache 场景：需要在 system 末尾加 cache_control ----------
         if scenario in ("cache", "anthropic-cache"):
@@ -726,7 +782,7 @@ def capture(
         final_result = results[0] if len(results) == 1 else results  # type: ignore
 
         return _write_output(
-            output_base, protocol, scenario, req_model,
+            output_base, protocol, scenario, file_model,
             messages, request_kwargs, is_streaming,
             final_result, expect,
         )
@@ -924,6 +980,60 @@ def _capture_tool_result(
         json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"  ✓ {protocol}/{scenario} → {out_file.name}")
+    return out_file
+
+
+def _capture_anthropic_tool_streaming(
+    client: LLMClient,
+    scenario: str,
+    model: str,
+    output_base: Path,
+    spec: dict[str, Any],
+    messages: list[dict],
+    protocol: str,
+) -> Path:
+    """Anthropic SSE Streaming + 工具调用：
+    验证 SSE chunk 中出现 content_block_start(type=tool_use) 和 content_block_delta(type=tool_use_delta)。
+    """
+    request_kwargs = _build_request_kwargs(spec, model, messages)
+
+    print(f"  → Streaming 工具调用请求...")
+    try:
+        raw = client.chat_streaming(messages, model, **request_kwargs)
+    except HTTPResponseError as e:
+        raw = f"Error: HTTP {e.code} {e.reason}: {e.body}"
+
+    out_dir = output_base / protocol
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{model}-{scenario}.txt"
+    out_file.write_text(raw, encoding="utf-8")
+
+    extra_body_sent = request_kwargs.pop("extra_body", None)
+    tools_sent = request_kwargs.pop("tools", None)
+    system_sent = request_kwargs.pop("system", None)
+    max_tokens_sent = request_kwargs.pop("max_tokens", None)
+
+    meta = {
+        "protocol": protocol,
+        "streaming": True,
+        "scenario": scenario,
+        "model": model,
+        "expect": spec["expect"],
+        "request": {"model": model, "messages": messages},
+        "extra_body_sent": extra_body_sent,
+    }
+    if tools_sent is not None:
+        meta["tools_sent"] = tools_sent
+    if system_sent is not None:
+        meta["system_sent"] = system_sent
+    if max_tokens_sent is not None:
+        meta["max_tokens_sent"] = max_tokens_sent
+
+    meta_file = out_dir / f"{model}-{scenario}-meta.json"
+    meta_file.write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"  ✓ {protocol}/streaming/{scenario} → {out_file.name}")
     return out_file
 
 

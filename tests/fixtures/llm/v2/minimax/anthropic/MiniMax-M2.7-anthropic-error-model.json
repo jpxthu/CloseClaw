@@ -1,0 +1,44 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-model",
+  "model": "MiniMax-M2.7",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "extra_body_sent": null,
+  "response": {
+    "id": "064a7b0f15ad4663f6b9359e44c6949b",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M2.7",
+    "content": [
+      {
+        "thinking": "The user says \"hi\". This is a simple greeting. The assistant should respond with a friendly greeting, maybe ask how they can help. The user may want to start a conversation or ask for help. So respond politely, ask what they'd like assistance with. Use concise friendly tone.",
+        "signature": "3b43df3a6d339d0ec5c58a32fe5ba49119b95942335ccc20b57cfdec348ac118",
+        "type": "thinking"
+      },
+      {
+        "text": "Hi there! 👋 How can I help you today?",
+        "type": "text"
+      }
+    ],
+    "usage": {
+      "input_tokens": 42,
+      "output_tokens": 73
+    },
+    "stop_reason": "end_turn",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "max_tokens_sent": 1024
+}
