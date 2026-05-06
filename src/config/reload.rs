@@ -3,6 +3,7 @@
 //! Watches config files for changes and automatically reloads them.
 //! Validates new config before applying, maintains backup of last known good config.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -57,6 +58,8 @@ pub struct ConfigReloadManager<P> {
     debounce_duration: Duration,
     /// Parsing function for the config provider
     parse_fn: ParseFn<P>,
+    /// Watcher handle (keeps watcher alive)
+    watcher_handle: Option<WatcherHandle>,
 }
 
 impl<P> std::fmt::Debug for ConfigReloadManager<P> {
