@@ -1,0 +1,24 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-empty",
+  "model": "deepseek-v4-pro",
+  "expect": "error",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": []
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "message": "Empty input messages",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_request_error"
+      }
+    }
+  }
+}

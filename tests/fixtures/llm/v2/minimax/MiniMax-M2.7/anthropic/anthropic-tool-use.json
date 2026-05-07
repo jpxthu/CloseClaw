@@ -1,0 +1,65 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-use",
+  "model": "MiniMax-M2.7",
+  "expect": "tool_use",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "id": "064ae37a016314a8f4ee2f9a8870e77c",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M2.7",
+    "content": [
+      {
+        "thinking": "The user wants to know the weather in San Francisco. I'll call the get_weather function with \"San Francisco\" as the location.",
+        "signature": "20ad569a1d3cfc78c16c570c12b7ecbc0ffafea8caa5c8acbe54638fedfafb33",
+        "type": "thinking"
+      },
+      {
+        "type": "tool_use",
+        "id": "call_function_kqfb0v7wxmpk_1",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 212,
+      "output_tokens": 56
+    },
+    "stop_reason": "tool_use",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

@@ -1,0 +1,42 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-tool-format",
+  "model": "MiniMax-M2.7",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "bad_request_error",
+        "message": "invalid params, function name or parameters is empty (2013)",
+        "http_code": "400"
+      },
+      "request_id": "064ae33d57b61d4a22c41803c4fe8475"
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "description": "test",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "protocol": "anthropic",
+  "streaming": true,
+  "scenario": "anthropic-streaming",
+  "model": "MiniMax-M2.7",
+  "expect": "streaming",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count from 1 to 3."
+      }
+    ]
+  },
+  "max_tokens_sent": 1024
+}

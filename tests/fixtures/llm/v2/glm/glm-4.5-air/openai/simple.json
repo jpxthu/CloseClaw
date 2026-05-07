@@ -1,0 +1,42 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-4.5-air",
+  "expect": "text",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Greetings friend.",
+          "reasoning_content": "\nOkay, user just asked for a 3-word hello. Hmm, this feels like a test of conciseness or maybe they're in a hurry. Could be a playful challenge too. \n\nLet me unpack the request: they specifically want exactly three words - no more, no less. That's restrictive. Most hellos are 1-2 words (\"Hello there\" is two), so I need to creatively stretch it without being awkward. \n\n*Brainstorming*: \n\"Hello how are you\" - too long. \n\"Hey there\" - only two. \n\"Greetings friend\" - bingo! That's three natural words. Alternative could be \"Hello friend\" but that's two unless I add \"there\"... wait no, \"Hello there friend\" flows better? No, that's four. \n\n*Final decision*: \"Greetings friend\" feels most elegant. It's warm, concise, and meets the word count. Might even make the user smile - it's slightly more formal than casual hi, but universally friendly. \n\n*Double-check*: No emojis, no fluff, pure three-word greeting. Perfect. Send!",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102600,
+    "id": "20260507052318f57bcd4b2896434c",
+    "model": "glm-4.5-air",
+    "object": "chat.completion",
+    "request_id": "20260507052318f57bcd4b2896434c",
+    "usage": {
+      "completion_tokens": 236,
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 4
+      },
+      "total_tokens": 248
+    }
+  }
+}

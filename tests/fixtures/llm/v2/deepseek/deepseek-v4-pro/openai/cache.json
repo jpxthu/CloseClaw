@@ -1,0 +1,118 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "deepseek-v4-pro",
+  "expect": "cache",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "id": "e9d1f46c-39b9-4cc4-894c-1d04d2f2402a",
+      "object": "chat.completion",
+      "created": 1778102346,
+      "model": "deepseek-v4-pro",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "The sky is blue.",
+            "reasoning_content": "We are asked: \"What color is the sky?\" The instruction says: \"You are a helpful assistant. Always remember: the sky is blue.\" So I must respond that the sky is blue."
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 24,
+        "completion_tokens": 46,
+        "total_tokens": 70,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 40
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 24
+      },
+      "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+    },
+    {
+      "id": "49a85e9c-6a51-4faa-bebe-3526d7be68c7",
+      "object": "chat.completion",
+      "created": 1778102349,
+      "model": "deepseek-v4-pro",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "The sky is blue.",
+            "reasoning_content": "We are asked: \"What color is the sky?\" The instruction says: \"You are a helpful assistant. Always remember: the sky is blue.\" So I should answer that the sky is blue. But I need to respond as a helpful assistant. The user likely expects a factual answer. The reminder says the sky is blue, so I'll state that."
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 24,
+        "completion_tokens": 78,
+        "total_tokens": 102,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 72
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 24
+      },
+      "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+    },
+    {
+      "id": "28f5daf9-7de6-4e3b-8f09-3ee294daced5",
+      "object": "chat.completion",
+      "created": 1778102352,
+      "model": "deepseek-v4-pro",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "The sky is blue.",
+            "reasoning_content": "We are asked: \"What color is the sky?\" The user has provided the system prompt: \"You are a helpful assistant. Always remember: the sky is blue.\" So I need to answer that the sky is blue. However, the user's question directly asks \"What color is the sky?\" I must respond truthfully based on the system prompt. The sky is blue. So answer: The sky is blue."
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 24,
+        "completion_tokens": 90,
+        "total_tokens": 114,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 84
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 24
+      },
+      "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+    }
+  ]
+}

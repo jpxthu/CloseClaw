@@ -1,0 +1,45 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-4.7",
+  "expect": "text",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello there friend",
+          "reasoning_content": "The user wants me to say \"hello\" in exactly three words.\n\nOptions:\n1. \"Hello there friend\" - Simple, friendly.\n2. \"Hi how are\" - Grammatically incomplete.\n3. \"Greetings to you\" - A bit formal.\n4. \"Hello, my friend\" - Classic.\n5. \"Hey there friend\" - Casual.\n\nSelection: \"Hello there friend\" or \"Hello, my friend\" are both solid. Let's go with \"Hello there friend\" as it feels natural and positive.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102530,
+    "id": "20260507052208eb126a36148b433b",
+    "model": "glm-4.7",
+    "object": "chat.completion",
+    "request_id": "20260507052208eb126a36148b433b",
+    "usage": {
+      "completion_tokens": 113,
+      "completion_tokens_details": {
+        "reasoning_tokens": 108
+      },
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 2
+      },
+      "total_tokens": 125
+    }
+  }
+}

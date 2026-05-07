@@ -1,0 +1,56 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "deepseek-v4-pro",
+  "expect": "context",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response": {
+    "id": "950ec757-c77e-4338-96bc-6b434b785df9",
+    "object": "chat.completion",
+    "created": 1778102370,
+    "model": "deepseek-v4-pro",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Your name is Alice! You told me just a moment ago. 😊",
+          "reasoning_content": "We need to answer the question \"What is my name?\" given the conversation history. The user previously said \"My name is Alice.\" and I responded \"Hi Alice! Nice to meet you.\" So the answer is clearly \"Alice.\" The AI should respond with something like \"Your name is Alice.\" I'll keep it friendly and direct."
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 26,
+      "completion_tokens": 84,
+      "total_tokens": 110,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 68
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 26
+    },
+    "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+  }
+}

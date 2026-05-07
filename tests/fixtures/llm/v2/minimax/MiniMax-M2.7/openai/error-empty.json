@@ -1,0 +1,25 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-empty",
+  "model": "MiniMax-M2.7",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": []
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "bad_request_error",
+        "message": "invalid params, messages is empty (2013)",
+        "http_code": "400"
+      },
+      "request_id": "064ae33da0e88204c5ab5e8bb4a23f49"
+    }
+  }
+}

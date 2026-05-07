@@ -1,0 +1,43 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-thinking",
+  "model": "deepseek-v4-flash",
+  "expect": "reasoning",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "fef4beb9-39c5-498d-9480-daa088fce0ba",
+    "type": "message",
+    "role": "assistant",
+    "model": "deepseek-v4-flash",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "We need to compute 17*23. There are several methods: direct multiplication, using distributive property, or known tricks. Let's do step-by-step.\n\nMethod 1: Standard multiplication:\n   17\n x 23\n -----\nFirst multiply 17 by 3 (units): 17*3 = 51. Write 1, carry 5.\nThen multiply 17 by 2 (tens): 17*2 = 34, plus carry 5 = 39. Write 39. So product is 391? Wait careful: In standard multiplication, we write the tens digit product shifted one place: Actually:\n   17\n x 23\n----\n  51  (17*3)\n+ 340 (17*20, because 2 is in tens place so 17*2=34, but put 0 at end, so 340)\n----\n  391\nSo 17*23 = 391.\n\nMethod 2: Using distributive: 17*23 = 17*(20+3) = 17*20 + 17*3 = 340 + 51 = 391.\n\nMethod 3: Also (20-3)*(20+3)? No, that's 17*23 = (20-3)*(20+3) = 20^2 - 3^2 = 400 - 9 = 391. That's a nice trick.\n\nSo answer is 391.\n\nThe user asked \"What is 17*23? Show your work step by step.\" So I'll present the step-by-step calculation.\n\nThus final answer: 391.",
+        "signature": "fef4beb9-39c5-498d-9480-daa088fce0ba"
+      },
+      {
+        "type": "text",
+        "text": "17 × 23 can be calculated using the difference of squares method:  \n17 = 20 - 3 and 23 = 20 + 3, so  \n(20 - 3)(20 + 3) = 20² - 3² = 400 - 9 = 391.  \n\nAlternatively, using distributive property:  \n17 × 23 = 17 × (20 + 3) = 17 × 20 + 17 × 3 = 340 + 51 = 391.  \n\nThus, 17 × 23 = 391."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 18,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 453,
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 2048
+}

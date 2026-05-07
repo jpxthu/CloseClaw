@@ -1,0 +1,50 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "glm-4.5-air",
+  "expect": "context",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Your name is **Alice**, as you introduced yourself in your first message! 😊 Nice to meet you, Alice! How can I help you today?",
+          "reasoning_content": "\nHmm, the user just asked \"What is my name?\" right after introducing themselves as Alice. That's interesting - they're either testing if I remembered their previous message or perhaps they forgot they already told me. \n\nLooking back at the history, Alice clearly stated her name in the first message, and I acknowledged it warmly. This follow-up question feels playful, like she's checking if I pay attention. Maybe she's evaluating how well AI handles context retention. \n\nI should maintain the friendly tone from earlier while confirming her name. Since she initiated with a simple statement, a straightforward answer with slight cheerfulness would work best - no need to overcomplicate it. The smiley keeps it warm but professional. \n\nAh, and I mustn't forget to keep the response consistent with her earlier interaction style. She seems to prefer concise exchanges, so no elaborate explanations unless she asks for more. Just clear confirmation of what she already knows.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102598,
+    "id": "202605070523160267fb7de6824915",
+    "model": "glm-4.5-air",
+    "object": "chat.completion",
+    "request_id": "202605070523160267fb7de6824915",
+    "usage": {
+      "completion_tokens": 223,
+      "prompt_tokens": 30,
+      "prompt_tokens_details": {
+        "cached_tokens": 4
+      },
+      "total_tokens": 253
+    }
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "deepseek-v4-flash",
+  "expect": "cache",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "id": "92f232a2-fccb-4fd0-9168-4a796bab2050",
+      "object": "chat.completion",
+      "created": 1778102299,
+      "model": "deepseek-v4-flash",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "The sky is blue.",
+            "reasoning_content": "We are asked: \"What color is the sky?\" The instruction says \"Always remember: the sky is blue.\" So the answer should be blue."
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 24,
+        "completion_tokens": 36,
+        "total_tokens": 60,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 30
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 24
+      },
+      "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+    },
+    {
+      "id": "8d38a48d-30a6-4d2c-b744-f862da695e66",
+      "object": "chat.completion",
+      "created": 1778102301,
+      "model": "deepseek-v4-flash",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "The sky is blue.",
+            "reasoning_content": "We need to answer the question \"What color is the sky?\" The user instruction says \"Always remember: the sky is blue.\" So the answer should be blue."
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 24,
+        "completion_tokens": 39,
+        "total_tokens": 63,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 33
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 24
+      },
+      "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+    },
+    {
+      "id": "ca31e886-2df0-48be-b2b7-aa3d5cc2d6db",
+      "object": "chat.completion",
+      "created": 1778102302,
+      "model": "deepseek-v4-flash",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "The sky is blue.",
+            "reasoning_content": "We need to answer the question \"What color is the sky?\" The user has set a context: \"Always remember: the sky is blue.\" So we should answer that the sky is blue. Simple."
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 24,
+        "completion_tokens": 47,
+        "total_tokens": 71,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 41
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 24
+      },
+      "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+    }
+  ]
+}

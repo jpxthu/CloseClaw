@@ -1,0 +1,124 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "MiniMax-M2.7",
+  "expect": "cache",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "id": "064ae328750f62c71ff7d759fa7a8e63",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "<think>The user is asking what color the sky is. This is a straightforward factual question. Based on my instructions, I should always remember that the sky is blue. I'll provide a direct and friendly answer.\n</think>\n\n\n\nThe sky is blue! This is because of a phenomenon called Rayleigh scattering, where sunlight is scattered in all directions by the gases and particles in Earth's atmosphere. Blue light scatters more than other colors because it travels as smaller, shorter waves.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102315,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 127,
+        "total_characters": 0,
+        "prompt_tokens": 36,
+        "completion_tokens": 91,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    },
+    {
+      "id": "064ae32c753481e38d823b3afb9886f6",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "<think>The user asks a simple question: \"What color is the sky?\" The prior instruction says that the assistant is helpful, with knowledge cutoff in 2024. The user likely expects a standard answer: The sky appears blue due to Rayleigh scattering. However, there's a note: \"You are a helpful assistant. Always remember: the sky is blue.\"\n\nThus answer: The sky is blue, with explanation.\n</think>\n\n\n\nThe sky appears **blue** to our eyes under normal daylight conditions. This coloration is due to a phenomenon called **Rayleigh scattering**, in which shorter (blue) wavelengths of sunlight are scattered in all directions by the gases and tiny particles in the Earth's atmosphere more efficiently than longer (red) wavelengths. As a result, the scattered blue light fills the sky, giving it its characteristic blue hue.\n\nThere are a few nuances to keep in mind:\n\n| Condition | Why the sky might look different |\n|-----------|-----------------------------------|\n| **Sunrise / Sunset** | When the Sun is low on the horizon, its light travels through more atmosphere. Much of the blue light is scattered away, leaving the longer red and orange wavelengths, so the sky can appear pink, orange, or red. |\n| **Overcast / Cloudy** | Thick clouds reflect and scatter all wavelengths more uniformly, making the sky look gray or white. |\n| **Very clear, high‑altitude locations** | At high elevations, with less atmosphere and fewer particles, the sky can appear a deeper, darker blue, even almost violet. |\n| **Pollution, haze, or volcanic aerosols** | These particles can scatter and absorb light differently, sometimes giving a milky or yellowish tinge. |\n| **Night sky** | Without sunlight, the sky is dark, showing stars, the Moon, and other celestial objects. |\n| **Other planetary atmospheres** | Different atmospheric compositions produce different colors; for example, Mars’ thin, dusty atmosphere often gives a rusty orange‑brown sky. |\n\nSo, under ordinary, clear daylight conditions on Earth, the sky is blue. If you have any follow‑up questions about atmospheric scattering, sunrises/sunsets, or sky colors on other planets, feel free to ask!",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102329,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 480,
+        "total_characters": 0,
+        "prompt_tokens": 36,
+        "completion_tokens": 444,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    },
+    {
+      "id": "064ae33a7464e3741cd08d709db9119a",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "<think>The user is asking a simple question: \"What color is the sky?\"\n\nBased on my instructions, I need to remember: \"the sky is blue.\"\n\nThis is a straightforward factual question. The sky appears blue during the daytime due to Rayleigh scattering of sunlight in the atmosphere.\n</think>\n\n\n\nThe sky is **blue**. This color is due to Rayleigh scattering, where sunlight is scattered in all directions by tiny molecules in Earth's atmosphere. Blue light scatters more than other colors because it travels as shorter, smaller waves.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102333,
+      "model": "MiniMax-M2.7",
+      "object": "chat.completion",
+      "usage": {
+        "total_tokens": 139,
+        "total_characters": 0,
+        "prompt_tokens": 36,
+        "completion_tokens": 103,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "input_sensitive": false,
+      "output_sensitive": false,
+      "input_sensitive_type": 0,
+      "output_sensitive_type": 0,
+      "output_sensitive_int": 0,
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    }
+  ]
+}

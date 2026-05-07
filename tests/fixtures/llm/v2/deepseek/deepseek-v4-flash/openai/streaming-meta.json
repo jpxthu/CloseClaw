@@ -1,0 +1,16 @@
+{
+  "protocol": "openai",
+  "streaming": true,
+  "scenario": "streaming",
+  "model": "deepseek-v4-flash",
+  "expect": "streaming",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count from 1 to 3."
+      }
+    ]
+  }
+}

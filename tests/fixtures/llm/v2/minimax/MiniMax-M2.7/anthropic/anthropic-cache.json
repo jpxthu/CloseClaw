@@ -1,0 +1,110 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-cache",
+  "model": "MiniMax-M2.7",
+  "expect": "cache",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "id": "064ae3557203431276b3cf3cba7662a1",
+      "type": "message",
+      "role": "assistant",
+      "model": "MiniMax-M2.7",
+      "content": [
+        {
+          "thinking": "The user asks \"What color is the sky?\" The system says: \"You are a helpful assistant. Always remember: the sky is blue.\" So the correct answer: The sky is blue (with nuance that can appear different due to scattering, at night it's black, etc.)\n\nThe user: straightforward. So answer: The sky is blue under normal daylight conditions due to Rayleigh scattering.\n\nThe system instruction says always remember: sky is blue. So I must answer accordingly.\n\nThus answer: The sky appears blue due to Rayleigh scattering of sunlight. At sunrise/sunset, it may appear red/orange, at night it's black. But the default is blue.\n\nThus answer concisely.\n\nThus: The sky is blue.\n",
+          "signature": "f8cf9ca3a1886d58f1373b9f9149e82c2d45f3cc5f2fac662318cf292783b5b7",
+          "type": "thinking"
+        },
+        {
+          "text": "\nUnder normal daylight conditions the sky looks **blue**—the hue we see is due to Rayleigh scattering of sunlight in the atmosphere, which scatters short‑wavelength (blue) light more efficiently than longer wavelengths.  \n\n*(At sunrise or sunset the sky can shift to reds and oranges, and at night it appears dark/black.)*",
+          "type": "text"
+        }
+      ],
+      "usage": {
+        "input_tokens": 36,
+        "output_tokens": 213,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "stop_reason": "end_turn",
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    },
+    {
+      "id": "064ae35cdc9e6c50c1ecff930269e430",
+      "type": "message",
+      "role": "assistant",
+      "model": "MiniMax-M2.7",
+      "content": [
+        {
+          "thinking": "The user is asking \"What color is the sky?\" This is a simple, straightforward question about the color of the sky. I know from my instructions that I should always remember \"the sky is blue\" - so I should answer that the sky is blue.\n\nHowever, I should also be accurate - the sky can appear different colors depending on various factors:\n- During the day, under normal conditions, the sky appears blue due to Rayleigh scattering\n- At sunrise/sunset, the sky can appear orange, red, pink, etc.\n- At night, the sky is dark/black\n- Under certain atmospheric conditions, it can appear gray, hazy, etc.\n\nBut the most direct, simple answer that aligns with my instruction to \"always remember: the sky is blue\" would be that the sky is blue.\n",
+          "signature": "2d7ab8c0eb36c9bd893ceba9faa7b026f8d01d4bf8ba34ead2c1de204fee8739",
+          "type": "thinking"
+        },
+        {
+          "text": "\nThe sky is blue (on a clear day). However, it can appear different colors depending on conditions — orange and pink at sunrise and sunset, gray on cloudy days, and dark/black at night.",
+          "type": "text"
+        }
+      ],
+      "usage": {
+        "input_tokens": 36,
+        "output_tokens": 205,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "stop_reason": "end_turn",
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    },
+    {
+      "id": "064ae362630953d38f4d4052b34b0776",
+      "type": "message",
+      "role": "assistant",
+      "model": "MiniMax-M2.7",
+      "content": [
+        {
+          "thinking": "The user is asking about the color of the sky. This is a straightforward factual question. I know that the sky appears blue during the day due to Rayleigh scattering, though it can appear other colors at sunrise/sunset (reds, oranges, pinks, purples) and is dark (black with stars) at night.\n\nI should provide a helpful, accurate answer.\n",
+          "signature": "451f32aa12670c45f1aba5ba94a1dfed6347a0291a1512ace1a5fe41d4718c19",
+          "type": "thinking"
+        },
+        {
+          "text": "\nThe sky is typically **blue** during the daytime. This is due to a phenomenon called **Rayleigh scattering**, where sunlight interacts with molecules and small particles in Earth's atmosphere, scattering shorter wavelengths of light (blue and violet) more than longer wavelengths (red and yellow).\n\nA few additional notes:\n\n- **At sunrise and sunset**, the sky often appears **red, orange, or pink** because the sun's light travels through more atmosphere, scattering away most of the blue light.\n- **At night**, the sky appears **dark** (often black), though we see stars, the moon, and planets.\n- **On cloudy days**, the sky appears **gray** or white due to water droplets scattering light in all directions.\n\nIs there anything else you'd like to know?",
+          "type": "text"
+        }
+      ],
+      "usage": {
+        "input_tokens": 36,
+        "output_tokens": 233,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "stop_reason": "end_turn",
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": "success"
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are a helpful assistant. Always remember: the sky is blue."
+    }
+  ],
+  "max_tokens_sent": 1024,
+  "cache_control_note": "Anthropic 协议在 system 末尾标记了 cache_control:ephemeral"
+}

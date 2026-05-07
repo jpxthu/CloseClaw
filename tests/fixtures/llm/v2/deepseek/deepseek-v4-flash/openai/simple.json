@@ -1,0 +1,48 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "deepseek-v4-flash",
+  "expect": "text",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "3a5c3999-d0c4-497b-8e5a-2f213417acc1",
+    "object": "chat.completion",
+    "created": 1778102310,
+    "model": "deepseek-v4-flash",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello my friend",
+          "reasoning_content": "We need to respond with a greeting in exactly three words. \"Hello\" is one word, so we need two more. Common three-word greetings: \"Hello there friend\", \"Hello my friend\", \"Hello everyone\", \"Hello world\", etc. But simplest: \"Hello, how are?\" is three words? \"Hello how are\" is three words but not standard. Better: \"Hello there world\" is three. Or \"Hi there everyone\" but \"hi\" is not hello. The instruction says \"say hello\", so use \"hello\". \"Hello world again\" is three. But maybe \"Hello, my friend\" with comma? Comma doesn't count as word. So \"Hello my friend\" works. Or \"Hello to you\" (3 words). I'll go with \"Hello my friend\"."
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 11,
+      "completion_tokens": 169,
+      "total_tokens": 180,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 165
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 11
+    },
+    "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+  }
+}

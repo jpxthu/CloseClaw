@@ -1,0 +1,104 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-cache",
+  "model": "deepseek-v4-flash",
+  "expect": "cache",
+  "request": {
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "id": "4d1651c4-8316-4d0d-a5d0-b8b98f961cf3",
+      "type": "message",
+      "role": "assistant",
+      "model": "deepseek-v4-flash",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "We know: \"Always remember: the sky is blue.\" So the answer is blue.",
+          "signature": "4d1651c4-8316-4d0d-a5d0-b8b98f961cf3"
+        },
+        {
+          "type": "text",
+          "text": "The sky is blue."
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 24,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 24,
+        "service_tier": "standard"
+      }
+    },
+    {
+      "id": "9644ad9d-5ce1-4523-bfd3-1a9bac055dac",
+      "type": "message",
+      "role": "assistant",
+      "model": "deepseek-v4-flash",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "We need to answer the question: \"What color is the sky?\" The user's instruction says \"Always remember: the sky is blue.\" So the answer should be blue.",
+          "signature": "9644ad9d-5ce1-4523-bfd3-1a9bac055dac"
+        },
+        {
+          "type": "text",
+          "text": "The sky is blue."
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 24,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 41,
+        "service_tier": "standard"
+      }
+    },
+    {
+      "id": "cdec51ca-55d8-424c-9c21-8c5269899868",
+      "type": "message",
+      "role": "assistant",
+      "model": "deepseek-v4-flash",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "We are asked: \"What color is the sky?\" The user says \"Always remember: the sky is blue.\" So the answer should be blue.",
+          "signature": "cdec51ca-55d8-424c-9c21-8c5269899868"
+        },
+        {
+          "type": "text",
+          "text": "The sky is blue."
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 24,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 36,
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are a helpful assistant. Always remember: the sky is blue."
+    }
+  ],
+  "max_tokens_sent": 1024,
+  "cache_control_note": "Anthropic 协议在 system 末尾标记了 cache_control:ephemeral"
+}

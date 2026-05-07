@@ -1,0 +1,30 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-auth",
+  "model": "MiniMax-M2.7",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 401,
+    "reason": "Unauthorized",
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "authorized_error",
+        "message": "login fail: Please carry the API secret key in the 'Authorization' field of the request header (1004)",
+        "http_code": "401"
+      },
+      "request_id": "064ae33d35ab6b8b84e628329daf18d8"
+    }
+  }
+}

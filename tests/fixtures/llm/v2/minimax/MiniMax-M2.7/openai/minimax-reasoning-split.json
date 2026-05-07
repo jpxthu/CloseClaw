@@ -1,0 +1,53 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "minimax-reasoning-split",
+  "model": "MiniMax-M2.7",
+  "expect": "reasoning",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "064ae33e653d99fccd300b9f40c91b49",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "<think>The user asks \"What is 17*23? Show your work step by step.\" That's a straightforward multiplication. Provide steps: breakdown, etc. Should show arithmetic.\n\nBut this is a simple request. There's no policy violation. There's no disallowed content. So answer directly with a step-by-step explanation.\n\nWe could also illustrate using standard multiplication, e.g., 17 * 23 = (17 * 20) + (17 * 3) = 340 + 51 = 391. Or use lattice method, etc. Provide step-by-step: (i) Multiply 23 by 10 = 230, multiply 23 by 7 = 161; then sum = 391. Or show using column multiplication.\n\nThus answer accordingly.\n\nProceed to final.</think>\n\nSure! Let’s find the product \\(17 \\times 23\\) using a clear, step‑by‑step approach.\n\n---\n\n### Step 1: Break the numbers apart  \nWe can split 23 into \\(20 + 3\\).  \nSo  \n\\[\n17 \\times 23 = 17 \\times (20 + 3)\n\\]\n\n### Step 2: Multiply 17 by each part  \n1. \\(17 \\times 20\\)  \n   - Multiplying by 20 just means multiplying by 2 and then adding a zero.  \n   - \\(17 \\times 2 = 34\\) → add a zero → **340**.  \n\n2. \\(17 \\times 3\\)  \n   - \\(17 \\times 3 = 51\\).\n\n### Step 3: Add the two partial products  \n\\[\n340 + 51 = \\boxed{391}\n\\]\n\n---\n\n**Result:**  \n\\[\n\\boxed{17 \\times 23 = 391}\n\\]",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102339,
+    "model": "MiniMax-M2.7",
+    "object": "chat.completion",
+    "usage": {
+      "total_tokens": 395,
+      "total_characters": 0,
+      "prompt_tokens": 35,
+      "completion_tokens": 360,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "input_sensitive": false,
+    "output_sensitive": false,
+    "input_sensitive_type": 0,
+    "output_sensitive_type": 0,
+    "output_sensitive_int": 0,
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": "success"
+    }
+  },
+  "extra_body_sent": {
+    "reasoning_split": true
+  }
+}
