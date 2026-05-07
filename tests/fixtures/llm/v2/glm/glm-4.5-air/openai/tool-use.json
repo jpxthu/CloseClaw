@@ -1,0 +1,74 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-use",
+  "model": "glm-4.5-air",
+  "expect": "tool_calls",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "\nI'll check the current weather in San Francisco for you.\n",
+          "reasoning_content": "\nThe user is asking about the weather in San Francisco. I have access to a function called \"get_weather\" that can get the current weather in a given location. The function requires a \"location\" parameter, and the user has specified \"San Francisco\" as the location. I should use this function to get the weather information for San Francisco.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"location\":\"San Francisco\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7666513256105632677",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "created": 1778102604,
+    "id": "202605070523232e3a381ce60c460a",
+    "model": "glm-4.5-air",
+    "object": "chat.completion",
+    "request_id": "202605070523232e3a381ce60c460a",
+    "usage": {
+      "completion_tokens": 100,
+      "prompt_tokens": 179,
+      "prompt_tokens_details": {
+        "cached_tokens": 178
+      },
+      "total_tokens": 279
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
+}

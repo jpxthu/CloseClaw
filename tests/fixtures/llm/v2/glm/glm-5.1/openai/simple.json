@@ -1,0 +1,45 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-5.1",
+  "expect": "text",
+  "request": {
+    "model": "glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello to you.",
+          "reasoning_content": "1.  **Analyze the Request:**\n    *   Task: Say hello.\n    *   Constraint: Exactly 3 words.\n\n2.  **Brainstorming 3-word greetings:**\n    *   \"Hello to you.\" (3 words)\n    *   \"Hi there, friend.\" (3 words)\n    *   \"Hello, how are...\" (Wait, needs to make sense as a standalone greeting. \"Hello, how are you?\" is 5 words.)\n    *   \"Hey, hi, hello.\" (3 words)\n    *   \"Greetings and salutations.\" (3 words)\n    *   \"Hello right back.\" (3 words)\n    *   \"Hello to everyone.\" (3 words)\n    *   \"I say hello.\" (3 words)\n    *   \"Hello, my friend.\" (3 words)\n\n3.  **Selecting the best option:**\n    *   \"Hello to you.\" - Very natural, directly addresses the prompt, strictly 3 words.\n    *   \"Hello, my friend.\" - Warm and friendly, strictly 3 words.\n\n4.  **Verification:**\n    *   Let's use: \"Hello to you.\"\n    *   Word count check: \"Hello\" (1), \"to\" (2), \"you.\" (3). Perfect.\n\n5.  **Output Generation:**\n    *   Output: Hello to you.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102367,
+    "id": "20260507051919fe2484292990493c",
+    "model": "glm-5.1",
+    "object": "chat.completion",
+    "request_id": "20260507051919fe2484292990493c",
+    "usage": {
+      "completion_tokens": 296,
+      "completion_tokens_details": {
+        "reasoning_tokens": 290
+      },
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 308
+    }
+  }
+}

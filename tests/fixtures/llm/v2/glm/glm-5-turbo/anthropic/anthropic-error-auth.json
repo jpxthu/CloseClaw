@@ -1,0 +1,28 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-auth",
+  "model": "glm-5-turbo",
+  "expect": "error",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 401,
+    "reason": "Unauthorized",
+    "body": {
+      "error": {
+        "message": "令牌已过期或验证不正确",
+        "type": "401"
+      }
+    }
+  },
+  "max_tokens_sent": 1024
+}

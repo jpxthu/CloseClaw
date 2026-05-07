@@ -1,0 +1,29 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-model",
+  "model": "glm-5-turbo",
+  "expect": "error",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "1211",
+        "message": "模型不存在，请检查模型代码。"
+      },
+      "request_id": "20260507052101311e5f16600748aa"
+    }
+  },
+  "max_tokens_sent": 1024
+}

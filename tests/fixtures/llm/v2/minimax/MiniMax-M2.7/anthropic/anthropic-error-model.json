@@ -1,0 +1,43 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-model",
+  "model": "MiniMax-M2.7",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "id": "064ae369d01a22bb269c6cb2af503b92",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M2.7",
+    "content": [
+      {
+        "thinking": "The user just said \"hi\". As an assistant, we respond with a greeting. There's no policy violation. We can answer in a friendly way. No need for any special constraints. Just greet.",
+        "signature": "fdbe29c582ee6a84909be5b4da9a53f291622ad94a76655e5ee51276ea744854",
+        "type": "thinking"
+      },
+      {
+        "text": "Hello! How can I help you today?",
+        "type": "text"
+      }
+    ],
+    "usage": {
+      "input_tokens": 42,
+      "output_tokens": 53
+    },
+    "stop_reason": "end_turn",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "max_tokens_sent": 1024
+}

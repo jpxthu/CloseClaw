@@ -1,0 +1,65 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-use",
+  "model": "deepseek-v4-pro",
+  "expect": "tool_use",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "id": "39b2ddc0-841a-4225-b3e7-2d74e8c58106",
+    "type": "message",
+    "role": "assistant",
+    "model": "deepseek-v4-pro",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function with the location \"San Francisco\".",
+        "signature": "39b2ddc0-841a-4225-b3e7-2d74e8c58106"
+      },
+      {
+        "type": "tool_use",
+        "id": "call_00_kLur8vIXdDqh5ezFmtGe5883",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 39,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 256,
+      "output_tokens": 72,
+      "service_tier": "standard"
+    }
+  },
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

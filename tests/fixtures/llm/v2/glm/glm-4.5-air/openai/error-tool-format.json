@@ -1,0 +1,39 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-tool-format",
+  "model": "glm-4.5-air",
+  "expect": "error",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "1210",
+        "message": "API 调用参数有误，请检查文档。"
+      }
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "description": "test",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  ]
+}

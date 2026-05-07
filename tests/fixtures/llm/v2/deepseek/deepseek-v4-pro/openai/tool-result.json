@@ -1,0 +1,239 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-result",
+  "model": "deepseek-v4-pro",
+  "expect": "tool_result",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "round1": {
+      "id": "f2e30cfd-4b93-496b-8ff9-6bccc635eba2",
+      "object": "chat.completion",
+      "created": 1778102389,
+      "model": "deepseek-v4-pro",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
+            "tool_calls": [
+              {
+                "index": 0,
+                "id": "call_00_vBE66cjT6lyewH41P9lL1622",
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "arguments": "{\"location\": \"San Francisco\"}"
+                }
+              }
+            ]
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 295,
+        "completion_tokens": 73,
+        "total_tokens": 368,
+        "prompt_tokens_details": {
+          "cached_tokens": 256
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 27
+        },
+        "prompt_cache_hit_tokens": 256,
+        "prompt_cache_miss_tokens": 39
+      },
+      "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+    },
+    "round2": {
+      "id": "cb5dbcea-8460-4d00-bd34-22721fa1ef54",
+      "object": "chat.completion",
+      "created": 1778102392,
+      "model": "deepseek-v4-pro",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "The weather in San Francisco is **sunny** and **24°C** (75°F) — a beautiful day! Enjoy it if you're there. 😊",
+            "reasoning_content": "The weather result shows 24°C and sunny. Let me present this to the user in a friendly way."
+          },
+          "logprobs": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 384,
+        "completion_tokens": 59,
+        "total_tokens": 443,
+        "prompt_tokens_details": {
+          "cached_tokens": 256
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 23
+        },
+        "prompt_cache_hit_tokens": 256,
+        "prompt_cache_miss_tokens": 128
+      },
+      "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_00_vBE66cjT6lyewH41P9lL1622",
+        "name": "get_weather",
+        "arguments": "{\"location\": \"San Francisco\"}"
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "f2e30cfd-4b93-496b-8ff9-6bccc635eba2",
+        "object": "chat.completion",
+        "created": 1778102389,
+        "model": "deepseek-v4-pro",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "reasoning_content": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "call_00_vBE66cjT6lyewH41P9lL1622",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"location\": \"San Francisco\"}"
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 295,
+          "completion_tokens": 73,
+          "total_tokens": 368,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 27
+          },
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 39
+        },
+        "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "reasoning_content": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
+          "tool_calls": [
+            {
+              "index": 0,
+              "id": "call_00_vBE66cjT6lyewH41P9lL1622",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\": \"San Francisco\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_00_vBE66cjT6lyewH41P9lL1622",
+          "content": "24℃, sunny"
+        }
+      ],
+      "response": {
+        "id": "cb5dbcea-8460-4d00-bd34-22721fa1ef54",
+        "object": "chat.completion",
+        "created": 1778102392,
+        "model": "deepseek-v4-pro",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "The weather in San Francisco is **sunny** and **24°C** (75°F) — a beautiful day! Enjoy it if you're there. 😊",
+              "reasoning_content": "The weather result shows 24°C and sunny. Let me present this to the user in a friendly way."
+            },
+            "logprobs": null,
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 384,
+          "completion_tokens": 59,
+          "total_tokens": 443,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 23
+          },
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 128
+        },
+        "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+      }
+    }
+  ],
+  "extra_body_sent": {
+    "reasoning_split": true
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
+}

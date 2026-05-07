@@ -1,0 +1,45 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-5-turbo",
+  "expect": "text",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello, my friend.",
+          "reasoning_content": "1.  Identify the core request: Say \"hello\".\n2.  Identify the constraint: Exactly 3 words.\n3.  Brainstorm options:\n    *   \"Hello there, friend.\" (3 words)\n    *   \"Hi to you.\" (3 words)\n    *   \"Hello, how are\" (no, needs punctuation to make sense, awkward)\n    *   \"Hello to you.\" (3 words)\n    *   \"Greetings, my friend.\" (3 words)\n4.  Select the most natural and polite option: \"Hello there, friend.\" or \"Hello to you.\" Let's go with \"Hello there, friend.\" Wait, punctuation doesn't count as words, but let's be safe. \"Hello to you.\" is exactly 3 words. \"Hello there, friend.\" is also exactly 3 words.\n5.  Count the words:\n    *   Hello (1)\n    *   there, (2)\n    *   friend. (3)\n6.  Alternative: \"Hello, my friend.\" (1, 2, 3).\n7.  Let's use \"Hello, my friend.\"",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1778102444,
+    "id": "20260507052040efc9f4308a924821",
+    "model": "glm-5-turbo",
+    "object": "chat.completion",
+    "request_id": "20260507052040efc9f4308a924821",
+    "usage": {
+      "completion_tokens": 242,
+      "completion_tokens_details": {
+        "reasoning_tokens": 235
+      },
+      "prompt_tokens": 12,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 254
+    }
+  }
+}

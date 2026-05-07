@@ -1,0 +1,40 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-thinking",
+  "model": "glm-4.7",
+  "expect": "reasoning",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_20260507052227f5e691e86e42419f",
+    "type": "message",
+    "role": "assistant",
+    "model": "glm-4.7",
+    "content": [
+      {
+        "type": "text",
+        "text": "To solve **17 × 23**, we can use the **distributive property** of multiplication over addition. This method breaks down the multiplication into simpler, more manageable steps.\n\n### Step 1: Break Down One of the Numbers\nLet's break down **23** into **20 + 3**. This allows us to multiply 17 by each part separately.\n\n\\[\n17 \\times 23 = 17 \\times (20 + 3)\n\\]\n\n### Step 2: Apply the Distributive Property\nMultiply 17 by each part of the broken-down number:\n\n\\[\n17 \\times 23 = (17 \\times 20) + (17 \\times 3)\n\\]\n\n### Step 3: Perform Each Multiplication\n1. **Multiply 17 by 20**:\n   \\[\n   17 \\times 20 = 340\n   \\]\n   *(Because \\(17 \\times 2 = 34\\) and then add a zero)*\n\n2. **Multiply 17 by 3**:\n   \\[\n   17 \\times 3 = 51\n   \\]\n\n### Step 4: Add the Partial Results\nAdd the two products together to get the final answer:\n\n\\[\n340 + 51 = 391\n\\]\n\n### Final Answer\n\\[\n\\boxed{391}\n\\]\n\n**Summary of Steps:**\n\\[\n17 \\times 23 = 17 \\times (20 + 3) = (17 \\times 20) + (17 \\times 3) = 340 + 51 = 391\n\\]"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 19,
+      "output_tokens": 331,
+      "cache_read_input_tokens": 0,
+      "server_tool_use": {
+        "web_search_requests": 0
+      },
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 2048
+}

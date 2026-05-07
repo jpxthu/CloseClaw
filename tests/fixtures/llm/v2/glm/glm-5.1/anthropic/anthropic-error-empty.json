@@ -1,0 +1,24 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-empty",
+  "model": "glm-5.1",
+  "expect": "error",
+  "request": {
+    "model": "glm-5.1",
+    "messages": []
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "1214",
+        "message": "输入不能为空"
+      },
+      "request_id": "20260507051951582bd146656a42b9"
+    }
+  },
+  "max_tokens_sent": 1024
+}

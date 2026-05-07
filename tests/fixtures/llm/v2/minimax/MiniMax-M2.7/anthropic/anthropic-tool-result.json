@@ -1,0 +1,205 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-result",
+  "model": "MiniMax-M2.7",
+  "expect": "tool_result",
+  "request": {
+    "model": "MiniMax-M2.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "round1": {
+      "id": "064ae378c1e64811a1ece63ae757666c",
+      "type": "message",
+      "role": "assistant",
+      "model": "MiniMax-M2.7",
+      "content": [
+        {
+          "thinking": "The user wants to know the current weather in San Francisco. I should use the get_weather function with \"San Francisco\" as the location parameter.",
+          "signature": "7f55f2b8f4063e611586a9877a2cc59c82e4a995001cfc2ae168286fb22f2dbc",
+          "type": "thinking"
+        },
+        {
+          "type": "tool_use",
+          "id": "call_function_oryw7xqkq0pp_1",
+          "name": "get_weather",
+          "input": {
+            "location": "San Francisco"
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 212,
+        "output_tokens": 59
+      },
+      "stop_reason": "tool_use",
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": ""
+      }
+    },
+    "round2": {
+      "id": "064ae3790097412439464408a0a1d72d",
+      "type": "message",
+      "role": "assistant",
+      "model": "MiniMax-M2.7",
+      "content": [
+        {
+          "thinking": "I got the weather information for San Francisco. The result shows it's 24°C and sunny. I should provide this information to the user in a friendly way.",
+          "signature": "2b09dccfd4fca1a8140a2481510004dddaae9bbab48f560428760c65839dae6e",
+          "type": "thinking"
+        },
+        {
+          "text": "The weather in San Francisco is currently **24°C and sunny** ☀️",
+          "type": "text"
+        }
+      ],
+      "usage": {
+        "input_tokens": 291,
+        "output_tokens": 51
+      },
+      "stop_reason": "end_turn",
+      "base_resp": {
+        "status_code": 0,
+        "status_msg": ""
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_function_oryw7xqkq0pp_1",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "064ae378c1e64811a1ece63ae757666c",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "The user wants to know the current weather in San Francisco. I should use the get_weather function with \"San Francisco\" as the location parameter.",
+            "signature": "7f55f2b8f4063e611586a9877a2cc59c82e4a995001cfc2ae168286fb22f2dbc",
+            "type": "thinking"
+          },
+          {
+            "type": "tool_use",
+            "id": "call_function_oryw7xqkq0pp_1",
+            "name": "get_weather",
+            "input": {
+              "location": "San Francisco"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 212,
+          "output_tokens": 59
+        },
+        "stop_reason": "tool_use",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "thinking": "The user wants to know the current weather in San Francisco. I should use the get_weather function with \"San Francisco\" as the location parameter.",
+              "signature": "7f55f2b8f4063e611586a9877a2cc59c82e4a995001cfc2ae168286fb22f2dbc",
+              "type": "thinking"
+            },
+            {
+              "type": "tool_use",
+              "id": "call_function_oryw7xqkq0pp_1",
+              "name": "get_weather",
+              "input": {
+                "location": "San Francisco"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "call_function_oryw7xqkq0pp_1",
+              "content": "24℃, sunny"
+            }
+          ]
+        }
+      ],
+      "response": {
+        "id": "064ae3790097412439464408a0a1d72d",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "I got the weather information for San Francisco. The result shows it's 24°C and sunny. I should provide this information to the user in a friendly way.",
+            "signature": "2b09dccfd4fca1a8140a2481510004dddaae9bbab48f560428760c65839dae6e",
+            "type": "thinking"
+          },
+          {
+            "text": "The weather in San Francisco is currently **24°C and sunny** ☀️",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 291,
+          "output_tokens": 51
+        },
+        "stop_reason": "end_turn",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    }
+  ],
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

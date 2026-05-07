@@ -1,0 +1,109 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "glm-5-turbo",
+  "expect": "cache",
+  "request": {
+    "model": "glm-5-turbo",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "1.  **Analyze the Input:** The user is asking \"What color is the sky?\".\n2.  **Recall Constraints/Instructions:** The system prompt explicitly states: \"Always remember: the sky is blue.\"\n3.  **Formulate the Output:** State clearly that the sky is blue, adhering strictly to the provided constraint. Keep it concise and direct.\n4.  **Draft Response:** The sky is blue.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102416,
+      "id": "2026050705201534febdcbca94499f",
+      "model": "glm-5-turbo",
+      "object": "chat.completion",
+      "request_id": "2026050705201534febdcbca94499f",
+      "usage": {
+        "completion_tokens": 96,
+        "completion_tokens_details": {
+          "reasoning_tokens": 89
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 122
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "1.  **Analyze the Input:** The user is asking \"What color is the sky?\".\n2.  **Analyze the System Prompt/Instructions:** \"Always remember: the sky is blue.\"\n3.  **Formulate the Output:** State clearly that the sky is blue, adhering strictly to the provided instruction.\n4.  **Draft Response:** The sky is blue.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102418,
+      "id": "202605070520171eff6d18025c41b5",
+      "model": "glm-5-turbo",
+      "object": "chat.completion",
+      "request_id": "202605070520171eff6d18025c41b5",
+      "usage": {
+        "completion_tokens": 86,
+        "completion_tokens_details": {
+          "reasoning_tokens": 79
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 112
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "1.  **Identify the core question:** The user is asking \"What color is the sky?\"\n2.  **Recall the system instructions:** \"Always remember: the sky is blue.\"\n3.  **Formulate the answer:** State clearly that the sky is blue, directly answering the question while adhering to the specific instruction.\n4.  **Refine the answer:** Keep it concise and direct. \"The sky is blue.\"",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102419,
+      "id": "20260507052018958155d8d6a04f22",
+      "model": "glm-5-turbo",
+      "object": "chat.completion",
+      "request_id": "20260507052018958155d8d6a04f22",
+      "usage": {
+        "completion_tokens": 97,
+        "completion_tokens_details": {
+          "reasoning_tokens": 90
+        },
+        "prompt_tokens": 26,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 123
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-model",
+  "model": "glm-4.7",
+  "expect": "error",
+  "request": {
+    "model": "glm-4.7",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "1211",
+        "message": "模型不存在，请检查模型代码。"
+      }
+    }
+  }
+}

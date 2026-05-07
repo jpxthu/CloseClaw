@@ -1,0 +1,205 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-result",
+  "model": "deepseek-v4-pro",
+  "expect": "tool_result",
+  "request": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "round1": {
+      "id": "1c242745-4c56-414c-882b-ffe6b7536c9c",
+      "type": "message",
+      "role": "assistant",
+      "model": "deepseek-v4-pro",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
+          "signature": "1c242745-4c56-414c-882b-ffe6b7536c9c"
+        },
+        {
+          "type": "tool_use",
+          "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+          "name": "get_weather",
+          "input": {
+            "location": "San Francisco"
+          }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 39,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 256,
+        "output_tokens": 73,
+        "service_tier": "standard"
+      }
+    },
+    "round2": {
+      "id": "3c1bd96e-2b49-427e-9034-b017d31f520d",
+      "type": "message",
+      "role": "assistant",
+      "model": "deepseek-v4-pro",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The weather result is 24°C and sunny. I'll present this in a friendly way.",
+          "signature": "3c1bd96e-2b49-427e-9034-b017d31f520d"
+        },
+        {
+          "type": "text",
+          "text": "The weather in **San Francisco** is looking great right now! ☀️ It's currently **24°C (75°F)** and **sunny**. Enjoy the beautiful day!"
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 128,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 256,
+        "output_tokens": 59,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "1c242745-4c56-414c-882b-ffe6b7536c9c",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
+            "signature": "1c242745-4c56-414c-882b-ffe6b7536c9c"
+          },
+          {
+            "type": "tool_use",
+            "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+            "name": "get_weather",
+            "input": {
+              "location": "San Francisco"
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 39,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 73,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
+              "signature": "1c242745-4c56-414c-882b-ffe6b7536c9c"
+            },
+            {
+              "type": "tool_use",
+              "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+              "name": "get_weather",
+              "input": {
+                "location": "San Francisco"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+              "content": "24℃, sunny"
+            }
+          ]
+        }
+      ],
+      "response": {
+        "id": "3c1bd96e-2b49-427e-9034-b017d31f520d",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The weather result is 24°C and sunny. I'll present this in a friendly way.",
+            "signature": "3c1bd96e-2b49-427e-9034-b017d31f520d"
+          },
+          {
+            "type": "text",
+            "text": "The weather in **San Francisco** is looking great right now! ☀️ It's currently **24°C (75°F)** and **sunny**. Enjoy the beautiful day!"
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 128,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 59,
+          "service_tier": "standard"
+        }
+      }
+    }
+  ],
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

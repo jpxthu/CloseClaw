@@ -1,0 +1,100 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "glm-4.5-air",
+  "expect": "cache",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant. Always remember: the sky is blue."
+      },
+      {
+        "role": "user",
+        "content": "What color is the sky?"
+      }
+    ]
+  },
+  "response": [
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "\nThe person is asking about the color of the sky. According to my instructions, I should remember that \"the sky is blue.\" This is a straightforward question about a common knowledge fact.\n\nI should answer directly that the sky is blue, while keeping my response simple and helpful since this is a basic factual question.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102559,
+      "id": "2026050705223838ebbfed93324fc5",
+      "model": "glm-4.5-air",
+      "object": "chat.completion",
+      "request_id": "2026050705223838ebbfed93324fc5",
+      "usage": {
+        "completion_tokens": 71,
+        "prompt_tokens": 27,
+        "prompt_tokens_details": {
+          "cached_tokens": 26
+        },
+        "total_tokens": 98
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue. This is due to a phenomenon called Rayleigh scattering, where sunlight interacts with Earth's atmosphere and the blue light is scattered more than other colors, making our sky appear blue on clear days.",
+            "reasoning_content": "\nThe user is asking about the color of the sky. I'm instructed to always remember that \"the sky is blue.\" This is a straightforward question that directly relates to my instruction.\n\nI should provide a clear and direct answer to the user's question. The sky appears blue due to a phenomenon called Rayleigh scattering, where sunlight interacts with the gases in the Earth's atmosphere. Blue light has a shorter wavelength and gets scattered more than other colors, which is why we see the sky as blue during the day.\n\nSo I'll answer simply and directly that the sky is blue, which aligns with my instruction.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102562,
+      "id": "20260507052240811baa4350a0436a",
+      "model": "glm-4.5-air",
+      "object": "chat.completion",
+      "request_id": "20260507052240811baa4350a0436a",
+      "usage": {
+        "completion_tokens": 169,
+        "prompt_tokens": 27,
+        "prompt_tokens_details": {
+          "cached_tokens": 26
+        },
+        "total_tokens": 196
+      }
+    },
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The sky is blue.",
+            "reasoning_content": "\nThe user has asked me about the color of the sky. According to my instructions, I should always remember that \"the sky is blue.\" This is a straightforward factual question, and I should provide the correct answer that aligns with my instructions.\n\nI'll respond directly that the sky is blue, which is the correct information based on my instructions.",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1778102563,
+      "id": "20260507052242c5df6cbfd6e94529",
+      "model": "glm-4.5-air",
+      "object": "chat.completion",
+      "request_id": "20260507052242c5df6cbfd6e94529",
+      "usage": {
+        "completion_tokens": 78,
+        "prompt_tokens": 27,
+        "prompt_tokens_details": {
+          "cached_tokens": 26
+        },
+        "total_tokens": 105
+      }
+    }
+  ]
+}
