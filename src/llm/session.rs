@@ -57,6 +57,7 @@ pub trait ChatSession: Send + Sync {
 
 /// A simple in-memory implementation of `ChatSession`.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ConversationSession {
     session_id: String,
     messages: Vec<SessionMessage>,
@@ -142,13 +143,13 @@ impl ChatSession for ConversationSession {
             let content = msg
                 .content_blocks
                 .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Text(t) => Some(t.clone()),
-                    ContentBlock::Thinking(t) => Some(format!("<thinking>{}</thinking>", t)),
+                .flat_map(|b| match b {
+                    ContentBlock::Text(t) => vec![t.clone()],
+                    ContentBlock::Thinking(t) => vec![format!("<thinking>{}</thinking>", t)],
                     ContentBlock::ToolUse { name, input, .. } => {
-                        Some(format!("[tool:{}] {}", name, input))
+                        vec![format!("[tool:{}] {}", name, input)]
                     }
-                    ContentBlock::ToolResult { content, .. } => Some(content.clone()),
+                    ContentBlock::ToolResult { content, .. } => vec![content.clone()],
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
