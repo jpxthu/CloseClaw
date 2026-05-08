@@ -109,7 +109,14 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 
 ### 构造
 
+- **`LegacyProviderAdapter::new`** — 构造桥接器，将旧 `LLMProvider` 适配到新 `Provider` trait；参数包括 inner provider、base_url、api_key、supported_protocols、http_client、default_headers
+- **`LegacySessionAdapter::from_legacy_messages`** — 从旧 `Vec<Message>` 构造新 `ChatSession` 适配器（模型名 + 消息历史）
 - **`LLMRegistry::new`** — 创建空注册中心
+
+### 配置
+
+- **`LLMRegistry::register** — 注册一个 Provider 实例
+- **`FallbackClient::with_timeout`** — 设置单次 LLM 调用超时秒数
 - **`LLMProvider::new`** — 构造 Provider 实例（MimMax、OpenAI、Anthropic、Stub 各有）
 - **`OpenAIProvider::new_with_base_url(api_key: String, base_url: &str)`** — 以自定义 base URL 构造 OpenAI Provider 实例（用于测试环境注入 mock server）
 - **`GlmProvider::new`** — 构造 GlmProvider 实例（使用默认 GLM API URL）
@@ -178,6 +185,9 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | 文件 | 职责 |
 |------|------|
 | `mod.rs` | 类型定义（Message、ChatRequest、ErrorKind 等）、LLMRegistry、LLMProvider trait、re-export 所有 Provider |
+| `adapter/mod.rs` | Adapter 模块入口：re-export `LegacyProviderAdapter` 和 `LegacySessionAdapter` |
+| `adapter/legacy_provider.rs` | `LegacyProviderAdapter<P>`：包装实现旧 `LLMProvider` 的具体 Provider，桥接到新 `Provider` trait；`send()` 将 `InternalRequest` → `ChatRequest` → 调用 `inner.chat()` → `ChatResponse` → `InternalResponse`；`send_streaming()` 同理通过 `inner.chat_streaming()` 收集 SSE chunk |
+| `adapter/legacy_session.rs` | `LegacySessionAdapter`：包装旧 `Vec<Message>` 为新 `ChatSession` trait；`from_legacy_messages` 将 `Vec<Message>` 转为 `Vec<SessionMessage>`；提供 `append_response`、`append_tool_result`、`build_api_request` 方法 |
 | `model_cache.rs` | 本地模型列表缓存：按 (provider, token) 查询，`CacheKey` 计算 key，`ModelCache` 读写 `~/.closeclaw/model_cache.json`（`MODEL_CACHE_FILE` 环境变量可覆盖），TTL 3600 秒，过期/损坏时静默返回 None |
 | `model_info.rs` | 模型元数据类型：`InputType`（Text/Image 模态枚举）、`ModelInfo`（模型元数据 struct，含 `FromStr` 从 `"provider/model_id"` 解析）、`ParseModelInfoError` |
 | `knowledge.rs` | 内嵌知识库：`ReasoningLevels`（思考强度枚举）、`ModelRecommendParams`（推荐参数）、`ProviderModelKnowledge`（知识库，含 `find` 和 `all_models` 查询接口）；覆盖 MiniMax、GLM、VolcEngine、DeepSeek 四个 Provider |
