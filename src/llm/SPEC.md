@@ -41,11 +41,27 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 
 ### 数据类型（Protocol 内部层）
 
+- **`ProtocolId`** — 协议标识符（newtype wrapper `String`），实现 `Display`、`From<&str>`、`From<String>`、`Hash`、`Clone`
+- **`InternalMessage`** — `InternalRequest` 中的单条消息（role + content）
+- **`InternalRequest`** — Protocol 内部请求结构（model、messages、temperature、max_tokens、stream、extra_body）
 - **`InternalResponse`** — Protocol 内部组装的原始响应（content_blocks + usage + finish_reason）
 - **`RawContentBlock`** — Protocol 内部原始内容块（结构同 ContentBlock，但不对外暴露）
 - **`RawUsage`** — Protocol 内部原始用量（prompt_tokens、completion_tokens、total_tokens）
 - **`RawSseChunk`** — Protocol 内部 SSE 原始 chunk（event_type + data）
 - **`SseStateMachine`** — SSE 流解析状态机（跟踪 current_block_index、block_type、pending_thinking、pending_signature）
+
+### Provider trait
+
+- **`Provider`**（trait）— LLM Provider 抽象，唯一职责是持有配置（URL、credentials、HTTP client）并执行实际的 HTTP 请求/响应周期。使用 `async_trait`，`Send + Sync`。配置访问器（`id`、`base_url`、`api_key`、`supported_protocols`、`http_client`、`default_headers`）均为同步；`send` 和 `send_streaming` 为异步
+- **`ProviderError`** — Provider 层错误：`Reqwest(reqwest::Error)`，HTTP 请求失败（网络错误、TLS 错误、超时、重定向限制、非成功状态码等）
+- **`SseStream`** — 流式响应通道类型，`tokio::sync::mpsc::Receiver<RawSseChunk>`，调用方通过 `recv().await` 逐块消费 SSE 原始 chunk
+
+### ChatProtocol trait
+
+- **`ChatProtocol`**（trait）— 请求/响应协议转换 trait，负责在 internal unified types 和具体 LLM API 协议（OpenAI、Anthropic、GLM 等）的 wire format 之间互转。使用 `async_trait`，`Send + Sync`。标识方法（`protocol_id`、`path`）同步；`build_request`、`parse_response`、`decorate_headers` 同步（纯序列化/header 操作）；`create_sse_machine` 是工厂方法；`parse_sse_stream` 异步 streaming
+- **`ProtocolError`** — Protocol 层错误：`RequestBuild`、`ResponseParse`、`HeaderDecorate`、`SseParse`
+- **`IncomingSseStream`** — 入站 SSE 流类型，`Pin<Box<dyn Stream<Item = RawSseChunk> + Send>>`
+- **`OutgoingEventStream`** — 出站事件流类型，`Pin<Box<dyn Stream<Item = Result<StreamEvent, ProtocolError>> + Send>>`
 
 ### 数据类型（模型元数据）
 
@@ -146,6 +162,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `glm_stream.rs` | GLM 流式接口：SSE 解析、delta 提取（`reasoning_content` 优先、`content` 兜底）、流式错误处理；`GlmProvider::chat_streaming()` override 实现 |
 | `openai.rs` | OpenAI Chat Completions API adapter |
 | `anthropic.rs` | Anthropic API adapter（当前为 stub） |
+| `provider.rs` | Provider trait：持有配置（URL、credentials、HTTP client），执行 HTTP 请求/响应周期；配置访问器同步，`send`/`send_streaming` 异步；`ProviderError`（Reqwest）；`SseStream`（mpsc channel） |
+| `protocol.rs` | ChatProtocol trait：请求/响应协议转换，负责在 internal unified types 和具体 LLM API wire format 之间互转；标识方法同步，`build_request`/`parse_response`/`decorate_headers` 同步，`parse_sse_stream` 异步 streaming；`ProtocolError`、`IncomingSseStream`、`OutgoingEventStream` |
 | `stub.rs` | 测试用固定响应 Provider |
 | `volcengine.rs` | VolcEngine（火山方舟）Chat Completions API adapter。`provider_display_name` 返回 "VolcEngine"；`fetch_model_list` GET `/models`（火山方舟格式），按 `domain=="LLM"` 且 `status` 非 Shutdown/Retiring 过滤，`reasoning` 保守设为 false。 |
 | `deepseek.rs` | DeepSeek Chat Completions API adapter。`provider_display_name` 返回 "DeepSeek"；`fetch_model_list` GET `/models`（OpenAI 兼容格式），按 `status` 非 deprecated/shutdown 过滤，`reasoning` 保守设为 false。 |

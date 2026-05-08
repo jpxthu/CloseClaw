@@ -2,6 +2,9 @@
 //!
 //! This module defines the unified type layer used across all Providers and Protocols.
 
+use std::fmt::{self, Display};
+use std::hash::Hash;
+
 use serde::{Deserialize, Serialize};
 
 /// Content block type classification.
@@ -194,6 +197,87 @@ pub struct RawSseChunk {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Protocol identity and request types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Protocol identifier (e.g., "openai", "anthropic").
+///
+/// This is a newtype wrapper around `String` used to identify which
+/// protocol a `ChatProtocol` implementation targets.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ProtocolId(String);
+
+impl ProtocolId {
+    /// Creates a new `ProtocolId` from a string value.
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// Returns the underlying protocol identifier string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for ProtocolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for ProtocolId {
+    fn from(s: &str) -> Self {
+        Self(s.into())
+    }
+}
+
+impl From<String> for ProtocolId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+/// A single message in an `InternalRequest`.
+///
+/// Contains the role and content of a chat message used internally
+/// by Protocol implementations when building provider requests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InternalMessage {
+    /// The role of the message sender (e.g., "user", "assistant").
+    pub role: String,
+    /// The content of the message.
+    pub content: String,
+}
+
+/// Internal request structure used by `ChatProtocol` implementations.
+///
+/// This is the protocol-level representation of a chat completion request,
+/// distinct from any provider-specific request types.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InternalRequest {
+    /// The model identifier to use for this request.
+    pub model: String,
+    /// Ordered list of chat messages.
+    pub messages: Vec<InternalMessage>,
+    /// Sampling temperature (default 0.0).
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    /// Maximum number of tokens to generate (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    /// Whether to stream responses (default false).
+    #[serde(default)]
+    pub stream: bool,
+    /// Additional provider-specific parameters.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra_body: serde_json::Map<String, serde_json::Value>,
+}
+
+fn default_temperature() -> f32 {
+    0.0
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SSE state machine for stream parsing
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -373,4 +457,6 @@ mod tests {
         assert_eq!(sm.pending_thinking, sm2.pending_thinking);
         assert_eq!(sm.pending_signature, sm2.pending_signature);
     }
+
+    // ── ProtocolId tests ──────────────────────────────────────────────────────
 }
