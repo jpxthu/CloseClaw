@@ -63,6 +63,25 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`IncomingSseStream`** — 入站 SSE 流类型，`Pin<Box<dyn Stream<Item = RawSseChunk> + Send>>`
 - **`OutgoingEventStream`** — 出站事件流类型，`Pin<Box<dyn Stream<Item = Result<StreamEvent, ProtocolError>> + Send>>`
 
+### ModelInterpreter trait
+
+- **`ModelInterpreter`**（trait）— Provider-specific response normalisation。方法：`name()`、`interpret_response(InternalResponse) -> UnifiedResponse`、`interpret_stream_event(StreamEvent) -> Option<StreamEvent>`、`inject_extra_body(&mut InternalRequest)`（默认空实现）。所有实现必须 `Send + Sync`
+- **`DefaultInterpreter`** — identity 转换 fallback：`RawContentBlock` → `ContentBlock`、`RawUsage` → `UnifiedUsage`
+- **`InterpreterRegistry`** — 按 glob 模式（`provider/*`、`provider/model`）匹配 provider/model → `ModelInterpreter`；未匹配时返回 `DefaultInterpreter`
+- **`MinimaxInterpreter`** — 处理 `reasoning_content` → `Thinking` block 映射（content 为空时使用 reasoning_content）
+- **`GlmInterpreter`** — 同 Minimax 逻辑 + reasoning_content 阈值判断（len > 10 bytes 才生成 Thinking block，否则降级为 Text）
+- **`DeepSeekInterpreter`** — 直接使用 DefaultInterpreter 逻辑（OpenAI 兼容）
+
+### ModelPlugin trait
+
+- **`ModelPlugin`**（trait）— 请求/响应拦截 hook surface。方法：`name()`、`before_request(&mut InternalRequest)`（默认空实现）、`after_response(&mut UnifiedResponse)`（默认空实现）、`on_stream_event(&StreamEvent) -> Option<StreamEvent>`（默认转发所有事件）
+- **`PluginPipeline`** — 顺序执行 zero 或 more plugins。`before_request`/`after_response` 总是执行所有 plugin；`on_stream_event` 支持短路（返回 `None` 时后续 plugin 不再收到该事件）
+
+### UnifiedChatClient
+
+- **`UnifiedChatClient`** — 统一入口，组装完整调用链：Provider + ChatProtocol + InterpreterRegistry + PluginPipeline。方法：`chat(InternalRequest) -> Result<UnifiedResponse>`、`chat_streaming(InternalRequest) -> Result<OutgoingEventStream>`
+- **`ClientError`** — Client 层错误枚举：`Provider(provider::ProviderError)`、`Protocol(ProtocolError)`
+
 ### 具体 Protocol 实现
 
 - **`OpenAiProtocol`** — OpenAI 兼容协议，用于 OpenAI、MiniMax、VolcEngine、DeepSeek。Bearer token 认证，SSE 解析 OpenAI `choices[0].delta` 格式
@@ -180,6 +199,9 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `protocol/openai.rs` | `OpenAiProtocol`：OpenAI 兼容协议（OpenAI、MiniMax、VolcEngine、DeepSeek 共用），`build_request` 生成 OpenAI Chat Completions JSON，`parse_response` 解析 choices[0].message.content，`decorate_headers` 用 `Authorization: Bearer`，SSE 解析 `choices[0].delta.content` |
 | `protocol/glm.rs` | `GlmProtocol`：GLM 系列协议，请求格式同 OpenAI，`parse_response` 优先 `content` 兜底 `reasoning_content`，SSE 解析 `reasoning_content` 优先 `content` |
 | `protocol/anthropic.rs` | `AnthropicProtocol`：Anthropic `/v1/messages` stub，`build_request` 生成 Anthropic 格式，`parse_response` 解析 `content[].text` 数组，`decorate_headers` 用 `x-api-key` + `anthropic-version`，SSE 暂未实现（stub） |
+| `interpreter.rs` | `ModelInterpreter` trait + `DefaultInterpreter`/`MinimaxInterpreter`/`GlmInterpreter`/`DeepSeekInterpreter` 四种实现 + `InterpreterRegistry`（glob 模式匹配 provider/model → Interpreter） |
+| `plugin.rs` | `ModelPlugin` trait + `PluginPipeline`（顺序执行 before_request/after_response/on_stream_event hooks，支持 on_stream_event 短路） |
+| `client.rs` | `UnifiedChatClient`：组装 Provider + ChatProtocol + InterpreterRegistry + PluginPipeline，提供 `chat` 和 `chat_streaming` 两个统一入口 |
 
 ### Provider 错误映射
 

@@ -18,6 +18,14 @@ pub mod types;
 pub mod deepseek;
 pub mod volcengine;
 
+pub mod client;
+#[cfg(test)]
+mod client_test;
+pub mod interpreter;
+#[cfg(test)]
+mod interpreter_test;
+pub mod plugin;
+
 #[cfg(feature = "fake-llm")]
 pub mod fake;
 #[cfg(feature = "fake-llm")]
@@ -37,6 +45,9 @@ pub use volcengine::VolcEngineProvider;
 
 pub use stub::StubProvider;
 
+pub use client::UnifiedChatClient;
+pub use interpreter::{DefaultInterpreter, InterpreterRegistry, ModelInterpreter};
+pub use plugin::PluginPipeline;
 pub use types::{InternalRequest, ProtocolId};
 
 use async_trait::async_trait;
