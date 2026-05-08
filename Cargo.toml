@@ -80,6 +80,7 @@ dirs = "5"
 
 # Glob pattern matching (for conditional skill activation)
 glob = "0.3"
+async-stream = "0.3.6"
 
 
 [dev-dependencies]

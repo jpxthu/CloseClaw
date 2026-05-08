@@ -63,6 +63,12 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`IncomingSseStream`** — 入站 SSE 流类型，`Pin<Box<dyn Stream<Item = RawSseChunk> + Send>>`
 - **`OutgoingEventStream`** — 出站事件流类型，`Pin<Box<dyn Stream<Item = Result<StreamEvent, ProtocolError>> + Send>>`
 
+### 具体 Protocol 实现
+
+- **`OpenAiProtocol`** — OpenAI 兼容协议，用于 OpenAI、MiniMax、VolcEngine、DeepSeek。Bearer token 认证，SSE 解析 OpenAI `choices[0].delta` 格式
+- **`GlmProtocol`** — 智谱 GLM 系列协议。Bearer token 认证，`parse_response` 优先 `content` 兜底 `reasoning_content`，SSE 解析 `reasoning_content` 优先 `content`
+- **`AnthropicProtocol`** — Anthropic `/v1/messages` stub。`x-api-key` + `anthropic-version` header，`parse_response` 解析 `content[].text` 数组，SSE 流式暂未实现
+
 ### 数据类型（模型元数据）
 
 - **`InputType`** — 模型支持的输入模态：Text（纯文本）、Image（多模态图文）
@@ -170,6 +176,10 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `fake.rs` | `FakeProvider`：场景编排 Provider，支持 Ok/Err/Delay 场景、FIFO 消耗、请求捕获（feature `fake-llm`） |
 | `fallback.rs` | FallbackClient：两层重试（内层同模型指数退避、外层模型切换） |
 | `retry.rs` | CooldownManager：按 (provider, model) 分组的冷却持久化；backoff_delay 计算 |
+| `protocol/mod.rs` | Protocol 模块入口：re-export trait 和三个具体协议实现 |
+| `protocol/openai.rs` | `OpenAiProtocol`：OpenAI 兼容协议（OpenAI、MiniMax、VolcEngine、DeepSeek 共用），`build_request` 生成 OpenAI Chat Completions JSON，`parse_response` 解析 choices[0].message.content，`decorate_headers` 用 `Authorization: Bearer`，SSE 解析 `choices[0].delta.content` |
+| `protocol/glm.rs` | `GlmProtocol`：GLM 系列协议，请求格式同 OpenAI，`parse_response` 优先 `content` 兜底 `reasoning_content`，SSE 解析 `reasoning_content` 优先 `content` |
+| `protocol/anthropic.rs` | `AnthropicProtocol`：Anthropic `/v1/messages` stub，`build_request` 生成 Anthropic 格式，`parse_response` 解析 `content[].text` 数组，`decorate_headers` 用 `x-api-key` + `anthropic-version`，SSE 暂未实现（stub） |
 
 ### Provider 错误映射
 
