@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod compaction_tests {
     use super::*;
-    use crate::chat::session::ChatSession;
+    use crate::chat::session::LegacyChatSession;
     use crate::llm::stub::StubProvider;
     use crate::{
         chat::protocol::ServerMessage,
@@ -35,7 +35,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,
@@ -85,7 +85,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,
@@ -141,7 +141,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,
@@ -179,7 +179,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,
@@ -225,7 +225,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,
@@ -263,7 +263,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,
@@ -298,7 +298,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,
@@ -341,7 +341,7 @@ mod compaction_tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let registry = Arc::new(LLMRegistry::new());
         registry.register("fake".to_string(), Arc::new(fake)).await;
-        let mut session = ChatSession::new(
+        let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
             accepted,

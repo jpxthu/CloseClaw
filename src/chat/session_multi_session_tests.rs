@@ -4,7 +4,7 @@
 mod multi_session_tests {
     use super::*;
     use crate::chat::protocol::ServerMessage;
-    use crate::chat::session::ChatSession;
+    use crate::chat::session::LegacyChatSession;
     use crate::llm::stub::StubProvider;
     use crate::llm::LLMRegistry;
     use std::sync::Arc;
@@ -127,7 +127,7 @@ mod multi_session_tests {
         let rx1 = shutdown_rx.resubscribe();
         let accept1 = tokio::spawn(async move {
             let (accepted, _) = listener1.accept().await.unwrap();
-            ChatSession::new(
+            LegacyChatSession::new(
                 "session-1".to_string(),
                 "test-agent".to_string(),
                 accepted,
@@ -140,7 +140,7 @@ mod multi_session_tests {
         let rx2 = shutdown_rx.resubscribe();
         let accept2 = tokio::spawn(async move {
             let (accepted, _) = listener2.accept().await.unwrap();
-            ChatSession::new(
+            LegacyChatSession::new(
                 "session-2".to_string(),
                 "test-agent".to_string(),
                 accepted,
@@ -153,7 +153,7 @@ mod multi_session_tests {
         let rx3 = shutdown_rx.resubscribe();
         let accept3 = tokio::spawn(async move {
             let (accepted, _) = listener3.accept().await.unwrap();
-            ChatSession::new(
+            LegacyChatSession::new(
                 "session-3".to_string(),
                 "test-agent".to_string(),
                 accepted,
@@ -220,7 +220,7 @@ mod multi_session_tests {
         let rx_a = shutdown_rx.resubscribe();
         let accept_a = tokio::spawn(async move {
             let (accepted, _) = listener_a.accept().await.unwrap();
-            ChatSession::new(
+            LegacyChatSession::new(
                 "session-a".to_string(),
                 "test-agent".to_string(),
                 accepted,
@@ -240,7 +240,7 @@ mod multi_session_tests {
         let rx_b = shutdown_rx.resubscribe();
         let accept_b = tokio::spawn(async move {
             let (accepted, _) = listener_b.accept().await.unwrap();
-            ChatSession::new(
+            LegacyChatSession::new(
                 "session-b".to_string(),
                 "test-agent".to_string(),
                 accepted,
