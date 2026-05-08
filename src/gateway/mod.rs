@@ -98,6 +98,7 @@ pub struct Gateway {
     adapters: RwLock<HashMap<String, Arc<dyn super::im::IMAdapter>>>,
     session_manager: Arc<SessionManager>,
     processor_registry: Option<Arc<ProcessorRegistry>>,
+    renderer: Option<Arc<dyn crate::renderer::Renderer>>,
 }
 
 impl Gateway {
@@ -108,6 +109,7 @@ impl Gateway {
             adapters: RwLock::new(HashMap::new()),
             session_manager,
             processor_registry: None,
+            renderer: None,
         }
     }
 
@@ -122,6 +124,27 @@ impl Gateway {
             adapters: RwLock::new(HashMap::new()),
             session_manager,
             processor_registry: Some(registry),
+            renderer: None,
+        }
+    }
+
+    /// Create a new Gateway with a renderer.
+    ///
+    /// The renderer is used in `send_outbound` to render LLM output to
+    /// platform-specific formats (card or text). Optionally takes a
+    /// processor registry for preprocessing.
+    pub fn with_renderer(
+        config: GatewayConfig,
+        session_manager: Arc<SessionManager>,
+        renderer: Arc<dyn crate::renderer::Renderer>,
+        registry: Option<Arc<ProcessorRegistry>>,
+    ) -> Self {
+        Self {
+            config,
+            adapters: RwLock::new(HashMap::new()),
+            session_manager,
+            processor_registry: registry,
+            renderer: Some(renderer),
         }
     }
 
@@ -183,14 +206,13 @@ impl Gateway {
     /// Send an outbound message (agent response) through the processor chain.
     ///
     /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
-    /// 2. If `processor_registry` is absent → send `raw_output` as plain text (bypass).
-    /// 3. If `processor_registry` is present → run `process_outbound` on a
-    ///    `ProcessedMessage { content: raw_output, .. }`.
-    /// 4. If `suppress == true` → return `Ok` without sending.
-    /// 5. Inspect `msg_type` from processed content JSON:
-    ///    - `"text"` → `adapter.send_message`
-    ///    - `"interactive"` → `adapter.send_card_json`
-    ///    - other → `GatewayError::OutboundError`
+    /// 2. If `renderer` is present → run processor chain, deserialize
+    ///    `dsl_result` from `processed.metadata["dsl_result"]`, call
+    ///    `renderer.render(clean_content, dsl_result)`, dispatch by `msg_type`.
+    /// 3. If `renderer` is absent but `processor_registry` is present → inspect
+    ///    `msg_type` from processed content JSON (existing behavior).
+    /// 4. If neither is present → send `raw_output` as plain text (bypass).
+    /// 5. If `suppress == true` → return `Ok` without sending.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -213,8 +235,73 @@ impl Gateway {
                 .clone()
         };
 
-        // Step 3: bypass or process
-        let processed_content = if let Some(ref registry) = self.processor_registry {
+        // Step 3: bypass, renderer path, or processor-chain path
+        let processed_content = if let Some(ref renderer) = self.renderer {
+            let registry = self.processor_registry.as_ref().ok_or_else(|| {
+                GatewayError::OutboundError("renderer requires processor registry".into())
+            })?;
+            let processed = crate::processor_chain::ProcessedMessage {
+                content: raw_output.to_string(),
+                metadata: serde_json::Map::new(),
+                suppress: false,
+            };
+            let result = registry
+                .process_outbound(processed)
+                .await
+                .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+            if result.suppress {
+                return Ok(());
+            }
+
+            // Deserialize dsl_result from metadata
+            let dsl_result: Option<crate::processor_chain::DslParseResult> = result
+                .metadata
+                .get("dsl_result")
+                .and_then(|v| v.as_str())
+                .and_then(|s| serde_json::from_str(s).ok());
+
+            let content = dsl_result
+                .as_ref()
+                .map(|r| r.clean_content.as_str())
+                .unwrap_or(&result.content);
+
+            let rendered = renderer.render(content, dsl_result.as_ref());
+            let payload_str =
+                serde_json::to_string(&rendered.payload).unwrap_or_else(|_| "{}".to_string());
+
+            match rendered.msg_type.as_str() {
+                "text" => {
+                    let text = rendered
+                        .payload
+                        .get("content")
+                        .and_then(|v| v.get("text"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(content)
+                        .to_string();
+                    let msg = Message {
+                        id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
+                        from: "agent".to_string(),
+                        to: chat_id.clone(),
+                        content: text,
+                        channel: channel.to_string(),
+                        timestamp: chrono::Utc::now().timestamp(),
+                        metadata: std::collections::HashMap::new(),
+                    };
+                    adapter.send_message(&msg).await?;
+                    return Ok(());
+                }
+                "interactive" => {
+                    adapter.send_card_json(&chat_id, &payload_str).await?;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(GatewayError::OutboundError(format!(
+                        "unknown msg_type: {}",
+                        rendered.msg_type
+                    )))
+                }
+            }
+        } else if let Some(ref registry) = self.processor_registry {
             let processed = crate::processor_chain::ProcessedMessage {
                 content: raw_output.to_string(),
                 metadata: serde_json::Map::new(),

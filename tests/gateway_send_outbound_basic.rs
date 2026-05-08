@@ -1,6 +1,4 @@
-//! Tests for Gateway::send_outbound and related functionality (issue #469).
-//!
-//! These tests live here to keep src/gateway/tests.rs under 500 lines.
+//! Tests for Gateway::send_outbound — basic (non-renderer) tests (issue #469).
 
 use async_trait::async_trait;
 use closeclaw::gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
@@ -36,7 +34,7 @@ impl MessageProcessor for MockOutboundProcessor {
     ) -> Result<Option<ProcessedMessage>, closeclaw::processor_chain::error::ProcessError> {
         Ok(Some(ProcessedMessage {
             content: self.output_content.clone(),
-            metadata: Default::default(),
+            metadata: serde_json::Map::new(),
             suppress: self.output_suppress,
         }))
     }
@@ -47,7 +45,6 @@ impl MessageProcessor for MockOutboundProcessor {
 struct TrackingAdapter {
     send_message_called: Mutex<bool>,
     send_card_json_called: Mutex<bool>,
-    should_fail: Mutex<bool>,
 }
 
 #[async_trait]
@@ -55,7 +52,6 @@ impl IMAdapter for TrackingAdapter {
     fn name(&self) -> &str {
         "tracking"
     }
-
     async fn handle_webhook(&self, _payload: &[u8]) -> Result<Message, AdapterError> {
         Ok(Message {
             id: "1".into(),
@@ -67,29 +63,20 @@ impl IMAdapter for TrackingAdapter {
             metadata: HashMap::new(),
         })
     }
-
     async fn send_message(&self, _message: &Message) -> Result<(), AdapterError> {
-        if *self.should_fail.lock().unwrap() {
-            return Err(AdapterError::SendFailed("mock".into()));
-        }
         *self.send_message_called.lock().unwrap() = true;
         Ok(())
     }
-
-    async fn validate_signature(&self, _signature: &str, _payload: &[u8]) -> bool {
+    async fn validate_signature(&self, _: &str, _: &[u8]) -> bool {
         true
     }
-
     async fn send_card_json(&self, _chat_id: &str, _card_json: &str) -> Result<(), AdapterError> {
-        if *self.should_fail.lock().unwrap() {
-            return Err(AdapterError::SendFailed("mock".into()));
-        }
         *self.send_card_json_called.lock().unwrap() = true;
         Ok(())
     }
 }
 
-fn make_config() -> GatewayConfig {
+pub(crate) fn make_config() -> GatewayConfig {
     GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
@@ -98,7 +85,7 @@ fn make_config() -> GatewayConfig {
     }
 }
 
-fn make_outbound_message(to: &str, content: &str) -> Message {
+pub(crate) fn make_outbound_message(to: &str, content: &str) -> Message {
     Message {
         id: "msg_1".to_string(),
         from: "ou_sender".to_string(),
@@ -110,7 +97,7 @@ fn make_outbound_message(to: &str, content: &str) -> Message {
     }
 }
 
-fn make_outbound_gw(config: GatewayConfig) -> (Gateway, Arc<SessionManager>) {
+pub(crate) fn make_outbound_gw(config: GatewayConfig) -> (Gateway, Arc<SessionManager>) {
     let sm = Arc::new(SessionManager::new(&config, None));
     let gw = Gateway::new(config, Arc::clone(&sm));
     (gw, sm)
@@ -123,11 +110,9 @@ async fn test_send_outbound_no_registry_bypass() {
     gw.register_adapter("tracking".into(), Arc::new(TrackingAdapter::default()))
         .await;
 
-    // Create a session so get_chat_id returns a valid chat_id
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    // No registry → raw_output sent as plain text via send_message
     gw.send_outbound(&sid, "tracking", "raw output")
         .await
         .unwrap();
@@ -153,7 +138,6 @@ async fn test_send_outbound_text_path() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    // Registry returns text → adapter.send_message called
     gw.send_outbound(&sid, "tracking", "raw output")
         .await
         .unwrap();
@@ -184,14 +168,13 @@ async fn test_send_outbound_interactive_path() {
         .await
         .unwrap();
 
-    // Interactive path → send_card_json should be called, not send_message
     assert!(
         *adapter.send_card_json_called.lock().unwrap(),
-        "send_card_json should be called for interactive msg_type"
+        "send_card_json should be called"
     );
     assert!(
         !*adapter.send_message_called.lock().unwrap(),
-        "send_message should NOT be called for interactive msg_type",
+        "send_message should NOT be called"
     );
 }
 
@@ -216,19 +199,12 @@ async fn test_send_outbound_suppress() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    // suppress=true → returns Ok without sending anything
     gw.send_outbound(&sid, "tracking", "raw output")
         .await
         .unwrap();
 
-    assert!(
-        !*adapter.send_message_called.lock().unwrap(),
-        "send_message should not be called when suppress=true",
-    );
-    assert!(
-        !*adapter.send_card_json_called.lock().unwrap(),
-        "send_card_json should not be called when suppress=true",
-    );
+    assert!(!*adapter.send_message_called.lock().unwrap());
+    assert!(!*adapter.send_card_json_called.lock().unwrap());
 }
 
 #[tokio::test]
@@ -237,7 +213,6 @@ async fn test_send_outbound_unknown_session() {
     gw.register_adapter("tracking".into(), Arc::new(TrackingAdapter::default()))
         .await;
 
-    // No session exists with this id
     let result = gw
         .send_outbound("nonexistent-session", "tracking", "raw")
         .await;
@@ -247,8 +222,6 @@ async fn test_send_outbound_unknown_session() {
 #[tokio::test]
 async fn test_send_outbound_unknown_channel() {
     let (gw, sm) = make_outbound_gw(make_config());
-    // No adapter registered for channel "unknown"
-
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
@@ -258,7 +231,6 @@ async fn test_send_outbound_unknown_channel() {
 
 #[tokio::test]
 async fn test_feishu_adapter_send_card_json_default() {
-    // The default implementation returns UnsupportedOperation
     struct DummyAdapter;
     #[async_trait]
     impl IMAdapter for DummyAdapter {
@@ -274,9 +246,7 @@ async fn test_feishu_adapter_send_card_json_default() {
         async fn validate_signature(&self, _: &str, _: &[u8]) -> bool {
             true
         }
-        // Do NOT implement send_card_json → uses default
     }
-    let adapter = DummyAdapter;
-    let result = adapter.send_card_json("chat_1", "{}").await;
+    let result = DummyAdapter.send_card_json("chat_1", "{}").await;
     assert!(matches!(result, Err(AdapterError::UnsupportedOperation)));
 }
