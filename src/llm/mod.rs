@@ -9,6 +9,8 @@ pub mod minimax;
 pub mod model_cache;
 pub mod model_info;
 pub mod openai;
+pub mod protocol;
+pub mod provider;
 pub mod retry;
 pub mod stub;
 pub mod types;
@@ -29,8 +31,13 @@ pub use minimax::MiniMaxProvider;
 pub use model_cache::{CacheEntry, ModelCache};
 pub use model_info::{InputType, ModelInfo};
 pub use openai::OpenAIProvider;
-pub use stub::StubProvider;
+pub use protocol::ChatProtocol;
+pub use provider::Provider;
 pub use volcengine::VolcEngineProvider;
+
+pub use stub::StubProvider;
+
+pub use types::{InternalRequest, ProtocolId};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -241,6 +248,7 @@ impl LLMRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::stub::StubProvider;
 
     #[test]
     fn test_message_serde() {
@@ -276,7 +284,8 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_model_list_default_returns_model_not_found() {
         let provider = StubProvider::new();
-        let result = provider.fetch_model_list("fake-token").await;
+        let result: Result<Vec<crate::llm::ModelInfo>, LLMError> =
+            provider.fetch_model_list("fake-token").await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, LLMError::ModelNotFound(_)));
