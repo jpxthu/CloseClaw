@@ -13,6 +13,14 @@ use tracing::{debug, error, info, warn};
 const DEFAULT_MAX_HISTORY: usize = 100;
 
 /// Legacy chat session — handles messages for a single TCP connection
+///
+/// This session type is deprecated in favor of the new `ChatSession` trait.
+/// Use `crate::llm::adapter::LegacySessionAdapter` to bridge from `LegacyChatSession`
+/// to the new session model.
+#[deprecated(
+    note = "LegacyChatSession is superseded by `crate::llm::chat_session::ChatSession`. \
+          Use LegacySessionAdapter to bridge existing sessions to the new trait."
+)]
 pub struct LegacyChatSession {
     /// Unique session ID assigned by the server
     pub session_id: String,
