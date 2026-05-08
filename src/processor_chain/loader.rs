@@ -9,6 +9,9 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
+use crate::renderer::feishu::FeishuRenderer;
+use crate::renderer::{RenderedOutput, Renderer};
+
 use super::dsl_parser::DslParser;
 use super::error::ProcessError;
 use super::markdown_normalizer::MarkdownNormalizer;
@@ -30,6 +33,21 @@ pub struct ProcessorChainConfig {
     /// Ordered list of outbound processor configurations.
     #[serde(default)]
     pub outbound: Vec<ProcessorConfig>,
+
+    /// Renderer configuration. When present, a [`Renderer`] is returned
+    /// from [`ProcessorChainLoader::load`].
+    #[serde(default)]
+    pub renderer: Option<RendererConfig>,
+}
+
+/// Configuration for a platform renderer.
+///
+/// Each variant corresponds to one concrete [`Renderer`] implementation.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RendererConfig {
+    /// Feishu platform renderer.
+    Feishu,
 }
 
 /// Configuration for a single processor.
@@ -74,7 +92,8 @@ fn default_retention_days() -> u32 {
     7
 }
 
-/// Loads a [`ProcessorRegistry`] from a [`ProcessorChainConfig`].
+/// Loads a [`ProcessorRegistry`] and optionally a [`Renderer`] from a
+/// [`ProcessorChainConfig`].
 ///
 /// Processors are instantiated according to their [`ProcessorConfig`] variant,
 /// then registered to the registry in the order they appear in the config.
@@ -83,14 +102,17 @@ fn default_retention_days() -> u32 {
 pub struct ProcessorChainLoader;
 
 impl ProcessorChainLoader {
-    /// Constructs a [`ProcessorRegistry`] from `config`.
+    /// Constructs a [`ProcessorRegistry`] and optional [`Renderer`] from `config`.
     ///
     /// Returns an empty registry when `config.inbound` is empty.
+    /// The renderer is `None` when `config.renderer` is `None`.
     ///
     /// # Errors
     ///
     /// Returns [`ProcessError::ChainFailed`] if a processor cannot be constructed.
-    pub fn load(config: &ProcessorChainConfig) -> Result<ProcessorRegistry, ProcessError> {
+    pub fn load(
+        config: &ProcessorChainConfig,
+    ) -> Result<(ProcessorRegistry, Option<Arc<dyn Renderer>>), ProcessError> {
         let mut registry = ProcessorRegistry::new();
         for processor_config in &config.inbound {
             let processor = Self::build_processor(processor_config)?;
@@ -100,7 +122,17 @@ impl ProcessorChainLoader {
             let processor = Self::build_processor(processor_config)?;
             registry.register(processor);
         }
-        Ok(registry)
+
+        let renderer = Self::build_renderer(config.renderer.as_ref());
+        Ok((registry, renderer))
+    }
+
+    /// Builds a renderer from its configuration, or `None` if no renderer is configured.
+    fn build_renderer(config: Option<&RendererConfig>) -> Option<Arc<dyn Renderer>> {
+        match config {
+            Some(RendererConfig::Feishu) => Some(Arc::new(FeishuRenderer::new())),
+            None => None,
+        }
     }
 
     /// Builds a concrete processor from its configuration variant.
@@ -136,10 +168,12 @@ mod tests {
         let config = ProcessorChainConfig {
             inbound: vec![],
             outbound: vec![],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 0);
         assert_eq!(registry.outbound_len(), 0);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -152,9 +186,11 @@ mod tests {
                 retention_days: 7,
             }],
             outbound: vec![],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -162,9 +198,11 @@ mod tests {
         let config = ProcessorChainConfig {
             inbound: vec![ProcessorConfig::MessageCleaner],
             outbound: vec![],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -172,9 +210,11 @@ mod tests {
         let config = ProcessorChainConfig {
             inbound: vec![ProcessorConfig::MarkdownNormalizer],
             outbound: vec![],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -191,9 +231,11 @@ mod tests {
                 ProcessorConfig::MarkdownNormalizer,
             ],
             outbound: vec![],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 3);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -201,9 +243,11 @@ mod tests {
         let config = ProcessorChainConfig {
             inbound: vec![],
             outbound: vec![ProcessorConfig::DslParser],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.outbound_len(), 1);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -211,9 +255,11 @@ mod tests {
         let config = ProcessorChainConfig {
             inbound: vec![],
             outbound: vec![ProcessorConfig::MarkdownToCard],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.outbound_len(), 1);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -221,10 +267,12 @@ mod tests {
         let config = ProcessorChainConfig {
             inbound: vec![ProcessorConfig::MessageCleaner],
             outbound: vec![ProcessorConfig::DslParser, ProcessorConfig::MarkdownToCard],
+            renderer: None,
         };
-        let registry = ProcessorChainLoader::load(&config).unwrap();
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
         assert_eq!(registry.outbound_len(), 2);
+        assert!(renderer.is_none());
     }
 
     #[test]
@@ -282,6 +330,50 @@ mod tests {
         match config {
             ProcessorConfig::MarkdownToCard => {}
             _ => panic!("expected MarkdownToCard variant"),
+        }
+    }
+
+    #[test]
+    fn test_load_with_feishu_renderer() {
+        let config = ProcessorChainConfig {
+            inbound: vec![],
+            outbound: vec![],
+            renderer: Some(RendererConfig::Feishu),
+        };
+        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.inbound_len(), 0);
+        assert!(renderer.is_some());
+        let r = renderer.unwrap();
+        assert_eq!(r.platform(), "feishu");
+    }
+
+    #[test]
+    fn test_load_without_renderer() {
+        let config = ProcessorChainConfig {
+            inbound: vec![],
+            outbound: vec![],
+            renderer: None,
+        };
+        let (_, renderer) = ProcessorChainLoader::load(&config).unwrap();
+        assert!(renderer.is_none());
+    }
+
+    #[test]
+    fn test_processor_chain_config_without_renderer_field() {
+        // When renderer field is absent (serde default), it should deserialize to None.
+        let json = r#"{"inbound":[]}"#;
+        let config: ProcessorChainConfig = serde_json::from_str(json).unwrap();
+        assert!(config.renderer.is_none());
+        let (_, renderer) = ProcessorChainLoader::load(&config).unwrap();
+        assert!(renderer.is_none());
+    }
+
+    #[test]
+    fn test_renderer_config_feishu_deserialization() {
+        let json = r#"{"type":"feishu"}"#;
+        let config: RendererConfig = serde_json::from_str(json).unwrap();
+        match config {
+            RendererConfig::Feishu => {}
         }
     }
 }
