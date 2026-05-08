@@ -28,7 +28,7 @@ mod session_multi_session_tests;
 
 pub use protocol::{ClientMessage, ServerMessage};
 pub use server::{spawn_chat_server, ChatServer};
-pub use session::ChatSession;
+pub use session::LegacyChatSession;
 
 #[cfg(test)]
 mod tests {

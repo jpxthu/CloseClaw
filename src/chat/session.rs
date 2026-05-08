@@ -12,8 +12,8 @@ use tracing::{debug, error, info, warn};
 /// Default max chat history entries (100 messages = ~50 turns).
 const DEFAULT_MAX_HISTORY: usize = 100;
 
-/// Chat session — handles messages for a single TCP connection
-pub struct ChatSession {
+/// Legacy chat session — handles messages for a single TCP connection
+pub struct LegacyChatSession {
     /// Unique session ID assigned by the server
     pub session_id: String,
     /// The agent_id requested by the client
@@ -40,7 +40,7 @@ pub struct ChatSession {
 
 // --- Construction ---
 
-impl ChatSession {
+impl LegacyChatSession {
     /// Create a new session for an accepted connection
     pub fn new(
         session_id: String,
@@ -109,7 +109,7 @@ impl ChatSession {
 
 // --- Main loop ---
 
-impl ChatSession {
+impl LegacyChatSession {
     /// Run the session loop — read client messages, dispatch to agent, stream responses
     pub async fn run(mut self) {
         info!(session_id = %self.session_id, agent_id = %self.agent_id, "chat session started");
@@ -170,7 +170,7 @@ impl ChatSession {
 
 // --- Message handling ---
 
-impl ChatSession {
+impl LegacyChatSession {
     /// Handle a single incoming JSON line, return zero or more server messages to send back
     pub(crate) async fn handle_line(&mut self, line: &str) -> Vec<ServerMessage> {
         let msg: ClientMessage = match serde_json::from_str(line) {
