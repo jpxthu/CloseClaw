@@ -11,6 +11,7 @@ pub mod model_info;
 pub mod openai;
 pub mod retry;
 pub mod stub;
+pub mod types;
 
 pub mod deepseek;
 pub mod volcengine;

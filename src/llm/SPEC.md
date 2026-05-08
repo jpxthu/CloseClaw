@@ -27,6 +27,26 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`StreamingResponse`** — 流式聊天响应接收器，`tokio::sync::mpsc::Receiver<ChatStreamChunk>`，调用方通过 `recv().await` 逐块消费
 - **`ChatStreamChunk`** — 流式响应中的单个 chunk：`Text(String)`（文本片段）、`Done { model, usage }`（流结束元数据）、`Error(LLMError)`（流式过程中的错误）
 
+### 数据类型（统一响应层）
+
+- **`ContentBlockType`** — 内容块类型枚举：Text（纯文本）、Thinking（思考链）、ToolUse（工具调用）
+- **`ContentBlock`** — 统一内容块枚举（`#[serde(tag = "type")]`，JSON 含 `type` 字段）：Text(String)、Thinking(String)、ToolUse{id/name/input}、ToolResult{tool_call_id/content}
+- **`UnifiedResponse`** — 统一响应结构（content_blocks + usage + finish_reason）
+- **`UnifiedUsage`** — 统一 token 用量（prompt_tokens、completion_tokens、total_tokens、reasoning_tokens）
+
+### 数据类型（流式事件层）
+
+- **`StreamEvent`** — 流式事件枚举：BlockStart、BlockDelta、BlockEnd、MessageEnd、Error
+- **`ContentDelta`** — 流式增量内容枚举（struct-like variants）：`Text { text: String }`、`Thinking { thinking: String }`、`ToolUseId { id: String }`、`ToolUseName { name: String }`、`ToolUseInputChunk { input: String }`
+
+### 数据类型（Protocol 内部层）
+
+- **`InternalResponse`** — Protocol 内部组装的原始响应（content_blocks + usage + finish_reason）
+- **`RawContentBlock`** — Protocol 内部原始内容块（结构同 ContentBlock，但不对外暴露）
+- **`RawUsage`** — Protocol 内部原始用量（prompt_tokens、completion_tokens、total_tokens）
+- **`RawSseChunk`** — Protocol 内部 SSE 原始 chunk（event_type + data）
+- **`SseStateMachine`** — SSE 流解析状态机（跟踪 current_block_index、block_type、pending_thinking、pending_signature）
+
 ### 数据类型（模型元数据）
 
 - **`InputType`** — 模型支持的输入模态：Text（纯文本）、Image（多模态图文）
