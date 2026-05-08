@@ -5,7 +5,8 @@ mod multi_session_tests {
     use super::*;
     use crate::chat::protocol::ServerMessage;
     use crate::chat::session::ChatSession;
-    use crate::llm::{LLMRegistry, StubProvider};
+    use crate::llm::stub::StubProvider;
+    use crate::llm::LLMRegistry;
     use std::sync::Arc;
     use tokio::{
         io::{AsyncBufReadExt, AsyncWriteExt, BufReader},

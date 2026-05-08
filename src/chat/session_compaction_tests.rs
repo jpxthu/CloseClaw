@@ -4,9 +4,10 @@
 mod compaction_tests {
     use super::*;
     use crate::chat::session::ChatSession;
+    use crate::llm::stub::StubProvider;
     use crate::{
         chat::protocol::ServerMessage,
-        llm::{LLMRegistry, Message, StubProvider},
+        llm::{LLMRegistry, Message},
         session::compaction::CompactionService,
     };
     use std::sync::Arc;
