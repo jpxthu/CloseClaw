@@ -24,6 +24,10 @@ pub enum ProviderError {
     /// HTTP request failed (network error, TLS error, timeout, etc.).
     #[error("HTTP request failed: {0}")]
     Reqwest(#[from] reqwest::Error),
+
+    /// Error from a legacy provider adapter.
+    #[error("Legacy provider error: {0}")]
+    Legacy(String),
 }
 
 /// Result type alias for provider operations.
