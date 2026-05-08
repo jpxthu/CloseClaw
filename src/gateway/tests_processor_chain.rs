@@ -119,7 +119,12 @@ async fn test_processor_chain_bypass_no_registry() {
 async fn test_processor_chain_bypass_empty_registry() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(&config, None));
-    let registry = ProcessorChainLoader::load(&ProcessorChainConfig { inbound: vec![] }).unwrap();
+    let (registry, _renderer) = ProcessorChainLoader::load(&ProcessorChainConfig {
+        inbound: vec![],
+        outbound: vec![],
+        renderer: None,
+    })
+    .unwrap();
     let gw = crate::gateway::Gateway::with_processor_registry(
         config,
         Arc::clone(&sm),
@@ -149,8 +154,10 @@ async fn test_processor_chain_applies_processors() {
             dir: tmp.path().to_path_buf(),
             retention_days: 7,
         }],
+        outbound: vec![],
+        renderer: None,
     };
-    let registry = ProcessorChainLoader::load(&proc_config).unwrap();
+    let (registry, _renderer) = ProcessorChainLoader::load(&proc_config).unwrap();
     let gw = crate::gateway::Gateway::with_processor_registry(
         config,
         Arc::clone(&sm),

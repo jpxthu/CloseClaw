@@ -23,7 +23,7 @@ pub mod registry;
 pub mod registry_tests;
 
 pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
-pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
+pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig, RendererConfig};
 pub use registry::ProcessorRegistry;
 
 pub use context::{MessageContext, ProcessedMessage, RawMessage, RawMessageLog};
