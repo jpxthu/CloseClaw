@@ -1,6 +1,6 @@
 //! Chat TCP server — accepts connections and dispatches to sessions
 
-use crate::chat::session::ChatSession;
+use crate::chat::session::LegacyChatSession;
 use crate::llm::LLMRegistry;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -51,7 +51,7 @@ impl ChatServer {
                             info!(session_id = %session_id, client = %addr, "new chat connection");
 
                             tokio::spawn(async move {
-                                let session = ChatSession::new(
+                                let session = LegacyChatSession::new(
                                     session_id,
                                     DEFAULT_AGENT_ID.to_string(),
                                     stream,

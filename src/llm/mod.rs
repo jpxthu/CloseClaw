@@ -12,7 +12,9 @@ pub mod openai;
 pub mod protocol;
 pub mod provider;
 pub mod retry;
+pub mod session;
 pub mod stub;
+pub mod turn;
 pub mod types;
 
 pub mod deepseek;
@@ -48,6 +50,8 @@ pub use stub::StubProvider;
 pub use client::UnifiedChatClient;
 pub use interpreter::{DefaultInterpreter, InterpreterRegistry, ModelInterpreter};
 pub use plugin::PluginPipeline;
+pub use session::{ChatSession, ConversationSession, SessionMessage};
+pub use turn::TurnCounter;
 pub use types::{InternalRequest, ProtocolId};
 
 use async_trait::async_trait;
