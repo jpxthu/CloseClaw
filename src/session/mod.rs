@@ -28,4 +28,6 @@ pub use bootstrap::{BootstrapContext, BootstrapProtection, BootstrapRegion};
 pub use checkpoint_manager::CheckpointManager;
 pub use compaction::{CompactConfig, CompactionResult, CompactionService, TokenWarningState};
 pub use events::{CheckpointTrigger, ModeSwitchEvent, UserIntent};
-pub use persistence::{PersistenceError, PersistenceService, ReasoningMode, SessionCheckpoint};
+pub use persistence::{
+    PendingMessage, PersistenceError, PersistenceService, ReasoningMode, SessionCheckpoint,
+};
