@@ -1,10 +1,12 @@
-//! Integration tests for ChatSession
+#![allow(deprecated)]
+
+//! Integration tests for LegacyChatSession
 //!
 //! These tests verify session behaviour through the public API.
 //! Shared setup helpers live in `src/chat/session.rs` (pub(crate)).
 
 use closeclaw::chat::protocol::ServerMessage;
-use closeclaw::chat::session::ChatSession;
+use closeclaw::chat::session::LegacyChatSession;
 use closeclaw::llm::{LLMRegistry, Message, StubProvider};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -15,7 +17,7 @@ use tokio::sync::broadcast;
 // Shared setup
 // ---------------------------------------------------------------------------
 
-/// Set up a `ChatSession` backed by a real TCP pair with `StubProvider`
+/// Set up a `LegacyChatSession` backed by a real TCP pair with `StubProvider`
 /// registered in the `LLMRegistry`.
 ///
 /// Returns `(session, client_stream)` where `client_stream` is the write/read
@@ -24,7 +26,7 @@ use tokio::sync::broadcast;
 /// Note: This creates a temporary shutdown channel that will be dropped,
 /// causing the session to receive a shutdown signal. For tests that need
 /// to keep the session alive, use `setup_session_with_shutdown_tx` instead.
-async fn setup_session() -> (ChatSession, tokio::net::TcpStream) {
+async fn setup_session() -> (LegacyChatSession, tokio::net::TcpStream) {
     std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -35,7 +37,7 @@ async fn setup_session() -> (ChatSession, tokio::net::TcpStream) {
     registry
         .register("stub".to_string(), Arc::new(StubProvider::new()))
         .await;
-    let session = ChatSession::new(
+    let session = LegacyChatSession::new(
         "test-session".to_string(),
         "test-agent".to_string(),
         accepted,
@@ -46,11 +48,14 @@ async fn setup_session() -> (ChatSession, tokio::net::TcpStream) {
     (session, client)
 }
 
-/// Set up a `ChatSession` with an explicit shutdown channel.
+/// Set up a `LegacyChatSession` with an explicit shutdown channel.
 /// Returns `(session, client_stream, shutdown_tx)` where `shutdown_tx` must
 /// be kept alive to prevent premature shutdown.
-async fn setup_session_with_shutdown_tx(
-) -> (ChatSession, tokio::net::TcpStream, broadcast::Sender<()>) {
+async fn setup_session_with_shutdown_tx() -> (
+    LegacyChatSession,
+    tokio::net::TcpStream,
+    broadcast::Sender<()>,
+) {
     std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -61,7 +66,7 @@ async fn setup_session_with_shutdown_tx(
     registry
         .register("stub".to_string(), Arc::new(StubProvider::new()))
         .await;
-    let session = ChatSession::new(
+    let session = LegacyChatSession::new(
         "test-session".to_string(),
         "test-agent".to_string(),
         accepted,
@@ -91,7 +96,7 @@ async fn send_client_json(writer: &mut tokio::net::tcp::OwnedWriteHalf, json: &s
 }
 
 // ---------------------------------------------------------------------------
-// truncate_history — now calls the actual method on ChatSession
+// truncate_history — now calls the actual method on LegacyChatSession
 // ---------------------------------------------------------------------------
 
 /// Verify that `truncate_history` removes the oldest entries when the history
@@ -234,7 +239,7 @@ async fn test_session_shutdown_signal() {
     registry
         .register("stub".to_string(), Arc::new(StubProvider::new()))
         .await;
-    let session = ChatSession::new(
+    let session = LegacyChatSession::new(
         "shutdown-session".to_string(),
         "shutdown-agent".to_string(),
         accepted,

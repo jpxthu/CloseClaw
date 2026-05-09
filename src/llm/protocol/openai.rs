@@ -133,10 +133,11 @@ impl ChatProtocol for OpenAiProtocol {
         Box::pin(async_stream::try_stream! {
             let mut stream = incoming;
             let mut block_index: Option<usize> = None;
+            let mut next_block_index: usize = 0;
+            let mut active_block_type: Option<ContentBlockType> = None;
 
             while let Some(chunk) = stream.next().await {
                 let data = chunk.data.trim();
-
                 if data.is_empty() || data == "[DONE]" {
                     break;
                 }
@@ -146,61 +147,93 @@ impl ChatProtocol for OpenAiProtocol {
                     Err(_) => continue,
                 };
 
-                let delta = match parsed
-                    .get("choices")
-                    .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.first())
-                    .and_then(|c| c.get("delta"))
-                {
+                let choices = match parsed.get("choices").and_then(|v| v.as_array()) {
+                    Some(arr) if !arr.is_empty() => arr,
+                    _ => continue,
+                };
+                let choice = &choices[0];
+                let delta = match choice.get("delta") {
                     Some(d) => d,
                     None => continue,
                 };
+                let finish_reason = choice.get("finish_reason").and_then(|v| v.as_str());
 
-                // Handle role at block start.
-                if let Some(_role) = delta.get("role").and_then(|v| v.as_str()) {
-                    if block_index.is_none() {
-                        block_index = Some(0);
-                        yield StreamEvent::BlockStart {
-                            index: 0,
-                            block_type: ContentBlockType::Text,
-                        };
+                // End current block when transitioning to tool_calls
+                if delta.get("tool_calls").and_then(|v| v.as_array()).is_some() {
+                    if let Some(idx) = block_index {
+                        // Only end non-tool blocks (text/thinking → tool_calls transition)
+                        if active_block_type != Some(ContentBlockType::ToolUse) {
+                            let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
+                            yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
+                            block_index = None;
+                            active_block_type = None;
+                        }
                     }
-                    // Role-only messages have no content delta.
-                    continue;
                 }
 
-                // Content delta.
+                // Content delta
                 if let Some(text) = delta.get("content").and_then(|v| v.as_str()) {
+                    if text.is_empty() {
+                        continue;
+                    }
                     let idx = match block_index {
                         Some(i) => i,
                         None => {
-                            block_index = Some(0);
-                            let idx = 0;
-                            yield StreamEvent::BlockStart {
-                                index: idx,
-                                block_type: ContentBlockType::Text,
-                            };
+                            let idx = next_block_index;
+                            next_block_index += 1;
+                            block_index = Some(idx);
+                            active_block_type = Some(ContentBlockType::Text);
+                            yield StreamEvent::BlockStart { index: idx, block_type: ContentBlockType::Text };
                             idx
                         }
                     };
-                    yield StreamEvent::BlockDelta {
-                        index: idx,
-                        delta: ContentDelta::Text { text: text.to_string() },
-                    };
+                    yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::Text { text: text.to_string() } };
+                }
+
+                // tool_calls delta
+                if let Some(tool_calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+                    for tc in tool_calls.iter() {
+                        if let Some(tc_id) = tc.get("id").and_then(|v| v.as_str()) {
+                            // Start new tool block
+                            let idx = next_block_index;
+                            next_block_index += 1;
+                            block_index = Some(idx);
+                            active_block_type = Some(ContentBlockType::ToolUse);
+                            yield StreamEvent::BlockStart { index: idx, block_type: ContentBlockType::ToolUse };
+                            yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseId { id: tc_id.to_string() } };
+
+                            if let Some(name) = tc.get("function").and_then(|f| f.get("name")).and_then(|v| v.as_str()).filter(|n| !n.is_empty()) {
+                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseName { name: name.to_string() } };
+                            }
+                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
+                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                            }
+                        } else if active_block_type == Some(ContentBlockType::ToolUse) {
+                            // Continuation: arguments chunk
+                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
+                                yield StreamEvent::BlockDelta { index: block_index.unwrap(), delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                            }
+                        }
+                    }
+                }
+
+                // finish_reason = "tool_calls" ends the tool block
+                if finish_reason == Some("tool_calls") {
+                    if let Some(idx) = block_index {
+                        yield StreamEvent::BlockEnd { index: idx, block_type: ContentBlockType::ToolUse };
+                        block_index = None;
+                        active_block_type = None;
+                    }
+                    yield StreamEvent::MessageEnd { usage: None, finish_reason: Some("tool_calls".to_string()) };
+                    break;
                 }
             }
 
             if let Some(idx) = block_index {
-                yield StreamEvent::BlockEnd {
-                    index: idx,
-                    block_type: ContentBlockType::Text,
-                };
+                let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
+                yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
             }
-
-            yield StreamEvent::MessageEnd {
-                usage: None,
-                finish_reason: Some("stop".to_string()),
-            };
+            yield StreamEvent::MessageEnd { usage: None, finish_reason: Some("stop".to_string()) };
         })
     }
 }
@@ -233,161 +266,4 @@ fn parse_usage(body: &serde_json::Value) -> RawUsage {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::llm::types::InternalMessage;
-
-    fn make_request() -> InternalRequest {
-        InternalRequest {
-            model: "gpt-4".to_string(),
-            messages: vec![InternalMessage {
-                role: "user".to_string(),
-                content: "Hello".to_string(),
-            }],
-            temperature: 0.7,
-            max_tokens: Some(256),
-            stream: false,
-            extra_body: Default::default(),
-        }
-    }
-
-    fn make_request_with_extra() -> InternalRequest {
-        InternalRequest {
-            model: "gpt-4".to_string(),
-            messages: vec![InternalMessage {
-                role: "user".to_string(),
-                content: "Hello".to_string(),
-            }],
-            temperature: 0.7,
-            max_tokens: Some(256),
-            stream: false,
-            extra_body: serde_json::from_str(r#"{"seed":42,"frequency_penalty":0.5}"#).unwrap(),
-        }
-    }
-
-    // ── build_request tests ───────────────────────────────────────────────────
-
-    #[test]
-    fn test_build_request_basic() {
-        let proto = OpenAiProtocol::new();
-        let request = make_request();
-        let body = proto.build_request(&request).unwrap();
-
-        assert_eq!(body.get("model").unwrap(), "gpt-4");
-        assert!(body.get("messages").unwrap().is_array());
-        // Note: f32 0.7 serializes to JSON as 0.699999988079071 due to IEEE-754 precision.
-        // Use (value - 0.7).abs() < 1e-6 for float comparison to avoid exact bit comparison.
-        let temp_val = body.get("temperature").unwrap().as_f64().unwrap();
-        assert!(
-            (temp_val - 0.7).abs() < 1e-6,
-            "temperature = {} expected ~0.7",
-            temp_val
-        );
-        assert_eq!(body.get("max_tokens").unwrap(), &serde_json::json!(256));
-        assert_eq!(body.get("stream").unwrap(), &serde_json::json!(false));
-    }
-
-    #[test]
-    fn test_build_request_extra_body_merge() {
-        let proto = OpenAiProtocol::new();
-        let request = make_request_with_extra();
-        let body = proto.build_request(&request).unwrap();
-
-        assert_eq!(body.get("seed").unwrap(), &serde_json::json!(42));
-        assert_eq!(
-            body.get("frequency_penalty").unwrap(),
-            &serde_json::json!(0.5)
-        );
-    }
-
-    #[test]
-    fn test_build_request_stream_flag() {
-        let proto = OpenAiProtocol::new();
-        let mut request = make_request();
-        request.stream = true;
-        let body = proto.build_request(&request).unwrap();
-        assert_eq!(body.get("stream").unwrap(), &serde_json::json!(true));
-    }
-
-    #[test]
-    fn test_build_request_no_max_tokens() {
-        let proto = OpenAiProtocol::new();
-        let mut request = make_request();
-        request.max_tokens = None;
-        let body = proto.build_request(&request).unwrap();
-        assert!(body.get("max_tokens").is_none());
-    }
-
-    // ── parse_response tests ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_parse_response_normal() {
-        let proto = OpenAiProtocol::new();
-        let body = serde_json::json!({
-            "choices": [{
-                "message": { "content": "Hello, world!" },
-                "finish_reason": "stop"
-            }],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15
-            }
-        });
-
-        let resp = proto.parse_response(body).unwrap();
-        assert_eq!(resp.content_blocks.len(), 1);
-        assert!(
-            matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "Hello, world!")
-        );
-        assert_eq!(resp.usage.prompt_tokens, 10);
-        assert_eq!(resp.usage.completion_tokens, 5);
-        assert_eq!(resp.usage.total_tokens, Some(15));
-        assert_eq!(resp.finish_reason, Some("stop".to_string()));
-    }
-
-    #[test]
-    fn test_parse_response_empty_choices() {
-        let proto = OpenAiProtocol::new();
-        let body = serde_json::json!({ "choices": [] });
-        let resp = proto.parse_response(body).unwrap();
-        assert!(resp.content_blocks.is_empty());
-        assert_eq!(resp.usage.prompt_tokens, 0);
-        assert_eq!(resp.usage.completion_tokens, 0);
-    }
-
-    #[test]
-    fn test_parse_response_missing_usage_defaults() {
-        let proto = OpenAiProtocol::new();
-        let body = serde_json::json!({ "choices": [{ "message": { "content": "Hi" } }] });
-        let resp = proto.parse_response(body).unwrap();
-        assert_eq!(resp.usage.prompt_tokens, 0);
-        assert_eq!(resp.usage.completion_tokens, 0);
-        assert!(resp.usage.total_tokens.is_none());
-    }
-
-    // ── decorate_headers tests ────────────────────────────────────────────────
-
-    #[test]
-    fn test_decorate_headers_bearer() {
-        std::env::remove_var("OPENAI_API_KEY");
-        let proto = OpenAiProtocol::new();
-        let mut headers = HeaderMap::new();
-        proto.decorate_headers(&mut headers).unwrap();
-
-        let auth = headers.get(AUTHORIZATION).unwrap();
-        assert!(auth.to_str().unwrap().starts_with("Bearer "));
-    }
-
-    #[test]
-    fn test_decorate_headers_content_type() {
-        let proto = OpenAiProtocol::new();
-        let mut headers = HeaderMap::new();
-        proto.decorate_headers(&mut headers).unwrap();
-
-        assert_eq!(
-            headers.get(CONTENT_TYPE).unwrap().to_str().unwrap(),
-            "application/json"
-        );
-    }
-}
+mod openai_tests; // extracted to stay under 500-line limit
