@@ -52,7 +52,7 @@ Inbound 链接收平台原始消息（`RawMessage`），经多个处理器顺序
 | 文件 | 职责 |
 |------|------|
 | `context.rs` | `RawMessage / MessageContext / ProcessedMessage / RawMessageLog` + 单元测试 |
-| `dsl_parser.rs` | `DslParser`（出站处理器，priority=10），解析 `::button[...]` DSL，从 markdown 中移除 DSL 行并将解析结果存入 metadata 的 `dsl_result` 键 |
+| `dsl_parser.rs` | `DslParser`（出站处理器，priority=10），解析 `::button[...]` DSL，从 markdown 中移除 DSL 行并将解析结果存入 metadata 的 `dsl_result` 键；另提供 `parse_content_blocks()` 从 `Vec<ContentBlock>` 解析、`from_content_blocks()` 便捷构造器 |
 | `error.rs` | `ProcessError` 枚举及构造函数 |
 | `loader.rs` | `ProcessorChainLoader`，根据 YAML/TOML 配置构造 processor 实例并注册到 `ProcessorRegistry` |
 | `markdown_normalizer.rs` | `MarkdownNormalizer`（入站处理器，priority=40），标准化 markdown 内容后再送 LLM：压缩连续空行、去除每行尾随空格、为裸 URL 补全 https:// 前缀、为无语言标识的代码块补全 ` ```text` 标记 |
