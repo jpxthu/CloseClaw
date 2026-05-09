@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tokio::time::timeout;
 
 use crate::llm::{
     ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, StreamingResponse, Usage,
@@ -310,13 +311,17 @@ impl LLMProvider for GlmProvider {
             .replace("/coding/paas/v4/chat/completions", "/paas/v4/models")
             .replace("/chat/completions", "/models");
 
-        let response = self
-            .http_client
-            .get(&models_url)
-            .header("Authorization", format!("Bearer {}", bearer_token))
-            .send()
-            .await
-            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+        let response = timeout(
+            Duration::from_secs(10),
+            self.http_client
+                .get(&models_url)
+                .header("Authorization", format!("Bearer {}", bearer_token))
+                .send(),
+        )
+        .await
+        .map_err(|_| LLMError::NetworkError("fetch_model_list timed out after 10s".to_string()))?;
+
+        let response = response.map_err(|e| LLMError::NetworkError(e.to_string()))?;
 
         let status = response.status();
         if !status.is_success() {
