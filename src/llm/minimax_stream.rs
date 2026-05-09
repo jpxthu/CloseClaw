@@ -11,7 +11,6 @@
 //! - The final chunk contains `message` (not `delta`) with full fields + `usage` + `base_resp`
 //! - `[DONE]` is the termination marker
 
-use reqwest::Client;
 use serde::Deserialize;
 
 use crate::llm::{

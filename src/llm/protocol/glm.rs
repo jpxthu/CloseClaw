@@ -211,6 +211,54 @@ impl ChatProtocol for GlmProtocol {
 
                     yield StreamEvent::BlockDelta { index: idx, delta };
                 }
+
+                // tool_calls delta
+                if let Some(tool_calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+                    // End current block when transitioning to tool_calls
+                    if let Some(idx) = current_block_index {
+                        // Only end non-tool blocks (text/thinking → tool_calls transition)
+                        if current_block_type != Some(ContentBlockType::ToolUse) {
+                            let cur_type = current_block_type.unwrap_or(ContentBlockType::Text);
+                            yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
+                            current_block_index = None;
+                            current_block_type = None;
+                        }
+                    }
+
+                    for tc in tool_calls.iter() {
+                        if let Some(tc_id) = tc.get("id").and_then(|v| v.as_str()) {
+                            // Start new tool block
+                            let idx = 0;
+                            current_block_index = Some(idx);
+                            current_block_type = Some(ContentBlockType::ToolUse);
+                            yield StreamEvent::BlockStart { index: idx, block_type: ContentBlockType::ToolUse };
+                            yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseId { id: tc_id.to_string() } };
+
+                            if let Some(name) = tc.get("function").and_then(|f| f.get("name")).and_then(|v| v.as_str()).filter(|n| !n.is_empty()) {
+                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseName { name: name.to_string() } };
+                            }
+                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
+                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                            }
+                        } else if current_block_type == Some(ContentBlockType::ToolUse) {
+                            // Continuation: arguments chunk
+                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
+                                yield StreamEvent::BlockDelta { index: current_block_index.unwrap(), delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                            }
+                        }
+                    }
+                }
+
+                // finish_reason = "tool_calls" ends the tool block
+                if parsed.get("choices").and_then(|v| v.as_array()).and_then(|arr| arr.first()).and_then(|c| c.get("finish_reason")).and_then(|v| v.as_str()) == Some("tool_calls") {
+                    if let Some(idx) = current_block_index {
+                        yield StreamEvent::BlockEnd { index: idx, block_type: ContentBlockType::ToolUse };
+                        current_block_index = None;
+                        current_block_type = None;
+                    }
+                    yield StreamEvent::MessageEnd { usage: None, finish_reason: Some("tool_calls".to_string()) };
+                    break;
+                }
             }
 
             if let Some(idx) = current_block_index {

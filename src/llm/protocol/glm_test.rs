@@ -275,3 +275,188 @@ async fn test_parse_sse_empty_chunk_breaks() {
 
     assert!(stream.next().await.is_none());
 }
+
+// ── SSE tool_calls parsing tests ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_parse_sse_tool_calls_basic() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_xyz","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}"#,
+        ),
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"city\""}}]}}]}"#,
+        ),
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":" : \"Shanghai\"}"}}]}}]}"#,
+        ),
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"}"}}]}}]}"#,
+        ),
+        make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
+    ]));
+
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+
+    // BlockStart(ToolUse)
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockStart {
+            block_type: ContentBlockType::ToolUse,
+            ..
+        }
+    ));
+
+    // ToolUseId
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id: id }, .. } if id == "call_xyz"
+    ));
+
+    // ToolUseName
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseName { name: n }, .. } if n == "get_weather"
+    ));
+
+    // ToolUseInputChunk 1: {"city"
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input: s }, .. } if s == r#"{"city""#
+    ));
+
+    // ToolUseInputChunk 2:  : "Shanghai"}
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input: s }, .. } if s == " : \"Shanghai\"}"
+    ));
+
+    // ToolUseInputChunk 3
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input: s }, .. } if s == "}"
+    ));
+
+    // BlockEnd(ToolUse)
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockEnd {
+            block_type: ContentBlockType::ToolUse,
+            ..
+        }
+    ));
+
+    // MessageEnd
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
+
+    assert!(stream.next().await.is_none());
+}
+
+#[tokio::test]
+async fn test_parse_sse_reasoning_then_tool_calls() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":"Let me think..."}}]}"#),
+        make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":" done."}}]}"#),
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_q","type":"function","function":{"name":"search","arguments":"\"info\""}}]}}]}"#,
+        ),
+        make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
+    ]));
+
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+
+    // Thinking BlockStart
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockStart {
+            block_type: ContentBlockType::Thinking,
+            ..
+        }
+    ));
+
+    // Thinking content 1
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s }, .. } if s == "Let me think..."
+    ));
+
+    // Thinking content 2
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s }, .. } if s == " done."
+    ));
+
+    // Thinking BlockEnd
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockEnd {
+            block_type: ContentBlockType::Thinking,
+            ..
+        }
+    ));
+
+    // ToolUse BlockStart
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockStart {
+            block_type: ContentBlockType::ToolUse,
+            ..
+        }
+    ));
+
+    // ToolUseId
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id: id }, .. } if id == "call_q"
+    ));
+
+    // ToolUseName
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseName { name: n }, .. } if n == "search"
+    ));
+
+    // ToolUseInputChunk
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input: s }, .. } if s == "\"info\""
+    ));
+
+    // ToolUse BlockEnd
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockEnd {
+            block_type: ContentBlockType::ToolUse,
+            ..
+        }
+    ));
+
+    // MessageEnd
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
+
+    assert!(stream.next().await.is_none());
+}

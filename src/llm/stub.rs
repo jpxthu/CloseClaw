@@ -1,7 +1,6 @@
 //! Stub LLM Provider - Returns fixed responses for testing
 
 use async_trait::async_trait;
-use std::sync::Arc;
 
 use super::{ChatRequest, ChatResponse, LLMError, LLMProvider, Message, Usage};
 

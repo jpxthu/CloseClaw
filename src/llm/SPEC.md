@@ -84,8 +84,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 
 ### 具体 Protocol 实现
 
-- **`OpenAiProtocol`** — OpenAI 兼容协议，用于 OpenAI、MiniMax、VolcEngine、DeepSeek。Bearer token 认证，SSE 解析 OpenAI `choices[0].delta` 格式
-- **`GlmProtocol`** — 智谱 GLM 系列协议。Bearer token 认证，`parse_response` 优先 `content` 兜底 `reasoning_content`，SSE 解析 `reasoning_content` 优先 `content`
+- **`OpenAiProtocol`** — OpenAI 兼容协议，用于 OpenAI、MiniMax、VolcEngine、DeepSeek。Bearer token 认证，SSE 解析 `choices[0].delta` 格式，文本流式输出 `delta.content`；流式 tool_calls 解析 `delta.tool_calls` 数组，产出完整工具调用事件序列（`BlockStart(ToolUse)` + `ToolUseId` + `ToolUseName` + `ToolUseInputChunk` + `BlockEnd(ToolUse)`）。Block 转换时（Text/Thinking → ToolUse）自动结束前一 block；`finish_reason: "tool_calls"` 触发 `BlockEnd(ToolUse)` + `MessageEnd { finish_reason: "tool_calls" }`。使用 `next_block_index` 计数器保证多 block 场景下 index 唯一递增。
+- **`GlmProtocol`** — 智谱 GLM 系列协议。Bearer token 认证，`parse_response` 优先 `content` 兜底 `reasoning_content`，SSE 解析 `reasoning_content` 优先 `content`；流式 tool_calls 解析 `delta.tool_calls` 数组（路径同 OpenAI，`choices[0].delta.tool_calls`），Block 转换时自动结束前一 block；`finish_reason: "tool_calls"` 触发 `BlockEnd(ToolUse)` + `MessageEnd { finish_reason: "tool_calls" }`。注：当前 GLM 实现使用固定 block index（所有 block 均用 index 0），与 OpenAiProtocol 的递增 index 策略不同，混用时需注意。
 - **`AnthropicProtocol`** — Anthropic `/v1/messages` stub。`x-api-key` + `anthropic-version` header，`parse_response` 解析 `content[].text` 数组，SSE 流式暂未实现
 
 ### 数据类型（模型元数据）
@@ -206,8 +206,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `fallback.rs` | FallbackClient：两层重试（内层同模型指数退避、外层模型切换） |
 | `retry.rs` | CooldownManager：按 (provider, model) 分组的冷却持久化；backoff_delay 计算 |
 | `protocol/mod.rs` | Protocol 模块入口：re-export trait 和三个具体协议实现 |
-| `protocol/openai.rs` | `OpenAiProtocol`：OpenAI 兼容协议（OpenAI、MiniMax、VolcEngine、DeepSeek 共用），`build_request` 生成 OpenAI Chat Completions JSON，`parse_response` 解析 choices[0].message.content，`decorate_headers` 用 `Authorization: Bearer`，SSE 解析 `choices[0].delta.content` |
-| `protocol/glm.rs` | `GlmProtocol`：GLM 系列协议，请求格式同 OpenAI，`parse_response` 优先 `content` 兜底 `reasoning_content`，SSE 解析 `reasoning_content` 优先 `content` |
+| `protocol/openai.rs` | `OpenAiProtocol`：OpenAI 兼容协议（OpenAI、MiniMax、VolcEngine、DeepSeek 共用），`build_request` 生成 OpenAI Chat Completions JSON，`parse_response` 解析 choices[0].message.content，`decorate_headers` 用 `Authorization: Bearer`，SSE 解析 `choices[0].delta.content` 和 `delta.tool_calls`（流式工具调用） |
+| `protocol/glm.rs` | `GlmProtocol`：GLM 系列协议，请求格式同 OpenAI，`parse_response` 优先 `content` 兜底 `reasoning_content`，SSE 解析 `reasoning_content` 优先 `content`，同步处理 `delta.tool_calls`（流式工具调用） |
 | `protocol/anthropic.rs` | `AnthropicProtocol`：Anthropic `/v1/messages` stub，`build_request` 生成 Anthropic 格式，`parse_response` 解析 `content[].text` 数组，`decorate_headers` 用 `x-api-key` + `anthropic-version`，SSE 暂未实现（stub） |
 | `interpreter.rs` | `ModelInterpreter` trait + `DefaultInterpreter`/`MinimaxInterpreter`/`GlmInterpreter`/`DeepSeekInterpreter` 四种实现 + `InterpreterRegistry`（glob 模式匹配 provider/model → Interpreter） |
 | `plugin.rs` | `ModelPlugin` trait + `PluginPipeline`（顺序执行 before_request/after_response/on_stream_event hooks，支持 on_stream_event 短路） |
