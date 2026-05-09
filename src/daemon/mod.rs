@@ -2,10 +2,8 @@
 //!
 //! Orchestrates all components: Gateway, AgentRegistry, PermissionEngine.
 //! Handles graceful shutdown via ShutdownCoordinator.
-
 pub mod shutdown;
 pub mod skill_reload;
-
 use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
 use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
@@ -24,7 +22,6 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::info;
-
 /// Load key=value pairs from a .env file and set them as environment variables.
 /// Lines starting with # are treated as comments and ignored.
 fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
@@ -44,7 +41,6 @@ fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
     }
     Ok(())
 }
-
 /// Global daemon state
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
@@ -64,16 +60,13 @@ pub struct Daemon {
     /// Skill file watcher handle (RAII: stops on drop)
     _skill_watcher: Option<SkillWatcherHandle>,
 }
-
 // --- Lifecycle: start, run ---
-
 impl Daemon {
     /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
         let audit_logger = Self::spawn_audit_tasks(config_dir);
         Self::start_with_audit_logger(config_dir, audit_logger).await
     }
-
     /// Start the daemon with a custom audit logger (useful for testing).
     /// Production code should use [`start()`](Self::start) instead.
     pub async fn start_with_audit_logger(
@@ -83,7 +76,6 @@ impl Daemon {
         let permission_engine = Self::build_permission_engine(config_dir);
         Self::start_with_audit_logger_and_engine(config_dir, audit_logger, permission_engine).await
     }
-
     /// Start the daemon with custom audit logger and permission engine (useful for testing).
     /// Production code should use [`start()`](Self::start) instead.
     pub async fn start_with_audit_logger_and_engine(
@@ -92,9 +84,7 @@ impl Daemon {
         permission_engine: Arc<PermissionEngine>,
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
-
         Self::load_env(config_dir);
-
         // Migrate legacy openclaw.json to config/ directory if needed
         let openclaw_json_path = Path::new(config_dir).join("openclaw.json");
         info!("Checking for legacy openclaw.json migration...");
@@ -110,7 +100,6 @@ impl Daemon {
                 tracing::warn!(error = %e, "openclaw.json migration failed — continuing with existing config");
             }
         }
-
         // Initialize SQLite storage — fail hard if this fails (no MemoryStorage fallback)
         let data_dir = Path::new(config_dir);
         let storage = Arc::new(
@@ -118,7 +107,6 @@ impl Daemon {
                 .map_err(|e| anyhow::anyhow!("failed to initialize SqliteStorage: {}", e))?,
         );
         info!("SqliteStorage initialized at {}", data_dir.display());
-
         // Initialize session config provider — warn and use defaults if file is missing
         let session_config_path = data_dir.join("session_config.json");
         let config_provider: Arc<dyn SessionConfigProvider> =
@@ -145,7 +133,6 @@ impl Daemon {
                     )
                 }
             };
-
         // Create ArchiveSweeper shutdown channel and spawn sweeper
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let sweeper = Arc::new(ArchiveSweeper::new(
@@ -157,10 +144,8 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
-
         let agent_registry = Arc::new(RwLock::new(crate::agent::registry::AgentRegistry::new(30)));
         info!("Agent registry initialized",);
-
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
@@ -174,27 +159,20 @@ impl Daemon {
             .await;
         let gateway = Arc::new(gateway);
         info!("Gateway initialized");
-
         Self::init_feishu_adapter(config_dir, &gateway).await?;
-
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
-
         let llm_registry = Self::init_llm_registry().await;
         let chat_server = Self::spawn_chat_server(&llm_registry, &shutdown);
-
         // Spawn the background flush task for the (possibly injected) audit logger
         Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
-
         // Initialize skill hot reload system
         let (skill_registry, skill_watcher) =
             skill_reload::init_skill_hot_reload(config_dir).await?;
-
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
         );
-
         Ok(Self {
             gateway,
             agent_registry,
@@ -208,15 +186,12 @@ impl Daemon {
             _skill_watcher: Some(skill_watcher),
         })
     }
-
     /// Run the daemon — blocks until shutdown signal is received.
     #[cfg(unix)]
     pub async fn run(&self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
-
         let mut sigint = signal(SignalKind::interrupt())?;
         let mut sigterm = signal(SignalKind::terminate())?;
-
         tokio::select! {
             _ = sigint.recv() => {
                 info!("Received Ctrl+C, initiating shutdown...");
@@ -225,27 +200,33 @@ impl Daemon {
                 info!("Received SIGTERM, initiating graceful shutdown...");
             }
         }
-
         self.shutdown.initiate_shutdown().await;
+        // Flush all active session checkpoints before shutdown
+        match self.gateway.flush_all_sessions().await {
+            Ok(n) => tracing::info!(count = n, "flushed session checkpoints"),
+            Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
+        }
         let _ = self.sweeper_shutdown_tx.send(());
         self.shutdown_audit().await;
         Ok(())
     }
-
     /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
     #[cfg(not(unix))]
     pub async fn run(&self) -> anyhow::Result<()> {
         tokio::signal::ctrl_c().await?;
         info!("Received Ctrl+C, initiating shutdown...");
         self.shutdown.initiate_shutdown().await;
+        // Flush all active session checkpoints before shutdown
+        match self.gateway.flush_all_sessions().await {
+            Ok(n) => tracing::info!(count = n, "flushed session checkpoints"),
+            Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
+        }
         let _ = self.sweeper_shutdown_tx.send(());
         self.shutdown_audit().await;
         Ok(())
     }
 }
-
 // --- Config loading helpers ---
-
 impl Daemon {
     /// Load .env file from config_dir if it exists.
     fn load_env(config_dir: &str) {
@@ -258,7 +239,6 @@ impl Daemon {
             }
         }
     }
-
     /// Load and validate agents.json
     fn load_agents_config(config_dir: &str) -> anyhow::Result<AgentsConfigProvider> {
         let path = format!("{}/agents.json", config_dir);
@@ -270,7 +250,6 @@ impl Daemon {
         info!("Loaded agents config from {}", path);
         Ok(provider)
     }
-
     /// Build permission engine, loading templates from config_dir/templates/ if present.
     fn build_permission_engine(config_dir: &str) -> Arc<PermissionEngine> {
         let rule_set = RuleSet {
@@ -281,7 +260,6 @@ impl Daemon {
             agent_creators: std::collections::HashMap::new(),
         };
         let mut engine = PermissionEngine::new(rule_set);
-
         let templates_dir = std::path::Path::new(config_dir).join("templates");
         if templates_dir.exists() {
             if let Ok(templates) =
@@ -302,16 +280,13 @@ impl Daemon {
         Arc::new(engine)
     }
 }
-
 // --- Service init helpers ---
-
 impl Daemon {
     /// Initialize Feishu adapter from env or config.
     async fn init_feishu_adapter(_config_dir: &str, gateway: &Arc<Gateway>) -> anyhow::Result<()> {
         let app_id = std::env::var("FEISHU_APP_ID").ok();
         let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
         let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
-
         if let (Some(app_id), Some(app_secret), Some(verification_token)) =
             (app_id, app_secret, verification_token)
         {
@@ -325,11 +300,9 @@ impl Daemon {
         }
         Ok(())
     }
-
     /// Initialize LLM registry and register providers from environment variables.
     async fn init_llm_registry() -> Arc<LLMRegistry> {
         let registry = Arc::new(LLMRegistry::new());
-
         if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
             if !api_key.is_empty() {
                 let provider = Arc::new(OpenAIProvider::new(api_key));
@@ -351,11 +324,9 @@ impl Daemon {
                 info!("MiniMax provider registered");
             }
         }
-
         registry
     }
 }
-
 impl Daemon {
     /// Create and spawn the chat TCP server as a background task.
     fn spawn_chat_server(
@@ -376,7 +347,6 @@ impl Daemon {
         );
         chat_server
     }
-
     /// Spawn background flush + startup-log tasks for the given audit logger.
     /// Used by both production [`start()`](Self::start) and test entry points.
     fn spawn_audit_background_tasks(audit_logger: Arc<AuditLogger>) {
@@ -393,7 +363,6 @@ impl Daemon {
             logger_for_start.log(start_event).await;
             logger_for_start.flush().await;
         });
-
         // Spawn background flush task
         let audit_for_flush = Arc::clone(&audit_logger);
         tokio::spawn(async move {
@@ -408,7 +377,6 @@ impl Daemon {
             }
         });
     }
-
     /// Create audit logger and spawn background flush + startup-log tasks (production path).
     fn spawn_audit_tasks(_config_dir: &str) -> Arc<AuditLogger> {
         let audit_logger = Arc::new(AuditLogger::new());
@@ -416,9 +384,7 @@ impl Daemon {
         audit_logger
     }
 }
-
 // --- Audit & permission helpers ---
-
 impl Daemon {
     /// Evaluate a permission request and log the result to the audit log
     pub async fn evaluate_with_audit(
@@ -428,12 +394,10 @@ impl Daemon {
         let caller = request.caller().clone();
         let agent_id = caller.agent.clone();
         let response = self.permission_engine.evaluate(request.clone());
-
         let result = match &response {
             crate::permission::PermissionResponse::Allowed { .. } => AuditResult::Allow,
             crate::permission::PermissionResponse::Denied { .. } => AuditResult::Deny,
         };
-
         let event = AuditEventBuilder::new(AuditEventType::PermissionCheck)
             .details(serde_json::json!({
                 "agent": agent_id,
@@ -442,15 +406,12 @@ impl Daemon {
             }))
             .result(result)
             .build();
-
         let logger = Arc::clone(&self.audit_logger);
         tokio::spawn(async move {
             logger.log(event).await;
         });
-
         response
     }
-
     /// Log an agent start event
     pub async fn log_agent_start(&self, agent_id: &str, model: &str) {
         let event = AuditEventBuilder::new(AuditEventType::AgentStart)
@@ -462,7 +423,6 @@ impl Daemon {
             logger.log(event).await;
         });
     }
-
     /// Log an agent stop event
     pub async fn log_agent_stop(&self, agent_id: &str) {
         let event = AuditEventBuilder::new(AuditEventType::AgentStop)
@@ -474,7 +434,6 @@ impl Daemon {
             logger.log(event).await;
         });
     }
-
     /// Log an agent error event
     pub async fn log_agent_error(&self, agent_id: &str, error: &str) {
         let event = AuditEventBuilder::new(AuditEventType::AgentError)
@@ -486,12 +445,10 @@ impl Daemon {
             logger.log(event).await;
         });
     }
-
     /// Shutdown the audit logger (flush remaining events)
     pub async fn shutdown_audit(&self) {
         self.audit_logger.shutdown().await;
     }
 }
-
 #[cfg(test)]
 mod tests;

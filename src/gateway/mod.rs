@@ -153,6 +153,13 @@ impl Gateway {
         self.session_manager.set_storage(storage).await;
     }
 
+    /// Flush all active sessions to persistence (proxied to SessionManager).
+    pub async fn flush_all_sessions(
+        &self,
+    ) -> Result<usize, crate::session::persistence::PersistenceError> {
+        self.session_manager.flush_all().await
+    }
+
     /// Register an IM adapter.
     pub async fn register_adapter(&self, name: String, adapter: Arc<dyn super::im::IMAdapter>) {
         let mut adapters = self.adapters.write().await;

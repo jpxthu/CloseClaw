@@ -1,11 +1,14 @@
 //! SessionManager - extracted session management from Gateway
 //!
 //! Responsible for session lifecycle: lookup, creation, restoration.
+//! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
-use crate::session::persistence::{PersistenceService, SessionStatus};
+use crate::session::persistence::{
+    PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -203,6 +206,30 @@ impl SessionManager {
         let sessions = self.sessions.read().await;
         sessions.get(session_id).map(|s| s.agent_id.clone())
     }
+
+    /// Flush all active sessions to persistence.
+    /// Returns the number of sessions successfully saved.
+    pub async fn flush_all(&self) -> Result<usize, PersistenceError> {
+        let storage = self.storage.read().await;
+        let Some(storage) = storage.as_ref() else {
+            return Ok(0);
+        };
+        let sessions = self.sessions.read().await;
+        let mut saved = 0;
+        for (session_id, session) in sessions.iter() {
+            let cp = SessionCheckpoint::new(session_id.clone())
+                .with_status(SessionStatus::Active)
+                .with_channel(session.channel.clone())
+                .with_chat_id(session.agent_id.clone())
+                .with_agent_id(session.agent_id.clone());
+            if storage.save_checkpoint(&cp).await.is_ok() {
+                saved += 1;
+            } else {
+                warn!(session_id = %session_id, "failed to save session checkpoint");
+            }
+        }
+        Ok(saved)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -210,213 +237,5 @@ impl SessionManager {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::gateway::{GatewayConfig, Message};
-    use crate::session::persistence::{AgentRole, PersistenceError, SessionCheckpoint};
-    use async_trait::async_trait;
-    use tokio::sync::Mutex;
-
-    fn test_config() -> GatewayConfig {
-        GatewayConfig {
-            name: "test".to_string(),
-            rate_limit_per_minute: 100,
-            max_message_size: 65536,
-            dm_scope: DmScope::PerChannelPeer,
-        }
-    }
-
-    fn test_message() -> Message {
-        Message {
-            id: "msg-1".to_string(),
-            from: "user-a".to_string(),
-            to: "agent-b".to_string(),
-            content: "hello".to_string(),
-            channel: "feishu".to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
-            metadata: std::collections::HashMap::new(),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_find_or_create_existing_session() {
-        let mgr = SessionManager::new(&test_config(), None);
-        let msg = test_message();
-        let session_id = mgr.compute_session_key("feishu", &msg, None);
-        {
-            let mut sessions = mgr.sessions.write().await;
-            sessions.insert(
-                session_id.clone(),
-                Session {
-                    id: session_id.clone(),
-                    agent_id: "agent-b".to_string(),
-                    channel: "feishu".to_string(),
-                    created_at: chrono::Utc::now().timestamp(),
-                },
-            );
-        }
-
-        // find_or_create should return the existing session (read-lock fast path)
-        let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-        assert_eq!(result, session_id);
-    }
-
-    #[tokio::test]
-    async fn test_find_or_create_new_user_creates_session() {
-        let mgr = SessionManager::new(&test_config(), None);
-        let msg = test_message();
-
-        let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-        let sessions = mgr.sessions.read().await;
-        assert!(sessions.contains_key(&result));
-        let session = sessions.get(&result).unwrap();
-        assert_eq!(session.agent_id, "agent-b");
-        assert_eq!(session.channel, "feishu");
-    }
-
-    #[tokio::test]
-    async fn test_archived_session_restoration() {
-        use crate::session::persistence::SessionCheckpoint;
-        use std::sync::Arc;
-
-        // Build a mock storage that returns an Archived checkpoint
-        let mock_storage = Arc::new(MockPersistService {
-            archived_checkpoint: Mutex::new(Some(
-                SessionCheckpoint::new("feishu:user-a:agent-b".to_string())
-                    .with_status(SessionStatus::Archived)
-                    .with_chat_id("agent-b".to_string()),
-            )),
-            restore_called: Mutex::new(false),
-        });
-
-        let config = test_config();
-        let mut mgr = SessionManager::new(&config, Some(mock_storage.clone()));
-        let msg = test_message();
-
-        let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-        assert_eq!(result, "feishu:user-a:agent-b");
-
-        // Verify restore was called
-        let called = *mock_storage.restore_called.lock().await;
-        assert!(called, "restore_checkpoint should have been called");
-    }
-
-    #[tokio::test]
-    async fn test_find_or_create_no_storage() {
-        // When storage is None, archived restoration returns false,
-        // and find_or_create should still successfully create a new session.
-        let mgr = SessionManager::new(&test_config(), None);
-        let msg = test_message();
-
-        let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-        assert_eq!(result, "feishu:user-a:agent-b");
-
-        let sessions = mgr.sessions.read().await;
-        assert!(sessions.contains_key(&result));
-        let session = sessions.get(&result).unwrap();
-        assert_eq!(session.agent_id, "agent-b");
-        assert_eq!(session.channel, "feishu");
-    }
-
-    // Mock persistence service for tests
-    struct MockPersistService {
-        archived_checkpoint: Mutex<Option<crate::session::persistence::SessionCheckpoint>>,
-        restore_called: Mutex<bool>,
-    }
-
-    #[async_trait::async_trait]
-    impl PersistenceService for MockPersistService {
-        async fn save_checkpoint(
-            &self,
-            _checkpoint: &SessionCheckpoint,
-        ) -> Result<(), PersistenceError> {
-            Ok(())
-        }
-
-        async fn load_checkpoint(
-            &self,
-            _session_id: &str,
-        ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-            Ok(self.archived_checkpoint.lock().await.take())
-        }
-
-        async fn delete_checkpoint(&self, _session_id: &str) -> Result<(), PersistenceError> {
-            Ok(())
-        }
-
-        async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-            Ok(Vec::new())
-        }
-
-        async fn restore_checkpoint(
-            &self,
-            _session_id: &str,
-        ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-            *self.restore_called.lock().await = true;
-            Ok(self.archived_checkpoint.lock().await.take())
-        }
-
-        async fn archive_checkpoint(
-            &self,
-            _checkpoint: &SessionCheckpoint,
-        ) -> Result<(), PersistenceError> {
-            Ok(())
-        }
-
-        async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-            Ok(Vec::new())
-        }
-
-        async fn purge_checkpoint(&self, _session_id: &str) -> Result<(), PersistenceError> {
-            Ok(())
-        }
-
-        async fn invalidate_session(&self, _session_id: &str) -> Result<(), PersistenceError> {
-            Ok(())
-        }
-
-        async fn list_idle_sessions_for_agent(
-            &self,
-            _agent_id: &str,
-            _role: AgentRole,
-            _idle_minutes: i64,
-        ) -> Result<Vec<String>, PersistenceError> {
-            Ok(Vec::new())
-        }
-
-        async fn list_expired_archived_sessions_for_agent(
-            &self,
-            _agent_id: &str,
-            _role: AgentRole,
-            _purge_after_minutes: i64,
-        ) -> Result<Vec<String>, PersistenceError> {
-            Ok(Vec::new())
-        }
-    }
-
-    // ── get_chat_id tests ──────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_session_manager_get_chat_id() {
-        let mgr = SessionManager::new(&test_config(), None);
-        let msg = test_message();
-        let sid = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-
-        // get_chat_id should return the agent_id field (= chat_id)
-        let chat_id = mgr.get_chat_id(&sid).await;
-        assert!(chat_id.is_some(), "expected Some(chat_id), got None");
-        assert_eq!(chat_id.unwrap(), "agent-b");
-    }
-
-    #[tokio::test]
-    async fn test_session_manager_get_chat_id_missing() {
-        let mgr = SessionManager::new(&test_config(), None);
-
-        // Non-existent session_id → None
-        let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
-        assert!(
-            chat_id.is_none(),
-            "expected None for missing session, got {chat_id:?}"
-        );
-    }
-}
+#[cfg(test)]
+mod tests;
