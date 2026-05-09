@@ -211,7 +211,7 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `protocol.rs` | ChatProtocol trait：请求/响应协议转换，负责在 internal unified types 和具体 LLM API wire format 之间互转；标识方法同步，`build_request`/`parse_response`/`decorate_headers` 同步，`parse_sse_stream` 异步 streaming；`ProtocolError`、`IncomingSseStream`、`OutgoingEventStream` |
 | `stub.rs` | 测试用固定响应 Provider |
 | `volcengine.rs` | VolcEngine（火山方舟）Chat Completions API adapter。`provider_display_name` 返回 "VolcEngine"；`fetch_model_list` GET `/models`（火山方舟格式），按 `domain=="LLM"` 且 `status` 非 Shutdown/Retiring 过滤，`reasoning` 保守设为 false。 |
-| `deepseek.rs` | DeepSeek Chat Completions API adapter。`provider_display_name` 返回 "DeepSeek"；`fetch_model_list` GET `/models`（OpenAI 兼容格式），按 `status` 非 deprecated/shutdown 过滤，`reasoning` 保守设为 false。 |
+| `deepseek.rs` | DeepSeek Chat Completions API adapter。`provider_display_name` 返回 "DeepSeek"；`fetch_model_list` GET `/models`（OpenAI 兼容格式），按 `status` 非 deprecated/shutdown 过滤，`reasoning` 保守设为 false；单次 HTTP 请求带 10s 超时（`.timeout(Duration::from_secs(10))`），超时时返回 `NetworkError`。 |
 | `fake.rs` | `FakeProvider`：场景编排 Provider，支持 Ok/Err/Delay 场景、FIFO 消耗、请求捕获（feature `fake-llm`） |
 | `fallback.rs` | FallbackClient：两层重试（内层同模型指数退避、外层模型切换） |
 | `retry.rs` | CooldownManager：按 (provider, model) 分组的冷却持久化；backoff_delay 计算 |

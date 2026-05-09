@@ -270,6 +270,7 @@ impl LLMProvider for DeepSeekProvider {
             .http_client
             .get(&url)
             .header("Authorization", format!("Bearer {}", bearer_token))
+            .timeout(Duration::from_secs(10))
             .send()
             .await
             .map_err(|e| LLMError::NetworkError(e.to_string()))?;
