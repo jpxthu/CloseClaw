@@ -1,8 +1,10 @@
 //! Tests for OpenAI protocol — extracted to stay under 500-line limit.
 use super::{
-    ContentBlockType, ContentDelta, IncomingSseStream, InternalRequest, OpenAiProtocol, StreamEvent,
+    ChatProtocol, ContentBlockType, ContentDelta, IncomingSseStream, InternalRequest,
+    OpenAiProtocol, StreamEvent,
 };
 use crate::llm::types::RawSseChunk;
+use futures::StreamExt;
 
 fn make_request() -> InternalRequest {
     InternalRequest {
