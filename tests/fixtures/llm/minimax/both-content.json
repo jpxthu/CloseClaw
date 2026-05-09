@@ -1,0 +1,17 @@
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Final answer: the result is 42.",
+        "reasoning_content": "Let me think about this step by step..."
+      }
+    }
+  ],
+  "usage": {
+    "completion_tokens": 20,
+    "prompt_tokens": 10,
+    "total_tokens": 30
+  },
+  "model": "MiniMax-M2.5"
+}

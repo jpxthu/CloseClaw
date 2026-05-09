@@ -1,12 +1,13 @@
 //! Unit tests for the MiniMax provider.
 
 use super::*;
+use crate::llm::Message;
 
 // --- Fixture-based deserialization and content extraction tests ---
 
 #[test]
 fn test_simple_chat_deserialize_and_extract() {
-    let json = include_str!("../../tests/fixtures/llm/minimax/simple-chat.json");
+    let json = include_str!("../../../tests/fixtures/llm/minimax/simple-chat.json");
     let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
     let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
     let msg = &choice.message;
@@ -21,7 +22,7 @@ fn test_simple_chat_deserialize_and_extract() {
 #[test]
 fn test_simple_chat_content_priority_over_reasoning() {
     // both-content.json: both content and reasoning_content populated → content wins
-    let json = include_str!("../../tests/fixtures/llm/minimax/both-content.json");
+    let json = include_str!("../../../tests/fixtures/llm/minimax/both-content.json");
     let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
     let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
     let msg = &choice.message;
@@ -32,50 +33,57 @@ fn test_simple_chat_content_priority_over_reasoning() {
 
 #[test]
 fn test_models_list_deserialize() {
-    let json = include_str!("../../tests/fixtures/llm/minimax/models-list.json");
+    let json = include_str!("../../../tests/fixtures/llm/minimax/models-list.json");
     let resp: MiniMaxModelsResponse = serde_json::from_str(json).unwrap();
-    assert!(!resp.models.is_empty());
-    // At least one model should have reasoning enabled
-    let has_reasoning = resp.models.iter().any(|m| {
-        m.usage
-            .completion_tokens_details
-            .as_ref()
-            .map_or(false, |d| d.reasoning_tokens > 0)
-    });
-    assert!(has_reasoning, "Expected at least one reasoning model");
+    assert!(!resp.data.is_empty());
+    assert_eq!(resp.data.len(), 4);
 }
 
 // --- Integration tests via mockito ---
+
+fn mock_provider(server: &mockito::Server) -> MiniMaxProvider {
+    MiniMaxProvider {
+        api_key: "test-key".into(),
+        base_url: server.url(),
+        http_client: reqwest::Client::new(),
+    }
+}
 
 #[tokio::test]
 async fn test_chat_success_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
-        .mock("POST", "/v1/text/chatcompletion_pro")
-        .match_header("Authorization", mockito::Matcher::Regex(r"Bearer .+".to_string()))
+        .mock("POST", "/")
+        .match_header(
+            "Authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
         .match_header("Content-Type", "application/json")
         .with_status(200)
         .with_header("Content-Type", "application/json")
-        .with_body(r#"{"choices":[{"message":{"role":"assistant","content":"hi"}},"usage":{"completion_tokens":10,"prompt_tokens":5}}"#)
+        .with_body(
+            r#"{
+            "choices":[{"message":{"role":"assistant","content":"hi"}}],
+            "usage":{"completion_tokens":10,"prompt_tokens":5}
+        }"#,
+        )
         .create_async()
         .await;
 
-    let client = reqwest::Client::new();
-    let provider = MiniMaxProvider::with_base_url("test-key".into(), server.url(), client);
+    let provider = mock_provider(&server);
     let req = create_chat_request("Abab5.5-chat");
     let result = provider.chat(req).await;
 
     m.assert_async().await;
     assert!(result.is_ok());
-    let content = &result.unwrap().message;
-    assert!(content.contains("hi"));
+    assert!(result.unwrap().content.contains("hi"));
 }
 
 #[tokio::test]
 async fn test_chat_auth_failure_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
-        .mock("POST", "/v1/text/chatcompletion_pro")
+        .mock("POST", "/")
         .match_header(
             "Authorization",
             mockito::Matcher::Regex(r"Bearer .+".to_string()),
@@ -86,22 +94,21 @@ async fn test_chat_auth_failure_mock() {
         .create_async()
         .await;
 
-    let client = reqwest::Client::new();
-    let provider = MiniMaxProvider::with_base_url("test-key".into(), server.url(), client);
+    let provider = mock_provider(&server);
     let err = provider
         .chat(create_chat_request("Abab5.5-chat"))
         .await
         .unwrap_err();
 
     m.assert_async().await;
-    matches!(err, LLMError::AuthFailed(_));
+    assert!(matches!(err, LLMError::AuthFailed(_)));
 }
 
 #[tokio::test]
 async fn test_chat_rate_limit_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
-        .mock("POST", "/v1/text/chatcompletion_pro")
+        .mock("POST", "/")
         .match_body(mockito::Matcher::Any)
         .with_status(429)
         .with_header("Content-Type", "application/json")
@@ -109,20 +116,19 @@ async fn test_chat_rate_limit_mock() {
         .create_async()
         .await;
 
-    let client = reqwest::Client::new();
-    let provider = MiniMaxProvider::with_base_url("test-key".into(), server.url(), client);
+    let provider = mock_provider(&server);
     let err = provider
         .chat(create_chat_request("Abab5.5-chat"))
         .await
         .unwrap_err();
 
     m.assert_async().await;
-    matches!(err, LLMError::RateLimitExceeded);
+    assert!(matches!(err, LLMError::RateLimitExceeded));
 }
 
 #[tokio::test]
 async fn test_fetch_model_list_success_mock() {
-    let fixture = include_str!("../../tests/fixtures/llm/minimax/models-list.json");
+    let fixture = include_str!("../../../tests/fixtures/llm/minimax/models-list.json");
     let mut server = mockito::Server::new_async().await;
     let m = server
         .mock("GET", "/v1/models")
@@ -136,32 +142,80 @@ async fn test_fetch_model_list_success_mock() {
         .create_async()
         .await;
 
-    let client = reqwest::Client::new();
-    let provider = MiniMaxProvider::with_base_url("test-key".into(), server.url(), client);
+    let provider = mock_provider(&server);
     let models = provider.fetch_model_list("test-key").await.unwrap();
 
     m.assert_async().await;
     assert!(!models.is_empty());
-    // Verified reasoning models are filtered in
-    let has_reasoning = models.iter().any(|m| {
-        m.usage
-            .completion_tokens_details
-            .as_ref()
-            .map_or(false, |d| d.reasoning_tokens > 0)
-    });
-    assert!(has_reasoning);
+    // Verify model IDs are correctly parsed from the fixture
+    let ids: Vec<_> = models.iter().map(|m| m.id.as_str()).collect();
+    assert!(ids.contains(&"MiniMax-M2"));
+    assert!(ids.contains(&"MiniMax-M2.7"));
+}
+
+#[tokio::test]
+async fn test_fetch_model_list_auth_failure_mock() {
+    let mut server = mockito::Server::new_async().await;
+    let m = server
+        .mock("GET", "/v1/models")
+        .match_header(
+            "Authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
+        .with_status(401)
+        .with_header("Content-Type", "application/json")
+        .with_body(r#"{"base_resp":{"status_code":1007,"status_msg":"auth failed"}}"#)
+        .create_async()
+        .await;
+
+    let provider = mock_provider(&server);
+    let err = provider.fetch_model_list("test-key").await.unwrap_err();
+
+    m.assert_async().await;
+    assert!(matches!(err, LLMError::AuthFailed(_)));
+}
+
+#[tokio::test]
+async fn test_fetch_model_list_timeout_mock() {
+    // Use an http_client with a very short reqwest timeout (1ms) so the
+    // HTTP send returns an error, which gets mapped to LLMError::NetworkError.
+    let mut server = mockito::Server::new_async().await;
+    let _m = server
+        .mock("GET", "/v1/models")
+        .match_header(
+            "Authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(r#"{"data":[]}"#)
+        .create_async()
+        .await;
+
+    let provider = MiniMaxProvider {
+        api_key: "test-key".into(),
+        base_url: server.url(),
+        http_client: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(1))
+            .build()
+            .unwrap(),
+    };
+
+    let err = provider.fetch_model_list("test-key").await.unwrap_err();
+
+    assert!(matches!(err, LLMError::NetworkError(_)));
 }
 
 // --- Helper functions ---
 
-fn create_chat_request(model: &str) -> LLMRequest {
-    LLMRequest {
+fn create_chat_request(model: &str) -> ChatRequest {
+    ChatRequest {
         model: model.to_string(),
-        messages: vec![LLMMessage::user("hi")],
-        temperature: None,
-        top_p: None,
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: "hi".to_string(),
+        }],
+        temperature: 0.7,
         max_tokens: None,
-        stream: false,
-        stop: None,
     }
 }
