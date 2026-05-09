@@ -94,8 +94,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`ModelInfo`** — 模型元数据（id、name、context_window、max_tokens、default_temperature、reasoning、input_types），可从 `"provider/model_id"` 字符串解析（实现 `FromStr`）
 - **`ParseModelInfoError`** — `ModelInfo` 解析错误（格式非法时返回）
 - **`ReasoningLevels`** — 模型支持的思考强度级别：None（不支持）、Toggle { on }（GLM 开关式）、Levels { off, base, reasoner }（DeepSeek 多档）
-- **`ModelRecommendParams`** — 知识库中单模型的推荐参数（context_window、max_tokens、default_temperature、reasoning、reasoning_levels、input_types）
-- **`ProviderModelKnowledge`** — 内嵌知识库，按 provider 存储多模型推荐参数；支持 `find(provider, model_id)` 查询和 `all_models(provider)` 列表
+- **`ModelRecommendParams`** — 知识库中单模型的推荐参数（context_window、max_tokens、default_temperature、reasoning、reasoning_levels、input_types、recommended_protocol）；`recommended_protocol` 为该模型推荐的协议 ID，未知时返回默认 `"openai"`
+- **`ProviderModelKnowledge`** — 内嵌知识库，按 provider 存储多模型推荐参数；支持 `find(provider, model_id)` 查询、`all_models(provider)` 列表、`recommended_protocol(provider_id, model_id) -> ProtocolId` 查询（未知时 fallback `"openai"`）
 
 ### 数据类型（Provider 注册与管理）
 
