@@ -5,6 +5,8 @@
 //! through the [`ChatSession`] trait.
 
 use chrono::Utc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::llm::session::{ChatSession, SessionMessage};
 use crate::llm::turn::TurnCounter;
@@ -21,6 +23,7 @@ pub struct LegacySessionAdapter {
     system_prompt: Option<String>,
     model: String,
     turn_counter: TurnCounter,
+    is_llm_busy: Arc<AtomicBool>,
 }
 
 impl LegacySessionAdapter {
@@ -43,6 +46,7 @@ impl LegacySessionAdapter {
             system_prompt: None,
             model,
             turn_counter: TurnCounter::new(),
+            is_llm_busy: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -134,6 +138,10 @@ impl ChatSession for LegacySessionAdapter {
             stream: false,
             extra_body: Default::default(),
         }
+    }
+
+    fn is_llm_busy(&self) -> bool {
+        self.is_llm_busy.load(Ordering::SeqCst)
     }
 }
 

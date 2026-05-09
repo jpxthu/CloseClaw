@@ -5,6 +5,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::llm::turn::TurnCounter;
 use crate::llm::types::{ContentBlock, InternalMessage, InternalRequest, UnifiedResponse};
@@ -53,6 +56,9 @@ pub trait ChatSession: Send + Sync {
     /// Includes system prompt (if set), all messages, model, temperature
     /// and max_tokens.
     fn build_api_request(&self) -> InternalRequest;
+
+    /// Returns whether the LLM is currently busy (processing a request).
+    fn is_llm_busy(&self) -> bool;
 }
 
 /// A simple in-memory implementation of `ChatSession`.
@@ -65,6 +71,8 @@ pub struct ConversationSession {
     turn_counter: TurnCounter,
     model: String,
     compaction_state: Option<String>,
+    is_llm_busy: Arc<AtomicBool>,
+    pending_messages: VecDeque<crate::session::persistence::PendingMessage>,
 }
 
 impl ConversationSession {
@@ -77,6 +85,8 @@ impl ConversationSession {
             turn_counter: TurnCounter::new(),
             model,
             compaction_state: None,
+            is_llm_busy: Arc::new(AtomicBool::new(false)),
+            pending_messages: VecDeque::new(),
         }
     }
 
@@ -93,6 +103,31 @@ impl ConversationSession {
             content_blocks,
             timestamp: Utc::now(),
         });
+    }
+
+    /// Sets the LLM busy state.
+    pub fn set_llm_busy(&self, busy: bool) {
+        self.is_llm_busy.store(busy, Ordering::SeqCst);
+    }
+
+    /// Pushes a pending message onto the queue.
+    pub fn push_pending(&mut self, msg: crate::session::persistence::PendingMessage) {
+        self.pending_messages.push_back(msg);
+    }
+
+    /// Pops the oldest pending message, if any.
+    pub fn pop_pending(&mut self) -> Option<crate::session::persistence::PendingMessage> {
+        self.pending_messages.pop_front()
+    }
+
+    /// Returns whether there are any pending messages.
+    pub fn has_pending(&self) -> bool {
+        !self.pending_messages.is_empty()
+    }
+
+    /// Returns the number of pending messages.
+    pub fn pending_count(&self) -> usize {
+        self.pending_messages.len()
     }
 }
 
@@ -167,12 +202,100 @@ impl ChatSession for ConversationSession {
             extra_body: Default::default(),
         }
     }
+
+    fn is_llm_busy(&self) -> bool {
+        self.is_llm_busy.load(Ordering::SeqCst)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::llm::types::UnifiedUsage;
+    use crate::session::persistence::PendingMessage;
+    use std::sync::Arc;
+    use std::thread;
+
+    // ── llm_busy state ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_llm_busy_default_false() {
+        let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
+        assert!(!session.is_llm_busy());
+    }
+
+    #[test]
+    fn test_set_llm_busy_true() {
+        let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
+        session.set_llm_busy(true);
+        assert!(session.is_llm_busy());
+    }
+
+    #[test]
+    fn test_set_llm_busy_false_recovers() {
+        let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
+        session.set_llm_busy(true);
+        session.set_llm_busy(false);
+        assert!(!session.is_llm_busy());
+    }
+
+    #[test]
+    fn test_set_llm_busy_concurrent_no_panic() {
+        let session = Arc::new(ConversationSession::new(
+            "sess_concurrent".into(),
+            "gpt-4o".into(),
+        ));
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                let s = Arc::clone(&session);
+                thread::spawn(move || {
+                    s.set_llm_busy(i % 2 == 0);
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("thread panicked");
+        }
+    }
+
+    // ── pending_messages queue ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_pending_initial_state() {
+        let session = ConversationSession::new("sess_pending".into(), "gpt-4o".into());
+        assert_eq!(session.pending_count(), 0);
+        assert!(!session.has_pending());
+    }
+
+    #[test]
+    fn test_push_pending_sets_has_pending_and_increments_count() {
+        let mut session = ConversationSession::new("sess_pending".into(), "gpt-4o".into());
+        assert_eq!(session.pending_count(), 0);
+        session.push_pending(PendingMessage::new("msg_1".into(), "hello".into()));
+        assert!(session.has_pending());
+        assert_eq!(session.pending_count(), 1);
+        session.push_pending(PendingMessage::new("msg_2".into(), "world".into()));
+        assert_eq!(session.pending_count(), 2);
+    }
+
+    #[test]
+    fn test_pop_pending_fifo_order() {
+        let mut session = ConversationSession::new("sess_fifo".into(), "gpt-4o".into());
+        session.push_pending(PendingMessage::new("msg_A".into(), "first".into()));
+        session.push_pending(PendingMessage::new("msg_B".into(), "second".into()));
+        let first = session.pop_pending();
+        assert!(first.is_some());
+        assert_eq!(first.unwrap().message_id, "msg_A");
+        let second = session.pop_pending();
+        assert!(second.is_some());
+        assert_eq!(second.unwrap().message_id, "msg_B");
+    }
+
+    #[test]
+    fn test_pop_pending_returns_none_when_empty() {
+        let mut session = ConversationSession::new("sess_empty".into(), "gpt-4o".into());
+        assert!(session.pop_pending().is_none());
+    }
 
     // ── SessionMessage serde roundtrip ────────────────────────────────────────
 
