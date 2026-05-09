@@ -190,6 +190,109 @@ async fn test_fetch_model_list_http_error_mock() {
     matches!(err, LLMError::AuthFailed(_));
 }
 
+#[tokio::test]
+async fn test_fetch_model_list_timeout_mock() {
+    let mut server = mockito::Server::new_async().await;
+
+    // Delay response by 500ms — client timeout is 1ms, so request will timeout reliably
+    let m = server
+        .mock("GET", "/models")
+        .match_header(
+            "authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"data":[]}"#)
+        .with_delay(500)
+        .create_async()
+        .await;
+
+    // Use a client with 1ms timeout to trigger NetworkError
+    let short_timeout_client = Client::builder()
+        .timeout(Duration::from_millis(1))
+        .build()
+        .unwrap();
+    let provider = DeepSeekProvider::with_base_url("fake-key".into(), server.url());
+    // Replace http_client with short-timeout client
+    let provider = DeepSeekProviderWithCustomClient {
+        provider,
+        client: short_timeout_client,
+    };
+    let err = provider.fetch_model_list("fake-key").await.unwrap_err();
+
+    m.assert_async().await;
+    matches!(err, LLMError::NetworkError(_));
+}
+
+// Helper to inject a custom client for timeout testing
+struct DeepSeekProviderWithCustomClient {
+    provider: DeepSeekProvider,
+    client: Client,
+}
+
+impl DeepSeekProviderWithCustomClient {
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        let url = format!("{}/models", self.provider.base_url.trim_end_matches('/'));
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", bearer_token))
+            .send()
+            .await
+            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(DeepSeekProvider::map_http_error(status, &body));
+        }
+
+        let api_resp: DeepSeekModelsResponse = response.json().await.map_err(|e| {
+            LLMError::ApiError(format!("failed to parse DeepSeek /models response: {}", e))
+        })?;
+
+        let models: Vec<ModelInfo> = api_resp
+            .data
+            .into_iter()
+            .filter(|m| {
+                m.status
+                    .as_ref()
+                    .map(|s| {
+                        !s.eq_ignore_ascii_case("deprecated") && !s.eq_ignore_ascii_case("shutdown")
+                    })
+                    .unwrap_or(true)
+            })
+            .map(|m| {
+                let input_types: Vec<crate::llm::InputType> = m
+                    .input_modalities
+                    .iter()
+                    .filter_map(|m| match m.to_lowercase().as_str() {
+                        "image" => Some(crate::llm::InputType::Image),
+                        _ => Some(crate::llm::InputType::Text),
+                    })
+                    .collect();
+                let input_types = if input_types.is_empty() {
+                    vec![crate::llm::InputType::Text]
+                } else {
+                    input_types
+                };
+                ModelInfo {
+                    id: m.id.clone(),
+                    name: m.display_name.clone().unwrap_or_else(|| m.id.clone()),
+                    context_window: m.context_window.unwrap_or(64_000),
+                    max_tokens: m.max_output_tokens.unwrap_or(8_192),
+                    default_temperature: None,
+                    reasoning: false,
+                    input_types,
+                }
+            })
+            .collect();
+
+        Ok(models)
+    }
+}
+
 // -------------------------------------------------------------------------
 // extract_content() unit tests
 // -------------------------------------------------------------------------
