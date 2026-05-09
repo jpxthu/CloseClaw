@@ -9,8 +9,8 @@
 //! appropriate interpreter by glob-pattern matching.
 
 use crate::llm::types::{
-    ContentBlock, ContentBlockType, InternalRequest, InternalResponse, RawContentBlock, RawUsage,
-    StreamEvent, UnifiedResponse, UnifiedUsage,
+    ContentBlock, InternalRequest, InternalResponse, RawContentBlock, StreamEvent, UnifiedResponse,
+    UnifiedUsage,
 };
 
 use glob::Pattern;
