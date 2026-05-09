@@ -53,7 +53,7 @@ fn mock_provider(server: &mockito::Server) -> MiniMaxProvider {
 async fn test_chat_success_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
-        .mock("POST", "/v1/text/chatcompletion_pro")
+        .mock("POST", "/")
         .match_header(
             "Authorization",
             mockito::Matcher::Regex(r"Bearer .+".to_string()),
@@ -83,7 +83,7 @@ async fn test_chat_success_mock() {
 async fn test_chat_auth_failure_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
-        .mock("POST", "/v1/text/chatcompletion_pro")
+        .mock("POST", "/")
         .match_header(
             "Authorization",
             mockito::Matcher::Regex(r"Bearer .+".to_string()),
@@ -108,7 +108,7 @@ async fn test_chat_auth_failure_mock() {
 async fn test_chat_rate_limit_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
-        .mock("POST", "/v1/text/chatcompletion_pro")
+        .mock("POST", "/")
         .match_body(mockito::Matcher::Any)
         .with_status(429)
         .with_header("Content-Type", "application/json")
