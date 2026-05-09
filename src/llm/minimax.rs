@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tokio::time::timeout;
 
 use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, Usage};
 
@@ -187,13 +188,23 @@ impl LLMProvider for MiniMaxProvider {
             .trim_end_matches("/v1");
         let url = format!("{}/v1/models", base);
 
-        let response = self
-            .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", bearer_token))
-            .send()
-            .await
-            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+        let response = match timeout(
+            Duration::from_secs(10),
+            self.http_client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", bearer_token))
+                .send(),
+        )
+        .await
+        {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(e)) => return Err(LLMError::NetworkError(e.to_string())),
+            Err(_) => {
+                return Err(LLMError::NetworkError(
+                    "fetch_model_list timed out after 10s".to_string(),
+                ))
+            }
+        };
 
         let status = response.status();
         if !status.is_success() {
@@ -312,5 +323,5 @@ impl LLMProvider for MiniMaxProvider {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "minimax/tests.rs"]
 mod tests;
