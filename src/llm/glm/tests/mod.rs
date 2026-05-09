@@ -245,6 +245,39 @@ async fn test_fetch_model_list_success_mock() {
 }
 
 #[tokio::test]
+async fn test_fetch_model_list_timeout_mock() {
+    // Use an http_client with a very short reqwest timeout (1ms) so the
+    // HTTP send returns an error, which gets mapped to LLMError::NetworkError.
+    let mut server = mockito::Server::new_async().await;
+    let _m = server
+        .mock("GET", "/api/paas/v4/models")
+        .match_header(
+            "authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"data":[]}"#)
+        .create_async()
+        .await;
+
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(1))
+        .build()
+        .unwrap();
+
+    let provider = GlmProvider {
+        api_key: "fake-key".into(),
+        base_url: format!("{}/api/coding/paas/v4/chat/completions", server.url()),
+        http_client,
+    };
+
+    let err = provider.fetch_model_list("fake-key").await.unwrap_err();
+
+    assert!(matches!(err, LLMError::NetworkError(_)));
+}
+
+#[tokio::test]
 async fn test_fetch_model_list_http_auth_failure_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
