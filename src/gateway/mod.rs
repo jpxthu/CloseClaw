@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::session::persistence::PersistenceService;
+use crate::session::checkpoint_manager::CheckpointManager;
+use crate::session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
 
 pub use crate::processor_chain::ProcessorRegistry;
 pub use session_manager::SessionManager;
@@ -99,6 +100,7 @@ pub struct Gateway {
     session_manager: Arc<SessionManager>,
     processor_registry: Option<Arc<ProcessorRegistry>>,
     renderer: Option<Arc<dyn crate::renderer::Renderer>>,
+    checkpoint_manager: Option<Arc<CheckpointManager<dyn PersistenceService>>>,
 }
 
 impl Gateway {
@@ -110,6 +112,7 @@ impl Gateway {
             session_manager,
             processor_registry: None,
             renderer: None,
+            checkpoint_manager: None,
         }
     }
 
@@ -125,6 +128,7 @@ impl Gateway {
             session_manager,
             processor_registry: Some(registry),
             renderer: None,
+            checkpoint_manager: None,
         }
     }
 
@@ -145,7 +149,17 @@ impl Gateway {
             session_manager,
             processor_registry: registry,
             renderer: Some(renderer),
+            checkpoint_manager: None,
         }
+    }
+
+    /// Configure a CheckpointManager for session snapshot persistence.
+    pub fn with_checkpoint_manager(
+        mut self,
+        cm: Arc<CheckpointManager<dyn PersistenceService>>,
+    ) -> Self {
+        self.checkpoint_manager = Some(cm);
+        self
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).
@@ -220,6 +234,7 @@ impl Gateway {
     ///    `msg_type` from processed content JSON (existing behavior).
     /// 4. If neither is present → send `raw_output` as plain text (bypass).
     /// 5. If `suppress == true` → return `Ok` without sending.
+    /// 6. After each successful send, trigger checkpoint persistence.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -295,10 +310,21 @@ impl Gateway {
                         metadata: std::collections::HashMap::new(),
                     };
                     adapter.send_message(&msg).await?;
+                    self.persist_outbound_checkpoint(session_id, &msg).await;
                     return Ok(());
                 }
                 "interactive" => {
                     adapter.send_card_json(&chat_id, &payload_str).await?;
+                    let msg = Message {
+                        id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
+                        from: "agent".to_string(),
+                        to: chat_id.clone(),
+                        content: payload_str.clone(),
+                        channel: channel.to_string(),
+                        timestamp: chrono::Utc::now().timestamp(),
+                        metadata: std::collections::HashMap::new(),
+                    };
+                    self.persist_outbound_checkpoint(session_id, &msg).await;
                     return Ok(());
                 }
                 _ => {
@@ -349,6 +375,7 @@ impl Gateway {
                             metadata: std::collections::HashMap::new(),
                         };
                         adapter.send_message(&msg).await?;
+                        self.persist_outbound_checkpoint(session_id, &msg).await;
                         return Ok(());
                     }
                     "interactive" => {
@@ -358,6 +385,16 @@ impl Gateway {
                             .unwrap_or(&processed_content)
                             .to_string();
                         adapter.send_card_json(&chat_id, &card_json).await?;
+                        let msg = Message {
+                            id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
+                            from: "agent".to_string(),
+                            to: chat_id.clone(),
+                            content: card_json,
+                            channel: channel.to_string(),
+                            timestamp: chrono::Utc::now().timestamp(),
+                            metadata: std::collections::HashMap::new(),
+                        };
+                        self.persist_outbound_checkpoint(session_id, &msg).await;
                         return Ok(());
                     }
                     _ => {}
@@ -376,7 +413,30 @@ impl Gateway {
             metadata: std::collections::HashMap::new(),
         };
         adapter.send_message(&msg).await?;
+        self.persist_outbound_checkpoint(session_id, &msg).await;
         Ok(())
+    }
+
+    /// Persist outbound message to checkpoint if checkpoint_manager is configured.
+    async fn persist_outbound_checkpoint(&self, session_id: &str, msg: &Message) {
+        let Some(ref cm) = self.checkpoint_manager else {
+            return;
+        };
+        let checkpoint = match cm.load(session_id).await {
+            Ok(Some(cp)) => cp,
+            Ok(None) => SessionCheckpoint::new(session_id.to_string()),
+            Err(e) => {
+                tracing::warn!(session_id, "failed to load checkpoint: {}", e);
+                return;
+            }
+        };
+        let mut pending = PendingMessage::new(msg.id.clone(), msg.content.clone());
+        pending.mark_sent();
+        let mut cp = checkpoint.add_pending_message(pending);
+        cp.touch();
+        if let Err(e) = cm.save(cp).await {
+            tracing::warn!(session_id, "failed to save checkpoint: {}", e);
+        }
     }
 }
 

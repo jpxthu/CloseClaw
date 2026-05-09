@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use super::persistence::{AgentRole, PersistenceError, PersistenceService, SessionCheckpoint};
 
 /// Checkpoint 管理器 — 负责保存和恢复 Session 状态
-pub struct CheckpointManager<S: PersistenceService> {
+pub struct CheckpointManager<S: PersistenceService + ?Sized> {
     storage: Arc<S>,
     /// 本地缓存（减少对存储的访问）
     local_cache: RwLock<HashMap<String, SessionCheckpoint>>,
@@ -19,7 +19,7 @@ pub struct CheckpointManager<S: PersistenceService> {
     role: Option<AgentRole>,
 }
 
-impl<S: PersistenceService + 'static> CheckpointManager<S> {
+impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
     /// Create a new CheckpointManager with the given storage
     pub fn new(storage: Arc<S>) -> Self {
         Self {

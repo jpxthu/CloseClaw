@@ -117,7 +117,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `PendingMessage` | 未最终确认的中间消息 |
 | `PersistenceService` | 持久化存储接口（save/load/delete/list_active_sessions + archive/restore/purge/list_archived，后四个有默认实现：archive/restore/purge 返回 NotFound，list_archived 返回空列表） |
 | `PersistenceError` | 持久化操作错误（Redis/Postgres/Io/Serialization/NotFound/Lock） |
-| `CheckpointTrigger` | Checkpoint 触发时机（ModeSwitch/MessageSent/GatewayShutdown/PreCompact/PostCompact） |
+| `CheckpointTrigger` | Checkpoint 触发时机（ModeSwitch/MessageSent { message_id: String }/GatewayShutdown/PreCompact/PostCompact）；`MessageSent` 由 Gateway `send_outbound` 成功发送后自动触发，记录 `pending_message`（初始 `sent=false`）并立即 `mark_sent`（`sent=true`） |
 | `ModeSwitchEvent` | 模式切换事件（含 from/to mode 和 user_intent） |
 | `UserIntent` | 解析后的用户意图（raw_input/parsed_goal/entities） |
 | `RecoveryReport` | 恢复结果报告（recovered/failed 列表 + is_full_success/total） |
