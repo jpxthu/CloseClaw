@@ -54,11 +54,19 @@ async fn test_chat_success_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
         .mock("POST", "/v1/text/chatcompletion_pro")
-        .match_header("Authorization", mockito::Matcher::Regex(r"Bearer .+".to_string()))
+        .match_header(
+            "Authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
         .match_header("Content-Type", "application/json")
         .with_status(200)
         .with_header("Content-Type", "application/json")
-        .with_body(r#"{"choices":[{"message":{"role":"assistant","content":"hi"}},"usage":{"completion_tokens":10,"prompt_tokens":5}}"#)
+        .with_body(
+            r#"{
+            "choices":[{"message":{"role":"assistant","content":"hi"}}],
+            "usage":{"completion_tokens":10,"prompt_tokens":5}
+        }"#,
+        )
         .create_async()
         .await;
 
