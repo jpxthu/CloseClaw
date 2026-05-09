@@ -11,6 +11,8 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::llm::types::ContentBlock;
+
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
 
 // ---------------------------------------------------------------------------
@@ -36,6 +38,18 @@ pub struct DslParseResult {
     pub clean_content: String,
     /// Extracted DSL instructions in the order they appear in the source.
     pub instructions: Vec<DslInstruction>,
+}
+
+impl DslParseResult {
+    /// Construct a [`DslParseResult`] from a slice of
+    /// [`ContentBlock`][crate::llm::types::ContentBlock].
+    ///
+    /// Only [`ContentBlock::Text`] variants are processed; [`ContentBlock::Thinking`],
+    /// [`ContentBlock::ToolUse`], and [`ContentBlock::ToolResult`] are skipped.
+    /// Internally delegates to [`DslParser::parse_content_blocks()`].
+    pub fn from_content_blocks(blocks: &[ContentBlock]) -> Self {
+        DslParser.parse_content_blocks(blocks)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -66,10 +80,8 @@ impl DslParser {
         }
 
         let clean_content = if instructions.is_empty() {
-            // No DSL found — return original content unchanged
             content.to_string()
         } else {
-            // Remove DSL lines, preserving line order
             clean_lines.join("\n")
         };
 
@@ -77,6 +89,26 @@ impl DslParser {
             clean_content,
             instructions,
         }
+    }
+
+    /// Parse DSL instructions from a list of [`ContentBlock`][crate::llm::types::ContentBlock].
+    ///
+    /// Only [`ContentBlock::Text`] variants are processed; [`ContentBlock::Thinking`],
+    /// [`ContentBlock::ToolUse`], and [`ContentBlock::ToolResult`] are skipped.
+    /// All text contents are concatenated with newlines before parsing.
+    pub fn parse_content_blocks(&self, blocks: &[ContentBlock]) -> DslParseResult {
+        let text: String = blocks
+            .iter()
+            .filter_map(|b| {
+                if let ContentBlock::Text(s) = b {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.parse(&text)
     }
 }
 
@@ -169,6 +201,7 @@ impl MessageProcessor for DslParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::types::ContentBlock;
 
     #[test]
     fn test_no_dsl() {
@@ -289,5 +322,120 @@ mod tests {
 
         assert_eq!(result.instructions.len(), 3);
         assert_eq!(result.clean_content, "Text A\nText B");
+    }
+
+    // ---------------------------------------------------------------------------
+    // ContentBlock parse tests (Step 1.3)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_content_blocks_empty() {
+        let parser = DslParser;
+        let blocks: Vec<ContentBlock> = vec![];
+        let result = parser.parse_content_blocks(&blocks);
+        assert!(result.instructions.is_empty());
+        assert_eq!(result.clean_content, "");
+    }
+
+    #[test]
+    fn test_parse_content_blocks_only_thinking() {
+        let parser = DslParser;
+        let blocks = vec![
+            ContentBlock::Thinking("Let me think about this...".to_string()),
+            ContentBlock::Thinking("Maybe I should try...".to_string()),
+        ];
+        let result = parser.parse_content_blocks(&blocks);
+        assert!(result.instructions.is_empty());
+        assert_eq!(result.clean_content, "");
+    }
+
+    #[test]
+    fn test_parse_content_blocks_only_tool_use() {
+        let parser = DslParser;
+        let blocks = vec![
+            ContentBlock::ToolUse {
+                id: "call_1".to_string(),
+                name: "search".to_string(),
+                input: "{}".to_string(),
+            },
+            ContentBlock::ToolUse {
+                id: "call_2".to_string(),
+                name: "fetch".to_string(),
+                input: "{}".to_string(),
+            },
+        ];
+        let result = parser.parse_content_blocks(&blocks);
+        assert!(result.instructions.is_empty());
+        assert_eq!(result.clean_content, "");
+    }
+
+    #[test]
+    fn test_parse_content_blocks_only_tool_result() {
+        let parser = DslParser;
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "call_1".to_string(),
+            content: "some result".to_string(),
+        }];
+        let result = parser.parse_content_blocks(&blocks);
+        assert!(result.instructions.is_empty());
+        assert_eq!(result.clean_content, "");
+    }
+
+    #[test]
+    fn test_parse_content_blocks_multiple_text_dsl_lines() {
+        let parser = DslParser;
+        let blocks = vec![
+            ContentBlock::Text("Hello".to_string()),
+            ContentBlock::Text("::button[label:A;action:x;value:1]".to_string()),
+            ContentBlock::Text("Middle".to_string()),
+            ContentBlock::Text("::button[label:B;action:y;value:2]".to_string()),
+        ];
+        let result = parser.parse_content_blocks(&blocks);
+        assert_eq!(result.instructions.len(), 2);
+        assert_eq!(result.clean_content, "Hello\nMiddle");
+    }
+
+    #[test]
+    fn test_parse_content_blocks_mixed_with_non_text_skipped() {
+        let parser = DslParser;
+        let blocks = vec![
+            ContentBlock::Thinking("thinking...".to_string()),
+            ContentBlock::Text("::button[label:Click;action:go;value:ok]".to_string()),
+            ContentBlock::ToolResult {
+                tool_call_id: "call_1".to_string(),
+                content: "tool result".to_string(),
+            },
+            ContentBlock::ToolUse {
+                id: "call_2".to_string(),
+                name: "test".to_string(),
+                input: "{}".to_string(),
+            },
+        ];
+        let result = parser.parse_content_blocks(&blocks);
+        assert_eq!(result.instructions.len(), 1);
+        match &result.instructions[0] {
+            DslInstruction::Button {
+                label,
+                action,
+                value,
+            } => {
+                assert_eq!(label, "Click");
+                assert_eq!(action, "go");
+                assert_eq!(value, "ok");
+            }
+        }
+        assert_eq!(result.clean_content, "");
+    }
+
+    #[test]
+    fn test_from_content_blocks_equivalence() {
+        let blocks = vec![
+            ContentBlock::Text("Some text\n::button[label:X;action:a;value:1]".to_string()),
+            ContentBlock::Thinking("ignored".to_string()),
+            ContentBlock::Text("More text\n::button[label:Y;action:b;value:2]".to_string()),
+        ];
+        let resultConvenience = DslParseResult::from_content_blocks(&blocks);
+        let result_manual = DslParser::default().parse_content_blocks(&blocks);
+        assert_eq!(resultConvenience, result_manual);
     }
 }
