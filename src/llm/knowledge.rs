@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::model_info::InputType;
+use super::types::ProtocolId;
 
 // ---------------------------------------------------------------------------
 // ReasoningLevels
@@ -57,6 +58,8 @@ pub struct ModelRecommendParams {
     pub reasoning_levels: ReasoningLevels,
     /// Supported input modalities.
     pub input_types: Vec<InputType>,
+    /// Recommended protocol for this model.
+    pub recommended_protocol: ProtocolId,
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +91,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         minimax_models.insert(
@@ -99,6 +103,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         minimax_models.insert(
@@ -110,6 +115,7 @@ impl ProviderModelKnowledge {
                 reasoning: true,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         minimax_models.insert(
@@ -121,6 +127,7 @@ impl ProviderModelKnowledge {
                 reasoning: true,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         inner.insert("minimax".to_string(), minimax_models);
@@ -140,6 +147,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         glm_models.insert(
@@ -151,6 +159,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text, InputType::Image],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         glm_models.insert(
@@ -162,6 +171,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         glm_models.insert(
@@ -173,6 +183,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text, InputType::Image],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         glm_models.insert(
@@ -184,6 +195,7 @@ impl ProviderModelKnowledge {
                 reasoning: true,
                 reasoning_levels: ReasoningLevels::Toggle { on: false },
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         glm_models.insert(
@@ -195,6 +207,7 @@ impl ProviderModelKnowledge {
                 reasoning: true,
                 reasoning_levels: ReasoningLevels::Toggle { on: false },
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         inner.insert("glm".to_string(), glm_models);
@@ -213,6 +226,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         volcengine_models.insert(
@@ -224,6 +238,7 @@ impl ProviderModelKnowledge {
                 reasoning: false,
                 reasoning_levels: ReasoningLevels::None,
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("openai"),
             },
         );
         inner.insert("volcengine".to_string(), volcengine_models);
@@ -247,6 +262,7 @@ impl ProviderModelKnowledge {
                     reasoner: true,
                 },
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         deepseek_models.insert(
@@ -262,6 +278,7 @@ impl ProviderModelKnowledge {
                     reasoner: true,
                 },
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         deepseek_models.insert(
@@ -277,6 +294,7 @@ impl ProviderModelKnowledge {
                     reasoner: true,
                 },
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         deepseek_models.insert(
@@ -292,6 +310,7 @@ impl ProviderModelKnowledge {
                     reasoner: true,
                 },
                 input_types: vec![InputType::Text],
+                recommended_protocol: ProtocolId::from("anthropic"),
             },
         );
         inner.insert("deepseek".to_string(), deepseek_models);
@@ -312,6 +331,15 @@ impl ProviderModelKnowledge {
             .get(&provider_id.to_lowercase())
             .map(|models| models.keys().cloned().collect())
             .unwrap_or_default()
+    }
+
+    /// Returns the recommended protocol for a given provider + model.
+    ///
+    /// Falls back to `"openai"` when the model is not found.
+    pub fn recommended_protocol(&self, provider_id: &str, model_id: &str) -> ProtocolId {
+        self.find(provider_id, model_id)
+            .map(|p| p.recommended_protocol.clone())
+            .unwrap_or_else(|| ProtocolId::from("openai"))
     }
 }
 
@@ -418,5 +446,35 @@ mod tests {
         let kb = kb();
         let p = kb.find("minimax", "MiniMax-M2.7").unwrap();
         assert!(matches!(p.reasoning_levels, ReasoningLevels::None));
+    }
+
+    // ── recommended_protocol ──────────────────────────────────────────────
+
+    #[test]
+    fn test_recommended_protocol_minimax() {
+        let kb = kb();
+        let proto = kb.recommended_protocol("minimax", "MiniMax-M2.7");
+        assert_eq!(proto.as_str(), "anthropic");
+    }
+
+    #[test]
+    fn test_recommended_protocol_glm() {
+        let kb = kb();
+        let proto = kb.recommended_protocol("glm", "glm-5.1");
+        assert_eq!(proto.as_str(), "openai");
+    }
+
+    #[test]
+    fn test_recommended_protocol_deepseek() {
+        let kb = kb();
+        let proto = kb.recommended_protocol("deepseek", "deepseek-v4-flash");
+        assert_eq!(proto.as_str(), "anthropic");
+    }
+
+    #[test]
+    fn test_recommended_protocol_unknown_fallback() {
+        let kb = kb();
+        let proto = kb.recommended_protocol("unknown", "unknown-model");
+        assert_eq!(proto.as_str(), "openai");
     }
 }
