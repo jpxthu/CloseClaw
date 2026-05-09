@@ -107,9 +107,19 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`CapturedRequest`** — `FakeProvider` 捕获的请求记录（model、messages）
 - **`Builder`** — `FakeProvider` 的 Builder，支持 `.then_ok()`、`.then_err()`、`.then_delay()`、`.or_else()`、`.stub()` 等 API
 
+### Session 管理与队列
+
+- **`ChatSession`**（trait）— LLM 对话会话抽象 trait，定义会话状态查询和操作接口。所有实现必须 `Send + Sync`
+- **`ConversationSession`** — `ChatSession` 的内存实现，持有消息历史、turn 计数、系统 prompt、`llm_busy` 状态和 `pending_messages` 队列
+- **`ChatSession::is_llm_busy`** — 查询 LLM 是否处于 busy 状态（是否有进行中的 LLM 调用）
+- **`ConversationSession::set_llm_busy`** — 设置 LLM busy 状态（`Arc<AtomicBool>`，线程安全）
+- **`ConversationSession::push_pending`** — 将 `PendingMessage` 压入 pending 队列（FIFO）
+- **`ConversationSession::pop_pending`** — 弹出并返回最早的 pending 消息（无则返回 None）
+- **`ConversationSession::has_pending`** — 查询 pending 队列是否非空
+- **`ConversationSession::pending_count`** — 返回 pending 消息数量
+
 ### 构造
 
-- **`LegacyProviderAdapter::new`** — 构造桥接器，将旧 `LLMProvider` 适配到新 `Provider` trait；参数包括 inner provider、base_url、api_key、supported_protocols、http_client、default_headers
 - **`LegacySessionAdapter::from_legacy_messages`** — 从旧 `Vec<Message>` 构造新 `ChatSession` 适配器（模型名 + 消息历史）
 - **`LLMRegistry::new`** — 创建空注册中心
 
