@@ -184,7 +184,7 @@ pub async fn handle_config_setup(skip: bool) -> Result<()> {
 
     println!("\n=== CloseClaw Setup Wizard ===\n");
 
-    let output = match config_wizard::run_wizard() {
+    let output = match config_wizard::run_wizard().await {
         Ok(Some(output)) => output,
         Ok(None) => {
             println!("Wizard cancelled.");
@@ -196,10 +196,14 @@ pub async fn handle_config_setup(skip: bool) -> Result<()> {
     // If skip (yes mode), skip the confirm step and write config directly.
     if !skip {
         use dialoguer::Confirm;
-        let confirmed = Confirm::new()
-            .with_prompt("Write config now?")
-            .default(true)
-            .interact()?;
+        let confirmed = tokio::task::spawn_blocking(|| {
+            Confirm::new()
+                .with_prompt("Write config now?")
+                .default(true)
+                .interact()
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Confirm task failed: {}", e))??;
         if !confirmed {
             println!("Aborted.");
             return Ok(());

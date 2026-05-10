@@ -216,19 +216,19 @@ fn build_provider(info: &ProviderInfo, credential: &str) -> Arc<dyn LLMProvider>
 
 /// Fetch model list with a 10-second timeout.
 /// On timeout or error, falls back to `ProviderModelKnowledge`.
-fn fetch_models_with_fallback(provider: &Arc<dyn LLMProvider>, credential: &str) -> Vec<ModelInfo> {
+async fn fetch_models_with_fallback(
+    provider: &Arc<dyn LLMProvider>,
+    credential: &str,
+) -> Vec<ModelInfo> {
     // Show spinner while fetching
     print!("Fetching models from provider...");
     std::io::Write::flush(&mut std::io::stdout()).ok();
 
-    let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-    let result = rt.block_on(async {
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            provider.fetch_model_list(credential),
-        )
-        .await
-    });
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        provider.fetch_model_list(credential),
+    )
+    .await;
 
     match result {
         Ok(Ok(model_infos)) => {
@@ -240,17 +240,17 @@ fn fetch_models_with_fallback(provider: &Arc<dyn LLMProvider>, credential: &str)
                 "\n[Warning] API fetch failed ({}), falling back to knowledge base",
                 err
             );
-            knowledge_fallback(provider.name())
+            knowledge_fallback(provider.name()).await
         }
         Err(_) => {
             println!("\n[Warning] API fetch timed out (10s), falling back to knowledge base");
-            knowledge_fallback(provider.name())
+            knowledge_fallback(provider.name()).await
         }
     }
 }
 
 /// Return model list from `ProviderModelKnowledge` for the given provider name.
-pub fn knowledge_fallback(provider_name: &str) -> Vec<ModelInfo> {
+async fn knowledge_fallback(provider_name: &str) -> Vec<ModelInfo> {
     let kb = ProviderModelKnowledge::new();
     let model_ids = kb.all_models(provider_name);
     model_ids
@@ -274,7 +274,7 @@ pub fn knowledge_fallback(provider_name: &str) -> Vec<ModelInfo> {
 ///
 /// Returns `Ok(Some(output))` on success, `Ok(None)` on clean Ctrl+C exit,
 /// or an error for invalid input / unexpected failures.
-pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
+pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
     // Install panic hook so Ctrl+C (which triggers dialoguer panic) exits cleanly.
     let original_hook = panic::take_hook();
     #[allow(clippy::incompatible_msrv)]
@@ -290,21 +290,32 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
     let mut ctx = WizardContext::default();
 
     // ── SelectProvider ──────────────────────────────────────────────────
-    let selection = Select::new()
-        .with_prompt("Select a provider")
-        .items(&PROVIDERS.iter().map(|p| p.display_name).collect::<Vec<_>>())
-        .default(0)
-        .interact()?;
+    let selection = tokio::task::spawn_blocking(|| {
+        Select::new()
+            .with_prompt("Select a provider")
+            .items(&PROVIDERS.iter().map(|p| p.display_name).collect::<Vec<_>>())
+            .default(0)
+            .interact()
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
     ctx.selected_provider = Some(PROVIDERS[selection].clone());
 
     // ── InputCredential ────────────────────────────────────────────────
     loop {
-        let input = dialoguer::Password::new()
-            .with_prompt(format!(
-                "Enter API token for {}",
-                ctx.selected_provider.as_ref().unwrap().display_name
-            ))
-            .interact()?;
+        let provider_name = ctx
+            .selected_provider
+            .as_ref()
+            .unwrap()
+            .display_name
+            .to_string();
+        let input: String = tokio::task::spawn_blocking(move || {
+            dialoguer::Password::new()
+                .with_prompt(format!("Enter API token for {}", provider_name))
+                .interact()
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
         if input.trim().is_empty() {
             println!("Token cannot be empty, please try again.");
             continue;
@@ -324,7 +335,7 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         ctx.provider = Some(build_provider(info, cred));
         let provider = ctx.provider.as_ref().unwrap();
 
-        let models = fetch_models_with_fallback(provider, cred);
+        let models = fetch_models_with_fallback(provider, cred).await;
         ctx.fetched_models = models;
     }
 
@@ -381,7 +392,10 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         }
         println!();
 
-        let input: String = Input::new().with_prompt("Your selection").interact()?;
+        let input: String =
+            tokio::task::spawn_blocking(|| Input::new().with_prompt("Your selection").interact())
+                .await
+                .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
 
         match parse_model_selection(&input, models.len()) {
             Ok(indices) => {
@@ -429,10 +443,14 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         }
 
         println!();
-        let confirm: String = Input::new()
-            .with_prompt("Confirm? (yes/no)")
-            .default("yes".into())
-            .interact()?;
+        let confirm: String = tokio::task::spawn_blocking(|| {
+            Input::new()
+                .with_prompt("Confirm? (yes/no)")
+                .default("yes".into())
+                .interact()
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
 
         match confirm.trim().to_lowercase().as_str() {
             "yes" | "y" => {
