@@ -45,7 +45,13 @@
 
 `config_wizard` 提供 `closeclaw config setup` 的交互式配置流程。用户依次经历线性状态机：SelectProvider → InputCredential → FetchModels → SelectModels → Confirm → WriteConfig，最终将配置写入 `~/.closeclaw/config/models.json` 和 `~/.closeclaw/config/credentials/<provider_id>.json`。
 
-FetchModels 阶段通过 `LLMProvider::fetch_model_list()` 获取模型列表，10s 超时或失败时回退到 `ProviderModelKnowledge` 知识库。SelectModels 支持空格分隔编号、范围语法（`1-3,5,7`）和 `all` 关键字，每行显示列表时追加 `protocol: {proto} (recommended)` 标签。写入时采用合并策略：当前 provider 的模型整体替换，其他 provider 的已配置模型保留。`write_wizard_config()` 写入 `ProviderConfig.protocol` 字段，值为第一个选中模型的 `recommended_protocol`。
+FetchModels 阶段调用 `fetch_models_with_retry()` 获取模型列表，`fetch_models_with_retry()` 包装 `fetch_model_list()` 调用，最多重试 3 次。重试策略：
+- **Transient 错误**（429 / 5xx / 网络超时）→ 指数退避重试（1s~10s 上界），耗尽 3 次后回退到 `ProviderModelKnowledge` 知识库
+- **超时**（10s）→ 视为 Transient，一同参与指数退避重试
+- **Auth / Billing / InvalidRequest** → 立即回退到知识库，不重试
+- 重试延迟使用 `crate::llm::retry::backoff_delay()` 计算（1s base，10s 上界）
+
+SelectModels 支持空格分隔编号，范围语法（`1-3,5,7`）和 `all` 关键字，每行显示列表时追加 `protocol: {proto} (recommended)` 标签。写入时采用合并策略：当前 provider 的模型整体替换，其他 provider 的已配置模型保留。`write_wizard_config()` 写入 `ProviderConfig.protocol` 字段，值为第一个选中模型的 `recommended_protocol`。
 
 **公开接口：**
 
