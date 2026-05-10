@@ -1,22 +1,22 @@
 //! Config Wizard - interactive CLI configuration flow
 
-pub mod types;
 pub mod fetch;
+pub mod types;
 
-pub use types::*;
 pub use fetch::*;
+pub use types::*;
 
 use crate::config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
 use crate::llm::retry::backoff_delay;
+#[cfg(test)]
+use crate::llm::LLMError;
 use crate::llm::{
     DeepSeekProvider, ErrorKind, GlmProvider, LLMProvider, MiniMaxProvider, ModelInfo,
     ProviderModelKnowledge, VolcEngineProvider,
 };
-#[cfg(test)]
-use crate::llm::LLMError;
 use dialoguer::{Input, Select};
 
 use std::panic;
@@ -446,3 +446,6 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod e2e_tests;
