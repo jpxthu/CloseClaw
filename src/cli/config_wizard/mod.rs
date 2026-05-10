@@ -302,6 +302,7 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
             continue;
         }
         ctx.credential = Some(input);
+        println!("[ OK ] token received");
         break;
     }
 
@@ -456,3 +457,6 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         selected_models: out_selected_models,
     }))
 }
+
+#[cfg(test)]
+mod tests;
