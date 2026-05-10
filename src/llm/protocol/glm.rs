@@ -151,6 +151,7 @@ impl ChatProtocol for GlmProtocol {
             let mut stream = incoming;
             let mut current_block_index: Option<usize> = None;
             let mut current_block_type: Option<ContentBlockType> = None;
+            let mut next_block_index: usize = 0;
 
             while let Some(chunk) = stream.next().await {
                 let data = chunk.data.trim();
@@ -194,7 +195,8 @@ impl ChatProtocol for GlmProtocol {
                             } else {
                                 ContentBlockType::Text
                             };
-                            let idx = 0;
+                            let idx = next_block_index;
+                            next_block_index += 1;
                             current_block_index = Some(idx);
                             current_block_type = Some(btype);
                             yield StreamEvent::BlockStart { index: idx, block_type: btype };
@@ -228,7 +230,8 @@ impl ChatProtocol for GlmProtocol {
                     for tc in tool_calls.iter() {
                         if let Some(tc_id) = tc.get("id").and_then(|v| v.as_str()) {
                             // Start new tool block
-                            let idx = 0;
+                            let idx = next_block_index;
+                            next_block_index += 1;
                             current_block_index = Some(idx);
                             current_block_type = Some(ContentBlockType::ToolUse);
                             yield StreamEvent::BlockStart { index: idx, block_type: ContentBlockType::ToolUse };
