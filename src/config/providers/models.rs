@@ -42,6 +42,9 @@ pub struct ProviderConfig {
     pub api: Option<String>,
 
     #[serde(default)]
+    pub protocol: Option<String>,
+
+    #[serde(default)]
     pub models: Vec<ModelDefinition>,
 }
 

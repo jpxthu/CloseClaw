@@ -46,7 +46,7 @@
 
 `config_wizard` 提供 `closeclaw config setup` 的交互式配置流程。用户依次经历线性状态机：SelectProvider → InputCredential → FetchModels → SelectModels → Confirm → WriteConfig，最终将配置写入 `~/.closeclaw/config/models.json` 和 `~/.closeclaw/config/credentials/<provider_id>.json`。
 
-FetchModels 阶段通过 `LLMProvider::fetch_model_list()` 获取模型列表，10s 超时或失败时回退到 `ProviderModelKnowledge` 知识库。SelectModels 支持空格分隔编号、范围语法（`1-3,5,7`）和 `all` 关键字。写入时采用合并策略：当前 provider 的模型整体替换，其他 provider 的已配置模型保留。
+FetchModels 阶段通过 `LLMProvider::fetch_model_list()` 获取模型列表，10s 超时或失败时回退到 `ProviderModelKnowledge` 知识库。SelectModels 支持空格分隔编号、范围语法（`1-3,5,7`）和 `all` 关键字，每行显示列表时追加 `protocol: {proto} (recommended)` 标签。写入时采用合并策略：当前 provider 的模型整体替换，其他 provider 的已配置模型保留。`write_wizard_config()` 写入 `ProviderConfig.protocol` 字段，值为第一个选中模型的 `recommended_protocol`。
 
 **公开接口：**
 
@@ -61,6 +61,7 @@ FetchModels 阶段通过 `LLMProvider::fetch_model_list()` 获取模型列表，
 - `WizardOutput` — Wizard 的最终输出，含 provider_id、credential、selected_models
 - `ProviderInfo` — Provider 元数据（id、display_name、ProviderType），PROVIDERS 常量列出全部 4 个 Provider
 - `ProviderType` — 枚举变体：Minimax / Glm / Volcengine / Deepseek
+- `ProviderConfig`（见 `config/providers/models.rs`）— 含 `protocol: Option<String>` 字段，写入 models.json 时由第一个选中模型的 recommended_protocol 填充
 
 **模块结构：**
 

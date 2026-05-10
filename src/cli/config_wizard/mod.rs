@@ -142,6 +142,13 @@ pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
         })
         .collect();
 
+    // ── Query recommended_protocol from knowledge base ────────────────────────
+    let recommended_protocol = output.selected_models.first().map(|m| {
+        let kb = ProviderModelKnowledge::new();
+        kb.recommended_protocol(&output.provider_id, &m.id)
+            .to_string()
+    });
+
     // ── Merge: preserve all existing providers, replace selected provider ───────
     let mut providers = existing.providers;
     // Remove entries for the selected provider so we can replace them
@@ -151,6 +158,7 @@ pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
         base_url: None,
         api_key: None,
         api: None,
+        protocol: recommended_protocol,
         models: new_provider_models,
     };
     providers.insert(output.provider_id.clone(), new_provider_config);
@@ -350,7 +358,18 @@ pub fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
                 let is_configured = ctx.existing_config.contains_key(&m.id);
                 let mark = if is_configured { "[*]" } else { "[ ]" };
                 let reasoning_flag = if m.reasoning { " 🤖" } else { "" };
-                format!("{:3}. {} {}{}", i + 1, mark, m.name, reasoning_flag)
+                let provider_id = ctx.selected_provider.as_ref().unwrap().id;
+                let kb = ProviderModelKnowledge::new();
+                let proto = kb.recommended_protocol(provider_id, &m.id);
+                let proto_str = proto.as_str();
+                format!(
+                    "{:3}. {} {}{}  protocol: {} (recommended)",
+                    i + 1,
+                    mark,
+                    m.name,
+                    reasoning_flag,
+                    proto_str
+                )
             })
             .collect();
 

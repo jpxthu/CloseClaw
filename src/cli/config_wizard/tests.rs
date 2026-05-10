@@ -106,3 +106,187 @@ mod wizard_context_tests {
         assert_ne!(WizardState::SelectProvider, WizardState::InputCredential);
     }
 }
+
+#[cfg(test)]
+mod provider_config_protocol_tests {
+    use super::*;
+    use crate::config::providers::models::{ModelDefinition, ProviderConfig};
+
+    /// Test 1: ProviderConfig serializes with protocol field present
+    #[test]
+    fn test_provider_config_serializes_with_protocol() {
+        let config = ProviderConfig {
+            base_url: Some("https://api.example.com".to_string()),
+            api_key: Some("sk-test".to_string()),
+            api: Some("v1".to_string()),
+            protocol: Some("openai".to_string()),
+            models: vec![ModelDefinition {
+                id: "gpt-4".to_string(),
+                name: Some("GPT-4".to_string()),
+                enabled: Some(true),
+            }],
+        };
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        assert!(
+            json.contains("protocol"),
+            "JSON should contain protocol field: {}",
+            json
+        );
+    }
+
+    /// Test 2: ProviderConfig serializes with protocol field as null when None
+    #[test]
+    fn test_provider_config_serializes_with_protocol_null() {
+        let config = ProviderConfig {
+            base_url: None,
+            api_key: None,
+            api: None,
+            protocol: None,
+            models: vec![],
+        };
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        assert!(json.contains("\"protocol\": null"));
+    }
+
+    /// Test 3: ProviderConfig deserializes with protocol field present
+    #[test]
+    fn test_provider_config_deserializes_with_protocol() {
+        let json = r#"{
+            "baseUrl": "https://api.example.com",
+            "apiKey": "sk-test",
+            "api": "v1",
+            "protocol": "anthropic",
+            "models": [
+                { "id": "gpt-4", "name": "GPT-4", "enabled": true }
+            ]
+        }"#;
+        let config: ProviderConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.protocol.as_deref(), Some("anthropic"));
+    }
+
+    /// Test 4: ProviderConfig deserializes with protocol field absent (treated as None)
+    #[test]
+    fn test_provider_config_deserializes_without_protocol() {
+        let json = r#"{
+            "baseUrl": "https://api.example.com",
+            "apiKey": "sk-test",
+            "models": []
+        }"#;
+        let config: ProviderConfig = serde_json::from_str(json).unwrap();
+        assert!(config.protocol.is_none());
+    }
+
+    /// Test 5: ProviderConfig roundtrip: serialize -> deserialize preserves protocol
+    #[test]
+    fn test_provider_config_roundtrip_with_protocol() {
+        let original = ProviderConfig {
+            base_url: Some("https://api.test.com".to_string()),
+            api_key: None,
+            api: None,
+            protocol: Some("openai".to_string()),
+            models: vec![],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let roundtripped: ProviderConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtripped.protocol, original.protocol);
+    }
+}
+
+#[cfg(test)]
+mod write_wizard_config_tests {
+    use super::*;
+    use std::sync::Once;
+
+    // Ensure HOME is set for tests that call config_dir()
+    static SETUP: Once = Once::new();
+    fn setup() {
+        SETUP.call_once(|| {
+            std::env::set_var("HOME", "/tmp");
+        });
+    }
+
+    /// Helper: create a temporary directory and return its path.
+    fn with_temp_dir(f: impl FnOnce(std::path::PathBuf)) {
+        let tmp = std::env::temp_dir();
+        let dir = tmp.join(format!("closeclaw_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        f(dir.clone());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Test: write_wizard_config outputs protocol field in ProviderConfig
+    ///
+    /// We intercept the config_dir() by patching HOME to a temp dir so
+    /// write_wizard_config writes to a controlled location.
+    #[test]
+    fn test_write_wizard_config_includes_protocol() {
+        setup();
+        with_temp_dir(|dir| {
+            // Set HOME so config_dir() resolves to our temp dir
+            std::env::set_var("HOME", dir.to_str().unwrap());
+
+            let output = WizardOutput {
+                provider_id: "minimax".to_string(),
+                credential: "test-api-key".to_string(),
+                selected_models: vec![ModelInfo {
+                    id: "MiniMax-M2.7".to_string(),
+                    name: "MiniMax M2.7".to_string(),
+                    context_window: 1000,
+                    max_tokens: 1000,
+                    default_temperature: None,
+                    reasoning: false,
+                    input_types: vec![],
+                }],
+            };
+
+            write_wizard_config(&output).expect("write_wizard_config should succeed");
+
+            let models_path = dir.join(".closeclaw").join("config").join("models.json");
+            let content =
+                std::fs::read_to_string(&models_path).expect("models.json should be written");
+
+            let parsed: ModelsConfigData =
+                serde_json::from_str(&content).expect("models.json should be valid JSON");
+
+            let provider = parsed
+                .providers
+                .get("minimax")
+                .expect("minimax provider should exist");
+            // MiniMax-M2.7 -> recommended_protocol should be "anthropic"
+            assert!(
+                provider.protocol.is_some(),
+                "protocol field should be present, got: {:?}",
+                provider.protocol
+            );
+            assert_eq!(
+                provider.protocol.as_deref(),
+                Some("anthropic"),
+                "MiniMax-M2.7 should have protocol 'anthropic', got: {:?}",
+                provider.protocol
+            );
+        });
+    }
+
+    /// Test: write_wizard_config handles empty selected_models gracefully
+    #[test]
+    fn test_write_wizard_config_with_no_selected_models() {
+        setup();
+        with_temp_dir(|dir| {
+            std::env::set_var("HOME", dir.to_str().unwrap());
+
+            let output = WizardOutput {
+                provider_id: "glm".to_string(),
+                credential: "test-key".to_string(),
+                selected_models: vec![],
+            };
+
+            // Should not panic — empty models is valid
+            let result = write_wizard_config(&output);
+            assert!(
+                result.is_ok(),
+                "empty selected_models should not cause error: {:?}",
+                result
+            );
+        });
+    }
+}
