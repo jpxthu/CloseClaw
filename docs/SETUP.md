@@ -125,11 +125,47 @@ cp configs/.env.example configs/.env
 }
 ```
 
-### 3. 配置权限规则
+### 3. 配置凭据文件（可选）
+
+如果你不使用向导（Wizard）配置 API Key，可以手动创建凭据 JSON 文件。
+
+凭据文件路径：
+```
+~/.closeclaw/config/credentials/<provider_id>.json
+```
+
+其中 `<provider_id>` 为提供商 ID，例如 `minimax`、`glm`、`deepseek` 等。
+
+文件内容格式（使用 camelCase 字段名）：
+```json
+{
+  "provider": "minimax",
+  "apiKey": "your-api-key-here"
+}
+```
+
+**示例** — MiniMax provider：
+```json
+{
+  "provider": "minimax",
+  "apiKey": "eyJhYmNkZWZnaGlqb2tlcm5hbWUifQ=="
+}
+```
+
+**示例** — Feishu provider：
+```json
+{
+  "provider": "feishu",
+  "appId": "cli_abc123",
+  "appSecret": "your-app-secret"
+}
+```
+
+### 4. 配置权限规则
 
 编辑 `configs/permissions.json`。详见 [permission/RULES.md](permission/RULES.md)。
 
-### 4. 启动 Daemon
+### 5. 启动 Daemon
 
 ```bash
 # 启动 daemon
