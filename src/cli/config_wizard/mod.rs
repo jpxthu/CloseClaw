@@ -1,17 +1,22 @@
 //! Config Wizard - interactive CLI configuration flow
 
 pub mod types;
+pub mod fetch;
 
 pub use types::*;
+pub use fetch::*;
 
 use crate::config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
+use crate::llm::retry::backoff_delay;
 use crate::llm::{
-    DeepSeekProvider, GlmProvider, LLMProvider, MiniMaxProvider, ModelInfo, ProviderModelKnowledge,
-    VolcEngineProvider,
+    DeepSeekProvider, ErrorKind, GlmProvider, LLMProvider, MiniMaxProvider, ModelInfo,
+    ProviderModelKnowledge, VolcEngineProvider,
 };
+#[cfg(test)]
+use crate::llm::LLMError;
 use dialoguer::{Input, Select};
 
 use std::panic;
@@ -214,62 +219,6 @@ fn build_provider(info: &ProviderInfo, credential: &str) -> Arc<dyn LLMProvider>
     }
 }
 
-/// Fetch model list with a 10-second timeout.
-/// On timeout or error, falls back to `ProviderModelKnowledge`.
-async fn fetch_models_with_fallback(
-    provider: &Arc<dyn LLMProvider>,
-    credential: &str,
-) -> Vec<ModelInfo> {
-    // Show spinner while fetching
-    print!("Fetching models from provider...");
-    std::io::Write::flush(&mut std::io::stdout()).ok();
-
-    let result = tokio::time::timeout(
-        Duration::from_secs(10),
-        provider.fetch_model_list(credential),
-    )
-    .await;
-
-    match result {
-        Ok(Ok(model_infos)) => {
-            println!(" done");
-            model_infos
-        }
-        Ok(Err(err)) => {
-            println!(
-                "\n[Warning] API fetch failed ({}), falling back to knowledge base",
-                err
-            );
-            knowledge_fallback(provider.name()).await
-        }
-        Err(_) => {
-            println!("\n[Warning] API fetch timed out (10s), falling back to knowledge base");
-            knowledge_fallback(provider.name()).await
-        }
-    }
-}
-
-/// Return model list from `ProviderModelKnowledge` for the given provider name.
-async fn knowledge_fallback(provider_name: &str) -> Vec<ModelInfo> {
-    let kb = ProviderModelKnowledge::new();
-    let model_ids = kb.all_models(provider_name);
-    model_ids
-        .into_iter()
-        .map(|id| {
-            let params = kb.find(provider_name, id).unwrap();
-            ModelInfo {
-                id: id.to_string(),
-                name: id.to_string(),
-                context_window: params.context_window,
-                max_tokens: params.max_tokens,
-                default_temperature: Some(params.default_temperature),
-                reasoning: params.reasoning,
-                input_types: params.input_types,
-            }
-        })
-        .collect()
-}
-
 /// Run the interactive config wizard.
 ///
 /// Returns `Ok(Some(output))` on success, `Ok(None)` on clean Ctrl+C exit,
@@ -335,7 +284,7 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         ctx.provider = Some(build_provider(info, cred));
         let provider = ctx.provider.as_ref().unwrap();
 
-        let models = fetch_models_with_fallback(provider, cred).await;
+        let models = fetch_models_with_retry(provider, cred).await;
         ctx.fetched_models = models;
     }
 

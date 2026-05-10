@@ -2,6 +2,173 @@
 
 use super::*;
 
+use async_trait::async_trait;
+
+use std::sync::atomic::{self, AtomicUsize};
+use std::sync::Arc;
+
+// ─────────────────────────────────────────────────────────────────
+// Mock LLMProvider for testing fetch_models_with_retry
+// ─────────────────────────────────────────────────────────────────
+
+struct MockProvider {
+    name: String,
+    // What the fetch_model_list call should return
+    result: std::sync::Mutex<
+        std::sync::Arc<dyn Fn(&str) -> Result<Vec<ModelInfo>, LLMError> + Send + Sync>,
+    >,
+}
+
+impl MockProvider {
+    fn new(
+        name: &str,
+        f: impl Fn(&str) -> Result<Vec<ModelInfo>, LLMError> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            name: name.to_string(),
+            result: std::sync::Mutex::new(std::sync::Arc::new(f)),
+        }
+    }
+
+    fn returning(result: impl Into<Result<Vec<ModelInfo>, LLMError>>) -> Self {
+        let result = result.into();
+        Self::new("mock", move |_| result.clone())
+    }
+}
+
+#[async_trait]
+impl LLMProvider for MockProvider {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    async fn chat(
+        &self,
+        _request: crate::llm::ChatRequest,
+    ) -> Result<crate::llm::ChatResponse, LLMError> {
+        Err(LLMError::ApiError("mock not implemented".to_string()))
+    }
+
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        let f = self.result.lock().unwrap();
+        f(bearer_token)
+    }
+
+    fn models(&self) -> Vec<&str> {
+        vec![]
+    }
+}
+
+fn model_infos() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "gpt-4".to_string(),
+            name: "GPT-4".to_string(),
+            context_window: 8192,
+            max_tokens: 8192,
+            default_temperature: None,
+            reasoning: false,
+            input_types: vec![],
+        },
+        ModelInfo {
+            id: "gpt-3.5-turbo".to_string(),
+            name: "GPT-3.5 Turbo".to_string(),
+            context_window: 4096,
+            max_tokens: 4096,
+            default_temperature: None,
+            reasoning: false,
+            input_types: vec![],
+        },
+    ]
+}
+
+fn transient_err(msg: &str) -> LLMError {
+    LLMError::ApiError(msg.to_string())
+}
+
+fn auth_err(msg: &str) -> LLMError {
+    LLMError::AuthFailed(msg.to_string())
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Tests for fetch_models_with_retry
+// ─────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod fetch_models_with_retry_tests {
+    use super::*;
+
+    /// Scenario: Provider returns models successfully on first call — no retry needed.
+    #[tokio::test]
+    async fn success_no_retry() {
+        let provider: Arc<dyn LLMProvider> = Arc::new(MockProvider::returning(Ok(model_infos())));
+        let cred = "test-token";
+        let result = fetch_models_with_retry(&provider, cred).await;
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].id, "gpt-4");
+        assert_eq!(result[1].id, "gpt-3.5-turbo");
+    }
+
+    /// Scenario: Transient error on first call, succeeds on second call — one retry.
+    #[tokio::test]
+    async fn transient_retry_succeeds() {
+        let attempt = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&attempt);
+        let provider: Arc<dyn LLMProvider> = Arc::new(MockProvider::new("minimax", move |_| {
+            let n = counter.fetch_add(1, atomic::Ordering::SeqCst);
+            if n == 0 {
+                Err(transient_err("500 internal error"))
+            } else {
+                Ok(model_infos())
+            }
+        }));
+        let result = fetch_models_with_retry(&provider, "token").await;
+        // Should have retried once and succeeded — 2 total calls
+        let attempts = attempt.load(atomic::Ordering::SeqCst);
+        assert_eq!(
+            attempts, 2,
+            "Expected 2 attempts (fail then success), got {}",
+            attempts
+        );
+        assert_eq!(result.len(), 2);
+    }
+
+    /// Scenario: All attempts return transient errors — falls back to knowledge base.
+    #[tokio::test]
+    async fn transient_exhausted_fallback() {
+        let attempt = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&attempt);
+        let provider: Arc<dyn LLMProvider> = Arc::new(MockProvider::new("minimax", move |_| {
+            counter.fetch_add(1, atomic::Ordering::SeqCst);
+            Err(transient_err("500 internal error"))
+        }));
+        let result = fetch_models_with_retry(&provider, "token").await;
+        // All 3 attempts exhausted, fallback to knowledge base — result comes from minimax KB
+        let attempts = attempt.load(atomic::Ordering::SeqCst);
+        assert_eq!(attempts, 3, "Expected 3 attempts, got {}", attempts);
+        assert!(!result.is_empty());
+    }
+
+    /// Scenario: Auth error — immediately falls back to knowledge base (no retry).
+    #[tokio::test]
+    async fn auth_error_no_retry_immediate_fallback() {
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&call_count);
+        let provider: Arc<dyn LLMProvider> = Arc::new(MockProvider::new("minimax", move |_| {
+            counter.fetch_add(1, atomic::Ordering::SeqCst);
+            Err(auth_err("invalid api key"))
+        }));
+        let result = fetch_models_with_retry(&provider, "token").await;
+        let count = call_count.load(atomic::Ordering::SeqCst);
+        assert_eq!(
+            count, 1,
+            "Auth error should not retry — only 1 call expected, got {}",
+            count
+        );
+        assert!(!result.is_empty());
+    }
+}
+
 #[cfg(test)]
 mod parse_model_selection_tests {
     use super::parse_model_selection;
