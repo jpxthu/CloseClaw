@@ -29,8 +29,7 @@
 
 `closeclaw config setup` 子命令，交互式配置向导。
 
-**操作：**
-- `handle_config_setup(skip)` — 启动 `config_wizard::run_wizard()`，用户依次经历 SelectProvider → InputCredential → FetchModels → SelectModels → Confirm → WriteConfig，最终将配置写入 `~/.closeclaw/config/models.json` 和 `~/.closeclaw/config/credentials/<provider_id>.json`。InputCredential 使用 `Password`（不回显）；skip 参数用于跳过 Confirm 步骤。
+- `handle_config_setup()` — 启动 `config_wizard::run_wizard().await`，用户依次经历 SelectProvider → InputCredential → FetchModels → SelectModels → Confirm → WriteConfig，最终将配置写入 `~/.closeclaw/config/models.json` 和 `~/.closeclaw/config/credentials/<provider_id>.json`。InputCredential 使用 `Password`（不回显）；写入时采用合并策略：当前 provider 的模型整体替换，其他 provider 的已配置模型保留。
 
 ---
 
@@ -50,7 +49,7 @@ FetchModels 阶段通过 `LLMProvider::fetch_model_list()` 获取模型列表，
 
 **公开接口：**
 
-- `run_wizard()` — 入口函数，返回 `Ok(Some(WizardOutput))` 或 `Ok(None)`（Ctrl+C 干净退出）
+- `run_wizard()` — 异步入口函数（`async fn`），返回 `Ok(Some(WizardOutput))` 或 `Ok(None)`（Ctrl+C 干净退出）。dialoguer 的同步阻塞调用（Select/Password/Input/Confirm 的 `interact()`）通过 `tokio::task::spawn_blocking` 包装，确保在已有 tokio runtime 上下文中安全执行
 - `parse_model_selection(input, total)` — 解析用户模型选择输入，返回 0-based 索引向量
 - `write_wizard_config(output)` — 将 WizardOutput 写入 models.json 和凭据文件
 
