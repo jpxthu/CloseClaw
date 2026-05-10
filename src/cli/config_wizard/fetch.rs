@@ -69,11 +69,8 @@ pub async fn fetch_models_with_retry(
             Err(_) => {
                 // Timeout is treated as transient error
                 if attempt < FETCH_MAX_RETRIES {
-                    let delay = backoff_delay(
-                        attempt,
-                        Duration::from_secs(1),
-                        Duration::from_secs(10),
-                    );
+                    let delay =
+                        backoff_delay(attempt, Duration::from_secs(1), Duration::from_secs(10));
                     println!(
                         "\n[Retry {}] API fetch timed out (10s), retrying in {:?}...",
                         attempt, delay
