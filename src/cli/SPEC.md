@@ -59,6 +59,16 @@ SelectModels 支持空格分隔编号，范围语法（`1-3,5,7`）和 `all` 关
 - `parse_model_selection(input, total)` — 解析用户模型选择输入，返回 0-based 索引向量
 - `write_wizard_config(output)` — 将 WizardOutput 写入 models.json 和凭据文件
 
+**E2E 测试覆盖范围：**
+
+`src/cli/config_wizard/e2e_tests.rs` 通过 mockito 模拟 HTTP Server，验证 `fetch_models_with_retry()` 与真实网络层的集成行为：
+
+- **test_http_200_success**：Mock HTTP 200 → fetch_models_with_retry 返回模型列表，验证 mockito + fetch_models_with_retry 集成正确
+- **test_http_500_then_retry_success**：Mock HTTP 500（首次）→ 200（重试成功）→ 验证 Transient 错误触发重试，第二次成功返回结果
+- **test_http_401_immediate_fallback**：Mock HTTP 401 → Auth 错误立即回退到知识库，不重试，验证 Auth/Billing/InvalidRequest 错误不参与重试
+
+`src/cli/config_wizard/tests.rs` 通过 MockProvider 模拟单元测试，覆盖：成功无重试、Transient 重试成功、Transient 耗尽回退、Auth 错误立即回退。
+
 **核心数据结构：**
 
 - `WizardState` — 6 变体状态枚举，对应状态机各阶段
@@ -71,7 +81,10 @@ SelectModels 支持空格分隔编号，范围语法（`1-3,5,7`）和 `all` 关
 **模块结构：**
 
 - `types.rs` — WizardState、ProviderType、ProviderInfo、PROVIDERS 常量、WizardContext、WizardOutput
-- `mod.rs` — run_wizard()、parse_model_selection()、write_wizard_config()、fetch_models_with_fallback()、知识库回退、UT
+- `fetch.rs` — fetch_models_with_retry()、fetch_models_with_fallback()、knowledge_fallback()，模型获取逻辑及重试/回退策略
+- `e2e_tests.rs` — E2E 集成测试（mockito HTTP mock），验证 fetch_models_with_retry 与真实 HTTP 层的集成
+- `tests.rs` — 单元测试，MockProvider 模拟各种 fetch 场景
+- `mod.rs` — run_wizard()、parse_model_selection()、write_wizard_config()、UT
 
 ### 数据流
 
