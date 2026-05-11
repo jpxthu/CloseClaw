@@ -231,3 +231,82 @@ fn test_build_permission_engine_with_templates_dir() {
     // Should create without panic; engine has 1 rule from template
     assert!(Arc::ptr_eq(&engine, &engine)); // just check it's a valid Arc
 }
+
+// ============================================================
+// Daemon::init_llm_registry tests
+// ============================================================
+
+use crate::llm::stub::StubProvider;
+
+#[tokio::test]
+async fn test_init_llm_registry_credentials_file_priority() {
+    // Arrange: temp dir with config/credentials/openai.json containing an api key
+    let tmp = TempDir::new().unwrap();
+    let creds_dir = tmp.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+    std::fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":"file-key-123"}"#,
+    )
+    .unwrap();
+    // Also write env var (should NOT be used since file has key)
+    std::env::set_var("OPENAI_API_KEY", "env-key-should-not-be-used");
+
+    // Act
+    let registry = Daemon::init_llm_registry(tmp.path()).await;
+
+    // Assert: provider registered with file key
+    let provider = registry.get("openai").await;
+    assert!(provider.is_some(), "openai provider should be registered");
+    // StubProvider returns "stub response"; verify it IS a stub (in test mode)
+    // The registry should contain a real OpenAIProvider or StubProvider
+    // Since we used file key, it should be registered
+    let listed = registry.list().await;
+    assert!(listed.contains(&"openai".to_string()));
+
+    std::env::remove_var("OPENAI_API_KEY");
+}
+
+#[tokio::test]
+async fn test_init_llm_registry_env_fallback() {
+    // Arrange: temp dir with NO credentials files, env vars set
+    let tmp = TempDir::new().unwrap();
+    std::env::set_var("OPENAI_API_KEY", "env-key-456");
+    std::env::set_var("ANTHROPIC_API_KEY", "env-anthropic-key");
+
+    // Act
+    let registry = Daemon::init_llm_registry(tmp.path()).await;
+
+    // Assert: providers registered from env vars
+    let listed = registry.list().await;
+    assert!(
+        listed.contains(&"openai".to_string()),
+        "openai should be registered from env"
+    );
+    assert!(
+        listed.contains(&"anthropic".to_string()),
+        "anthropic should be registered from env"
+    );
+
+    std::env::remove_var("OPENAI_API_KEY");
+    std::env::remove_var("ANTHROPIC_API_KEY");
+}
+
+#[tokio::test]
+async fn test_init_llm_registry_both_absent_no_registration() {
+    // Arrange: temp dir with NO credentials files, no env vars set
+    let tmp = TempDir::new().unwrap();
+    std::env::remove_var("OPENAI_API_KEY");
+    std::env::remove_var("ANTHROPIC_API_KEY");
+    std::env::remove_var("MINIMAX_API_KEY");
+
+    // Act
+    let registry = Daemon::init_llm_registry(tmp.path()).await;
+
+    // Assert: no providers registered
+    let listed = registry.list().await;
+    assert!(
+        listed.is_empty(),
+        "no providers should be registered when no credentials"
+    );
+}

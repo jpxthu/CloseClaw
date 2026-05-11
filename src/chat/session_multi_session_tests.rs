@@ -133,6 +133,7 @@ mod multi_session_tests {
                 accepted,
                 rx1,
                 reg1,
+                None,
             )
         });
 
@@ -146,6 +147,7 @@ mod multi_session_tests {
                 accepted,
                 rx2,
                 reg2,
+                None,
             )
         });
 
@@ -159,6 +161,7 @@ mod multi_session_tests {
                 accepted,
                 rx3,
                 reg3,
+                None,
             )
         });
 
@@ -226,6 +229,7 @@ mod multi_session_tests {
                 accepted,
                 rx_a,
                 reg_a,
+                None,
             )
         });
         let client_a = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port_a))
@@ -246,6 +250,7 @@ mod multi_session_tests {
                 accepted,
                 rx_b,
                 reg_b,
+                None,
             )
         });
         let client_b = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port_b))

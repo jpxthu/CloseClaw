@@ -1,6 +1,7 @@
 //! Per-connection chat session state
 
 use crate::chat::protocol::{ClientMessage, ServerMessage};
+use crate::config::providers::models::ModelsConfigData;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::{ChatRequest, LLMRegistry, Message};
 use crate::session::compaction::{execute_compact, CompactConfig, CompactionService};
@@ -49,13 +50,17 @@ pub struct LegacyChatSession {
 // --- Construction ---
 
 impl LegacyChatSession {
-    /// Create a new session for an accepted connection
+    /// Create a new session for an accepted connection.
+    ///
+    /// `config_dir` is used to locate `config/models.json` for the fallback chain.
+    /// If `None` or the file is missing/empty, falls back to env vars.
     pub fn new(
         session_id: String,
         agent_id: String,
         stream: TcpStream,
         shutdown_rx: tokio::sync::broadcast::Receiver<()>,
         llm_registry: Arc<LLMRegistry>,
+        config_dir: Option<&str>,
     ) -> Self {
         let (reader, writer) = stream.into_split();
         let reader = BufReader::new(reader);
@@ -65,15 +70,8 @@ impl LegacyChatSession {
             .parse()
             .unwrap_or(DEFAULT_MAX_HISTORY);
 
-        let fallback_chain: Vec<String> = std::env::var("LLM_FALLBACK_CHAIN")
-            .map(|s| s.split(',').map(str::trim).map(String::from).collect())
-            .unwrap_or_else(|_| {
-                let provider =
-                    std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "minimax".to_string());
-                let model =
-                    std::env::var("LLM_MODEL").unwrap_or_else(|_| "MiniMax-M2.5".to_string());
-                vec![format!("{}/{}", provider, model)]
-            });
+        // Build fallback chain: try models.json first, then env var fallback
+        let fallback_chain: Vec<String> = Self::build_fallback_chain(config_dir);
 
         let timeout_secs: u64 = std::env::var("LLM_TIMEOUT_SECS")
             .unwrap_or_else(|_| "30".to_string())
@@ -98,6 +96,39 @@ impl LegacyChatSession {
             max_history,
             compaction_service: CompactionService::new(CompactConfig::default()),
         }
+    }
+
+    /// Build the LLM fallback chain from models.json or env vars.
+    pub(crate) fn build_fallback_chain(config_dir: Option<&str>) -> Vec<String> {
+        if let Some(dir) = config_dir {
+            let models_path = std::path::Path::new(dir).join("config/models.json");
+            if let Ok(models_config) = ModelsConfigData::from_file(&models_path) {
+                let models: Vec<String> = models_config
+                    .providers
+                    .iter()
+                    .flat_map(|(provider, provider_config)| {
+                        provider_config
+                            .models
+                            .iter()
+                            .filter(|m| m.enabled.unwrap_or(false))
+                            .map(move |m| format!("{}/{}", provider, m.id))
+                    })
+                    .collect();
+                if !models.is_empty() {
+                    return models;
+                }
+            }
+        }
+        // Fallback to env vars
+        std::env::var("LLM_FALLBACK_CHAIN")
+            .map(|s| s.split(',').map(str::trim).map(String::from).collect())
+            .unwrap_or_else(|_| {
+                let provider =
+                    std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "minimax".to_string());
+                let model =
+                    std::env::var("LLM_MODEL").unwrap_or_else(|_| "MiniMax-M2.5".to_string());
+                vec![format!("{}/{}", provider, model)]
+            })
     }
 
     /// Truncate chat history to max_history entries, keeping the most recent messages.
