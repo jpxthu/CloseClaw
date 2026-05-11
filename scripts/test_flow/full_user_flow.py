@@ -18,7 +18,7 @@ from pathlib import Path
 
 # Shared utilities
 sys.path.insert(0, str(Path(__file__).parent))
-from shared import BINARY, build_binary, run_wizard, DaemonProcess, run_chat
+from test_helpers import BINARY, build_binary, run_wizard, DaemonProcess, run_chat
 
 DEFAULT_CHAT_ADDR = "127.0.0.1:18889"
 

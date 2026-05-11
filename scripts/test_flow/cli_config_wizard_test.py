@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """E2E test for `closeclaw config setup` wizard (MiniMax flow).
 
-Run:  python3 tests/cli_config_wizard_test.py
+Run:  python3 scripts/test_flow/cli_config_wizard_test.py
 
 This test verifies the full interactive wizard flow:
   1. Select MiniMax provider
@@ -13,7 +13,7 @@ This test verifies the full interactive wizard flow:
 The test uses a temporary HOME directory so it does not interfere
 with the user's real config at ~/.closeclaw/.
 
-Shared utilities live in scripts/test_flow/shared.py.
+Shared utilities live in scripts/test_flow/test_helpers.py.
 """
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ BINARY = os.environ.get(
     Path(__file__).parent.parent / "target" / "debug" / "closeclaw",
 )
 
-# Import shared wizard runner from scripts/test_flow/shared.py
+# Import shared wizard runner from scripts/test_flow/test_helpers.py
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts" / "test_flow"))
-from shared import run_wizard  # noqa: E402
+from test_helpers import run_wizard  # noqa: E402
 
 
 def test_wizard_minimax():
