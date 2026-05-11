@@ -123,6 +123,9 @@ fn config_dir() -> PathBuf {
 /// Files written:
 /// - `~/.closeclaw/config/models.json`   — merged provider+model config
 /// - `~/.closeclaw/config/credentials/<provider_id>.json` — API key for the provider
+//-
+//- NOTE: Any change to `write_wizard_config` or `run_wizard` must be verified
+//- against `tests/cli_config_wizard_test.py` (python3 E2E test using pexpect).
 pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
