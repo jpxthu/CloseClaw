@@ -364,6 +364,37 @@ async fn test_parse_sse_tool_calls_basic() {
 }
 
 #[tokio::test]
+async fn test_parse_sse_multi_tool_calls() {
+    let p = GlmProtocol::new();
+    let inc: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"id":"c1","type":"function","function":{"name":"f1","arguments":""}},{"id":"c2","type":"function","function":{"name":"f2","arguments":""}}]}}]}"#,
+        ),
+        make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
+    ]));
+    let mut s = p.parse_sse_stream(inc, p.create_sse_machine()).await;
+    let e = s.next().await.unwrap().unwrap();
+    let i0 = match &e {
+        StreamEvent::BlockStart { index, .. } => *index,
+        _ => panic!("{e:?}"),
+    };
+    s.next().await.unwrap().unwrap();
+    s.next().await.unwrap().unwrap();
+    let e = s.next().await.unwrap().unwrap();
+    let i1 = match &e {
+        StreamEvent::BlockStart { index, .. } => *index,
+        _ => panic!("{e:?}"),
+    };
+    assert_eq!(i0, 0);
+    assert_eq!(i1, 1);
+    assert_ne!(i0, i1);
+    for _ in 0..4 {
+        s.next().await.unwrap().unwrap();
+    }
+    assert!(s.next().await.is_none());
+}
+
+#[tokio::test]
 async fn test_parse_sse_reasoning_then_tool_calls() {
     let proto = GlmProtocol::new();
     let machine = proto.create_sse_machine();
