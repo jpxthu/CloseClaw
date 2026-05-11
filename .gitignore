@@ -45,3 +45,4 @@ tests/fixtures/feishu/package-lock.json
 __pycache__/
 *.pyc
 *.pyo
+__pycache__/
