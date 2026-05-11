@@ -31,6 +31,13 @@
 
 - `handle_config_setup()` — 启动 `config_wizard::run_wizard().await`，用户依次经历 SelectProvider → InputCredential → FetchModels → SelectModels → Confirm → WriteConfig，最终将配置写入 `~/.closeclaw/config/models.json` 和 `~/.closeclaw/config/credentials/<provider_id>.json`。InputCredential 使用 `Password`（不回显）；写入时采用合并策略：当前 provider 的模型整体替换，其他 provider 的已配置模型保留。
 
+### Run 命令
+
+`closeclaw run` 子命令，启动后台 daemon 进程。
+
+- `config_dir` CLI 参数默认值改为空字符串，运行时解析为 `~/.closeclaw`（通过 `dirs::home_dir()` 拼接）。显式指定 `-c /path` 时使用指定路径。路径不存在时自动创建目录。
+- 随后调用 `Daemon::start(config_dir)` 启动完整 daemon
+
 ---
 
 ## 架构与结构

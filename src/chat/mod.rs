@@ -24,6 +24,7 @@ pub mod protocol;
 pub mod server;
 pub mod session;
 mod session_compaction_tests;
+mod session_fallback_chain_tests;
 mod session_multi_session_tests;
 
 pub use protocol::{ClientMessage, ServerMessage};
