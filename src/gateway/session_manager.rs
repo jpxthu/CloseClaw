@@ -6,8 +6,9 @@
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
+use crate::llm::session::{ChatSession, ConversationSession};
 use crate::session::persistence::{
-    PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
+    PendingMessage, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,6 +26,8 @@ pub struct SessionManager {
     dm_scope: DmScope,
     /// IM adapters for sending notifications during restoration
     adapters: RwLock<HashMap<String, Arc<dyn IMAdapter>>>,
+    /// Per-session ConversationSession for llm_busy and pending_messages management
+    conversation_sessions: RwLock<HashMap<String, Arc<RwLock<ConversationSession>>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -43,6 +46,7 @@ impl SessionManager {
             storage: RwLock::new(storage),
             dm_scope: config.dm_scope,
             adapters: RwLock::new(HashMap::new()),
+            conversation_sessions: RwLock::new(HashMap::new()),
         }
     }
 
@@ -152,6 +156,13 @@ impl SessionManager {
             return Ok(session_id);
         }
 
+        // Create ConversationSession for this session_id
+        let conv_session = ConversationSession::new(session_id.clone(), "default".to_string());
+        {
+            let mut conv_sessions = self.conversation_sessions.write().await;
+            conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
+        }
+
         if restored {
             // Reload checkpoint to obtain chat_id / agent_id for the new Session
             let storage = self.storage.read().await;
@@ -229,6 +240,54 @@ impl SessionManager {
             }
         }
         Ok(saved)
+    }
+
+    /// Get the ConversationSession for a given session_id.
+    /// Returns None if the session does not exist.
+    pub async fn get_conversation_session(
+        &self,
+        session_id: &str,
+    ) -> Option<Arc<RwLock<ConversationSession>>> {
+        let conv_sessions = self.conversation_sessions.read().await;
+        conv_sessions.get(session_id).cloned()
+    }
+
+    /// Check whether the LLM is busy for a given session.
+    /// Returns false if the session does not exist.
+    pub async fn is_session_busy(&self, session_id: &str) -> bool {
+        let conv_sessions = self.conversation_sessions.read().await;
+        match conv_sessions.get(session_id) {
+            Some(cs) => {
+                let cs = cs.read().await;
+                cs.is_llm_busy()
+            }
+            None => false,
+        }
+    }
+
+    /// Push a pending message onto the queue for a given session.
+    /// Returns an error if the session does not exist.
+    pub async fn push_pending_message(
+        &self,
+        session_id: &str,
+        msg: PendingMessage,
+    ) -> Result<(), String> {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let cs = conv_sessions
+            .get(session_id)
+            .ok_or_else(|| format!("session not found: {}", session_id))?;
+        let mut cs = cs.write().await;
+        cs.push_pending(msg);
+        Ok(())
+    }
+
+    /// Pop the oldest pending message for a given session.
+    /// Returns None if the session does not exist or the queue is empty.
+    pub async fn pop_pending_message(&self, session_id: &str) -> Option<PendingMessage> {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let cs = conv_sessions.get(session_id)?;
+        let mut cs = cs.write().await;
+        cs.pop_pending()
     }
 }
 

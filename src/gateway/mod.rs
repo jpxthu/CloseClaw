@@ -3,6 +3,7 @@
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
 
 pub mod message;
+pub mod session_handler;
 pub mod session_manager;
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ use crate::session::checkpoint_manager::CheckpointManager;
 use crate::session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
 
 pub use crate::processor_chain::ProcessorRegistry;
+pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::SessionManager;
 
 /// DM session scope - controls how session keys are partitioned.
@@ -101,6 +103,7 @@ pub struct Gateway {
     processor_registry: Option<Arc<ProcessorRegistry>>,
     renderer: Option<Arc<dyn crate::renderer::Renderer>>,
     checkpoint_manager: Option<Arc<CheckpointManager<dyn PersistenceService>>>,
+    session_handler: Option<Arc<SessionMessageHandler>>,
 }
 
 impl Gateway {
@@ -113,6 +116,7 @@ impl Gateway {
             processor_registry: None,
             renderer: None,
             checkpoint_manager: None,
+            session_handler: None,
         }
     }
 
@@ -129,6 +133,7 @@ impl Gateway {
             processor_registry: Some(registry),
             renderer: None,
             checkpoint_manager: None,
+            session_handler: None,
         }
     }
 
@@ -150,6 +155,7 @@ impl Gateway {
             processor_registry: registry,
             renderer: Some(renderer),
             checkpoint_manager: None,
+            session_handler: None,
         }
     }
 
@@ -160,6 +166,27 @@ impl Gateway {
     ) -> Self {
         self.checkpoint_manager = Some(cm);
         self
+    }
+
+    /// Configure a SessionMessageHandler for busy/pending LLM session management.
+    ///
+    /// When a handler is installed, inbound messages are routed through the
+    /// busy/pending state machine. When `None` (default), Gateway behaves as before.
+    pub fn with_session_handler(mut self, handler: Arc<SessionMessageHandler>) -> Self {
+        self.session_handler = Some(handler);
+        self
+    }
+
+    /// Handle an inbound message through the busy/pending state machine.
+    ///
+    /// Returns `HandleResult` (`LlmStarted`/`MessageQueued`), or `None` if no handler configured.
+    pub async fn handle_inbound_message(
+        &self,
+        session_id: &str,
+        content: String,
+    ) -> Option<HandleResult> {
+        let handler = self.session_handler.as_ref()?;
+        Some(handler.handle_message(session_id, content).await)
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).
