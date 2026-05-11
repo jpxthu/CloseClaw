@@ -257,7 +257,10 @@ async fn test_fetch_model_list_timeout_mock() {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"data":[]}"#)
+        .with_body_from_fn(|_w| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            Ok(())
+        })
         .create_async()
         .await;
 
