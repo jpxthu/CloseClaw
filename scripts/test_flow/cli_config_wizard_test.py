@@ -24,11 +24,10 @@ from pathlib import Path
 
 BINARY = os.environ.get(
     "CLOSE_CLAW_BINARY",
-    Path(__file__).parent.parent / "target" / "debug" / "closeclaw",
+    Path(__file__).parent.parent.parent / "target" / "debug" / "closeclaw",
 )
 
-# Import shared wizard runner from scripts/test_flow/test_helpers.py
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts" / "test_flow"))
+sys.path.insert(0, str(Path(__file__).parent))
 from test_helpers import run_wizard  # noqa: E402
 
 
