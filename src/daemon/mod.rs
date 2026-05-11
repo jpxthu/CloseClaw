@@ -9,6 +9,7 @@ use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
+use crate::config::providers::CredentialsProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
@@ -162,8 +163,8 @@ impl Daemon {
         Self::init_feishu_adapter(config_dir, &gateway).await?;
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
-        let llm_registry = Self::init_llm_registry().await;
-        let chat_server = Self::spawn_chat_server(&llm_registry, &shutdown);
+        let llm_registry = Self::init_llm_registry(Path::new(config_dir)).await;
+        let chat_server = Self::spawn_chat_server(&llm_registry, &shutdown, config_dir);
         // Spawn the background flush task for the (possibly injected) audit logger
         Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
         // Initialize skill hot reload system
@@ -300,30 +301,61 @@ impl Daemon {
         }
         Ok(())
     }
-    /// Initialize LLM registry and register providers from environment variables.
-    async fn init_llm_registry() -> Arc<LLMRegistry> {
+    /// Initialize LLM registry and register providers.
+    ///
+    /// For each provider (openai, anthropic, minimax):
+    /// 1. Try to load api_key from `config_dir/config/credentials/<provider>.json`
+    /// 2. Fall back to the corresponding env var if the file does not have it
+    async fn init_llm_registry(config_dir: &Path) -> Arc<LLMRegistry> {
         let registry = Arc::new(LLMRegistry::new());
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-            if !api_key.is_empty() {
-                let provider = Arc::new(OpenAIProvider::new(api_key));
-                registry.register("openai".to_string(), provider).await;
-                info!("OpenAI provider registered");
+
+        // Load credentials from config/credentials/ directory
+        let creds_dir = config_dir.join(CredentialsProvider::config_path());
+        let creds_provider = match CredentialsProvider::load_from_dir(&creds_dir) {
+            Ok(cp) => cp,
+            Err(e) => {
+                tracing::warn!(
+                    "failed to load credentials from '{}': {}",
+                    creds_dir.display(),
+                    e
+                );
+                CredentialsProvider::default()
             }
+        };
+
+        // Register OpenAI provider: credentials file first, then env var fallback
+        let openai_key = creds_provider
+            .get_api_key("openai")
+            .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+            .filter(|k| !k.is_empty());
+        if let Some(api_key) = openai_key {
+            let provider = Arc::new(OpenAIProvider::new(api_key));
+            registry.register("openai".to_string(), provider).await;
+            info!("OpenAI provider registered");
         }
-        if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
-            if !api_key.is_empty() {
-                let provider = Arc::new(AnthropicProvider::new(api_key));
-                registry.register("anthropic".to_string(), provider).await;
-                info!("Anthropic provider registered");
-            }
+
+        // Register Anthropic provider: credentials file first, then env var fallback
+        let anthropic_key = creds_provider
+            .get_api_key("anthropic")
+            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+            .filter(|k| !k.is_empty());
+        if let Some(api_key) = anthropic_key {
+            let provider = Arc::new(AnthropicProvider::new(api_key));
+            registry.register("anthropic".to_string(), provider).await;
+            info!("Anthropic provider registered");
         }
-        if let Ok(api_key) = std::env::var("MINIMAX_API_KEY") {
-            if !api_key.is_empty() {
-                let provider = Arc::new(MiniMaxProvider::new(api_key));
-                registry.register("minimax".to_string(), provider).await;
-                info!("MiniMax provider registered");
-            }
+
+        // Register MiniMax provider: credentials file first, then env var fallback
+        let minimax_key = creds_provider
+            .get_api_key("minimax")
+            .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
+            .filter(|k| !k.is_empty());
+        if let Some(api_key) = minimax_key {
+            let provider = Arc::new(MiniMaxProvider::new(api_key));
+            registry.register("minimax".to_string(), provider).await;
+            info!("MiniMax provider registered");
         }
+
         registry
     }
 }
@@ -332,8 +364,13 @@ impl Daemon {
     fn spawn_chat_server(
         llm_registry: &Arc<LLMRegistry>,
         shutdown: &shutdown::ShutdownHandle,
+        config_dir: &str,
     ) -> Arc<ChatServer> {
-        let chat_server = Arc::new(ChatServer::new(Arc::clone(llm_registry), None));
+        let chat_server = Arc::new(ChatServer::new(
+            Arc::clone(llm_registry),
+            None,
+            Some(config_dir),
+        ));
         let chat_server_for_task = Arc::clone(&chat_server);
         let shutdown_rx = shutdown.subscribe_drain();
         tokio::spawn(async move {
@@ -452,3 +489,5 @@ impl Daemon {
 }
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod unit_tests;

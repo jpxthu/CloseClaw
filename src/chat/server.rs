@@ -20,18 +20,26 @@ pub struct ChatServer {
     llm_registry: Arc<LLMRegistry>,
     /// Bind address for the TCP listener
     bind_addr: String,
+    /// Optional config directory for models.json lookup
+    config_dir: Option<String>,
 }
 
 impl ChatServer {
     /// Create a new ChatServer with the given LLM registry and optional bind address.
     /// If `bind_addr` is `None`, defaults to `127.0.0.1:18889`.
-    pub fn new(llm_registry: Arc<LLMRegistry>, bind_addr: Option<&str>) -> Self {
+    /// `config_dir` is passed through to each session for models.json lookup.
+    pub fn new(
+        llm_registry: Arc<LLMRegistry>,
+        bind_addr: Option<&str>,
+        config_dir: Option<&str>,
+    ) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
         let bind_addr = bind_addr.unwrap_or(DEFAULT_CHAT_BIND_ADDR).to_string();
         Self {
             shutdown_tx,
             llm_registry,
             bind_addr,
+            config_dir: config_dir.map(String::from),
         }
     }
 
@@ -39,6 +47,8 @@ impl ChatServer {
     pub async fn run(&self, mut shutdown_rx: broadcast::Receiver<()>) -> anyhow::Result<()> {
         let listener = TcpListener::bind(&self.bind_addr).await?;
         info!(addr = %self.bind_addr, "chat TCP server listening");
+
+        let config_dir = self.config_dir.clone();
 
         loop {
             tokio::select! {
@@ -48,6 +58,7 @@ impl ChatServer {
                             let session_id = uuid::Uuid::new_v4().to_string();
                             let shutdown_rx = self.shutdown_tx.subscribe();
                             let llm_registry = Arc::clone(&self.llm_registry);
+                            let config_dir = config_dir.clone();
                             info!(session_id = %session_id, client = %addr, "new chat connection");
 
                             tokio::spawn(async move {
@@ -57,6 +68,7 @@ impl ChatServer {
                                     stream,
                                     shutdown_rx,
                                     llm_registry,
+                                    config_dir.as_deref(),
                                 );
                                 session.run().await;
                             });
@@ -85,13 +97,13 @@ impl ChatServer {
 
 impl Default for ChatServer {
     fn default() -> Self {
-        Self::new(Arc::new(LLMRegistry::new()), None)
+        Self::new(Arc::new(LLMRegistry::new()), None, None)
     }
 }
 
-/// Spawn the chat server as a background task, returning a handle to it
-pub fn spawn_chat_server(llm_registry: Arc<LLMRegistry>) -> ChatServer {
-    ChatServer::new(llm_registry, None)
+/// Spawn the chat server as a background task, returning a handle to it.
+pub fn spawn_chat_server(llm_registry: Arc<LLMRegistry>, config_dir: Option<&str>) -> ChatServer {
+    ChatServer::new(llm_registry, None, config_dir)
 }
 
 #[cfg(test)]
@@ -101,7 +113,7 @@ mod tests {
     #[test]
     fn test_chat_server_new() {
         let registry = Arc::new(LLMRegistry::new());
-        let server = ChatServer::new(registry, None);
+        let server = ChatServer::new(registry, None, None);
         // shutdown should work without panic
         server.shutdown();
     }
@@ -109,7 +121,7 @@ mod tests {
     #[test]
     fn test_chat_server_with_custom_addr() {
         let registry = Arc::new(LLMRegistry::new());
-        let server = ChatServer::new(registry, Some("127.0.0.1:0"));
+        let server = ChatServer::new(registry, Some("127.0.0.1:0"), None);
         // bind_addr should be set to the custom value
         assert_eq!(server.bind_addr, "127.0.0.1:0");
         server.shutdown();
@@ -118,7 +130,7 @@ mod tests {
     #[test]
     fn test_chat_server_new_with_default_addr() {
         let registry = Arc::new(LLMRegistry::new());
-        let server = ChatServer::new(registry, None);
+        let server = ChatServer::new(registry, None, None);
         assert_eq!(server.bind_addr, DEFAULT_CHAT_BIND_ADDR);
         server.shutdown();
     }
@@ -133,7 +145,7 @@ mod tests {
     #[test]
     fn test_spawn_chat_server() {
         let registry = Arc::new(LLMRegistry::new());
-        let server = spawn_chat_server(registry);
+        let server = spawn_chat_server(registry, None);
         server.shutdown();
     }
 

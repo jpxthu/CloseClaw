@@ -41,6 +41,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.chat_history.push(Message {
@@ -91,6 +92,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.chat_history.push(Message {
@@ -147,6 +149,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.chat_history.push(Message {
@@ -185,6 +188,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.chat_history.push(Message {
@@ -231,6 +235,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.compaction_service = CompactionService::new(CompactConfig {
@@ -269,6 +274,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.chat_history.push(Message {
@@ -304,6 +310,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.compaction_service = CompactionService::new(CompactConfig {
@@ -347,6 +354,7 @@ mod compaction_tests {
             accepted,
             shutdown_rx.resubscribe(),
             registry,
+            None,
         );
         std::env::remove_var("LLM_FALLBACK_CHAIN");
         session.compaction_service = CompactionService::new(CompactConfig {

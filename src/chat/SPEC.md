@@ -4,7 +4,7 @@
 
 提供进程内 TCP 聊天服务，默认监听 `127.0.0.1:18889`，支持动态指定绑定地址。通过 JSON 换行分隔协议（NDJSON）与客户端交互。每个 TCP 连接对应一个独立会话，会话将用户消息委托给 LLM（带 fallback 链），完整响应后一次性写回客户端。
 
-核心设计：per-connection session + broadcast shutdown + LLM fallback 链 + 历史窗口截断。
+核心设计：per-connection session + broadcast shutdown + LLM fallback 链（models.json 优先、env var fallback）+ 历史窗口截断。
 
 ---
 
@@ -25,14 +25,14 @@
 
 ### server.rs
 
-- **`ChatServer::new()`** — 构造服务器；接受可选 `bind_addr` 参数为 `None` 时默认绑定 `127.0.0.1:18889`
+- **`ChatServer::new()`** — 构造服务器；接受可选 `bind_addr` 参数（为 `None` 时默认绑定 `127.0.0.1:18889`）和可选 `config_dir` 参数（传递给每个 session 用于 models.json 查找）
 - **`ChatServer::run()`** — 异步主循环：bind TCP listener，循环 accept，每连接 spawn 一个 ChatSession
 - **`ChatServer::shutdown()`** — 发送广播信号，通知所有 session 停止
-- **`spawn_chat_server()`** — 便捷工厂函数，默认绑定 `127.0.0.1:18889`，返回 ChatServer 实例
+- **`spawn_chat_server()`** — 便捷工厂函数，默认绑定 `127.0.0.1:18889`，接受可选 config_dir，返回 ChatServer 实例
 
 ### session.rs
 
-- **`ChatSession::new()`** — 构造 session；从环境变量初始化 fallback_client、max_history、timeout；初始化 `CompactionService`
+- **`ChatSession::new()`** — 构造 session；从 `config_dir/config/models.json`（优先）或环境变量初始化 fallback_client；从环境变量初始化 max_history、timeout；初始化 `CompactionService`
 - **`ChatSession::run()`** — 主事件循环：读客户端消息 → 分发处理 → 写回响应；并监听 shutdown 信号
 - **`ChatSession::handle_line()`** — 解析 ClientMessage，分发 ChatStart/ChatMessage/ChatStop；`ChatMessage` 中 content 以 `/compact` 开头时路由至 `handle_compact_command`
 - **`ChatSession::handle_chat_message()`** — 处理 ChatMessage：追加历史 → 截断 → 自动压缩检测 → 调用 LLM → 返回响应消息
@@ -42,13 +42,14 @@
 
 #### 测试可见字段/方法（供测试访问）
 
-session.rs 内 `#[cfg(test)] mod tests` 需要访问以下私有逻辑，设为 `pub` 仅用于测试：
+session.rs 内测试模块和独立测试文件（`session_fallback_chain_tests.rs`）需要访问以下私有逻辑，设为 `pub`/`pub(crate)` 仅用于测试：
 
 - **`chat_history: Vec<Message>`**（pub）— 会话消息历史，测试直接构造和断言
 - **`max_history: usize`**（pub）— 最大历史条数，测试直接修改以覆盖边界条件
 - **`truncate_history()`**（pub）— 测试直接调用验证截断行为
 - **`handle_line()`**（pub(crate)）— 测试直接调用验证消息分发行为
 - **`should_auto_compact_and_execute()`**（pub(crate)）— 测试直接调用验证自动压缩逻辑
+- **`build_fallback_chain()`**（pub(crate)）— 测试直接调用验证 fallback chain 构建逻辑
 
 #### 测试覆盖
 
@@ -73,6 +74,10 @@ session.rs 内 `#[cfg(test)] mod tests` 需要访问以下私有逻辑，设为 
 | `test_multi_client_concurrent_sessions`（tests/） | 3 个 TCP 客户端并发连接，验证 session_id 唯一性、响应隔离性、broadcast shutdown 正确关闭所有连接 |
 | `test_multi_client_history_isolation`（tests/） | 2 个并发 session 各自发送多轮消息，验证响应 id 对应关系正确，shutdown 后双方均收到 ChatError |
 | `test_session_shutdown_signal`（tests/） | shutdown 信号 → 收到 ChatError("server shutting down") |
+| `test_build_fallback_chain_models_json_preferred`（session_fallback_chain_tests.rs） | models.json 存在时使用 enabled models 构建 chain |
+| `test_build_fallback_chain_env_fallback`（session_fallback_chain_tests.rs） | config_dir 为 None 时 fallback 到 LLM_FALLBACK_CHAIN env var |
+| `test_build_fallback_chain_empty_models_fallback_to_env`（session_fallback_chain_tests.rs） | models.json 为空时 fallback 到 LLM_PROVIDER/LLM_MODEL env var |
+| `test_build_fallback_chain_models_json_missing_fallback_to_env`（session_fallback_chain_tests.rs） | models.json 不存在时 fallback 到 env var |
 
 ---
 
@@ -120,7 +125,7 @@ TCP Client
 
 - **Broadcast Shutdown**：`tokio::sync::broadcast`（容量 1）驱动全服务器优雅退出
 - **Spawn-per-Connection**：每 accepted TCP 连接 spawn 一个 async task，不阻塞主循环
-- **FallbackClient 链**：从 `LLM_FALLBACK_CHAIN` 环境变量解析模型列表，自动重试与降级
+- **FallbackClient 链**：从 `config_dir/config/models.json` 读取 enabled models（优先），fallback 到 `LLM_FALLBACK_CHAIN` 环境变量解析模型列表，自动重试与降级
 - **TCP split + BufReader**：`into_split()` 分离读写半连接，读端套 BufReader 后 `read_line`
 - **历史窗口截断**：超出 `max_history` 时从头部移除最旧消息
 
@@ -148,7 +153,8 @@ TCP Client
 
 ### LLM 调用
 
-- 使用 `FallbackClient`，从 `LLM_FALLBACK_CHAIN` 读取模型回退链（格式 `"provider/model,provider/model"`），逗号分隔。
+- 使用 `FallbackClient`，优先从 `config_dir/config/models.json` 读取 enabled models 构建 fallback chain（格式 `"provider/model"`）。
+- models.json 不存在或无 enabled models 时，fallback 到 `LLM_FALLBACK_CHAIN` 环境变量（格式 `"provider/model,provider/model"`，逗号分隔）。
 - 未配置时，从 `LLM_PROVIDER` + `LLM_MODEL` 构建单模型链。
 - 超时从 `LLM_TIMEOUT_SECS` 读取，默认 30 秒。
 - 请求参数：`temperature=0.7`，`max_tokens=2048`。
@@ -195,6 +201,7 @@ TCP Client
 ---
 
 *变更历史*
+- 2026-05-12：#613 fallback chain 新增 models.json 数据源，ChatServer/ChatSession 传递 config_dir
 - 2026-05-06：#497 新增多会话并发隔离测试（`test_multi_client_concurrent_sessions`、`test_multi_client_history_isolation`）
 - 2026-04-20：#226 提取 `handle_chat_message` 方法，同步 SPEC
 - 2026-04-14：按 v3 标准重写，精简接口签名、补充架构/数据流章节
