@@ -24,6 +24,7 @@ impl AgentRegistry {
         parent_id: Option<String>,
         agent_binary_path: &str,
         bootstrap_minimal: bool,
+        workspace_dir: Option<&str>,
     ) -> RegistryResult<Agent> {
         let path = std::path::Path::new(agent_binary_path);
         if !path.is_absolute() {
@@ -48,8 +49,13 @@ impl AgentRegistry {
         let agent = self.register(name, parent_id).await?;
         let agent_id = agent.id.clone();
 
-        let process = match AgentProcess::spawn(agent_binary_path, &agent_id, bootstrap_minimal)
-            .await
+        let process = match AgentProcess::spawn(
+            agent_binary_path,
+            &agent_id,
+            bootstrap_minimal,
+            workspace_dir,
+        )
+        .await
         {
             Ok(p) => p,
             Err(e) => {

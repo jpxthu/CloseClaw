@@ -166,6 +166,7 @@ impl MessageProcessor for SessionRouter {
 mod tests {
     use super::*;
     use crate::gateway::{DmScope, GatewayConfig};
+    use crate::session::bootstrap::BootstrapMode;
     use std::sync::Arc;
 
     fn test_config() -> GatewayConfig {
@@ -216,7 +217,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_private_chat_creates_session() {
-        let mgr = Arc::new(SessionManager::new(&test_config(), None));
+        let mgr = Arc::new(SessionManager::new(
+            &test_config(),
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
 
@@ -232,7 +238,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_existing_session_not_duplicated() {
-        let mgr = Arc::new(SessionManager::new(&test_config(), None));
+        let mgr = Arc::new(SessionManager::new(
+            &test_config(),
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
 
@@ -253,7 +264,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_group_chat_returns_error() {
-        let mgr = Arc::new(SessionManager::new(&test_config(), None));
+        let mgr = Arc::new(SessionManager::new(
+            &test_config(),
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_group_webhook("ou_user_a", "oc_chat");
 
@@ -273,7 +289,7 @@ mod tests {
             dm_scope: DmScope::PerAccountChannelPeer,
             ..test_config()
         };
-        let mgr = Arc::new(SessionManager::new(&cfg, None));
+        let mgr = Arc::new(SessionManager::new(&cfg, None, None, BootstrapMode::Full));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
 
@@ -291,7 +307,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_metadata_preserves_upstream_fields() {
-        let mgr = Arc::new(SessionManager::new(&test_config(), None));
+        let mgr = Arc::new(SessionManager::new(
+            &test_config(),
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
 

@@ -15,16 +15,19 @@ use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
 use crate::llm::{AnthropicProvider, LLMRegistry, MiniMaxProvider, OpenAIProvider};
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
+use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::PersistenceService;
 use crate::session::storage::SqliteStorage;
 use crate::session::sweeper::ArchiveSweeper;
 use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::info;
 /// Load key=value pairs from a .env file and set them as environment variables.
 /// Lines starting with # are treated as comments and ignored.
+mod llm_init;
+
 fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
@@ -153,7 +156,12 @@ impl Daemon {
             max_message_size: 16_384,
             dm_scope: DmScope::default(),
         };
-        let session_manager = Arc::new(SessionManager::new(&gateway_config, None));
+        let session_manager = Arc::new(SessionManager::new(
+            &gateway_config,
+            None,
+            Some(PathBuf::from(config_dir)),
+            Self::read_bootstrap_mode(),
+        ));
         let gateway = Gateway::new(gateway_config, Arc::clone(&session_manager));
         gateway
             .set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>)
@@ -240,6 +248,15 @@ impl Daemon {
             }
         }
     }
+
+    /// Read BOOTSTRAP_MODE env var and convert to BootstrapMode.
+    /// "minimal" → Minimal, anything else (including absent) → Full.
+    fn read_bootstrap_mode() -> BootstrapMode {
+        match std::env::var("BOOTSTRAP_MODE").as_deref() {
+            Ok("minimal") => BootstrapMode::Minimal,
+            _ => BootstrapMode::Full,
+        }
+    }
     /// Load and validate agents.json
     fn load_agents_config(config_dir: &str) -> anyhow::Result<AgentsConfigProvider> {
         let path = format!("{}/agents.json", config_dir);
@@ -301,64 +318,8 @@ impl Daemon {
         }
         Ok(())
     }
-    /// Initialize LLM registry and register providers.
-    ///
-    /// For each provider (openai, anthropic, minimax):
-    /// 1. Try to load api_key from `config_dir/config/credentials/<provider>.json`
-    /// 2. Fall back to the corresponding env var if the file does not have it
-    async fn init_llm_registry(config_dir: &Path) -> Arc<LLMRegistry> {
-        let registry = Arc::new(LLMRegistry::new());
-
-        // Load credentials from config/credentials/ directory
-        let creds_dir = config_dir.join(CredentialsProvider::config_path());
-        let creds_provider = match CredentialsProvider::load_from_dir(&creds_dir) {
-            Ok(cp) => cp,
-            Err(e) => {
-                tracing::warn!(
-                    "failed to load credentials from '{}': {}",
-                    creds_dir.display(),
-                    e
-                );
-                CredentialsProvider::default()
-            }
-        };
-
-        // Register OpenAI provider: credentials file first, then env var fallback
-        let openai_key = creds_provider
-            .get_api_key("openai")
-            .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-            .filter(|k| !k.is_empty());
-        if let Some(api_key) = openai_key {
-            let provider = Arc::new(OpenAIProvider::new(api_key));
-            registry.register("openai".to_string(), provider).await;
-            info!("OpenAI provider registered");
-        }
-
-        // Register Anthropic provider: credentials file first, then env var fallback
-        let anthropic_key = creds_provider
-            .get_api_key("anthropic")
-            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
-            .filter(|k| !k.is_empty());
-        if let Some(api_key) = anthropic_key {
-            let provider = Arc::new(AnthropicProvider::new(api_key));
-            registry.register("anthropic".to_string(), provider).await;
-            info!("Anthropic provider registered");
-        }
-
-        // Register MiniMax provider: credentials file first, then env var fallback
-        let minimax_key = creds_provider
-            .get_api_key("minimax")
-            .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
-            .filter(|k| !k.is_empty());
-        if let Some(api_key) = minimax_key {
-            let provider = Arc::new(MiniMaxProvider::new(api_key));
-            registry.register("minimax".to_string(), provider).await;
-            info!("MiniMax provider registered");
-        }
-
-        registry
-    }
 }
+
 impl Daemon {
     /// Create and spawn the chat TCP server as a background task.
     fn spawn_chat_server(

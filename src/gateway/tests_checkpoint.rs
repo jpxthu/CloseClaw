@@ -215,7 +215,12 @@ async fn add_session(msg: &mut Message, sm: &SessionManager) {
 #[tokio::test]
 async fn test_with_checkpoint_manager_stores_cm() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let persistence = Arc::new(MockPersistence::default());
     let cm = Arc::new(CheckpointManager::new(persistence.storage()));
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm)).with_checkpoint_manager(cm);
@@ -224,8 +229,11 @@ async fn test_with_checkpoint_manager_stores_cm() {
     // Verify it is present by confirming send_outbound triggers checkpoint saves
     // (tested in other cases). Here we just verify construction doesn't panic.
     let adapter = Arc::new(MockAdapter::new());
-    gw.register_adapter("test_channel".into(), Arc::clone(&adapter) as Arc<dyn IMAdapter>)
-        .await;
+    gw.register_adapter(
+        "test_channel".into(),
+        Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+    )
+    .await;
     drop(gw); // clean up
 }
 
@@ -233,13 +241,21 @@ async fn test_with_checkpoint_manager_stores_cm() {
 #[tokio::test]
 async fn test_gateway_without_checkpoint_manager_has_no_cm() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
 
     // Without CheckpointManager, send_outbound should still succeed
     let adapter = Arc::new(MockAdapter::new());
-    gw.register_adapter("test_channel".into(), Arc::clone(&adapter) as Arc<dyn IMAdapter>)
-        .await;
+    gw.register_adapter(
+        "test_channel".into(),
+        Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+    )
+    .await;
 
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
@@ -255,13 +271,21 @@ async fn test_gateway_without_checkpoint_manager_has_no_cm() {
 #[tokio::test]
 async fn test_send_outbound_with_cm_saves_checkpoint_on_success() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
 
     let adapter = Arc::new(MockAdapter::new());
-    gw.register_adapter("test_channel".into(), Arc::clone(&adapter) as Arc<dyn IMAdapter>)
-        .await;
+    gw.register_adapter(
+        "test_channel".into(),
+        Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+    )
+    .await;
 
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
@@ -290,25 +314,30 @@ async fn test_send_outbound_with_cm_saves_checkpoint_on_success() {
         "pending message should be added"
     );
     let pending = &cp.pending_messages[0];
-    assert!(
-        pending.sent,
-        "pending message should be marked sent=true"
-    );
+    assert!(pending.sent, "pending message should be marked sent=true");
 }
 
 /// Test: send_outbound without CheckpointManager — checkpoint is NOT saved.
 #[tokio::test]
 async fn test_send_outbound_without_cm_does_not_save_checkpoint() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let persistence = Arc::new(MockPersistence::default());
 
     // Gateway WITHOUT CheckpointManager
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
 
     let adapter = Arc::new(MockAdapter::new());
-    gw.register_adapter("test_channel".into(), Arc::clone(&adapter) as Arc<dyn IMAdapter>)
-        .await;
+    gw.register_adapter(
+        "test_channel".into(),
+        Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+    )
+    .await;
 
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
@@ -325,32 +354,35 @@ async fn test_send_outbound_without_cm_does_not_save_checkpoint() {
         .await
         .get(&session_id)
         .cloned();
-    assert!(
-        cp.is_none(),
-        "without cm, checkpoint should not be saved"
-    );
+    assert!(cp.is_none(), "without cm, checkpoint should not be saved");
 }
 
 /// Test: send failure does NOT trigger checkpoint save.
 #[tokio::test]
 async fn test_send_failure_does_not_trigger_checkpoint() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
 
     let adapter = Arc::new(MockAdapter::new());
     adapter.fail_send = true; // make send_message fail
-    gw.register_adapter("test_channel".into(), Arc::clone(&adapter) as Arc<dyn IMAdapter>)
-        .await;
+    gw.register_adapter(
+        "test_channel".into(),
+        Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+    )
+    .await;
 
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
 
-    let result = gw
-        .send_outbound("test_channel", &session_id, "hello")
-        .await;
+    let result = gw.send_outbound("test_channel", &session_id, "hello").await;
     assert!(result.is_err(), "send should fail");
 
     // Verify: no checkpoint was saved
@@ -370,13 +402,21 @@ async fn test_send_failure_does_not_trigger_checkpoint() {
 #[tokio::test]
 async fn test_send_outbound_interactive_triggers_checkpoint() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
 
     let adapter = Arc::new(MockAdapter::new());
-    gw.register_adapter("test_channel".into(), Arc::clone(&adapter) as Arc<dyn IMAdapter>)
-        .await;
+    gw.register_adapter(
+        "test_channel".into(),
+        Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+    )
+    .await;
 
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
@@ -400,10 +440,7 @@ async fn test_send_outbound_interactive_triggers_checkpoint() {
         .await
         .get(&session_id)
         .cloned();
-    assert!(
-        cp.is_some(),
-        "interactive send should also save checkpoint"
-    );
+    assert!(cp.is_some(), "interactive send should also save checkpoint");
     let cp = cp.unwrap();
     assert!(
         !cp.pending_messages.is_empty(),
@@ -415,13 +452,21 @@ async fn test_send_outbound_interactive_triggers_checkpoint() {
 #[tokio::test]
 async fn test_send_outbound_pending_message_contains_correct_data() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
 
     let adapter = Arc::new(MockAdapter::new());
-    gw.register_adapter("test_channel".into(), Arc::clone(&adapter) as Arc<dyn IMAdapter>)
-        .await;
+    gw.register_adapter(
+        "test_channel".into(),
+        Arc::clone(&adapter) as Arc<dyn IMAdapter>,
+    )
+    .await;
 
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;

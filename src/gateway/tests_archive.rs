@@ -7,6 +7,7 @@
 
 use crate::gateway::{GatewayConfig, Message, SessionManager};
 use crate::im::IMAdapter;
+use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::{
     AgentRole, PersistenceService, SessionCheckpoint, SessionStatus,
 };
@@ -242,7 +243,12 @@ async fn make_gateway_with_storage(
     storage: Arc<MockPersistenceService>,
 ) -> (crate::gateway::Gateway, Arc<SessionManager>) {
     let config = make_config();
-    let session_manager = Arc::new(SessionManager::new(&config, Some(storage)));
+    let session_manager = Arc::new(SessionManager::new(
+        &config,
+        Some(storage),
+        None,
+        BootstrapMode::Full,
+    ));
     let gateway = crate::gateway::Gateway::new(config, Arc::clone(&session_manager));
     (gateway, session_manager)
 }
@@ -440,7 +446,12 @@ async fn test_restore_notification_failure_does_not_block() {
 #[tokio::test]
 async fn test_no_storage_no_restore() {
     let config = make_config();
-    let session_manager = Arc::new(SessionManager::new(&config, None));
+    let session_manager = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let gateway = crate::gateway::Gateway::new(config, Arc::clone(&session_manager));
     let adapter = Arc::new(MockAdapter::new());
     gateway

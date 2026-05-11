@@ -234,6 +234,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
+    use crate::session::bootstrap::BootstrapMode;
+
     fn test_session_manager() -> Arc<SessionManager> {
         Arc::new(SessionManager::new(
             &crate::gateway::GatewayConfig {
@@ -243,6 +245,8 @@ mod tests {
                 dm_scope: crate::gateway::DmScope::PerChannelPeer,
             },
             None,
+            None,
+            BootstrapMode::Full,
         ))
     }
 

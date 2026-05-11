@@ -203,6 +203,7 @@ mod tests {
     use super::*;
     use crate::llm::fallback::FallbackClient;
     use crate::llm::LLMRegistry;
+    use crate::session::bootstrap::BootstrapMode;
 
     fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         let registry = Arc::new(LLMRegistry::new());
@@ -231,7 +232,12 @@ mod tests {
             max_message_size: 1024,
             dm_scope: crate::gateway::DmScope::default(),
         };
-        let sm = Arc::new(SessionManager::new(&config, None));
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
         let handler = handler_with_sm(Arc::clone(&sm));
         let result = handler.handle_message(&sid, "hello".to_string()).await;
@@ -246,7 +252,12 @@ mod tests {
             max_message_size: 1024,
             dm_scope: crate::gateway::DmScope::default(),
         };
-        let sm = Arc::new(SessionManager::new(&config, None));
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
         // Manually set busy
@@ -274,7 +285,12 @@ mod tests {
             max_message_size: 1024,
             dm_scope: crate::gateway::DmScope::default(),
         };
-        let sm = Arc::new(SessionManager::new(&config, None));
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
         let handler = handler_with_sm(Arc::clone(&sm));
 
@@ -297,7 +313,12 @@ mod tests {
             max_message_size: 1024,
             dm_scope: crate::gateway::DmScope::default(),
         };
-        let sm = Arc::new(SessionManager::new(&config, None));
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
         let handler = handler_with_sm(Arc::clone(&sm));
 
@@ -329,7 +350,12 @@ mod tests {
             max_message_size: 1024,
             dm_scope: crate::gateway::DmScope::default(),
         };
-        let sm = Arc::new(SessionManager::new(&config, None));
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
         let handler = handler_with_sm(Arc::clone(&sm));
 
@@ -360,7 +386,12 @@ mod tests {
             max_message_size: 1024,
             dm_scope: crate::gateway::DmScope::default(),
         };
-        let sm = Arc::new(SessionManager::new(&config, None));
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Full,
+        ));
         let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
         let handler = handler_with_sm(Arc::clone(&sm));
 
