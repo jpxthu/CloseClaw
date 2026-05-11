@@ -7,10 +7,12 @@ use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
 use crate::llm::session::{ChatSession, ConversationSession};
+use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use crate::session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::warn;
@@ -28,6 +30,10 @@ pub struct SessionManager {
     adapters: RwLock<HashMap<String, Arc<dyn IMAdapter>>>,
     /// Per-session ConversationSession for llm_busy and pending_messages management
     conversation_sessions: RwLock<HashMap<String, Arc<RwLock<ConversationSession>>>>,
+    /// Workspace directory for bootstrap file loading (None means no workspace)
+    workspace_dir: Option<PathBuf>,
+    /// Bootstrap mode determining which files to load
+    bootstrap_mode: BootstrapMode,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -39,14 +45,22 @@ impl std::fmt::Debug for SessionManager {
 }
 
 impl SessionManager {
-    /// Create a new SessionManager with the given config and optional storage.
-    pub fn new(config: &GatewayConfig, storage: Option<Arc<dyn PersistenceService>>) -> Self {
+    /// Create a new SessionManager with the given config, optional storage,
+    /// workspace directory and bootstrap mode.
+    pub fn new(
+        config: &GatewayConfig,
+        storage: Option<Arc<dyn PersistenceService>>,
+        workspace_dir: Option<PathBuf>,
+        bootstrap_mode: BootstrapMode,
+    ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             storage: RwLock::new(storage),
             dm_scope: config.dm_scope,
             adapters: RwLock::new(HashMap::new()),
             conversation_sessions: RwLock::new(HashMap::new()),
+            workspace_dir,
+            bootstrap_mode,
         }
     }
 
@@ -156,8 +170,24 @@ impl SessionManager {
             return Ok(session_id);
         }
 
-        // Create ConversationSession for this session_id
-        let conv_session = ConversationSession::new(session_id.clone(), "default".to_string());
+        // Create ConversationSession for this session_id, injecting bootstrap system prompt if workspace_dir is set
+        let conv_session = if let Some(ref workspace) = self.workspace_dir {
+            match load_bootstrap_files(workspace, self.bootstrap_mode) {
+                Ok(files) if !files.is_empty() => {
+                    // Concatenate files in filename order, each preceded by a markdown header
+                    let bootstrap_content = files
+                        .iter()
+                        .map(|(name, content)| format!("## {}\n{}\n", name, content))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    ConversationSession::new(session_id.clone(), "default".to_string())
+                        .with_system_prompt(bootstrap_content)
+                }
+                _ => ConversationSession::new(session_id.clone(), "default".to_string()),
+            }
+        } else {
+            ConversationSession::new(session_id.clone(), "default".to_string())
+        };
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -295,5 +325,7 @@ impl SessionManager {
 // Unit tests
 // ---------------------------------------------------------------------------
 
+#[cfg(test)]
+mod flush_tests;
 #[cfg(test)]
 mod tests;
