@@ -42,7 +42,7 @@ def mask_api_key(content: str) -> str:
 
 def run_wizard(
     closeclaw_bin: str | Path,
-    api_key: str,
+    api_key: str = "abcd1234",
     provider: str = "MiniMax",
 ) -> dict[str, Any]:
     """
