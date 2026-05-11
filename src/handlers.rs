@@ -184,7 +184,13 @@ pub async fn handle_config_setup(skip: bool) -> Result<()> {
 
     println!("\n=== CloseClaw Setup Wizard ===\n");
 
-    let output = match config_wizard::run_wizard() {
+    // Run the synchronous wizard in a blocking thread so it can use
+    // Handle::current().block_on() for async fetch_model_list without
+    // conflicts with the Tokio multi-thread runtime.
+    let output = tokio::task::spawn_blocking(|| config_wizard::run_wizard())
+        .await
+        .map_err(|e| anyhow::anyhow!("wizard task panicked: {}", e))?;
+    let output = match output {
         Ok(Some(output)) => output,
         Ok(None) => {
             println!("Wizard cancelled.");

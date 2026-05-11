@@ -18,6 +18,7 @@ use std::panic;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime::Handle;
 
 /// Parse user input for model selection into a vector of 0-based indices.
 ///
@@ -213,8 +214,10 @@ fn fetch_models_with_fallback(provider: &Arc<dyn LLMProvider>, credential: &str)
     print!("Fetching models from provider...");
     std::io::Write::flush(&mut std::io::stdout()).ok();
 
-    let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-    let result = rt.block_on(async {
+    // Use the existing Tokio runtime (called from #[tokio::main] async context).
+    // Runtime::new() panics if called from within a Tokio runtime — use
+    // Handle::current().block_on() instead.
+    let result = Handle::current().block_on(async {
         tokio::time::timeout(
             Duration::from_secs(10),
             provider.fetch_model_list(credential),
