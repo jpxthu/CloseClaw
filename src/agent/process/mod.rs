@@ -4,8 +4,11 @@
 
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
+
+mod io;
+pub use io::{spawn_error_reader, spawn_output_reader};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -138,14 +141,21 @@ impl AgentProcess {
         binary_path: &str,
         agent_id: &str,
         bootstrap_minimal: bool,
+        workspace_dir: Option<&str>,
     ) -> Result<AgentProcessHandle, ProcessError> {
         info!(binary = %binary_path, agent_id = %agent_id, bootstrap_minimal = bootstrap_minimal, "spawning agent process");
 
         let bootstrap_mode = if bootstrap_minimal { "minimal" } else { "full" };
-        let child = Command::new(binary_path)
-            .env("AGENT_ID", agent_id)
+        let mut cmd = Command::new(binary_path);
+        cmd.env("AGENT_ID", agent_id)
             .env("BOOTSTRAP_MODE", bootstrap_mode)
-            .env("RUST_LOG", "info")
+            .env("RUST_LOG", "info");
+
+        if let Some(dir) = workspace_dir {
+            cmd.env("WORKSPACE_DIR", dir);
+        }
+
+        let child = cmd
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -168,6 +178,7 @@ impl AgentProcess {
         agent_id: &str,
         args: &[&str],
         bootstrap_minimal: bool,
+        workspace_dir: Option<&str>,
     ) -> Result<AgentProcessHandle, ProcessError> {
         info!(binary = %binary_path, agent_id = %agent_id, args = ?args, bootstrap_minimal = bootstrap_minimal, "spawning agent process with args");
 
@@ -175,8 +186,13 @@ impl AgentProcess {
         let mut cmd = Command::new(binary_path);
         cmd.env("AGENT_ID", agent_id)
             .env("BOOTSTRAP_MODE", bootstrap_mode)
-            .env("RUST_LOG", "info")
-            .stdin(std::process::Stdio::piped())
+            .env("RUST_LOG", "info");
+
+        if let Some(dir) = workspace_dir {
+            cmd.env("WORKSPACE_DIR", dir);
+        }
+
+        cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
@@ -220,72 +236,6 @@ impl AgentProcess {
             ProcessError::CommunicationError(format!("failed to parse message: {}", e))
         })
     }
-}
-
-/// Spawn a background task to read stdout from a process
-pub async fn spawn_output_reader(
-    handle: AgentProcessHandle,
-) -> Result<tokio::sync::mpsc::Receiver<ProcessMessage>, ProcessError> {
-    let (tx, rx) = tokio::sync::mpsc::channel(100);
-
-    let agent_id = handle.agent_id.clone();
-    let mut child = handle.child.write().await;
-
-    if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-
-        tokio::spawn(async move {
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                match AgentProcess::parse_message(&line) {
-                    Ok(msg) => {
-                        debug!(agent_id = %agent_id, msg_type = %msg.msg_type, "received message from agent");
-                        if tx.send(msg).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        warn!(agent_id = %agent_id, error = %e, "failed to parse agent message");
-                    }
-                }
-            }
-            debug!(agent_id = %agent_id, "output reader task ended");
-        });
-    }
-
-    Ok(rx)
-}
-
-/// Spawn a background task to read stderr from a process
-pub async fn spawn_error_reader(
-    handle: AgentProcessHandle,
-) -> Result<tokio::sync::mpsc::Receiver<String>, ProcessError> {
-    let (tx, rx) = tokio::sync::mpsc::channel(100);
-
-    let agent_id = handle.agent_id.clone();
-    let mut child = handle.child.write().await;
-
-    if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-
-        tokio::spawn(async move {
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if tx.send(line).await.is_err() {
-                    break;
-                }
-            }
-            debug!(agent_id = %agent_id, "error reader task ended");
-        });
-    }
-
-    Ok(rx)
 }
 
 #[cfg(test)]
@@ -396,7 +346,7 @@ mod tests {
         // spawn "echo" to get a real process handle
         let rt = tokio::runtime::Runtime::new().unwrap();
         let handle = rt.block_on(async {
-            AgentProcess::spawn("echo", "test-agent", false)
+            AgentProcess::spawn("echo", "test-agent", false, None)
                 .await
                 .unwrap()
         });
@@ -407,13 +357,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_nonexistent_binary() {
-        let result = AgentProcess::spawn("/nonexistent/binary/path", "test", false).await;
+        let result = AgentProcess::spawn("/nonexistent/binary/path", "test", false, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_spawn_with_args() {
-        let result = AgentProcess::spawn_with_args("echo", "test-agent", &["hello"], false).await;
+        let result =
+            AgentProcess::spawn_with_args("echo", "test-agent", &["hello"], false, None).await;
         assert!(result.is_ok());
         let handle = result.unwrap();
         assert_eq!(handle.agent_id(), "test-agent");
@@ -421,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_message_to_echo() {
-        let handle = AgentProcess::spawn("cat", "test-agent", false)
+        let handle = AgentProcess::spawn("cat", "test-agent", false, None)
             .await
             .unwrap();
         let mut handle = handle;
@@ -432,7 +383,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_json_message() {
-        let handle = AgentProcess::spawn("cat", "test-agent", false)
+        let handle = AgentProcess::spawn("cat", "test-agent", false, None)
             .await
             .unwrap();
         let mut handle = handle;
@@ -448,7 +399,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_kill_process() {
-        let handle = AgentProcess::spawn("sleep", "test-agent", false)
+        let handle = AgentProcess::spawn("sleep", "test-agent", false, None)
             .await
             .unwrap();
         let mut handle = handle;
@@ -464,6 +415,7 @@ mod tests {
             "sh",
             "test-bootstrap-full",
             false, // bootstrap_minimal = false -> should be "full"
+            None,
         )
         .await
         .unwrap();
@@ -482,6 +434,7 @@ mod tests {
             "sh",
             "test-bootstrap-minimal",
             true, // bootstrap_minimal = true -> should be "minimal"
+            None,
         )
         .await
         .unwrap();

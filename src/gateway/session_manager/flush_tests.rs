@@ -1,0 +1,227 @@
+use super::*;
+use crate::gateway::{GatewayConfig, Message};
+use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::{AgentRole, PersistenceError, SessionCheckpoint};
+use async_trait::async_trait;
+use tokio::sync::Mutex;
+
+fn test_config() -> GatewayConfig {
+    GatewayConfig {
+        name: "test".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 65536,
+        dm_scope: DmScope::PerChannelPeer,
+    }
+}
+
+fn test_message() -> Message {
+    Message {
+        id: "msg-1".to_string(),
+        from: "user-a".to_string(),
+        to: "agent-b".to_string(),
+        content: "hello".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: std::collections::HashMap::new(),
+    }
+}
+
+struct FlushAllMockStorage {
+    saved_checkpoints: Mutex<Vec<SessionCheckpoint>>,
+    fail_session_ids: std::collections::HashSet<String>,
+}
+
+impl FlushAllMockStorage {
+    fn new() -> Self {
+        Self {
+            saved_checkpoints: Mutex::new(Vec::new()),
+            fail_session_ids: std::collections::HashSet::new(),
+        }
+    }
+    fn with_failing_sessions(ids: &[&str]) -> Self {
+        Self {
+            saved_checkpoints: Mutex::new(Vec::new()),
+            fail_session_ids: ids.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+}
+
+#[async_trait]
+impl crate::session::persistence::PersistenceService for FlushAllMockStorage {
+    async fn save_checkpoint(
+        &self,
+        checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
+        if self.fail_session_ids.contains(&checkpoint.session_id) {
+            return Err(PersistenceError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "simulated failure",
+            )));
+        }
+        self.saved_checkpoints.lock().await.push(checkpoint.clone());
+        Ok(())
+    }
+
+    async fn load_checkpoint(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(None)
+    }
+
+    async fn delete_checkpoint(&self, _session_id: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    async fn archive_checkpoint(
+        &self,
+        _checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    async fn restore_checkpoint(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(None)
+    }
+
+    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    async fn list_idle_sessions_for_agent(
+        &self,
+        _agent_id: &str,
+        _role: AgentRole,
+        _idle_minutes: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    async fn list_expired_archived_sessions_for_agent(
+        &self,
+        _agent_id: &str,
+        _role: AgentRole,
+        _purge_after_minutes: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn test_flush_all_no_storage() {
+    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let result = mgr.flush_all().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn test_flush_all_empty_sessions() {
+    let storage = Arc::new(FlushAllMockStorage::new());
+    let mgr = SessionManager::new(&test_config(), Some(storage), None, BootstrapMode::Full);
+    let result = mgr.flush_all().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn test_flush_all_saves_checkpoints() {
+    let storage = Arc::new(FlushAllMockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+    );
+
+    let session_ids = vec!["session-a", "session-b", "session-c"];
+    {
+        let mut sessions = mgr.sessions.write().await;
+        for sid in &session_ids {
+            sessions.insert(
+                sid.to_string(),
+                Session {
+                    id: sid.to_string(),
+                    agent_id: format!("agent-for-{}", sid),
+                    channel: "feishu".to_string(),
+                    created_at: chrono::Utc::now().timestamp(),
+                },
+            );
+        }
+    }
+
+    let result = mgr.flush_all().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 3);
+
+    let saved = storage.saved_checkpoints.lock().await;
+    assert_eq!(saved.len(), 3);
+    let saved_ids: std::collections::HashSet<_> =
+        saved.iter().map(|cp| cp.session_id.clone()).collect();
+    for sid in &session_ids {
+        assert!(saved_ids.contains(*sid));
+    }
+    for cp in saved.iter() {
+        assert_eq!(cp.status, SessionStatus::Active);
+        assert_eq!(cp.channel.as_ref(), Some(&"feishu".to_string()));
+        assert!(cp.chat_id.is_some());
+    }
+}
+
+#[tokio::test]
+async fn test_flush_all_partial_failure() {
+    let storage = Arc::new(FlushAllMockStorage::with_failing_sessions(&["session-b"]));
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+    );
+
+    let session_ids = vec!["session-a", "session-b", "session-c"];
+    {
+        let mut sessions = mgr.sessions.write().await;
+        for sid in &session_ids {
+            sessions.insert(
+                sid.to_string(),
+                Session {
+                    id: sid.to_string(),
+                    agent_id: format!("agent-for-{}", sid),
+                    channel: "feishu".to_string(),
+                    created_at: chrono::Utc::now().timestamp(),
+                },
+            );
+        }
+    }
+
+    let result = mgr.flush_all().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 2);
+
+    let saved = storage.saved_checkpoints.lock().await;
+    assert_eq!(saved.len(), 2);
+}
+
+#[tokio::test]
+async fn test_session_manager_get_chat_id() {
+    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let msg = test_message();
+    let sid = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    let chat_id = mgr.get_chat_id(&sid).await;
+    assert!(chat_id.is_some());
+    assert_eq!(chat_id.unwrap(), "agent-b");
+}
+
+#[tokio::test]
+async fn test_session_manager_get_chat_id_missing() {
+    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
+    assert!(chat_id.is_none());
+}

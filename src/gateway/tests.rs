@@ -4,6 +4,7 @@
 
 use crate::gateway::{DmScope, GatewayConfig, GatewayError, Message, SessionManager};
 use crate::im::{AdapterError, IMAdapter};
+use crate::session::bootstrap::BootstrapMode;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -68,7 +69,12 @@ fn make_message(to: &str, content: &str) -> Message {
 }
 
 fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManager>) {
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+    ));
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
     (gw, sm)
 }
@@ -265,7 +271,12 @@ async fn test_session_created_on_route() {
 async fn test_no_sessions_for_unknown_agent() {
     let gw = crate::gateway::Gateway::new(
         make_config(),
-        Arc::new(SessionManager::new(&make_config(), None)),
+        Arc::new(SessionManager::new(
+            &make_config(),
+            None,
+            None,
+            BootstrapMode::Full,
+        )),
     );
     assert!(gw.get_agent_sessions("nobody").await.is_empty());
 }
