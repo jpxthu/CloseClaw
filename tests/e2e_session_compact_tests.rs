@@ -2,6 +2,10 @@
 //!
 //! Verifies the complete integration path:
 //! multi-round conversation → /compact → LLM summary → boundary message → session continues.
+//!
+//! Run with: `cargo test --features fake-llm --test e2e_session_compact_tests`
+
+#![cfg(feature = "fake-llm")]
 
 use closeclaw::chat::protocol::ServerMessage;
 use closeclaw::chat::session::LegacyChatSession;
