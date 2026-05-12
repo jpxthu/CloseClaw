@@ -176,34 +176,13 @@ async fn test_fetch_model_list_auth_failure_mock() {
 }
 
 #[tokio::test]
-async fn test_fetch_model_list_timeout_mock() {
-    // Use an http_client with a very short reqwest timeout (1ms) so the
-    // HTTP send returns an error, which gets mapped to LLMError::NetworkError.
-    let mut server = mockito::Server::new_async().await;
-    let _m = server
-        .mock("GET", "/v1/models")
-        .match_header(
-            "Authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
-        .with_status(200)
-        .with_header("Content-Type", "application/json")
-        .with_body_from_fn(|_w| {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            Ok(())
-        })
-        .create_async()
-        .await;
+async fn test_minimax_fetch_model_list_timeout_mock() {
+    use crate::llm::http_client::MockTimeoutHttpClient;
 
     let provider = MiniMaxProvider::with_http_client(
         "test-key".into(),
-        server.url(),
-        Arc::new(ReqwestHttpClient::with_client(
-            reqwest::Client::builder()
-                .timeout(std::time::Duration::from_millis(1))
-                .build()
-                .unwrap(),
-        )),
+        "http://localhost/v1/models".into(),
+        Arc::new(MockTimeoutHttpClient::new()),
     );
 
     let err = provider.fetch_model_list("test-key").await.unwrap_err();

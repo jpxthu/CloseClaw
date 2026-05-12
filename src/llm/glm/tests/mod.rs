@@ -1,6 +1,7 @@
 //! Unit tests for the GLM provider.
 
 use super::*;
+use crate::llm::http_client::MockTimeoutHttpClient;
 use mockito::Server;
 
 // ---------------------------------------------------------------------------//
@@ -245,37 +246,17 @@ async fn test_fetch_model_list_success_mock() {
 }
 
 #[tokio::test]
-async fn test_fetch_model_list_timeout_mock() {
-    // Use an http_client with a very short reqwest timeout (1ms) so the
-    // HTTP send returns an error, which gets mapped to LLMError::NetworkError.
-    let mut server = mockito::Server::new_async().await;
-    let _m = server
-        .mock("GET", "/api/paas/v4/models")
-        .match_header(
-            "authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body_from_fn(|_w| {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            Ok(())
-        })
-        .create_async()
-        .await;
-
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(1))
-        .build()
-        .unwrap();
-    let provider = GlmProvider {
-        api_key: "fake-key".into(),
-        base_url: format!("{}/api/coding/paas/v4/chat/completions", server.url()),
-        http_client: Arc::new(ReqwestHttpClient::with_client(http_client)),
-    };
+async fn test_glm_fetch_model_list_timeout_mock() {
+    // Use MockTimeoutHttpClient that always returns a timeout error,
+    // eliminating timing-dependent flakiness.
+    let http_client: Arc<dyn HttpClient> = Arc::new(MockTimeoutHttpClient::new());
+    let provider = GlmProvider::with_http_client(
+        "fake-key".into(),
+        "http://localhost/api/coding/paas/v4/chat/completions".into(),
+        http_client,
+    );
 
     let err = provider.fetch_model_list("fake-key").await.unwrap_err();
-
     assert!(matches!(err, LLMError::NetworkError(_)));
 }
 
