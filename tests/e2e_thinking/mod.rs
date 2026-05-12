@@ -1,9 +1,7 @@
-//! E2E/008 — Thinking 标签多轮处理与 Session 持久化
+//! e2e_thinking module — all helpers and tests
 //!
-//! 验证含 `<thinking>` 标签字符串在 chat_history 中透传，
-//! 以及 Compact 触发后原始 thinking 内容被正确丢弃。
-//!
-//! 依赖：`fake-llm` feature
+//! Tests 1, 2 use unit-style (direct session manipulation without spawn).
+//! Tests 3-5 use protocol-level TCP style (spawn session.run() + TCP client).
 
 #![allow(deprecated)]
 
@@ -11,10 +9,9 @@
 mod tests {
     use std::sync::Arc;
 
-    use closeclaw::chat::protocol::{ClientMessage, ServerMessage};
+    use closeclaw::chat::protocol::ServerMessage;
     use closeclaw::chat::session::LegacyChatSession;
     use closeclaw::llm::fake::{FakeProvider, Scenario};
-    use closeclaw::llm::LLMProvider;
     use closeclaw::llm::LLMRegistry;
     use closeclaw::llm::Message;
     use closeclaw::session::compaction::execute_compact;
@@ -23,11 +20,9 @@ mod tests {
     use tokio::sync::broadcast;
 
     // ---------------------------------------------------------------------------
-    // Shared setup helpers
+    // Shared helpers for protocol-level tests
     // ---------------------------------------------------------------------------
 
-    /// Set up a `LegacyChatSession` backed by a TCP pair with `FakeProvider`
-    /// registered.  Returns `(session, client_stream, shutdown_tx)`.
     async fn setup_session_with_fake(
         scenarios: Vec<Scenario>,
     ) -> (
@@ -62,12 +57,6 @@ mod tests {
         (session, client, shutdown_tx)
     }
 
-    /// Build a FakeProvider from a scenario list.
-    ///
-    /// Uses `.or_else("")` to prevent panic/chain-exhausted error when scenarios
-    /// are exhausted — scenarios should be exactly matched to test steps, but
-    /// using a fallback ensures a miscount does not cascade into "all models
-    /// exhausted" errors from the fallback client.
     fn build_fake_provider(scenarios: Vec<Scenario>) -> FakeProvider {
         let mut provider = FakeProvider::builder().stub(false).or_else("");
         for s in scenarios {
@@ -103,15 +92,11 @@ mod tests {
 
     // ---------------------------------------------------------------------------
     // Test 1: thinking tag string is transparently stored in chat_history
-    //
-    // Unit-test style: directly operate on chat_history via a session reference.
-    // This avoids the `run()` → `()` constraint that makes chat_history
-    // inaccessible after the async task is spawned.
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
     async fn test_thinking_tag_persistence_in_history() {
-        // Build a FakeProvider that returns responses with <thinking> tags.
+        // Build FakeProvider with thinking-tagged responses
         let fake_provider = build_fake_provider(vec![
             Scenario::ok("<thinking>analyzing...</thinking> Turn 1 answer", "glm-5"),
             Scenario::ok("<thinking>formulating...</thinking> Turn 2 answer", "glm-5"),
@@ -132,7 +117,7 @@ mod tests {
             .await;
 
         // Create session but do NOT call run() — keep it alive via Arc.
-        // We hold a mutable reference to inspect chat_history directly.
+        // Hold a mutable reference to inspect chat_history directly.
         let mut session = LegacyChatSession::new(
             "test-session".to_string(),
             "test-agent".to_string(),
@@ -144,9 +129,8 @@ mod tests {
 
         std::env::remove_var("LLM_FALLBACK_CHAIN");
 
-        // Simulate 3 turns of conversation by directly pushing to chat_history.
-        // (The session layer is transparent — it stores whatever the LLM returns.)
-        for (i, (user_content, assistant_content)) in [
+        // Simulate 3 turns by directly pushing to chat_history (no spawn/run)
+        for (user_content, assistant_content) in [
             (
                 "problem A",
                 "<thinking>analyzing...</thinking> Turn 1 answer",
@@ -159,74 +143,42 @@ mod tests {
                 "problem C",
                 "<thinking>verifying...</thinking> Turn 3 answer",
             ),
-        ]
-        .iter()
-        .enumerate()
-        {
-            // User message
+        ] {
             session.chat_history.push(Message {
                 role: "user".to_string(),
-                content: (*user_content).to_string(),
+                content: user_content.to_string(),
             });
-            // Assistant message (simulating call_llm output)
             session.chat_history.push(Message {
                 role: "assistant".to_string(),
-                content: (*assistant_content).to_string(),
+                content: assistant_content.to_string(),
             });
-            let _ = i; // suppress unused warning
         }
 
-        // Verify: 6 messages (3 user + 3 assistant)
-        assert_eq!(
-            session.chat_history.len(),
-            6,
-            "chat_history should have 6 messages"
-        );
-
-        // Verify: each assistant message contains the thinking tag as a plain string
-        let assistants: Vec<_> = session
+        // Verify: 3 assistant messages all contain thinking tags
+        let assistant_msgs: Vec<_> = session
             .chat_history
             .iter()
             .filter(|m| m.role == "assistant")
             .collect();
+        assert_eq!(assistant_msgs.len(), 3);
+        for (i, msg) in assistant_msgs.iter().enumerate() {
+            assert!(
+                msg.content.contains("<thinking>"),
+                "assistant message {} should contain thinking tag: {:?}",
+                i,
+                msg.content
+            );
+        }
 
-        assert_eq!(assistants.len(), 3);
-        assert!(
-            assistants[0].content.contains("<thinking>analyzing"),
-            "Assistant 1 should contain thinking tag"
-        );
-        assert!(
-            assistants[1].content.contains("<thinking>formulating"),
-            "Assistant 2 should contain thinking tag"
-        );
-        assert!(
-            assistants[2].content.contains("<thinking>verifying"),
-            "Assistant 3 should contain thinking tag"
-        );
-
-        // Verify: thinking tags are stored as PLAIN STRINGS, not parsed/removed
-        assert!(
-            session
-                .chat_history
-                .iter()
-                .any(|m| m.content.contains("<thinking>analyzing")),
-            "Thinking tag should be stored as plain string in history"
-        );
-
-        drop(client); // clean up
+        drop(client);
     }
 
     // ---------------------------------------------------------------------------
     // Test 2: execute_compact output does NOT contain original thinking tags
-    //
-    // Pure unit test: directly call execute_compact() with a chat_history
-    // that contains thinking tags, then verify the boundary message does not
-    // contain them.
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
     async fn test_compact_boundary_excludes_thinking_tags() {
-        // Build a FakeProvider that returns a clean summary.
         let fake_provider = build_fake_provider(vec![Scenario::ok(
             "<summary>User discussed a problem and received step-by-step analysis.</summary>.",
             "glm-5",
@@ -241,8 +193,6 @@ mod tests {
 
         let llm = registry.get("fake").await.unwrap();
 
-        // Construct a chat_history that mimics what a real session would have
-        // after 3 turns with thinking tags — 6 messages.
         let messages = vec![
             Message {
                 role: "user".to_string(),
@@ -270,47 +220,29 @@ mod tests {
             },
         ];
 
-        // Call execute_compact — this mimics what happens when the user sends /compact
         let result = execute_compact(&messages, llm.as_ref(), "glm-5", None, false)
             .await
             .expect("execute_compact should succeed");
 
-        // The boundary message should contain the summary text
         assert!(
             result.boundary_message.contains("User discussed"),
             "Boundary should contain summary, got: {}",
             result.boundary_message
         );
-
-        // Critical: boundary message must NOT contain any thinking tags
         assert!(
             !result.boundary_message.contains("<thinking>"),
-            "Boundary message must NOT contain thinking tags, got: {}",
+            "Boundary must NOT contain thinking tags, got: {}",
             result.boundary_message
         );
-
-        // No thinking tags should appear anywhere in the result
-        assert!(
-            !result.boundary_message.contains("analyzing"),
-            "Boundary should not contain thinking content 'analyzing'"
-        );
-        assert!(
-            !result.boundary_message.contains("formulating"),
-            "Boundary should not contain thinking content 'formulating'"
-        );
-        assert!(
-            !result.boundary_message.contains("verifying"),
-            "Boundary should not contain thinking content 'verifying'"
-        );
+        assert!(!result.boundary_message.contains("analyzing"));
+        assert!(!result.boundary_message.contains("formulating"));
+        assert!(!result.boundary_message.contains("verifying"));
 
         std::env::remove_var("LLM_FALLBACK_CHAIN");
     }
 
     // ---------------------------------------------------------------------------
     // Test 3: thinking tag response traverses the wire via TCP protocol
-    //
-    // Protocol-level E2E: verifies that a FakeProvider response with thinking
-    // tags is correctly sent over TCP as part of the ChatResponse.
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
@@ -345,14 +277,13 @@ mod tests {
         let resp = read_msg(&mut reader).await;
         let done = read_msg(&mut reader).await;
 
-        // Protocol response must contain the thinking tag as sent by FakeProvider
         assert!(
             matches!(
                 &resp,
                 ServerMessage::ChatResponse { content, .. }
-                    if content.contains("<thinking>analyzing")
+                    if content.contains("<thinking>") && content.contains("analyzing the query")
             ),
-            "ChatResponse should forward thinking tag from FakeProvider, got: {:?}",
+            "Response should contain thinking tag from wire, got: {:?}",
             resp
         );
         assert!(matches!(done, ServerMessage::ChatResponseDone { .. }));
@@ -363,9 +294,6 @@ mod tests {
 
     // ---------------------------------------------------------------------------
     // Test 4: post-compact conversation continues with new session context
-    //
-    // Protocol-level E2E: verify that after /compact the session remains
-    // functional and responds to subsequent messages.
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
@@ -406,7 +334,7 @@ mod tests {
             let _done = read_msg(&mut reader).await;
         }
 
-        // /compact — consumes scenario 3 (Summary)
+        // /compact
         send_json(
             &mut writer_half,
             r#"{"type":"chat.message","content":"/compact","id":"req-compact"}"#,
@@ -428,7 +356,7 @@ mod tests {
             ServerMessage::ChatResponseDone { .. }
         ));
 
-        // Post-compact message — consumes scenario 4
+        // Post-compact message
         send_json(
             &mut writer_half,
             r#"{"type":"chat.message","content":"what were we discussing?","id":"req-after"}"#,
@@ -453,9 +381,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
-    // Test 5: session remains functional after compact (no panic / disconnect)
-    //
-    // Protocol-level E2E: ensure compact does not corrupt session state.
+    // Test 5: session remains functional after compact
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
@@ -478,44 +404,64 @@ mod tests {
             r#"{"type":"chat.start","agent_id":"test-agent","id":"req-start"}"#,
         )
         .await;
-        let _msg = read_msg(&mut reader).await;
+        let msg = read_msg(&mut reader).await;
+        assert!(matches!(msg, ServerMessage::ChatStarted { .. }));
 
         // First message
         send_json(
             &mut writer_half,
-            r#"{"type":"chat.message","content":"topic","id":"req-1"}"#,
+            r#"{"type":"chat.message","content":"start","id":"req-1"}"#,
         )
         .await;
-        let _r1 = read_msg(&mut reader).await;
-        let _d1 = read_msg(&mut reader).await;
+        let resp1 = read_msg(&mut reader).await;
+        let done1 = read_msg(&mut reader).await;
+        assert!(matches!(
+            &resp1,
+            ServerMessage::ChatResponse { content, .. }
+                if content.contains("first reply")
+        ));
+        assert!(matches!(done1, ServerMessage::ChatResponseDone { .. }));
 
-        // Compact
+        // /compact
         send_json(
             &mut writer_half,
             r#"{"type":"chat.message","content":"/compact","id":"req-compact"}"#,
         )
         .await;
-        let _cr = read_msg(&mut reader).await;
-        let _cd = read_msg(&mut reader).await;
+        let compact_resp = read_msg(&mut reader).await;
+        let compact_done = read_msg(&mut reader).await;
+        assert!(
+            matches!(
+                &compact_resp,
+                ServerMessage::ChatResponse { content, .. }
+                    if content.contains("压缩成功")
+            ),
+            "Compact should succeed, got: {:?}",
+            compact_resp
+        );
+        assert!(matches!(
+            compact_done,
+            ServerMessage::ChatResponseDone { .. }
+        ));
 
-        // Another message after compact — must not panic, not disconnect
+        // Second message after compact
         send_json(
             &mut writer_half,
-            r#"{"type":"chat.message","content":"more","id":"req-2"}"#,
+            r#"{"type":"chat.message","content":"continue","id":"req-2"}"#,
         )
         .await;
-        let r2 = read_msg(&mut reader).await;
-        let d2 = read_msg(&mut reader).await;
-
+        let resp2 = read_msg(&mut reader).await;
+        let done2 = read_msg(&mut reader).await;
         assert!(
-            matches!(&r2, ServerMessage::ChatResponse { .. }),
-            "Session should still respond after compact, got: {:?}",
-            r2
+            matches!(
+                &resp2,
+                ServerMessage::ChatResponse { content, .. }
+                    if content.contains("second reply after compact")
+            ),
+            "Post-compact response should contain 'second reply after compact', got: {:?}",
+            resp2
         );
-        assert!(
-            matches!(&d2, ServerMessage::ChatResponseDone { .. }),
-            "Should receive ChatResponseDone after compact"
-        );
+        assert!(matches!(done2, ServerMessage::ChatResponseDone { .. }));
 
         drop(writer_half);
         let _ = session_handle.await;
