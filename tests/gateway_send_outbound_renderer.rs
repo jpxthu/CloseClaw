@@ -9,6 +9,7 @@ use closeclaw::processor_chain::{
     dsl_parser::DslParseResult, MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
 use closeclaw::renderer::{RenderedOutput, Renderer};
+use closeclaw::session::bootstrap::BootstrapMode;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -130,7 +131,12 @@ use gateway_send_outbound_basic::{make_config, make_outbound_gw, make_outbound_m
 #[tokio::test]
 async fn test_send_outbound_with_renderer_text() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
         r.register(Arc::new(MockOutboundProcessor {
@@ -169,7 +175,12 @@ async fn test_send_outbound_with_renderer_text() {
 #[tokio::test]
 async fn test_send_outbound_with_renderer_interactive() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
         r.register(Arc::new(MockOutboundProcessor {
@@ -203,7 +214,12 @@ async fn test_send_outbound_with_renderer_interactive() {
 #[tokio::test]
 async fn test_send_outbound_with_renderer_dsl_result_passed() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let dsl_json = serde_json::to_string(&DslParseResult {
         clean_content: "Clean content".to_string(),
         instructions: vec![],
@@ -245,7 +261,12 @@ async fn test_send_outbound_with_renderer_dsl_result_passed() {
 #[tokio::test]
 async fn test_send_outbound_no_renderer_fallback_text() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
         r.register(Arc::new(MockOutboundProcessor {
@@ -294,7 +315,12 @@ async fn test_send_outbound_no_renderer_no_registry_bypass() {
 #[tokio::test]
 async fn test_send_outbound_renderer_with_suppress() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
         r.register(Arc::new(MockOutboundProcessor {
@@ -329,7 +355,12 @@ async fn test_send_outbound_renderer_with_suppress() {
 #[tokio::test]
 async fn test_send_outbound_renderer_requires_registry() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let renderer = Arc::new(MockRenderer::new(
         "text",
         serde_json::json!({"msg_type": "text", "content": {"text": "x"}}),
