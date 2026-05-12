@@ -103,6 +103,12 @@ impl SessionCheckpoint {
         self
     }
 
+    /// Set the pending messages list, replacing any existing messages
+    pub fn with_pending_messages(mut self, msgs: Vec<PendingMessage>) -> Self {
+        self.pending_messages = msgs;
+        self
+    }
+
     /// Set TTL in seconds
     pub fn with_ttl(mut self, ttl: u64) -> Self {
         self.ttl_seconds = ttl;

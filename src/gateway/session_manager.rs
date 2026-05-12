@@ -194,10 +194,18 @@ impl SessionManager {
         }
 
         if restored {
-            // Reload checkpoint to obtain chat_id / agent_id for the new Session
+            // Reload checkpoint to obtain chat_id / agent_id and pending_messages
             let storage = self.storage.read().await;
             if let Some(storage) = storage.as_ref() {
                 if let Ok(Some(cp)) = storage.load_checkpoint(&session_id).await {
+                    // Restore pending_messages into ConversationSession
+                    let conv_sessions = self.conversation_sessions.read().await;
+                    if let Some(cs) = conv_sessions.get(&session_id) {
+                        let mut cs = cs.write().await;
+                        cs.restore_pending_messages(cp.pending_messages);
+                    }
+                    drop(conv_sessions);
+
                     sessions.insert(
                         session_id.clone(),
                         Session {
@@ -256,13 +264,29 @@ impl SessionManager {
             return Ok(0);
         };
         let sessions = self.sessions.read().await;
+        // Collect session ids first to avoid holding sessions lock across I/O
+        let session_ids: Vec<String> = sessions.keys().cloned().collect();
+        drop(sessions);
+
+        // Collect pending messages using async RwLock read (no blocking_read)
+        let conv_sessions = self.conversation_sessions.read().await;
+        let mut pending_map: HashMap<String, Vec<PendingMessage>> = HashMap::new();
+        for sid in &session_ids {
+            if let Some(cs) = conv_sessions.get(sid) {
+                let cs = cs.read().await;
+                pending_map.insert(sid.clone(), cs.get_pending_messages());
+            }
+        }
+        let sessions = self.sessions.read().await;
         let mut saved = 0;
         for (session_id, session) in sessions.iter() {
+            let pending = pending_map.get(session_id).cloned().unwrap_or_default();
             let cp = SessionCheckpoint::new(session_id.clone())
                 .with_status(SessionStatus::Active)
                 .with_channel(session.channel.clone())
                 .with_chat_id(session.agent_id.clone())
-                .with_agent_id(session.agent_id.clone());
+                .with_agent_id(session.agent_id.clone())
+                .with_pending_messages(pending);
             if storage.save_checkpoint(&cp).await.is_ok() {
                 saved += 1;
             } else {
