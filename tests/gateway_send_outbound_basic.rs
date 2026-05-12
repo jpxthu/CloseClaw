@@ -6,6 +6,7 @@ use closeclaw::im::{AdapterError, IMAdapter};
 use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
+use closeclaw::session::bootstrap::BootstrapMode;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -98,7 +99,12 @@ pub(crate) fn make_outbound_message(to: &str, content: &str) -> Message {
 }
 
 pub(crate) fn make_outbound_gw(config: GatewayConfig) -> (Gateway, Arc<SessionManager>) {
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let gw = Gateway::new(config, Arc::clone(&sm));
     (gw, sm)
 }
@@ -121,7 +127,12 @@ async fn test_send_outbound_no_registry_bypass() {
 #[tokio::test]
 async fn test_send_outbound_text_path() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
         r.register(Arc::new(MockOutboundProcessor {
@@ -146,7 +157,12 @@ async fn test_send_outbound_text_path() {
 #[tokio::test]
 async fn test_send_outbound_interactive_path() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
         r.register(Arc::new(MockOutboundProcessor {
@@ -181,7 +197,12 @@ async fn test_send_outbound_interactive_path() {
 #[tokio::test]
 async fn test_send_outbound_suppress() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Minimal,
+    ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
         r.register(Arc::new(MockOutboundProcessor {
