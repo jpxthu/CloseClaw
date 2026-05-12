@@ -43,6 +43,7 @@ async fn setup_session() -> (LegacyChatSession, tokio::net::TcpStream) {
         accepted,
         shutdown_rx.resubscribe(),
         registry,
+        None, // config_dir
     );
     std::env::remove_var("LLM_FALLBACK_CHAIN");
     (session, client)
@@ -72,6 +73,7 @@ async fn setup_session_with_shutdown_tx() -> (
         accepted,
         shutdown_rx,
         registry,
+        None, // config_dir
     );
     std::env::remove_var("LLM_FALLBACK_CHAIN");
     (session, client, shutdown_tx)
@@ -245,6 +247,7 @@ async fn test_session_shutdown_signal() {
         accepted,
         shutdown_rx,
         registry,
+        None, // config_dir
     );
     std::env::remove_var("LLM_FALLBACK_CHAIN");
 
