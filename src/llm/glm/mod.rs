@@ -3,9 +3,11 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 
+use crate::llm::http_client::{HttpClient, ReqwestHttpClient};
 use crate::llm::{
     ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, StreamingResponse, Usage,
 };
@@ -167,7 +169,7 @@ pub struct GlmUsageDetail {
 pub struct GlmProvider {
     pub(crate) api_key: String,
     pub(crate) base_url: String,
-    pub(crate) http_client: Client,
+    pub(crate) http_client: Arc<dyn HttpClient>,
 }
 
 impl GlmProvider {
@@ -180,10 +182,21 @@ impl GlmProvider {
     }
 
     pub fn with_base_url(api_key: String, base_url: String) -> Self {
-        let http_client = Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to create HTTP client");
+        let http_client = Arc::new(ReqwestHttpClient::new().expect("Failed to create HTTP client"));
+        Self {
+            api_key,
+            base_url,
+            http_client,
+        }
+    }
+
+    /// Create a provider with a custom `HttpClient` implementation.
+    #[cfg(test)]
+    pub(crate) fn with_http_client(
+        api_key: String,
+        base_url: String,
+        http_client: Arc<dyn HttpClient>,
+    ) -> Self {
         Self {
             api_key,
             base_url,
@@ -220,21 +233,29 @@ impl GlmProvider {
     /// this method appends `/paas/quota` internally.
     pub async fn fetch_usage(&self, base_url: &str) -> Result<GlmQuotaResponse, LLMError> {
         let url = format!("{}/paas/quota", base_url.trim_end_matches('/'));
-        let resp = self
+
+        let mut req = reqwest::Request::new(
+            reqwest::Method::GET,
+            reqwest::Url::parse(&url).expect("invalid URL"),
+        );
+        req.headers_mut().insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", self.api_key).parse().unwrap(),
+        );
+
+        let response = self
             .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
+            .execute(req)
             .await
             .map_err(|e| LLMError::NetworkError(e.to_string()))?;
 
-        let status = resp.status();
+        let status = response.status();
         if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
+            let body = response.text().await.unwrap_or_default();
             return Err(Self::map_status_error(status, body));
         }
 
-        let quota: GlmQuotaResponse = resp.json().await.map_err(|e| {
+        let quota: GlmQuotaResponse = response.json().await.map_err(|e| {
             LLMError::ApiError(format!("failed to parse GLM quota response: {}", e))
         })?;
 
@@ -311,17 +332,24 @@ impl LLMProvider for GlmProvider {
             .replace("/coding/paas/v4/chat/completions", "/paas/v4/models")
             .replace("/chat/completions", "/models");
 
-        let response = timeout(
-            Duration::from_secs(10),
-            self.http_client
-                .get(&models_url)
-                .header("Authorization", format!("Bearer {}", bearer_token))
-                .send(),
-        )
-        .await
-        .map_err(|_| LLMError::NetworkError("fetch_model_list timed out after 10s".to_string()))?;
+        let mut req = reqwest::Request::new(
+            reqwest::Method::GET,
+            reqwest::Url::parse(&models_url).expect("invalid URL"),
+        );
+        req.headers_mut().insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", bearer_token).parse().unwrap(),
+        );
 
-        let response = response.map_err(|e| LLMError::NetworkError(e.to_string()))?;
+        let response = match timeout(Duration::from_secs(10), self.http_client.execute(req)).await {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(e)) => return Err(LLMError::NetworkError(e.to_string())),
+            Err(_) => {
+                return Err(LLMError::NetworkError(
+                    "fetch_model_list timed out after 10s".to_string(),
+                ))
+            }
+        };
 
         let status = response.status();
         if !status.is_success() {
@@ -382,13 +410,26 @@ impl LLMProvider for GlmProvider {
             max_tokens: request.max_tokens,
         };
 
+        let mut req = reqwest::Request::new(
+            reqwest::Method::POST,
+            reqwest::Url::parse(&self.base_url).expect("invalid URL"),
+        );
+        {
+            let headers = req.headers_mut();
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.api_key).parse().unwrap(),
+            );
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                "application/json".parse().unwrap(),
+            );
+            *req.body_mut() = Some(serde_json::to_string(&req_body).unwrap().into());
+        }
+
         let response = self
             .http_client
-            .post(&self.base_url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&req_body)
-            .send()
+            .execute(req)
             .await
             .map_err(|e| LLMError::NetworkError(e.to_string()))?;
 

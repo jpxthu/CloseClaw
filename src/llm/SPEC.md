@@ -97,6 +97,13 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`ModelRecommendParams`** — 知识库中单模型的推荐参数（context_window、max_tokens、default_temperature、reasoning、reasoning_levels、input_types、recommended_protocol）；`recommended_protocol` 为该模型推荐的协议 ID，未知时返回默认 `"openai"`
 - **`ProviderModelKnowledge`** — 内嵌知识库，按 provider 存储多模型推荐参数；支持 `find(provider, model_id)` 查询、`all_models(provider)` 列表、`recommended_protocol(provider_id, model_id) -> ProtocolId` 查询（未知时 fallback `"openai"`）
 
+### HTTP Client 抽象
+
+- **`HttpClient`**（trait）— HTTP 请求执行抽象，`async fn execute(Request) -> Result<Response>`，`Send + Sync`；用于 Provider 测试时注入 mock
+- **`ReqwestHttpClient`** — `HttpClient` 的默认实现，包装 `reqwest::Client`；`new()` 使用 60s 超时，`with_client()` 接受已有 Client 实例
+- **`MiniMaxProvider::with_http_client`** — 以自定义 `HttpClient` 构造 MiniMax Provider（用于测试注入）
+- **`GlmProvider::with_http_client`** — 以自定义 `HttpClient` 构造 GLM Provider（用于测试注入）
+
 ### 数据类型（Provider 注册与管理）
 
 - **`LLMRegistry`** — Provider 注册中心，按名字查找和分发
@@ -206,9 +213,11 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 | `model_cache.rs` | 本地模型列表缓存：按 (provider, token) 查询，`CacheKey` 计算 key，`ModelCache` 读写 `~/.closeclaw/model_cache.json`（`MODEL_CACHE_FILE` 环境变量可覆盖），TTL 3600 秒，过期/损坏时静默返回 None |
 | `model_info.rs` | 模型元数据类型：`InputType`（Text/Image 模态枚举）、`ModelInfo`（模型元数据 struct，含 `FromStr` 从 `"provider/model_id"` 解析）、`ParseModelInfoError` |
 | `knowledge.rs` | 内嵌知识库：`ReasoningLevels`（思考强度枚举）、`ModelRecommendParams`（推荐参数）、`ProviderModelKnowledge`（知识库，含 `find` 和 `all_models` 查询接口）；覆盖 MiniMax、GLM、VolcEngine、DeepSeek 四个 Provider |
-| `minimax.rs` | MiniMax Chat Completions API adapter。`fetch_model_list` HTTP 请求带 10s 超时（`tokio::time::timeout`），超时时返回 `NetworkError`；推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 在内部解析（unit test 覆盖），暂未通过 `Usage` 暴露给调用方。 |
+| `http_client.rs` | `HttpClient` trait + `ReqwestHttpClient` 默认实现；Provider 的 `http_client` 字段为 `Arc<dyn HttpClient>`，生产路径使用 `ReqwestHttpClient`，测试注入 mock |
+| `minimax.rs` | MiniMax Chat Completions API adapter。`fetch_model_list` HTTP 请求带 10s 超时（`tokio::time::timeout`），超时时返回 `NetworkError`；推理模型（M2.5/M2.7）用户可见回复在 `reasoning_content` 字段，`content` 为空时做兜底提取；业务错误码通过 `base_resp.status_code` 返回（非零即失败），区别于 HTTP 状态码；`completion_tokens_details.reasoning_tokens` 在内部解析（unit test 覆盖），暂未通过 `Usage` 暴露给调用方。流式接口 `chat_streaming` override 实现，使用 SSE 流式，delta 中 `reasoning_content` 优先于 `content` |
 | `glm/mod.rs` | 智谱 GLM 系列模型（glm-5.1、glm-4.7、glm-4.5-air 等）adapter。`fetch_model_list` HTTP 请求带 10s 超时（`tokio::time::timeout`），超时时返回 `NetworkError`；错误格式为 top-level `error`（code 为字符串），code "1211" → ModelNotFound、"1214" → InvalidRequest；推理模型 `content` 为空时提取 `reasoning_content`；`usage` 中含 `prompt_tokens_details.cached_tokens` 和 `completion_tokens_details.reasoning_tokens`。非流式 chat、流式 streaming、Usage API 均通过 mockito Mock Server 覆盖完整 HTTP 全链路（`glm/tests/mock_integration.rs` 13 个非流式用例 + `glm/tests/mock_extra.rs` 3 个非流式用例含错误场景 + `glm_stream/tests/mock_integration.rs` 3 个流式用例 + `glm/tests/mock_usage.rs` 3 个 Usage 用例）。 |
-| `minimax_stream.rs` | MiniMax 流式接口：SSE 解析、delta 提取、流式错误处理 |
+| `http_client.rs` | `HttpClient` trait + `ReqwestHttpClient` 默认实现；Provider 的 `http_client` 字段为 `Arc<dyn HttpClient>`，生产路径使用 `ReqwestHttpClient`，测试注入 mock |
+| `minimax_stream.rs` | MiniMax 流式接口：SSE 解析、delta 提取（`reasoning_content` 优先于 `content`）、流式业务错误（`base_resp.status_code`）处理 |
 | `glm_stream.rs` | GLM 流式接口：SSE 解析、delta 提取（`reasoning_content` 优先、`content` 兜底）、流式错误处理；`GlmProvider::chat_streaming()` override 实现 |
 | `openai.rs` | OpenAI Chat Completions API adapter |
 | `anthropic.rs` | Anthropic API adapter（当前为 stub） |

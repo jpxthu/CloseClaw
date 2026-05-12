@@ -268,11 +268,10 @@ async fn test_fetch_model_list_timeout_mock() {
         .timeout(std::time::Duration::from_millis(1))
         .build()
         .unwrap();
-
     let provider = GlmProvider {
         api_key: "fake-key".into(),
         base_url: format!("{}/api/coding/paas/v4/chat/completions", server.url()),
-        http_client,
+        http_client: Arc::new(ReqwestHttpClient::with_client(http_client)),
     };
 
     let err = provider.fetch_model_list("fake-key").await.unwrap_err();

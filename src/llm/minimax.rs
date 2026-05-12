@@ -3,15 +3,20 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, Usage};
+use crate::llm::ReqwestHttpClient;
+use crate::llm::{ChatRequest, ChatResponse, HttpClient, LLMError, LLMProvider, ModelInfo, Usage};
 
 #[path = "minimax_stream.rs"]
 pub(crate) mod minimax_stream;
 
-/// MiniMax API endpoint
+// ---------------------------------------------------------------------------//
+// MiniMax /models API types                                                 //
+// ---------------------------------------------------------------------------//
+
 const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/chat/completions";
 
 /// MiniMax API request body
@@ -78,10 +83,6 @@ struct MiniMaxBaseResp {
     status_msg: String,
 }
 
-// ---------------------------------------------------------------------------//
-// MiniMax /models API types                                                 //
-// ---------------------------------------------------------------------------//
-
 /// Response from GET /v1/models (MiniMax model list API, OpenAI-compatible)
 #[derive(Debug, Deserialize)]
 struct MiniMaxModelsResponse {
@@ -102,10 +103,14 @@ struct MiniMaxModel {
     owned_by: String,
 }
 
+// ---------------------------------------------------------------------------//
+// Provider                                                                   //
+// ---------------------------------------------------------------------------//
+
 pub struct MiniMaxProvider {
     pub(crate) api_key: String,
     pub(crate) base_url: String,
-    pub(crate) http_client: Client,
+    pub(crate) http_client: Arc<dyn HttpClient>,
 }
 
 impl MiniMaxProvider {
@@ -118,10 +123,21 @@ impl MiniMaxProvider {
     }
 
     pub fn with_base_url(api_key: String, base_url: String) -> Self {
-        let http_client = Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to create HTTP client");
+        let http_client = Arc::new(ReqwestHttpClient::new().expect("Failed to create HTTP client"));
+        Self {
+            api_key,
+            base_url,
+            http_client,
+        }
+    }
+
+    /// Create a provider with a custom `HttpClient` implementation.
+    #[cfg(test)]
+    pub(crate) fn with_http_client(
+        api_key: String,
+        base_url: String,
+        http_client: Arc<dyn HttpClient>,
+    ) -> Self {
         Self {
             api_key,
             base_url,
@@ -180,23 +196,23 @@ impl LLMProvider for MiniMaxProvider {
     }
 
     async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
-        // MiniMax /v1/models uses OpenAI-compatible format.
-        // The base_url is the chat endpoint; strip /chat/completions if present.
         let base = self
             .base_url
             .trim_end_matches("/chat/completions")
             .trim_end_matches("/v1");
         let url = format!("{}/v1/models", base);
 
-        let response = match timeout(
-            Duration::from_secs(10),
-            self.http_client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", bearer_token))
-                .send(),
-        )
-        .await
-        {
+        let req = reqwest::Request::new(
+            reqwest::Method::GET,
+            reqwest::Url::parse(&url).expect("invalid URL"),
+        );
+        let mut req = req;
+        req.headers_mut().insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", bearer_token).parse().unwrap(),
+        );
+
+        let response = match timeout(Duration::from_secs(10), self.http_client.execute(req)).await {
             Ok(Ok(resp)) => resp,
             Ok(Err(e)) => return Err(LLMError::NetworkError(e.to_string())),
             Err(_) => {
@@ -212,9 +228,10 @@ impl LLMProvider for MiniMaxProvider {
             return Err(Self::map_status_error(status, body));
         }
 
-        let api_resp: MiniMaxModelsResponse = response.json().await.map_err(|e| {
-            LLMError::ApiError(format!("failed to parse MiniMax /models response: {}", e))
-        })?;
+        let api_resp: MiniMaxModelsResponse = response
+            .json()
+            .await
+            .map_err(|e| LLMError::ApiError(e.to_string()))?;
 
         let models: Vec<ModelInfo> = api_resp
             .data
@@ -222,7 +239,6 @@ impl LLMProvider for MiniMaxProvider {
             .map(|m| {
                 use crate::llm::InputType;
                 let model_id = m.id.clone();
-                // Look up knowledge base for metadata; safe defaults if not found.
                 let kb = crate::llm::ProviderModelKnowledge::new();
                 let params = kb.find("minimax", &model_id);
                 let (context_window, max_tokens, default_temperature, reasoning, input_types) =
@@ -242,7 +258,6 @@ impl LLMProvider for MiniMaxProvider {
                     context_window,
                     max_tokens,
                     default_temperature,
-                    // reasoning: we cannot determine from /models alone, use KB default
                     reasoning,
                     input_types,
                 }
@@ -260,13 +275,26 @@ impl LLMProvider for MiniMaxProvider {
             max_tokens: request.max_tokens,
         };
 
+        let mut req = reqwest::Request::new(
+            reqwest::Method::POST,
+            reqwest::Url::parse(&self.base_url).expect("invalid URL"),
+        );
+        {
+            let headers = req.headers_mut();
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.api_key).parse().unwrap(),
+            );
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                "application/json".parse().unwrap(),
+            );
+            *req.body_mut() = Some(serde_json::to_string(&req_body).unwrap().into());
+        }
+
         let response = self
             .http_client
-            .post(&self.base_url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&req_body)
-            .send()
+            .execute(req)
             .await
             .map_err(|e| LLMError::NetworkError(e.to_string()))?;
 
@@ -280,9 +308,8 @@ impl LLMProvider for MiniMaxProvider {
         let api_resp: MiniMaxResponse = response
             .json()
             .await
-            .map_err(|e| LLMError::ApiError(format!("failed to parse MiniMax response: {}", e)))?;
+            .map_err(|e| LLMError::ApiError(e.to_string()))?;
 
-        // Check MiniMax internal business error code
         if let Some(ref base_resp) = api_resp.base_resp {
             if base_resp.status_code != 0 {
                 return Err(Self::map_base_resp_error(
