@@ -82,3 +82,4 @@ Type: <type>
 | Agent 模型与通信 | [docs/developer/references/agent-model.md](docs/developer/references/agent-model.md) |
 | 风险项、术语表 | [docs/developer/references/risk-issues.md](docs/developer/references/risk-issues.md) |
 | 配置示例 | `configs/agents.json.example`、`configs/.env.example` |
+| 测试开发标准、文件布局、安全规则 | [docs/developer/test-development.md](docs/developer/test-development.md) |
