@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use closeclaw::gateway::{DmScope, GatewayConfig, SessionManager};
 use closeclaw::im::processor::{ProcessError, ProcessorRegistry};
+use closeclaw::session::bootstrap::BootstrapMode;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,6 +26,8 @@ fn test_session_manager() -> Arc<SessionManager> {
             dm_scope: DmScope::PerChannelPeer,
         },
         None,
+        None,
+        BootstrapMode::Full,
     ))
 }
 

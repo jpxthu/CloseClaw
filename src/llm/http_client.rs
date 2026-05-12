@@ -49,6 +49,54 @@ impl HttpClient for ReqwestHttpClient {
 }
 
 #[cfg(test)]
+pub use timeout_mock::MockTimeoutHttpClient;
+
+/// Test-only timeout mock module.
+#[cfg(test)]
+mod timeout_mock {
+    use super::*;
+
+    /// Mock HTTP client that always returns a timeout error.
+    pub struct MockTimeoutHttpClient;
+
+    impl MockTimeoutHttpClient {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    impl Default for MockTimeoutHttpClient {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    #[async_trait]
+    impl HttpClient for MockTimeoutHttpClient {
+        async fn execute(
+            &self,
+            _request: reqwest::Request,
+        ) -> Result<reqwest::Response, reqwest::Error> {
+            // Build a client with zero timeout to always trigger a timeout error.
+            // reqwest::Error has no public constructor, so we use a 0-timeout client
+            // to reliably produce Kind::Timeout.
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(0))
+                .build()
+                .unwrap();
+            let req = reqwest::Request::new(
+                reqwest::Method::GET,
+                reqwest::Url::parse("http://localhost").unwrap(),
+            );
+            Err(client
+                .execute(req)
+                .await
+                .expect_err("expected timeout error"))
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
