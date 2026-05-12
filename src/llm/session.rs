@@ -129,6 +129,24 @@ impl ConversationSession {
     pub fn pending_count(&self) -> usize {
         self.pending_messages.len()
     }
+
+    /// Returns a clone of all pending messages without consuming the queue.
+    pub fn get_pending_messages(&self) -> Vec<crate::session::persistence::PendingMessage> {
+        self.pending_messages.iter().cloned().collect()
+    }
+
+    /// Restores pending messages from checkpoint data.
+    /// Only pushes messages where `sent == false` back into the queue.
+    pub fn restore_pending_messages(
+        &mut self,
+        messages: Vec<crate::session::persistence::PendingMessage>,
+    ) {
+        for msg in messages {
+            if !msg.sent {
+                self.pending_messages.push_back(msg);
+            }
+        }
+    }
 }
 
 impl ChatSession for ConversationSession {
@@ -209,262 +227,4 @@ impl ChatSession for ConversationSession {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::llm::types::UnifiedUsage;
-    use crate::session::persistence::PendingMessage;
-    use std::sync::Arc;
-    use std::thread;
-
-    // ── llm_busy state ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_is_llm_busy_default_false() {
-        let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
-        assert!(!session.is_llm_busy());
-    }
-
-    #[test]
-    fn test_set_llm_busy_true() {
-        let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
-        session.set_llm_busy(true);
-        assert!(session.is_llm_busy());
-    }
-
-    #[test]
-    fn test_set_llm_busy_false_recovers() {
-        let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
-        session.set_llm_busy(true);
-        session.set_llm_busy(false);
-        assert!(!session.is_llm_busy());
-    }
-
-    #[test]
-    fn test_set_llm_busy_concurrent_no_panic() {
-        let session = Arc::new(ConversationSession::new(
-            "sess_concurrent".into(),
-            "gpt-4o".into(),
-        ));
-        let handles: Vec<_> = (0..4)
-            .map(|i| {
-                let s = Arc::clone(&session);
-                thread::spawn(move || {
-                    s.set_llm_busy(i % 2 == 0);
-                })
-            })
-            .collect();
-        for h in handles {
-            h.join().expect("thread panicked");
-        }
-    }
-
-    // ── pending_messages queue ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_pending_initial_state() {
-        let session = ConversationSession::new("sess_pending".into(), "gpt-4o".into());
-        assert_eq!(session.pending_count(), 0);
-        assert!(!session.has_pending());
-    }
-
-    #[test]
-    fn test_push_pending_sets_has_pending_and_increments_count() {
-        let mut session = ConversationSession::new("sess_pending".into(), "gpt-4o".into());
-        assert_eq!(session.pending_count(), 0);
-        session.push_pending(PendingMessage::new("msg_1".into(), "hello".into()));
-        assert!(session.has_pending());
-        assert_eq!(session.pending_count(), 1);
-        session.push_pending(PendingMessage::new("msg_2".into(), "world".into()));
-        assert_eq!(session.pending_count(), 2);
-    }
-
-    #[test]
-    fn test_pop_pending_fifo_order() {
-        let mut session = ConversationSession::new("sess_fifo".into(), "gpt-4o".into());
-        session.push_pending(PendingMessage::new("msg_A".into(), "first".into()));
-        session.push_pending(PendingMessage::new("msg_B".into(), "second".into()));
-        let first = session.pop_pending();
-        assert!(first.is_some());
-        assert_eq!(first.unwrap().message_id, "msg_A");
-        let second = session.pop_pending();
-        assert!(second.is_some());
-        assert_eq!(second.unwrap().message_id, "msg_B");
-    }
-
-    #[test]
-    fn test_pop_pending_returns_none_when_empty() {
-        let mut session = ConversationSession::new("sess_empty".into(), "gpt-4o".into());
-        assert!(session.pop_pending().is_none());
-    }
-
-    // ── SessionMessage serde roundtrip ────────────────────────────────────────
-
-    #[test]
-    fn test_session_message_serde_roundtrip() {
-        let msg = SessionMessage {
-            role: "user".into(),
-            content_blocks: vec![
-                ContentBlock::Text("hello".into()),
-                ContentBlock::ToolUse {
-                    id: "call_1".into(),
-                    name: "get_weather".into(),
-                    input: r#"{"city":"Tokyo"}"#.into(),
-                },
-            ],
-            timestamp: Utc::now(),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        let parsed: SessionMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg.role, parsed.role);
-        assert_eq!(msg.content_blocks, parsed.content_blocks);
-    }
-
-    // ── ConversationSession initial state ─────────────────────────────────────
-
-    #[test]
-    fn test_conversation_session_new() {
-        let session = ConversationSession::new("sess_42".into(), "gpt-4o".into());
-        assert_eq!(session.messages().len(), 0);
-        assert_eq!(session.turn_count(), 0);
-        assert!(session.system_prompt().is_none());
-    }
-
-    // ── append_response adds a message ─────────────────────────────────────────
-
-    #[test]
-    fn test_append_response_adds_message() {
-        let mut session = ConversationSession::new("sess_1".into(), "gpt-4o".into());
-        let response = UnifiedResponse {
-            content_blocks: vec![ContentBlock::Text("Hi there!".into())],
-            usage: UnifiedUsage {
-                prompt_tokens: 1,
-                completion_tokens: 2,
-                total_tokens: Some(3),
-                reasoning_tokens: None,
-            },
-            finish_reason: Some("stop".into()),
-        };
-        session.append_response(response);
-        assert_eq!(session.messages().len(), 1);
-        assert_eq!(session.messages()[0].role, "assistant");
-    }
-
-    // ── append_tool_result increments turn ────────────────────────────────────
-
-    #[test]
-    fn test_append_tool_result_increments_turn() {
-        let mut session = ConversationSession::new("sess_2".into(), "gpt-4o".into());
-        // Need an assistant message first so tool_result has somewhere to attach.
-        session.append_response(UnifiedResponse {
-            content_blocks: vec![ContentBlock::Text("Using tool...".into())],
-            usage: UnifiedUsage {
-                prompt_tokens: 1,
-                completion_tokens: 1,
-                total_tokens: Some(2),
-                reasoning_tokens: None,
-            },
-            finish_reason: Some("stop".into()),
-        });
-        assert_eq!(session.turn_count(), 0);
-        session.append_tool_result("call_x".into(), "tool output".into());
-        assert_eq!(session.turn_count(), 1);
-    }
-
-    // ── append_response with empty blocks does NOT increment turn ──────────────
-
-    #[test]
-    fn test_append_response_empty_blocks_no_turn_increment() {
-        let mut session = ConversationSession::new("sess_3".into(), "gpt-4o".into());
-        session.append_response(UnifiedResponse {
-            content_blocks: vec![],
-            usage: UnifiedUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: Some(0),
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        });
-        assert_eq!(session.messages().len(), 0); // no message added
-        assert_eq!(session.turn_count(), 0); // no turn incremented
-    }
-
-    // ── build_api_request with system_prompt ───────────────────────────────────
-
-    #[test]
-    fn test_build_api_request_includes_system_prompt() {
-        let session = ConversationSession::new("sess_4".into(), "gpt-4o".into())
-            .with_system_prompt("You are helpful.");
-        let req = session.build_api_request();
-        // system prompt should appear as a messages entry with role "system"
-        assert!(req
-            .messages
-            .iter()
-            .any(|m| m.role == "system" && m.content.contains("helpful")));
-    }
-
-    // ── build_api_request without system_prompt ────────────────────────────────
-
-    #[test]
-    fn test_build_api_request_without_system_prompt() {
-        let mut session = ConversationSession::new("sess_5".into(), "gpt-4o".into());
-        session.append_response(UnifiedResponse {
-            content_blocks: vec![ContentBlock::Text("Who are you?".into())],
-            usage: UnifiedUsage {
-                prompt_tokens: 1,
-                completion_tokens: 1,
-                total_tokens: Some(2),
-                reasoning_tokens: None,
-            },
-            finish_reason: Some("stop".into()),
-        });
-        let req = session.build_api_request();
-        assert!(!req.messages.is_empty());
-        // No system prompt means no "system" role message
-        assert!(!req.messages.iter().any(|m| m.role == "system"));
-    }
-
-    // ── Multiple turns ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_conversation_session_multiple_turns() {
-        let mut session = ConversationSession::new("sess_6".into(), "gpt-4o".into());
-
-        // Turn 1: assistant response
-        session.append_response(UnifiedResponse {
-            content_blocks: vec![ContentBlock::Text("First response".into())],
-            usage: UnifiedUsage {
-                prompt_tokens: 1,
-                completion_tokens: 2,
-                total_tokens: Some(3),
-                reasoning_tokens: None,
-            },
-            finish_reason: Some("stop".into()),
-        });
-        assert_eq!(session.messages().len(), 1);
-        assert_eq!(session.turn_count(), 0); // no tool call yet
-
-        // Turn 2: tool call → increments turn
-        session.append_tool_result("call_1".into(), "result A".into());
-        assert_eq!(session.turn_count(), 1);
-
-        // Turn 3: another assistant response
-        session.append_response(UnifiedResponse {
-            content_blocks: vec![ContentBlock::Text("Second response".into())],
-            usage: UnifiedUsage {
-                prompt_tokens: 1,
-                completion_tokens: 3,
-                total_tokens: Some(4),
-                reasoning_tokens: None,
-            },
-            finish_reason: Some("stop".into()),
-        });
-        assert_eq!(session.messages().len(), 2);
-        assert_eq!(session.turn_count(), 1); // still 1; only tool_result increments
-
-        // Turn 4: another tool call
-        session.append_tool_result("call_2".into(), "result B".into());
-        assert_eq!(session.turn_count(), 2);
-        assert_eq!(session.messages().len(), 2); // no new message added by tool_result
-    }
-}
+mod tests;

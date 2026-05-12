@@ -117,6 +117,8 @@ LLM 模块为 CloseClaw 提供统一的多 Provider LLM 调用抽象。通过 `L
 - **`ConversationSession::pop_pending`** — 弹出并返回最早的 pending 消息（无则返回 None）
 - **`ConversationSession::has_pending`** — 查询 pending 队列是否非空
 - **`ConversationSession::pending_count`** — 返回 pending 消息数量
+- **`ConversationSession::get_pending_messages`** — 返回 pending 队列的 clone（`Vec<PendingMessage>`），不消耗队列
+- **`ConversationSession::restore_pending_messages`** — 从 checkpoint 数据恢复 pending 消息，只入队 `sent=false` 的消息
 
 **实际使用方**：`SessionManager`（`src/gateway/session_manager.rs`）通过 `conversation_sessions` 字段持有 `ConversationSession`，并通过 `get_conversation_session`、`is_session_busy`、`push_pending_message`、`pop_pending_message` 方法向外暴露 busy/pending 管理能力；`SessionMessageHandler`（`src/gateway/session_handler.rs`）持有 `Arc<SessionManager>`，调用上述方法实现 busy/pending 状态机。
 

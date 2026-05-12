@@ -1,7 +1,8 @@
 use super::*;
 use crate::gateway::{GatewayConfig, Message};
+use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::{AgentRole, PersistenceError, SessionCheckpoint};
+use crate::session::persistence::{AgentRole, PendingMessage, PersistenceError, SessionCheckpoint};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -224,4 +225,161 @@ async fn test_session_manager_get_chat_id_missing() {
     let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
     let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
     assert!(chat_id.is_none());
+}
+
+// ── pending_messages flush scenarios ───────────────────────────────────────────
+
+#[tokio::test]
+async fn test_flush_all_with_pending_messages() {
+    let storage = Arc::new(FlushAllMockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+    );
+
+    let session_id = "session-with-pending";
+    {
+        let mut sessions = mgr.sessions.write().await;
+        sessions.insert(
+            session_id.to_string(),
+            Session {
+                id: session_id.to_string(),
+                agent_id: "agent-b".to_string(),
+                channel: "feishu".to_string(),
+                created_at: chrono::Utc::now().timestamp(),
+            },
+        );
+    }
+
+    let conv_session = Arc::new(RwLock::new(ConversationSession::new(
+        session_id.to_string(),
+        "gpt-4o".to_string(),
+    )));
+    {
+        let mut cs = conv_session.write().await;
+        cs.push_pending(PendingMessage::new("msg_1".into(), "hello".into()));
+        cs.push_pending(PendingMessage::new("msg_2".into(), "world".into()));
+    }
+    {
+        let mut conv_sessions = mgr.conversation_sessions.write().await;
+        conv_sessions.insert(session_id.to_string(), conv_session);
+    }
+
+    let result = mgr.flush_all().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 1);
+
+    let saved = storage.saved_checkpoints.lock().await;
+    assert_eq!(saved.len(), 1);
+    let cp = &saved[0];
+    assert_eq!(cp.session_id, session_id);
+    assert_eq!(
+        cp.pending_messages.len(),
+        2,
+        "checkpoint should contain 2 pending messages"
+    );
+    assert_eq!(cp.pending_messages[0].message_id, "msg_1");
+    assert_eq!(cp.pending_messages[1].message_id, "msg_2");
+    assert!(!cp.pending_messages[0].sent);
+    assert!(!cp.pending_messages[1].sent);
+}
+
+#[tokio::test]
+async fn test_flush_all_without_pending_messages() {
+    let storage = Arc::new(FlushAllMockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+    );
+
+    let session_id = "session-no-pending";
+    {
+        let mut sessions = mgr.sessions.write().await;
+        sessions.insert(
+            session_id.to_string(),
+            Session {
+                id: session_id.to_string(),
+                agent_id: "agent-b".to_string(),
+                channel: "feishu".to_string(),
+                created_at: chrono::Utc::now().timestamp(),
+            },
+        );
+    }
+
+    let conv_session = Arc::new(RwLock::new(ConversationSession::new(
+        session_id.to_string(),
+        "gpt-4o".to_string(),
+    )));
+    {
+        let mut conv_sessions = mgr.conversation_sessions.write().await;
+        conv_sessions.insert(session_id.to_string(), conv_session);
+    }
+
+    let result = mgr.flush_all().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 1);
+
+    let saved = storage.saved_checkpoints.lock().await;
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].session_id, session_id);
+    assert!(
+        saved[0].pending_messages.is_empty(),
+        "checkpoint pending_messages should be empty when ConversationSession has no pending"
+    );
+}
+
+#[tokio::test]
+async fn test_flush_all_no_conversation_session() {
+    let storage = Arc::new(FlushAllMockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+    );
+
+    let session_id = "session-no-conv";
+    {
+        let mut sessions = mgr.sessions.write().await;
+        sessions.insert(
+            session_id.to_string(),
+            Session {
+                id: session_id.to_string(),
+                agent_id: "agent-b".to_string(),
+                channel: "feishu".to_string(),
+                created_at: chrono::Utc::now().timestamp(),
+            },
+        );
+    }
+
+    let result = mgr.flush_all().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 1);
+
+    let saved = storage.saved_checkpoints.lock().await;
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].session_id, session_id);
+    assert!(
+        saved[0].pending_messages.is_empty(),
+        "checkpoint pending_messages should be empty when no ConversationSession exists"
+    );
+}
+
+#[tokio::test]
+async fn test_with_pending_messages_bulk_set() {
+    let pm1 = PendingMessage::new("msg_1".into(), "first".into());
+    let pm2 = PendingMessage::new("msg_2".into(), "second".into());
+    let pm3 = PendingMessage::new("msg_3".into(), "third".into());
+
+    let cp = SessionCheckpoint::new("sess-check".into())
+        .add_pending_message(pm1)
+        .with_pending_messages(vec![pm2, pm3]);
+
+    assert_eq!(cp.pending_messages.len(), 2);
+    assert_eq!(cp.pending_messages[0].message_id, "msg_2");
+    assert_eq!(cp.pending_messages[1].message_id, "msg_3");
 }
