@@ -1,7 +1,7 @@
 //! Unit tests for the MiniMax provider.
 
 use super::*;
-use crate::llm::Message;
+use crate::llm::{Message, ReqwestHttpClient};
 
 // --- Fixture-based deserialization and content extraction tests ---
 
@@ -42,11 +42,11 @@ fn test_models_list_deserialize() {
 // --- Integration tests via mockito ---
 
 fn mock_provider(server: &mockito::Server) -> MiniMaxProvider {
-    MiniMaxProvider {
-        api_key: "test-key".into(),
-        base_url: server.url(),
-        http_client: reqwest::Client::new(),
-    }
+    MiniMaxProvider::with_http_client(
+        "test-key".into(),
+        server.url(),
+        Arc::new(ReqwestHttpClient::with_client(reqwest::Client::new())),
+    )
 }
 
 #[tokio::test]
@@ -195,14 +195,16 @@ async fn test_fetch_model_list_timeout_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider {
-        api_key: "test-key".into(),
-        base_url: server.url(),
-        http_client: reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(1))
-            .build()
-            .unwrap(),
-    };
+    let provider = MiniMaxProvider::with_http_client(
+        "test-key".into(),
+        server.url(),
+        Arc::new(ReqwestHttpClient::with_client(
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_millis(1))
+                .build()
+                .unwrap(),
+        )),
+    );
 
     let err = provider.fetch_model_list("test-key").await.unwrap_err();
 
@@ -210,6 +212,8 @@ async fn test_fetch_model_list_timeout_mock() {
 }
 
 // --- Helper functions ---
+
+use std::sync::Arc;
 
 fn create_chat_request(model: &str) -> ChatRequest {
     ChatRequest {

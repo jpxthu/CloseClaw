@@ -121,14 +121,30 @@ pub(crate) async fn send_streaming_request(
         stream: true,
     };
 
+    let mut req = reqwest::Request::new(
+        reqwest::Method::POST,
+        reqwest::Url::parse(&provider.base_url).expect("invalid URL"),
+    );
+    {
+        let headers = req.headers_mut();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", provider.api_key).parse().unwrap(),
+        );
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            "application/json".parse().unwrap(),
+        );
+        headers.insert(
+            reqwest::header::ACCEPT,
+            "text/event-stream".parse().unwrap(),
+        );
+        *req.body_mut() = Some(serde_json::to_string(&stream_request).unwrap().into());
+    }
+
     let response = provider
         .http_client
-        .post(&provider.base_url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
-        .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream")
-        .json(&stream_request)
-        .send()
+        .execute(req)
         .await
         .map_err(|e| LLMError::NetworkError(e.to_string()))?;
 
