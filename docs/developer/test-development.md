@@ -1,6 +1,6 @@
 # 测试开发标准
 
-> 状态：v1 | 2026-05-13
+> 状态：v2 | 2026-05-13
 
 ## 目的
 
@@ -26,7 +26,7 @@
 
 - **禁止外部网络访问**：所有网络调用必须 mock 或使用本地 mock server
 - **禁止长时间阻塞**：单个测试超时上限 30 秒；涉及 I/O 的测试必须设 `#[timeout(XXX)]`
-- **禁止真实的 LLM 调用**：使用 `MockLlm` 或 `FakeLlmService`（见 [test/fake-llm](https://github.com/search?q=repo%3Acloseclaw-dev%2Fcloseclaw+label%3Atest%2Ffake-llm)）
+- **禁止真实的 LLM 调用**：使用 `MockLlm` 或 `FakeLlmService`（对应 Issue 标签 `test/fake-llm`）
 
 ### 并行安全
 
@@ -42,29 +42,48 @@
 | 类型 | 存放位置 | 说明 |
 |------|----------|------|
 | **UT**（单元测试） | 同文件 `#[cfg(test)]` | 与业务代码同文件，测试内部逻辑 |
-| **集成测试** | `tests/` 根目录，按模块名 `*_tests.rs` | 测试模块间交互 |
-| **E2E 测试** | `tests/e2e_*.rs` 或 `tests/e2e_<module>/` | 跨模块场景，模拟真实调用链 |
+| **集成测试** | `tests/integration/` | 测试模块间交互 |
+| **E2E 测试** | `tests/e2e/` | 跨模块场景，模拟真实调用链 |
 
 > `src/` 目录下禁止放测试文件（除 `#[cfg(test)]` 模块内）。
 
-### 命名规则
+### 目录结构
 
 ```
 tests/
-├── e2e_<scenario>_tests.rs          # E2E：一个场景一个文件
-├── <module>_tests.rs                # 集成测试：按模块
-├── e2e_<module>/
-│   ├── mod.rs
-│   └── test_case_a.rs              # E2E 子场景拆分
-├── fixtures/                        # 共享测试数据
-│   ├── mod.rs
-│   └── agent_configs.json
-└── integration_helpers.rs           # 共享测试辅助函数
+├── e2e/                          # E2E 测试（按模块/场景分子目录）
+│   ├── agent/
+│   │   └── registry.rs
+│   ├── daemon/
+│   │   ├── audit.rs
+│   │   └── shutdown.rs
+│   ├── session/
+│   │   └── compact.rs
+│   └── thinking/
+│       └── mod.rs
+├── integration/                  # 集成测试（按模块名）
+│   ├── chat_session_tests.rs
+│   ├── llm_tests.rs
+│   ├── feishu_adapter_tests.rs
+│   └── ...
+├── fixtures/                      # 共享测试数据
+│   ├── feishu/
+│   ├── llm/
+│   └── outbound/
+└── integration_helpers.rs        # 共享测试辅助函数
+
+scripts/test_flow/                # Flow 测试（Python，依赖真实 LLM API key）
+                                # 不在 UT/E2E 范围内，单独运行
 ```
 
-- 测试模块：`snake_case`，后缀 `_tests`
-- 测试函数：`snake_case`，前缀 `test_`（如 `test_session_compact_on_idle`）
-- Fixture 文件：与测试模块同名或放 `fixtures/`
+### 命名规则
+
+| 对象 | 规则 | 示例 |
+|------|------|------|
+| 目录 | `snake_case` | `e2e/`, `integration/` |
+| 测试文件 | `snake_case`，后缀 `_tests.rs` 或 `.rs` | `chat_session_tests.rs` |
+| 测试函数 | `snake_case`，前缀 `test_` | `test_session_compact_on_idle` |
+| Fixture 目录 | 与对应测试模块同名或放 `fixtures/` | `fixtures/feishu/` |
 
 ---
 
@@ -77,23 +96,33 @@ tests/
 
 ---
 
-## 集成测试标准（`tests/`）
+## 集成测试标准（`tests/integration/`）
 
 1. 所有文件 I/O 必须用 `TempDir`
 2. 所有 HTTP/WS 调用走 mock server（`mockito` 或 `wiremock`）
-3. 共享 helper 放在 `integration_helpers.rs`，不得复制逻辑
+3. 共享 helper 放在 `tests/integration_helpers.rs`，不得复制逻辑
 4. 测试前清理：每个测试负责自己的 `TempDir` 退出时自动清理
 5. 避免 `lazy_static` / `once_cell` 全局状态
 
 ---
 
-## E2E 测试标准
+## E2E 测试标准（`tests/e2e/`）
 
 1. 不发真实网络请求；所有外部依赖 mock
 2. 完整场景覆盖：启动 → 业务逻辑 → 验证 → 清理
 3. 用 `AbortHandle` 保证子进程在测试结束后被 kill
 4. 超时：`#[tokio::test(timeout = 60_000)]`
-5. 每个 E2E 文件对应一个 GitHub Issue，标签 `test/e2e`
+5. 每个 E2E 目录对应一个 GitHub Issue，标签 `test/e2e`
+
+---
+
+## Flow 测试（`scripts/test_flow/`）
+
+Python 脚本，模拟完整用户操作链路，**需要真实 LLM API key**。
+
+- 不在 CI UT 门禁范围内，单独手动运行
+- 不得依赖 CI 环境变量之外的外部网络
+- 用途：端到端冒烟测试，非单元/集成测试
 
 ---
 
@@ -114,6 +143,7 @@ tests/
 |------|------|------|
 | 集成测试（`tests/*.rs`） | 20+ | `fake_integration_tests.rs` 等含真实网络依赖，需要改造 |
 | E2E | 8+ | `e2e_daemon_*.rs`、`e2e_thinking/` 等，结构较清晰 |
+| Flow 测试 | 3 | `scripts/test_flow/` Python 脚本，依赖真实 LLM |
 | UT（同文件） | 多个 | 随代码分散 |
 
 ---
