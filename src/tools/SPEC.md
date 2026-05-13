@@ -8,7 +8,8 @@
 - `Tool` trait 定义工具的核心接口，所有工具必须实现 `Send + Sync + 'static`
 - `ToolRegistry` 是并发安全的注册中心，内部用 `tokio::sync::RwLock` 包裹 `HashMap<String, Arc<dyn Tool>>`
 - `ToolDescriptor` 仅含 name / group / summary / is_deferred，用于 system prompt 一级索引
-- 工具 detail 和 input_schema 按需通过 `ToolSearch` 触发注入，不在一级索引展开
+- `ToolRegistry::build_tools_section` 将 eager 工具的 detail 注入一级索引；deferred 工具仅显示名称；group header 在组内存在 eager 工具时附加 `(always loaded)` 标记；按 group 排序，组内按 name 排序；总长不超过 15000 字符，超长截断（不做任何提示文字）
+- 工具 detail 和 input_schema 完整内容通过 `ToolSearch` 触发注入
 - `builtin` 子模块提供 5 个 file_ops 工具、2 个 meta 工具、5 个 git_ops 工具、1 个 SkillTool 和 2 个 stub 工具，全部通过 `register_builtin_tools()` 一键注册
 - System prompt 集成：builder.rs 提供 `build_tools_section(registry, ctx)` async 函数，返回 `Section::ToolsSection`；`build_from_workspace` 中预埋 `Section::ToolsSection(String::new())` 占位符（位于 RoleSection 之后 MemorySection 之前）。当前 `build_tools_section` 尚未在 sync 路径中与 `build_from_workspace` 打通，内容通过 dynamic_sections 外部传入
 
@@ -37,7 +38,7 @@
 - `ToolRegistry::list_descriptors(ctx)` — 列出所有 ToolDescriptor，按 ctx 过滤
 - `ToolRegistry::get_detail(name)` — 获取指定工具的 detail 字符串，不存在返回 `NotFound`
 - `ToolRegistry::list_by_group(group)` — 列出指定分组下的所有工具名
-- `ToolRegistry::build_tools_section(ctx)` — 生成分组索引字符串，超 1500 字符截断
+- `ToolRegistry::build_tools_section(ctx)` — 生成分组索引字符串，eager 工具显示 `**{name}**: {detail}`，deferred 工具仅显示名称；总长不超过 15000 字符，超长截断
 
 ### 内建工具（builtin/）
 
@@ -58,7 +59,7 @@
 ```
 tools/
 ├── mod.rs              # Tool trait、ToolFlags、ToolContext、ToolDescriptor、ToolError
-├── registry.rs         # ToolRegistry 并发注册中心 + build_tools_section
+├── registry.rs         # ToolRegistry 并发注册中心 + ToolInfo + build_tools_section
 └── builtin/
     ├── mod.rs          # register_builtin_tools 统一入口（15 个工具）
     ├── file_ops.rs     # Read / Write / Edit / Grep / Ls
@@ -72,7 +73,7 @@ tools/
 
 ### 两级设计
 
-**一级索引**（`ToolRegistry::build_tools_section` 输出）：按 group 聚合，展示 `**{group}** — (always loaded)` 标题 + 工具名列表（中文顿号分隔、按名称排序），供 LLM 了解可用工具范围。总长不超过 1500 字符，超长截断并附加 `... (N more tools, use ToolSearch to explore)` 提示。
+**一级索引**（`ToolRegistry::build_tools_section` 输出）：按 group 排序，eager 工具展示 `**{name}**: {detail}`，deferred 工具仅显示名称；group header 在组内存在 eager 工具时附加 `(always loaded)` 标记。总长不超过 15000 字符，超长截断。
 
 **二级详情**（`get_detail` 返回）：完整 detail 描述 + input_schema JSON，通过 `ToolSearch` 按关键词或精确名触发注入。
 

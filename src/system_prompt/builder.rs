@@ -164,7 +164,7 @@ use crate::tools::{ToolContext, ToolRegistry};
 /// Build the Tools section content from a registry.
 ///
 /// Groups tools by their group name, formats each group with a header and
-/// tool list, then truncates at `TOOLS_SECTION_MAX_LEN` (1500 chars) if needed.
+/// tool list, then truncates at `TOOLS_SECTION_MAX_LEN` (15000 chars) if needed.
 pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> Section {
     let content = registry.build_tools_section(ctx).await;
     Section::ToolsSection(content)
@@ -458,9 +458,9 @@ mod tests {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
         };
-        // With 7 tools the section should be well under 1500 chars
+        // With all builtin tools + detail the section should be well under 15000 chars
         assert!(
-            content.chars().count() <= 1500,
+            content.chars().count() <= 15000,
             "section too long: {}",
             content
         );
