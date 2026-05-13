@@ -6,8 +6,42 @@ use std::sync::Arc;
 
 use crate::tools::{Tool, ToolContext, ToolDescriptor, ToolError};
 
+use serde_json::Value;
+
+/// Internal tool info carrier for `build_tools_section`.
+struct ToolInfo {
+    name: String,
+    group: String,
+    detail: String,
+    #[allow(dead_code)]
+    input_schema: Value,
+    is_deferred: bool,
+    #[allow(dead_code)]
+    is_read_only: bool,
+    #[allow(dead_code)]
+    is_destructive: bool,
+    #[allow(dead_code)]
+    is_expensive: bool,
+}
+
+impl ToolInfo {
+    fn from_tool(tool: &Arc<dyn Tool>) -> Self {
+        let flags = tool.flags();
+        Self {
+            name: tool.name().to_string(),
+            group: tool.group().to_string(),
+            detail: tool.detail(),
+            input_schema: tool.input_schema(),
+            is_deferred: flags.is_deferred_by_default,
+            is_read_only: flags.is_read_only,
+            is_destructive: flags.is_destructive,
+            is_expensive: flags.is_expensive,
+        }
+    }
+}
+
 /// Maximum length of the first-level tools section (in characters).
-const TOOLS_SECTION_MAX_LEN: usize = 1500;
+const TOOLS_SECTION_MAX_LEN: usize = 15000;
 
 /// Thread-safe tool registry.
 ///
@@ -32,40 +66,44 @@ impl Default for ToolRegistry {
 impl ToolRegistry {
     /// Format a single group into a section line, returning (output, new_total_len).
     /// Returns None if truncation was triggered.
+    ///
+    /// Output format:
+    /// - group header: `**{group}** — (always loaded)` if the group has eager tools
+    /// - eager tools: `  - **{name}**: {detail}`
+    /// - deferred tools: `  - {name}`
     fn format_group_line(
         group_name: &str,
-        tools: Vec<(String, bool)>,
+        tools: &[ToolInfo],
         total_len: usize,
         max_len: usize,
     ) -> Option<(String, usize)> {
-        let tag = if tools.iter().any(|(_, deferred)| !deferred) {
-            "(always loaded)"
-        } else {
-            ""
-        };
+        let has_eager = tools.iter().any(|t| !t.is_deferred);
+        let tag = if has_eager { "(always loaded)" } else { "" };
         let header = if tag.is_empty() {
             format!("**{}**", group_name)
         } else {
             format!("**{}** — {}", group_name, tag)
         };
-        let mut sorted_tools = tools;
-        sorted_tools.sort_by_key(|(n, _)| n.clone());
-        let tool_list: String = sorted_tools
-            .into_iter()
-            .map(|(n, _)| n)
-            .collect::<Vec<_>>()
-            .join("、");
-        let line = format!("{}\n- {}\n", header, tool_list);
-        let new_len = total_len + line.chars().count();
+
+        let mut sorted_tools: Vec<_> = tools.iter().collect();
+        sorted_tools.sort_by_key(|t| t.name.clone());
+
+        let mut lines = vec![header];
+        for tool in sorted_tools {
+            let line = if tool.is_deferred {
+                format!("  - {}", tool.name)
+            } else {
+                format!("  - **{}**: {}", tool.name, tool.detail)
+            };
+            lines.push(line);
+        }
+
+        let output = lines.join("\n") + "\n";
+        let new_len = total_len + output.chars().count();
         if new_len > max_len {
-            let overflow = new_len - max_len;
-            let exceeded = format!(
-                "... ({} more tools, use ToolSearch to explore)",
-                overflow / 10 + 1
-            );
-            Some((exceeded, new_len))
+            None
         } else {
-            Some((line, new_len))
+            Some((output, new_len))
         }
     }
 }
@@ -141,17 +179,17 @@ impl ToolRegistry {
     ///
     /// Groups tools by `group()`, formats each group with a header and tool
     /// list, then truncates at `TOOLS_SECTION_MAX_LEN` if needed.
-    pub async fn build_tools_section(&self, ctx: &ToolContext) -> String {
-        let descriptors = self.list_descriptors(ctx).await;
+    pub async fn build_tools_section(&self, _ctx: &ToolContext) -> String {
+        let guard = self.tools.read().await;
+
+        // Collect ToolInfo from all registered tools
+        let tool_infos: Vec<ToolInfo> = guard.values().map(|t| ToolInfo::from_tool(t)).collect();
 
         // Group by group name
-        let mut groups_map: std::collections::HashMap<String, Vec<(String, bool)>> =
+        let mut groups_map: std::collections::HashMap<String, Vec<ToolInfo>> =
             std::collections::HashMap::new();
-        for d in descriptors {
-            groups_map
-                .entry(d.group)
-                .or_default()
-                .push((d.name, d.is_deferred));
+        for info in tool_infos {
+            groups_map.entry(info.group.clone()).or_default().push(info);
         }
 
         let mut lines: Vec<String> = Vec::new();
@@ -162,7 +200,7 @@ impl ToolRegistry {
 
         for (group_name, tools) in sorted_groups {
             let Some((line, new_len)) =
-                Self::format_group_line(&group_name, tools, total_len, TOOLS_SECTION_MAX_LEN)
+                Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN)
             else {
                 break;
             };
@@ -328,6 +366,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_tool_info_from_tool() {
+        let reg = ToolRegistry::new();
+        reg.register(DummyTool {
+            name: "Read".to_string(),
+            group: "file_ops".to_string(),
+            summary_text: "Read files".to_string(),
+            is_deferred: false,
+        })
+        .await
+        .unwrap();
+
+        let guard = reg.tools.read().await;
+        let tool = guard.get("Read").unwrap();
+        let info = ToolInfo::from_tool(tool);
+        assert_eq!(info.name, "Read");
+        assert_eq!(info.group, "file_ops");
+        assert_eq!(info.detail, "detail for Read");
+        assert!(!info.is_deferred);
+        assert!(!info.is_read_only);
+        assert!(!info.is_destructive);
+        assert!(!info.is_expensive);
+    }
+
+    #[tokio::test]
     async fn test_build_tools_section() {
         let reg = ToolRegistry::new();
         reg.register(DummyTool {
@@ -350,9 +412,49 @@ mod tests {
         let ctx = make_ctx();
         let section = reg.build_tools_section(&ctx).await;
         assert!(section.contains("file_ops"));
-        assert!(section.contains("Read"));
+        assert!(section.contains("**Read**: detail for Read"));
         assert!(section.contains("meta"));
-        assert!(section.contains("ToolSearch"));
+        assert!(section.contains("**ToolSearch**: detail for ToolSearch"));
+    }
+
+    #[tokio::test]
+    async fn test_build_tools_section_with_detail() {
+        let reg = ToolRegistry::new();
+        // Eager tool — should show detail
+        reg.register(DummyTool {
+            name: "Read".to_string(),
+            group: "file_ops".to_string(),
+            summary_text: "Read files".to_string(),
+            is_deferred: false,
+        })
+        .await
+        .unwrap();
+        // Deferred tool — should show name only
+        reg.register(DummyTool {
+            name: "Write".to_string(),
+            group: "file_ops".to_string(),
+            summary_text: "Write files".to_string(),
+            is_deferred: true,
+        })
+        .await
+        .unwrap();
+
+        let ctx = make_ctx();
+        let section = reg.build_tools_section(&ctx).await;
+        // Eager: bold name + detail
+        assert!(
+            section.contains("**Read**: detail for Read"),
+            "eager tool should show detail, got: {section}"
+        );
+        // Deferred: name only, no bold/detail
+        assert!(
+            section.contains("  - Write"),
+            "deferred tool should show name only, got: {section}"
+        );
+        assert!(
+            !section.contains("**Write**:"),
+            "deferred tool should NOT have bold detail, got: {section}"
+        );
     }
 
     #[tokio::test]
