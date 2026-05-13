@@ -8,7 +8,7 @@
 - `Tool` trait 定义工具的核心接口，所有工具必须实现 `Send + Sync + 'static`
 - `ToolRegistry` 是并发安全的注册中心，内部用 `tokio::sync::RwLock` 包裹 `HashMap<String, Arc<dyn Tool>>`
 - `ToolDescriptor` 仅含 name / group / summary / is_deferred，用于 system prompt 一级索引
-- `ToolRegistry::build_tools_section` 将 eager 工具的 detail 注入一级索引；deferred 工具仅显示名称；group header 在组内存在 eager 工具时附加 `(always loaded)` 标记；按 group 排序，组内按 name 排序；总长不超过 15000 字符，超长截断（不做任何提示文字）
+- `ToolRegistry::build_tools_section` 将 eager 工具以 `**{name}**{danger}: {detail}` 格式注入一级索引；deferred 工具以 `  - {name}{danger}` 格式仅显示名称；纯 deferred 组 header 显示 `(deferred)`，含 eager 工具的组显示 `(always loaded)`；danger 根据 `is_read_only`/`is_destructive` 标记为 `(read-only)` 或 `(destructive)`；按 group 排序，组内按 name 排序；总长不超过 15000 字符，超长截断（不做任何提示文字）
 - 工具 detail 和 input_schema 完整内容通过 `ToolSearch` 触发注入
 - `builtin` 子模块提供 5 个 file_ops 工具、2 个 meta 工具、5 个 git_ops 工具、1 个 SkillTool 和 2 个 stub 工具，全部通过 `register_builtin_tools()` 一键注册
 - System prompt 集成：builder.rs 提供 `build_tools_section(registry, ctx)` async 函数，返回 `Section::ToolsSection`；`build_from_workspace` 中预埋 `Section::ToolsSection(String::new())` 占位符（位于 RoleSection 之后 MemorySection 之前）。当前 `build_tools_section` 尚未在 sync 路径中与 `build_from_workspace` 打通，内容通过 dynamic_sections 外部传入
@@ -38,12 +38,12 @@
 - `ToolRegistry::list_descriptors(ctx)` — 列出所有 ToolDescriptor，按 ctx 过滤
 - `ToolRegistry::get_detail(name)` — 获取指定工具的 detail 字符串，不存在返回 `NotFound`
 - `ToolRegistry::list_by_group(group)` — 列出指定分组下的所有工具名
-- `ToolRegistry::build_tools_section(ctx)` — 生成分组索引字符串，eager 工具显示 `**{name}**: {detail}`，deferred 工具仅显示名称；总长不超过 15000 字符，超长截断
+- `ToolRegistry::build_tools_section(ctx)` — 生成分组索引字符串，按 group 分组输出；纯 deferred 组 header 显示 `(deferred)`，含 eager 工具的组显示 `(always loaded)`；eager 工具显示 `**{name}**{danger}: {detail}`，deferred 工具显示 `  - {name}{danger}`；danger 根据 `is_read_only`/`is_destructive` 标记为 `(read-only)` 或 `(destructive)`；总长不超过 15000 字符，超长截断
 
 ### 内建工具（builtin/）
 
 - `SkillTool` — skills 组，从 DiskSkillRegistry 查找 skill 并注入 SKILL.md 内容到 agent 上下文；group = "skills"，is_deferred_by_default = false；输入参数 skill_name（必填）和 args（可选）
-- `register_builtin_tools(registry, disk_registry)` — 将全部 16 个内建工具注册到指定注册表
+- `register_builtin_tools(registry, disk_registry)` — 将全部 15 个内建工具注册到指定注册表
 - `ReadTool` / `WriteTool` / `EditTool` / `GrepTool` / `LsTool` — file_ops 组，group = "file_ops"
 - `ToolSearchTool` / `PermissionQueryTool` — meta 组，group = "meta"，is_deferred_by_default = false
 - `GitStatusTool` / `GitLogTool` / `GitCommitTool` / `GitPushTool` / `GitPullTool` — git_ops 组，group = "git_ops"；GitStatusTool/GitLogTool 标记 is_read_only，GitCommitTool/GitPushTool/GitPullTool 标记 is_destructive
@@ -73,7 +73,7 @@ tools/
 
 ### 两级设计
 
-**一级索引**（`ToolRegistry::build_tools_section` 输出）：按 group 排序，eager 工具展示 `**{name}**: {detail}`，deferred 工具仅显示名称；group header 在组内存在 eager 工具时附加 `(always loaded)` 标记。总长不超过 15000 字符，超长截断。
+**一级索引**（`ToolRegistry::build_tools_section` 输出）：按 group 排序，eager 工具展示 `**{name}**{danger}: {detail}`，deferred 工具仅显示 `  - {name}{danger}`；纯 deferred 组 header 显示 `(deferred)`，含 eager 工具的组显示 `(always loaded)`；危险度标记：`is_read_only` → `(read-only)`，`is_destructive` → `(destructive)`。总长不超过 15000 字符，超长截断。
 
 **二级详情**（`get_detail` 返回）：完整 detail 描述 + input_schema JSON，通过 `ToolSearch` 按关键词或精确名触发注入。
 

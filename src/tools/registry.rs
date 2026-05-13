@@ -16,9 +16,7 @@ struct ToolInfo {
     #[allow(dead_code)]
     input_schema: Value,
     is_deferred: bool,
-    #[allow(dead_code)]
     is_read_only: bool,
-    #[allow(dead_code)]
     is_destructive: bool,
     #[allow(dead_code)]
     is_expensive: bool,
@@ -68,9 +66,9 @@ impl ToolRegistry {
     /// Returns None if truncation was triggered.
     ///
     /// Output format:
-    /// - group header: `**{group}** — (always loaded)` if the group has eager tools
-    /// - eager tools: `  - **{name}**: {detail}`
-    /// - deferred tools: `  - {name}`
+    /// - group header: `**{group}** — (always loaded)` if the group has eager tools, else `**{group}** — (deferred)`
+    /// - eager tools: `  - **{name}**{(read-only)}: {detail}` or `  - **{name}**{(destructive)}: {detail}`
+    /// - deferred tools: `  - {name}{(read-only)}` or `  - {name}{(destructive)}`
     fn format_group_line(
         group_name: &str,
         tools: &[ToolInfo],
@@ -78,22 +76,29 @@ impl ToolRegistry {
         max_len: usize,
     ) -> Option<(String, usize)> {
         let has_eager = tools.iter().any(|t| !t.is_deferred);
-        let tag = if has_eager { "(always loaded)" } else { "" };
-        let header = if tag.is_empty() {
-            format!("**{}**", group_name)
+        let tag = if has_eager {
+            "(always loaded)"
         } else {
-            format!("**{}** — {}", group_name, tag)
+            "(deferred)"
         };
+        let header = format!("**{}** — {}", group_name, tag);
 
         let mut sorted_tools: Vec<_> = tools.iter().collect();
         sorted_tools.sort_by_key(|t| t.name.clone());
 
         let mut lines = vec![header];
         for tool in sorted_tools {
-            let line = if tool.is_deferred {
-                format!("  - {}", tool.name)
+            let danger_mark = if tool.is_destructive {
+                " (destructive)"
+            } else if tool.is_read_only {
+                " (read-only)"
             } else {
-                format!("  - **{}**: {}", tool.name, tool.detail)
+                ""
+            };
+            let line = if tool.is_deferred {
+                format!("  - {}{}", tool.name, danger_mark)
+            } else {
+                format!("  - **{}**{}: {}", tool.name, danger_mark, tool.detail)
             };
             lines.push(line);
         }
@@ -213,255 +218,5 @@ impl ToolRegistry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tools::ToolFlags;
-
-    struct DummyTool {
-        name: String,
-        group: String,
-        summary_text: String,
-        is_deferred: bool,
-    }
-
-    impl Tool for DummyTool {
-        fn name(&self) -> &str {
-            &self.name
-        }
-        fn group(&self) -> &str {
-            &self.group
-        }
-        fn summary(&self) -> String {
-            self.summary_text.clone()
-        }
-        fn detail(&self) -> String {
-            format!("detail for {}", self.name)
-        }
-        fn input_schema(&self) -> serde_json::Value {
-            serde_json::json!({ "type": "object", "properties": {} })
-        }
-        fn flags(&self) -> ToolFlags {
-            let mut f = ToolFlags::default();
-            f.is_deferred_by_default = self.is_deferred;
-            f
-        }
-    }
-
-    fn make_ctx() -> ToolContext {
-        ToolContext {
-            agent_id: "test-agent".to_string(),
-            workdir: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn test_register_and_get_detail() {
-        let reg = ToolRegistry::new();
-        reg.register(DummyTool {
-            name: "Read".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Read file contents".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-
-        let detail = reg.get_detail("Read").await.unwrap();
-        assert!(detail.contains("Read"));
-    }
-
-    #[tokio::test]
-    async fn test_register_not_found() {
-        let reg = ToolRegistry::new();
-        let err = reg.get_detail("NonExistent").await.unwrap_err();
-        assert!(matches!(err, ToolError::NotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn test_register_duplicate() {
-        let reg = ToolRegistry::new();
-        reg.register(DummyTool {
-            name: "Read".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Read".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-
-        let err = reg
-            .register(DummyTool {
-                name: "Read".to_string(),
-                group: "file_ops".to_string(),
-                summary_text: "Read again".to_string(),
-                is_deferred: false,
-            })
-            .await
-            .unwrap_err();
-        assert!(matches!(err, ToolError::AlreadyRegistered(_)));
-    }
-
-    #[tokio::test]
-    async fn test_list_descriptors() {
-        let reg = ToolRegistry::new();
-        reg.register(DummyTool {
-            name: "Read".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Read files".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-        reg.register(DummyTool {
-            name: "Write".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Write files".to_string(),
-            is_deferred: true,
-        })
-        .await
-        .unwrap();
-
-        let ctx = make_ctx();
-        let descriptors = reg.list_descriptors(&ctx).await;
-        assert_eq!(descriptors.len(), 2);
-        let read_desc = descriptors.iter().find(|d| d.name == "Read").unwrap();
-        assert_eq!(read_desc.group, "file_ops");
-        assert!(!read_desc.is_deferred);
-        let write_desc = descriptors.iter().find(|d| d.name == "Write").unwrap();
-        assert!(write_desc.is_deferred);
-    }
-
-    #[tokio::test]
-    async fn test_list_by_group() {
-        let reg = ToolRegistry::new();
-        reg.register(DummyTool {
-            name: "Read".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "R".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-        reg.register(DummyTool {
-            name: "ToolSearch".to_string(),
-            group: "meta".to_string(),
-            summary_text: "T".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-
-        let file_ops = reg.list_by_group("file_ops").await;
-        assert_eq!(file_ops, vec!["Read"]);
-
-        let meta = reg.list_by_group("meta").await;
-        assert_eq!(meta, vec!["ToolSearch"]);
-    }
-
-    #[tokio::test]
-    async fn test_list_by_group_empty() {
-        let reg = ToolRegistry::new();
-        let result = reg.list_by_group("nonexistent").await;
-        assert!(result.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_tool_info_from_tool() {
-        let reg = ToolRegistry::new();
-        reg.register(DummyTool {
-            name: "Read".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Read files".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-
-        let guard = reg.tools.read().await;
-        let tool = guard.get("Read").unwrap();
-        let info = ToolInfo::from_tool(tool);
-        assert_eq!(info.name, "Read");
-        assert_eq!(info.group, "file_ops");
-        assert_eq!(info.detail, "detail for Read");
-        assert!(!info.is_deferred);
-        assert!(!info.is_read_only);
-        assert!(!info.is_destructive);
-        assert!(!info.is_expensive);
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section() {
-        let reg = ToolRegistry::new();
-        reg.register(DummyTool {
-            name: "Read".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Read files".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-        reg.register(DummyTool {
-            name: "ToolSearch".to_string(),
-            group: "meta".to_string(),
-            summary_text: "Search tools".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-
-        let ctx = make_ctx();
-        let section = reg.build_tools_section(&ctx).await;
-        assert!(section.contains("file_ops"));
-        assert!(section.contains("**Read**: detail for Read"));
-        assert!(section.contains("meta"));
-        assert!(section.contains("**ToolSearch**: detail for ToolSearch"));
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section_with_detail() {
-        let reg = ToolRegistry::new();
-        // Eager tool — should show detail
-        reg.register(DummyTool {
-            name: "Read".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Read files".to_string(),
-            is_deferred: false,
-        })
-        .await
-        .unwrap();
-        // Deferred tool — should show name only
-        reg.register(DummyTool {
-            name: "Write".to_string(),
-            group: "file_ops".to_string(),
-            summary_text: "Write files".to_string(),
-            is_deferred: true,
-        })
-        .await
-        .unwrap();
-
-        let ctx = make_ctx();
-        let section = reg.build_tools_section(&ctx).await;
-        // Eager: bold name + detail
-        assert!(
-            section.contains("**Read**: detail for Read"),
-            "eager tool should show detail, got: {section}"
-        );
-        // Deferred: name only, no bold/detail
-        assert!(
-            section.contains("  - Write"),
-            "deferred tool should show name only, got: {section}"
-        );
-        assert!(
-            !section.contains("**Write**:"),
-            "deferred tool should NOT have bold detail, got: {section}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section_empty() {
-        let reg = ToolRegistry::new();
-        let ctx = make_ctx();
-        let section = reg.build_tools_section(&ctx).await;
-        assert!(section.is_empty());
-    }
-}
+#[path = "registry_tests.rs"]
+mod tests;
