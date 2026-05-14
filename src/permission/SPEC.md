@@ -10,6 +10,8 @@
 
 为 Agent 提供操作授权服务（文件、命令、网络、工具调用、跨 Agent 通信、配置写入）。运行在独立 OS 进程中，通过 Unix domain socket IPC 与 Host 进程通信，实现安全隔离。
 
+`approval` 子模块提供内存审批队列，用于管理被 deny 且需要 owner 审批的操作。队列基于 `PermissionRequestBody` 的 SHA256 哈希做去重，审批决策后触发回调恢复 agent session。
+
 ---
 
 ## 二、公开接口
@@ -61,6 +63,19 @@
 | `PermissionEngine::reload_rules` | 重新加载 RuleSet（重建索引） |
 | `PermissionEngine::load_templates` | 加载模板映射 |
 | `PermissionEngine::rebuild_indices_with_rules` | 从给定 RuleSet 重建 O(1) 索引 |
+| `ApprovalQueue::new` | 创建空审批队列 |
+| `ApprovalQueue::enqueue` | 添加待审批请求，基于 body SHA256 去重，callback 在审批决策时触发 |
+| `ApprovalQueue::approve` | 批准请求，触发 Approve 回调 |
+| `ApprovalQueue::deny` | 拒绝请求，触发 Deny 回调 |
+| `ApprovalQueue::clear` | 清空队列，所有 pending 触发 Deny 回调 |
+| `ApprovalQueue::get_pending` | 查询 pending 条目 |
+| `ApprovalQueue::compute_operation_key` | 计算请求体的 SHA256 去重 key |
+| `approval::RequestId` | 待审批请求唯一标识（String 别名） |
+| `approval::OperationKey` | 请求体 SHA256 十六进制字符串（String 别名） |
+| `approval::ApproveOrDeny` | 审批决策枚举（Approve / Deny） |
+| `approval::RejectReason` | 入队拒绝原因枚举（Duplicate） |
+| `approval::PendingApproval` | 待审批条目结构体（request_id, caller, operation_key, operation_desc, risk_level, rule_version, session_resume, created_at） |
+| `approval::Callback` | 审批决策回调类型别名（`Box<dyn FnOnce(ApproveOrDeny) + Send>`） |
 | `Sandbox::spawn` | 启动引擎子进程（fork + exec，等待 socket 就绪） |
 | `Sandbox::restart` | 重启引擎子进程 |
 | `Sandbox::shutdown` | 关闭引擎子进程 |
@@ -108,6 +123,7 @@
 | `sandbox/mod.rs` | Sandbox 生命周期管理、SandboxState、SandboxError |
 | `sandbox/ipc.rs` | IpcChannel、SandboxRequest/SandboxResponse IPC 消息 |
 | `sandbox/security.rs` | SecurityPolicy、seccomp/landlock 平台策略 |
+| `approval.rs` | 内存审批队列、去重逻辑（基于 SHA256）、审批回调触发 |
 
 ### 数据流（Host → Engine 子进程）
 
@@ -208,6 +224,8 @@ pub use rules::{ validation, RuleBuilder, RuleSetBuilder,
     RuleBuilderError, RuleSetBuilderError };
 ```
 
+`approval` 子模块通过 `pub mod approval` 公开，外部通过 `closeclaw::permission::approval::Xxx` 访问，不在顶层 re-export。
+
 `RiskLevel` 从 `engine/engine_risk.rs` 经 `engine::` 重新导出。
 
 `assess_risk_level` 为 `engine` 子模块内公开函数，通过 `closeclaw::permission::engine::engine_risk::assess_risk_level` 访问，未在顶层 re-export。
@@ -230,7 +248,8 @@ pub use rules::{ validation, RuleBuilder, RuleSetBuilder,
 | `RuleBuilder`/`RuleSetBuilder` 链式方法部分无文档 | 少了 | 部分方法无文档 |
 | `SandboxRequest`/`SandboxResponse` 无文档 | 少了 | IPC 消息类型零文档 |
 | `SecurityPolicy::apply()` 为 stub | 说明 | seccomp 和 landlock 均未实际激活内核级限制，文档如实说明 |
+| 模块导出段虚假声称 approval re-exports | 错误 | 文档声称 `pub use approval::{...}` 但 mod.rs 实际无此 re-export，approval 子模块通过 `pub mod approval` 对外可见 |
 
 ---
 
-*最后更新：2026-05-15（风险等级与白名单禁用）*
+*最后更新：2026-05-15（审批队列 approval 子模块）*

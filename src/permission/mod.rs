@@ -3,6 +3,7 @@
 //! Runs as a separate OS process, evaluates access rules for agents.
 
 pub mod actions;
+pub mod approval;
 pub mod engine;
 pub mod rules;
 pub mod sandbox;
