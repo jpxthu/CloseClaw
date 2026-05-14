@@ -11,8 +11,15 @@
 //! use closeclaw::renderer::feishu::FeishuRenderer;
 //!
 //! let renderer = FeishuRenderer::new();
+//! // "Hello **world**" contains inline formatting (**), so renderer returns
+//! // `"interactive"` card instead of `"text"`. With dsl_result=None there are
+//! // no DSL buttons in the payload.
 //! let output = renderer.render("Hello **world**", None);
-//! assert_eq!(output.msg_type, "text");
+//! assert_eq!(output.msg_type, "interactive");
+//! // No DSL → no action/button elements in the card
+//! let elements = output.payload.get("card").and_then(|c| c.get("elements")).and_then(|e| e.as_array());
+//! assert!(elements.is_some());
+//! assert!(elements.unwrap().iter().all(|e| e.get("tag").and_then(|t| t.as_str()) != Some("action")));
 //! ```
 
 pub mod feishu;

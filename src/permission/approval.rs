@@ -10,11 +10,33 @@
 //! # Example
 //! ```
 //! use closeclaw::permission::approval::{ApprovalQueue, ApproveOrDeny};
+//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
+//! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
-//! queue.set_approve_callback(Box::new(|result| {
-//!     println!("Approved: {:?}", result);
-//! }));
+//! let request = PermissionRequestBody::ToolCall {
+//!     agent: "test".to_string(),
+//!     skill: "test_skill".to_string(),
+//!     method: "test_method".to_string(),
+//! };
+//! let caller = Caller {
+//!     user_id: "user_123".to_string(),
+//!     agent: "agent_001".to_string(),
+//!     creator_id: "creator_001".to_string(),
+//! };
+//! let request_id = queue
+//!     .enqueue(
+//!         request,
+//!         caller,
+//!         "Test operation".to_string(),
+//!         RiskLevel::Medium,
+//!         "1.0".to_string(),
+//!         "session_resume".to_string(),
+//!         Box::new(|result| {
+//!             println!("Result: {:?}", result);
+//!         }),
+//!     )
+//!     .expect("enqueue succeeded");
 //! ```
 
 use chrono::{DateTime, Utc};
