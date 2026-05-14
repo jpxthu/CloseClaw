@@ -70,6 +70,12 @@ impl RuleSetBuilder {
         self
     }
 
+    /// Set a specific default effect for tool call operations.
+    pub fn default_tool_call(mut self, effect: Effect) -> Self {
+        self.defaults.tool_call = effect;
+        self
+    }
+
     /// Finalize and return the constructed [`RuleSet`].
     pub fn build(self) -> Result<RuleSet, RuleSetBuilderError> {
         let version = self

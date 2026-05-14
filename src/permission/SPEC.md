@@ -46,7 +46,7 @@
 | `RuleSetBuilder::version` | 设置版本 |
 | `RuleSetBuilder::rule` / `rules` | 添加规则 |
 | `RuleSetBuilder::defaults` | 设置所有默认 Effect |
-| `RuleSetBuilder::default_file` / `default_command` / `default_network` / `default_inter_agent` / `default_config` | 设置各类默认值 |
+| `RuleSetBuilder::default_file` / `default_command` / `default_network` / `default_inter_agent` / `default_config` / `default_tool_call` | 设置各类默认值 |
 | `RuleSetBuilder::template_include` | 添加模板包含 |
 | `RuleSetBuilder::agent_creator` | 注册 agent 创建者映射 |
 | `RuleSetBuilder::build` | 构建 RuleSet（校验必填字段） |
