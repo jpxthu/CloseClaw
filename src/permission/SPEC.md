@@ -124,22 +124,32 @@ Host 进程                              Engine 子进程
    │  Result<PermissionResponse>          │
 ```
 
-### 评估算法（6 步）
+### 评估算法（7 步）
 
 1. **Creator 规则短路**：若 caller.user_id == agent_creators[agent_id]，直接 Allow
-2. **Owner 短路**：若 caller.user_id == "owner"，标记 `is_owner = true`，后续候选收集中跳过 UserAndAgent 规则（不查 `user_agent_rule_index` 也不做 Glob 回退）。Owner 仍受 AgentOnly 规则约束，包括 AgentOnly deny
-3. **构建候选规则列表**：查 O(1) 索引 → 按 `is_owner` 过滤 UserAndAgent 规则 → Glob 回退（仅非 owner）
-4. **按 priority 降序排序**
-5. **模板展开**：对 template 引用替换为模板中的实际 actions
-6. **AWS IAM 风格求值**（Deny 优先）：遍历匹配规则，遇 Deny 立即返回；无 Deny 但有匹配规则 → Allow；无匹配 → 默认策略
+2. **Agent 阶段**：调用 `collect_agent_candidates()` 收集 AgentOnly 候选规则 → `match_rules()` 求值 → 得到 agent_result
+3. **Owner 短路**：若 caller.user_id == "owner"，agent_result 即为最终结果，跳过步骤 4~6
+4. **User 阶段**：调用 `collect_user_agent_candidates()` 收集 UserAndAgent 候选规则 → `match_rules()` 求值 → 得到 user_result
+5. **合并结果**：
+   - Agent Deny → Denied
+   - User Deny → Denied
+   - Agent Allow + User Allow → Allowed
+   - Agent Allow + User None → Allowed（向后兼容：仅 Agent 维度有规则，User 维度无立场）
+   - Agent None + User Allow → Allowed（向后兼容：仅 User 维度有规则，Agent 维度无立场）
+   - Agent None + User None → 默认 Deny
+6. **模板展开**：在 `match_rules()` 内部调用 `expand_templates_sync()` 展开 template 引用为实际 actions
+7. **默认策略**：任一阶段返回 None → Denied
 
 ### O(1) 索引
 
 引擎内部维护两张索引：
-- `agent_rule_index: HashMap<String, Vec<usize>>` — agent_id → 规则下标（含 AgentOnly 和 UserAndAgent 规则）
-- `user_agent_rule_index: HashMap<String, Vec<usize>>` — `"user_id:agent_id"` → 规则下标（仅 UserAndAgent 规则）
+- `agent_rule_index: HashMap<String, Vec<usize>>` — agent_id → 规则下标（**AgentOnly 规则**；UserAndAgent 规则在 `rebuild_indices_with_rules` 时也以 agent 粒度存入同一索引，`collect_agent_candidates()` 会过滤到仅 AgentOnly）
+- `user_agent_rule_index: HashMap<String, Vec<usize>>` — `"user_id:agent_id"` → 规则下标（**仅 UserAndAgent 规则**）
 
-查找时先查索引，索引无结果才做 Glob 遍历。Owner 短路时跳过 `user_agent_rule_index` 查找和 Glob 回退，`agent_rule_index` 命中后过滤掉其中的 UserAndAgent 规则。
+查找时先查索引，索引无结果才做 Glob 遍历（仅当该阶段候选列表为空时触发）。
+- Agent 阶段：通过 `collect_agent_candidates()` 查 `agent_rule_index`（O(1)），Glob 回退仅在精确匹配无结果时触发
+- User 阶段（非 owner）：通过 `collect_user_agent_candidates()` 查 `user_agent_rule_index`（O(1)），Glob 回退仅在精确匹配无结果时触发
+- Owner 短路时跳过 `user_agent_rule_index` 查找和 Glob 回退
 
 ### 类型继承关系
 

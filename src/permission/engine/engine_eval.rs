@@ -144,27 +144,76 @@ impl PermissionEngine {
         }
 
         let rules = self.rules.clone();
-
-        // Owner shortcut: owner skips UserAndAgent rules entirely
         let is_owner = caller.user_id == "owner";
 
-        // Steps 1-2: Collect and sort candidates
-        let candidates = self.collect_candidates(&caller, &agent_id, &rules, is_owner);
+        // Step 1: Agent phase — collect AgentOnly candidates and evaluate
+        let agent_candidates = self.collect_agent_candidates(&caller, &agent_id, &rules);
+        let agent_result = self.match_rules(&agent_candidates, &rules, &caller, request.body());
 
-        // Steps 3-4: Expand templates and evaluate
-        if let Some(response) = self.match_rules(&candidates, &rules, &caller, request.body()) {
+        // Owner shortcut: skip User phase entirely, Agent result is final
+        if is_owner {
+            let response = agent_result.unwrap_or_else(|| {
+                self.default_deny(request.body(), &rules.defaults, "no matching rule")
+            });
+            info!(
+                agent = %agent_id,
+                result = %match &response {
+                    PermissionResponse::Allowed { .. } => "allowed",
+                    PermissionResponse::Denied { .. } => "denied",
+                },
+                reason = "owner_shortcut",
+                "permission check completed"
+            );
             return response;
         }
 
-        // Step 5: Default fallback
-        let response = self.default_deny(request.body(), &rules.defaults, "no matching rule");
+        // Step 2: User phase — collect UserAndAgent candidates and evaluate
+        let user_candidates = self.collect_user_agent_candidates(&caller, &agent_id, &rules);
+        let user_result = self.match_rules(&user_candidates, &rules, &caller, request.body());
+
+        // Step 3: Merge results (two-phase logic)
+        // - Agent Deny → Denied
+        // - User Deny → Denied
+        // - Agent Allow + User Allow → Allowed
+        // - Agent Allow + User None → Allowed (only Agent rules, User has no stance)
+        // - Agent None + User Allow → Allowed (only User rules, Agent has no stance)
+        // - Agent None + User None → Denied (default deny)
+        let response = match (agent_result, user_result) {
+            (Some(PermissionResponse::Denied { .. }), _) => PermissionResponse::Denied {
+                reason: "action denied by agent rule".to_string(),
+                rule: "<agent_phase>".to_string(),
+            },
+            (_, Some(PermissionResponse::Denied { .. })) => PermissionResponse::Denied {
+                reason: "action denied by user rule".to_string(),
+                rule: "<user_phase>".to_string(),
+            },
+            (
+                Some(PermissionResponse::Allowed { .. }),
+                Some(PermissionResponse::Allowed { .. }),
+            ) => PermissionResponse::Allowed {
+                token: generate_token(),
+            },
+            (Some(PermissionResponse::Allowed { .. }), None) => {
+                // Agent Allow + User None → Allowed (User has no stance, Agent result takes effect)
+                PermissionResponse::Allowed {
+                    token: generate_token(),
+                }
+            }
+            (None, Some(PermissionResponse::Allowed { .. })) => {
+                // Agent None + User Allow → Allowed (Agent has no stance, User result takes effect)
+                PermissionResponse::Allowed {
+                    token: generate_token(),
+                }
+            }
+            _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
+        };
         info!(
             agent = %agent_id,
             result = %match &response {
                 PermissionResponse::Allowed { .. } => "allowed",
                 PermissionResponse::Denied { .. } => "denied",
             },
-            reason = "default_fallback",
+            reason = "two_phase_merge",
             "permission check completed"
         );
         response
@@ -197,42 +246,62 @@ impl PermissionEngine {
 // --- Candidate collection & rule matching ---
 
 impl PermissionEngine {
-    fn collect_candidates(
+    /// Collect Subject::AgentOnly candidate rule indices via agent_rule_index (O(1)),
+    /// then via Glob fallback if no exact match (matches AgentOnly only).
+    /// Returns indices sorted by priority descending.
+    fn collect_agent_candidates(
         &self,
         caller: &super::engine_types::Caller,
         agent_id: &str,
         rules: &RuleSet,
-        is_owner: bool,
     ) -> Vec<usize> {
         let mut candidates: Vec<usize> = Vec::new();
 
-        // Owner shortcut: skip UserAndAgent rules and glob fallback
-        if !is_owner {
-            // 1a. User+Agent dual-key index lookup (O(1))
-            let index_key = format!("{}:{}", caller.user_id, agent_id);
-            if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
-                candidates.extend(indices);
-            }
-        }
-
-        // 1b. Agent-only index lookup (O(1))
+        // 1a. Agent-only index lookup (O(1))
         if let Some(indices) = self.agent_rule_index.get(agent_id) {
-            if is_owner {
-                // Owner: filter out UserAndAgent rules from the agent index
-                for &idx in indices {
-                    if rules.rules[idx].subject.is_agent_only() {
-                        candidates.push(idx);
-                    }
+            // Filter to only AgentOnly rules (exclude UserAndAgent rules present in the same index)
+            let filtered = indices
+                .iter()
+                .filter(|&&idx| rules.rules[idx].subject.is_agent_only())
+                .copied();
+            candidates.extend(filtered);
+        }
+
+        // 1b. Glob fallback (only if 1a produced nothing)
+        if candidates.is_empty() {
+            for (idx, rule) in rules.rules.iter().enumerate() {
+                if rule.subject.is_agent_only() && rule.subject.matches(caller) {
+                    candidates.push(idx);
                 }
-            } else {
-                candidates.extend(indices);
             }
         }
 
-        // 1c. Glob fallback (only if 1a and 1b produced nothing, skipped for owner)
-        if !is_owner && candidates.is_empty() {
+        // Sort by priority (desc)
+        candidates.sort_by(|&a, &b| rules.rules[b].priority.cmp(&rules.rules[a].priority));
+        candidates
+    }
+
+    /// Collect Subject::UserAndAgent candidate rule indices via user_agent_rule_index (O(1)),
+    /// then via Glob fallback if no exact match (matches UserAndAgent only).
+    /// Returns indices sorted by priority descending.
+    fn collect_user_agent_candidates(
+        &self,
+        caller: &super::engine_types::Caller,
+        agent_id: &str,
+        rules: &RuleSet,
+    ) -> Vec<usize> {
+        let mut candidates: Vec<usize> = Vec::new();
+
+        // 1a. User+Agent dual-key index lookup (O(1))
+        let index_key = format!("{}:{}", caller.user_id, agent_id);
+        if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
+            candidates.extend(indices);
+        }
+
+        // 1b. Glob fallback (only if 1a produced nothing)
+        if candidates.is_empty() {
             for (idx, rule) in rules.rules.iter().enumerate() {
-                if rule.subject.matches(caller) {
+                if rule.subject.is_user_and_agent() && rule.subject.matches(caller) {
                     candidates.push(idx);
                 }
             }
