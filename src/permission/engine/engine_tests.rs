@@ -131,11 +131,14 @@ fn test_deny_takes_precedence() {
         .build()
         .unwrap();
     let engine = PermissionEngine::new(ruleset);
-    let resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::FileOp {
-        agent: "test-agent".to_string(),
-        path: "/etc/shadow".to_string(),
-        op: "write".to_string(),
-    }));
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/etc/shadow".to_string(),
+            op: "write".to_string(),
+        }),
+        None,
+    );
     matches!(resp, PermissionResponse::Denied { .. });
 }
 
@@ -346,19 +349,25 @@ fn test_tool_call_default_independent_from_file() {
     let engine = PermissionEngine::new(ruleset);
 
     // file op should be allowed (default Allow)
-    let file_resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::FileOp {
-        agent: "unknown-agent".to_string(),
-        path: "/tmp/test".to_string(),
-        op: "read".to_string(),
-    }));
+    let file_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "unknown-agent".to_string(),
+            path: "/tmp/test".to_string(),
+            op: "read".to_string(),
+        }),
+        None,
+    );
     matches!(file_resp, PermissionResponse::Allowed { .. });
 
     // tool call should be denied (default Deny)
-    let tool_resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::ToolCall {
-        agent: "unknown-agent".to_string(),
-        skill: "some_tool".to_string(),
-        method: "run".to_string(),
-    }));
+    let tool_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::ToolCall {
+            agent: "unknown-agent".to_string(),
+            skill: "some_tool".to_string(),
+            method: "run".to_string(),
+        }),
+        None,
+    );
     matches!(tool_resp, PermissionResponse::Denied { .. });
 }
 

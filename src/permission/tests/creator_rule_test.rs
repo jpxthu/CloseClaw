@@ -31,7 +31,7 @@ async fn test_creator_rule_short_circuit_caller_creator_id() {
             args: vec!["-rf".to_string(), "/".to_string()],
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 }
 
@@ -58,7 +58,7 @@ async fn test_creator_rule_short_circuit_agent_creators_map() {
             args: vec!["-rf".to_string(), "/".to_string()],
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 }
 
@@ -85,7 +85,7 @@ async fn test_creator_rule_not_matching_non_creator() {
             op: "read".to_string(),
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Denied { .. }));
 }
 
@@ -121,7 +121,7 @@ async fn test_creator_rule_priority_over_explicit_deny() {
             op: "read".to_string(),
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 }
 
@@ -148,6 +148,6 @@ async fn test_creator_rule_caller_creator_id_takes_precedence() {
             op: "read".to_string(),
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 }

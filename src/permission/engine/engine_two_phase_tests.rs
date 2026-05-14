@@ -84,7 +84,7 @@ fn test_two_phase_agent_allow_user_allow() {
         },
     ];
     let engine = make_ruleset(Effect::Deny, rules);
-    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"));
+    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
     assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 }
 
@@ -124,18 +124,21 @@ fn test_two_phase_agent_deny_user_allow() {
         },
     ];
     let engine = make_ruleset(Effect::Deny, rules);
-    let resp = engine.evaluate(PermissionRequest::WithCaller {
-        caller: Caller {
-            user_id: "alice".to_string(),
-            agent: "test-agent".to_string(),
-            creator_id: String::new(),
+    let resp = engine.evaluate(
+        PermissionRequest::WithCaller {
+            caller: Caller {
+                user_id: "alice".to_string(),
+                agent: "test-agent".to_string(),
+                creator_id: String::new(),
+            },
+            request: PermissionRequestBody::FileOp {
+                agent: "test-agent".to_string(),
+                path: "/etc/passwd".to_string(),
+                op: "write".to_string(),
+            },
         },
-        request: PermissionRequestBody::FileOp {
-            agent: "test-agent".to_string(),
-            path: "/etc/passwd".to_string(),
-            op: "write".to_string(),
-        },
-    });
+        None,
+    );
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
@@ -161,7 +164,7 @@ fn test_two_phase_agent_allow_user_no_match() {
     ];
     let engine = make_ruleset(Effect::Deny, rules);
     // Agent Allow + User None → Allowed (User has no stance, Agent result takes effect)
-    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"));
+    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
     assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 }
 
@@ -170,7 +173,7 @@ fn test_two_phase_agent_allow_user_no_match() {
 fn test_two_phase_no_match_default_deny() {
     // No rules at all
     let engine = make_ruleset(Effect::Deny, vec![]);
-    let resp = engine.evaluate(file_request("unknown-agent", "/data/file.txt", "bob"));
+    let resp = engine.evaluate(file_request("unknown-agent", "/data/file.txt", "bob"), None);
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
@@ -195,7 +198,7 @@ fn test_two_phase_owner_agent_allow() {
         // No UserAndAgent rules (owner skips user phase)
     ];
     let engine = make_ruleset(Effect::Deny, rules);
-    let resp = engine.evaluate(file_request("test-agent", "/etc/passwd", "owner"));
+    let resp = engine.evaluate(file_request("test-agent", "/etc/passwd", "owner"), None);
     assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 }
 
@@ -217,18 +220,21 @@ fn test_two_phase_owner_agent_deny() {
         priority: 10,
     }];
     let engine = make_ruleset(Effect::Deny, rules);
-    let resp = engine.evaluate(PermissionRequest::WithCaller {
-        caller: Caller {
-            user_id: "owner".to_string(),
-            agent: "test-agent".to_string(),
-            creator_id: String::new(),
+    let resp = engine.evaluate(
+        PermissionRequest::WithCaller {
+            caller: Caller {
+                user_id: "owner".to_string(),
+                agent: "test-agent".to_string(),
+                creator_id: String::new(),
+            },
+            request: PermissionRequestBody::FileOp {
+                agent: "test-agent".to_string(),
+                path: "/etc/passwd".to_string(),
+                op: "write".to_string(),
+            },
         },
-        request: PermissionRequestBody::FileOp {
-            agent: "test-agent".to_string(),
-            path: "/etc/passwd".to_string(),
-            op: "write".to_string(),
-        },
-    });
+        None,
+    );
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
@@ -238,7 +244,10 @@ fn test_two_phase_owner_agent_no_match() {
     // No rules at all
     let engine = make_ruleset(Effect::Deny, vec![]);
     // Owner still gets default deny when no rules match
-    let resp = engine.evaluate(file_request("unknown-agent", "/data/file.txt", "owner"));
+    let resp = engine.evaluate(
+        file_request("unknown-agent", "/data/file.txt", "owner"),
+        None,
+    );
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
@@ -264,8 +273,198 @@ fn test_two_phase_non_owner_needs_both_phases() {
     }];
     let engine = make_ruleset(Effect::Deny, rules);
     // Alice is not owner, Agent phase has no match, User phase Allow is not enough alone
-    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"));
+    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
     // Agent None + User Allow → Allowed (according to current merge logic in evaluate)
     // This test documents the actual merge behavior
     assert!(matches!(resp, PermissionResponse::Allowed { .. }));
+}
+
+// ---------------------------------------------------------------------------
+// Extra deny subjects tests
+// ---------------------------------------------------------------------------
+
+/// extra_deny_subjects = None → normal Allow unchanged
+#[test]
+fn test_extra_deny_subjects_empty() {
+    let rules = vec![Rule {
+        name: "agent-allows-read".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "test-agent".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![super::engine_types::Action::File {
+            operation: "read".to_string(),
+            paths: vec!["/data/**".to_string()],
+        }],
+        template: None,
+        priority: 10,
+    }];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
+}
+
+/// extra_deny_subjects has a matching subject → overrides result to Denied
+#[test]
+fn test_extra_deny_subjects_match() {
+    let rules = vec![Rule {
+        name: "agent-allows-read".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "test-agent".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![super::engine_types::Action::File {
+            operation: "read".to_string(),
+            paths: vec!["/data/**".to_string()],
+        }],
+        template: None,
+        priority: 10,
+    }];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let extra = vec![Subject::AgentOnly {
+        agent: "test-agent".to_string(),
+        match_type: MatchType::Exact,
+    }];
+    let resp = engine.evaluate(
+        file_request("test-agent", "/data/file.txt", "alice"),
+        Some(extra),
+    );
+    let deny_resp = match resp {
+        PermissionResponse::Denied {
+            reason,
+            rule,
+            risk_level: _,
+        } => {
+            assert!(reason.contains("parent agent restriction"));
+            assert_eq!(rule, "<extra_deny>");
+        }
+        _ => panic!("expected Denied, got {:?}", resp),
+    };
+}
+
+/// extra_deny_subjects has a subject but does NOT match caller → normal Allow
+#[test]
+fn test_extra_deny_subjects_no_match() {
+    let rules = vec![Rule {
+        name: "agent-allows-read".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "test-agent".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![super::engine_types::Action::File {
+            operation: "read".to_string(),
+            paths: vec!["/data/**".to_string()],
+        }],
+        template: None,
+        priority: 10,
+    }];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let extra = vec![Subject::AgentOnly {
+        agent: "other-agent".to_string(),
+        match_type: MatchType::Exact,
+    }];
+    let resp = engine.evaluate(
+        file_request("test-agent", "/data/file.txt", "alice"),
+        Some(extra),
+    );
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
+}
+
+/// Normal two-phase result is Allow, but extra_deny matches → overrides to Denied
+#[test]
+fn test_extra_deny_overrides_allow() {
+    let rules = vec![Rule {
+        name: "agent-allows-read".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "test-agent".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![super::engine_types::Action::File {
+            operation: "read".to_string(),
+            paths: vec!["/data/**".to_string()],
+        }],
+        template: None,
+        priority: 10,
+    }];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let extra = vec![Subject::AgentOnly {
+        agent: "test-agent".to_string(),
+        match_type: MatchType::Exact,
+    }];
+    let resp = engine.evaluate(
+        file_request("test-agent", "/data/file.txt", "alice"),
+        Some(extra),
+    );
+    assert!(matches!(resp, PermissionResponse::Denied { reason, .. }
+            if reason.contains("parent agent restriction")));
+}
+
+// ---------------------------------------------------------------------------
+// get_agent_deny_subjects tests
+// ---------------------------------------------------------------------------
+
+/// get_agent_deny_subjects extracts parent AgentOnly Deny rules, replacing agent with child_id
+#[test]
+fn test_get_agent_deny_subjects_basic() {
+    let rules = vec![
+        Rule {
+            name: "parent-deny-spawn".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "parent-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Deny,
+            actions: vec![super::engine_types::Action::ToolCall {
+                skill: "*".to_string(),
+                methods: vec![],
+            }],
+            template: None,
+            priority: 10,
+        },
+        Rule {
+            name: "parent-allow-read".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "parent-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/**".to_string()],
+            }],
+            template: None,
+            priority: 5,
+        },
+    ];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let subjects = engine.get_agent_deny_subjects("parent-agent", "child-agent");
+    assert_eq!(subjects.len(), 1);
+    let replaced = &subjects[0];
+    assert!(matches!(replaced, Subject::AgentOnly { agent, .. } if agent == "child-agent"));
+}
+
+/// Parent agent has no deny rules → returns empty
+#[test]
+fn test_get_agent_deny_subjects_empty() {
+    let rules = vec![Rule {
+        name: "parent-allow-read".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "parent-agent".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![super::engine_types::Action::File {
+            operation: "read".to_string(),
+            paths: vec!["/**".to_string()],
+        }],
+        template: None,
+        priority: 5,
+    }];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let subjects = engine.get_agent_deny_subjects("parent-agent", "child-agent");
+    assert!(subjects.is_empty());
 }
