@@ -1,5 +1,6 @@
 use super::*;
 use crate::permission::actions::ActionBuilder;
+use serde_json;
 
 #[test]
 fn test_rule_builder() {
@@ -218,6 +219,29 @@ fn test_ruleset_builder_missing_version() {
         result,
         Err(RuleSetBuilderError::MissingField("version"))
     ));
+}
+
+#[test]
+fn test_defaults_tool_call_is_deny() {
+    let defaults = Defaults::default();
+    assert_eq!(defaults.tool_call, Effect::Deny);
+}
+
+#[test]
+fn test_defaults_json_missing_tool_call() {
+    let json = r#"{"file":"allow","command":"deny","network":"deny","inter_agent":"deny","config":"deny"}"#;
+    let defaults: Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(defaults.tool_call, Effect::Deny);
+}
+
+#[test]
+fn test_ruleset_builder_default_tool_call() {
+    let ruleset = RuleSetBuilder::new()
+        .version("1.0")
+        .default_tool_call(Effect::Allow)
+        .build()
+        .unwrap();
+    assert_eq!(ruleset.defaults.tool_call, Effect::Allow);
 }
 
 #[test]

@@ -351,4 +351,44 @@ mod tests {
         assert!(rule.args_match(&args_allowed, &["--bar".to_string()]));
         assert!(!rule.args_match(&args_allowed, &["--baz".to_string()]));
     }
+
+    #[test]
+    fn test_tool_call_default_independent_from_file() {
+        // tool_call defaults to Deny while file defaults to Allow
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .default_file(Effect::Allow)
+            .default_tool_call(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+
+        // file op should be allowed (default Allow)
+        let file_resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "unknown-agent".to_string(),
+            path: "/tmp/test".to_string(),
+            op: "read".to_string(),
+        }));
+        matches!(file_resp, PermissionResponse::Allowed { .. });
+
+        // tool call should be denied (default Deny)
+        let tool_resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::ToolCall {
+            agent: "unknown-agent".to_string(),
+            skill: "some_tool".to_string(),
+            method: "run".to_string(),
+        }));
+        matches!(tool_resp, PermissionResponse::Denied { .. });
+    }
+
+    #[test]
+    fn test_tool_call_default_allow() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .default_tool_call(Effect::Allow)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let resp = engine.check("unknown-agent", "tool_call");
+        matches!(resp, PermissionResponse::Allowed { .. });
+    }
 }
