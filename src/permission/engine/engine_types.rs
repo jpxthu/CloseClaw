@@ -178,6 +178,11 @@ impl Subject {
         matches!(self, Subject::AgentOnly { .. })
     }
 
+    /// Returns true if this is a UserAndAgent subject.
+    pub fn is_user_and_agent(&self) -> bool {
+        matches!(self, Subject::UserAndAgent { .. })
+    }
+
     /// Check if this subject matches the given caller.
     pub fn matches(&self, caller: &Caller) -> bool {
         match self {
