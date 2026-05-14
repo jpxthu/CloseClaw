@@ -124,21 +124,22 @@ Host 进程                              Engine 子进程
    │  Result<PermissionResponse>          │
 ```
 
-### 评估算法（5 步）
+### 评估算法（6 步）
 
 1. **Creator 规则短路**：若 caller.user_id == agent_creators[agent_id]，直接 Allow
-2. **构建候选规则列表**：O(1) 索引查找 → Glob 回退
-3. **按 priority 降序排序**
-4. **模板展开**：对 template 引用替换为模板中的实际 actions
-5. **AWS IAM 风格求值**（Deny 优先）：遍历匹配规则，遇 Deny 立即返回；无 Deny 但有匹配规则 → Allow；无匹配 → 默认策略
+2. **Owner 短路**：若 caller.user_id == "owner"，标记 `is_owner = true`，后续候选收集中跳过 UserAndAgent 规则（不查 `user_agent_rule_index` 也不做 Glob 回退）。Owner 仍受 AgentOnly 规则约束，包括 AgentOnly deny
+3. **构建候选规则列表**：查 O(1) 索引 → 按 `is_owner` 过滤 UserAndAgent 规则 → Glob 回退（仅非 owner）
+4. **按 priority 降序排序**
+5. **模板展开**：对 template 引用替换为模板中的实际 actions
+6. **AWS IAM 风格求值**（Deny 优先）：遍历匹配规则，遇 Deny 立即返回；无 Deny 但有匹配规则 → Allow；无匹配 → 默认策略
 
 ### O(1) 索引
 
 引擎内部维护两张索引：
-- `agent_rule_index: HashMap<String, Vec<usize>>` — agent_id → 规则下标
-- `user_agent_rule_index: HashMap<String, Vec<usize>>` — `"user_id:agent_id"` → 规则下标
+- `agent_rule_index: HashMap<String, Vec<usize>>` — agent_id → 规则下标（含 AgentOnly 和 UserAndAgent 规则）
+- `user_agent_rule_index: HashMap<String, Vec<usize>>` — `"user_id:agent_id"` → 规则下标（仅 UserAndAgent 规则）
 
-查找时先查索引，索引无结果才做 Glob 遍历。
+查找时先查索引，索引无结果才做 Glob 遍历。Owner 短路时跳过 `user_agent_rule_index` 查找和 Glob 回退，`agent_rule_index` 命中后过滤掉其中的 UserAndAgent 规则。
 
 ### 类型继承关系
 
@@ -208,4 +209,4 @@ pub use rules::{ validation, RuleBuilder, RuleSetBuilder,
 
 ---
 
-*最后更新：2026-04-14（v3 重写）*
+*最后更新：2026-05-14（Owner 短路新增）*
