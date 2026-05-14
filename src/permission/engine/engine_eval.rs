@@ -1,5 +1,6 @@
 //! Permission Engine - Evaluation logic.
 
+use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
 use super::engine_risk::assess_risk_level;
 use super::engine_types::{
@@ -48,7 +49,7 @@ impl PermissionEngine {
                 }
                 Subject::UserAndAgent { user_id, agent, .. } => {
                     let key = format!("{}:{}", user_id, agent);
-                    user_agent_index.entry(key).or_default().push(idx);
+                    user_agent_index.entry(key.clone()).or_default().push(idx);
                     agent_index.entry(agent.clone()).or_default().push(idx);
                 }
             }
@@ -126,7 +127,7 @@ impl PermissionEngine {
             }
         };
 
-        self.evaluate(PermissionRequest::Bare(body))
+        self.evaluate(PermissionRequest::Bare(body), None)
     }
 }
 
@@ -134,7 +135,11 @@ impl PermissionEngine {
 
 impl PermissionEngine {
     /// Evaluate a permission request.
-    pub fn evaluate(&self, request: PermissionRequest) -> PermissionResponse {
+    pub fn evaluate(
+        &self,
+        request: PermissionRequest,
+        extra_deny_subjects: Option<Vec<Subject>>,
+    ) -> PermissionResponse {
         let caller = request.caller();
         let agent_id = caller.agent.clone();
 
@@ -179,12 +184,6 @@ impl PermissionEngine {
         let user_result = self.match_rules(&user_candidates, &rules, &caller, request.body());
 
         // Step 3: Merge results (two-phase logic)
-        // - Agent Deny → Denied
-        // - User Deny → Denied
-        // - Agent Allow + User Allow → Allowed
-        // - Agent Allow + User None → Allowed (only Agent rules, User has no stance)
-        // - Agent None + User Allow → Allowed (only User rules, Agent has no stance)
-        // - Agent None + User None → Denied (default deny)
         let response = match (agent_result, user_result) {
             (Some(PermissionResponse::Denied { .. }), _) => PermissionResponse::Denied {
                 reason: "action denied by agent rule".to_string(),
@@ -202,18 +201,12 @@ impl PermissionEngine {
             ) => PermissionResponse::Allowed {
                 token: generate_token(),
             },
-            (Some(PermissionResponse::Allowed { .. }), None) => {
-                // Agent Allow + User None → Allowed (User has no stance, Agent result takes effect)
-                PermissionResponse::Allowed {
-                    token: generate_token(),
-                }
-            }
-            (None, Some(PermissionResponse::Allowed { .. })) => {
-                // Agent None + User Allow → Allowed (Agent has no stance, User result takes effect)
-                PermissionResponse::Allowed {
-                    token: generate_token(),
-                }
-            }
+            (Some(PermissionResponse::Allowed { .. }), None) => PermissionResponse::Allowed {
+                token: generate_token(),
+            },
+            (None, Some(PermissionResponse::Allowed { .. })) => PermissionResponse::Allowed {
+                token: generate_token(),
+            },
             _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
         };
         info!(
@@ -225,6 +218,26 @@ impl PermissionEngine {
             reason = "two_phase_merge",
             "permission check completed"
         );
+
+        // Step 9: Extra Deny — override with deny if caller matches any extra deny subject
+        if let Some(extra_subjects) = extra_deny_subjects {
+            for subject in &extra_subjects {
+                if subject.matches(&caller) {
+                    info!(
+                        agent = %agent_id,
+                        result = "denied",
+                        reason = "extra_deny",
+                        "permission check completed"
+                    );
+                    return PermissionResponse::Denied {
+                        reason: "action denied by parent agent restriction".to_string(),
+                        rule: "<extra_deny>".to_string(),
+                        risk_level: assess_risk_level(request.body()),
+                    };
+                }
+            }
+        }
+
         response
     }
 
@@ -250,6 +263,16 @@ impl PermissionEngine {
         }
         None
     }
+
+    /// Extract AgentOnly + Deny subjects from parent agent, replacing agent with child_agent_id.
+    /// Used for sub-agent permission inheritance via parent-agent deny propagation.
+    pub fn get_agent_deny_subjects(
+        &self,
+        parent_agent_id: &str,
+        child_agent_id: &str,
+    ) -> Vec<Subject> {
+        get_agent_deny_subjects(&self.rules, parent_agent_id, child_agent_id)
+    }
 }
 
 // --- Candidate collection & rule matching ---
@@ -257,7 +280,6 @@ impl PermissionEngine {
 impl PermissionEngine {
     /// Collect Subject::AgentOnly candidate rule indices via agent_rule_index (O(1)),
     /// then via Glob fallback if no exact match (matches AgentOnly only).
-    /// Returns indices sorted by priority descending.
     fn collect_agent_candidates(
         &self,
         caller: &super::engine_types::Caller,
@@ -266,9 +288,7 @@ impl PermissionEngine {
     ) -> Vec<usize> {
         let mut candidates: Vec<usize> = Vec::new();
 
-        // 1a. Agent-only index lookup (O(1))
         if let Some(indices) = self.agent_rule_index.get(agent_id) {
-            // Filter to only AgentOnly rules (exclude UserAndAgent rules present in the same index)
             let filtered = indices
                 .iter()
                 .filter(|&&idx| rules.rules[idx].subject.is_agent_only())
@@ -276,7 +296,6 @@ impl PermissionEngine {
             candidates.extend(filtered);
         }
 
-        // 1b. Glob fallback (only if 1a produced nothing)
         if candidates.is_empty() {
             for (idx, rule) in rules.rules.iter().enumerate() {
                 if rule.subject.is_agent_only() && rule.subject.matches(caller) {
@@ -285,14 +304,12 @@ impl PermissionEngine {
             }
         }
 
-        // Sort by priority (desc)
         candidates.sort_by(|&a, &b| rules.rules[b].priority.cmp(&rules.rules[a].priority));
         candidates
     }
 
     /// Collect Subject::UserAndAgent candidate rule indices via user_agent_rule_index (O(1)),
     /// then via Glob fallback if no exact match (matches UserAndAgent only).
-    /// Returns indices sorted by priority descending.
     fn collect_user_agent_candidates(
         &self,
         caller: &super::engine_types::Caller,
@@ -301,13 +318,11 @@ impl PermissionEngine {
     ) -> Vec<usize> {
         let mut candidates: Vec<usize> = Vec::new();
 
-        // 1a. User+Agent dual-key index lookup (O(1))
         let index_key = format!("{}:{}", caller.user_id, agent_id);
         if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
             candidates.extend(indices);
         }
 
-        // 1b. Glob fallback (only if 1a produced nothing)
         if candidates.is_empty() {
             for (idx, rule) in rules.rules.iter().enumerate() {
                 if rule.subject.is_user_and_agent() && rule.subject.matches(caller) {
@@ -316,7 +331,6 @@ impl PermissionEngine {
             }
         }
 
-        // Sort by priority (desc)
         candidates.sort_by(|&a, &b| rules.rules[b].priority.cmp(&rules.rules[a].priority));
         candidates
     }
@@ -470,30 +484,4 @@ impl PermissionEngine {
         }
         false
     }
-}
-
-/// Resolve template actions with overrides applied.
-fn resolve_template_actions(
-    tmpl: &crate::permission::templates::Template,
-    overrides: &HashMap<String, serde_json::Value>,
-) -> Vec<Action> {
-    if let Some(overridden_actions) = overrides.get("actions") {
-        if let Ok(actions) = serde_json::from_value(overridden_actions.clone()) {
-            return actions;
-        }
-    }
-    tmpl.actions.clone()
-}
-
-/// Generate a short-lived permission token.
-fn generate_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    format!("perm_{}_{:016x}", duration.as_secs(), rand_u64())
-}
-
-fn rand_u64() -> u64 {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    RandomState::new().build_hasher().finish()
 }
