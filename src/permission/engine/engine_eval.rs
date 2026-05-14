@@ -341,7 +341,7 @@ impl PermissionEngine {
             PermissionRequestBody::NetOp { .. } => defaults.network,
             PermissionRequestBody::InterAgentMsg { .. } => defaults.inter_agent,
             PermissionRequestBody::ConfigWrite { .. } => defaults.config,
-            PermissionRequestBody::ToolCall { .. } => defaults.file,
+            PermissionRequestBody::ToolCall { .. } => defaults.tool_call,
         };
 
         match effect {

@@ -36,6 +36,8 @@ pub struct Defaults {
     pub inter_agent: Effect,
     #[serde(default = "default_deny")]
     pub config: Effect,
+    #[serde(default = "default_deny")]
+    pub tool_call: Effect,
 }
 
 fn default_deny() -> Effect {
