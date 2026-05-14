@@ -4,10 +4,12 @@
 
 pub mod engine_eval;
 pub mod engine_matching;
+pub mod engine_risk;
 pub mod engine_types;
 
 pub use engine_eval::PermissionEngine;
 pub use engine_matching::{action_matches_request, glob_match};
+pub use engine_risk::RiskLevel;
 pub use engine_types::{
     Action, Caller, CommandArgs, Defaults, Effect, MatchType, PermissionRequest,
     PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,

@@ -68,6 +68,7 @@
 | `Sandbox::reload_rules` | 通过 IPC 重新加载规则 |
 | `load_templates_from_dir` | 从目录加载所有 `.json` 模板文件并展开继承链 |
 | `Template` / `TemplateSubject` / `load_templates_from_dir` | 模板数据结构和加载接口（见 templates.rs） |
+| `closeclaw::permission::engine::engine_risk::assess_risk_level` | 评估请求的风险等级（遍历高危模式列表，engine 子模块内公开） |
 
 ### 查询
 
@@ -96,6 +97,7 @@
 | 子模块 | 职责 |
 |--------|------|
 | `engine/` | 核心评估逻辑：类型定义、O(1) 索引、评估算法 |
+| `engine/engine_risk.rs` | 风险等级枚举（RiskLevel）、高危模式列表、风险评估函数（assess_risk_level） |
 | `actions/` | Action 类型及其 Builder |
 | `rules/` | Rule/RuleSet Builder 及验证逻辑 |
 | `rules/builder.rs` | RuleBuilder + RuleBuilderError |
@@ -124,7 +126,7 @@ Host 进程                              Engine 子进程
    │  Result<PermissionResponse>          │
 ```
 
-### 评估算法（7 步）
+### 评估算法（8 步）
 
 1. **Creator 规则短路**：若 caller.user_id == agent_creators[agent_id]，直接 Allow
 2. **Agent 阶段**：调用 `collect_agent_candidates()` 收集 AgentOnly 候选规则 → `match_rules()` 求值 → 得到 agent_result
@@ -137,8 +139,9 @@ Host 进程                              Engine 子进程
    - Agent Allow + User None → Allowed（向后兼容：仅 Agent 维度有规则，User 维度无立场）
    - Agent None + User Allow → Allowed（向后兼容：仅 User 维度有规则，Agent 维度无立场）
    - Agent None + User None → 默认 Deny
-6. **模板展开**：在 `match_rules()` 内部调用 `expand_templates_sync()` 展开 template 引用为实际 actions
-7. **默认策略**：任一阶段返回 None → Denied
+6. **风险评估**：在 `match_rules()` 和 `default_deny()` 返回 Denied 前，调用 `assess_risk_level(request)` 遍历 `HIGH_RISK_PATTERNS`，命中则返回对应等级，否则 Low。风险等级写入 `PermissionResponse::Denied.risk_level`
+7. **模板展开**：在 `match_rules()` 内部调用 `expand_templates_sync()` 展开 template 引用为实际 actions
+8. **默认策略**：任一阶段返回 None → Denied
 
 ### O(1) 索引
 
@@ -158,6 +161,8 @@ PermissionRequest
 ├── WithCaller { caller: Caller, request: PermissionRequestBody }
 └── Bare(PermissionRequestBody)
 
+RiskLevel（枚举：Low / Medium / High / Critical，Default = Low）
+
 PermissionRequestBody
 ├── FileOp { path: String, operation: String }
 ├── CommandExec { command: String, args: Vec<String> }
@@ -165,6 +170,10 @@ PermissionRequestBody
 ├── ToolCall { skill: String, method: String }
 ├── InterAgentMsg { agent: String }
 └── ConfigWrite { path: String }
+
+PermissionResponse
+├── Allowed { token: String }
+└── Denied { reason: String, rule: String, risk_level: RiskLevel }
 
 Action
 ├── File { operation: String, paths: Vec<String> }
@@ -193,10 +202,15 @@ Subject
 ```rust
 pub use engine::{ glob_match, Action, Caller, CommandArgs,
     Defaults, Effect, MatchType, PermissionEngine, PermissionRequest,
-    PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef };
+    PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
+    RiskLevel };
 pub use rules::{ validation, RuleBuilder, RuleSetBuilder,
     RuleBuilderError, RuleSetBuilderError };
 ```
+
+`RiskLevel` 从 `engine/engine_risk.rs` 经 `engine::` 重新导出。
+
+`assess_risk_level` 为 `engine` 子模块内公开函数，通过 `closeclaw::permission::engine::engine_risk::assess_risk_level` 访问，未在顶层 re-export。
 
 `glob_match` 在 `engine` 子模块内可直接访问，通过根模块也可访问。`action_matches_request` 仅在 `engine` 子模块内导出，**未**在根模块 re-export。
 
@@ -219,4 +233,4 @@ pub use rules::{ validation, RuleBuilder, RuleSetBuilder,
 
 ---
 
-*最后更新：2026-05-14（Owner 短路新增）*
+*最后更新：2026-05-15（风险等级与白名单禁用）*

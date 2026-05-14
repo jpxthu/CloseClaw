@@ -1,0 +1,310 @@
+//! Permission Engine - Risk assessment
+//!
+//! Provides risk level classification for permission requests.
+
+use crate::permission::engine::engine_types::PermissionRequestBody;
+use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+use crate::permission::engine::engine_eval::PermissionEngine;
+#[cfg(test)]
+use crate::permission::engine::engine_types::{
+    Effect, PermissionRequest, PermissionRequestBody as _, PermissionResponse, Rule, RuleSet,
+};
+#[cfg(test)]
+use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+
+/// Risk level for permission requests.
+/// Used to annotate denied responses with severity information.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RiskLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl Default for RiskLevel {
+    fn default() -> Self {
+        RiskLevel::Low
+    }
+}
+
+/// A risk pattern with matching logic and associated risk level.
+struct RiskPattern {
+    /// Returns Some(RiskLevel) if the request matches, None otherwise.
+    matches: fn(&PermissionRequestBody) -> Option<RiskLevel>,
+}
+
+/// Check if a path contains or ends with `.git`.
+fn path_has_git(path: &str) -> bool {
+    path.contains("/.git/") || path.ends_with("/.git") || path == ".git"
+}
+
+/// Check if this is a bare `rm -rf` (no specific path in args).
+/// Bare means: cmd="rm" and args contain only force/recursive flags without actual paths.
+fn is_bare_rm_rf(cmd: &str, args: &[String]) -> bool {
+    if cmd != "rm" {
+        return false;
+    }
+    // Collect non-flag args (paths)
+    let has_path = args.iter().any(|arg| !arg.starts_with('-'));
+    if has_path {
+        return false;
+    }
+    // Must have at least one of -f, -r, -rf, -fr
+    let has_force_or_recursive = args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "-f" | "-r" | "-rf" | "-fr" | "--force" | "--recursive"
+        )
+    });
+    has_force_or_recursive
+}
+
+const HIGH_RISK_PATTERNS: &[RiskPattern] = &[
+    // .git path read/write → High
+    RiskPattern {
+        matches: |request| match request {
+            PermissionRequestBody::FileOp { path, op, .. }
+                if (op == "read" || op == "write") && path_has_git(path) =>
+            {
+                Some(RiskLevel::High)
+            }
+            _ => None,
+        },
+    },
+    // permissions.json → Critical
+    RiskPattern {
+        matches: |request| match request {
+            PermissionRequestBody::FileOp { path, op, .. }
+                if (op == "read" || op == "write")
+                    && (path.ends_with("permissions.json")
+                        || path.contains("/permissions.json")) =>
+            {
+                Some(RiskLevel::Critical)
+            }
+            _ => None,
+        },
+    },
+    // Template files in permission module → Critical
+    RiskPattern {
+        matches: |request| match request {
+            PermissionRequestBody::FileOp { path, op, .. }
+                if (op == "read" || op == "write")
+                    && path.contains("/templates/")
+                    && path.contains("permission") =>
+            {
+                Some(RiskLevel::Critical)
+            }
+            _ => None,
+        },
+    },
+    // daemon/gateway config write → Critical
+    RiskPattern {
+        matches: |request| match request {
+            PermissionRequestBody::ConfigWrite { config_file, .. }
+                if config_file.contains("daemon") || config_file.contains("gateway") =>
+            {
+                Some(RiskLevel::Critical)
+            }
+            _ => None,
+        },
+    },
+    // Bare rm -rf → High
+    RiskPattern {
+        matches: |request| match request {
+            PermissionRequestBody::CommandExec { cmd, args, .. } if is_bare_rm_rf(cmd, args) => {
+                Some(RiskLevel::High)
+            }
+            _ => None,
+        },
+    },
+];
+
+/// Assess the risk level of a permission request.
+///
+/// Returns the highest matching risk level, or `RiskLevel::Low` if no patterns match.
+pub fn assess_risk_level(request: &PermissionRequestBody) -> RiskLevel {
+    for pattern in HIGH_RISK_PATTERNS {
+        if let Some(level) = (pattern.matches)(request) {
+            return level;
+        }
+    }
+    RiskLevel::Low
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_git_path_file_read_returns_high() {
+        let request = PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/repo/.git/config".to_string(),
+            op: "read".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_git_path_file_write_returns_high() {
+        let request = PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "src/.git/HEAD".to_string(),
+            op: "write".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_permissions_json_returns_critical() {
+        let request = PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/etc/permissions.json".to_string(),
+            op: "read".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_template_path_in_permission_module_returns_critical() {
+        // Templates within permission module: path contains /templates/ AND has permission context
+        let request = PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/repo/permissions/templates/admin_template.json".to_string(),
+            op: "write".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_daemon_config_write_returns_critical() {
+        let request = PermissionRequestBody::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: "daemon.json".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_bare_rm_rf_returns_high() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-rf".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_bare_rm_f_r_returns_high() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-f".to_string(), "-r".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_rm_with_path_returns_low() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_normal_file_returns_low() {
+        let request = PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/repo/src/main.rs".to_string(),
+            op: "read".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_normal_command_returns_low() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "ls".to_string(),
+            args: vec!["-la".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_risk_level_serde() {
+        let level = RiskLevel::Critical;
+        let json = serde_json::to_string(&level).unwrap();
+        assert_eq!(json, "\"critical\"");
+        let parsed: RiskLevel = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_risk_level_default() {
+        let level = RiskLevel::default();
+        assert_eq!(level, RiskLevel::Low);
+    }
+
+    // -------------------------------------------------------------------------
+    // End-to-end risk level tests via PermissionEngine
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_git_path_deny_risk_level_high() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .default_file(Effect::Deny)
+            .default_command(Effect::Deny)
+            .default_network(Effect::Deny)
+            .default_inter_agent(Effect::Deny)
+            .default_config(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/repo/.git/config".to_string(),
+            op: "read".to_string(),
+        }));
+        match resp {
+            PermissionResponse::Denied { risk_level, .. } => {
+                assert_eq!(risk_level, RiskLevel::High);
+            }
+            other => panic!("expected Denied, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_normal_path_deny_risk_level_low() {
+        let ruleset = RuleSetBuilder::new()
+            .version("1.0")
+            .default_file(Effect::Deny)
+            .default_command(Effect::Deny)
+            .default_network(Effect::Deny)
+            .default_inter_agent(Effect::Deny)
+            .default_config(Effect::Deny)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new(ruleset);
+        let resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/repo/src/main.rs".to_string(),
+            op: "read".to_string(),
+        }));
+        match resp {
+            PermissionResponse::Denied { risk_level, .. } => {
+                assert_eq!(risk_level, RiskLevel::Low);
+            }
+            other => panic!("expected Denied, got {:?}", other),
+        }
+    }
+}

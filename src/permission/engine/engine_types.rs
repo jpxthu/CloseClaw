@@ -3,6 +3,7 @@
 //! Types, data structures, and Subject/Rule validation logic.
 
 use super::engine_matching::glob_match;
+use super::engine_risk::RiskLevel;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -467,6 +468,12 @@ impl PermissionRequest {
 /// Permission response from the engine
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum PermissionResponse {
-    Allowed { token: String },
-    Denied { reason: String, rule: String },
+    Allowed {
+        token: String,
+    },
+    Denied {
+        reason: String,
+        rule: String,
+        risk_level: RiskLevel,
+    },
 }
