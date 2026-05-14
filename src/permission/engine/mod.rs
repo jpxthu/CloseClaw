@@ -3,6 +3,7 @@
 //! Runs as a separate OS process, evaluates access rules for agents.
 
 pub mod engine_eval;
+pub mod engine_helpers;
 pub mod engine_matching;
 pub mod engine_risk;
 pub mod engine_types;
