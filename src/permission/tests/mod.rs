@@ -1,4 +1,5 @@
 //! Permission module tests
+mod approval_test;
 mod creator_rule_test;
 mod request_test;
 mod rule_evaluation_test;
