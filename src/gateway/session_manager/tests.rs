@@ -324,3 +324,98 @@ impl PersistenceService for MockPersistService {
         Ok(Vec::new())
     }
 }
+
+// ── Workspace creation tests ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_find_or_create_creates_workspace_directory() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let workspace_dir = Some(tmp.path().to_path_buf());
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        workspace_dir.clone(),
+        BootstrapMode::Full,
+    );
+    let msg = test_message();
+
+    let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+
+    // Verify workspace directory was created
+    let expected_workspace = workspace_dir
+        .unwrap()
+        .join("workspaces")
+        .join("agent-b")
+        .join("user-a");
+    assert!(
+        expected_workspace.exists(),
+        "workspace directory should be created at {:?}",
+        expected_workspace
+    );
+    assert!(expected_workspace.is_dir());
+}
+
+#[tokio::test]
+async fn test_find_or_create_workspace_idempotent() {
+    // Calling find_or_create twice should not fail (idempotent workspace creation)
+    let tmp = tempfile::TempDir::new().unwrap();
+    let workspace_dir = Some(tmp.path().to_path_buf());
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        workspace_dir.clone(),
+        BootstrapMode::Full,
+    );
+    let msg = test_message();
+
+    let session_id1 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    let session_id2 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+
+    assert_eq!(session_id1, session_id2);
+    let expected_workspace = workspace_dir
+        .unwrap()
+        .join("workspaces")
+        .join("agent-b")
+        .join("user-a");
+    assert!(expected_workspace.exists());
+}
+
+#[tokio::test]
+async fn test_find_or_create_no_workspace_dir_skipped() {
+    // When workspace_dir is None, workspace creation is skipped
+    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let msg = test_message();
+
+    let result = mgr.find_or_create("feishu", &msg, None).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_find_or_create_workspace_invalid_agent_id() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let workspace_dir = Some(tmp.path().to_path_buf());
+    let mgr = SessionManager::new(&test_config(), None, workspace_dir, BootstrapMode::Full);
+    let mut msg = test_message();
+    msg.to = "../etc".to_string();
+
+    let result = mgr.find_or_create("feishu", &msg, None).await;
+    assert!(
+        result.is_err(),
+        "invalid agent_id should fail workspace creation"
+    );
+}
+
+#[tokio::test]
+async fn test_find_or_create_workspace_invalid_user_id() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let workspace_dir = Some(tmp.path().to_path_buf());
+    let mgr = SessionManager::new(&test_config(), None, workspace_dir, BootstrapMode::Full);
+    let mut msg = test_message();
+    msg.from = r#"..\foo"#.to_string();
+
+    let result = mgr.find_or_create("feishu", &msg, None).await;
+    assert!(
+        result.is_err(),
+        "invalid user_id should fail workspace creation"
+    );
+}

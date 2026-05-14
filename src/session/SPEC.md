@@ -23,6 +23,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 - `recovery` — 网关启动时从存储恢复会话
 - `storage/` — 可插拔存储后端（Memory/Redis/SqliteStorage）
 - `sweeper` — 后台任务，定时扫描 idle session 执行 archive，对超 TTL 的 archived session 执行 purge，支持 `tokio::sync::watch` 优雅退出
+- `workspace` — agent-user workspace 目录路径计算、校验和创建；路径格式 `{config_dir}/workspaces/{agent_id}/{user_id}/`；包含路径穿越防护（拒绝 `..`、`/`、`\`、`\0`、空字符串、`.` 和 `..`）
 
 ---
 
@@ -46,6 +47,8 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 | `CheckpointManager::new_with_identity(Arc<S>, agent_id: String, role: AgentRole)` | 创建带存储后端且指定 identity 的 Checkpoint 管理器（保存时自动填充 checkpoint 的 agent_id/role） |
 | `ArchiveSweeper::run(&self, tokio::sync::watch::Receiver<()>)` | 启动 sweeper 主循环，固定调度时刻（首次延迟一个完整 interval），Unix 平台降 nice 为 10，监听 shutdown 信号优雅退出 |
 | `SessionRecoveryService::new(Arc<S>)` | 创建恢复服务 |
+| `validate_path_component(id: &str) -> Result<(), WorkspaceError>` | 校验路径组件（agent_id/user_id）安全性；拒绝空字符串、`..`、`/`、`\`、`\0`、`.`、`..` |
+| `ensure_workspace_dir(config_dir: &Path, agent_id: &str, user_id: &str) -> Result<PathBuf, WorkspaceError>` | 计算并创建 workspace 目录；路径格式 `{config_dir}/workspaces/{agent_id}/{user_id}/`；幂等安全 |
 
 ### 主操作
 
@@ -107,7 +110,7 @@ Session 模块负责 OpenClaw 会话的持久化恢复和 bootstrap 上下文保
 |------|------|
 | `BootstrapContext` | bootstrap 区域元数据容器，含 regions 列表和 integrity hash |
 | `BootstrapRegion` | 单个 bootstrap 文件的区域标记（含 hash 用于完整性校验） |
-| `ArchiveSweeperError` | Sweeper 操作错误（Storage/Config 变体） |
+| `WorkspaceError` | workspace 操作错误（InvalidAgentId / InvalidUserId / CreationFailed）；校验失败拒绝空字符串、`..`、`/`、`\`、`\0`、`.`、`..`；CreationFailed 由 `std::io::Error` 转化 |
 | `BootstrapLoaderError` | loader 操作错误（InvalidWorkspace / IoError） |
 | `BootstrapMode` | bootstrap 文件集合模式（Minimal / Full）；Minimal 含 AGENTS.md/SOUL.md/IDENTITY.md/USER.md/TOOLS.md（5个），Full 额外包含 BOOTSTRAP.md/MEMORY.md（共7个）；HEARTBEAT.md 不属于任何模式 |
 | `SessionCheckpoint` | 会话持久化状态快照（含 status/last_message_at/message_count/channel/chat_id/agent_id/role 等生命周期字段）；`agent_id` 和 `role` 用于按真实身份过滤；保存时若为 `None` 则由 `CheckpointManager` 自动填充；若 `CheckpointManager` 也未设置则回退到默认值 `"unknown"` / `"main_agent"` |
@@ -203,6 +206,26 @@ SessionRecoveryService::recover()
     ↓
 调用用户回调（restore_fn）
 ```
+
+### 3.5 Workspace 创建流程
+
+```
+新 Session 创建（find_or_create）
+    ↓
+获取 message.to（agent_id）和 message.from（user_id）
+    ↓
+调用 workspace::ensure_workspace_dir(config_dir, agent_id, user_id)
+    ↓
+validate_path_component 校验两个组件（拒绝空字符串、..、/、\、\0、.、..）
+    ↓
+计算路径：{config_dir}/workspaces/{agent_id}/{user_id}/
+    ↓
+create_dir_all 创建目录（幂等安全，已存在不报错）
+    ↓
+返回创建的 workspace 路径
+```
+
+Workspace 目录作为 agent-user 专属写入目标，后续 issue 将基于此实现权限隔离。bootstrap 文件加载仍使用原始 workspace_dir（不拼接 workspaces 子路径），不受影响。
 
 ---
 
