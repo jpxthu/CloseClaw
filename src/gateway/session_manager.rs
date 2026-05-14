@@ -11,6 +11,7 @@ use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use crate::session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
+use crate::session::workspace;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -219,6 +220,15 @@ impl SessionManager {
             }
         } else {
             // No archived session — create a brand-new Session
+
+            // Create workspace directory for this agent-user pair
+            if let Some(ref workspace_dir) = self.workspace_dir {
+                workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from)
+                    .map_err(|e| {
+                        ProcessError::ProcessingFailed(format!("workspace creation failed: {}", e))
+                    })?;
+            }
+
             sessions.insert(
                 session_id.clone(),
                 Session {
