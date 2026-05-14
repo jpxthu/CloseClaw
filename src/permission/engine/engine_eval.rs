@@ -145,8 +145,11 @@ impl PermissionEngine {
 
         let rules = self.rules.clone();
 
+        // Owner shortcut: owner skips UserAndAgent rules entirely
+        let is_owner = caller.user_id == "owner";
+
         // Steps 1-2: Collect and sort candidates
-        let candidates = self.collect_candidates(&caller, &agent_id, &rules);
+        let candidates = self.collect_candidates(&caller, &agent_id, &rules, is_owner);
 
         // Steps 3-4: Expand templates and evaluate
         if let Some(response) = self.match_rules(&candidates, &rules, &caller, request.body()) {
@@ -199,22 +202,35 @@ impl PermissionEngine {
         caller: &super::engine_types::Caller,
         agent_id: &str,
         rules: &RuleSet,
+        is_owner: bool,
     ) -> Vec<usize> {
         let mut candidates: Vec<usize> = Vec::new();
 
-        // 1a. User+Agent dual-key index lookup (O(1))
-        let index_key = format!("{}:{}", caller.user_id, agent_id);
-        if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
-            candidates.extend(indices);
+        // Owner shortcut: skip UserAndAgent rules and glob fallback
+        if !is_owner {
+            // 1a. User+Agent dual-key index lookup (O(1))
+            let index_key = format!("{}:{}", caller.user_id, agent_id);
+            if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
+                candidates.extend(indices);
+            }
         }
 
         // 1b. Agent-only index lookup (O(1))
         if let Some(indices) = self.agent_rule_index.get(agent_id) {
-            candidates.extend(indices);
+            if is_owner {
+                // Owner: filter out UserAndAgent rules from the agent index
+                for &idx in indices {
+                    if rules.rules[idx].subject.is_agent_only() {
+                        candidates.push(idx);
+                    }
+                }
+            } else {
+                candidates.extend(indices);
+            }
         }
 
-        // 1c. Glob fallback (only if 1a and 1b produced nothing)
-        if candidates.is_empty() {
+        // 1c. Glob fallback (only if 1a and 1b produced nothing, skipped for owner)
+        if !is_owner && candidates.is_empty() {
             for (idx, rule) in rules.rules.iter().enumerate() {
                 if rule.subject.matches(caller) {
                     candidates.push(idx);
