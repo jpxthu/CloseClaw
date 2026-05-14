@@ -1,6 +1,7 @@
 //! Permission Engine - Evaluation logic.
 
 use super::engine_matching::action_matches_request;
+use super::engine_risk::assess_risk_level;
 use super::engine_types::{
     Action, Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule,
     RuleSet, Subject,
@@ -112,9 +113,15 @@ impl PermissionEngine {
                 config_file: "*".to_string(),
             },
             _ => {
+                let body = PermissionRequestBody::ToolCall {
+                    agent: agent_id.to_string(),
+                    skill: action.to_string(),
+                    method: "unknown".to_string(),
+                };
                 return PermissionResponse::Denied {
                     reason: format!("unknown action: {}", action),
                     rule: "<check>".to_string(),
+                    risk_level: assess_risk_level(&body),
                 };
             }
         };
@@ -182,10 +189,12 @@ impl PermissionEngine {
             (Some(PermissionResponse::Denied { .. }), _) => PermissionResponse::Denied {
                 reason: "action denied by agent rule".to_string(),
                 rule: "<agent_phase>".to_string(),
+                risk_level: assess_risk_level(request.body()),
             },
             (_, Some(PermissionResponse::Denied { .. })) => PermissionResponse::Denied {
                 reason: "action denied by user rule".to_string(),
                 rule: "<user_phase>".to_string(),
+                risk_level: assess_risk_level(request.body()),
             },
             (
                 Some(PermissionResponse::Allowed { .. }),
@@ -346,6 +355,7 @@ impl PermissionEngine {
                 return Some(PermissionResponse::Denied {
                     reason,
                     rule: rule.name.clone(),
+                    risk_level: assess_risk_level(request_body),
                 });
             }
         }
@@ -436,6 +446,7 @@ impl PermissionEngine {
             Effect::Deny => PermissionResponse::Denied {
                 reason: reason.to_string(),
                 rule: "default".to_string(),
+                risk_level: assess_risk_level(request),
             },
         }
     }
