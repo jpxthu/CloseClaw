@@ -373,7 +373,11 @@ async fn test_sandbox_evaluate_permission_request() {
             PermissionResponse::Allowed { token: _ } => {
                 // Permissive rules allow this request
             }
-            PermissionResponse::Denied { reason, rule: _ } => {
+            PermissionResponse::Denied {
+                reason,
+                rule: _,
+                risk_level: _,
+            } => {
                 panic!(
                     "expected Allowed with permissive rules, got Denied: {}",
                     reason

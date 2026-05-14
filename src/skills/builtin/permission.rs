@@ -67,11 +67,16 @@ impl Skill for PermissionSkill {
                             "agent_id": agent_id,
                             "action": action,
                         })),
-                        PermissionResponse::Denied { reason, rule: _ } => Ok(serde_json::json!({
+                        PermissionResponse::Denied {
+                            reason,
+                            rule: _,
+                            risk_level,
+                        } => Ok(serde_json::json!({
                             "allowed": false,
                             "agent_id": agent_id,
                             "action": action,
                             "reason": reason,
+                            "risk_level": risk_level,
                         })),
                     }
                 } else {
