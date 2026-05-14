@@ -68,7 +68,7 @@ fn owner_evaluate(request_body: PermissionRequestBody) -> PermissionResponse {
         },
         request: request_body,
     };
-    engine.evaluate(request)
+    engine.evaluate(request, None)
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
             op: "read".to_string(),
         },
     };
-    let alice_resp = engine.evaluate(alice_req);
+    let alice_resp = engine.evaluate(alice_req, None);
     assert!(
         matches!(alice_resp, PermissionResponse::Denied { .. }),
         "non-owner should be denied by UserAndAgent deny rule: {:?}",
@@ -215,7 +215,7 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
             op: "read".to_string(),
         },
     };
-    let bob_resp = engine.evaluate(bob_req);
+    let bob_resp = engine.evaluate(bob_req, None);
     assert!(
         matches!(bob_resp, PermissionResponse::Allowed { .. }),
         "bob (different user) should get default allow, not blocked by alice's rule: {:?}",
@@ -246,7 +246,7 @@ fn test_owner_shortcut_after_creator_rule() {
             args: vec![],
         },
     };
-    let resp = engine.evaluate(request);
+    let resp = engine.evaluate(request, None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "owner who is also creator gets Allowed via creator rule (higher priority): {:?}",

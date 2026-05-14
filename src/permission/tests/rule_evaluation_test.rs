@@ -47,7 +47,7 @@ async fn test_user_and_agent_rule_matching() {
             op: "read".to_string(),
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 }
 
@@ -90,7 +90,7 @@ async fn test_user_and_agent_rule_user_mismatch() {
             op: "read".to_string(),
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Denied { .. }));
 }
 
@@ -121,7 +121,7 @@ async fn test_bare_request_uses_agent_only_matching() {
         path: "/any/path.txt".to_string(),
         op: "read".to_string(),
     });
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 }
 
@@ -159,7 +159,7 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
             op: "read".to_string(),
         },
     };
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
 }
 
@@ -203,6 +203,6 @@ async fn test_rule_priority_higher_evaluated_first() {
         path: "/any/path.txt".to_string(),
         op: "read".to_string(),
     });
-    let response = engine.evaluate(request);
+    let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Denied { .. }));
 }

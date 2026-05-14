@@ -391,7 +391,7 @@ impl Daemon {
     ) -> crate::permission::PermissionResponse {
         let caller = request.caller().clone();
         let agent_id = caller.agent.clone();
-        let response = self.permission_engine.evaluate(request.clone());
+        let response = self.permission_engine.evaluate(request.clone(), None);
         let result = match &response {
             crate::permission::PermissionResponse::Allowed { .. } => AuditResult::Allow,
             crate::permission::PermissionResponse::Denied { .. } => AuditResult::Deny,

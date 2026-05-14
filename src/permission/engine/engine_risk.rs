@@ -270,11 +270,14 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::FileOp {
-            agent: "test-agent".to_string(),
-            path: "/repo/.git/config".to_string(),
-            op: "read".to_string(),
-        }));
+        let resp = engine.evaluate(
+            PermissionRequest::Bare(PermissionRequestBody::FileOp {
+                agent: "test-agent".to_string(),
+                path: "/repo/.git/config".to_string(),
+                op: "read".to_string(),
+            }),
+            None,
+        );
         match resp {
             PermissionResponse::Denied { risk_level, .. } => {
                 assert_eq!(risk_level, RiskLevel::High);
@@ -295,11 +298,14 @@ mod tests {
             .build()
             .unwrap();
         let engine = PermissionEngine::new(ruleset);
-        let resp = engine.evaluate(PermissionRequest::Bare(PermissionRequestBody::FileOp {
-            agent: "test-agent".to_string(),
-            path: "/repo/src/main.rs".to_string(),
-            op: "read".to_string(),
-        }));
+        let resp = engine.evaluate(
+            PermissionRequest::Bare(PermissionRequestBody::FileOp {
+                agent: "test-agent".to_string(),
+                path: "/repo/src/main.rs".to_string(),
+                op: "read".to_string(),
+            }),
+            None,
+        );
         match resp {
             PermissionResponse::Denied { risk_level, .. } => {
                 assert_eq!(risk_level, RiskLevel::Low);

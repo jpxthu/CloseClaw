@@ -1,5 +1,7 @@
 //! Skill discovery skill - allows agents to search and install skills from ClawHub
-use crate::permission::PermissionResponse;
+use crate::permission::engine::Caller;
+use crate::permission::engine::PermissionRequestBody;
+use crate::permission::{PermissionRequest, PermissionResponse};
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -78,7 +80,20 @@ impl Skill for SkillDiscoverySkill {
                 let version = args.get("version").and_then(|v| v.as_str());
 
                 if let Some(ref engine) = self.engine {
-                    match engine.check(agent_id, "spawn") {
+                    let caller = Caller {
+                        user_id: String::new(),
+                        agent: agent_id.to_string(),
+                        creator_id: String::new(),
+                    };
+                    let request = PermissionRequest::WithCaller {
+                        caller,
+                        request: PermissionRequestBody::InterAgentMsg {
+                            from: agent_id.to_string(),
+                            to: "*".to_string(),
+                        },
+                    };
+                    let extra_deny_subjects = engine.get_agent_deny_subjects(agent_id, agent_id);
+                    match engine.evaluate(request, Some(extra_deny_subjects)) {
                         PermissionResponse::Allowed { .. } => {}
                         PermissionResponse::Denied { reason, .. } => {
                             return Err(SkillError::PermissionDenied(reason));
@@ -254,5 +269,54 @@ mod tests {
         // May be denied or may succeed if engine check doesn't match action "spawn"
         // The important thing is it doesn't panic
         let _ = result;
+    }
+
+    /// Parent agent has deny rule → child agent install is denied
+    #[tokio::test]
+    async fn test_install_permission_with_extra_deny() {
+        use crate::permission::engine::engine_types::{
+            Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
+        };
+        use std::collections::HashMap;
+        let rules = RuleSet {
+            version: "1".to_string(),
+            rules: vec![Rule {
+                name: "parent-deny-spawn".to_string(),
+                subject: Subject::AgentOnly {
+                    agent: "parent-agent".to_string(),
+                    match_type: MatchType::Exact,
+                },
+                effect: Effect::Deny,
+                actions: vec![Action::ToolCall {
+                    skill: "*".to_string(),
+                    methods: vec![],
+                }],
+                template: None,
+                priority: 10,
+            }],
+            defaults: Defaults::default(),
+            template_includes: vec![],
+            agent_creators: HashMap::new(),
+        };
+        let engine = Arc::new(crate::permission::PermissionEngine::new(rules));
+        let skill = SkillDiscoverySkill::with_engine(engine);
+        // child-agent is spawned by parent-agent, child-agent tries to install a skill
+        let result = skill
+            .execute(
+                "install",
+                serde_json::json!({
+                    "agent_id": "child-agent",
+                    "skill": "test-skill"
+                }),
+            )
+            .await;
+        // Should be denied because parent-agent has a deny rule for tool_call,
+        // and get_agent_deny_subjects propagates it to child-agent
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            crate::skills::SkillError::PermissionDenied(_)
+        ));
     }
 }

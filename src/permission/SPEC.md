@@ -58,8 +58,9 @@
 
 | 接口 | 功能 |
 |------|------|
-| `PermissionEngine::check` | 简化权限检查（接受字符串 action 名） |
-| `PermissionEngine::evaluate` | 完整权限评估流程 |
+| `PermissionEngine::check` | 简化权限检查（接受字符串 action 名，内部调用 `evaluate` 并传入 `None` 作为 `extra_deny_subjects`） |
+| `PermissionEngine::evaluate` | 完整权限评估流程，支持 `extra_deny_subjects` 参数在标准评估后对额外 subject 做 deny 覆盖扫描 |
+| `PermissionEngine::get_agent_deny_subjects` | 提取父 agent 的 AgentOnly + Deny 规则 subject（将 agent 字段替换为 child_id），用于子 agent 权限递减链 |
 | `PermissionEngine::reload_rules` | 重新加载 RuleSet（重建索引） |
 | `PermissionEngine::load_templates` | 加载模板映射 |
 | `PermissionEngine::rebuild_indices_with_rules` | 从给定 RuleSet 重建 O(1) 索引 |
@@ -142,7 +143,7 @@ Host 进程                              Engine 子进程
    │  Result<PermissionResponse>          │
 ```
 
-### 评估算法（8 步）
+### 评估算法（9 步）
 
 1. **Creator 规则短路**：若 caller.user_id == agent_creators[agent_id]，直接 Allow
 2. **Agent 阶段**：调用 `collect_agent_candidates()` 收集 AgentOnly 候选规则 → `match_rules()` 求值 → 得到 agent_result
@@ -158,6 +159,7 @@ Host 进程                              Engine 子进程
 6. **风险评估**：在 `match_rules()` 和 `default_deny()` 返回 Denied 前，调用 `assess_risk_level(request)` 遍历 `HIGH_RISK_PATTERNS`，命中则返回对应等级，否则 Low。风险等级写入 `PermissionResponse::Denied.risk_level`
 7. **模板展开**：在 `match_rules()` 内部调用 `expand_templates_sync()` 展开 template 引用为实际 actions
 8. **默认策略**：任一阶段返回 None → Denied
+9. **Extra Deny 覆盖**：在步骤 1~8 完成后，若 `extra_deny_subjects` 不为空，逐一对每个 subject 调用 `subject.matches(&caller)`，任一匹配则将最终结果覆盖为 `PermissionResponse::Denied`（reason = "action denied by parent agent restriction"，rule = "<extra_deny>"）
 
 ### O(1) 索引
 
