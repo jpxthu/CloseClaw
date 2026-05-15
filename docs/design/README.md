@@ -6,3 +6,4 @@
 |------|------|
 | [processor_chain](processor_chain/README.md) | 消息出站处理与平台渲染：DSL 解析、Renderer 跨平台渲染框架 |
 | [session](session/README.md) | Agent 会话生命周期管理：创建、持久化、压缩、归档与清理 |
+| [tools](tools/README.md) | Agent 能力层：两级索引工具体系、内建工具、平台工具、Bash 工具、提示词注入 |
