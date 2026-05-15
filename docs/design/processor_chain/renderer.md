@@ -61,4 +61,4 @@ IM Adapter 发送
 - **上游**：Session（提供消息数据）、Processor 链（提供 DSL 解析结果 metadata）
 - **下游**：IM Adapter（发送渲染后的消息）
 - **平台实现**：
-  - [飞书渲染器](feishu-renderer.md) — 飞书平台渲染规则
+  - [飞书渲染器](renderer-feishu.md) — 飞书平台渲染规则

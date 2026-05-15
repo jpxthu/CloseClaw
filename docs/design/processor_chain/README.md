@@ -54,4 +54,4 @@ LLM Provider 输出 UnifiedResponse
   - [出站链路](outbound-chain.md) — 完整出站流程与 Processor 链出站角色
   - [DSL 解析器](dsl-parser.md) — DSL 指令解析机制
   - [渲染层抽象](renderer.md) — Renderer 跨平台渲染框架
-  - [飞书渲染器](feishu-renderer.md) — 飞书卡片生成规则
+  - [飞书渲染器](renderer-feishu.md) — 飞书卡片生成规则
