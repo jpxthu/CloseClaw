@@ -51,7 +51,7 @@ LLM Provider 输出 UnifiedResponse
 - **上游**：Session（提供消息数组）、LLM Provider（生成 UnifiedResponse）
 - **下游**：IM Adapter（接收渲染后的平台消息并发送）
 - **子文档**：
-  - [出站链路](outbound-chain.md) — 完整出站流程与 Processor 链出站角色
   - [DSL 解析器](dsl-parser.md) — DSL 指令解析机制
-  - [渲染层抽象](renderer.md) — Renderer 跨平台渲染框架
   - [飞书渲染器](renderer-feishu.md) — 飞书卡片生成规则
+  - [渲染层抽象](renderer.md) — Renderer 跨平台渲染框架
+  - [出站链路](outbound-chain.md) — 完整出站流程与 Processor 链出站角色
