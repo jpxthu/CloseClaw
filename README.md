@@ -65,9 +65,14 @@ Type: <type>
 | `src/mode/` | 运行模式（CLI/Gateway/Daemon） | [SPEC](src/mode/SPEC.md) |
 | `src/permission/` | 权限校验与访问控制 | [SPEC](src/permission/SPEC.md) |
 | `src/platform/` | 平台层抽象（飞书/Discord/Signal…） | [SPEC](src/platform/SPEC.md) |
+| `src/processor_chain/` | 消息处理链（入站/出站） | [SPEC](src/processor_chain/SPEC.md) |
+| `src/renderer/` | 渲染层（Markdown → 卡片） | [SPEC](src/renderer/SPEC.md) |
 | `src/session/` | Session 存储与生命周期管理 | [SPEC](src/session/SPEC.md) |
 | `src/skills/` | Skill 加载、注册、调度 | [SPEC](src/skills/SPEC.md) |
 | `src/system_prompt/` | System Prompt 分段渲染 | [SPEC](src/system_prompt/SPEC.md) |
+| `src/tools/` | Tool 注册与调用管理 | [SPEC](src/tools/SPEC.md) |
+
+> 注：部分模块的 SPEC.md 尚在编写中，见 [docs/design/](docs/design/README.md)。
 
 ## 关键文件索引
 
@@ -83,3 +88,4 @@ Type: <type>
 | 风险项、术语表 | [docs/developer/references/risk-issues.md](docs/developer/references/risk-issues.md) |
 | 配置示例 | `configs/agents.json.example`、`configs/.env.example` |
 | 测试开发标准、文件布局、安全规则 | [docs/developer/test-development.md](docs/developer/test-development.md) |
+| 模块设计文档（设计决策、历史上下文） | [docs/design/](docs/design/README.md) |
