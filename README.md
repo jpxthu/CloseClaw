@@ -88,4 +88,4 @@ Type: <type>
 | 风险项、术语表 | [docs/developer/references/risk-issues.md](docs/developer/references/risk-issues.md) |
 | 配置示例 | `configs/agents.json.example`、`configs/.env.example` |
 | 测试开发标准、文件布局、安全规则 | [docs/developer/test-development.md](docs/developer/test-development.md) |
-| 模块设计文档（设计决策、历史上下文） | [docs/design/](docs/design/README.md) |
+| 模块设计文档 | [docs/design/](docs/design/README.md) |

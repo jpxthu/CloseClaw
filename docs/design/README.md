@@ -1,29 +1,8 @@
-# CloseClaw 设计文档索引
+# 设计文档
 
-## 模块对应关系
+模块级设计说明，解释架构、职责、逻辑流转、模块间信息传递。
+对应 `src/<模块>/` 或跨模块主题，每篇讲清楚最新设计的意图和原因。
 
-| 模块 | 设计笔记 | SPEC.md |
-|------|----------|---------|
-| `src/agent/` | - | - |
-| `src/audit/` | - | - |
-| `src/card/` | - | - |
-| `src/chat/` | - | - |
-| `src/cli/` | - | - |
-| `src/config/` | - | - |
-| `src/daemon/` | - | - |
-| `src/gateway/` | - | - |
-| `src/im/` | - | - |
-| `src/llm/` | - | - |
-| `src/mode/` | - | - |
-| `src/permission/` | - | - |
-| `src/platform/` | - | - |
-| `src/processor_chain/` | - | - |
-| `src/renderer/` | - | - |
-| `src/session/` | - | - |
-| `src/skills/` | - | - |
-| `src/system_prompt/` | - | - |
-| `src/tools/` | - | - |
+## 文件
 
-## 设计笔记命名规范
-
-`NN-<模块名或主题>.md`，编号与原 design doc 顺序对应（倒序处理）。
+暂无。
