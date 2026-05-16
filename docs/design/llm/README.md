@@ -1,9 +1,9 @@
 # LLM 模块
 
 > 子功能文档：
-> - [provider-config-wizard](provider-config-wizard.md) — CLI 交互式向导：选 provider、输入凭据、发现模型、写配置
-> - [model-discovery](model-discovery.md) — 从供应商 API 动态发现可用模型，结合知识库和缓存自动填充推荐参数
 > - [cache-adapter](cache-adapter.md) — 跨供应商统一缓存策略，最大化静态区 system prompt 的缓存折扣
+> - [model-discovery](model-discovery.md) — 从供应商 API 动态发现可用模型，结合知识库和缓存自动填充推荐参数
+> - [provider-config-wizard](provider-config-wizard.md) — CLI 交互式向导：选 provider、输入凭据、发现模型、写配置
 
 ---
 
