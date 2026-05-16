@@ -1,5 +1,12 @@
 # LLM 模块
 
+> 子功能文档：
+> - [provider-config-wizard](provider-config-wizard.md) — CLI 交互式向导：选 provider、输入凭据、发现模型、写配置
+> - [model-discovery](model-discovery.md) — 从供应商 API 动态发现可用模型，结合知识库和缓存自动填充推荐参数
+> - [cache-adapter](cache-adapter.md) — 跨供应商统一缓存策略，最大化静态区 system prompt 的缓存折扣
+
+---
+
 ## 概述
 
 LLM 模块为 CloseClaw 提供统一的多供应商、多协议、多模型 LLM 调用能力。它将不同 AI 供应商的 API 差异封装在多层抽象之后，对上层暴露一致的聊天交互接口，支持文本对话、推理过程、工具调用和流式输出。
@@ -48,14 +55,6 @@ LLM Client（UnifiedChatClient）—— 统一入口
 ### 流式事件
 
 流式输出通过统一事件模型传递：内容块开始、内容增量、内容块结束、消息结束、错误事件。屏蔽 OpenAI SSE 和 Anthropic SSE 在事件粒度上的差异。
-
-### 子功能文档
-
-| 子功能 | 简述 |
-|--------|------|
-| [provider-config-wizard](provider-config-wizard.md) | CLI 交互式向导：选 provider、输入凭据、发现模型、写配置 |
-| [model-discovery](model-discovery.md) | 从供应商 API 动态发现可用模型，结合知识库和缓存自动填充推荐参数 |
-| [cache-adapter](cache-adapter.md) | 跨供应商统一缓存策略，最大化静态区 system prompt 的缓存折扣 |
 
 ## 数据流
 
