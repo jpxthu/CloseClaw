@@ -18,23 +18,21 @@
 
 ### 注入的四个 Section
 
-build_from_workspace 组装四种 Section：
+System Prompt 的 Section 类型定义见 [system-prompt/README.md](../system-prompt/README.md)。注入链路中 build_from_workspace 对四个 Section 的组装行为：
 
-- **RoleSection**：bootstrap 文件内容。来自 load_bootstrap_files 的返回值，按 CONTEXT_FILE_ORDER 排序。AGENTS.md 排在首位。Minimal 模式加载 AGENTS/SOUL/IDENTITY/USER/TOOLS，Full 模式额外加载 BOOTSTRAP 和 MEMORY。HEARTBEAT.md 不在注入范围，按需单独读取。
-- **ToolsSection**：工具描述列表。ToolRegistry 根据 agent 类型生成，包含工具名、描述和危险度标记。所有工具 eager load 进 system prompt。
-- **SkillListingSection**：可用 skill 列表。SkillRegistry 按优先级排序（bundled > global > agent > project，同级按名字字母序），输出 name + description 格式，供模型判断何时使用。
-- **MemorySection**：MEMORY.md 内容。走 session 级文件缓存，命中缓存则跳过读取。
+- **RoleSection**：调用 load_bootstrap_files 加载 bootstrap 文件，按固定顺序排列（AGENTS.md 排在首位）。Minimal 模式加载 AGENTS/SOUL/IDENTITY/USER/TOOLS，Full 模式额外加载 BOOTSTRAP 和 MEMORY。HEARTBEAT.md 不在注入范围。
+- **ToolsSection**：通过 ToolRegistry 生成工具分组索引（常用工具含行为描述，延迟工具仅含名称和危险度标记）。
+- **SkillListingSection**：通过 SkillRegistry 生成 skill 摘要清单，按优先级排序（来源优先级 → 名字字母序）。
+- **MemorySection**：读取 MEMORY.md，走 session 级文件缓存，命中缓存则跳过读取。
 
-四个 Section 拼接后生成完整 system prompt，写入 ConversationSession。
+四个 Section 拼接后写入 ConversationSession 的 system_prompt 字段。
 
-### 静态区与动态区的边界
+### 静态层与动态层的注入行为
 
-system prompt 内容分为两层：
+静态层和动态层的边界定义见 [system-prompt/README.md](../system-prompt/README.md)。注入链路的行为：
 
-- **静态层**：session 创建时注入，内容写入 ConversationSession 的 system_prompt 字段，进入 checkpoint 持久化。包含 RoleSection、ToolsSection、SkillListingSection、MemorySection。
-- **动态层**：每次 API 请求时注入，不持久化。包含 ChannelContext（当前消息来源）和 SessionState（turnCount 等运行时状态）。
-
-静态层和动态层之间通过边界标记分隔，使 API 层可以区分可缓存前缀和必须每次重新计算的后缀。
+- **静态层**（RoleSection + ToolsSection + SkillListingSection + MemorySection）：session 创建时注入，写入 ConversationSession 的 system_prompt 字段，进入 checkpoint 持久化。
+- **动态层**（ChannelContext + SessionState）：每次 API 请求时注入，不持久化，不改变 session 的 system_prompt 字段。
 
 ### 无 Workspace 的 Session
 
@@ -76,7 +74,7 @@ skill 文件变更时，SkillRegistry 通知 SessionManager 重新走 build_from
            → 返回 session_id
 ```
 
-### 每次 API 请求时的动态区注入
+### 每次 API 请求时的动态层注入
 
 ```
 API 请求到达
@@ -84,12 +82,12 @@ API 请求到达
   build_channel_context（当前消息的 channel/sender 信息）
   build_session_state（turnCount 等运行时状态）
   →
-  动态 sections 追加到静态 system_prompt 后
+  动态层追加到静态 system_prompt 后
   →
   发送 LLM 请求
 ```
 
-动态 sections 不进 checkpoint，不改变 session 的 system_prompt 字段。
+动态层不进 checkpoint，不改变 session 的 system_prompt 字段。
 
 ### Session 恢复时的重新注入
 
