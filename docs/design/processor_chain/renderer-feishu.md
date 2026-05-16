@@ -1,66 +1,77 @@
-# 飞书渲染器
+# 飞书渲染
 
 ## 概述
 
-FeishuRenderer 是 Renderer 抽象的飞书平台实现。它读取 Session 中的统一消息格式，按飞书消息规范渲染为 text 或 interactive 卡片格式。
+飞书渲染处理器将 LLM 的结构化内容块渲染为飞书消息格式（text 或 interactive card）。它是渲染处理器的飞书平台实现，作为出站链的 Processor 运行。
 
 ## 架构
 
-FeishuRenderer 的渲染分两步完成：
+飞书渲染分两步完成：输出类型决策和卡片组装。
 
-```
-Session 消息数组 + DSL 解析结果
-  ↓
-步骤一：判断输出类型
-  → 纯文本、无格式 → text 消息
-  → 含格式标记、多内容块、或 DSL 指令 → interactive 卡片
-  ↓
-步骤二：组装卡片
-  → 提取标题、正文、按钮等元素
-  → 按飞书卡片规范生成 JSON
-  ↓
-RenderedOutput { msg_type, payload }
-```
-
-**输出类型判断规则**：
+**步骤一：输出类型决策**
 
 | 条件 | 输出 |
 |------|------|
-| 纯文本，无换行、无格式标记、无 DSL | text 消息 |
-| 含标题标记 | interactive 卡片 |
-| 含粗体 / 斜体 / 代码块 / 列表 / 引用 / 链接 | interactive 卡片 |
+| 纯文本，无格式标记、无换行、无 DSL | text 消息 |
+| 含标题标记（`#` 开头） | interactive 卡片 |
+| 含粗体、斜体、代码块、列表、引用、链接 | interactive 卡片 |
 | 含换行符 | interactive 卡片 |
 | 含 DSL 按钮指令 | interactive 卡片 |
+| 含多个 ContentBlock 或 Thinking/Tool 块 | interactive 卡片 |
 
-**ContentBlock 渲染映射**：
+**步骤二：卡片组装**
 
-| 内容类型 | 飞书渲染方式 |
-|---------|------------|
-| 文本（含标题标记） | 提取为卡片 header.title |
-| 文本（普通文本与格式） | 卡片正文内容 |
-| 文本（分隔线） | 水平分割线元素 |
-| 推理内容 | 加粗斜体显示，标注为推理内容 |
-| 工具调用 | 工具调用描述信息 |
+```
+ContentBlock[] + DSL 指令
+  ↓
+header 提取 — 首行 `# 标题` 作为卡片标题
+  ↓
+body 渲染
+  ├── Text 块 → markdown 元素（飞书原生 markdown 渲染）
+  ├── Thinking 块 → 可折叠推理区块
+  ├── ToolUse 块 → 工具调用描述卡片
+  └── ToolResult 块 → 工具结果内容块
+  ↓
+interactive 元素注入
+  └── DSL 指令 → 飞书 button/selector 等交互组件
+  ↓
+飞书卡片 JSON
+```
 
 ## 数据流
 
 ```
-Renderer.render(messages, dsl_result)
+渲染 Processor 接收上下文
   ↓
-遍历消息数组，处理每条消息的内容块
-  → 对每个块按类型选择渲染策略
-  → 同时处理 DSL 指令（按钮等交互元素）
+遍历 ContentBlock[]：
+  ├── Text 块
+  │     → 解析 markdown 结构（标题、段落、列表、代码块等）
+  │     → 映射为飞书 card element：
+  │         - # 标题 → header.title（蓝色模板）
+  │         - **粗体** / *斜体* → 飞书 markdown 原生渲染
+  │         - ```代码块``` → 飞书 markdown 代码块
+  │         - > 引用 → 飞书 markdown 引用
+  │         - - 列表 → 飞书 markdown 列表
+  │         - [链接](url) → 飞书 markdown 链接
+  │         - --- 分割线 → 飞书 hr 元素
+  ├── Thinking 块
+  │     → 渲染为折叠区：标题"推理过程"，内容为推理文本
+  ├── ToolUse 块
+  │     → 渲染为信息条：工具名 + 输入参数摘要
+  └── ToolResult 块
+        → 渲染为内容块：工具返回结果（截断过长内容）
   ↓
-组装飞书卡片 JSON：
-  → header：标题信息
-  → body：文本内容、格式标记
-  → actions：DSL 指令对应的交互按钮
+DSL 指令渲染：
+  ├── Button → 飞书 action button 元素
+  │     - 首个按钮 → primary 样式
+  │     - 后续按钮 → default 样式
+  └── 其他指令 → 对应飞书交互组件
   ↓
-RenderedOutput { msg_type: "text" | "interactive", payload: card_json }
+组装完整卡片 JSON → ProcessedMessage.content
 ```
 
 ## 模块关系
 
-- **上游**：Gateway（提供 Session 消息数据和 Processor 链的 DSL 解析结果）
-- **下游**：飞书 IM Adapter（接收渲染后的文本或卡片 JSON 并发送）
-- **同层**：其他平台 Renderer 实现，共享同一个 Renderer 抽象
+- **上游**：DslParser（提供清理后的 ContentBlock[] 和 DSL 解析结果）
+- **下游**：飞书 IM Adapter（接收卡片 JSON 并调用飞书发送接口）
+- **同层**：其他平台渲染 Processor（共享渲染处理器框架，各自实现平台格式）

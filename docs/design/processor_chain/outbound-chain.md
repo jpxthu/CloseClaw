@@ -2,55 +2,71 @@
 
 ## 概述
 
-出站链路负责将 LLM 输出从统一格式转换为各 IM 平台可发送的消息。链路分两个阶段：Processor 链的 DSL 解析阶段，和 Rendering Layer 的平台渲染阶段。
+本文档描述 Processor 链框架如何调度出站链路的两个 Processor（DslParser 和平台渲染 Processor），以及 Gateway 在链调度中的角色。
 
 ## 架构
 
-**阶段一：Processor 链（出站方向）**
-
-出站 Processor 链只保留 DslParser：
+出站链路由两个 Processor 组成，按 priority 顺序执行：
 
 ```
-DslParser（priority: 10）
-  → 遍历消息内容，识别 DSL 指令行
-  → 解析结果写入 ProcessedMessage.metadata
+ProcessedMessage { content: ContentBlock[] }
+  ↓
+DslParser（priority 10）
+  → 遍历 Text 块，识别 DSL 指令行
+  → 解析结果写入 metadata["dsl_result"]
+  → 从 Text 块中剥离 DSL 指令行
+  ↓
+<Platform>Renderer（priority 20）
+  → 按 ContentBlock 类型选择渲染策略
+  → 消费 metadata 中的 DSL 指令，渲染平台交互元素
+  → 输出平台原生格式 payload
+  ↓
+ProcessedMessage { content: platform_payload, metadata }
+  ↓
+Gateway 提取 payload → IM Adapter 发送
 ```
 
-**阶段二：Rendering Layer**
+Gateway 负责：
+- 从 Session 中读取消息的 ContentBlock 数组
+- 根据目标平台将对应渲染 Processor 注册到链中
+- 启动 Processor 链执行
+- 从链输出中提取平台 payload 并交给 IM Adapter
 
-```
-Renderer(messages[], dsl_result)
-  → 按 platform 选择对应 Renderer 实现
-  → 输出平台原生格式
-```
-
-Rendering Layer 不经过 Processor 链，直接从 Session 读取消息数组并完成渲染。DslParser 的解析结果由 Gateway 从 metadata 中提取后传给 Renderer。
+渲染 Processor 的实现完全在 Processor 框架内，Gateway 无需感知渲染细节。
 
 ## 数据流
 
 ```
-UnifiedResponse（LLM 输出）
-  ↓ 写入 Session
-Session 消息数组
-  ↓ Gateway 调度 Processor 链
-DslParser 解析 DSL → metadata["dsl_result"]
-  ↓ Gateway 提取 DSL 结果
-Renderer.render(messages, dsl_result)
-  ↓ 平台格式输出
-RenderedOutput { msg_type, payload }
+Session 消息（含 ContentBlock[]）
+  ↓ Gateway 构造 ProcessedMessage
+DslParser.process(ctx)
+  → 输入：含 ContentBlock 数组的消息上下文
+  → 处理：遍历 Text 块，匹配 DSL 语法 → 解析为结构化指令 → 剥离 DSL 行
+  → 输出：clean Text 块 + metadata["dsl_result"]（DslParseResult 序列化 JSON）
   ↓
-IM Adapter.send(chat_id, payload)
+<Platform>Renderer.process(ctx)
+  → 输入：清理后的 ContentBlock[] + metadata 中的 DSL 结果
+  → 处理：
+      - Text 块 → 平台文本/富文本格式
+      - Thinking 块 → 平台折叠内容
+      - ToolUse 块 → 平台工具调用展示
+      - ToolResult 块 → 平台工具结果展示
+      - DSL 指令 → 平台交互元素（按钮、选择器等）
+  → 输出：平台原生格式 payload（JSON 或结构化数据）
   ↓
-IM 用户
+Gateway 提取 payload → IM Adapter
 ```
 
 关键判断点：
-- DslParser 遍历消息内容时，遇到 DSL 行则解析为结构化指令，否则跳过
-- Renderer 根据目标 platform 选择对应的平台实现
-- 渲染输出包含 msg_type 和平台 JSON payload
+- DslParser 不处理非 Text 块（Thinking、Tool 块直接透传）
+- 渲染 Processor 根据消息的整体内容决定输出类型（text 或富格式）
+- 若链中无匹配的渲染 Processor，Gateway 回退到纯文本输出
 
 ## 模块关系
 
-- **上游**：Session（提供消息数据）、LLM Provider（生成 UnifiedResponse）
-- **下游**：IM Adapter（接收 RenderedOutput 并发送）
-- **链内**：DslParser 是出站链唯一的 Processor
+- **上游**：Session（提供 ContentBlock[]）、LLM Provider（生成 UnifiedResponse）
+- **下游**：IM Adapter（接收渲染后的平台消息并发送）
+- **链内**：
+  - DslParser — DSL 指令解析，为渲染 Processor 提供交互数据
+  - 各平台渲染 Processor — 将 ContentBlock[] 转为平台原生格式
+- **无关**：入站 Processor 链（独立链路，与出站互不干扰）
