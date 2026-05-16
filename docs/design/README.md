@@ -9,4 +9,5 @@
 | [processor_chain](processor_chain/README.md) | 消息出站处理与平台渲染：DSL 解析、Renderer 跨平台渲染框架 |
 | [session](session/README.md) | Agent 会话生命周期管理：创建、持久化、压缩、归档与清理 |
 | [skills](skills/README.md) | Agent 可复用能力插件体系：磁盘即插即用、五层优先级、frontmatter 配置驱动、双执行模式 |
+| [system-prompt](system-prompt/README.md) | 每次 API 调用的固定前缀：静态/动态层划分、Section 类型、缓存策略、构建与注入入口 |
 | [tools](tools/README.md) | Agent 能力层：两级索引工具体系、内建工具、平台工具、Bash 工具、提示词注入 |
