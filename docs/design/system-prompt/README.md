@@ -49,7 +49,8 @@ SkillListingSection 按来源优先级排列，标注条件激活标记。
 | ChannelContext | 当前消息来源（channel 类型、chat_id、发送者） | 入站消息元数据 |
 | SessionState | 运行时状态（turnCount、pendingTasks） | ConversationSession |
 | AppendSection | Owner 通过 `/system` 命令追加的临时指令，当次生效后自动清除，最大 500 字 | `/system` 命令 |
-| GitStatus | 当前工作目录的 git 分支和变更状态 | 工作目录 |
+| WorkingDirectory | 当前工作目录路径，agent 建议在此做文件记录 | session workdir 字段 |
+| GitStatus | 从工作目录路径派生的 git 分支和变更状态 | session workdir 字段 |
 
 ### 边界标记
 
@@ -95,7 +96,7 @@ SessionManager 创建新 session
 API 请求到达
   →
   从 ConversationSession 取出静态层
-  构建动态层：ChannelContext + SessionState
+  构建动态层：WorkingDirectory + ChannelContext + SessionState + GitStatus
   →
   拼接：静态层 + 边界标记 + 动态层
   →
