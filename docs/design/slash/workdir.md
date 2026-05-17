@@ -2,7 +2,7 @@
 
 ## 概述
 
-`/cd`、`/pwd` 和 `/git` 指令用于管理会话的工作目录和执行 Git 操作。
+`/cd`、`/pwd` 和 `/git` 指令操作 session 的工作目录字段。工作目录的定义（字段、默认值、与 system prompt 注入的关系）见 [session/working-directory.md](../session/working-directory.md)，本文档只描述这三个斜杠指令本身的处理逻辑。
 
 ## 架构
 

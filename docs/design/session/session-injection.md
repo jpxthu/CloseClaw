@@ -58,7 +58,8 @@ skill 文件变更时，SkillRegistry 通知 SessionManager 重新走 build_from
     ├─ archived session 命中 → 恢复 → 重新注入（保证 prompt 最新）
     └─ 新 session
         ├─ workspace 存在？
-        │   ├─ 是 → load_bootstrap_files（按 Minimal/Full 模式加载）
+        │   ├─ 是 → 初始化 workdir = {config_dir}/workspaces/{agent_id}/{user_id}/
+        │   │      → load_bootstrap_files（按 Minimal/Full 模式加载）
         │   │      → build_from_workspace
         │   │         ├─ 组装 RoleSection（bootstrap 文件内容）
         │   │         ├─ 组装 ToolsSection（ToolRegistry 生成工具描述）
@@ -107,7 +108,7 @@ archived session 被访问
 
 ### 上游
 
-- **SessionManager**：session 生命周期协调者，在 find_or_create 中调用 system prompt builder 完成注入。持有 ToolRegistry 和 SkillRegistry 引用，作为注入的数据来源。
+- **SessionManager**：session 生命周期协调者，在 find_or_create 中调用 system prompt builder 完成注入，同时初始化 session 工作目录字段。持有 ToolRegistry 和 SkillRegistry 引用，作为注入的数据来源。
 
 ### 下游
 
