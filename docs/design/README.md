@@ -4,8 +4,8 @@
 
 | 模块 | 简述 |
 |------|------|
-| [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 独立配置、热重载 |
 | [agent](agent/README.md) | Agent 配置档案管理、spawn 协调与权限沿链路继承 |
+| [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 独立配置、热重载 |
 | [llm](llm/README.md) | 统一多供应商 LLM 调用：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配 |
 | [permission](permission/README.md) | 系统级身份型访问控制：交集模型、七类权限维度、审批工作流与配置管理 |
 | [processor_chain](processor_chain/README.md) | 消息出站处理与平台渲染：DSL 解析、结构化内容块渲染、流式输出、代码高亮 |
