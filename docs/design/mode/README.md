@@ -14,7 +14,7 @@
 |------|------|
 | 默认模式 | 无模式标记时的行为状态——agent 按完整配置运行，全工具集可用 |
 | Plan Mode | 规划与执行分离——agent 在只读约束下完成研究→设计→审批。支持标准路径和 Interview 路径。审批通过后进入 Auto Mode |
-| Auto Mode | 连续自主执行模式——agent 不等用户逐步确认，按 plan 自动执行，危险操作需用户审批 |
+| Auto Mode | Plan Mode 审批通过后自动进入的执行模式——agent 不等用户逐步确认，按 plan 自动执行，危险操作需用户审批。本身不是独立入口（无法直接 /auto 进入），详见 execution.md |
 
 ### 模式生命周期
 
@@ -42,7 +42,7 @@ Auto Mode：连续自主执行 plan tasks
 
 三种约束在 session 创建时计算，运行期间不变。
 
-子功能：[plan-mode.md](plan-mode.md) — Plan Mode 专项：双路径工作流、Agent 类型、审批栅栏、Auto Mode、安全机制、多路径恢复
+子功能：[plan-mode.md](plan-mode.md) — Plan Mode 专项：双路径工作流、Agent 类型、审批栅栏、安全机制、多路径恢复<br>子功能：[execution.md](execution.md) — 执行引擎：ProgressTool 进度管理、Inline/Spawn 执行模式、压缩恢复、失败处理
 
 ## 数据流
 
