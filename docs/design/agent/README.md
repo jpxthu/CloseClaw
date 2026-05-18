@@ -87,7 +87,7 @@ Session 模块读取该 agent 的 ResolvedAgentConfig
   model        → 设置 session 默认模型
   bootstrapMode → 决定 bootstrap 文件加载集
   agentDir     → bootstrap 文件读取路径
-  permissions  → 注入权限模块 Agent 维度规则
+  permissions  → 传递 agent_id 给权限模块，Permission 自行加载 Agent 权限规则
   skills       → 过滤 skill 注册表
   tools/disallowedTools → 过滤 tool 注册表
   subagents    → 注入 session 的 spawn 控制上下文
@@ -126,13 +126,13 @@ Agent 协调层前置检查（depth/并发/白名单/权限）
 | 模块 | 调用关系 |
 |------|---------|
 | Session | spawn 时创建 child session；steer/kill 时操作子 session |
-| Permission | 提供 Agent 维度权限基线；spawn 时触发权限继承计算 |
 | System Prompt | agent 配置的 bootstrapMode 和 agentDir 决定 bootstrap 文件加载策略 |
 
 ### 无关（无调用关系、名称或功能易混淆）
 
 | 模块 | 说明 |
 |------|------|
+| Permission | Permission 模块从 Agent 配置文件独立加载权限规则，Agent 模块不调用 Permission |
 | LLM Provider | agent 模块不直接调用 LLM |
 | Processor Chain / Renderer | 消息出站处理与 agent 模块无关 |
 | IM Adapter | 消息路由由 gateway 处理 |
