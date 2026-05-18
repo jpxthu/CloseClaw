@@ -62,4 +62,4 @@ BashTool 调用（command + timeout + cwd）
 
 - **上游**：agent 运行时（调度工具调用）
 - **下游**：权限引擎（命令白名单校验）、操作系统 shell（进程执行）
-- **无关**：其他内建工具（BashTool 独立于 file_ops/git_ops 等工具）
+- **无关**：processor_chain（BashTool 不参与消息出站处理）
