@@ -46,6 +46,8 @@ Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md）中包含的角
 
 压缩专用 prompt 要求：禁止有外部副作用的工具调用，按指定维度生成结构化摘要，可选附带用户自定义保留指令。以低温度、限制输出长度的方式调用 LLM，从响应中提取摘要内容，组装为 boundary 消息。
 
+**boundary 消息**是压缩后的 transcript 中的唯一消息条目，承载 LLM 生成的对话历史结构化摘要（覆盖九个维度）及压缩元信息（压缩时间、触发方式）。压缩完成后 transcript 的对话部分只包含这一条 boundary 消息，替代压缩前的全部 user/assistant 消息。
+
 压缩 prompt 要求 LLM 覆盖九个维度：用户身份与偏好、当前项目与上下文、关键决策与结论、未解决的问题、技术状态、对话流程、重要事实与引用、Agent 记忆与自我认知、后续步骤与行动项。
 
 ### System Prompt 隔离
@@ -119,5 +121,4 @@ system prompt 在压缩前后完全一致，不参与摘要流程。
 
 ### 无关
 
-- **Session Injection**（无调用关系）：仅提供 system prompt 数据，不参与压缩执行流程。
 - **Archive Sweeper**（无调用关系）：管理 session 的归档和清理生命周期，与压缩流程无交互。
