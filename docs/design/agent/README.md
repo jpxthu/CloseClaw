@@ -117,8 +117,9 @@ Agent 协调层前置检查（depth/并发/白名单/权限）
 
 | 模块 | 调用关系 |
 |------|---------|
-| Session | session 创建时读取 agent 配置档案，决定 bootstrap、模型、工具集、skills 过滤 |
 | Gateway/Daemon | 外部消息到达时确定目标 agent，触发 session 创建 |
+| Session | session 创建时读取 agent 配置档案，决定 bootstrap、模型、工具集、skills 过滤 |
+| Skills | skill 在 fork 模式下通过 agent spawn 机制创建子 session |
 | Tools | sessions_spawn / sessions_steer / sessions_kill 注册在 tools 模块，执行逻辑由 agent 模块提供 |
 
 ### 下游（Agent 模块调用谁）
@@ -126,15 +127,16 @@ Agent 协调层前置检查（depth/并发/白名单/权限）
 | 模块 | 调用关系 |
 |------|---------|
 | Session | spawn 时创建 child session；steer/kill 时操作子 session |
+| SkillRegistry | session 创建时根据 agent.skills 配置过滤可用 skill |
 | System Prompt | agent 配置的 bootstrapMode 和 agentDir 决定 bootstrap 文件加载策略 |
 
 ### 无关（无调用关系、名称或功能易混淆）
 
 | 模块 | 说明 |
 |------|------|
-| Permission | Permission 模块从 Agent 配置文件独立加载权限规则，Agent 模块不调用 Permission |
-| LLM Provider | agent 模块不直接调用 LLM |
-| Processor Chain / Renderer | 消息出站处理与 agent 模块无关 |
-| IM Adapter | 消息路由由 gateway 处理 |
-| Card | 卡片渲染由 renderer 处理 |
 | Audit | 审计日志由各模块自行写入 |
+| Card | 卡片渲染由 renderer 处理 |
+| IM Adapter | 消息路由由 gateway 处理 |
+| LLM Provider | agent 模块不直接调用 LLM |
+| Permission | Permission 模块从 Agent 配置文件独立加载权限规则，Agent 模块不调用 Permission |
+| Processor Chain / Renderer | 消息出站处理与 agent 模块无关 |
