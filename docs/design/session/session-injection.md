@@ -44,7 +44,7 @@ System Prompt 的 Section 类型定义见 [system-prompt/README.md](../system-pr
 
 ### Skill 热更新
 
-skill 文件变更时，SkillRegistry 通知 SessionManager 重新走 build_from_workspace，生成新的 system prompt 替换旧的。不依赖消息 ID 定位（skill listing 直接拼接在 system prompt 中，不是独立消息）。
+skill 文件变更时，SkillRegistry 通知 SessionManager 重新走 build_from_workspace（重建 system prompt，无 workspace 时只重建 ToolsSection 和 SkillListingSection），生成新的 system prompt 替换旧的。不依赖消息 ID 定位（skill listing 直接拼接在 system prompt 中，不是独立消息）。
 
 ## 数据流
 

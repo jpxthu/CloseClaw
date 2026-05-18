@@ -39,7 +39,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 各子功能的关系：
 - **生命周期**是骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他所有功能的底层依赖。
 - **注入**在 session 创建时发生：SessionManager 调用 system prompt builder 完成 bootstrap/tools/skills 的组装。
-- **压缩**在 session 运行时发生：对过长的对话历史做 summarization。system prompt 独立于对话消息流，不参与压缩，确保角色定义在任意次压缩后完整无损。
+- **压缩**在 session 运行时发生：对过长的对话历史做 summarization。支持手动触发（`/compact`）和自动触发（token 用量阈值），内含熔断保护和分级告警。system prompt 独立于对话消息流，不参与压缩，确保角色定义在任意次压缩后完整无损。
 - **LLM 增强**贯穿每次 API 调用：流式推送、reasoning level 控制、cache hit 统计在每次会话交互中生效。
 
 ## 数据流
@@ -74,9 +74,9 @@ Gateway / SessionManager  ← session 生命周期协调者
 定期：CheckpointManager 触发持久化（保存 SessionCheckpoint 和 transcript）
 ```
 
-### Session 终止
+### Session 结束路径
 
-两种终止路径：
+两种结束路径：
 - **主动结束**：用户关闭会话，SessionManager 移除运行时引用，CheckpointManager 最终保存。
 - **自动归档**：Sweeper 检测 idle 超时 → 标记为 archived → transcript 移入 archived_sessions/ → SQLite 更新状态。
 - **自动清理**：Sweeper 检测 archived 超过 purge TTL → 删除元数据 + transcript 文件。
