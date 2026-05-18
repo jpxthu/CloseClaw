@@ -22,7 +22,7 @@ System Prompt 的 Section 类型定义见 [system-prompt/README.md](../system-pr
 
 - **RoleSection**：调用 load_bootstrap_files 加载 bootstrap 文件，按固定顺序排列（AGENTS.md 排在首位）。Minimal 模式加载 AGENTS/SOUL/IDENTITY/USER/TOOLS，Full 模式额外加载 BOOTSTRAP 和 MEMORY。HEARTBEAT.md 不在注入范围。
 - **ToolsSection**：通过 ToolRegistry 生成工具分组索引（常用工具含行为描述，延迟工具仅含名称和危险度标记）。
-- **SkillListingSection**：通过 SkillRegistry 生成 skill 摘要清单，按优先级排序（来源优先级 → 名字字母序）。
+- **SkillListingSection**：通过 DiskSkillRegistry.generate_listing(agent_id) 生成 skill 摘要清单，按优先级排序（来源优先级 → 名字字母序）。
 - **MemorySection**：读取 MEMORY.md，走 session 级文件缓存，命中缓存则跳过读取。
 
 四个 Section 拼接后写入 ConversationSession 的 system_prompt 字段。
@@ -32,11 +32,11 @@ System Prompt 的 Section 类型定义见 [system-prompt/README.md](../system-pr
 静态层和动态层的边界定义见 [system-prompt/README.md](../system-prompt/README.md)。注入链路的行为：
 
 - **静态层**（RoleSection + ToolsSection + SkillListingSection + MemorySection）：session 创建时注入，写入 ConversationSession 的 system_prompt 字段，进入 checkpoint 持久化。
-- **动态层**（ChannelContext + SessionState）：每次 API 请求时注入，不持久化，不改变 session 的 system_prompt 字段。
+- **动态层**（ChannelContext + SessionState + GitStatus + AppendSection）：每次 API 请求时注入，不持久化，不改变 session 的 system_prompt 字段。
 
 ### 无 Workspace 的 Session
 
-当 session 没有对应 workspace 目录时，不加载 bootstrap 文件，但仍可通过 ToolRegistry 和 SkillRegistry 生成工具列表和 skill 列表。system prompt 仅包含 ToolsSection 和 SkillListingSection。
+当 session 没有对应 workspace 目录时，不加载 bootstrap 文件，但仍可通过 ToolRegistry 和 SkillRegistry 生成工具列表和 skill 列表。SkillListingSection 不依赖 workspace 目录，直接从注册中心获取。system prompt 仅包含 ToolsSection 和 SkillListingSection。
 
 ### Section 失败处理
 
