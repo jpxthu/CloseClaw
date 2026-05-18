@@ -180,7 +180,7 @@ Gateway 入站路由
 
 ## 模块关系
 
-- **上游**：tools 模块（Agent 工具调用时传入 caller + 操作）、Gateway（用户斜杠指令拦截后传入）、agent 模块（提供 Agent 维度权限基线，spawn 时触发权限继承计算）
-- **下游**：审批系统（Deny 需审批时产出审批请求）、Agent Session（Allow/Deny 结果通过 tools 调用链回调到会话）
+- **上游**：tools 模块（Agent 工具调用时传入 caller + 操作）、Gateway（用户斜杠指令拦截后传入）
+- **下游**：审批系统（Deny 需审批时产出审批请求）、Agent Session（Allow/Deny 结果回调）
 - **无关**：IM Processor（消息格式解析与渲染，不涉及权限判断；审批卡片渲染由外部层 IM Adapter 处理）
 - **无关**：Session Manager（会话生命周期管理，不经过权限检查）
