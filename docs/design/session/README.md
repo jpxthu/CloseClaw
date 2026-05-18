@@ -112,4 +112,4 @@ Gateway / SessionManager  ← session 生命周期协调者
 
 ### 无关
 
-- **Permission 模块**（无调用关系）：权限检查发生在 Gateway 层，在 session 创建之前。
+- **Permission 模块**（无直接调用关系）：入站权限检查发生在 Gateway 层（session 创建前）；运行中工具调用的权限评估由 tools 模块触发，结果通过调用链回到 session。Session 自身不直接调用 Permission。
