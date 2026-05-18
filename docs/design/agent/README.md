@@ -120,6 +120,7 @@ Agent 协调层前置检查（depth/并发/白名单/权限）
 | Session | session 创建时读取 agent 配置档案，决定 bootstrap、模型、工具集、skills 过滤 |
 | Gateway/Daemon | 外部消息到达时确定目标 agent，触发 session 创建 |
 | Tools | sessions_spawn / sessions_steer / sessions_kill 注册在 tools 模块，执行逻辑由 agent 模块提供 |
+| Skills | skill 在 fork 模式下通过 agent spawn 机制创建子 session |
 
 ### 下游（Agent 模块调用谁）
 
@@ -127,6 +128,7 @@ Agent 协调层前置检查（depth/并发/白名单/权限）
 |------|---------|
 | Session | spawn 时创建 child session；steer/kill 时操作子 session |
 | System Prompt | agent 配置的 bootstrapMode 和 agentDir 决定 bootstrap 文件加载策略 |
+| SkillRegistry | session 创建时根据 agent.skills 配置过滤可用 skill |
 
 ### 无关（无调用关系、名称或功能易混淆）
 
