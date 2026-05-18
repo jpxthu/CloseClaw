@@ -108,8 +108,8 @@ Gateway / SessionManager  ← session 生命周期协调者
 - **LLM Provider**：ConversationSession 构建 API 请求发送给 provider。
 - **Tool Registry / Skill Registry**：注入时获取工具列表和 skill 列表。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
+- **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
 
 ### 无关
 
 - **Permission 模块**（无调用关系）：权限检查发生在 Gateway 层，在 session 创建之前。
-- **Config 模块**（提供 SessionConfig，但不调用 session 内部逻辑）。
