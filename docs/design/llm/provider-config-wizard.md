@@ -22,7 +22,7 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 ### FetchModels
 
-调用供应商的模型列表 API 获取可用模型（超时 10 秒）。优先使用动态探测结果，探测失败时回退到内嵌知识库。展示的模型列表包含推理标记、上下文窗口、最大输出 token 等信息。
+调用供应商的模型列表 API 获取可用模型（超时 10 秒）。优先使用动态探测结果，探测失败时回退到内置知识库。展示的模型列表包含是否为推理模型、上下文窗口、最大输出 token 等信息。
 
 ### SelectModels
 
@@ -34,7 +34,7 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 ### WriteConfig
 
-将用户选择写入模型配置文件。合并策略：已有供应商配置保留其基础信息、更新模型列表；已有模型参数覆盖、新增模型追加；已配置但本次未选择的模型不删除。
+将用户选择写入模型配置文件。合并策略：已有供应商配置保留其基础信息、更新模型列表；已有模型参数整体替换、新增模型追加；已配置但本次未选择的模型不删除。
 
 ### 供应商推荐协议
 
@@ -42,9 +42,9 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 | 供应商 | 推荐协议 | 原因 |
 |--------|---------|------|
-| MiniMax | Anthropic | OpenAI 协议下推理内容混在文本中，Anthropic 协议下独立拆分 |
+| MiniMax | Anthropic | OpenAI 协议下推理内容以 XML 标签嵌入文本，缺乏结构化区分；Anthropic 协议下为独立内容块 |
 | GLM | OpenAI | Anthropic 协议下推理块可能丢失 |
-| DeepSeek | Anthropic | 协议下有签名可追溯 |
+| DeepSeek | Anthropic | 协议下响应带数字签名，便于追溯内容来源 |
 
 用户可在配置完成后手动调整协议选择。
 
@@ -55,7 +55,7 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
   → 调用供应商 /models API（10s 超时）
     → 成功：解析模型列表 → 展示
     → 失败/超时：回退到内嵌知识库 → 展示（标注 fallback）
-  → 用户选择模型 → 确认参数
+  → 用户选择模型 → 确认配置
   → 写入 models.json（合并已有配置）
   → 写入 credentials 文件（凭据独立存储）
 ```
