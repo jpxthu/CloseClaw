@@ -35,10 +35,9 @@
 
 - **ConfigManager**：所有配置读写的统一入口。负责加载所有子配置文件到内存、提供读写接口、管理写入流程（校验 → 备份 → 原子写入 → 更新内存）、启动时自动回退损坏文件。
 - **ConfigProvider 体系**：每个子配置文件对应一个 Provider 实现，封装该子配置的数据结构、校验规则和文件路径。
-- **BackupManager**：滚动备份管理，每次写入前创建备份，维护每个文件最近 N 份历史备份，支持回退到最近可用备份。
-- **ConfigReloadManager**：文件变更监控与热重载，监听配置目录变更事件，增量重载变更文件，校验通过后更新内存配置（详见 hot-reload.md）。
+- **BackupManager**：滚动备份管理，每次写入前创建备份，在 `.backups/` 下维护每个配置文件最近 N 份历史备份（命名格式 `<文件名>.<时间戳>.json`），支持回退到最近可用备份。ConfigManager 和 ConfigReloadManager 共用 BackupManager 进行回退保护。
+- **ConfigReloadManager**：文件变更监控与热重载，监听配置目录变更事件，增量重载变更文件，校验通过后更新内存配置并推送变更通知到已有会话（详见 hot-reload.md）。
 - **凭据分离**：credentials 作为 config 子目录，按供应商分文件存储敏感凭据，与业务配置物理隔离。models 等业务配置只引用供应商名称，凭据由 CredentialsProvider 动态注入。凭据加载失败不阻塞 daemon 启动，仅影响需要该供应商的功能。
-- **备份管理**：BackupManager 在 `.backups/` 下维护每个配置文件的滚动备份，命名格式为 `<文件名>.<时间戳>.json`（如 `models.json.20260517_143022_123456.json`），保留最近 N 份。
 - **配置迁移**：支持从旧版单文件配置自动迁移到多文件结构。首次启动时检测旧格式，引导拆分为 config/ 下各子文件，迁移后保留旧文件备份。后续版本可完全移除旧格式支持。
 - **AgentsConfigProvider**：管理 Agent 全局注册表（agents.json），记录所有已注册 Agent 的元信息（名称、模型、父 Agent 关系）。启动时校验 Agent 间引用完整性（如 parent 引用的 Agent 必须存在）。
 - **AgentDirectoryProvider**：扫描 `agents/` 目录，为每个 Agent 加载独立的 `config.json` 和 `permissions.json`，提供 Agent 配置的 CRUD 操作（创建、更新、删除、重载），支持 Agent 的独立配置管理。
@@ -109,4 +108,4 @@ Daemon 启动
 
 - **上游**：daemon（启动时加载配置）、CLI（配置变更命令）、session（读取会话配置）、agent（读取 Agent 配置）
 - **下游**：无（配置模块不调用其他模块，仅读写文件系统和提供查询接口）
-- **无关**：processor_chain（无调用关系，processor_chain 通过上层模块间接使用配置）
+- **无关**：processor_chain、tools、skills（无调用关系，这些模块通过上层模块间接使用配置）

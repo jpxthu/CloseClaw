@@ -47,7 +47,7 @@
 
 ## 模块关系
 
-- **上游**：ConfigManager（启动时注册热重载监听器）、文件系统（触发变更事件）
+- **上游**：ConfigManager（所有配置加载成功后注册热重载监听器，注册后才进入运行状态）、文件系统（触发变更事件）
 - **下游**：会话模块（接收配置变更通知，更新配置引用）
 - **与 ConfigManager 的关系**：ConfigReloadManager 负责运行时变更处理，ConfigManager 负责启动时加载和写入接口。两者共用 BackupManager 进行回退保护。
 - **无关**：processor_chain、tools、skills（不直接依赖热重载，通过上层模块间接使用更新后的配置）
