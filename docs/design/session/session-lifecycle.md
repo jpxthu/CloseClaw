@@ -11,10 +11,12 @@
 **SessionCheckpoint** 是 session 持久化的核心数据结构，包含：
 - 标识：session_id、agent_id、role（主 agent / 子 agent）、last_message_id
 - 路由信息：channel（如 feishu）、chat_id
-- 生命周期状态：status（active / archived）、created_at、archived_at
+- 生命周期状态：status（active / archived）、created_at
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：direct/plan/stream）、mode_state（推理步骤状态）
 - 统计：last_message_at（最后消息时间，Sweeper 用来判断 idle）、message_count
-- 其他：metadata（JSON 扩展字段）、ttl_seconds、updated_at（最后 checkpoint 更新时间）
+- 其他：ttl_seconds、updated_at（最后 checkpoint 更新时间）
+
+> `archived_at` 和扩展元数据（metadata JSON）作为 SQLite 表列存储，由 SqliteStorage 维护，不进入 Checkpoint struct。归档时间和自定义扩展字段通过 SQLite 层查询。
 
 **SessionStatus** 是两态枚举：
 - `Active`：正常运行中或待恢复
