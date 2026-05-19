@@ -29,5 +29,6 @@ Gateway 提交 Permission 模块
 ## 模块关系
 
 - **上游**：Gateway → Dispatcher → ExecHandler
-- **下游**：Permission 模块（权限审批）；Shell 执行环境（命令执行）
+- **下游**：Shell 执行环境（命令执行）
+- **间接下游**（通过 Gateway 调用）：Permission 模块（权限审批）
 - **无关**：WorkdirHandler（`/exec` 和 `/cd` 独立，不共享工作目录上下文）
