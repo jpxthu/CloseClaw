@@ -2,7 +2,7 @@
 
 ## 概述
 
-飞书渲染处理器将 LLM 的结构化内容块渲染为飞书消息格式（text 或 interactive card）。它是渲染处理器的飞书平台实现，作为出站链的 Processor 运行。
+飞书渲染处理器将 LLM 的结构化内容块（ContentBlock[]）渲染为飞书消息格式（text 或 interactive card）。它是渲染层的飞书平台实现。
 
 ## 架构
 
@@ -33,7 +33,7 @@ body 渲染
   └── ToolResult 块 → 工具结果内容块
   ↓
 interactive 元素注入
-  └── DSL 指令 → 飞书 button/selector 等交互组件
+  └── DSL 指令 → 飞书 button 等交互组件
   ↓
 飞书卡片 JSON
 ```
@@ -41,7 +41,7 @@ interactive 元素注入
 ## 数据流
 
 ```
-渲染 Processor 接收上下文
+渲染层接收 ContentBlock[] + DslParseResult
   ↓
 遍历 ContentBlock[]：
   ├── Text 块
@@ -67,11 +67,11 @@ DSL 指令渲染：
   │     - 后续按钮 → default 样式
   └── 其他指令 → 对应飞书交互组件
   ↓
-组装完整卡片 JSON → ProcessedMessage.content
+组装完整卡片 JSON → RenderedOutput { msg_type: "interactive" | "text", payload }
 ```
 
 ## 模块关系
 
-- **上游**：DslParser（提供清理后的 ContentBlock[] 和 DSL 解析结果）
+- **上游**：渲染层框架（提供 ContentBlock[] 和 DSL 解析结果）
 - **下游**：飞书 IM Adapter（接收卡片 JSON 并调用飞书发送接口）
-- **同层**：其他平台渲染 Processor（共享渲染处理器框架，各自实现平台格式）
+- **同层**：其他平台渲染器（共享渲染器接口，各自实现平台格式）
