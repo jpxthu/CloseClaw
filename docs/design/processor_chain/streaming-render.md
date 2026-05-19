@@ -64,6 +64,6 @@ Gateway 将事件转发给渲染 Processor
 
 ## 模块关系
 
-- **上游**：LLM Provider（产生 StreamEvent 序列）
+- **上游**：Gateway（接收 LLM StreamEvent 并转发给渲染 Processor）
 - **下游**：IM Adapter（接收增量渲染输出并发送）
-- **所属**：各平台渲染 Processor 的内部子功能
+- **所属**：各平台渲染 Processor 的内部子功能，不独立为 Processor

@@ -55,7 +55,7 @@ LLM Provider 输出 UnifiedResponse（含 ContentBlock[]）
 
 ## 模块关系
 
-- **上游**：Session（提供 ContentBlock[] 消息数据）、LLM Provider（生成 UnifiedResponse）
+- **上游**：Session（提供 ContentBlock[] 消息数据）；LLM Provider 为数据来源（生成 UnifiedResponse 和 ContentBlock 类型，但不直接调用 processor_chain）
 - **下游**：IM Adapter（接收渲染后的平台消息并发送）
 - **子文档**（按出站链执行顺序排列，新增文档依此规则）：
   - [出站链路](outbound-chain.md) — 完整出站流程与 Processor 链调度

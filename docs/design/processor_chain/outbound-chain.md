@@ -41,8 +41,9 @@ Session 消息（含 ContentBlock[]）
   ↓ Gateway 构造 ProcessedMessage
 DslParser.process(ctx)
   → 输入：含 ContentBlock 数组的消息上下文
-  → 处理：遍历 Text 块，匹配 DSL 语法 → 解析为结构化指令 → 剥离 DSL 行
-  → 输出：clean Text 块 + metadata["dsl_result"]（DslParseResult 序列化 JSON）
+  → 处理：遍历 Text 块，匹配 DSL 语法 → 解析为结构化指令 → 剥离 DSL 行；
+    Thinking/ToolUse/ToolResult 块不参与 DSL 解析，直接透传
+  → 输出：clean Text 块（含透传的非 Text 块）+ metadata["dsl_result"]（DslParseResult）
   ↓
 <Platform>Renderer.process(ctx)
   → 输入：清理后的 ContentBlock[] + metadata 中的 DSL 结果
@@ -64,7 +65,7 @@ Gateway 提取 payload → IM Adapter
 
 ## 模块关系
 
-- **上游**：Session（提供 ContentBlock[]）、LLM Provider（生成 UnifiedResponse）
+- **上游**：Session（提供 ContentBlock[]）；LLM Provider 为数据来源（生成 UnifiedResponse 和 ContentBlock 类型，但不直接调用 processor_chain）
 - **下游**：IM Adapter（接收渲染后的平台消息并发送）
 - **链内**：
   - DslParser — DSL 指令解析，为渲染 Processor 提供交互数据
