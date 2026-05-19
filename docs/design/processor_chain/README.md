@@ -38,7 +38,7 @@ Renderer 层（传递格式 → 展示格式的唯一转换点）
   ├── CLI Renderer + CLI Adapter
   └── 其他平台 Renderer + Adapter
   ↓
-IM Adapter（出站）→ 各平台适配器纯发送，不参与格式转换
+IM Adapter（出站）→ 根据 (peer_id, thread_id) 发送到对应会话/话题，不参与格式转换
 ```
 
 关键设计：

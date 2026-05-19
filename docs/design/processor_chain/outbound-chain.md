@@ -62,7 +62,8 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
               ├── ToolUse 块 → 平台工具调用展示
               └── ToolResult 块 → 平台工具结果展示
           → 输出平台原生格式 payload
-        → IM Adapter 发送
+        → Gateway 从 Session 提取 (peer_id, thread_id) 路由信息
+        → 目标平台 IM Adapter 根据 (peer_id, thread_id) 发送到对应会话/话题
 ```
 
 关键判断点：
