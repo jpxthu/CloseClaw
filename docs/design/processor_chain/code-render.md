@@ -53,6 +53,6 @@ ContentBlock[] 中的 Text 块
 
 ## 模块关系
 
-- **上游**：渲染 Processor 框架（提供 ContentBlock[] 输入）
-- **下游**：IM Adapter（接收渲染后的消息）
+- **上游**：渲染 Processor（提供 ContentBlock[] 输入）
+- **下游**：Gateway（提取平台 payload 传递给 IM Adapter 发送）
 - **所属**：各平台渲染 Processor 的内部子功能，不独立为 Processor
