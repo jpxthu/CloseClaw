@@ -40,7 +40,7 @@ Auto Mode：连续自主执行 plan tasks
 - **系统提示词注入**：根据模式注入特定的行为指令。Plan Mode 注入双路径工作流指引，Auto Mode 注入连续执行指令
 - **权限边界**：模式的写入范围受限。Plan Mode 下仅 plans/ 目录可写，Auto Mode 下危险操作需用户确认
 
-三种约束在 session 创建时计算，运行期间不变。
+三种约束中，工具过滤和权限边界在 session 创建时确定并静态生效；Auto Mode 下危险操作的运行时审查由 Permission 层动态执行。
 
 子功能：[plan-mode.md](plan-mode.md) — Plan Mode 专项：双路径工作流、Agent 类型、审批栅栏、安全机制、多路径恢复<br>子功能：[execution.md](execution.md) — 执行引擎：ProgressTool 进度管理、Inline/Spawn 执行模式、压缩恢复、失败处理
 

@@ -26,7 +26,7 @@ Plan Mode 将任务规划与代码执行强制分离。规划阶段 agent 只读
 
 **Interview 路径**：无固定阶段。agent 循环"探索代码→增量更新 plan 文件→向用户提问"直到需求收敛，然后对接标准路径的 Review 和 Final Plan 阶段。每轮探索后增量写入 plan 文件。
 
-需求清晰度判断：系统在进入 Plan Mode 时分析用户输入——含明确文件/模块/接口引用且有可量化验收条件 → 标准路径；否则 → Interview 路径。用户可通过命令参数显式指定路径。
+需求清晰度判断：系统在进入 Plan Mode 时分析用户输入——含明确文件/模块/接口引用且有可量化验收条件 → 标准路径；否则 → Interview 路径。用户可通过命令参数显式指定路径，此时系统直接采用指定路径，不再做自动判断。
 
 阶段切换由 agent 自行判断，无代码层阶段状态机。
 
@@ -91,17 +91,9 @@ PlanState（plan 文件路径、当前步骤、状态等）由 session 模块持
 
 ### Auto Mode（执行阶段）
 
-审批通过后自动进入 Auto Mode——连续自主执行，不等用户逐步确认：
+审批通过后自动进入 Auto Mode。Auto Mode 的行为约束和两种执行方式（Inline/Spawn）详见 execution.md。
 
-- 低风险工作直接做，不等确认
-- 常规决策自己做，不升级给用户
-- 危险操作（删数据、改生产配置）必须用户确认
-- 不擅自发消息到外部平台，不泄露密钥
-
-**两种执行方式**：
-
-- **Inline**（默认）：主 session 退出 plan_mode，注入 plan 上下文，恢复完整工具集，逐步执行 tasks
-- **Spawn**：spawn executor 子 agent 独立执行，完成后通知父 session
+简要约束：连续自主执行，低风险工作直接做，常规决策不升级，危险操作（删数据、改生产配置）必须用户确认。
 
 ### 安全机制
 
@@ -143,9 +135,7 @@ session 设置 plan_mode 标记
   - 清晰 → 注入标准路径 4 阶段指令
   - 模糊 → 注入 Interview 循环指令
   →
-工具过滤：只读白名单取交集
-  →
-权限：仅 plans/ 目录可写
+工具过滤取交集白名单 + 权限边界设为 plans/ 目录可写
   →
 agent 进入对应路径
 ```
@@ -232,7 +222,6 @@ spawn Verification agent（传入任务描述 + 改动文件 + 方案）
 | 模块 | 调用关系 |
 |------|---------|
 | Slash Command | `/plan` `/execute` 入口 |
-| Tools | 审批工具和执行工具注册在此 |
 
 ### 下游
 
@@ -242,6 +231,7 @@ spawn Verification agent（传入任务描述 + 改动文件 + 方案）
 | Session | plan_mode 标记、PlanState 持久化、压缩保护、多路径恢复、归档 |
 | System Prompt | 双路径指令、Auto Mode 指令、plan 文件上下文注入 |
 | Permission | 工具过滤、Auto Mode 下运行时审查 |
+| Tools | 审批工具注册与调用 |
 
 ### 模块内关系
 
