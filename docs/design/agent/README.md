@@ -43,7 +43,7 @@ Agent 模块以配置和协调逻辑的形式嵌入系统：session 创建时读
 
 核心组件：
 
-- **Agent 配置档案**：每个 agent 对应一份 JSON 配置，定义其能力边界（模型、工具、权限基线、spawn 约束）。存储支持项目级、用户级、系统内置三级优先级，字段级覆盖合并。
+- **Agent 配置档案**：每个 agent 对应一份 JSON 配置，定义其能力边界（模型、工具、workspace、权限基线、spawn 约束）。存储支持项目级、用户级、系统内置三级优先级，字段级覆盖合并。
 - **Agent 类型**：框架内置仅一个通用 agent（全工具、全 bootstrap），其他 agent 由用户通过 JSON 配置文件自定义。Agent 能力完全由配置字段组合决定。
 - **Spawn 协调**：父 agent 通过 sessions_spawn 工具创建子 session。协调层负责前置检查（深度、并发、白名单）、参数组装、announce 回传注册。参见 `agent-spawn.md`。
 - **Fork 模式**：spawn 的变体，在子 session 中注入父 agent 的对话历史，使子 agent 继承上下文认知。参见 `agent-spawn.md`。
@@ -100,7 +100,7 @@ Session 创建完成
 ```
 父 agent 调用 sessions_spawn 工具
   ↓
-Agent 协调层前置检查（depth/并发/白名单/权限）
+Agent 协调层前置检查（depth/并发/白名单/requireAgentId/权限）
   ↓ （全部通过）
 创建 child session（加载目标 agent 配置、注入 task、过滤工具集、workspace fallback）
   ↓
@@ -138,5 +138,5 @@ Agent 协调层前置检查（depth/并发/白名单/权限）
 | Card | 卡片渲染由 renderer 处理 |
 | IM Adapter | 消息路由由 gateway 处理 |
 | LLM Provider | agent 模块不直接调用 LLM |
-| Permission | Permission 模块从 Agent 配置文件独立加载权限规则，Agent 模块不调用 Permission |
+| Permission | Agent 不直接调用 Permission；Permission 从 Agent 配置加载权限基线规则并在 spawn 时沿链路计算继承权限，属于数据依赖关系 |
 | Processor Chain / Renderer | 消息出站处理与 agent 模块无关 |

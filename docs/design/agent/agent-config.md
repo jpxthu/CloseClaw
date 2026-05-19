@@ -134,6 +134,7 @@ spawn 子 agent 时，模型的最终选择按以下顺序确定：
 ResolvedAgentConfig 各字段分发到对应模块
   ↓
   model        → Session：设置默认 LLM 模型
+  workspace    → Session：工作目录路径（目标 agent 未指定时 fallback 到父 workspace 子目录）
   bootstrapMode → System Prompt：决定 bootstrap 文件加载集
   agentDir     → System Prompt：bootstrap 文件读取路径
   permissions  → Permission：Agent 维度权限基线
