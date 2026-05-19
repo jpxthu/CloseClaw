@@ -39,5 +39,6 @@ WorkdirHandler 返回 Reply(git 输出) 或 Exec
 ## 模块关系
 
 - **上游**：Gateway → Dispatcher → WorkdirHandler
-- **下游**：Session 模块（`set_workdir()` 方法）；Permission 模块（`/git` 写操作审批）
+- **下游**：Session 模块（`set_workdir()` 方法）
+- **间接下游**（通过 Gateway 调用）：Permission 模块（`/git` 写操作审批）
 - **无关**：LLM 对话流程

@@ -39,7 +39,7 @@ Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Ga
 | StatusHandler | status | Reply | ✅ |
 | CompactHandler | compact | Compact | ❌ |
 | SystemHandler | system | SystemAppend / Reply | ❌ |
-| WorkdirHandler | cd, pwd, git | Reply | ❌ |
+| WorkdirHandler | cd, pwd, git | Reply / Exec | ❌ |
 | ExecHandler | exec | Exec / Reply | ❌ |
 | HelpHandler | help | Reply | ✅ |
 
@@ -79,7 +79,7 @@ Gateway.handle_inbound()
             │           ├── Stop               → 终止 run + 子 agent + 回复
             │           ├── Compact{...}       → 执行压缩 + 回复
             │           ├── SystemAppend(...)  → 更新追加区 + 回复
-            │           ├── Exec{command}      → 提交 permission 审批
+            │           ├── Exec{command}      → 提交 Gateway 调用 Permission 模块审批
             │           └── Unknown(cmd)       → 回复"未知指令"
             └── 未命中 → SlashResult::Unknown → 回复"未知指令"
 ```
@@ -94,5 +94,7 @@ Gateway.handle_inbound()
 - **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。
 - **下游**：
   - Session 模块 — 模式切换、会话创建/停止、上下文压缩、system prompt 追加区管理、工作目录设置
-  - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批
+  - Agent 模块 — `/stop` 终止子 agent
+- **间接下游**（通过 Gateway 调用）：
+  - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（由 Gateway 读取 Exec 结果后调用）
 - **无关**：Processor 链（斜杠指令在 Processor 之前被 Gateway 拦截，不进入 LLM 处理流程）
