@@ -8,7 +8,7 @@
 
 ## 架构
 
-出站链由两个 Processor 组成，Renderer 在链外作为独立层：
+出站链由两个 Processor 组成。渲染由独立 Renderer 层完成，各平台有各自的 Renderer + IM Adapter 对（如飞书有飞书 Renderer + 飞书 Adapter，CLI 有 CLI Renderer + CLI Adapter），Gateway 根据目标平台选择对应的对：
 
 ```
 Session 消息（ContentBlock[]）
@@ -46,8 +46,7 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
   → Session 写入 messages[]
     → Gateway 从 Session 读取 ContentBlock[]
       → 构造 ProcessedMessage，启动出站 Processor 链
-        → DslParser.process(ctx)
-            遍历 ContentBlock[]：
+        → DslParser.process(ctx)遍历 ContentBlock[]：
               ├── Text 块 → 逐行扫描 DSL → 解析 → 剥离 DSL 行
               ├── Thinking 块 → 透传
               ├── ToolUse 块 → 透传

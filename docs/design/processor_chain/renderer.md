@@ -4,7 +4,7 @@
 
 渲染层（Renderer）是消息传递格式到展示格式的唯一转换点。它接收 Processor 链处理后的 ContentBlock[] 和 DSL 解析结果，按平台渲染为原生消息格式。
 
-Renderer 是独立的渲染层，不属于 Processor 链。每个 IM 平台提供一个 Renderer 实现，由 Gateway 根据目标平台选择。
+Renderer 是独立的渲染层，不属于 Processor 链。每个平台（飞书、CLI 等）提供各自的 Renderer + IM Adapter 对，由 Gateway 根据目标平台选择对应的对。
 
 ## 架构
 

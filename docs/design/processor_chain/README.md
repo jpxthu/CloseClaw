@@ -34,11 +34,11 @@ Processor 链（出站，按 priority 顺序执行）
   └── RawLogProcessor（priority 20）→ 出站消息写入日志
   ↓
 Renderer 层（传递格式 → 展示格式的唯一转换点）
-  ├── 飞书 Renderer → 飞书卡片 / 文本 JSON
-  ├── CLI Renderer  → ANSI 彩色文本
-  └── 其他平台 Renderer
+  ├── 飞书 Renderer + 飞书 Adapter
+  ├── CLI Renderer + CLI Adapter
+  └── 其他平台 Renderer + Adapter
   ↓
-IM Adapter（出站）→ 纯发送，不参与格式转换
+IM Adapter（出站）→ 各平台适配器纯发送，不参与格式转换
 ```
 
 关键设计：
