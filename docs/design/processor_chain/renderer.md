@@ -2,22 +2,22 @@
 
 ## 概述
 
-渲染处理器是出站链中将 LLM 结构化输出转为平台原生消息的 Processor。每个 IM 平台提供一个渲染 Processor 实现，与其他 Processor 在同一链中按 priority 顺序执行。
+渲染层（Renderer）是消息传递格式到展示格式的唯一转换点。它接收 Processor 链处理后的 ContentBlock[] 和 DSL 解析结果，按平台渲染为原生消息格式。
+
+Renderer 是独立的渲染层，不属于 Processor 链。每个 IM 平台提供一个 Renderer 实现，由 Gateway 根据目标平台选择。
 
 ## 架构
 
-渲染处理器在出站链中位于 DslParser 之后，消费清理后的结构化内容块和 DSL 解析结果：
-
 ```
-DslParser 输出
+Processor 链出站输出（ProcessedMessage { content_blocks, metadata }）
   ↓
-渲染 Processor（priority 20）
+Renderer 层
   ├── ContentBlock[] 输入
   │     ├── Text        — 文本内容（含 markdown 格式）
   │     ├── Thinking    — 推理追踪
   │     ├── ToolUse     — 工具调用请求
   │     └── ToolResult  — 工具执行结果
-  ├── metadata["dsl_result"] 输入
+  ├── DslParseResult 输入
   │     └── 交互指令集（按钮、选择器等）
   ↓
 渲染逻辑
@@ -26,22 +26,25 @@ DslParser 输出
   ├── 格式转换     — markdown → 平台原生格式
   └── DSL 注入     — 交互指令 → 平台交互元素
   ↓
-ProcessedMessage（content 为平台原生格式 payload）
+RenderedOutput { msg_type, payload }
+  ↓
+IM Adapter 发送
 ```
 
-各平台渲染 Processor 共享相同的输入结构，差异仅在输出格式：
+各平台 Renderer 共享相同的输入结构，差异仅在输出格式：
 - 飞书 → interactive card JSON
 - CLI → ANSI 彩色文本
-- 其他平台扩展 → 对应平台的原生消息格式
 
 ## 数据流
 
 ```
-DslParser 输出（clean ContentBlock[] + metadata["dsl_result"]）
+Processor 链输出（ContentBlock[] + metadata["dsl_result"]）
   ↓
-渲染 Processor 接收上下文
+Gateway 选择 Renderer（根据目标平台）
   ↓
-遍历 ContentBlock 数组：
+Renderer 接收 ContentBlock[] 和 DslParseResult
+  ↓
+遍历 ContentBlock[]：
   ├── Text 块
   │     → 解析 markdown 格式（标题、粗体、代码块、列表等）
   │     → 映射为平台对应的展示元素
@@ -60,15 +63,17 @@ DslParser 输出（clean ContentBlock[] + metadata["dsl_result"]）
   ├── 纯文本、无格式、无 DSL → text 消息
   └── 含格式、多内容块、或有 DSL → 富格式消息
   ↓
-ProcessedMessage { content: platform_payload, metadata }
+RenderedOutput { msg_type, payload }
+  ↓
+Gateway 提取 payload → IM Adapter 发送
 ```
 
 ## 模块关系
 
-- **上游**：DslParser（提供清理后的 ContentBlock[] 和 DSL 解析结果）
-- **下游**：Gateway（提取平台 payload 传递给 IM Adapter 发送）
+- **上游**：Processor 链出站输出（ContentBlock[] + DSL 解析结果）
+- **下游**：IM Adapter（接收 RenderedOutput 并发送）
 - **平台实现**：
   - [飞书渲染](renderer-feishu.md) — 飞书 interactive card 渲染规则
   - [代码块渲染](code-render.md) — 代码块语法高亮
   - [流式渲染](streaming-render.md) — 流式增量输出
-- **无关**：入站 Processor 链（独立链路，不经过渲染处理器）
+- **无关**：入站 Processor 链（不经过渲染层）
