@@ -9,7 +9,8 @@
 | [llm](llm/README.md) | 统一多供应商 LLM 调用与模型发现：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配、Provider 配置向导 |
 | [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径、审批栅栏）和 Auto Mode（连续自主执行），通过工具过滤和权限边界约束 agent 行为 |
 | [permission](permission/README.md) | 系统级身份型访问控制：交集模型、七类权限维度、审批工作流与配置管理 |
-| [processor_chain](processor_chain/README.md) | 统一出入站消息处理与平台渲染：入站归一化、DSL 解析、ContentBlock[] 传递、渲染层、流式输出、代码高亮 |
+| [processor_chain](processor_chain/README.md) | 统一出入站消息处理：入站归一化、DSL 解析、ContentBlock[] 传递 |
+| [renderer](renderer/README.md) | 平台渲染层：将 ContentBlock[] 渲染为平台原生消息格式（飞书 interactive card、CLI ANSI 等），含代码高亮和流式输出 |
 | [session](session/README.md) | Agent 会话生命周期管理：创建、持久化、压缩、归档与清理 |
 | [slash](slash/README.md) | 斜杠指令系统：Gateway 层拦截、统一分派、Handler 执行，不进入 LLM 对话流程 |
 | [skills](skills/README.md) | Agent 可复用能力插件体系：磁盘即插即用、五层优先级、frontmatter 配置驱动、双执行模式 |
