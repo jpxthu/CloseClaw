@@ -18,7 +18,7 @@
 
 ### 注入的四个 Section
 
-System Prompt 的 Section 类型定义见 [system-prompt/README.md](../system-prompt/README.md)。注入链路中 build_from_workspace 对四个 Section 的组装行为：
+System Prompt 的 Section 类型定义见 [system_prompt/README.md](../system_prompt/README.md)。注入链路中 build_from_workspace 对四个 Section 的组装行为：
 
 - **RoleSection**：调用 load_bootstrap_files 加载 bootstrap 文件，按固定顺序排列（AGENTS.md 排在首位）。Minimal 模式加载 AGENTS/SOUL/IDENTITY/USER/TOOLS，Full 模式额外加载 BOOTSTRAP 和 MEMORY。HEARTBEAT.md 不在注入范围。
 - **ToolsSection**：通过 ToolRegistry 生成工具分组索引（常用工具含行为描述，延迟工具仅含名称和危险度标记）。
@@ -29,7 +29,7 @@ System Prompt 的 Section 类型定义见 [system-prompt/README.md](../system-pr
 
 ### 静态层与动态层的注入行为
 
-静态层和动态层的边界定义见 [system-prompt/README.md](../system-prompt/README.md)。注入链路的行为：
+静态层和动态层的边界定义见 [system_prompt/README.md](../system_prompt/README.md)。注入链路的行为：
 
 - **静态层**（RoleSection + ToolsSection + SkillListingSection + MemorySection）：session 创建时注入，写入 ConversationSession 的 system_prompt 字段，进入 checkpoint 持久化。
 - **动态层**（ChannelContext + SessionState + GitStatus + AppendSection）：每次 API 请求时注入，不持久化，不改变 session 的 system_prompt 字段。
