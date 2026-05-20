@@ -16,7 +16,7 @@
 | 含标题标记（`#` 开头） | interactive 卡片 |
 | 含粗体、斜体、代码块、列表、引用、链接 | interactive 卡片 |
 | 含换行符 | interactive 卡片 |
-| 含 DSL 按钮指令 | interactive 卡片 |
+| 含 DSL 交互指令 | interactive 卡片 |
 | 含多个 ContentBlock 或 Thinking/Tool 块 | interactive 卡片 |
 
 **步骤二：卡片组装**
@@ -72,6 +72,6 @@ DSL 指令渲染：
 
 ## 模块关系
 
-- **上游**：渲染层框架（提供 ContentBlock[] 和 DSL 解析结果）
+- **上游**：renderer 模块（提供 ContentBlock[] 和 DSL 解析结果）
 - **下游**：飞书 IM Adapter（接收卡片 JSON 并调用飞书发送接口）
 - **同层**：其他平台渲染器（共享渲染器接口，各自实现平台格式）

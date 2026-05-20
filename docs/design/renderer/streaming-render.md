@@ -2,11 +2,11 @@
 
 ## 概述
 
-流式渲染是渲染处理器的子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量，用户无需等待完整响应即可看到输出内容。
+流式渲染是渲染层的子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量，用户无需等待完整响应即可看到输出内容。
 
 ## 架构
 
-流式渲染在渲染 Processor 中增加增量处理能力，基于 LLM 流式事件逐块消费：
+流式渲染在 Renderer 中增加增量处理能力，基于 LLM 流式事件逐块消费：
 
 ```
 LLM 流式事件（StreamEvent）
@@ -15,7 +15,7 @@ LLM 流式事件（StreamEvent）
   ├── BlockEnd   — 内容块结束
   └── MessageEnd — 消息流结束
   ↓
-流式渲染 Processor
+流式渲染
   ├── 行缓冲 — 累积不完整语义单元
   ├── 类型路由 — 按块类型选择渲染路径
   └── 增量输出 — 完整行立即推送
@@ -40,9 +40,9 @@ Gateway → IM Adapter 立即发送
 ```
 LLM StreamEvent 序列到达 Gateway
   ↓
-Gateway 将事件转发给渲染 Processor
+Gateway 将事件转发给 Renderer
   ↓
-渲染 Processor 按事件类型处理：
+Renderer 按事件类型处理：
   ├── BlockStart → 标记块类型，初始化缓冲区
   ├── BlockDelta（Text）
   │     → 追加文本到行缓冲区
@@ -64,6 +64,6 @@ Gateway 将事件转发给渲染 Processor
 
 ## 模块关系
 
-- **上游**：Gateway（接收 LLM StreamEvent 并转发给渲染 Processor）
+- **上游**：Gateway（接收 LLM StreamEvent 并转发给 Renderer）
 - **下游**：IM Adapter（接收增量渲染输出并发送）
-- **所属**：各平台渲染 Processor 的内部子功能，不独立为 Processor
+- **所属**：renderer 模块的子功能

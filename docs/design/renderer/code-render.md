@@ -2,11 +2,11 @@
 
 ## 概述
 
-代码块渲染是渲染处理器的子功能，负责将消息中的代码块（三反引号包裹的代码段）按语法高亮渲染，替代纯文本展示。
+代码块渲染是渲染层的子功能，负责将消息中的代码块（三反引号包裹的代码段）按语法高亮渲染，替代纯文本展示。
 
 ## 架构
 
-代码块渲染集成在各平台的渲染 Processor 中，按平台能力选择不同的高亮策略：
+代码块渲染集成在各平台的 Renderer 中，按平台能力选择不同的高亮策略：
 
 ```
 ContentBlock[] 中的 Text 块
@@ -34,7 +34,7 @@ ContentBlock[] 中的 Text 块
 ## 数据流
 
 ```
-渲染 Processor 处理 Text 块
+Renderer 处理 Text 块
   ↓
 逐行解析 Text 块内容
   ↓
@@ -53,6 +53,6 @@ ContentBlock[] 中的 Text 块
 
 ## 模块关系
 
-- **上游**：渲染 Processor（提供 ContentBlock[] 输入）
-- **下游**：Gateway（提取平台 payload 传递给 IM Adapter 发送）
-- **所属**：各平台渲染 Processor 的内部子功能，不独立为 Processor
+- **上游**：renderer 模块（提供 ContentBlock[] 输入）
+- **下游**：IM Adapter（接收渲染后的代码块输出并发送）
+- **所属**：renderer 模块的子功能

@@ -1,4 +1,4 @@
-# 渲染处理器
+# renderer
 
 ## 概述
 
@@ -35,6 +35,14 @@ IM Adapter 发送
 - 飞书 → interactive card JSON
 - CLI → ANSI 彩色文本
 
+### 子功能索引
+
+| 文档 | 内容 |
+|------|------|
+| [飞书渲染](feishu.md) | 飞书平台渲染规则 |
+| [代码块渲染](code-render.md) | 代码块语法高亮渲染 |
+| [流式渲染](streaming-render.md) | 流式增量输出渲染 |
+
 ## 数据流
 
 ```
@@ -60,8 +68,8 @@ Renderer 接收 ContentBlock[] 和 DslParseResult
         → 渲染为平台交互控件（按钮、选择器等）
   ↓
 输出决策：
-  ├── 纯文本、无格式、无 DSL → text 消息
-  └── 含格式、多内容块、或有 DSL → 富格式消息
+  ├── 纯文本、无格式、无换行、无 DSL → text 消息
+  └── 含格式、含换行、多内容块、或有 DSL → 富格式消息
   ↓
 RenderedOutput { msg_type, payload }
   ↓
@@ -73,7 +81,7 @@ Gateway 提取 payload → IM Adapter 发送
 - **上游**：Processor 链出站输出（ContentBlock[] + DSL 解析结果）
 - **下游**：IM Adapter（接收 RenderedOutput 并发送）
 - **平台实现**：
-  - [飞书渲染](renderer-feishu.md) — 飞书 interactive card 渲染规则
+  - [飞书渲染](feishu.md) — 飞书 interactive card 渲染规则
   - [代码块渲染](code-render.md) — 代码块语法高亮
   - [流式渲染](streaming-render.md) — 流式增量输出
 - **无关**：入站 Processor 链（不经过渲染层）
