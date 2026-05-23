@@ -9,27 +9,28 @@ Gateway 是消息路由中枢。它管理所有 IM 平台的适配器，调度 P
 Gateway 由四个职责组成，不含业务逻辑：
 
 ```
-=== 入站 ===
+=== 入站（消息处理） ===
 
-IM Adapter             平台格式解析  →  NormalizedMessage
-                                            ↓
-Processor Chain        RawLog(10) → SessionRouter(20) → MessageCleaner(30)
-                                                                ↓
-                                                      MarkdownNormalizer(40)
-                                            ↓  ProcessedMessage
-Gateway                路由决策
-                       ├─ / 开头 → SlashDispatcher
-                       └─ 普通   → Session → LLM
-
-=== 出站 ===
-
-Session / SlashHandler                  ContentBlock[]
-                                            ↓
-Processor Chain        DslParser(10) → RawLog(20)
-                                            ↓  ProcessedMessage
-Gateway                选择 Renderer → 渲染
-                                            ↓  RenderedOutput
-IM Adapter             发送 → 平台原生格式
+  IM Adapter        平台格式解析
+       ↓           NormalizedMessage
+  Processor Chain   RawLog(10) → SessionRouter(20)
+                    → MessageCleaner(30) → MarkdownNormalizer(40)
+       ↓           ProcessedMessage
+  Gateway           路由决策
+                    ├─ / 开头 → SlashDispatcher
+                    └─ 普通   → Session → LLM
+                                    ↓
+                               ContentBlock[] ──────────────┐
+                                                            │
+=== 出站（响应发送） ===                                    │
+                                                            │
+  Session / SlashHandler  ←────────────────────────────────┘
+       ↓           ContentBlock[]
+  Processor Chain   DslParser(10) → RawLog(20)
+       ↓           ProcessedMessage
+  Gateway           选择 Renderer → 渲染（render(ProcessedMessage)）
+       ↓           RenderedOutput
+  IM Adapter        发送 → 平台原生格式
 ```
 
 - **IM Adapter 管理**：注册和维护各平台适配器。入站方向将平台原始格式归一化为统一结构，出站方向接收渲染后的 payload 并发送。
