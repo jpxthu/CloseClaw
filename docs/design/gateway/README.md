@@ -10,22 +10,26 @@ Gateway 由四个职责组成，不含业务逻辑：
 
 ```
 === 入站 ===
-IM Adapter(入站) → NormalizedMessage
-  ↓
-Inbound Processor Chain（按 priority 升序）
-  RawLog(10) → SessionRouter(20) → MessageCleaner(30) → MarkdownNormalizer(40)
-  ↓
-ProcessedMessage → Gateway 路由决策
-  ├── / 开头 → SlashDispatcher 分派
-  └── 普通消息 → SessionManager 处理消息（→ Session → LLM）
+
+[IM Adapter]    平台格式解析 → NormalizedMessage
+                                        ↓
+[Processor Chain]   RawLog(10) → SessionRouter(20) → MessageCleaner(30)
+                                                         ↓
+                                               MarkdownNormalizer(40)
+                                        ↓  ProcessedMessage
+[Gateway]           路由决策
+                    ├── / 开头 → SlashDispatcher 分派
+                    └── 普通消息 → Session → LLM
 
 === 出站 ===
-ContentBlock[]（来自 Session 或 SlashHandler）
-  ↓
-Outbound Processor Chain（按 priority 升序）
-  DslParser(10) → RawLog(20)
-  ↓
-选择 Renderer（按目标平台）→ 渲染 → IM Adapter(出站) 发送
+
+[Session / SlashHandler]  ContentBlock[]
+                                        ↓
+[Processor Chain]   DslParser(10) → RawLog(20)
+                                        ↓  ProcessedMessage
+[Gateway]           选择 Renderer → 渲染
+                                        ↓  RenderedOutput
+[IM Adapter]        发送 → 平台原生格式
 ```
 
 - **IM Adapter 管理**：注册和维护各平台适配器。入站方向将平台原始格式归一化为统一结构，出站方向接收渲染后的 payload 并发送。
@@ -46,17 +50,19 @@ Gateway 维护以下运行时注册表：
 ### 入站路径
 
 ```
-IM 平台 webhook → IM Adapter(入站) → NormalizedMessage
-  ↓
-Inbound Processor Chain（按 priority 升序）
-  RawLogProcessor(10) → SessionRouter(20) → MessageCleaner(30) → MarkdownNormalizer(40)
-  ↓
-ProcessedMessage → Gateway 路由决策
-  ├── / 开头 → SlashDispatcher 分派
-  │     ├── Immediate（/stop, /status, /help）→ 立即执行
-  │     └── 非 Immediate → Handler → SlashResult → Gateway 执行副作用
-  └── 普通消息 → SessionManager 处理消息
-                  ──→ Session → LLM → 返回 ContentBlock[]
+[IM Adapter]  IM 平台 webhook → 平台格式解析 → NormalizedMessage
+                 │
+[Processor Chain]   ↓  入站链（按 priority 升序）
+                 RawLogProcessor(10) → SessionRouter(20) → MessageCleaner(30)
+                                                              ↓
+                                                    MarkdownNormalizer(40)
+                 │
+[Gateway]          ↓  ProcessedMessage → 路由决策
+                 ├── / 开头 → SlashDispatcher 分派
+                 │     ├── Immediate（/stop, /status, /help）→ 立即执行
+                 │     └── 非 Immediate → Handler → SlashResult → Gateway 执行副作用
+                 └── 普通消息 → SessionManager 处理消息
+                                 ──→ Session → LLM → 返回 ContentBlock[]
 ```
 
 关键判断点：
