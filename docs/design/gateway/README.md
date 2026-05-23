@@ -11,25 +11,25 @@ Gateway 由四个职责组成，不含业务逻辑：
 ```
 === 入站 ===
 
-[IM Adapter]    平台格式解析 → NormalizedMessage
-                                        ↓
-[Processor Chain]   RawLog(10) → SessionRouter(20) → MessageCleaner(30)
-                                                         ↓
-                                               MarkdownNormalizer(40)
-                                        ↓  ProcessedMessage
-[Gateway]           路由决策
-                    ├── / 开头 → SlashDispatcher 分派
-                    └── 普通消息 → Session → LLM
+IM Adapter             平台格式解析  →  NormalizedMessage
+                                            ↓
+Processor Chain        RawLog(10) → SessionRouter(20) → MessageCleaner(30)
+                                                                ↓
+                                                      MarkdownNormalizer(40)
+                                            ↓  ProcessedMessage
+Gateway                路由决策
+                       ├─ / 开头 → SlashDispatcher
+                       └─ 普通   → Session → LLM
 
 === 出站 ===
 
-[Session / SlashHandler]  ContentBlock[]
-                                        ↓
-[Processor Chain]   DslParser(10) → RawLog(20)
-                                        ↓  ProcessedMessage
-[Gateway]           选择 Renderer → 渲染
-                                        ↓  RenderedOutput
-[IM Adapter]        发送 → 平台原生格式
+Session / SlashHandler                  ContentBlock[]
+                                            ↓
+Processor Chain        DslParser(10) → RawLog(20)
+                                            ↓  ProcessedMessage
+Gateway                选择 Renderer → 渲染
+                                            ↓  RenderedOutput
+IM Adapter             发送 → 平台原生格式
 ```
 
 - **IM Adapter 管理**：注册和维护各平台适配器。入站方向将平台原始格式归一化为统一结构，出站方向接收渲染后的 payload 并发送。
@@ -49,39 +49,18 @@ Gateway 维护以下运行时注册表：
 
 ### 入站路径
 
-```
-[IM Adapter]  IM 平台 webhook → 平台格式解析 → NormalizedMessage
-                 │
-[Processor Chain]   ↓  入站链（按 priority 升序）
-                 RawLogProcessor(10) → SessionRouter(20) → MessageCleaner(30)
-                                                              ↓
-                                                    MarkdownNormalizer(40)
-                 │
-[Gateway]          ↓  ProcessedMessage → 路由决策
-                 ├── / 开头 → SlashDispatcher 分派
-                 │     ├── Immediate（/stop, /status, /help）→ 立即执行
-                 │     └── 非 Immediate → Handler → SlashResult → Gateway 执行副作用
-                 └── 普通消息 → SessionManager 处理消息
-                                 ──→ Session → LLM → 返回 ContentBlock[]
-```
+Gateway 收到 Processor Chain 产出的 ProcessedMessage 后，按消息内容做路由决策：
 
-关键判断点：
-- `/` 前缀 → 斜杠指令拦截点，不进入 LLM
-- Immediate 标记 → 可绕过消息队列立即响应
-- SlashResult 类型 → 决定 Gateway 执行哪种副作用
+- **`/` 开头 → 斜杠指令**：分派给 SlashDispatcher。
+  - Immediate 指令（`/stop`、`/status`、`/help`）→ 绕过消息队列立即执行。
+  - 非 Immediate 指令 → Handler 处理，返回 SlashResult，Gateway 执行对应副作用（见下方表格）。
+- **普通消息**：路由到 SessionManager → Session → LLM，返回 ContentBlock[] 进入出站链路。
+
+> 斜杠指令的解析和 SlashResult 处理详见 [slash 模块](../slash/README.md)。
 
 ### 出站路径
 
-```
-ContentBlock[]（来自 Session 或 SlashHandler）
-  →
-Gateway 出站发送
-  ├── 调度 Outbound Processor Chain（按 priority 升序）
-  │     DslParser(10) → RawLogProcessor(20)
-  ├── 根据目标平台选择 Renderer
-  └── Renderer 渲染(content_blocks, dsl_result) → RenderedOutput { msg_type, payload }
-        ──→ IM Adapter(出站) 发送
-```
+Gateway 收到 ContentBlock[] 后（来源：LLM 响应或 SlashHandler），调度 Outbound Processor Chain 处理，选择目标平台 Renderer 渲染，交给 IM Adapter 发送。详见上方架构图出站部分。
 
 ### 斜杠指令副作用执行
 
