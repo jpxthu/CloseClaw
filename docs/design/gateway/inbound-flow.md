@@ -15,7 +15,8 @@
 | `platform` | Adapter 内置 | 平台标识，如 `"feishu"` |
 | `sender_id` | webhook payload | 发送者的平台内 ID |
 | `peer_id` | webhook payload | 会话对端（群聊 chat_id 或私聊对方 ID） |
-| `thread_id` | webhook payload | 话题 ID，可选 |
+| `thread_id` | webhook payload | 话题 ID，可选。**不参与 session key 计算**，仅用于出站时定向回复到正确话题 |
+| `account_id` | webhook context | 租户/账号标识（飞书的 tenant_key 等），可选。用于多租户 session 隔离 |
 | `content` | webhook payload | 消息文本内容 |
 | `timestamp` | webhook payload | 消息发送时间 |
 
@@ -29,8 +30,9 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 **SessionRouter（priority 20）**：这是最关键的一步。它的工作是确定"这条消息属于哪个会话"。
 
-- 输入：NormalizedMessage 的 `platform`、`sender_id`、`peer_id`
-- 计算：`session_key = f(platform, sender_id, peer_id)`，具体格式由 `DmScope` 配置决定（默认 `PerChannelPeer`）
+- 输入：NormalizedMessage 的 `platform`、`sender_id`、`peer_id`，以及可选 `account_id`（由 DmScope 配置决定是否参与计算）
+- 计算：`session_key = f(platform, sender_id, peer_id[, account_id])`，具体格式由 `DmScope` 配置决定（默认 `PerChannelPeer`）
+- thread_id 不参与 session key 计算——话题归属由出站链路处理，与 session 路由是独立概念
 - 查找或创建 session：去 SessionManager 问"这个 key 有没有活跃会话？"——有则复用，没有则新建（含 bootstrap 注入、system prompt 组装等）
 - 输出：将 `session_id` 写入消息 metadata，传给下一步
 
