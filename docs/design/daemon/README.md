@@ -93,7 +93,7 @@ Daemon 关闭
 | Processor Registry | 启动时注册处理器 |
 | Renderer Set | 启动时注册各平台 Renderer |
 | IM Adapters | 启动时创建各平台适配器 |
-| Gateway | 启动时创建并注入依赖（adapters、processor registry、renderers、session manager、permission），Daemon 持有其所有权 |
+| Gateway | 启动时创建并注入依赖，Daemon 持有其所有权 |
 | ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider，行为由 session 模块定义） |
 | Skill Watcher | 启动时 spawn 后台任务 |
 | ChatServer | 启动时创建 TCP 服务器 |
@@ -115,5 +115,5 @@ Daemon 关闭
 |---|---------|------|---------|
 | 1 | 初始化顺序 ←→ 依赖关系 | ✅ 通过 | 初始化顺序全满足各模块设计文档声明的依赖关系，Permission Engine 的 agent 规则是运行时延迟加载，init 仅在 Agent Config 之前加载全局默认策略，属刻意设计 |
 | 2 | 后台任务 ←→ Session | ✅ 通过 | ArchiveSweeper 机制与 session/README.md 一致。已修复：补充 SessionConfigProvider 初始化步骤、ArchiveSweeper 职责更新为"归档+清理"双操作、下游表新增 SessionConfigProvider 条目 |
-| 3 | Gateway 注入 ←→ Gateway | ✅ 通过 | 已修复：Gateway 注入列表补充 Permission Engine，覆盖 gateway doc 声明的全部外部依赖（adapters、processor registry、renderers、session manager、permission）。SlashDispatcher/HandlerRegistry 为 Gateway 内部创建无需 Daemon 注入 |
+| 3 | Gateway 注入 ←→ Gateway | ✅ 通过 | 已修复：Gateway 注入列表补充 Permission Engine（见步骤12）。SlashDispatcher/HandlerRegistry 为 Gateway 内部创建无需 Daemon 注入 |
 | 4 | 优雅关闭顺序 | ⬜ | 关闭顺序合理（入口先停 → 等待进行中 → 持久化 → 退出） |
