@@ -18,9 +18,11 @@
 | `thread_id` | webhook payload | 话题 ID，可选。**不参与 session key 计算**，仅用于出站时定向回复到正确话题 |
 | `account_id` | webhook context | 租户/账号标识（飞书的 tenant_key 等），可选。用于多租户 session 隔离 |
 | `content` | webhook payload | 消息文本内容 |
-| `timestamp` | webhook payload | 消息发送时间 |
+| `timestamp` | webhook payload | 消息发送时间，用于日志和审计 |
 
 Adapter 屏蔽了平台差异。Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage，不需要知道消息来自哪个平台。
+
+> **消息过滤**：空 content 和非文本消息（图片、文件、语音等）由 IM Adapter 在解析阶段过滤，不产 NormalizedMessage。非文本消息的后续处理方案留待 IM 模块设计时确定。
 
 ### 第二步：Processor Chain 处理
 
