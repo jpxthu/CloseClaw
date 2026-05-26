@@ -13,7 +13,6 @@ cargo build && cargo test
 | `src/agent/` | Agent 配置、prompt 构造、能力调度 | [SPEC](src/agent/SPEC.md) |
 | `src/audit/` | 操作审计日志、事件记录与查询 | [SPEC](src/audit/SPEC.md) |
 | `src/card/` | 卡片消息渲染与交互处理 | [SPEC](src/card/SPEC.md) |
-| `src/chat/` | 聊天会话管理、上下文构建 | [SPEC](src/chat/SPEC.md) |
 | `src/cli/` | 命令行启动、交互模式、参数解析 | [SPEC](src/cli/SPEC.md) |
 | `src/config/` | 配置加载、校验、热点更新 | [SPEC](src/config/SPEC.md) |
 | `src/daemon/` | Daemon 进程管理、信号处理、优雅关闭 | [SPEC](src/daemon/SPEC.md) |
