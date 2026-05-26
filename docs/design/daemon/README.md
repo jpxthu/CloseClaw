@@ -63,11 +63,13 @@ Daemon 启动
 SIGINT / SIGTERM
   →
 Daemon 关闭
-  ├── 1. 停止接收新消息（关闭 IM Adapters）
-  ├── 2. 等待进行中的 Session 完成（超时强制终止）
-  ├── 3. 停止后台任务（ArchiveSweeper、Skill Watcher）
-  ├── 4. 持久化所有活跃 Session
-  ├── 5. 关闭 Storage 连接
+  ├── 1. 停止附加入口（ChatServer 停止 TCP 监听）
+  ├── 2. 停止接收新消息（IM Adapters 关闭入站接收）
+  ├── 3. 等待进行中的 Session 完成（超时强制终止）
+  ├── 4. 停止后台任务（ArchiveSweeper、Skill Watcher）
+  ├── 5. 持久化所有活跃 Session
+  ├── 6. 关闭消息通道出站（IM Adapters 停止发送、Gateway 清理注册表）
+  ├── 7. 关闭 Storage 连接
   └── 退出进程
 ```
 
@@ -116,4 +118,4 @@ Daemon 关闭
 | 1 | 初始化顺序 ←→ 依赖关系 | ✅ 通过 | 初始化顺序全满足各模块设计文档声明的依赖关系，Permission Engine 的 agent 规则是运行时延迟加载，init 仅在 Agent Config 之前加载全局默认策略，属刻意设计 |
 | 2 | 后台任务 ←→ Session | ✅ 通过 | ArchiveSweeper 机制与 session/README.md 一致。已修复：补充 SessionConfigProvider 初始化步骤、ArchiveSweeper 职责更新为"归档+清理"双操作、下游表新增 SessionConfigProvider 条目 |
 | 3 | Gateway 注入 ←→ Gateway | ✅ 通过 | 已修复：Gateway 注入列表补充 Permission Engine（见步骤12）。SlashDispatcher/HandlerRegistry 为 Gateway 内部创建无需 Daemon 注入 |
-| 4 | 优雅关闭顺序 | ⬜ | 关闭顺序合理（入口先停 → 等待进行中 → 持久化 → 退出） |
+| 4 | 优雅关闭顺序 | ✅ 通过 | 关闭顺序合理，已补充 ChatServer 关闭步骤和消息通道出站关闭步骤 |
