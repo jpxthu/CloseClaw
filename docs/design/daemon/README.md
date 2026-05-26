@@ -107,15 +107,4 @@ Daemon 关闭
 - **Slash Command**（无调用关系）：斜杠指令由 Gateway 拦截分派
 - **Renderer**（无调用关系）：渲染由 Gateway 选择和调度
 
----
 
-## 验证进度
-
-> 草稿阶段追蹤表。每 session 验证一个方向，定稿后移除。
-
-| # | 验证方向 | 进度 | 验证内容 |
-|---|---------|------|---------|
-| 1 | 初始化顺序 ←→ 依赖关系 | ✅ 通过 | 初始化顺序全满足各模块设计文档声明的依赖关系，Permission Engine 的 agent 规则是运行时延迟加载，init 仅在 Agent Config 之前加载全局默认策略，属刻意设计 |
-| 2 | 后台任务 ←→ Session | ✅ 通过 | ArchiveSweeper 机制与 session/README.md 一致。已修复：补充 SessionConfigProvider 初始化步骤、ArchiveSweeper 职责更新为"归档+清理"双操作、下游表新增 SessionConfigProvider 条目 |
-| 3 | Gateway 注入 ←→ Gateway | ✅ 通过 | 已修复：Gateway 注入列表补充 Permission Engine（见步骤12）。SlashDispatcher/HandlerRegistry 为 Gateway 内部创建无需 Daemon 注入 |
-| 4 | 优雅关闭顺序 | ✅ 通过 | 关闭顺序合理，已补充 ChatServer 关闭步骤和消息通道出站关闭步骤 |
