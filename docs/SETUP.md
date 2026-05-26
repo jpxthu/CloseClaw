@@ -67,7 +67,6 @@ closeclaw/
 │   ├── main.rs           # CLI 入口
 │   ├── agent/            # Agent 运行时
 │   ├── audit/            # 审计模块
-│   ├── chat/             # 聊天模块
 │   ├── cli/              # CLI 实现
 │   ├── config/           # 配置系统
 │   ├── daemon/           # Daemon 运行时
