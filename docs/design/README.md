@@ -6,6 +6,8 @@
 |------|------|
 | [agent](agent/README.md) | Agent 配置档案管理、spawn 协调与权限沿链路继承 |
 | [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 独立配置、热重载 |
+| [daemon](daemon/README.md) | 进程入口和组件胶水层：系统启动时按依赖关系初始化所有组件、后台任务 spawn、优雅关闭 |
+| [gateway](gateway/README.md) | 消息路由中枢：管理 IM Adapter、调度 Processor Chain、路由决策（slash vs normal）、选择 Renderer 完成出站渲染与发送 |
 | [llm](llm/README.md) | 统一多供应商 LLM 调用与模型发现：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配、Provider 配置向导 |
 | [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径、审批栅栏）和 Auto Mode（连续自主执行），通过工具过滤和权限边界约束 agent 行为 |
 | [permission](permission/README.md) | 系统级身份型访问控制：交集模型、七类权限维度、审批工作流与配置管理 |

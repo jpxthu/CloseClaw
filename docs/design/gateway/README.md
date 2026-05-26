@@ -34,7 +34,7 @@ Gateway 维护以下运行时注册表：
                                      ↓
                                 ContentBlock[]（LLM 响应，进入出站）
 
-出站（LLM 响应或 SlashHandler 输出均以 ContentBlock[] 进入）：
+出站（ContentBlock[] 来自 Session（Session 内部调用 LLM 返回）或 SlashHandler：
 
   ContentBlock[] → [Processor Chain 出站: DslParser→RawLog]
                  → ProcessedMessage { content_blocks, metadata[dsl_result] }

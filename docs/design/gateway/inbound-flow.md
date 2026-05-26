@@ -59,7 +59,8 @@ ProcessedMessage 到达 Gateway。Gateway 检查 content 的第一个字符：
 
 **不以 `/` 开头 → 普通对话消息**：
 - Gateway 通过 `metadata.session_id` 找到对应 Session
-- Session 将消息内容追加到对话历史
+- 若 Session 处于 archived 状态，由 SessionManager 触发 restore 流程，Gateway 向用户发送「正在恢复会话...」通知
+- Session 就绪后将消息内容追加到对话历史
 - Session 构建完整的 LLM 请求（system prompt + 消息历史 + 工具列表 + skill 列表）
 - LLM 返回响应，封装为 `ContentBlock[]`
 - ContentBlock[] 进入出站链路，最终渲染发送回用户
@@ -95,5 +96,8 @@ ProcessedMessage { content, metadata { session_id, ... } }
 [Gateway]
   content 以 / 开头？
     ├─ 是 → SlashDispatcher（不进入 LLM）
-    └─ 否 → SessionManager → Session → LLM → ContentBlock[]（进入出站）
+    └─ 否 → SessionManager → Session
+                ├─ archived → restore + 发送恢复通知
+                └─ active → 直接使用
+              → LLM → ContentBlock[]（进入出站）
 ```
