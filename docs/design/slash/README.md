@@ -97,4 +97,4 @@ Gateway.handle_inbound()
   - Agent 模块 — `/stop` 终止子 agent
 - **间接下游**（通过 Gateway 调用）：
   - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（由 Gateway 读取 Exec 结果后调用）
-- **无关**：Processor 链（斜杠指令在 Processor 之前被 Gateway 拦截，不进入 LLM 处理流程）
+- **间接相关**：Processor 链（斜杠指令消息经入站 Processor 链处理后由 Gateway 路由到 SlashDispatcher；SlashDispatcher 的输出经出站 Processor 链 + Renderer 回复）

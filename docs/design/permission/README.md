@@ -50,6 +50,19 @@ Agent 维度规则    User 维度规则
 
 Owner（User ID = `"owner"`）在引擎层面短路：当 caller 的 User ID 为 Owner 时，跳过所有 User 维度规则，仅评估 Agent 维度。
 
+### 规则加载策略
+
+**全局默认策略**在 Daemon 初始化阶段加载，与具体 Agent 无关。此时 Agent Config 尚未扫描完成，但这不影响——全局策略不涉及 Agent 维度。
+
+**Agent 维度权限规则**采用延迟加载：不在 init 阶段全量扫描，而是在 `evaluate()` 首次查询某个 Agent 时按需从 `~/.closeclaw/agents/<agent-id>/permissions.json` 加载并缓存。此设计的优势：
+- 启动速度不受 agent 数量影响
+- 天然适配热重载：agent 配置或权限文件变更后，下次访问自动读到最新规则
+- 未被使用的 agent 不消耗内存
+
+代价是首次查询某 agent 时多一次文件 I/O，agent 数量通常有限，可忽略。
+
+这意味着 Daemon 初始化顺序中 Permission Engine（阶段一 #3）在 Agent Config 扫描（阶段一 #4）之前是刻意设计，非依赖倒置。
+
 ### Workspace 路径强制授权
 
 每个 Agent-User 组合自动获得其 workspace 路径的读写权限：
