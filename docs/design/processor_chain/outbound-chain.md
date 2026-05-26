@@ -2,13 +2,13 @@
 
 ## 概述
 
-出站 Processor 链在 LLM 生成响应后运行。它从 Session 中读取 UnifiedResponse（ContentBlock[]），解析 DSL 指令，然后将处理结果交付给 Renderer 层渲染。
+出站 Processor 链在 LLM 生成响应后运行。它从 Session 中读取 UnifiedResponse（ContentBlock[]），解析 DSL 指令，然后将处理结果交付给 IM Adapter 模块渲染。
 
-出站链的职责仅限于**内容变换**（提取 DSL 指令、记录日志），不负责展示格式的生成。渲染由独立的 Renderer 层完成。
+出站链的职责仅限于**内容变换**（提取 DSL 指令、记录日志），不负责展示格式的生成。渲染由 IM Adapter 模块完成。
 
 ## 架构
 
-出站链由两个 Processor 组成。渲染由独立 Renderer 层完成，各平台有各自的 Renderer + IM Adapter 对（如飞书有飞书 Renderer + 飞书 Adapter，CLI 有 CLI Renderer + CLI Adapter），Gateway 根据目标平台选择对应的对：
+出站链由两个 Processor 组成。渲染由 IM Adapter 模块完成，各平台有各自的 IM 插件（如飞书插件包含飞书 Adapter + 飞书 Renderer），Gateway 根据目标平台选择对应插件：
 
 ```
 Session 消息（ContentBlock[]）
@@ -26,18 +26,15 @@ Processor 链（出站，按 priority 升序执行）
   ↓
 ProcessedMessage { content_blocks, metadata }
   ↓
-Renderer 层
+IM Adapter 模块
   → 接收 ContentBlock[] + DslParseResult
   → 按块类型选择渲染策略
-  → 输出平台原生格式 payload
-  ↓
-IM Adapter 发送
-```
+  → 输出平台原生格式并发送
 
-Renderer 不在 Processor 链内：
-- 渲染是终结操作，输出后不再有下一步传递给其他 Processor
-- Renderer 需要携带 msg_type 路由信息（text / interactive），这和链的"变换传递"语义不符
-- 各平台 Renderer 实现统一 Renderer 接口，由 Gateway 根据目标平台选择
+IM Adapter 不在 Processor 链内：
+- 渲染和发送是终结操作，输出后不再有下一步传递给其他 Processor
+- 渲染需要携带 msg_type 路由信息（text / interactive），这和链的"变换传递"语义不符
+- 各平台 IM 插件由 Gateway 根据目标平台选择
 
 ## 数据流
 
@@ -55,15 +52,14 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
         → RawLogProcessor.process(ctx)
             输出：日志记录，内容不变
       → 链输出 ProcessedMessage
-        → Renderer.render(content_blocks, dsl_result)
-          → 按块类型渲染：
+        → Gateway 选择目标平台 IM 插件
+          → 插件内部渲染(content_blocks, dsl_result)：
               ├── Text 块 → 平台文本 / 富文本格式
               ├── Thinking 块 → 平台折叠内容
               ├── ToolUse 块 → 平台工具调用展示
               └── ToolResult 块 → 平台工具结果展示
-          → 输出平台原生格式 payload
-        → Gateway 从 Session 提取 (peer_id, thread_id) 路由信息
-        → 目标平台 IM Adapter 根据 (peer_id, thread_id) 发送到对应会话/话题
+          → 输出平台原生格式并发送
+        → 根据 (peer_id, thread_id) 发送到对应会话/话题
 ```
 
 关键判断点：
@@ -74,7 +70,7 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
 ## 模块关系
 
 - **上游**：Session（提供 ContentBlock[] 消息数据）
-- **下游**：Renderer 层（消费 ContentBlock[] + DslParseResult，输出平台格式）
+- **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费 ContentBlock[] + DslParseResult，渲染为平台格式并发送）
 - **链内**：
   - DslParser — 解析 DSL 指令，为渲染提供交互数据
   - RawLogProcessor — 出站日志

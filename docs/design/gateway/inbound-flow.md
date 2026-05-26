@@ -2,17 +2,17 @@
 
 ## 概述
 
-入站流程处理从 IM 平台到 LLM 的完整消息链路。一条用户消息依次经过三个模块：IM Adapter 的格式解析 → Processor Chain 的消息变换 → Gateway 的路由决策。
+入站流程处理从 IM 平台到 LLM 的完整消息链路。一条用户消息依次经过三个模块：IM 插件的格式解析 → Processor Chain 的消息变换 → Gateway 的路由决策。
 
 ## 完整流程
 
-### 第一步：IM Adapter 解析
+### 第一步：IM 插件解析
 
-各 IM 平台（飞书、Discord、Telegram 等）的 webhook 到达后，由对应平台的 Adapter 处理。Adapter 的唯一职责是把平台原生格式转成统一结构 `NormalizedMessage`：
+各 IM 平台（飞书、Discord、Telegram 等）的 webhook 到达后，由对应平台的插件处理。插件入站职责是把平台原生格式转成统一结构 `NormalizedMessage`：
 
 | 字段 | 来源 | 说明 |
 |------|------|------|
-| `platform` | Adapter 内置 | 平台标识，如 `"feishu"` |
+| `platform` | 插件内置 | 平台标识，如 `"feishu"` |
 | `sender_id` | webhook payload | 发送者的平台内 ID |
 | `peer_id` | webhook payload | 会话对端（群聊 chat_id 或私聊对方 ID） |
 | `thread_id` | webhook payload | 话题 ID，可选。**不参与 session key 计算**，仅用于出站时定向回复到正确话题 |
@@ -20,9 +20,9 @@
 | `content` | webhook payload | 消息文本内容 |
 | `timestamp` | webhook payload | 消息发送时间，用于日志和审计 |
 
-Adapter 屏蔽了平台差异。Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage，不需要知道消息来自哪个平台。
+插件屏蔽了平台差异。Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。
 
-> **消息过滤**：空 content 和非文本消息（图片、文件、语音等）由 IM Adapter 在解析阶段过滤，不产 NormalizedMessage。非文本消息的后续处理方案留待 IM 模块设计时确定。
+> **消息过滤**：空 content 和非文本消息（图片、文件、语音等）由 IM 插件在解析阶段过滤，不产 NormalizedMessage。
 
 ### 第二步：Processor Chain 处理
 
@@ -40,7 +40,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 SessionRouter 不关心消息内容是什么。它只看"谁、在哪个平台、在哪个会话"发来的，然后把它挂到正确的 session 上。这一步做完，后续所有处理都有 session 上下文可用。
 
-**MessageCleaner（priority 30）**：清洗消息内容。Adapter 在解析时可能残留平台特有的格式标记（如飞书的 at 语法、Discord 的 mention 格式），这一步把它们清除。如果有富文本内容，展开为标准 markdown。输入和输出都是文本字符串。
+**MessageCleaner（priority 30）**：清洗消息内容。插件解析时可能残留平台特有的格式标记（如飞书的 at 语法、Discord 的 mention 格式），这一步把它们清除。有富文本内容则展开为标准 markdown。
 
 **MarkdownNormalizer（priority 40）**：标准化 markdown 格式。做三件事——压缩连续空行为单个空行、去掉行尾空格、给裸 URL 补上 `https://` 前缀。确保进入 LLM 的文本格式干净统一。
 
@@ -69,7 +69,7 @@ ProcessedMessage 到达 Gateway。Gateway 检查 content 的第一个字符：
 
 1. **斜杠指令走完整的入站链**，但不进入 LLM。这样设计保证了：(a) 所有消息都有日志记录；(b) 斜杠指令也能拿到 session 上下文（`/stop`、`/compact`、`/mode` 都依赖 session_id）；(c) 路由逻辑简单——只在 Gateway 层做一次分支判断。
 
-2. **SessionRouter 不区分私聊和群聊**。会话粒度由 Adapter 控制——Adapter 决定什么构成一个 `peer_id`。Session 机制本身对公私聊无感。
+2. **SessionRouter 不区分私聊和群聊**。会话粒度由插件控制——插件决定什么构成一个 `peer_id`。
 
 3. **Processor Chain 是纯变换**。每个处理器输入消息、输出消息，不做副作用（除了 RawLog 写日志）。SessionRouter 创建 session 是找 SessionManager，不是自己管理。链的设计遵循"变换和决策分离"原则——变换归链，决策归 Gateway。
 
@@ -78,7 +78,7 @@ ProcessedMessage 到达 Gateway。Gateway 检查 content 的第一个字符：
 ```
 webhook
   ↓
-[IM Adapter]
+[IM 插件]
   平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, content, ... }
   ↓
 [Processor Chain 入站]
