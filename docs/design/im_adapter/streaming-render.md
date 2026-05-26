@@ -2,11 +2,11 @@
 
 ## 概述
 
-流式渲染是渲染层的子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量，用户无需等待完整响应即可看到输出内容。
+流式渲染是 IM Adapter 模块的通用渲染子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量。用户无需等待完整响应即可看到输出内容。各平台插件复用此能力。
 
 ## 架构
 
-流式渲染在 Renderer 中增加增量处理能力，基于 LLM 流式事件逐块消费：
+流式渲染在各平台 Renderer 中增加增量处理能力，基于 LLM 流式事件逐块消费：
 
 ```
 LLM 流式事件（StreamEvent）
@@ -20,7 +20,7 @@ LLM 流式事件（StreamEvent）
   ├── 类型路由 — 按块类型选择渲染路径
   └── 增量输出 — 完整行立即推送
   ↓
-Gateway → IM Adapter 立即发送
+Gateway → IMPlugin 立即发送
 ```
 
 **行缓冲规则**：
@@ -30,10 +30,7 @@ Gateway → IM Adapter 立即发送
 - 缓冲区超过固定阈值（约 100 字符）时强制输出，防止长时间无响应
 - 非 Text 块（Thinking、Tool 等）不参与流式行缓冲，在 BlockEnd 时一次性输出
 
-**首行输出时机**：
-
-- 首次收到 BlockDelta 后，缓冲到达首个句末标点或换行符时输出
-- 目标延迟：流式开始后 200ms 内输出首行
+**首行输出时机**：首次收到 BlockDelta 后，缓冲到达首个句末标点或换行符时输出，目标延迟 200ms 内
 
 ## 数据流
 
@@ -59,11 +56,11 @@ Renderer 按事件类型处理：
         → 刷新所有缓冲
         → 释放流式渲染上下文
   ↓
-增量输出 → Gateway → IM Adapter 发送
+增量输出 → Gateway → IMPlugin 发送
 ```
 
 ## 模块关系
 
 - **上游**：Gateway（接收 LLM StreamEvent 并转发给 Renderer）
-- **下游**：IM Adapter（接收增量渲染输出并发送）
-- **所属**：renderer 模块的子功能
+- **下游**：IMPlugin（接收增量渲染输出并发送）
+- **所属**：IM Adapter 模块的通用子功能

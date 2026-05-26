@@ -7,12 +7,12 @@
 | [agent](agent/README.md) | Agent 配置档案管理、spawn 协调与权限沿链路继承 |
 | [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 独立配置、热重载 |
 | [daemon](daemon/README.md) | 进程入口和组件胶水层：系统启动时按依赖关系初始化所有组件、后台任务 spawn、优雅关闭 |
-| [gateway](gateway/README.md) | 消息路由中枢：管理 IM Adapter、调度 Processor Chain、路由决策（slash vs normal）、选择 Renderer 完成出站渲染与发送 |
+| [gateway](gateway/README.md) | 消息路由中枢：管理 IM 插件、调度 Processor Chain、路由决策（slash vs normal）、选择平台插件完成出站渲染与发送 |
 | [llm](llm/README.md) | 统一多供应商 LLM 调用与模型发现：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配、Provider 配置向导 |
 | [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径、审批栅栏）和 Auto Mode（连续自主执行），通过工具过滤和权限边界约束 agent 行为 |
 | [permission](permission/README.md) | 系统级身份型访问控制：交集模型、七类权限维度、审批工作流与配置管理 |
 | [processor_chain](processor_chain/README.md) | 统一出入站消息处理：入站归一化、DSL 解析、ContentBlock[] 传递 |
-| [renderer](renderer/README.md) | 平台渲染层：将 ContentBlock[] 渲染为平台原生消息格式（飞书 interactive card、CLI ANSI 等），含代码高亮和流式输出 |
+| [im_adapter](im_adapter/README.md) | IM 平台插件化适配框架：IMPlugin trait 统一接口，每个平台一个插件（含 Adapter + Renderer），通用代码渲染和流式渲染能力 |
 | [session](session/README.md) | Agent 会话生命周期管理：创建、持久化、压缩、归档与清理 |
 | [slash](slash/README.md) | 斜杠指令系统：Gateway 层拦截、统一分派、Handler 执行，不进入 LLM 对话流程 |
 | [skills](skills/README.md) | Agent 可复用能力插件体系：磁盘即插即用、五层优先级、frontmatter 配置驱动、双执行模式 |
