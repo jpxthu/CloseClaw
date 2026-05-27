@@ -33,9 +33,9 @@ Processor 链（出站，按 priority 顺序执行）
   ├── DslParser（priority 10）  → 从 ContentBlock[] 中解析 DSL 指令
   └── RawLogProcessor（priority 20）→ 出站消息写入日志
   ↓
-Renderer 层（传递格式 → 展示格式的唯一转换点，由 IM Adapter 模块提供）
-  ├── 飞书 Renderer + 飞书 Adapter
-  ├── CLI Renderer + CLI Adapter
+Renderer 层（传递格式 → 展示格式的唯一转换点，各渠道模块提供自身实现）
+  ├── 飞书 Renderer + 飞书 Adapter（IM Adapter 模块）
+  ├── CLI Renderer + CLI Adapter（CLI 模块）
   └── 其他平台 Renderer + Adapter
   ↓
 IM Adapter（出站）→ 根据 (peer_id, thread_id) 发送到对应会话/话题，不参与格式转换
