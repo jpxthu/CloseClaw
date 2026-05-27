@@ -252,6 +252,5 @@ cargo test
 
 | 文档 | 说明 |
 |------|------|
-| [SPEC_CONVENTION.md](SPEC_CONVENTION.md) | SPEC 规格书编写规范 |
 | [docs/SETUP.md](docs/SETUP.md) | 环境搭建 |
 | [docs/design/](docs/design/README.md) | 模块设计文档 |
