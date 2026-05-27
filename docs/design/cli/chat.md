@@ -9,9 +9,20 @@ CLI Chat 是 terminal 消息渠道的对话交互功能。它实现 IMPlugin tra
 CLI Chat 的实现实体是 TerminalPlugin（IMPlugin trait 的 terminal 渠道实现），包含 TerminalAdapter（入站解析）和 TerminalRenderer（出站渲染）两个组件。
 
 ```
-stdin ──→ TerminalAdapter ──→ NormalizedMessage ──→ Processor Chain 入站 ──→ Gateway ──→ Session ──→ LLM
-                                                                                              ↓
-stdout ←── TerminalRenderer ←── ContentBlock[] ←── Processor Chain 出站 ←────────────────────┘
+入站
+  stdin
+  → TerminalAdapter
+  → NormalizedMessage
+  → Processor Chain 入站（RawLog → SessionRouter → MessageCleaner → MarkdownNormalizer）
+  → Gateway 路由
+  → Session
+  → LLM
+
+出站
+  ContentBlock[]
+  → Processor Chain 出站（DslParser → RawLog）
+  → TerminalRenderer
+  → stdout
 ```
 
 ### 入站：TerminalAdapter
