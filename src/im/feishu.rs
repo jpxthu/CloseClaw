@@ -3,7 +3,6 @@
 //! Implements IMAdapter for Feishu messaging platform.
 
 use super::{AdapterError, IMAdapter};
-use crate::card::{render_feishu_card, RichCard};
 use crate::gateway::Message;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -163,66 +162,6 @@ impl FeishuAdapter {
 
         resp.tenant_access_token
             .ok_or_else(|| AdapterError::SendFailed("No token in response".to_string()))
-    }
-}
-
-/// Card send and update operations
-impl FeishuAdapter {
-    /// Build the JSON content string for a card send request.
-    pub fn build_card_body(card: &RichCard) -> Result<String, AdapterError> {
-        let payload = render_feishu_card(card);
-        serde_json::to_string(&payload).map_err(|e| AdapterError::SendFailed(e.to_string()))
-    }
-
-    /// Send an interactive card message to a chat.
-    /// Returns the message ID on success, needed for subsequent updates.
-    pub async fn send_card(&self, chat_id: &str, card: &RichCard) -> Result<String, AdapterError> {
-        let token = self.get_tenant_token().await?;
-        let content = Self::build_card_body(card)?;
-        let url = format!("{}/im/v1/messages?receive_id_type=open_id", FEISHU_API_BASE);
-
-        #[derive(Serialize)]
-        struct Req<'a> {
-            receive_id: &'a str,
-            msg_type: &'a str,
-            content: &'a str,
-        }
-        #[derive(Deserialize)]
-        struct Resp {
-            code: i32,
-            msg: String,
-            data: Option<RespData>,
-        }
-        #[derive(Deserialize)]
-        struct RespData {
-            message_id: Option<String>,
-        }
-
-        let resp: Resp = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&Req {
-                receive_id: chat_id,
-                msg_type: "interactive",
-                content: &content,
-            })
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        if resp.code != 0 {
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu card send error {}: {}",
-                resp.code, resp.msg
-            )));
-        }
-        resp.data.and_then(|d| d.message_id).ok_or_else(|| {
-            AdapterError::SendFailed("No message_id in card send response".to_string())
-        })
     }
 }
 

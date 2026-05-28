@@ -2,7 +2,6 @@
 //!
 //! These tests were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
 
-use closeclaw::card::RichCard;
 use closeclaw::gateway::Message;
 use closeclaw::im::feishu::{CachedToken, FeishuAdapter};
 use closeclaw::im::IMAdapter;
@@ -94,28 +93,10 @@ async fn test_handle_webhook_empty_text() {
     assert_eq!(msg.metadata.get("account_id"), Some(&"a".to_string()));
 }
 
-#[test]
-fn test_build_card_body() {
-    let card = RichCard {
-        card_id: None,
-        title: "T".into(),
-        elements: vec![],
-        header: None,
-    };
-    assert!(FeishuAdapter::build_card_body(&card).is_ok());
-}
-
 #[tokio::test]
 async fn test_error_cases() {
     let a = FeishuAdapter::new("bad".into(), "bad".into(), "t".into());
     assert!(a.fetch_tenant_token().await.is_err());
-    let card = RichCard {
-        card_id: None,
-        title: "T".into(),
-        elements: vec![],
-        header: None,
-    };
-    assert!(a.send_card("ou", &card).await.is_err());
     let msg = Message {
         id: "1".into(),
         from: "a".into(),
