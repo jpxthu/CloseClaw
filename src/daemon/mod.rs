@@ -5,7 +5,6 @@
 pub mod shutdown;
 pub mod skill_reload;
 use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
-use crate::chat::ChatServer;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
@@ -13,7 +12,7 @@ use crate::config::providers::CredentialsProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
-use crate::llm::{AnthropicProvider, LLMRegistry, MiniMaxProvider, OpenAIProvider};
+
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::PersistenceService;
@@ -51,8 +50,6 @@ pub struct Daemon {
     pub agent_registry: Arc<RwLock<crate::agent::registry::AgentRegistry>>,
     pub permission_engine: Arc<PermissionEngine>,
     pub shutdown: shutdown::ShutdownHandle,
-    /// Chat TCP server (runs as background task)
-    pub chat_server: Arc<ChatServer>,
     /// Audit logger for structured audit logging
     pub audit_logger: Arc<AuditLogger>,
     /// SQLite storage for session persistence
@@ -171,8 +168,6 @@ impl Daemon {
         Self::init_feishu_adapter(config_dir, &gateway).await?;
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
-        let llm_registry = Self::init_llm_registry(Path::new(config_dir)).await;
-        let chat_server = Self::spawn_chat_server(&llm_registry, &shutdown, config_dir);
         // Spawn the background flush task for the (possibly injected) audit logger
         Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
         // Initialize skill hot reload system
@@ -187,7 +182,6 @@ impl Daemon {
             agent_registry,
             permission_engine,
             shutdown,
-            chat_server,
             audit_logger,
             storage,
             sweeper_shutdown_tx: sweeper_tx,
@@ -321,30 +315,6 @@ impl Daemon {
 }
 
 impl Daemon {
-    /// Create and spawn the chat TCP server as a background task.
-    fn spawn_chat_server(
-        llm_registry: &Arc<LLMRegistry>,
-        shutdown: &shutdown::ShutdownHandle,
-        config_dir: &str,
-    ) -> Arc<ChatServer> {
-        let chat_server = Arc::new(ChatServer::new(
-            Arc::clone(llm_registry),
-            None,
-            Some(config_dir),
-        ));
-        let chat_server_for_task = Arc::clone(&chat_server);
-        let shutdown_rx = shutdown.subscribe_drain();
-        tokio::spawn(async move {
-            if let Err(e) = chat_server_for_task.run(shutdown_rx).await {
-                tracing::warn!(error = %e, "chat server exited with error");
-            }
-        });
-        info!(
-            addr = "127.0.0.1:18889 (default)",
-            "chat TCP server spawned"
-        );
-        chat_server
-    }
     /// Spawn background flush + startup-log tasks for the given audit logger.
     /// Used by both production [`start()`](Self::start) and test entry points.
     fn spawn_audit_background_tasks(audit_logger: Arc<AuditLogger>) {
