@@ -134,7 +134,6 @@ Agent 协调层前置检查（depth/并发/白名单/requireAgentId/权限）
 
 | 模块 | 说明 |
 |------|------|
-| Audit | 审计日志由各模块自行写入 |
 | Card | 卡片渲染由 renderer 处理 |
 | IM Adapter | 消息路由由 gateway 处理 |
 | LLM Provider | agent 模块不直接调用 LLM |

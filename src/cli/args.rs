@@ -59,31 +59,3 @@ pub enum SkillAction {
         name: String,
     },
 }
-
-#[derive(Subcommand)]
-pub enum AuditAction {
-    /// Query audit logs
-    Query {
-        /// Number of past days to search (default: 1)
-        #[arg(long, default_value = "1")]
-        days: u32,
-        /// Filter by event type (e.g. "permission_check", "agent_start")
-        #[arg(long)]
-        event_type: Option<String>,
-        /// Filter by agent name
-        #[arg(long)]
-        agent: Option<String>,
-        /// Maximum number of results to return
-        #[arg(long)]
-        limit: Option<usize>,
-    },
-    /// Export audit logs to a file
-    Export {
-        /// Output file path
-        #[arg(long)]
-        output: String,
-        /// Output format (json or csv)
-        #[arg(long, default_value = "json")]
-        format: String,
-    },
-}
