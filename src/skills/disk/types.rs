@@ -5,19 +5,19 @@ use std::fmt;
 
 /// Source of a skill in the discovery hierarchy.
 ///
-/// Lower variant index = higher priority (bundled overrides everything).
+/// Lower variant index = higher priority (project overrides everything).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SkillSource {
-    /// Built-in skills bundled with the framework.
-    Bundled = 0,
-    /// Skills from user-provided extra directories.
-    ExtraDirs = 1,
+    /// Project-local skills (highest priority).
+    Project = 0,
+    /// Agent-specific skills.
+    Agent = 1,
     /// Global skills shared across all agents.
     Global = 2,
-    /// Agent-specific skills.
-    Agent = 3,
-    /// Project-local skills.
-    Project = 4,
+    /// Skills from user-provided extra directories.
+    ExtraDirs = 3,
+    /// Built-in skills bundled with the framework (lowest priority).
+    Bundled = 4,
 }
 
 impl fmt::Display for SkillSource {
@@ -163,10 +163,10 @@ mod tests {
 
     #[test]
     fn test_skill_source_priority() {
-        assert!(SkillSource::Bundled < SkillSource::ExtraDirs);
-        assert!(SkillSource::ExtraDirs < SkillSource::Global);
-        assert!(SkillSource::Global < SkillSource::Agent);
-        assert!(SkillSource::Agent < SkillSource::Project);
+        assert!(SkillSource::Project < SkillSource::Agent);
+        assert!(SkillSource::Agent < SkillSource::Global);
+        assert!(SkillSource::Global < SkillSource::ExtraDirs);
+        assert!(SkillSource::ExtraDirs < SkillSource::Bundled);
     }
 
     #[test]
