@@ -10,7 +10,6 @@
 
 pub mod builder;
 pub mod sections;
-pub mod slash_commands;
 pub mod workdir;
 
 pub use builder::{
