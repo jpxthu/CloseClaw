@@ -6,8 +6,10 @@ pub mod feishu;
 pub mod normalized;
 #[cfg(test)]
 pub mod normalized_tests;
+pub mod plugin;
 pub mod processor;
 pub use normalized::NormalizedMessage;
+pub use plugin::IMPlugin;
 
 use crate::gateway::Message;
 use async_trait::async_trait;
