@@ -39,10 +39,6 @@ enum Commands {
         #[arg(short, long)]
         force: bool,
     },
-    Audit {
-        #[command(subcommand)]
-        action: AuditAction,
-    },
 }
 
 #[tokio::main]
@@ -76,7 +72,6 @@ async fn main() -> anyhow::Result<()> {
             println!("Daemon stopped.");
         }
         Commands::Stop { force } => handle_stop(force).await?,
-        Commands::Audit { action } => handle_audit(action).await?,
     }
     Ok(())
 }
