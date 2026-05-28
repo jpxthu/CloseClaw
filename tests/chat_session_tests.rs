@@ -1,4 +1,4 @@
-#![allow(deprecated)]
+#![cfg(feature = "chat-legacy")]
 
 //! Integration tests for LegacyChatSession
 //!
@@ -103,6 +103,7 @@ async fn send_client_json(writer: &mut tokio::net::tcp::OwnedWriteHalf, json: &s
 
 /// Verify that `truncate_history` removes the oldest entries when the history
 /// exceeds `max_history`.
+#[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_truncate_history_removes_oldest() {
     let (mut session, _client) = setup_session().await;
@@ -122,6 +123,7 @@ async fn test_truncate_history_removes_oldest() {
 }
 
 /// Verify that `truncate_history` is a no-op when the history is under the limit.
+#[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_truncate_history_under_limit() {
     let (mut session, _client) = setup_session().await;
@@ -140,6 +142,7 @@ async fn test_truncate_history_under_limit() {
 
 /// Verify that `truncate_history` is a no-op when the history is exactly at
 /// the limit.
+#[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_truncate_history_exact_limit() {
     let (mut session, _client) = setup_session().await;
@@ -162,6 +165,7 @@ async fn test_truncate_history_exact_limit() {
 
 /// Verify a complete session lifecycle: chat.start → chat.message → chat.stop,
 /// checking that every step produces the expected server response sequence.
+#[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_full_session_lifecycle() {
     let (session, client, shutdown_tx) = setup_session_with_shutdown_tx().await;
@@ -229,6 +233,7 @@ async fn test_full_session_lifecycle() {
 
 /// Verify that when the server shutdown signal is fired, the session responds
 /// with a `ChatError` carrying the message "server shutting down".
+#[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_session_shutdown_signal() {
     std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
