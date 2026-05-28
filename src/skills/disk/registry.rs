@@ -83,7 +83,7 @@ impl DiskSkillRegistry {
 
     /// Returns all conditional skills (those with non-empty `paths`) that
     /// match any of the given file paths, sorted by [`SkillSource`] priority
-    /// (Bundled > ExtraDirs > Global > Agent > Project) with deduplication
+    /// (Project > Agent > Global > ExtraDirs > Bundled) with deduplication
     /// by name (higher-priority skill wins).
     ///
     /// Returns an empty vec when `paths` is empty or no conditional skills match.
@@ -118,7 +118,7 @@ impl DiskSkillRegistry {
 
     /// Generates a formatted skill listing string for the given agent_id.
     ///
-    /// - Sorts by SkillSource priority (Bundled > ExtraDirs > Global > Agent > Project)
+    /// - Sorts by SkillSource priority (Project > Agent > Global > ExtraDirs > Bundled)
     /// - Within the same priority, sorts by name alphabetically
     /// - Filters: only includes skills where `agent_id` is empty or matches the given agent_id
     /// - Format: `- **{name}**: {description}` + optionally ` — {when_to_use}`

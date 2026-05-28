@@ -1,7 +1,7 @@
 //! Skill directory scanner
 //!
 //! Scans hierarchical skill directories and returns discovered skills
-//! ordered by priority (bundled > extraDirs > global > agent > project).
+//! ordered by priority (project > agent > global > extraDirs > bundled).
 
 use std::collections::BTreeMap;
 
@@ -9,12 +9,12 @@ use super::{DiskSkill, ParsedSkill, ScanConfig, SkillSource};
 
 /// Scan all skill directories and return a list of discovered skills.
 ///
-/// Discovery order (highest to lowest priority):
-/// 1. `bundled_dir` — built-in framework skills
+/// Discovery order (lowest to highest priority, later overwrites earlier):
+/// 1. `bundled_dir` — built-in framework skills (lowest priority)
 /// 2. `extra_dirs` — user-provided additional directories
 /// 3. `global_dir` — global cross-agent skills
 /// 4. Agent-specific directory derived from `agent_id`
-/// 5. `project_root` — project-local skills
+/// 5. `project_root` — project-local skills (highest priority)
 ///
 /// When the same skill name appears at multiple priority levels,
 /// the higher-priority entry wins and a warning is emitted.
@@ -22,8 +22,16 @@ pub fn scan_all_skills(config: &ScanConfig) -> Vec<DiskSkill> {
     let mut skills_by_name: BTreeMap<String, DiskSkill> = BTreeMap::new();
 
     // Scan from lowest to highest priority so higher priority always overwrites
-    if let Some(ref project_root) = config.project_root {
-        scan_layer(project_root, SkillSource::Project, &mut skills_by_name);
+    if let Some(ref dir) = config.bundled_dir {
+        scan_layer(dir, SkillSource::Bundled, &mut skills_by_name);
+    }
+
+    for dir in &config.extra_dirs {
+        scan_layer(dir, SkillSource::ExtraDirs, &mut skills_by_name);
+    }
+
+    if let Some(ref dir) = config.global_dir {
+        scan_layer(dir, SkillSource::Global, &mut skills_by_name);
     }
 
     if let Some(ref agent_id) = config.agent_id {
@@ -33,16 +41,8 @@ pub fn scan_all_skills(config: &ScanConfig) -> Vec<DiskSkill> {
         }
     }
 
-    if let Some(ref dir) = config.global_dir {
-        scan_layer(dir, SkillSource::Global, &mut skills_by_name);
-    }
-
-    for dir in &config.extra_dirs {
-        scan_layer(dir, SkillSource::ExtraDirs, &mut skills_by_name);
-    }
-
-    if let Some(ref dir) = config.bundled_dir {
-        scan_layer(dir, SkillSource::Bundled, &mut skills_by_name);
+    if let Some(ref project_root) = config.project_root {
+        scan_layer(project_root, SkillSource::Project, &mut skills_by_name);
     }
 
     skills_by_name.into_values().collect()
@@ -200,21 +200,21 @@ mod tests {
     #[test]
     fn test_priority_override() {
         let temp = tempfile::tempdir().unwrap();
-        let lower_dir = temp.path().join("lower");
-        let higher_dir = temp.path().join("higher");
+        let bundled_dir = temp.path().join("bundled");
+        let project_dir = temp.path().join("project");
 
         create_file(
-            &lower_dir.join("shared-skill").join("SKILL.md"),
+            &bundled_dir.join("shared-skill").join("SKILL.md"),
             "---\ndescription: Lower\n---\n# Lower\n",
         );
         create_file(
-            &higher_dir.join("shared-skill").join("SKILL.md"),
+            &project_dir.join("shared-skill").join("SKILL.md"),
             "---\ndescription: Higher\n---\n# Higher\n",
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(higher_dir),
-            project_root: Some(lower_dir),
+            bundled_dir: Some(bundled_dir),
+            project_root: Some(project_dir),
             ..Default::default()
         };
 

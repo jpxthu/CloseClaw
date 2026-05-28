@@ -146,11 +146,11 @@ fn test_generate_listing_sorted_by_priority_and_name() {
     let listing = r.generate_listing(None);
     let lines: Vec<&str> = listing.lines().collect();
     assert_eq!(lines.len(), 6);
-    // Bundled before Global before Agent
-    assert!(listing.find("**a_bundled**").unwrap() < listing.find("**a_global**").unwrap());
-    assert!(listing.find("**a_global**").unwrap() < listing.find("**a_agent**").unwrap());
-    // Within Bundled, alphabetical order
-    assert!(listing.find("**a_bundled**").unwrap() < listing.find("**z_bundled**").unwrap());
+    // Agent before Global before Bundled (Project > Agent > Global > ExtraDirs > Bundled)
+    assert!(listing.find("**a_agent**").unwrap() < listing.find("**a_global**").unwrap());
+    assert!(listing.find("**a_global**").unwrap() < listing.find("**a_bundled**").unwrap());
+    // Within Agent, alphabetical order
+    assert!(listing.find("**a_agent**").unwrap() < listing.find("**z_agent**").unwrap());
 }
 
 #[test]
@@ -446,16 +446,16 @@ fn test_find_matching_skills_priority_dedup_mixed() {
         m.iter()
             .map(|s| s.manifest.name.as_str())
             .collect::<Vec<_>>(),
-        ["high", "mid", "low"]
+        ["low", "mid", "high"]
     );
-    // dedup: same name, higher priority wins
+    // dedup: same name, higher priority wins (Project > Bundled)
     let r2 = DiskSkillRegistry::new(vec![
         skill_with_paths("x", SkillSource::Project, vec!["**/*.rs".into()]),
         skill_with_paths("x", SkillSource::Bundled, vec!["**/*.rs".into()]),
     ]);
     let m2 = r2.find_matching_skills(&[Path::new("a.rs")]);
     assert_eq!(m2.len(), 1);
-    assert_eq!(m2[0].source, SkillSource::Bundled);
+    assert_eq!(m2[0].source, SkillSource::Project);
     // mixed + invalid glob skipped
     let r3 = DiskSkillRegistry::new(vec![
         skill_with_paths("rs", SkillSource::Bundled, vec!["**/*.rs".into()]),
