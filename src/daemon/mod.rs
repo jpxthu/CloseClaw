@@ -4,7 +4,6 @@
 //! Handles graceful shutdown via ShutdownCoordinator.
 pub mod shutdown;
 pub mod skill_reload;
-use crate::audit::{AuditEventBuilder, AuditEventType, AuditLogger, AuditResult};
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
@@ -50,8 +49,6 @@ pub struct Daemon {
     pub agent_registry: Arc<RwLock<crate::agent::registry::AgentRegistry>>,
     pub permission_engine: Arc<PermissionEngine>,
     pub shutdown: shutdown::ShutdownHandle,
-    /// Audit logger for structured audit logging
-    pub audit_logger: Arc<AuditLogger>,
     /// SQLite storage for session persistence
     pub storage: Arc<SqliteStorage>,
     /// Shutdown sender for ArchiveSweeper
@@ -65,23 +62,12 @@ pub struct Daemon {
 impl Daemon {
     /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
-        let audit_logger = Self::spawn_audit_tasks(config_dir);
-        Self::start_with_audit_logger(config_dir, audit_logger).await
-    }
-    /// Start the daemon with a custom audit logger (useful for testing).
-    /// Production code should use [`start()`](Self::start) instead.
-    pub async fn start_with_audit_logger(
-        config_dir: &str,
-        audit_logger: Arc<AuditLogger>,
-    ) -> anyhow::Result<Self> {
         let permission_engine = Self::build_permission_engine(config_dir);
-        Self::start_with_audit_logger_and_engine(config_dir, audit_logger, permission_engine).await
+        Self::start_with_engine(config_dir, permission_engine).await
     }
-    /// Start the daemon with custom audit logger and permission engine (useful for testing).
-    /// Production code should use [`start()`](Self::start) instead.
-    pub async fn start_with_audit_logger_and_engine(
+    /// Start the daemon with a custom permission engine (useful for testing).
+    pub async fn start_with_engine(
         config_dir: &str,
-        audit_logger: Arc<AuditLogger>,
         permission_engine: Arc<PermissionEngine>,
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
@@ -168,8 +154,6 @@ impl Daemon {
         Self::init_feishu_adapter(config_dir, &gateway).await?;
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
-        // Spawn the background flush task for the (possibly injected) audit logger
-        Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
         // Initialize skill hot reload system
         let (skill_registry, skill_watcher) =
             skill_reload::init_skill_hot_reload(config_dir).await?;
@@ -182,7 +166,6 @@ impl Daemon {
             agent_registry,
             permission_engine,
             shutdown,
-            audit_logger,
             storage,
             sweeper_shutdown_tx: sweeper_tx,
             skill_registry,
@@ -210,7 +193,6 @@ impl Daemon {
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
         let _ = self.sweeper_shutdown_tx.send(());
-        self.shutdown_audit().await;
         Ok(())
     }
     /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
@@ -225,7 +207,6 @@ impl Daemon {
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
         let _ = self.sweeper_shutdown_tx.send(());
-        self.shutdown_audit().await;
         Ok(())
     }
 }
@@ -314,110 +295,6 @@ impl Daemon {
     }
 }
 
-impl Daemon {
-    /// Spawn background flush + startup-log tasks for the given audit logger.
-    /// Used by both production [`start()`](Self::start) and test entry points.
-    fn spawn_audit_background_tasks(audit_logger: Arc<AuditLogger>) {
-        // Log daemon start as a config reload event
-        let logger_for_start = Arc::clone(&audit_logger);
-        tokio::spawn(async move {
-            let start_event = AuditEventBuilder::new(AuditEventType::ConfigReload)
-                .details(serde_json::json!({
-                    "component": "daemon",
-                    "version": env!("CARGO_PKG_VERSION"),
-                }))
-                .result(AuditResult::Allow)
-                .build();
-            logger_for_start.log(start_event).await;
-            logger_for_start.flush().await;
-        });
-        // Spawn background flush task
-        let audit_for_flush = Arc::clone(&audit_logger);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        audit_for_flush.rotate_if_needed().await;
-                        audit_for_flush.flush().await;
-                    }
-                }
-            }
-        });
-    }
-    /// Create audit logger and spawn background flush + startup-log tasks (production path).
-    fn spawn_audit_tasks(_config_dir: &str) -> Arc<AuditLogger> {
-        let audit_logger = Arc::new(AuditLogger::new());
-        Self::spawn_audit_background_tasks(Arc::clone(&audit_logger));
-        audit_logger
-    }
-}
-// --- Audit & permission helpers ---
-impl Daemon {
-    /// Evaluate a permission request and log the result to the audit log
-    pub async fn evaluate_with_audit(
-        &self,
-        request: crate::permission::PermissionRequest,
-    ) -> crate::permission::PermissionResponse {
-        let caller = request.caller().clone();
-        let agent_id = caller.agent.clone();
-        let response = self.permission_engine.evaluate(request.clone(), None);
-        let result = match &response {
-            crate::permission::PermissionResponse::Allowed { .. } => AuditResult::Allow,
-            crate::permission::PermissionResponse::Denied { .. } => AuditResult::Deny,
-        };
-        let event = AuditEventBuilder::new(AuditEventType::PermissionCheck)
-            .details(serde_json::json!({
-                "agent": agent_id,
-                "user_id": caller.user_id,
-                "request": request.body(),
-            }))
-            .result(result)
-            .build();
-        let logger = Arc::clone(&self.audit_logger);
-        tokio::spawn(async move {
-            logger.log(event).await;
-        });
-        response
-    }
-    /// Log an agent start event
-    pub async fn log_agent_start(&self, agent_id: &str, model: &str) {
-        let event = AuditEventBuilder::new(AuditEventType::AgentStart)
-            .details(serde_json::json!({ "agent": agent_id, "model": model }))
-            .result(AuditResult::Allow)
-            .build();
-        let logger = Arc::clone(&self.audit_logger);
-        tokio::spawn(async move {
-            logger.log(event).await;
-        });
-    }
-    /// Log an agent stop event
-    pub async fn log_agent_stop(&self, agent_id: &str) {
-        let event = AuditEventBuilder::new(AuditEventType::AgentStop)
-            .details(serde_json::json!({ "agent": agent_id }))
-            .result(AuditResult::Allow)
-            .build();
-        let logger = Arc::clone(&self.audit_logger);
-        tokio::spawn(async move {
-            logger.log(event).await;
-        });
-    }
-    /// Log an agent error event
-    pub async fn log_agent_error(&self, agent_id: &str, error: &str) {
-        let event = AuditEventBuilder::new(AuditEventType::AgentError)
-            .details(serde_json::json!({ "agent": agent_id, "error": error }))
-            .result(AuditResult::Error)
-            .build();
-        let logger = Arc::clone(&self.audit_logger);
-        tokio::spawn(async move {
-            logger.log(event).await;
-        });
-    }
-    /// Shutdown the audit logger (flush remaining events)
-    pub async fn shutdown_audit(&self) {
-        self.audit_logger.shutdown().await;
-    }
-}
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

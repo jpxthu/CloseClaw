@@ -100,52 +100,6 @@ pub async fn handle_skill(action: SkillAction) -> Result<()> {
     Ok(())
 }
 
-pub async fn handle_audit(action: AuditAction) -> Result<()> {
-    use closeclaw::audit::*;
-    match action {
-        AuditAction::Query {
-            days,
-            event_type,
-            agent,
-            limit,
-        } => {
-            let f = AuditQueryFilter {
-                days,
-                event_type,
-                agent,
-                limit,
-                home_dir: None,
-            };
-            let evs = query_audit_events(&f);
-            if evs.is_empty() {
-                println!("No audit events found.");
-            } else {
-                println!("Found {} audit event(s):", evs.len());
-                for e in &evs {
-                    println!(
-                        "  [{}] {:?} -- {:?}",
-                        e.timestamp.format("%Y-%m-%d %H:%M:%S"),
-                        e.event_type,
-                        e.result
-                    );
-                }
-            }
-        }
-        AuditAction::Export { output, format } => {
-            let f = AuditQueryFilter {
-                days: 30,
-                event_type: None,
-                agent: None,
-                limit: None,
-                home_dir: None,
-            };
-            let cnt = export_audit_events(&f, &output, &format)?;
-            println!("Exported {} audit event(s) to {} ({})", cnt, output, format);
-        }
-    }
-    Ok(())
-}
-
 pub async fn handle_stop(force: bool) -> Result<()> {
     let p = pid_file_path();
     let pid: u32 = if p.exists() {

@@ -23,8 +23,7 @@ closeclaw <command>
     ├── closeclaw config       — 管理配置文件
     ├── closeclaw agent        — 管理 agent
     ├── closeclaw rule         — 管理权限规则
-    ├── closeclaw skill        — 管理 skill
-    └── closeclaw audit        — 查询审计日志
+    └── closeclaw skill        — 管理 skill
 ```
 
 ### Chat 层与 IM 渠道的关系

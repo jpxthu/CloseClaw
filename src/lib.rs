@@ -7,7 +7,6 @@
 //! - **Config System**: Hot-reloadable JSON configs with validation and rollback
 
 pub mod agent;
-pub mod audit;
 pub mod cli;
 pub mod config;
 pub mod daemon;
