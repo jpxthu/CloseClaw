@@ -8,14 +8,12 @@
 
 pub mod agent;
 pub mod audit;
-pub mod card;
 pub mod cli;
 pub mod config;
 pub mod daemon;
 pub mod gateway;
 pub mod im;
 pub mod llm;
-pub mod mode;
 pub mod permission;
 pub mod platform;
 pub mod processor_chain;
