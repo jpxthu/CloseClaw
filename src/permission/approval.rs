@@ -4,7 +4,7 @@
 //!
 //! # Architecture
 //! - `ApprovalQueue` manages pending approvals keyed by `RequestId`.
-//! - Deduplication is based on `OperationKey` (SHA256 of `PermissionRequestBody` JSON).
+//! - Deduplication is based on `OperationKey` (SHA256 of caller + `PermissionRequestBody` JSON).
 //! - Callbacks are triggered on approve/deny/clear operations.
 //!
 //! # Example
@@ -120,12 +120,14 @@ impl ApprovalQueue {
         }
     }
 
-    /// Compute the operation key (SHA256 hex) for a permission request body.
+    /// Compute the operation key (SHA256 hex) for a permission request.
     ///
-    /// Used for deduplication: identical bodies produce identical keys.
-    pub fn compute_operation_key(body: &PermissionRequestBody) -> OperationKey {
+    /// Used for deduplication: same caller + same body produce identical keys.
+    /// Different callers with the same body produce different keys.
+    pub fn compute_operation_key(caller: &Caller, body: &PermissionRequestBody) -> OperationKey {
         let json = serde_json::to_string(body).expect("PermissionRequestBody is serializable");
-        let hash = Sha256::digest(json.as_bytes());
+        let input = format!("{}:{}:{}", caller.user_id, caller.agent, json);
+        let hash = Sha256::digest(input.as_bytes());
         hex::encode(hash)
     }
 
@@ -143,7 +145,7 @@ impl ApprovalQueue {
         session_resume: String,
         callback: Callback,
     ) -> Result<RequestId, RejectReason> {
-        let operation_key = Self::compute_operation_key(&request);
+        let operation_key = Self::compute_operation_key(&caller, &request);
 
         // Check for duplicate by scanning all pending entries.
         let is_duplicate = self

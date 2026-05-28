@@ -48,8 +48,9 @@ fn test_compute_operation_key_deterministic() {
         path: "/repo/src/main.rs".to_string(),
         op: "read".to_string(),
     };
-    let key1 = ApprovalQueue::compute_operation_key(&body);
-    let key2 = ApprovalQueue::compute_operation_key(&body);
+    let caller = dummy_caller();
+    let key1 = ApprovalQueue::compute_operation_key(&caller, &body);
+    let key2 = ApprovalQueue::compute_operation_key(&caller, &body);
     assert_eq!(key1, key2);
     assert_eq!(key1.len(), 64); // SHA256 hex = 64 chars
 }
@@ -66,8 +67,9 @@ fn test_compute_operation_key_different_for_different_bodies() {
         path: "/repo/b.txt".to_string(),
         op: "read".to_string(),
     };
-    let key1 = ApprovalQueue::compute_operation_key(&body1);
-    let key2 = ApprovalQueue::compute_operation_key(&body2);
+    let caller = dummy_caller();
+    let key1 = ApprovalQueue::compute_operation_key(&caller, &body1);
+    let key2 = ApprovalQueue::compute_operation_key(&caller, &body2);
     assert_ne!(key1, key2);
 }
 
@@ -347,6 +349,86 @@ fn test_enqueue_different_bodies_not_duplicate() {
 
     assert_ne!(id1, id2);
     assert_eq!(queue.pending_count(), 2);
+}
+
+#[test]
+fn test_different_caller_same_body_not_duplicate() {
+    let mut queue = ApprovalQueue::new();
+    let body = make_file_op("a");
+
+    let caller1 = Caller {
+        user_id: "user-1".to_string(),
+        agent: "agent-1".to_string(),
+        creator_id: "creator-1".to_string(),
+    };
+    let caller2 = Caller {
+        user_id: "user-2".to_string(),
+        agent: "agent-2".to_string(),
+        creator_id: "creator-2".to_string(),
+    };
+
+    let id1 = queue
+        .enqueue(
+            body.clone(),
+            caller1,
+            "op1".to_string(),
+            RiskLevel::Low,
+            "v1".to_string(),
+            "resume-1".to_string(),
+            Box::new(|_| {}),
+        )
+        .unwrap();
+
+    // Different caller, same body → different operation_key → must succeed
+    let id2 = queue
+        .enqueue(
+            body,
+            caller2,
+            "op2".to_string(),
+            RiskLevel::Low,
+            "v1".to_string(),
+            "resume-2".to_string(),
+            Box::new(|_| {}),
+        )
+        .unwrap();
+
+    assert_ne!(id1, id2);
+    assert_eq!(queue.pending_count(), 2);
+}
+
+#[test]
+fn test_same_caller_same_body_is_duplicate() {
+    let mut queue = ApprovalQueue::new();
+    let body = make_file_op("a");
+    let caller = dummy_caller();
+
+    let id1 = queue
+        .enqueue(
+            body.clone(),
+            caller.clone(),
+            "op1".to_string(),
+            RiskLevel::Low,
+            "v1".to_string(),
+            "resume-1".to_string(),
+            Box::new(|_| {}),
+        )
+        .unwrap();
+
+    // Same caller, same body → same operation_key → must reject
+    let id2 = queue.enqueue(
+        body,
+        caller,
+        "op2".to_string(),
+        RiskLevel::Low,
+        "v1".to_string(),
+        "resume-2".to_string(),
+        Box::new(|_| {}),
+    );
+
+    assert!(id2.is_err());
+    assert_eq!(id2.unwrap_err(), RejectReason::Duplicate);
+    assert_eq!(queue.pending_count(), 1);
+    assert!(queue.get_pending(&id1).is_some());
 }
 
 #[test]
