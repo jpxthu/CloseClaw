@@ -1,3 +1,5 @@
+#![cfg(feature = "chat-legacy")]
+
 //! E2E tests for session compaction via /compact command.
 //!
 //! Verifies the complete integration path:
@@ -85,6 +87,7 @@ async fn send_client_json(writer: &mut tokio::net::tcp::OwnedWriteHalf, json: &s
 
 /// Test: 3 rounds of conversation → /compact → boundary message replaces history
 /// → continue conversation → second /compact.
+#[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_session_compact_e2e() {
     let scenarios = vec![
@@ -242,6 +245,7 @@ async fn test_session_compact_e2e() {
 }
 
 /// Test: /compact with extra arguments returns error.
+#[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_compact_invalid_syntax_returns_error() {
     let scenarios = vec![(

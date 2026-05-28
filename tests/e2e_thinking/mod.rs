@@ -1,9 +1,9 @@
+#![cfg(feature = "chat-legacy")]
+
 //! e2e_thinking module — all helpers and tests
 //!
 //! Tests 1, 2 use unit-style (direct session manipulation without spawn).
 //! Tests 3-5 use protocol-level TCP style (spawn session.run() + TCP client).
-
-#![allow(deprecated)]
 
 #[cfg(feature = "fake-llm")]
 mod tests {
@@ -94,6 +94,7 @@ mod tests {
     // Test 1: thinking tag string is transparently stored in chat_history
     // ---------------------------------------------------------------------------
 
+    #[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
     #[tokio::test]
     async fn test_thinking_tag_persistence_in_history() {
         // Build FakeProvider with thinking-tagged responses
@@ -177,6 +178,7 @@ mod tests {
     // Test 2: execute_compact output does NOT contain original thinking tags
     // ---------------------------------------------------------------------------
 
+    #[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
     #[tokio::test]
     async fn test_compact_boundary_excludes_thinking_tags() {
         let fake_provider = build_fake_provider(vec![Scenario::ok(
@@ -245,6 +247,7 @@ mod tests {
     // Test 3: thinking tag response traverses the wire via TCP protocol
     // ---------------------------------------------------------------------------
 
+    #[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
     #[tokio::test]
     async fn test_thinking_tag_traverses_tcp_protocol() {
         let scenarios = vec![Scenario::ok(
@@ -296,6 +299,7 @@ mod tests {
     // Test 4: post-compact conversation continues with new session context
     // ---------------------------------------------------------------------------
 
+    #[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
     #[tokio::test]
     async fn test_conversation_continues_after_compact() {
         let scenarios = vec![
@@ -384,6 +388,7 @@ mod tests {
     // Test 5: session remains functional after compact
     // ---------------------------------------------------------------------------
 
+    #[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
     #[tokio::test]
     async fn test_session_stable_after_compact() {
         let scenarios = vec![

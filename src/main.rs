@@ -4,7 +4,6 @@ mod handlers;
 use crate::handlers::*;
 use clap::{Parser, Subcommand};
 use closeclaw::cli::args::*;
-use closeclaw::cli::chat::ChatCommand;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -39,10 +38,6 @@ enum Commands {
     Stop {
         #[arg(short, long)]
         force: bool,
-    },
-    Chat {
-        #[command(flatten)]
-        chat_opts: ChatCommand,
     },
     Audit {
         #[command(subcommand)]
@@ -81,7 +76,6 @@ async fn main() -> anyhow::Result<()> {
             println!("Daemon stopped.");
         }
         Commands::Stop { force } => handle_stop(force).await?,
-        Commands::Chat { chat_opts } => chat_opts.run().await?,
         Commands::Audit { action } => handle_audit(action).await?,
     }
     Ok(())
