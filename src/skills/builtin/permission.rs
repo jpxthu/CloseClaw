@@ -118,7 +118,6 @@ mod tests {
     fn make_engine_with_allow_rule() -> Arc<crate::permission::PermissionEngine> {
         use crate::permission::engine::engine_types::MatchType;
         let rules = RuleSet {
-            version: "1".to_string(),
             rules: vec![Rule {
                 name: "test-allow".to_string(),
                 subject: Subject::AgentOnly {

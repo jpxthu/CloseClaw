@@ -18,7 +18,6 @@ async fn test_file_ops_read_requires_agent_id_when_engine_set() {
 
     // With engine, agent_id IS required
     let ruleset = crate::permission::RuleSet {
-        version: "1.0".to_string(),
         rules: vec![],
         defaults: crate::permission::Defaults::default(),
         template_includes: vec![],
@@ -49,7 +48,6 @@ async fn test_file_ops_read_with_permission() {
         priority: 0,
     };
     let ruleset = crate::permission::RuleSet {
-        version: "1.0".to_string(),
         rules: vec![rule],
         defaults: crate::permission::Defaults::default(),
         template_includes: vec![],
@@ -86,7 +84,6 @@ async fn test_file_ops_read_denied_without_permission() {
         priority: 0,
     };
     let ruleset = crate::permission::RuleSet {
-        version: "1.0".to_string(),
         rules: vec![rule],
         defaults: crate::permission::Defaults::default(),
         template_includes: vec![],
@@ -116,7 +113,6 @@ async fn test_file_ops_exists_requires_agent_id_when_engine_set() {
     assert!(result.is_ok());
 
     let ruleset = crate::permission::RuleSet {
-        version: "1.0".to_string(),
         rules: vec![],
         defaults: crate::permission::Defaults::default(),
         template_includes: vec![],
@@ -147,7 +143,6 @@ async fn test_file_ops_exists_with_permission() {
         priority: 0,
     };
     let ruleset = crate::permission::RuleSet {
-        version: "1.0".to_string(),
         rules: vec![rule],
         defaults: crate::permission::Defaults::default(),
         template_includes: vec![],

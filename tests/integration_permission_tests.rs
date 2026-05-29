@@ -18,7 +18,6 @@ use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
 /// Creates a ruleset that grants permissions to any agent (using wildcard patterns).
 fn make_test_ruleset() -> RuleSet {
     RuleSetBuilder::new()
-        .version("1.0.0")
         .rule(
             RuleBuilder::new()
                 .name("allow-file-read")
@@ -165,7 +164,6 @@ async fn test_permission_engine_with_registered_agent() {
 async fn test_permission_user_and_agent_dual_key_matching() {
     // Build ruleset with dual-key subject
     let ruleset = RuleSetBuilder::new()
-        .version("1.0.0")
         .rule(
             RuleBuilder::new()
                 .name("admin-full-access")
@@ -255,7 +253,6 @@ async fn test_permission_user_and_agent_dual_key_matching() {
 #[tokio::test]
 async fn test_permission_engine_reload_updates_rules() {
     let initial_rules = RuleSetBuilder::new()
-        .version("1.0.0")
         .rule(
             RuleBuilder::new()
                 .name("initial-allow")
@@ -287,7 +284,6 @@ async fn test_permission_engine_reload_updates_rules() {
 
     // Reload with new rules (no rules, default deny)
     let new_rules = RuleSetBuilder::new()
-        .version("1.0.0")
         .default_file(Effect::Deny)
         .build()
         .unwrap();
@@ -349,7 +345,6 @@ async fn test_permission_engine_template_resolution() {
     );
 
     let ruleset = RuleSetBuilder::new()
-        .version("1.0.0")
         .rule(
             RuleBuilder::new()
                 .name("developer-via-template")

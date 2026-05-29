@@ -35,7 +35,6 @@ fn test_rule_builder_missing_name() {
 #[test]
 fn test_ruleset_builder() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .rule(
             RuleBuilder::new()
                 .name("test-rule")
@@ -48,7 +47,6 @@ fn test_ruleset_builder() {
         .build()
         .unwrap();
 
-    assert_eq!(ruleset.version, "1.0");
     assert_eq!(ruleset.rules.len(), 1);
     assert_eq!(ruleset.defaults.file, Effect::Deny);
 }
@@ -138,24 +136,8 @@ fn test_validation_no_actions() {
 }
 
 #[test]
-fn test_validation_ruleset_empty_version() {
-    let ruleset = RuleSet {
-        version: String::new(),
-        rules: vec![],
-        defaults: Defaults::default(),
-        template_includes: vec![],
-        agent_creators: std::collections::HashMap::new(),
-    };
-    let errors = validation::validate_ruleset(&ruleset);
-    assert!(errors
-        .iter()
-        .any(|e| matches!(e, validation::RuleSetValidationError::EmptyVersion)));
-}
-
-#[test]
 fn test_validation_has_deny_rules() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .rule(
             RuleBuilder::new()
                 .name("deny-rule")
@@ -178,7 +160,6 @@ fn test_validation_has_deny_rules() {
 #[test]
 fn test_validation_has_allow_rules() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .rule(
             RuleBuilder::new()
                 .name("allow-rule")
@@ -199,29 +180,6 @@ fn test_validation_has_allow_rules() {
 }
 
 #[test]
-fn test_ruleset_builder_missing_version() {
-    let result = RuleSetBuilder::new()
-        .rule(
-            RuleBuilder::new()
-                .name("test-rule")
-                .subject_agent("test")
-                .allow()
-                .action(
-                    ActionBuilder::file("read", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .build();
-    assert!(matches!(
-        result,
-        Err(RuleSetBuilderError::MissingField("version"))
-    ));
-}
-
-#[test]
 fn test_defaults_tool_call_is_deny() {
     let defaults = Defaults::default();
     assert_eq!(defaults.tool_call, Effect::Deny);
@@ -237,7 +195,6 @@ fn test_defaults_json_missing_tool_call() {
 #[test]
 fn test_ruleset_builder_default_tool_call() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_tool_call(Effect::Allow)
         .build()
         .unwrap();

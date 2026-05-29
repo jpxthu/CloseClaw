@@ -267,7 +267,6 @@ mod tests {
     #[test]
     fn test_sandbox_request_reload_rules_serialization() {
         let rules = crate::permission::engine::RuleSet {
-            version: "1.0".to_string(),
             rules: vec![],
             defaults: Default::default(),
             template_includes: vec![],

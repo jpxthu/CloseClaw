@@ -11,7 +11,6 @@ use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
 
 fn owner_evaluate(request_body: PermissionRequestBody) -> PermissionResponse {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
@@ -158,7 +157,6 @@ fn test_owner_no_matching_rule_default_deny() {
 fn test_non_owner_unaffected_by_owner_shortcut() {
     // Non-owner caller should still evaluate UserAndAgent rules normally
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
@@ -228,7 +226,6 @@ fn test_owner_shortcut_after_creator_rule() {
     // Creator rule should take priority over owner shortcut.
     // But if caller is both owner AND creator, they get Allowed via creator rule.
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .agent_creator("test-agent", "owner")
         .default_file(Effect::Deny)
         .build()

@@ -12,7 +12,6 @@ use std::collections::HashMap;
 /// Helper to build a minimal RuleSet with given defaults and rules.
 fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
     let ruleset = RuleSet {
-        version: "1.0".to_string(),
         rules,
         defaults: super::engine_types::Defaults {
             file: default_file,
