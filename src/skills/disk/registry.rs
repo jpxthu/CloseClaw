@@ -6,7 +6,7 @@ use super::path_matcher::PathMatcher;
 use super::types::{DiskSkill, SkillSource};
 
 /// In-memory registry holding all discovered disk skills.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DiskSkillRegistry {
     skills: Vec<DiskSkill>,
 }
