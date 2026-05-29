@@ -15,6 +15,7 @@ Tools 模块是 CloseClaw 的 agent 能力层，管理 LLM 可调用的全部工
 | 文档 | 内容 |
 |------|------|
 | [bash-tool.md](bash-tool.md) | Bash 工具：命令执行、超时控制、输出截断、后台触发 |
+| [bash-security.md](bash-security.md) | Bash 安全解析：AST 分析、信任分级、攻击检测 |
 | [background-tasks.md](background-tasks.md) | 后台任务：异步执行、自动后台化、卡死检测、完成通知 |
 | [tools-prompt-injection.md](tools-prompt-injection.md) | 工具提示词注入：两级注入机制、加载策略、长度控制 |
 | [dynamic-prompt-generation.md](dynamic-prompt-generation.md) | 提示词动态生成：Schema/Prompt 双轨制、上下文感知 |
