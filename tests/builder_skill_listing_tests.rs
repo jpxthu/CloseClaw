@@ -21,7 +21,7 @@ fn make_test_skill(name: &str, description: &str, when_to_use: &str, agent_id: &
             agent_id: agent_id.into(),
             effort: SkillEffort::default(),
             paths: vec![],
-            user_invocable: false,
+            user_invocable: true,
         },
         readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
         skill_dir: PathBuf::from(format!("/skills/{}", name)),
