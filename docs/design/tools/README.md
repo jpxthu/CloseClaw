@@ -14,7 +14,8 @@ Tools 模块是 CloseClaw 的 agent 能力层，管理 LLM 可调用的全部工
 
 | 文档 | 内容 |
 |------|------|
-| [bash-tool.md](bash-tool.md) | Bash 工具：shell 命令执行、权限校验、输出截断 |
+| [bash-tool.md](bash-tool.md) | Bash 工具：命令执行、超时控制、输出截断、后台触发 |
+| [background-tasks.md](background-tasks.md) | 后台任务：异步执行、自动后台化、卡死检测、完成通知 |
 | [tools-prompt-injection.md](tools-prompt-injection.md) | 工具提示词注入：两级注入机制、加载策略、长度控制 |
 | [dynamic-prompt-generation.md](dynamic-prompt-generation.md) | 提示词动态生成：Schema/Prompt 双轨制、上下文感知 |
 | [tools-keywords.md](tools-keywords.md) | 工具关键词索引：嵌入格式、匹配机制、维护原则 |
@@ -38,7 +39,7 @@ ToolRegistry（注册中心层）    ← 并发安全的注册、查询、索引
 - **标识**：工具名和所属分组，用于索引和发现
 - **摘要**：一句话描述，用于工具列表场景
 - **行为描述**：完整的功能说明，常用工具的行为描述进入一级索引供 LLM 理解工具用途
-- **参数模式**：JSON Schema 格式，直接暴露为 API schema，不转自然语言
+- **参数模式**：JSON Schema 格式，直接暴露为 API schema，不转自然语言（动态生成机制详见 [dynamic-prompt-generation.md](dynamic-prompt-generation.md)）
 - **运行时标记**：标识工具是否只读、是否破坏性、是否默认延迟加载、是否并发安全
 
 ### 注册中心层
@@ -68,6 +69,7 @@ ToolRegistry（注册中心层）    ← 并发安全的注册、查询、索引
 
 | 分组 | 工具 | 加载策略 |
 |------|------|---------|
+| bash | Bash | 始终加载 |
 | file_ops | Read、Write、Edit、Grep、Ls | 始终加载 |
 | git_ops | GitStatus、GitLog、GitCommit、GitPush、GitPull | 延迟加载 |
 | meta | ToolSearch、PermissionQuery | 始终加载 |
@@ -75,7 +77,7 @@ ToolRegistry（注册中心层）    ← 并发安全的注册、查询、索引
 | coding_agent | CodingAgent | 延迟加载 |
 | skill_creator | SkillCreator | 延迟加载 |
 
-**文件操作组**提供文件的读写、编辑、搜索和目录列表能力。**Git 操作组**提供 Git 状态查询和提交推送能力，其中状态和日志为只读，提交和推送为破坏性操作。**元操作组**提供工具发现和权限查询两种系统级能力。**Skills 组**通过 SkillTool 桥接到 skill 系统，按需读取 SKILL.md 注入上下文。
+**Bash 组**提供 shell 命令执行能力，支持超时控制、输出截断和后台执行。被标记为破坏性和昂贵工具，是 agent 与本地开发环境交互的主要工具。**文件操作组**提供文件的读写、编辑、搜索和目录列表能力。**Git 操作组**提供 Git 状态查询和提交推送能力，其中状态和日志为只读，提交和推送为破坏性操作。**元操作组**提供工具发现和权限查询两种系统级能力。**Skills 组**通过 SkillTool 桥接到 skill 系统，按需读取 SKILL.md 注入上下文。
 
 ### 平台工具
 
