@@ -4,10 +4,12 @@ use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_tem
 use super::engine_matching::action_matches_request;
 use super::engine_risk::assess_risk_level;
 use super::engine_types::{
-    Action, Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule,
-    RuleSet, Subject,
+    Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet,
+    Subject,
 };
+use super::engine_workspace;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tracing::info;
 
 /// Permission Engine - evaluates access requests against rules
@@ -20,21 +22,29 @@ pub struct PermissionEngine {
     user_agent_rule_index: HashMap<String, Vec<usize>>,
     /// Loaded templates: name -> Template
     templates: HashMap<String, crate::permission::templates::Template>,
+    /// Data root directory for workspace path resolution
+    data_root: PathBuf,
 }
 
 // --- Construction & index management ---
 
 impl PermissionEngine {
     /// Create a new PermissionEngine from a RuleSet
-    pub fn new(rules: RuleSet) -> Self {
+    pub fn new(rules: RuleSet, data_root: PathBuf) -> Self {
         let mut engine = Self {
             rules: rules.clone(),
             agent_rule_index: HashMap::new(),
             user_agent_rule_index: HashMap::new(),
             templates: HashMap::new(),
+            data_root,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
+    }
+
+    /// Create a new PermissionEngine with a default data root (for tests)
+    pub fn new_with_default_data_root(rules: RuleSet) -> Self {
+        Self::new(rules, PathBuf::from("/tmp/closeclaw_test"))
     }
 
     /// Rebuild the lookup indices from a given ruleset (sync helper).
@@ -74,63 +84,6 @@ impl PermissionEngine {
     }
 }
 
-// --- Simplified check ---
-
-impl PermissionEngine {
-    /// Simplified permission check — evaluates if `agent_id` may perform `action`.
-    pub fn check(&self, agent_id: &str, action: &str) -> PermissionResponse {
-        let body = match action {
-            "exec" => PermissionRequestBody::CommandExec {
-                agent: agent_id.to_string(),
-                cmd: "*".to_string(),
-                args: Vec::new(),
-            },
-            "file_read" => PermissionRequestBody::FileOp {
-                agent: agent_id.to_string(),
-                path: "*".to_string(),
-                op: "read".to_string(),
-            },
-            "file_write" => PermissionRequestBody::FileOp {
-                agent: agent_id.to_string(),
-                path: "*".to_string(),
-                op: "write".to_string(),
-            },
-            "network" => PermissionRequestBody::NetOp {
-                agent: agent_id.to_string(),
-                host: "*".to_string(),
-                port: 0,
-            },
-            "spawn" => PermissionRequestBody::InterAgentMsg {
-                from: agent_id.to_string(),
-                to: "*".to_string(),
-            },
-            "tool_call" => PermissionRequestBody::ToolCall {
-                agent: agent_id.to_string(),
-                skill: "*".to_string(),
-                method: "*".to_string(),
-            },
-            "config_write" => PermissionRequestBody::ConfigWrite {
-                agent: agent_id.to_string(),
-                config_file: "*".to_string(),
-            },
-            _ => {
-                let body = PermissionRequestBody::ToolCall {
-                    agent: agent_id.to_string(),
-                    skill: action.to_string(),
-                    method: "unknown".to_string(),
-                };
-                return PermissionResponse::Denied {
-                    reason: format!("unknown action: {}", action),
-                    rule: "<check>".to_string(),
-                    risk_level: assess_risk_level(&body),
-                };
-            }
-        };
-
-        self.evaluate(PermissionRequest::Bare(body), None)
-    }
-}
-
 // --- Evaluation & helpers ---
 
 impl PermissionEngine {
@@ -142,6 +95,28 @@ impl PermissionEngine {
     ) -> PermissionResponse {
         let caller = request.caller();
         let agent_id = caller.agent.clone();
+
+        // Step 0.5: Workspace forced authorization
+        if let PermissionRequestBody::FileOp { agent, path, op } = request.body() {
+            if (op == "read" || op == "write")
+                && engine_workspace::is_workspace_path(
+                    &self.data_root,
+                    agent,
+                    &caller.user_id,
+                    path,
+                )
+            {
+                info!(
+                    agent = %agent_id,
+                    result = "allowed",
+                    reason = "workspace_forced_auth",
+                    "permission check completed"
+                );
+                return PermissionResponse::Allowed {
+                    token: generate_token(),
+                };
+            }
+        }
 
         info!(
             agent = %agent_id,
@@ -255,7 +230,12 @@ impl PermissionEngine {
 
         if let Some(creator_id) = effective_creator_id {
             if caller.user_id == creator_id {
-                info!(agent = %agent_id, result = "allowed", reason = "creator_rule", "permission check completed");
+                info!(
+                    agent = %agent_id,
+                    result = "allowed",
+                    reason = "creator_rule",
+                    "permission check completed"
+                );
                 return Some(PermissionResponse::Allowed {
                     token: generate_token(),
                 });
@@ -375,7 +355,12 @@ impl PermissionEngine {
         }
 
         if matching_rule_name.is_some() {
-            info!(agent = %caller.agent, result = "allowed", reason = "matched_rule", "permission check completed");
+            info!(
+                agent = %caller.agent,
+                result = "allowed",
+                reason = "matched_rule",
+                "permission check completed"
+            );
             return Some(PermissionResponse::Allowed {
                 token: generate_token(),
             });

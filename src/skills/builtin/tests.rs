@@ -23,7 +23,7 @@ async fn test_file_ops_read_requires_agent_id_when_engine_set() {
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill_with = FileOpsSkill::with_engine(engine);
     let result = skill_with
         .execute("read", serde_json::json!({"path": "Cargo.toml"}))
@@ -53,7 +53,7 @@ async fn test_file_ops_read_with_permission() {
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill = FileOpsSkill::with_engine(engine);
     let result = skill
         .execute(
@@ -89,7 +89,7 @@ async fn test_file_ops_read_denied_without_permission() {
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill = FileOpsSkill::with_engine(engine);
     let result = skill
         .execute(
@@ -118,7 +118,7 @@ async fn test_file_ops_exists_requires_agent_id_when_engine_set() {
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill_with = FileOpsSkill::with_engine(engine);
     let result = skill_with
         .execute("exists", serde_json::json!({"path": "Cargo.toml"}))
@@ -148,7 +148,7 @@ async fn test_file_ops_exists_with_permission() {
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new(ruleset));
+    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill = FileOpsSkill::with_engine(engine);
     let result = skill
         .execute(

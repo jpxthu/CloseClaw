@@ -106,7 +106,7 @@ fn make_test_ruleset() -> RuleSet {
 async fn test_permission_engine_with_registered_agent() {
     let registry: SharedAgentRegistry = create_registry(30);
     let rules = make_test_ruleset();
-    let engine = PermissionEngine::new(rules);
+    let engine = PermissionEngine::new_with_default_data_root(rules);
 
     // Register an agent (ID will be UUID)
     let agent = registry
@@ -193,7 +193,7 @@ async fn test_permission_user_and_agent_dual_key_matching() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Admin user with any agent should get full access (including exec)
     let response = engine.evaluate(
@@ -269,7 +269,7 @@ async fn test_permission_engine_reload_updates_rules() {
         .build()
         .unwrap();
 
-    let mut engine = PermissionEngine::new(initial_rules);
+    let mut engine = PermissionEngine::new_with_default_data_root(initial_rules);
 
     // Initial: should allow
     let response = engine.evaluate(
@@ -362,7 +362,7 @@ async fn test_permission_engine_template_resolution() {
         .build()
         .unwrap();
 
-    let mut engine = PermissionEngine::new(ruleset);
+    let mut engine = PermissionEngine::new_with_default_data_root(ruleset);
     engine.load_templates(templates);
 
     // Test file read via template-resolved rule
