@@ -11,7 +11,6 @@ use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
 #[tokio::test]
 async fn test_user_and_agent_rule_matching() {
     let ruleset = RuleSetBuilder::new()
-        .version("2.0")
         .rule(
             RuleBuilder::new()
                 .name("alice-read")
@@ -54,7 +53,6 @@ async fn test_user_and_agent_rule_matching() {
 #[tokio::test]
 async fn test_user_and_agent_rule_user_mismatch() {
     let ruleset = RuleSetBuilder::new()
-        .version("2.0")
         .rule(
             RuleBuilder::new()
                 .name("alice-read")
@@ -97,7 +95,6 @@ async fn test_user_and_agent_rule_user_mismatch() {
 #[tokio::test]
 async fn test_bare_request_uses_agent_only_matching() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .rule(
             RuleBuilder::new()
                 .name("dev-agent-full")
@@ -128,7 +125,6 @@ async fn test_bare_request_uses_agent_only_matching() {
 #[tokio::test]
 async fn test_with_caller_request_still_matches_agent_only_rules() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .rule(
             RuleBuilder::new()
                 .name("dev-agent-full")
@@ -166,7 +162,6 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
 #[tokio::test]
 async fn test_rule_priority_higher_evaluated_first() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .rule(
             RuleBuilder::new()
                 .name("low-priority-allow")

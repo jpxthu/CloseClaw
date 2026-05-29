@@ -14,7 +14,6 @@ use tempfile::TempDir;
 /// Build an engine that allows file_read and file_write for "test-agent"
 fn make_allowed_engine() -> Arc<crate::permission::PermissionEngine> {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Deny)
         .rule(
             RuleBuilder::new()
@@ -89,7 +88,6 @@ fn make_allowed_engine() -> Arc<crate::permission::PermissionEngine> {
 /// Build an engine that denies all file actions by default (no matching rules)
 fn make_denied_engine() -> Arc<crate::permission::PermissionEngine> {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Deny)
         .build()
         .unwrap();

@@ -27,7 +27,6 @@ use closeclaw::permission::sandbox::{
 /// Creates a minimal permissive ruleset for testing.
 fn make_permissive_ruleset() -> RuleSet {
     RuleSetBuilder::new()
-        .version("1.0.0")
         .rule(
             RuleBuilder::new()
                 .name("allow-all-file-read")

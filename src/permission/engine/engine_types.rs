@@ -10,7 +10,6 @@ use std::collections::HashMap;
 /// RuleSet parsed from permissions.json
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuleSet {
-    pub version: String,
     #[serde(default)]
     pub rules: Vec<Rule>,
     #[serde(default)]

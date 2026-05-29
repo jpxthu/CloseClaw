@@ -198,7 +198,6 @@ fn test_build_permission_engine_empty_dir() {
     assert!(!Arc::ptr_eq(
         &engine,
         &Arc::new(PermissionEngine::new(crate::permission::RuleSet {
-            version: "1.0.0".to_string(),
             rules: Vec::new(),
             defaults: crate::permission::Defaults::default(),
             template_includes: Vec::new(),

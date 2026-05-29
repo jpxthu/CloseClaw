@@ -261,7 +261,6 @@ mod tests {
     #[test]
     fn test_git_path_deny_risk_level_high() {
         let ruleset = RuleSetBuilder::new()
-            .version("1.0")
             .default_file(Effect::Deny)
             .default_command(Effect::Deny)
             .default_network(Effect::Deny)
@@ -289,7 +288,6 @@ mod tests {
     #[test]
     fn test_normal_path_deny_risk_level_low() {
         let ruleset = RuleSetBuilder::new()
-            .version("1.0")
             .default_file(Effect::Deny)
             .default_command(Effect::Deny)
             .default_network(Effect::Deny)

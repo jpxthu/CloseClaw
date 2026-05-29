@@ -30,7 +30,6 @@
 //!         caller,
 //!         "Test operation".to_string(),
 //!         RiskLevel::Medium,
-//!         "1.0".to_string(),
 //!         "session_resume".to_string(),
 //!         Box::new(|result| {
 //!             println!("Result: {:?}", result);
@@ -82,8 +81,6 @@ pub struct PendingApproval {
     pub operation_desc: String,
     /// Risk level of the operation.
     pub risk_level: RiskLevel,
-    /// Rule set version at time of request.
-    pub rule_version: String,
     /// Session resume handle (opaque token for session continuation).
     pub session_resume: String,
     /// When this entry was created.
@@ -141,7 +138,6 @@ impl ApprovalQueue {
         caller: Caller,
         operation_desc: String,
         risk_level: RiskLevel,
-        rule_version: String,
         session_resume: String,
         callback: Callback,
     ) -> Result<RequestId, RejectReason> {
@@ -163,7 +159,6 @@ impl ApprovalQueue {
             operation_key,
             operation_desc,
             risk_level,
-            rule_version,
             session_resume,
             created_at: Utc::now(),
         };
