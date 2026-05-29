@@ -3,8 +3,9 @@
 use closeclaw::skills::disk::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
 use closeclaw::skills::disk::DiskSkill;
 use closeclaw::skills::DiskSkillRegistry;
-use closeclaw::system_prompt::builder::build_from_workspace;
+use closeclaw::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use closeclaw::system_prompt::sections::invalidate_all_sections;
+use closeclaw::tools::ToolContext;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -28,8 +29,8 @@ fn make_test_skill(name: &str, description: &str, when_to_use: &str, agent_id: &
     }
 }
 
-#[test]
-fn test_build_from_workspace_skill_listing_injected() {
+#[tokio::test]
+async fn test_build_from_workspace_skill_listing_injected() {
     invalidate_all_sections();
 
     let dir = tempfile::tempdir().unwrap();
@@ -41,7 +42,24 @@ fn test_build_from_workspace_skill_listing_injected() {
     let registry = DiskSkillRegistry::new(vec![skill]);
     let registry_arc = Arc::new(RwLock::new(Some(registry)));
 
-    let result = build_from_workspace(dir.path(), vec![], Some(registry_arc), Some("eda"), None);
+    let tool_ctx = ToolContext {
+        agent_id: "test".to_string(),
+        workdir: None,
+    };
+
+    let result = build_from_workspace(
+        dir.path(),
+        WorkspaceBuildConfig {
+            bootstrap_files: vec![],
+            tool_registry: None,
+            tool_ctx: &tool_ctx,
+            skill_registry: Some(registry_arc),
+            agent_id: Some("eda"),
+            dynamic_sections: vec![],
+            append_section: None,
+        },
+    )
+    .await;
 
     assert!(
         result.contains("## Available Skills"),
@@ -60,8 +78,8 @@ fn test_build_from_workspace_skill_listing_injected() {
     );
 }
 
-#[test]
-fn test_build_from_workspace_no_skill_info_no_section() {
+#[tokio::test]
+async fn test_build_from_workspace_no_skill_info_no_section() {
     invalidate_all_sections();
 
     let dir = tempfile::tempdir().unwrap();
@@ -69,12 +87,30 @@ fn test_build_from_workspace_no_skill_info_no_section() {
     std::fs::write(dir.path().join("SOUL.md"), "test soul").unwrap();
     std::fs::write(dir.path().join("MEMORY.md"), "test memory").unwrap();
 
-    let result = build_from_workspace(dir.path(), vec![], None, None, None);
+    let tool_ctx = ToolContext {
+        agent_id: "test".to_string(),
+        workdir: None,
+    };
+
+    let result = build_from_workspace(
+        dir.path(),
+        WorkspaceBuildConfig {
+            bootstrap_files: vec![],
+            tool_registry: None,
+            tool_ctx: &tool_ctx,
+            skill_registry: None,
+            agent_id: None,
+            dynamic_sections: vec![],
+            append_section: None,
+        },
+    )
+    .await;
+
     assert!(!result.contains("## Available Skills"));
 }
 
-#[test]
-fn test_build_from_workspace_empty_listing_no_section() {
+#[tokio::test]
+async fn test_build_from_workspace_empty_listing_no_section() {
     invalidate_all_sections();
 
     let dir = tempfile::tempdir().unwrap();
@@ -84,12 +120,31 @@ fn test_build_from_workspace_empty_listing_no_section() {
 
     let registry = DiskSkillRegistry::new(vec![]);
     let registry_arc = Arc::new(RwLock::new(Some(registry)));
-    let result = build_from_workspace(dir.path(), vec![], Some(registry_arc), Some("eda"), None);
+
+    let tool_ctx = ToolContext {
+        agent_id: "test".to_string(),
+        workdir: None,
+    };
+
+    let result = build_from_workspace(
+        dir.path(),
+        WorkspaceBuildConfig {
+            bootstrap_files: vec![],
+            tool_registry: None,
+            tool_ctx: &tool_ctx,
+            skill_registry: Some(registry_arc),
+            agent_id: Some("eda"),
+            dynamic_sections: vec![],
+            append_section: None,
+        },
+    )
+    .await;
+
     assert!(!result.contains("## Available Skills"));
 }
 
-#[test]
-fn test_build_from_workspace_skill_section_not_duplicated() {
+#[tokio::test]
+async fn test_build_from_workspace_skill_section_not_duplicated() {
     invalidate_all_sections();
 
     let dir = tempfile::tempdir().unwrap();
@@ -101,7 +156,24 @@ fn test_build_from_workspace_skill_section_not_duplicated() {
     let registry = DiskSkillRegistry::new(vec![skill]);
     let registry_arc = Arc::new(RwLock::new(Some(registry)));
 
-    let result = build_from_workspace(dir.path(), vec![], Some(registry_arc), Some("eda"), None);
+    let tool_ctx = ToolContext {
+        agent_id: "test".to_string(),
+        workdir: None,
+    };
+
+    let result = build_from_workspace(
+        dir.path(),
+        WorkspaceBuildConfig {
+            bootstrap_files: vec![],
+            tool_registry: None,
+            tool_ctx: &tool_ctx,
+            skill_registry: Some(registry_arc),
+            agent_id: Some("eda"),
+            dynamic_sections: vec![],
+            append_section: None,
+        },
+    )
+    .await;
 
     let count = result.matches("## Available Skills").count();
     assert_eq!(

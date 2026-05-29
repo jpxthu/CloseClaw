@@ -162,9 +162,6 @@ fn append_append_section(base: String, append: Option<String>) -> String {
 use crate::tools::{ToolContext, ToolRegistry};
 
 /// Build the Tools section content from a registry.
-///
-/// Groups tools by their group name, formats each group with a header and
-/// tool list, then truncates at `TOOLS_SECTION_MAX_LEN` (15000 chars) if needed.
 pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> Section {
     let content = registry.build_tools_section(ctx).await;
     Section::ToolsSection(content)
@@ -174,78 +171,72 @@ pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> 
 // Convenience: build from file-based workspace sections
 // ---------------------------------------------------------------------------
 
-/// Build a system prompt using standard workspace file paths.
-///
-/// Reads IDENTITY.md, SOUL.md, and MEMORY.md from the workspace root
-/// and assembles them with the provided dynamic sections.
-///
-/// The `skill_registry` parameter, when provided as `Some(Arc(...)`,
-/// injects a `SkillListingSection` after the ToolsSection for skill discovery.
-///
-/// When `skill_registry` is an `Arc<RwLock<Option<DiskSkillRegistry>>>`, the current
-/// registry value is read at build time and used to generate the listing.
-/// Callers should populate this shared registry at startup and update it via
-/// `invalidate_skill_listing()` + `start_skill_watcher` for hot-reload support.
-pub fn build_from_workspace<P: AsRef<Path>>(
+/// Configuration for `build_from_workspace`.
+pub struct WorkspaceBuildConfig<'a> {
+    /// Bootstrap files as (filename, content) pairs, in display order.
+    /// Provided by `load_bootstrap_files`.
+    pub bootstrap_files: Vec<(String, String)>,
+    /// Tool registry for generating the ToolsSection.
+    pub tool_registry: Option<&'a ToolRegistry>,
+    /// Tool context for tool section rendering.
+    pub tool_ctx: &'a ToolContext,
+    /// Skill registry for generating SkillListingSection.
+    pub skill_registry: Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
+    /// Agent ID for skill listing filtering.
+    pub agent_id: Option<&'a str>,
+    /// Additional dynamic sections to include.
+    pub dynamic_sections: Vec<Section>,
+    /// Content to append at the end of the prompt.
+    pub append_section: Option<String>,
+}
+
+/// Build a system prompt from a workspace directory.
+pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
-    dynamic_sections: Vec<Section>,
-    skill_registry: Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
-    agent_id: Option<&str>,
-    append_section: Option<String>,
+    config: WorkspaceBuildConfig<'_>,
 ) -> String {
     let root = workspace_root.as_ref();
     let mut sections: Vec<Section> = Vec::new();
 
-    // Static sections from workspace files
-    let identity_path = root.join("IDENTITY.md");
-    if identity_path.exists() {
-        if let Some((content, _)) = read_file_section(&identity_path) {
-            sections.push(Section::RoleSection(content));
-        }
+    // RoleSection from bootstrap files (skip MEMORY.md)
+    let role: String = config
+        .bootstrap_files
+        .iter()
+        .filter(|(n, _)| n != "MEMORY.md")
+        .map(|(_, c)| c.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if !role.is_empty() {
+        sections.push(Section::RoleSection(role));
     }
-
-    let soul_path = root.join("SOUL.md");
-    if soul_path.exists() {
-        if let Some((content, _)) = read_file_section(&soul_path) {
-            // Append to role section rather than separate
-            if let Some(Section::RoleSection(ref mut existing)) = sections.last_mut() {
-                existing.push_str("\n\n");
-                existing.push_str(&content);
-            } else {
-                sections.push(Section::RoleSection(content));
+    // MemorySection — skip if workspace_root is missing/empty
+    if root.exists() && root.is_dir() {
+        let memory_path = root.join("MEMORY.md");
+        if let Some((content, _)) = read_file_section(&memory_path) {
+            if !content.is_empty() {
+                sections.push(Section::MemorySection(content));
             }
         }
     }
-
-    let memory_path = root.join("MEMORY.md");
-    if memory_path.exists() {
-        if let Some((content, _)) = read_file_section(&memory_path) {
-            sections.push(Section::MemorySection(content));
-        }
+    // ToolsSection — real content when registry available
+    if let Some(reg) = config.tool_registry {
+        sections.push(build_tools_section(reg, config.tool_ctx).await);
     } else {
-        sections.push(Section::MemorySection(String::new()));
+        sections.push(Section::ToolsSection(String::new()));
     }
-
-    // Tools section — inserted between RoleSection and MemorySection
-    sections.push(Section::ToolsSection(String::new()));
-
-    // Skill listing section — injected after ToolsSection, before dynamic_sections
-    // Uses cache if available; regenerated on cache invalidation
-    if let Some(registry_lock) = skill_registry {
-        if let Ok(guard) = registry_lock.read() {
-            if let Some(registry) = guard.as_ref() {
-                let listing = registry.generate_listing(agent_id);
+    // SkillListingSection
+    if let Some(lock) = config.skill_registry {
+        if let Ok(g) = lock.read() {
+            if let Some(reg) = g.as_ref() {
+                let listing = reg.generate_listing(config.agent_id);
                 if !listing.is_empty() {
                     sections.push(Section::SkillListingSection(listing));
                 }
             }
         }
     }
-
-    // Dynamic sections
-    sections.extend(dynamic_sections);
-
-    build_system_prompt(sections, append_section)
+    sections.extend(config.dynamic_sections);
+    build_system_prompt(sections, config.append_section)
 }
 
 #[cfg(test)]
