@@ -231,7 +231,6 @@ mod tests {
         };
         use std::collections::HashMap;
         let rules = RuleSet {
-            version: "1".to_string(),
             rules: vec![Rule {
                 name: "deny-spawn".to_string(),
                 subject: Subject::AgentOnly {
@@ -279,7 +278,6 @@ mod tests {
         };
         use std::collections::HashMap;
         let rules = RuleSet {
-            version: "1".to_string(),
             rules: vec![Rule {
                 name: "parent-deny-spawn".to_string(),
                 subject: Subject::AgentOnly {

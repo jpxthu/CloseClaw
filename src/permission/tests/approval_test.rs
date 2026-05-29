@@ -84,7 +84,6 @@ fn test_enqueue_success() {
         caller.clone(),
         "read file".to_string(),
         RiskLevel::Low,
-        "v1".to_string(),
         "resume-token-1".to_string(),
         Box::new(|_| {}),
     );
@@ -98,7 +97,6 @@ fn test_enqueue_success() {
     assert_eq!(pending.caller.agent, "test-agent");
     assert_eq!(pending.operation_desc, "read file");
     assert_eq!(pending.risk_level, RiskLevel::Low);
-    assert_eq!(pending.rule_version, "v1");
     assert_eq!(pending.session_resume, "resume-token-1");
 }
 
@@ -114,7 +112,6 @@ fn test_enqueue_reject_duplicate() {
             caller.clone(),
             "op1".to_string(),
             RiskLevel::Medium,
-            "v1".to_string(),
             "resume-1".to_string(),
             Box::new(|_| {}),
         )
@@ -126,7 +123,6 @@ fn test_enqueue_reject_duplicate() {
         caller.clone(),
         "op2".to_string(),
         RiskLevel::High,
-        "v2".to_string(),
         "resume-2".to_string(),
         Box::new(|_| {}),
     );
@@ -150,7 +146,6 @@ fn test_approve_triggers_approve_callback() {
             caller,
             "op".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume".to_string(),
             Box::new(|result| {
                 assert_eq!(result, ApproveOrDeny::Approve);
@@ -175,7 +170,6 @@ fn test_deny_triggers_deny_callback() {
             caller,
             "op".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume".to_string(),
             Box::new(|result| {
                 assert_eq!(result, ApproveOrDeny::Deny);
@@ -222,7 +216,6 @@ fn test_clear_triggers_deny_for_all_entries() {
                 caller.clone(),
                 format!("op-{}", i),
                 RiskLevel::Low,
-                format!("v{}", i),
                 format!("resume-{}", i),
                 Box::new(move |result| {
                     assert_eq!(result, ApproveOrDeny::Deny);
@@ -253,7 +246,6 @@ fn test_get_pending_returns_correct_pending_approval() {
             caller.clone(),
             "my operation".to_string(),
             RiskLevel::High,
-            "rule-v3".to_string(),
             "session-resume-abc".to_string(),
             Box::new(|_| {}),
         )
@@ -262,7 +254,6 @@ fn test_get_pending_returns_correct_pending_approval() {
     let pending = queue.get_pending(&id).unwrap();
     assert_eq!(pending.operation_desc, "my operation");
     assert_eq!(pending.risk_level, RiskLevel::High);
-    assert_eq!(pending.rule_version, "rule-v3");
     assert_eq!(pending.session_resume, "session-resume-abc");
     assert_eq!(pending.caller.agent, "test-agent");
 }
@@ -271,28 +262,6 @@ fn test_get_pending_returns_correct_pending_approval() {
 fn test_get_pending_returns_none_for_unknown_id() {
     let queue = ApprovalQueue::new();
     assert!(queue.get_pending("unknown").is_none());
-}
-
-#[test]
-fn test_rule_version_field_correctly_stored() {
-    let mut queue = ApprovalQueue::new();
-    let body = make_file_op("a");
-    let caller = dummy_caller();
-
-    let id = queue
-        .enqueue(
-            body,
-            caller,
-            "op".to_string(),
-            RiskLevel::Medium,
-            "v42".to_string(),
-            "resume".to_string(),
-            Box::new(|_| {}),
-        )
-        .unwrap();
-
-    let pending = queue.get_pending(&id).unwrap();
-    assert_eq!(pending.rule_version, "v42");
 }
 
 #[test]
@@ -311,7 +280,6 @@ fn test_callback_signature_send() {
         dummy_caller(),
         "op".to_string(),
         RiskLevel::Low,
-        "v1".to_string(),
         "resume".to_string(),
         Box::new(|_| {}),
     );
@@ -328,7 +296,6 @@ fn test_enqueue_different_bodies_not_duplicate() {
             caller.clone(),
             "op-a".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume-1".to_string(),
             Box::new(|_| {}),
         )
@@ -341,7 +308,6 @@ fn test_enqueue_different_bodies_not_duplicate() {
             caller.clone(),
             "op-b".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume-2".to_string(),
             Box::new(|_| {}),
         )
@@ -373,7 +339,6 @@ fn test_different_caller_same_body_not_duplicate() {
             caller1,
             "op1".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume-1".to_string(),
             Box::new(|_| {}),
         )
@@ -386,7 +351,6 @@ fn test_different_caller_same_body_not_duplicate() {
             caller2,
             "op2".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume-2".to_string(),
             Box::new(|_| {}),
         )
@@ -408,7 +372,6 @@ fn test_same_caller_same_body_is_duplicate() {
             caller.clone(),
             "op1".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume-1".to_string(),
             Box::new(|_| {}),
         )
@@ -420,7 +383,6 @@ fn test_same_caller_same_body_is_duplicate() {
         caller,
         "op2".to_string(),
         RiskLevel::Low,
-        "v1".to_string(),
         "resume-2".to_string(),
         Box::new(|_| {}),
     );
@@ -441,7 +403,6 @@ fn test_pending_approval_created_at_is_set() {
             dummy_caller(),
             "op".to_string(),
             RiskLevel::Low,
-            "v1".to_string(),
             "resume".to_string(),
             Box::new(|_| {}),
         )

@@ -30,10 +30,6 @@ pub fn validate_rule(rule: &Rule) -> Vec<RuleValidationError> {
 pub fn validate_ruleset(ruleset: &RuleSet) -> Vec<RuleSetValidationError> {
     let mut errors = Vec::new();
 
-    if ruleset.version.is_empty() {
-        errors.push(RuleSetValidationError::EmptyVersion);
-    }
-
     for (idx, rule) in ruleset.rules.iter().enumerate() {
         let rule_errors = validate_rule(rule);
         for err in rule_errors {
@@ -73,8 +69,6 @@ pub enum RuleValidationError {
 /// A validation error for a RuleSet.
 #[derive(Debug, thiserror::Error)]
 pub enum RuleSetValidationError {
-    #[error("ruleset version cannot be empty")]
-    EmptyVersion,
     #[error("rule at index {index} is invalid: {error}")]
     InvalidRule {
         index: usize,

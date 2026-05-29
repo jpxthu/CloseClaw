@@ -67,7 +67,6 @@ pub async fn handle_skill(action: SkillAction) -> Result<()> {
     match action {
         SkillAction::List => {
             let rs = RuleSet {
-                version: "1.0.0".into(),
                 rules: vec![],
                 defaults: Defaults::default(),
                 template_includes: vec![],

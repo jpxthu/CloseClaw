@@ -3,7 +3,6 @@ use crate::permission::engine::{Defaults, Effect, Rule, RuleSet};
 /// Builder for constructing [`RuleSet`] instances.
 #[derive(Debug, Default)]
 pub struct RuleSetBuilder {
-    version: Option<String>,
     rules: Vec<Rule>,
     defaults: Defaults,
     template_includes: Vec<String>,
@@ -14,12 +13,6 @@ impl RuleSetBuilder {
     /// Create a new empty builder.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Set the version string.
-    pub fn version(mut self, version: impl Into<String>) -> Self {
-        self.version = Some(version.into());
-        self
     }
 
     /// Add a single rule.
@@ -78,12 +71,7 @@ impl RuleSetBuilder {
 
     /// Finalize and return the constructed [`RuleSet`].
     pub fn build(self) -> Result<RuleSet, RuleSetBuilderError> {
-        let version = self
-            .version
-            .ok_or(RuleSetBuilderError::MissingField("version"))?;
-
         Ok(RuleSet {
-            version,
             rules: self.rules,
             defaults: self.defaults,
             template_includes: self.template_includes,

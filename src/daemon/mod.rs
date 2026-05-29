@@ -246,7 +246,6 @@ impl Daemon {
     /// Build permission engine, loading templates from config_dir/templates/ if present.
     fn build_permission_engine(config_dir: &str) -> Arc<PermissionEngine> {
         let rule_set = RuleSet {
-            version: "1.0.0".to_string(),
             rules: Vec::new(),
             defaults: Defaults::default(),
             template_includes: Vec::new(),

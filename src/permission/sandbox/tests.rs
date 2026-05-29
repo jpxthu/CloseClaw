@@ -86,7 +86,6 @@ fn dummy_request() -> PermissionRequest {
 
 fn dummy_rules() -> RuleSet {
     RuleSet {
-        version: "1.0".to_string(),
         rules: vec![],
         defaults: Defaults::default(),
         template_includes: vec![],

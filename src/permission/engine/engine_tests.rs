@@ -50,7 +50,6 @@ fn test_glob_double_star() {
 
 fn make_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
@@ -97,7 +96,6 @@ fn test_engine_allow_read() {
 #[test]
 fn test_engine_default_deny() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
@@ -113,7 +111,6 @@ fn test_engine_default_deny() {
 #[test]
 fn test_deny_takes_precedence() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Allow)
         .rule(
             RuleBuilder::new()
@@ -341,7 +338,6 @@ fn test_command_args_allowed() {
 fn test_tool_call_default_independent_from_file() {
     // tool_call defaults to Deny while file defaults to Allow
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_file(Effect::Allow)
         .default_tool_call(Effect::Deny)
         .build()
@@ -374,7 +370,6 @@ fn test_tool_call_default_independent_from_file() {
 #[test]
 fn test_tool_call_default_allow() {
     let ruleset = RuleSetBuilder::new()
-        .version("1.0")
         .default_tool_call(Effect::Allow)
         .build()
         .unwrap();

@@ -111,7 +111,6 @@ mod extra_tests {
     fn make_engine() -> Arc<crate::permission::PermissionEngine> {
         use crate::permission::engine::engine_types::{Defaults, RuleSet};
         let rules = RuleSet {
-            version: "1".to_string(),
             rules: vec![],
             defaults: Defaults::default(),
             template_includes: vec![],
