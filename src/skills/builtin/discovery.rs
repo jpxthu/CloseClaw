@@ -249,7 +249,7 @@ mod tests {
             template_includes: vec![],
             agent_creators: HashMap::new(),
         };
-        Arc::new(crate::permission::PermissionEngine::new(rules))
+        Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(rules))
     }
 
     #[tokio::test]
@@ -296,7 +296,8 @@ mod tests {
             template_includes: vec![],
             agent_creators: HashMap::new(),
         };
-        let engine = Arc::new(crate::permission::PermissionEngine::new(rules));
+        let engine =
+            Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(rules));
         let skill = SkillDiscoverySkill::with_engine(engine);
         // child-agent is spawned by parent-agent, child-agent tries to install a skill
         let result = skill
