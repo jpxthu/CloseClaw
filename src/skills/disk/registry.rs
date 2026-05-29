@@ -120,7 +120,8 @@ impl DiskSkillRegistry {
     ///
     /// - Sorts by SkillSource priority (Project > Agent > Global > ExtraDirs > Bundled)
     /// - Within the same priority, sorts by name alphabetically
-    /// - Filters: only includes skills where `agent_id` is empty or matches the given agent_id
+    /// - Filters: only includes skills where `agent_id` is empty or matches the given agent_id,
+    ///   and `user_invocable` is true (skills with `user_invocable: false` are excluded)
     /// - Format: `- **{name}**: {description}` + optionally ` — {when_to_use}`
     /// - Returns empty string if no skills match
     pub fn generate_listing(&self, agent_id: Option<&str>) -> String {
@@ -128,8 +129,9 @@ impl DiskSkillRegistry {
             .skills
             .iter()
             .filter(|s| {
-                s.manifest.agent_id.is_empty()
-                    || agent_id.map_or(true, |id| s.manifest.agent_id == id)
+                s.manifest.user_invocable
+                    && (s.manifest.agent_id.is_empty()
+                        || agent_id.map_or(true, |id| s.manifest.agent_id == id))
             })
             .collect();
 
@@ -171,5 +173,5 @@ impl DiskSkillRegistry {
 }
 
 #[cfg(test)]
-#[path = "registry_tests.rs"]
+#[path = "registry_tests/mod.rs"]
 mod tests;
