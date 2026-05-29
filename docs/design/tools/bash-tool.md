@@ -111,7 +111,7 @@ agent 调用 BashTool（command + 可选参数）
     → uncertain → 发起审批
     → trusted：
       → 权限引擎检查命令是否在白名单
-        → 拒绝：返回权限错误
+        → 拒绝 → 可能触发审批（通过 Gateway 推送 owner，详见 permission/approval-workflow.md）
         → 通过：
           → 启动子进程，合并 stdout/stderr 到输出累积器
         → 输出流式到达，渐进累积
