@@ -18,6 +18,8 @@ use crate::session::persistence::PersistenceService;
 use crate::session::storage::SqliteStorage;
 use crate::session::sweeper::ArchiveSweeper;
 use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
+use crate::tools::builtin::register_builtin_tools;
+use crate::tools::ToolRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -157,6 +159,22 @@ impl Daemon {
         // Initialize skill hot reload system
         let (skill_registry, skill_watcher) =
             skill_reload::init_skill_hot_reload(config_dir).await?;
+
+        // Create ToolRegistry and register builtin tools
+        let tool_registry = Arc::new(ToolRegistry::new());
+        {
+            let guard = skill_registry.read().unwrap();
+            if let Some(ref disk_reg) = *guard {
+                register_builtin_tools(&tool_registry, Arc::new(disk_reg.clone())).await;
+            }
+        }
+
+        // Inject ToolRegistry and SkillRegistry into SessionManager
+        session_manager.set_tool_registry(tool_registry).await;
+        session_manager
+            .set_skill_registry(skill_registry.clone())
+            .await;
+
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")

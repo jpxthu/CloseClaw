@@ -12,6 +12,10 @@ use crate::session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
 use crate::session::workspace;
+use crate::skills::DiskSkillRegistry;
+use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
+use crate::system_prompt::workdir::set_workdir;
+use crate::tools::{ToolContext, ToolRegistry};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,6 +39,10 @@ pub struct SessionManager {
     workspace_dir: Option<PathBuf>,
     /// Bootstrap mode determining which files to load
     bootstrap_mode: BootstrapMode,
+    /// Tool registry for building system prompt ToolsSection
+    tool_registry: RwLock<Option<Arc<ToolRegistry>>>,
+    /// Skill registry for building system prompt SkillListingSection
+    skill_registry: RwLock<Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -62,7 +70,34 @@ impl SessionManager {
             conversation_sessions: RwLock::new(HashMap::new()),
             workspace_dir,
             bootstrap_mode,
+            tool_registry: RwLock::new(None),
+            skill_registry: RwLock::new(None),
         }
+    }
+
+    /// Set the tool registry for building system prompt ToolsSection.
+    pub async fn set_tool_registry(&self, registry: Arc<ToolRegistry>) {
+        *self.tool_registry.write().await = Some(registry);
+    }
+
+    /// Set the skill registry for building system prompt SkillListingSection.
+    pub async fn set_skill_registry(
+        &self,
+        registry: Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>,
+    ) {
+        *self.skill_registry.write().await = Some(registry);
+    }
+
+    /// Get the current tool registry, if set.
+    pub async fn get_tool_registry(&self) -> Option<Arc<ToolRegistry>> {
+        self.tool_registry.read().await.clone()
+    }
+
+    /// Get the current skill registry, if set.
+    pub async fn get_skill_registry(
+        &self,
+    ) -> Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>> {
+        self.skill_registry.read().await.clone()
     }
 
     /// Register an IM adapter.
@@ -171,24 +206,48 @@ impl SessionManager {
             return Ok(session_id);
         }
 
-        // Create ConversationSession for this session_id, injecting bootstrap system prompt if workspace_dir is set
-        let conv_session = if let Some(ref workspace) = self.workspace_dir {
-            match load_bootstrap_files(workspace, self.bootstrap_mode) {
-                Ok(files) if !files.is_empty() => {
-                    // Concatenate files in filename order, each preceded by a markdown header
-                    let bootstrap_content = files
-                        .iter()
-                        .map(|(name, content)| format!("## {}\n{}\n", name, content))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    ConversationSession::new(session_id.clone(), "default".to_string())
-                        .with_system_prompt(bootstrap_content)
-                }
-                _ => ConversationSession::new(session_id.clone(), "default".to_string()),
-            }
+        // Build system prompt via build_from_workspace (unified for all paths)
+        let bootstrap_files = if let Some(ref workspace) = self.workspace_dir {
+            load_bootstrap_files(workspace, self.bootstrap_mode)
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
         } else {
-            ConversationSession::new(session_id.clone(), "default".to_string())
+            vec![]
         };
+
+        let tool_registry_guard = self.tool_registry.read().await;
+        let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
+        let skill_registry = self.skill_registry.read().await.clone();
+
+        let agent_id = message.to.clone();
+        let workdir_ctx = self
+            .workspace_dir
+            .as_ref()
+            .map(|p| set_workdir(p.to_string_lossy().to_string()));
+        let tool_ctx = ToolContext {
+            agent_id: agent_id.clone(),
+            workdir: workdir_ctx,
+        };
+
+        let workspace_root = self.workspace_dir.clone().unwrap_or_else(|| PathBuf::new());
+
+        let prompt = build_from_workspace(
+            &workspace_root,
+            WorkspaceBuildConfig {
+                bootstrap_files,
+                tool_registry: tool_registry_ref,
+                tool_ctx: &tool_ctx,
+                skill_registry,
+                agent_id: Some(&agent_id),
+                dynamic_sections: vec![],
+                append_section: None,
+            },
+        )
+        .await;
+
+        let conv_session = ConversationSession::new(session_id.clone(), "default".to_string())
+            .with_system_prompt(prompt);
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
