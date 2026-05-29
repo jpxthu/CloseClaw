@@ -28,7 +28,6 @@ use closeclaw::skills::Skill;
 /// having to worry about UUID vs name mismatches.
 fn make_test_ruleset() -> RuleSet {
     RuleSetBuilder::new()
-        .version("1.0.0")
         .rule(
             RuleBuilder::new()
                 .name("allow-file-read")
