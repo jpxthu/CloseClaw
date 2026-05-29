@@ -398,7 +398,7 @@ async fn test_skill_loading_and_execution_chain() {
 #[tokio::test]
 async fn test_skill_with_permission_engine_integration() {
     let rules = make_test_ruleset();
-    let engine = Arc::new(PermissionEngine::new(rules));
+    let engine = Arc::new(PermissionEngine::new_with_default_data_root(rules));
 
     // Create permission skill with engine reference
     let perm_skill = closeclaw::skills::builtin::PermissionSkill::with_engine(engine.clone());

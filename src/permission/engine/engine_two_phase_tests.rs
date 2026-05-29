@@ -24,7 +24,7 @@ fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
         template_includes: vec![],
         agent_creators: HashMap::new(),
     };
-    PermissionEngine::new(ruleset)
+    PermissionEngine::new_with_default_data_root(ruleset)
 }
 
 /// Helper to make a FileOp request.

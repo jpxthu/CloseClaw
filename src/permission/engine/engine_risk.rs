@@ -16,19 +16,14 @@ use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
 
 /// Risk level for permission requests.
 /// Used to annotate denied responses with severity information.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RiskLevel {
+    #[default]
     Low,
     Medium,
     High,
     Critical,
-}
-
-impl Default for RiskLevel {
-    fn default() -> Self {
-        RiskLevel::Low
-    }
 }
 
 /// A risk pattern with matching logic and associated risk level.
@@ -268,7 +263,7 @@ mod tests {
             .default_config(Effect::Deny)
             .build()
             .unwrap();
-        let engine = PermissionEngine::new(ruleset);
+        let engine = PermissionEngine::new_with_default_data_root(ruleset);
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
@@ -295,7 +290,7 @@ mod tests {
             .default_config(Effect::Deny)
             .build()
             .unwrap();
-        let engine = PermissionEngine::new(ruleset);
+        let engine = PermissionEngine::new_with_default_data_root(ruleset);
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),

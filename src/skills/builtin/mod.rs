@@ -116,7 +116,7 @@ mod extra_tests {
             template_includes: vec![],
             agent_creators: std::collections::HashMap::new(),
         };
-        Arc::new(crate::permission::PermissionEngine::new(rules))
+        Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(rules))
     }
 
     #[test]

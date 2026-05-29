@@ -251,7 +251,7 @@ impl Daemon {
             template_includes: Vec::new(),
             agent_creators: std::collections::HashMap::new(),
         };
-        let mut engine = PermissionEngine::new(rule_set);
+        let mut engine = PermissionEngine::new(rule_set, PathBuf::from(config_dir));
         let templates_dir = std::path::Path::new(config_dir).join("templates");
         if templates_dir.exists() {
             if let Ok(templates) =

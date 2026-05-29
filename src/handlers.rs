@@ -72,7 +72,7 @@ pub async fn handle_skill(action: SkillAction) -> Result<()> {
                 template_includes: vec![],
                 agent_creators: std::collections::HashMap::new(),
             };
-            let eng = Arc::new(PermissionEngine::new(rs));
+            let eng = Arc::new(PermissionEngine::new_with_default_data_root(rs));
             let config = ScanConfig::default();
             let disk_reg = init_disk_skills(&config);
             if disk_reg.is_empty() {

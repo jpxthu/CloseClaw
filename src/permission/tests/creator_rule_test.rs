@@ -16,7 +16,7 @@ async fn test_creator_rule_short_circuit_caller_creator_id() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {
@@ -42,7 +42,7 @@ async fn test_creator_rule_short_circuit_agent_creators_map() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {
@@ -68,7 +68,7 @@ async fn test_creator_rule_not_matching_non_creator() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {
@@ -103,7 +103,7 @@ async fn test_creator_rule_priority_over_explicit_deny() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {
@@ -129,7 +129,7 @@ async fn test_creator_rule_caller_creator_id_takes_precedence() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {

@@ -82,7 +82,7 @@ fn make_allowed_engine() -> Arc<crate::permission::PermissionEngine> {
         )
         .build()
         .unwrap();
-    Arc::new(crate::permission::PermissionEngine::new(ruleset))
+    Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset))
 }
 
 /// Build an engine that denies all file actions by default (no matching rules)
@@ -91,7 +91,7 @@ fn make_denied_engine() -> Arc<crate::permission::PermissionEngine> {
         .default_file(Effect::Deny)
         .build()
         .unwrap();
-    Arc::new(crate::permission::PermissionEngine::new(ruleset))
+    Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset))
 }
 
 // -----------------------------------------------------------------

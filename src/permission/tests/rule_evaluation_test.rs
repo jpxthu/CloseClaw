@@ -32,7 +32,7 @@ async fn test_user_and_agent_rule_matching() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {
@@ -74,7 +74,7 @@ async fn test_user_and_agent_rule_user_mismatch() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {
@@ -111,7 +111,7 @@ async fn test_bare_request_uses_agent_only_matching() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "dev-agent-01".to_string(),
@@ -141,7 +141,7 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     let request = PermissionRequest::WithCaller {
         caller: Caller {
@@ -192,7 +192,7 @@ async fn test_rule_priority_higher_evaluated_first() {
         .build()
         .unwrap();
 
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
     let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "test-agent".to_string(),
         path: "/any/path.txt".to_string(),

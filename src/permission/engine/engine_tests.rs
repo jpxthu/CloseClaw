@@ -83,7 +83,7 @@ fn make_engine() -> PermissionEngine {
         )
         .build()
         .unwrap();
-    PermissionEngine::new(ruleset)
+    PermissionEngine::new_with_default_data_root(ruleset)
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn test_engine_default_deny() {
         .default_config(Effect::Deny)
         .build()
         .unwrap();
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
     let resp = engine.check("unknown-agent", "file_read");
     matches!(resp, PermissionResponse::Denied { .. });
 }
@@ -127,7 +127,7 @@ fn test_deny_takes_precedence() {
         )
         .build()
         .unwrap();
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
     let resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
@@ -342,7 +342,7 @@ fn test_tool_call_default_independent_from_file() {
         .default_tool_call(Effect::Deny)
         .build()
         .unwrap();
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // file op should be allowed (default Allow)
     let file_resp = engine.evaluate(
@@ -373,7 +373,7 @@ fn test_tool_call_default_allow() {
         .default_tool_call(Effect::Allow)
         .build()
         .unwrap();
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
     let resp = engine.check("unknown-agent", "tool_call");
     matches!(resp, PermissionResponse::Allowed { .. });
 }

@@ -2,11 +2,13 @@
 //!
 //! Runs as a separate OS process, evaluates access rules for agents.
 
+pub mod engine_check;
 pub mod engine_eval;
 pub mod engine_helpers;
 pub mod engine_matching;
 pub mod engine_risk;
 pub mod engine_types;
+pub mod engine_workspace;
 
 pub use engine_eval::PermissionEngine;
 pub use engine_matching::{action_matches_request, glob_match};
@@ -18,6 +20,9 @@ pub use engine_types::{
 
 #[cfg(test)]
 mod engine_tests;
+
+#[cfg(test)]
+mod engine_workspace_tests;
 
 #[cfg(test)]
 mod engine_owner_tests;

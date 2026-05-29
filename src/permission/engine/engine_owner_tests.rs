@@ -58,7 +58,7 @@ fn owner_evaluate(request_body: PermissionRequestBody) -> PermissionResponse {
         )
         .build()
         .unwrap();
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
     let request = PermissionRequest::WithCaller {
         caller: Caller {
             user_id: "owner".to_string(),
@@ -178,7 +178,7 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
         )
         .build()
         .unwrap();
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // alice should be denied by UserAndAgent deny rule
     let alice_req = PermissionRequest::WithCaller {
@@ -230,7 +230,7 @@ fn test_owner_shortcut_after_creator_rule() {
         .default_file(Effect::Deny)
         .build()
         .unwrap();
-    let engine = PermissionEngine::new(ruleset);
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
     let request = PermissionRequest::WithCaller {
         caller: Caller {
             user_id: "owner".to_string(),
