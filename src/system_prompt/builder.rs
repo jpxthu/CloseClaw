@@ -257,6 +257,13 @@ mod tests {
     use crate::tools::ToolRegistry;
     use std::sync::Arc;
 
+    /// Clear all global prompt state to prevent cross-test pollution.
+    fn clear_all_prompts() {
+        set_override_prompt(None);
+        set_agent_prompt(None);
+        set_custom_prompt(None);
+    }
+
     #[test]
     fn test_build_system_prompt_with_override() {
         set_override_prompt(Some("override prompt".to_string()));
@@ -268,20 +275,20 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_agent_prompt() {
+        clear_all_prompts();
         set_agent_prompt(Some("agent prompt".to_string()));
         let sections = vec![];
         let result = build_system_prompt(sections, None);
         assert!(result.contains("agent prompt"));
-        set_agent_prompt(None);
     }
 
     #[test]
     fn test_build_system_prompt_with_custom_prompt() {
+        clear_all_prompts();
         set_custom_prompt(Some("custom prompt".to_string()));
         let sections = vec![];
         let result = build_system_prompt(sections, None);
         assert!(result.contains("custom prompt"));
-        set_custom_prompt(None);
     }
 
     #[test]
@@ -310,24 +317,24 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_agent_prompt_and_append() {
+        clear_all_prompts();
         set_agent_prompt(Some("agent prompt".to_string()));
         let sections = vec![];
         let result = build_system_prompt(sections, Some("append content".to_string()));
         assert!(result.contains("agent prompt"));
         assert!(result.contains("append content"));
         assert!(result.contains("## Append"));
-        set_agent_prompt(None);
     }
 
     #[test]
     fn test_build_system_prompt_with_custom_prompt_and_append() {
+        clear_all_prompts();
         set_custom_prompt(Some("custom prompt".to_string()));
         let sections = vec![];
         let result = build_system_prompt(sections, Some("append notes".to_string()));
         assert!(result.contains("custom prompt"));
         assert!(result.contains("append notes"));
         assert!(result.contains("## Append"));
-        set_custom_prompt(None);
     }
 
     #[test]
@@ -346,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_build_append_section_appended() {
-        set_override_prompt(None);
+        clear_all_prompts();
         let sections = vec![Section::RoleSection("base".to_string())];
         let result = build_system_prompt(sections, Some("extra notes".to_string()));
         assert!(result.contains("base"));
@@ -355,6 +362,7 @@ mod tests {
 
     #[test]
     fn test_append_section_not_shown_when_empty() {
+        clear_all_prompts();
         let sections = vec![Section::RoleSection("base".to_string())];
         let result = build_system_prompt(sections, None);
         // append section should not appear at all
@@ -363,6 +371,7 @@ mod tests {
 
     #[test]
     fn test_dynamic_sections_not_cached() {
+        clear_all_prompts();
         let sections = vec![Section::SessionState {
             turn_count: 1,
             pending_tasks: vec![],
