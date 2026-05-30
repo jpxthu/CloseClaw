@@ -423,6 +423,7 @@ fn test_replace_messages_empty_vec_clears() {
 
 // ── reasoning_level tests ─────────────────────────────────────────────────
 
+use crate::llm::types::ContentBlock;
 use crate::session::persistence::ReasoningLevel;
 
 #[test]
@@ -462,6 +463,8 @@ fn test_build_api_request_default_reasoning_level() {
     let req = session.build_api_request();
     assert_eq!(req.reasoning_level, ReasoningLevel::High);
 }
+
+mod thinking_clean_tests;
 
 #[test]
 fn test_build_api_request_reasoning_level_medium() {

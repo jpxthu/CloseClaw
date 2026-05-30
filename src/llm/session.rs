@@ -173,6 +173,48 @@ impl ConversationSession {
         self.pending_messages.iter().cloned().collect()
     }
 
+    /// Cleans thinking-only artifacts from a message list.
+    ///
+    /// Two passes:
+    /// 1. Remove assistant messages whose content blocks are *all* Thinking
+    ///    (orphaned thinking).
+    /// 2. Trim trailing Thinking blocks from the last assistant message;
+    ///    if the result is empty, insert an empty Text placeholder.
+    fn clean_thinking_content(messages: &[SessionMessage]) -> Vec<SessionMessage> {
+        // Pass 1: filter out orphaned thinking messages.
+        let mut cleaned: Vec<SessionMessage> = messages
+            .iter()
+            .cloned()
+            .filter(|msg| {
+                if msg.role == "assistant" {
+                    !msg.content_blocks
+                        .iter()
+                        .all(|b| matches!(b, ContentBlock::Thinking(_)))
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        // Pass 2: trim trailing Thinking blocks from the last assistant message.
+        if let Some(last_assistant) = cleaned.iter_mut().rev().find(|m| m.role == "assistant") {
+            while last_assistant
+                .content_blocks
+                .last()
+                .map_or(false, |b| matches!(b, ContentBlock::Thinking(_)))
+            {
+                last_assistant.content_blocks.pop();
+            }
+            if last_assistant.content_blocks.is_empty() {
+                last_assistant
+                    .content_blocks
+                    .push(ContentBlock::Text(String::new()));
+            }
+        }
+
+        cleaned
+    }
+
     /// Restores pending messages from checkpoint data.
     /// Only pushes messages where `sent == false` back into the queue.
     pub fn restore_pending_messages(
@@ -230,7 +272,8 @@ impl ChatSession for ConversationSession {
                 content: prompt.clone(),
             });
         }
-        for msg in &self.messages {
+        let cleaned = Self::clean_thinking_content(&self.messages);
+        for msg in &cleaned {
             let content = msg
                 .content_blocks
                 .iter()
