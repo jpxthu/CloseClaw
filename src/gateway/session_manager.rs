@@ -16,7 +16,7 @@ use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use crate::system_prompt::sections::invalidate_all_sections;
-use crate::system_prompt::workdir::set_workdir;
+use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::{ToolContext, ToolRegistry};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -135,17 +135,14 @@ impl SessionManager {
         let Some(storage) = storage.as_ref() else {
             return false;
         };
-
         let checkpoint = match storage.load_checkpoint(session_id).await {
             Ok(Some(cp)) => cp,
             Ok(None) | Err(_) => return false,
         };
-
         if checkpoint.status != SessionStatus::Archived {
             return false;
         }
-
-        // Send "正在恢复会话..." notification to the user
+        // Send restore notification
         let adapters = self.adapters.read().await;
         if let Some(adapter) = adapters.get(channel) {
             let notification = Message {
@@ -172,7 +169,6 @@ impl SessionManager {
                 "failed to restore archived session");
             return false;
         }
-
         true
     }
 
@@ -192,7 +188,6 @@ impl SessionManager {
         account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
         let session_id = self.compute_session_key(channel, message, account_id);
-
         // Fast path: session already exists
         {
             let sessions = self.sessions.read().await;
@@ -200,19 +195,15 @@ impl SessionManager {
                 return Ok(session_id);
             }
         }
-
         // Slow path: try archived session restoration
         let restored = self
             .try_restore_archived_session(&session_id, channel)
             .await;
-
         let mut sessions = self.sessions.write().await;
         if sessions.contains_key(&session_id) {
-            // Was restored by another task, or already existed
             return Ok(session_id);
         }
-
-        // Build system prompt via build_from_workspace (unified for all paths)
+        // Build system prompt
         let bootstrap_files = if let Some(ref workspace) = self.workspace_dir {
             load_bootstrap_files(workspace, self.bootstrap_mode)
                 .unwrap_or_default()
@@ -221,23 +212,19 @@ impl SessionManager {
         } else {
             vec![]
         };
-
         let tool_registry_guard = self.tool_registry.read().await;
         let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
         let skill_registry = self.skill_registry.read().await.clone();
-
         let agent_id = message.to.clone();
         let workdir_ctx = self
             .workspace_dir
             .as_ref()
-            .map(|p| set_workdir(p.to_string_lossy().to_string()));
+            .map(|p| build_workdir_context(&p.to_string_lossy()));
         let tool_ctx = ToolContext {
             agent_id: agent_id.clone(),
             workdir: workdir_ctx,
         };
-
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
-
         let prompt = build_from_workspace(
             &workspace_root,
             WorkspaceBuildConfig {
@@ -252,9 +239,39 @@ impl SessionManager {
         )
         .await;
 
-        let conv_session = ConversationSession::new(session_id.clone(), "default".to_string())
-            .with_system_prompt(prompt)
-            .with_reasoning_level(self.default_reasoning_level);
+        // Compute per-session workdir path
+        let workdir_path = if restored {
+            let checkpoint_agent_id = {
+                let storage_guard = self.storage.read().await;
+                match storage_guard.as_ref() {
+                    Some(storage) => storage
+                        .load_checkpoint(&session_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|cp| cp.agent_id),
+                    None => None,
+                }
+            };
+            let aid = checkpoint_agent_id.as_deref().unwrap_or(&message.to);
+            if let Some(ref wd) = self.workspace_dir {
+                workspace::ensure_workspace_dir(wd, aid, aid)
+                    .unwrap_or_else(|_| PathBuf::from("/tmp"))
+            } else {
+                PathBuf::from("/tmp")
+            }
+        } else if let Some(ref workspace_dir) = self.workspace_dir {
+            workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(
+                |e| ProcessError::ProcessingFailed(format!("workspace creation failed: {}", e)),
+            )?
+        } else {
+            PathBuf::from("/tmp")
+        };
+
+        let conv_session =
+            ConversationSession::new(session_id.clone(), "default".to_string(), workdir_path)
+                .with_system_prompt(prompt)
+                .with_reasoning_level(self.default_reasoning_level);
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -286,15 +303,6 @@ impl SessionManager {
             }
         } else {
             // No archived session — create a brand-new Session
-
-            // Create workspace directory for this agent-user pair
-            if let Some(ref workspace_dir) = self.workspace_dir {
-                workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from)
-                    .map_err(|e| {
-                        ProcessError::ProcessingFailed(format!("workspace creation failed: {}", e))
-                    })?;
-            }
-
             sessions.insert(
                 session_id.clone(),
                 Session {
@@ -326,7 +334,8 @@ impl SessionManager {
     }
 
     /// Get chat_id for a session.
-    /// Returns the `agent_id` field of the session (which holds the chat_id per SessionManager convention).
+    /// Returns the `agent_id` field of the session
+    /// (which holds the chat_id per SessionManager convention).
     pub async fn get_chat_id(&self, session_id: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
         sessions.get(session_id).map(|s| s.agent_id.clone())
@@ -428,8 +437,6 @@ impl SessionManager {
             }
         };
         invalidate_all_sections();
-
-        // Build new system prompt (same logic as find_or_create)
         let bootstrap_files = if let Some(ref workspace) = self.workspace_dir {
             load_bootstrap_files(workspace, self.bootstrap_mode)
                 .unwrap_or_default()
@@ -438,22 +445,18 @@ impl SessionManager {
         } else {
             vec![]
         };
-
         let tool_registry_guard = self.tool_registry.read().await;
         let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
         let skill_registry = self.skill_registry.read().await.clone();
-
-        let workdir_ctx = self
-            .workspace_dir
-            .as_ref()
-            .map(|p| set_workdir(p.to_string_lossy().to_string()));
+        let session_workdir = {
+            let cs_read = cs.read().await;
+            cs_read.workdir().to_path_buf()
+        };
         let tool_ctx = ToolContext {
             agent_id: agent_id.clone(),
-            workdir: workdir_ctx,
+            workdir: Some(build_workdir_context(&session_workdir.to_string_lossy())),
         };
-
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
-
         let prompt = build_from_workspace(
             &workspace_root,
             WorkspaceBuildConfig {

@@ -20,7 +20,7 @@ pub use sections::{
     clear_append_section, get_append_section, get_cached_section, invalidate_all_sections,
     invalidate_section, set_append_section, Section,
 };
-pub use workdir::{get_workdir, set_workdir, WorkdirContext};
+pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};
 
 /// Maximum character length for append_section content
 pub const APPEND_SECTION_MAX_LEN: usize = sections::APPEND_SECTION_MAX_LEN;
