@@ -5,7 +5,7 @@
 pub mod message;
 pub mod session_handler;
 pub mod session_manager;
-
+pub mod system_prompt_inject;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
