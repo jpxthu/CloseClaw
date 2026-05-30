@@ -79,30 +79,6 @@ pub(crate) fn no_output_expected(category: CommandCategory) -> bool {
 }
 
 /// Returns a semantic interpretation of the exit code for known
-/// command types. Returns None if no special interpretation is
-/// available.
-pub(crate) fn interpret_exit_code(command: &str, exit_code: i32) -> Option<String> {
-    let word = first_word(command);
-    match word {
-        "grep" => match exit_code {
-            0 => Some("match found".into()),
-            1 => Some("no match found".into()),
-            _ => None,
-        },
-        "diff" => match exit_code {
-            0 => Some("files are identical".into()),
-            1 => Some("files differ".into()),
-            _ => None,
-        },
-        "find" => match exit_code {
-            0 => Some("matches found".into()),
-            1 => Some("no matches found".into()),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,26 +121,5 @@ mod tests {
         assert!(!no_output_expected(CommandCategory::List));
         assert!(!no_output_expected(CommandCategory::Neutral));
         assert!(!no_output_expected(CommandCategory::Unknown));
-    }
-
-    #[test]
-    fn test_interpret_exit_code() {
-        assert_eq!(
-            interpret_exit_code("grep pattern file", 0),
-            Some("match found".into())
-        );
-        assert_eq!(
-            interpret_exit_code("grep pattern file", 1),
-            Some("no match found".into())
-        );
-        assert_eq!(
-            interpret_exit_code("diff a b", 0),
-            Some("files are identical".into())
-        );
-        assert_eq!(
-            interpret_exit_code("diff a b", 1),
-            Some("files differ".into())
-        );
-        assert_eq!(interpret_exit_code("echo hi", 0), None);
     }
 }
