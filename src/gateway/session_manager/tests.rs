@@ -302,6 +302,8 @@ async fn test_partial_bootstrap_files() {
 #[tokio::test]
 #[serial]
 async fn test_find_or_create_with_tool_registry() {
+    use crate::permission::engine::engine_eval::PermissionEngine;
+    use crate::permission::rules::RuleSetBuilder;
     use crate::skills::DiskSkillRegistry;
     use crate::tools::builtin::register_builtin_tools;
     use crate::tools::ToolRegistry;
@@ -321,7 +323,10 @@ async fn test_find_or_create_with_tool_registry() {
     // Inject ToolRegistry with builtin tools
     let disk_reg = Arc::new(DiskSkillRegistry::new(vec![]));
     let tool_registry = Arc::new(ToolRegistry::new());
-    register_builtin_tools(&tool_registry, disk_reg).await;
+    let perm_engine = Arc::new(PermissionEngine::new_with_default_data_root(
+        RuleSetBuilder::new().build().unwrap(),
+    ));
+    register_builtin_tools(&tool_registry, disk_reg, perm_engine).await;
     mgr.set_tool_registry(tool_registry).await;
 
     let msg = test_message();

@@ -243,10 +243,19 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
 mod tests {
     use super::super::sections::Section;
     use super::*;
+    use crate::permission::engine::engine_eval::PermissionEngine;
+    use crate::permission::rules::RuleSetBuilder;
     use crate::skills::DiskSkillRegistry;
     use crate::tools::builtin::register_builtin_tools;
     use crate::tools::ToolRegistry;
     use std::sync::Arc;
+
+    /// Helper to create a test PermissionEngine.
+    fn test_permission_engine() -> Arc<PermissionEngine> {
+        Arc::new(PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new().build().unwrap(),
+        ))
+    }
 
     /// Clear all global prompt state to prevent cross-test pollution.
     fn clear_all_prompts() {
@@ -376,7 +385,7 @@ mod tests {
     async fn test_build_tools_section_returns_tools_section() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry).await;
+        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -392,7 +401,7 @@ mod tests {
     async fn test_build_tools_section_contains_group_headers() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry).await;
+        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -415,7 +424,7 @@ mod tests {
     async fn test_build_tools_section_contains_tool_names() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry).await;
+        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -448,7 +457,7 @@ mod tests {
     async fn test_build_tools_section_respects_max_length() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry).await;
+        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
