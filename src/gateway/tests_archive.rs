@@ -8,6 +8,7 @@
 use crate::gateway::{GatewayConfig, Message, SessionManager};
 use crate::im::IMAdapter;
 use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::ReasoningLevel;
 use crate::session::persistence::{
     AgentRole, PersistenceService, SessionCheckpoint, SessionStatus,
 };
@@ -248,6 +249,7 @@ async fn make_gateway_with_storage(
         Some(storage),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let gateway = crate::gateway::Gateway::new(config, Arc::clone(&session_manager));
     (gateway, session_manager)
@@ -451,6 +453,7 @@ async fn test_no_storage_no_restore() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let gateway = crate::gateway::Gateway::new(config, Arc::clone(&session_manager));
     let adapter = Arc::new(MockAdapter::new());

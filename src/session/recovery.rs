@@ -12,6 +12,7 @@ pub struct SessionRecoveryService<S: PersistenceService> {
     storage: Arc<S>,
     /// Callback to restore a session from checkpoint
     /// The closure receives the session_id and checkpoint, and should restore the session state.
+    #[allow(clippy::type_complexity)]
     restore_fn: RwLock<
         Option<Box<dyn Fn(&str, &SessionCheckpoint) -> Result<(), PersistenceError> + Send + Sync>>,
     >,
@@ -80,7 +81,7 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
 
     /// Get the storage reference
     pub fn storage(&self) -> &S {
-        &*self.storage
+        &self.storage
     }
 }
 
@@ -108,7 +109,9 @@ impl RecoveryReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::persistence::{ReasoningMode, ReasoningModeState, SessionStatus};
+    use crate::session::persistence::{
+        ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
+    };
     use crate::session::storage::memory::MemoryStorage;
     use chrono::Utc;
 
@@ -134,6 +137,7 @@ mod tests {
             chat_id: None,
             agent_id: None,
             role: None,
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 

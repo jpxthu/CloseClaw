@@ -67,6 +67,7 @@ async fn setup_session_manager_with_storage() -> (Arc<SessionManager>, FakeProvi
         Some(storage),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
 
     let provider = FakeProvider::builder()
@@ -312,6 +313,7 @@ async fn test_full_shutdown_restore_cycle() {
     let sid = sm1.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     use closeclaw::session::persistence::PendingMessage;
+    use closeclaw::session::persistence::ReasoningLevel;
 
     let mut msg_sent =
         PendingMessage::new("msg-sent-cycle".to_string(), "sent content".to_string());
@@ -339,6 +341,7 @@ async fn test_full_shutdown_restore_cycle() {
         Some(storage2),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
 
     // Trigger restore by calling find_or_create for the same session

@@ -209,6 +209,7 @@ pub fn load_checkpoint_inner(
     };
 
     let last_message_id: Option<String> = None;
+    #[allow(unused_mut)]
     let mut mode_state_val: crate::session::persistence::ReasoningModeState;
     let mode_val: String;
     if let Some(ref meta) = metadata {
@@ -270,6 +271,7 @@ pub fn load_checkpoint_inner(
             "sub_agent" => Some(crate::session::persistence::AgentRole::SubAgent),
             _ => None,
         },
+        reasoning_level: crate::session::persistence::ReasoningLevel::default(),
     }))
 }
 

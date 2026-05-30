@@ -4,8 +4,8 @@
 
 mod tests {
     use crate::session::persistence::{
-        PersistenceError, PersistenceService, ReasoningMode, ReasoningModeState, SessionCheckpoint,
-        SessionStatus,
+        PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState,
+        SessionCheckpoint, SessionStatus,
     };
     use crate::session::storage::SqliteStorage;
     use chrono::Utc;
@@ -28,6 +28,7 @@ mod tests {
             chat_id: Some("test-chat".to_string()),
             agent_id: None,
             role: None,
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 
@@ -381,6 +382,7 @@ mod tests {
             chat_id: Some("test-chat".to_string()),
             agent_id: Some("agent-eda".to_string()),
             role: Some(AgentRole::SubAgent),
+            reasoning_level: ReasoningLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -416,6 +418,7 @@ mod tests {
             chat_id: None,
             agent_id: None,
             role: Some(AgentRole::SubAgent),
+            reasoning_level: ReasoningLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -451,6 +454,7 @@ mod tests {
             chat_id: Some("oc_123456".to_string()),
             agent_id: Some("my-agent".to_string()),
             role: Some(AgentRole::MainAgent),
+            reasoning_level: ReasoningLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

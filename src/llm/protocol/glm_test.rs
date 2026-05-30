@@ -1,5 +1,6 @@
 use super::*;
 use crate::llm::types::{InternalMessage, RawSseChunk};
+use crate::session::persistence::ReasoningLevel;
 
 fn make_request() -> InternalRequest {
     InternalRequest {
@@ -12,9 +13,9 @@ fn make_request() -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        reasoning_level: ReasoningLevel::default(),
     }
 }
-
 // ── build_request tests ───────────────────────────────────────────────────
 
 #[test]
@@ -22,7 +23,6 @@ fn test_build_request_basic() {
     let proto = GlmProtocol::new();
     let request = make_request();
     let body = proto.build_request(&request).unwrap();
-
     assert_eq!(body.get("model").unwrap(), "glm-4");
     assert!(body.get("messages").unwrap().is_array());
     let temp_val = body.get("temperature").unwrap().as_f64().unwrap();
@@ -39,7 +39,6 @@ fn test_build_request_stream() {
     let body = proto.build_request(&request).unwrap();
     assert_eq!(body.get("stream").unwrap(), &serde_json::json!(true));
 }
-
 // ── parse_response tests ──────────────────────────────────────────────────
 
 #[test]
@@ -56,7 +55,6 @@ fn test_parse_response_normal() {
             "total_tokens": 15
         }
     });
-
     let resp = proto.parse_response(body).unwrap();
     assert_eq!(resp.content_blocks.len(), 1);
     assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "GLM reply"));
@@ -78,7 +76,6 @@ fn test_parse_response_reasoning_content() {
             "finish_reason": "stop"
         }]
     });
-
     let resp = proto.parse_response(body).unwrap();
     assert_eq!(resp.content_blocks.len(), 1);
     assert!(
@@ -98,7 +95,6 @@ fn test_parse_response_reasoning_content_prefers_text() {
             "finish_reason": "stop"
         }]
     });
-
     let resp = proto.parse_response(body).unwrap();
     assert_eq!(resp.content_blocks.len(), 1);
     assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "Final answer"));
@@ -113,7 +109,6 @@ fn test_parse_response_error_format() {
             "message": "API key is invalid"
         }
     });
-
     let resp = proto.parse_response(body).unwrap();
     assert!(resp.content_blocks.is_empty());
     assert_eq!(resp.usage.prompt_tokens, 0);
@@ -129,7 +124,6 @@ fn test_parse_response_empty_choices() {
     assert!(resp.content_blocks.is_empty());
     assert_eq!(resp.usage.prompt_tokens, 0);
 }
-
 // ── decorate_headers tests ────────────────────────────────────────────────
 
 #[test]
@@ -138,7 +132,6 @@ fn test_decorate_headers_bearer() {
     let proto = GlmProtocol::new();
     let mut headers = HeaderMap::new();
     proto.decorate_headers(&mut headers).unwrap();
-
     let auth = headers.get(AUTHORIZATION).unwrap();
     assert!(auth.to_str().unwrap().starts_with("Bearer "));
 }
@@ -148,13 +141,11 @@ fn test_decorate_headers_content_type() {
     let proto = GlmProtocol::new();
     let mut headers = HeaderMap::new();
     proto.decorate_headers(&mut headers).unwrap();
-
     assert_eq!(
         headers.get(CONTENT_TYPE).unwrap().to_str().unwrap(),
         "application/json"
     );
 }
-
 // ── SSE parsing tests ──────────────────────────────────────────────────────
 
 fn make_sse_chunk(data: &str) -> RawSseChunk {
@@ -168,15 +159,12 @@ fn make_sse_chunk(data: &str) -> RawSseChunk {
 async fn test_parse_sse_reasoning_content_delta() {
     let proto = GlmProtocol::new();
     let machine = proto.create_sse_machine();
-
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":"step 1"}}]}"#),
         make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":"step 2"}}]}"#),
         make_sse_chunk("[DONE]"),
     ]));
-
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
-
     let evt1 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt1,
@@ -185,17 +173,14 @@ async fn test_parse_sse_reasoning_content_delta() {
             ..
         }
     ));
-
     let evt2 = stream.next().await.unwrap().unwrap();
     assert!(
         matches!(evt2, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s }, .. } if s == "step 1")
     );
-
     let evt3 = stream.next().await.unwrap().unwrap();
     assert!(
         matches!(evt3, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s }, .. } if s == "step 2")
     );
-
     let evt4 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt4,
@@ -204,10 +189,8 @@ async fn test_parse_sse_reasoning_content_delta() {
             ..
         }
     ));
-
     let evt5 = stream.next().await.unwrap().unwrap();
     assert!(matches!(evt5, StreamEvent::MessageEnd { .. }));
-
     assert!(stream.next().await.is_none());
 }
 
@@ -215,15 +198,12 @@ async fn test_parse_sse_reasoning_content_delta() {
 async fn test_parse_sse_content_delta_fallback() {
     let proto = GlmProtocol::new();
     let machine = proto.create_sse_machine();
-
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(r#"{"choices":[{"delta":{"content":"Hello"}}]}"#),
         make_sse_chunk(r#"{"choices":[{"delta":{"content":" world"}}]}"#),
         make_sse_chunk("[DONE]"),
     ]));
-
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
-
     let evt1 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt1,
@@ -232,17 +212,14 @@ async fn test_parse_sse_content_delta_fallback() {
             ..
         }
     ));
-
     let evt2 = stream.next().await.unwrap().unwrap();
     assert!(
         matches!(evt2, StreamEvent::BlockDelta { delta: ContentDelta::Text { text: s }, .. } if s == "Hello")
     );
-
     let evt3 = stream.next().await.unwrap().unwrap();
     assert!(
         matches!(evt3, StreamEvent::BlockDelta { delta: ContentDelta::Text { text: s }, .. } if s == " world")
     );
-
     let evt4 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt4,
@@ -251,10 +228,8 @@ async fn test_parse_sse_content_delta_fallback() {
             ..
         }
     ));
-
     let evt5 = stream.next().await.unwrap().unwrap();
     assert!(matches!(evt5, StreamEvent::MessageEnd { .. }));
-
     assert!(stream.next().await.is_none());
 }
 
@@ -262,27 +237,21 @@ async fn test_parse_sse_content_delta_fallback() {
 async fn test_parse_sse_empty_chunk_breaks() {
     let proto = GlmProtocol::new();
     let machine = proto.create_sse_machine();
-
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(""),
         make_sse_chunk("[DONE]"),
     ]));
-
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
-
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
-
     assert!(stream.next().await.is_none());
 }
-
 // ── SSE tool_calls parsing tests ──────────────────────────────────────────
 
 #[tokio::test]
 async fn test_parse_sse_tool_calls_basic() {
     let proto = GlmProtocol::new();
     let machine = proto.create_sse_machine();
-
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_xyz","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}"#,
@@ -298,9 +267,7 @@ async fn test_parse_sse_tool_calls_basic() {
         ),
         make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
     ]));
-
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
-
     // BlockStart(ToolUse)
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
@@ -310,42 +277,36 @@ async fn test_parse_sse_tool_calls_basic() {
             ..
         }
     ));
-
     // ToolUseId
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id: id }, .. } if id == "call_xyz"
     ));
-
     // ToolUseName
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockDelta { delta: ContentDelta::ToolUseName { name: n }, .. } if n == "get_weather"
     ));
-
     // ToolUseInputChunk 1: {"city"
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input: s }, .. } if s == r#"{"city""#
     ));
-
     // ToolUseInputChunk 2:  : "Shanghai"}
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input: s }, .. } if s == " : \"Shanghai\"}"
     ));
-
     // ToolUseInputChunk 3
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input: s }, .. } if s == "}"
     ));
-
     // BlockEnd(ToolUse)
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
@@ -355,11 +316,9 @@ async fn test_parse_sse_tool_calls_basic() {
             ..
         }
     ));
-
     // MessageEnd
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
-
     assert!(stream.next().await.is_none());
 }
 
@@ -398,7 +357,6 @@ async fn test_parse_sse_multi_tool_calls() {
 async fn test_parse_sse_reasoning_then_tool_calls() {
     let proto = GlmProtocol::new();
     let machine = proto.create_sse_machine();
-
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":"Let me think..."}}]}"#),
         make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":" done."}}]}"#),
@@ -407,9 +365,7 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
         ),
         make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
     ]));
-
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
-
     // Thinking BlockStart
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
@@ -490,4 +446,55 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
 
     assert!(stream.next().await.is_none());
+}
+
+// ── ReasoningLevel → thinking parameter mapping tests ──────────────────────
+
+#[test]
+fn test_build_request_reasoning_level_low_disables_thinking() {
+    let proto = GlmProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::Low;
+    let body = proto.build_request(&request).unwrap();
+    let thinking = body.get("thinking").unwrap();
+    assert_eq!(thinking.get("type").unwrap(), "disabled");
+}
+
+#[test]
+fn test_build_request_reasoning_level_medium_enables_thinking() {
+    let proto = GlmProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::Medium;
+    let body = proto.build_request(&request).unwrap();
+    let thinking = body.get("thinking").unwrap();
+    assert_eq!(thinking.get("type").unwrap(), "enabled");
+}
+
+#[test]
+fn test_build_request_reasoning_level_high_enables_thinking() {
+    let proto = GlmProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::High;
+    let body = proto.build_request(&request).unwrap();
+    let thinking = body.get("thinking").unwrap();
+    assert_eq!(thinking.get("type").unwrap(), "enabled");
+}
+
+#[test]
+fn test_build_request_reasoning_level_max_enables_thinking() {
+    let proto = GlmProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::Max;
+    let body = proto.build_request(&request).unwrap();
+    let thinking = body.get("thinking").unwrap();
+    assert_eq!(thinking.get("type").unwrap(), "enabled");
+}
+
+#[test]
+fn test_build_request_default_reasoning_level_enables_thinking() {
+    let proto = GlmProtocol::new();
+    let request = make_request(); // default is High
+    let body = proto.build_request(&request).unwrap();
+    let thinking = body.get("thinking").unwrap();
+    assert_eq!(thinking.get("type").unwrap(), "enabled");
 }

@@ -32,5 +32,6 @@ pub use checkpoint_manager::CheckpointManager;
 pub use compaction::{CompactConfig, CompactionResult, CompactionService, TokenWarningState};
 pub use events::{CheckpointTrigger, ModeSwitchEvent, UserIntent};
 pub use persistence::{
-    PendingMessage, PersistenceError, PersistenceService, ReasoningMode, SessionCheckpoint,
+    PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
+    SessionCheckpoint,
 };

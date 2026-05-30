@@ -19,6 +19,7 @@ use closeclaw::llm::fake::{FakeProvider, Scenario};
 use closeclaw::llm::fallback::{FallbackClient, ModelEntry};
 use closeclaw::llm::LLMRegistry;
 use closeclaw::session::bootstrap::BootstrapMode;
+use closeclaw::session::persistence::ReasoningLevel;
 
 /// Create a minimal GatewayConfig for testing.
 fn test_config() -> GatewayConfig {
@@ -60,6 +61,7 @@ async fn test_idle_message_returns_llm_started() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
@@ -104,6 +106,7 @@ async fn test_busy_message_returns_queued() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
@@ -147,6 +150,7 @@ async fn test_fake_provider_call_count_while_busy() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
@@ -217,6 +221,7 @@ async fn test_pending_fifo_after_delay() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
@@ -283,6 +288,7 @@ async fn test_idle_after_delay_drain() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 

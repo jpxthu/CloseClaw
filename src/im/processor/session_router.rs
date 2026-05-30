@@ -7,11 +7,9 @@
 //!
 //! Runs at priority 20, before [`FeishuMessageCleaner`] (priority 30).
 
-use async_trait::async_trait;
-use std::collections::BTreeMap;
-
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase, ProcessedMessage};
 use crate::gateway::{Message, SessionManager};
+use async_trait::async_trait;
 use serde_json::Value;
 
 /// SessionRouter — resolves and attaches a session_id to the message pipeline.
@@ -167,6 +165,7 @@ mod tests {
     use super::*;
     use crate::gateway::{DmScope, GatewayConfig};
     use crate::session::bootstrap::BootstrapMode;
+    use crate::session::persistence::ReasoningLevel;
     use std::sync::Arc;
 
     fn test_config() -> GatewayConfig {
@@ -222,6 +221,7 @@ mod tests {
             None,
             None,
             BootstrapMode::Full,
+            ReasoningLevel::default(),
         ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
@@ -243,6 +243,7 @@ mod tests {
             None,
             None,
             BootstrapMode::Full,
+            ReasoningLevel::default(),
         ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
@@ -269,6 +270,7 @@ mod tests {
             None,
             None,
             BootstrapMode::Full,
+            ReasoningLevel::default(),
         ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_group_webhook("ou_user_a", "oc_chat");
@@ -289,7 +291,13 @@ mod tests {
             dm_scope: DmScope::PerAccountChannelPeer,
             ..test_config()
         };
-        let mgr = Arc::new(SessionManager::new(&cfg, None, None, BootstrapMode::Full));
+        let mgr = Arc::new(SessionManager::new(
+            &cfg,
+            None,
+            None,
+            BootstrapMode::Full,
+            ReasoningLevel::default(),
+        ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
 
@@ -312,6 +320,7 @@ mod tests {
             None,
             None,
             BootstrapMode::Full,
+            ReasoningLevel::default(),
         ));
         let router = SessionRouter::new(mgr.clone());
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");

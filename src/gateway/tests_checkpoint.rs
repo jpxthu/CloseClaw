@@ -6,6 +6,7 @@
 use crate::gateway::{DmScope, GatewayConfig, Message, SessionManager};
 use crate::im::{AdapterError, IMAdapter};
 use crate::session::checkpoint_manager::CheckpointManager;
+use crate::session::persistence::ReasoningLevel;
 use crate::session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -220,6 +221,7 @@ async fn test_with_checkpoint_manager_stores_cm() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let persistence = Arc::new(MockPersistence::default());
     let cm = Arc::new(CheckpointManager::new(persistence.storage()));
@@ -246,6 +248,7 @@ async fn test_gateway_without_checkpoint_manager_has_no_cm() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
 
@@ -259,7 +262,6 @@ async fn test_gateway_without_checkpoint_manager_has_no_cm() {
 
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
-
     // Without cm, send_outbound just sends without saving checkpoints
     let result = gw
         .send_outbound("test_channel", &msg.metadata["session_id"], "hello")
@@ -276,6 +278,7 @@ async fn test_send_outbound_with_cm_saves_checkpoint_on_success() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
@@ -286,15 +289,12 @@ async fn test_send_outbound_with_cm_saves_checkpoint_on_success() {
         Arc::clone(&adapter) as Arc<dyn IMAdapter>,
     )
     .await;
-
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
-
     gw.send_outbound("test_channel", &session_id, "hello")
         .await
         .unwrap();
-
     // Verify: checkpoint was saved
     let cp = persistence
         .checkpoints
@@ -326,6 +326,7 @@ async fn test_send_outbound_without_cm_does_not_save_checkpoint() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let persistence = Arc::new(MockPersistence::default());
 
@@ -366,6 +367,7 @@ async fn test_send_failure_does_not_trigger_checkpoint() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
@@ -407,6 +409,7 @@ async fn test_send_outbound_interactive_triggers_checkpoint() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
@@ -417,18 +420,15 @@ async fn test_send_outbound_interactive_triggers_checkpoint() {
         Arc::clone(&adapter) as Arc<dyn IMAdapter>,
     )
     .await;
-
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
-
     // JSON with msg_type = "interactive"
     let interactive_json = serde_json::json!({
         "msg_type": "interactive",
         "content": r#"{"type":"card","elements":[{"tag":"markdown","content":"**hello**"}]}"#
     })
     .to_string();
-
     gw.send_outbound("test_channel", &session_id, &interactive_json)
         .await
         .unwrap();
@@ -457,6 +457,7 @@ async fn test_send_outbound_pending_message_contains_correct_data() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());

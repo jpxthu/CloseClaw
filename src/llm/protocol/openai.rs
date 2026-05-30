@@ -11,6 +11,7 @@ use crate::llm::types::{
     ContentBlockType, ContentDelta, InternalMessage, InternalRequest, InternalResponse, ProtocolId,
     RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
 };
+use crate::session::persistence::ReasoningLevel;
 
 use crate::llm::protocol::{
     ChatProtocol, IncomingSseStream, OutgoingEventStream, ProtocolError, Result,
@@ -66,6 +67,31 @@ impl ChatProtocol for OpenAiProtocol {
             body.as_object_mut()
                 .unwrap()
                 .insert("max_tokens".to_string(), serde_json::json!(max_tokens));
+        }
+
+        // Map ReasoningLevel → reasoning_effort for DeepSeek and OpenAI-compatible providers.
+        match request.reasoning_level {
+            ReasoningLevel::Low => {
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("reasoning_effort".to_string(), serde_json::json!("off"));
+            }
+            ReasoningLevel::Medium => {
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("reasoning_effort".to_string(), serde_json::json!("base"));
+            }
+            ReasoningLevel::High => {
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("reasoning_effort".to_string(), serde_json::json!("high"));
+            }
+            ReasoningLevel::Max => {
+                body.as_object_mut().unwrap().insert(
+                    "reasoning_effort".to_string(),
+                    serde_json::json!("reasoner"),
+                );
+            }
         }
 
         for (key, value) in &request.extra_body {

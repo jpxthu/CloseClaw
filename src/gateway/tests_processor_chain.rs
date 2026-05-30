@@ -69,7 +69,13 @@ fn make_config() -> GatewayConfig {
 }
 
 fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManager>) {
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
     (gw, sm)
 }
@@ -118,7 +124,13 @@ async fn test_processor_chain_bypass_no_registry() {
 #[tokio::test]
 async fn test_processor_chain_bypass_empty_registry() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
     let (registry, _renderer) = ProcessorChainLoader::load(&ProcessorChainConfig {
         inbound: vec![],
         outbound: vec![],
@@ -147,7 +159,13 @@ async fn test_processor_chain_bypass_empty_registry() {
 async fn test_processor_chain_applies_processors() {
     let tmp = tempfile::tempdir().unwrap();
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
     let proc_config = ProcessorChainConfig {
         inbound: vec![ProcessorConfig::RawLog {
             enabled: true,
@@ -174,9 +192,16 @@ async fn test_processor_chain_applies_processors() {
 #[tokio::test]
 async fn test_processor_chain_execution_order_by_priority() {
     use crate::processor_chain::ProcessorRegistry;
+    use crate::session::persistence::ReasoningLevel;
 
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
 
     let mut registry = ProcessorRegistry::new();
     registry.register(Arc::new(TraceProcessor {
@@ -250,7 +275,13 @@ async fn test_processor_chain_metadata_merge() {
     }
 
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(&config, None));
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
     let mut registry = crate::processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(MetadataInjector(20)));
 

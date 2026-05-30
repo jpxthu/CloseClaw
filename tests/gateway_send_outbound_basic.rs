@@ -7,6 +7,7 @@ use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
 use closeclaw::session::bootstrap::BootstrapMode;
+use closeclaw::session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -104,6 +105,7 @@ pub(crate) fn make_outbound_gw(config: GatewayConfig) -> (Gateway, Arc<SessionMa
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let gw = Gateway::new(config, Arc::clone(&sm));
     (gw, sm)
@@ -132,6 +134,7 @@ async fn test_send_outbound_text_path() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
@@ -162,6 +165,7 @@ async fn test_send_outbound_interactive_path() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
@@ -202,6 +206,7 @@ async fn test_send_outbound_suppress() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();

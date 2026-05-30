@@ -15,8 +15,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use crate::gateway::SessionManager;
-use crate::processor_chain::{DslInstruction, DslParseResult};
-
 pub use cleaner::FeishuMessageCleaner;
 use serde_json::Value;
 pub use session_router::SessionRouter;
@@ -235,6 +233,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::session::bootstrap::BootstrapMode;
+    use crate::session::persistence::ReasoningLevel;
 
     fn test_session_manager() -> Arc<SessionManager> {
         Arc::new(SessionManager::new(
@@ -247,6 +246,7 @@ mod tests {
             None,
             None,
             BootstrapMode::Full,
+            ReasoningLevel::default(),
         ))
     }
 

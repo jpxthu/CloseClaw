@@ -12,6 +12,7 @@ use crate::llm::session::{ChatSession, SessionMessage};
 use crate::llm::turn::TurnCounter;
 use crate::llm::types::{ContentBlock, InternalMessage, InternalRequest, UnifiedResponse};
 use crate::llm::Message;
+use crate::session::persistence::ReasoningLevel;
 
 /// Adapter implementing [`ChatSession`] over a legacy message history.
 ///
@@ -24,6 +25,7 @@ pub struct LegacySessionAdapter {
     model: String,
     turn_counter: TurnCounter,
     is_llm_busy: Arc<AtomicBool>,
+    reasoning_level: ReasoningLevel,
 }
 
 impl LegacySessionAdapter {
@@ -47,6 +49,7 @@ impl LegacySessionAdapter {
             model,
             turn_counter: TurnCounter::new(),
             is_llm_busy: Arc::new(AtomicBool::new(false)),
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 
@@ -137,6 +140,7 @@ impl ChatSession for LegacySessionAdapter {
             max_tokens: None,
             stream: false,
             extra_body: Default::default(),
+            reasoning_level: self.reasoning_level,
         }
     }
 

@@ -6,10 +6,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::RwLock;
 
 /// Session Checkpoint — 用于持久化恢复的核心数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +39,8 @@ pub struct SessionCheckpoint {
     pub chat_id: Option<String>,
     pub agent_id: Option<String>,
     pub role: Option<AgentRole>,
+    /// 推理深度等级
+    pub reasoning_level: ReasoningLevel,
 }
 
 impl SessionCheckpoint {
@@ -64,6 +63,7 @@ impl SessionCheckpoint {
             chat_id: None,
             agent_id: None,
             role: None,
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 
@@ -145,6 +145,12 @@ impl SessionCheckpoint {
         self
     }
 
+    /// Update the reasoning level
+    pub fn with_reasoning_level(mut self, level: ReasoningLevel) -> Self {
+        self.reasoning_level = level;
+        self
+    }
+
     /// Touch the updated_at timestamp
     pub fn touch(&mut self) {
         self.updated_at = Utc::now();
@@ -214,10 +220,11 @@ impl PendingMessage {
 }
 
 /// Reasoning Mode — 推理模式枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningMode {
     /// 直接回答模式
+    #[default]
     Direct,
     /// 规划模式（先展示思考框架）
     Plan,
@@ -225,12 +232,6 @@ pub enum ReasoningMode {
     Stream,
     /// 隐藏思考过程模式
     Hidden,
-}
-
-impl Default for ReasoningMode {
-    fn default() -> Self {
-        ReasoningMode::Direct
-    }
 }
 
 impl std::fmt::Display for ReasoningMode {
@@ -245,19 +246,14 @@ impl std::fmt::Display for ReasoningMode {
 }
 
 /// Session Status — 会话生命周期状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionStatus {
     /// 活跃状态
+    #[default]
     Active,
     /// 已归档状态
     Archived,
-}
-
-impl Default for SessionStatus {
-    fn default() -> Self {
-        SessionStatus::Active
-    }
 }
 
 impl std::fmt::Display for SessionStatus {
@@ -265,6 +261,32 @@ impl std::fmt::Display for SessionStatus {
         match self {
             SessionStatus::Active => write!(f, "active"),
             SessionStatus::Archived => write!(f, "archived"),
+        }
+    }
+}
+
+/// Reasoning Level — 推理深度控制等级
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningLevel {
+    /// 低推理深度（最小推理 token 消耗）
+    Low,
+    /// 中等推理深度
+    Medium,
+    /// 高推理深度（默认）
+    #[default]
+    High,
+    /// 最大推理深度（最大推理 token 消耗）
+    Max,
+}
+
+impl std::fmt::Display for ReasoningLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReasoningLevel::Low => write!(f, "low"),
+            ReasoningLevel::Medium => write!(f, "medium"),
+            ReasoningLevel::High => write!(f, "high"),
+            ReasoningLevel::Max => write!(f, "max"),
         }
     }
 }
@@ -368,5 +390,76 @@ pub trait PersistenceService: Send + Sync {
         _purge_after_minutes: i64,
     ) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reasoning_level_default_is_high() {
+        assert_eq!(ReasoningLevel::default(), ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_reasoning_level_display() {
+        assert_eq!(ReasoningLevel::Low.to_string(), "low");
+        assert_eq!(ReasoningLevel::Medium.to_string(), "medium");
+        assert_eq!(ReasoningLevel::High.to_string(), "high");
+        assert_eq!(ReasoningLevel::Max.to_string(), "max");
+    }
+
+    #[test]
+    fn test_reasoning_level_serde_roundtrip() {
+        for level in [
+            ReasoningLevel::Low,
+            ReasoningLevel::Medium,
+            ReasoningLevel::High,
+            ReasoningLevel::Max,
+        ] {
+            let json = serde_json::to_string(&level).unwrap();
+            let parsed: ReasoningLevel = serde_json::from_str(&json).unwrap();
+            assert_eq!(level, parsed);
+        }
+    }
+
+    #[test]
+    fn test_reasoning_level_deserialize_from_string() {
+        assert_eq!(
+            serde_json::from_str::<ReasoningLevel>("\"low\"").unwrap(),
+            ReasoningLevel::Low
+        );
+        assert_eq!(
+            serde_json::from_str::<ReasoningLevel>("\"medium\"").unwrap(),
+            ReasoningLevel::Medium
+        );
+        assert_eq!(
+            serde_json::from_str::<ReasoningLevel>("\"high\"").unwrap(),
+            ReasoningLevel::High
+        );
+        assert_eq!(
+            serde_json::from_str::<ReasoningLevel>("\"max\"").unwrap(),
+            ReasoningLevel::Max
+        );
+    }
+
+    #[test]
+    fn test_reasoning_level_invalid_value_fails() {
+        let result = serde_json::from_str::<ReasoningLevel>("\"extreme\"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_session_checkpoint_default_reasoning_level() {
+        let checkpoint = SessionCheckpoint::new("sess_1".into());
+        assert_eq!(checkpoint.reasoning_level, ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_session_checkpoint_with_reasoning_level() {
+        let checkpoint =
+            SessionCheckpoint::new("sess_2".into()).with_reasoning_level(ReasoningLevel::Low);
+        assert_eq!(checkpoint.reasoning_level, ReasoningLevel::Low);
     }
 }

@@ -7,6 +7,8 @@ use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 
+use crate::session::persistence::ReasoningLevel;
+
 /// Content block type classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -271,6 +273,11 @@ pub struct InternalRequest {
     /// Additional provider-specific parameters.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra_body: serde_json::Map<String, serde_json::Value>,
+    /// Reasoning depth level for the request.
+    /// Each protocol maps this to its native parameter (e.g., OpenAI `reasoning_effort`).
+    /// Skipped during serialization to avoid leaking to API payloads.
+    #[serde(skip)]
+    pub reasoning_level: ReasoningLevel,
 }
 
 fn default_temperature() -> f32 {
@@ -286,6 +293,7 @@ fn default_temperature() -> f32 {
 /// Tracks the current state during SSE parsing to correctly assemble
 /// incremental deltas into complete content blocks.
 #[derive(Debug, Clone)]
+#[allow(unexpected_cfgs)]
 #[cfg_attr(feature = "server", derive(serde::Serialize, serde::Deserialize))]
 pub struct SseStateMachine {
     /// Index of the currently active content block being parsed.
