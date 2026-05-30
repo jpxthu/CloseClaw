@@ -7,15 +7,21 @@ pub mod message;
 pub mod outbound;
 pub mod session_handler;
 pub mod session_manager;
+pub mod slash_permission;
 pub mod system_prompt_inject;
+
+#[cfg(test)]
+mod tests_slash_permission;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::permission::approval_flow::ApprovalFlow;
+use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::session::checkpoint_manager::CheckpointManager;
 use crate::session::persistence::PersistenceService;
+use crate::slash::SlashDispatcher;
 
 pub use crate::processor_chain::ProcessorRegistry;
 pub use session_handler::{HandleResult, SessionMessageHandler};
@@ -109,6 +115,10 @@ pub struct Gateway {
     session_handler: Option<Arc<SessionMessageHandler>>,
     /// Daemon-level approval flow for intercepting `/approve` / `/deny` commands.
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,
+    /// Slash command dispatcher.
+    slash_dispatcher: RwLock<Option<Arc<SlashDispatcher>>>,
+    /// Permission engine for slash command authorization.
+    permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
 }
 
 impl Gateway {
@@ -123,6 +133,8 @@ impl Gateway {
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
+            slash_dispatcher: RwLock::new(None),
+            permission_engine: RwLock::new(None),
         }
     }
 
@@ -141,6 +153,8 @@ impl Gateway {
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
+            slash_dispatcher: RwLock::new(None),
+            permission_engine: RwLock::new(None),
         }
     }
 
@@ -164,6 +178,8 @@ impl Gateway {
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
+            slash_dispatcher: RwLock::new(None),
+            permission_engine: RwLock::new(None),
         }
     }
 
@@ -204,6 +220,13 @@ impl Gateway {
             .await
         {
             return Some(result);
+        }
+
+        // ── Slash command dispatch ─────────────────────────────────────
+        if content.starts_with('/') {
+            if let Some(result) = self.dispatch_slash(session_id, &content, sender_id).await {
+                return Some(result);
+            }
         }
 
         let handler = self.session_handler.as_ref()?;

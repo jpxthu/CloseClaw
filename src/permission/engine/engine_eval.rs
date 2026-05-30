@@ -429,6 +429,7 @@ impl PermissionEngine {
             PermissionRequestBody::NetOp { .. } => defaults.network,
             PermissionRequestBody::InterAgentMsg { .. } => defaults.inter_agent,
             PermissionRequestBody::ConfigWrite { .. } => defaults.config,
+            PermissionRequestBody::SlashCommand { .. } => defaults.command,
             PermissionRequestBody::ToolCall { .. } => defaults.tool_call,
         };
 
