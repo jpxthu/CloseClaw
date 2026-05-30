@@ -178,6 +178,7 @@ mod tests {
             communication: crate::agent::communication::CommunicationConfig::default(),
             wait_timeout_secs: None,
             grace_period_secs: None,
+            ..Default::default()
         }
     }
 

@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::types::{AgentConfig, AgentsConfig};
 use super::validation::validate_agents_config;
+use super::AgentsConfig;
+use crate::agent::config::AgentConfig;
 use crate::config::{ConfigError, ConfigProvider};
 
 /// AgentsConfigProvider implements ConfigProvider for agents.json
@@ -153,7 +154,7 @@ mod tests {
         let json = r#"{"version":"1","agents":[{"name":"alpha","model":"m1"},{"name":"beta","model":"m2"}]}"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         let agent = provider.get("alpha").unwrap();
-        assert_eq!(agent.model, "m1");
+        assert_eq!(agent.model.as_deref(), Some("m1"));
     }
 
     #[test]
