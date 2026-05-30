@@ -11,7 +11,7 @@ use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
 use super::{RenderedOutput, Renderer};
 
 // ---------------------------------------------------------------------------
-// Card types (reused from MarkdownToCard)
+// Card types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
