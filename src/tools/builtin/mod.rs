@@ -80,8 +80,9 @@ pub async fn register_builtin_tools(
     registry.register(CodingAgentTool::new()).await.ok();
     registry.register(SkillCreatorTool::new()).await.ok();
     // bash
+    let bg_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
     registry
-        .register(BashTool::new(permission_engine))
+        .register(BashTool::new(permission_engine, bg_manager))
         .await
         .ok();
     // skills
