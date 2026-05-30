@@ -70,7 +70,7 @@ AppendSection 在请求结束后自动清除，不进持久化。
 缓存失效触发：
 - 文件变更（bootstrap 或 MEMORY.md）→ 对应 Section 缓存失效，下次请求重建
 - `/clear` 命令 → 所有静态层缓存失效
-- Skill 文件变更 → SkillRegistry 通知重建 SkillListingSection 缓存
+- Skill 文件变更 → 文件监听器使 SkillListingSection 缓存失效，下次 session 重建时从 registry 获取最新 listing
 - 工具定义变更 → 重建 ToolsSection（通过 `build_tools_section` 从 ToolRegistry 异步生成新内容）
 - Session 恢复 → 强制重建全部静态层，确保内容与最新文件一致
 
