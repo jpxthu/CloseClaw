@@ -173,7 +173,8 @@ impl Daemon {
                 guard.as_ref().map(|dr| Arc::new(dr.clone()))
             };
             if let Some(disk_reg) = disk_reg_opt {
-                register_builtin_tools(&tool_registry, disk_reg).await;
+                register_builtin_tools(&tool_registry, disk_reg, Arc::clone(&permission_engine))
+                    .await;
             }
         }
 
