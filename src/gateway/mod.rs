@@ -301,6 +301,8 @@ impl From<super::im::AdapterError> for GatewayError {
 }
 
 #[cfg(test)]
+mod session_handler_dynamic_tests;
+#[cfg(test)]
 mod session_handler_tests;
 #[cfg(test)]
 mod tests;

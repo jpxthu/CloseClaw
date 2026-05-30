@@ -114,6 +114,9 @@ impl SessionMessageHandler {
         if content.starts_with("/compact") {
             return self.handle_compact_command(session_id, &content).await;
         }
+        if content.trim() == "/clear" {
+            return self.handle_clear_command(session_id).await;
+        }
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued;
@@ -202,6 +205,17 @@ impl SessionMessageHandler {
             )
             .await;
         });
+        HandleResult::LlmStarted
+    }
+
+    /// Handle `/clear`: invalidate static-layer cache and rebuild system prompt.
+    async fn handle_clear_command(&self, session_id: &str) -> HandleResult {
+        self.session_manager.rebuild_system_prompt(session_id).await;
+        send_output(
+            &self.output_tx,
+            "System prompt 缓存已清除，下次请求将重新构建。",
+        )
+        .await;
         HandleResult::LlmStarted
     }
 

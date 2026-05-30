@@ -42,6 +42,7 @@ Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Ga
 | WorkdirHandler | cd, pwd, git | Reply / Exec | ❌ |
 | ExecHandler | exec | Exec / Reply | ❌ |
 | HelpHandler | help | Reply | ✅ |
+| ClearHandler | clear | Reply | ✅ |
 
 ### 子功能目录
 
