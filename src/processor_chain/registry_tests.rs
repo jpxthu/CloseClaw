@@ -107,6 +107,7 @@ impl MessageProcessor for TestProc {
             content: self.name.clone(),
             metadata,
             suppress: self.suppress,
+            content_blocks: vec![],
         }))
     }
 }
@@ -133,6 +134,7 @@ async fn test_outbound_bypass() {
         content: "llm said hello".to_string(),
         metadata: serde_json::Map::new(),
         suppress: false,
+        content_blocks: vec![],
     };
     let result = registry.process_outbound(llm_out.clone()).await.unwrap();
 
@@ -196,6 +198,7 @@ async fn test_outbound_chained_override() {
             content: "llm".to_string(),
             metadata: serde_json::Map::new(),
             suppress: false,
+            content_blocks: vec![],
         })
         .await
         .unwrap();
@@ -275,6 +278,7 @@ async fn test_outbound_error_propagates() {
             content: "llm".to_string(),
             metadata: serde_json::Map::new(),
             suppress: false,
+            content_blocks: vec![],
         })
         .await
         .unwrap_err();

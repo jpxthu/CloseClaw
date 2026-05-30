@@ -91,6 +91,14 @@ impl FallbackClient {
         self.try_fallback_chain(request).await
     }
 
+    /// Make a chat request returning structured content blocks.
+    pub async fn chat_unified(
+        &self,
+        request: ChatRequest,
+    ) -> Result<crate::llm::types::UnifiedResponse, LLMError> {
+        self.try_fallback_chain_unified(request).await
+    }
+
     /// Walk the fallback chain until one model succeeds or all are exhausted.
     async fn try_fallback_chain(&self, mut request: ChatRequest) -> Result<ChatResponse, LLMError> {
         let mut model_idx = 0;
@@ -127,6 +135,59 @@ impl FallbackClient {
                     let kind = err.kind();
                     tracing::warn!(
                         provider = %entry.provider, model = %entry.model, error = %err, kind = ?kind, "LLM call failed"
+                    );
+                    self.cooldown
+                        .record_failure(&entry.provider, &entry.model, kind)
+                        .await;
+                    model_idx += 1;
+                }
+            }
+        }
+    }
+}
+
+// --- Unified chat with fallback ---
+
+impl FallbackClient {
+    /// Walk the fallback chain using chat_unified() until one model succeeds.
+    async fn try_fallback_chain_unified(
+        &self,
+        mut request: ChatRequest,
+    ) -> Result<crate::llm::types::UnifiedResponse, LLMError> {
+        let mut model_idx = 0;
+        loop {
+            let entry = self.fallback_chain.get(model_idx).ok_or_else(|| {
+                LLMError::ApiError("all models in fallback chain exhausted".to_string())
+            })?;
+            if self
+                .cooldown
+                .is_in_cooldown(&entry.provider, &entry.model)
+                .await
+            {
+                tracing::debug!(provider = %entry.provider, model = %entry.model, "model in cooldown, skipping");
+                model_idx += 1;
+                continue;
+            }
+            let provider = match self.registry.get(&entry.provider).await {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(provider = %entry.provider, "provider not found, trying next");
+                    model_idx += 1;
+                    continue;
+                }
+            };
+            request.model = entry.model.clone();
+            match provider.chat_unified(request.clone()).await {
+                Ok(response) => {
+                    self.cooldown
+                        .record_success(&entry.provider, &entry.model)
+                        .await;
+                    return Ok(response);
+                }
+                Err(err) => {
+                    let kind = err.kind();
+                    tracing::warn!(
+                        provider = %entry.provider, model = %entry.model, error = %err, kind = ?kind, "LLM unified call failed"
                     );
                     self.cooldown
                         .record_failure(&entry.provider, &entry.model, kind)

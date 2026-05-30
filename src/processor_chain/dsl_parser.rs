@@ -110,6 +110,46 @@ impl DslParser {
             .join("\n");
         self.parse(&text)
     }
+
+    /// Parse DSL from `ContentBlock` list, returning both the merged [`DslParseResult`]
+    /// and an updated `Vec<ContentBlock>` where Text blocks have DSL lines stripped
+    /// and non-Text blocks are preserved as-is.
+    ///
+    /// Each Text block is processed independently so original block boundaries are
+    /// retained. Empty Text blocks (after DSL stripping) are dropped.
+    pub fn parse_content_blocks_with_result(
+        &self,
+        blocks: &[ContentBlock],
+    ) -> (DslParseResult, Vec<ContentBlock>) {
+        let mut all_instructions: Vec<DslInstruction> = Vec::new();
+        let mut updated_blocks: Vec<ContentBlock> = Vec::new();
+        let mut clean_parts: Vec<String> = Vec::new();
+
+        for block in blocks {
+            match block {
+                ContentBlock::Text(s) => {
+                    let result = self.parse(s);
+                    all_instructions.extend(result.instructions);
+                    if !result.clean_content.is_empty() {
+                        clean_parts.push(result.clean_content.clone());
+                        updated_blocks.push(ContentBlock::Text(result.clean_content));
+                    }
+                }
+                _ => {
+                    updated_blocks.push(block.clone());
+                }
+            }
+        }
+
+        let clean_content = clean_parts.join("\n");
+        (
+            DslParseResult {
+                clean_content,
+                instructions: all_instructions,
+            },
+            updated_blocks,
+        )
+    }
 }
 
 /// Try to parse a single line as a DSL instruction.
@@ -177,9 +217,19 @@ impl MessageProcessor for DslParser {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<super::ProcessedMessage>, ProcessError> {
-        let content = &ctx.content;
+        let (result, updated_blocks) = if !ctx.content_blocks.is_empty() {
+            self.parse_content_blocks_with_result(&ctx.content_blocks)
+        } else {
+            let result = self.parse(&ctx.content);
+            // Wrap clean_content as a single Text block when it's non-empty
+            let blocks = if result.clean_content.is_empty() {
+                vec![]
+            } else {
+                vec![ContentBlock::Text(result.clean_content.clone())]
+            };
+            (result, blocks)
+        };
 
-        let result = self.parse(content);
         let json = serde_json::to_string(&result)
             .map_err(|e| ProcessError::processor_failed("DslParser", e))?;
 
@@ -190,6 +240,7 @@ impl MessageProcessor for DslParser {
             content: result.clean_content,
             metadata,
             suppress: false,
+            content_blocks: updated_blocks,
         }))
     }
 }

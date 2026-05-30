@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::llm::types::ContentBlock;
+
 /// Result type alias for processor chain operations.
 pub type Result<T> = std::result::Result<T, super::error::ProcessError>;
 
@@ -48,6 +50,10 @@ pub struct MessageContext {
     pub metadata: serde_json::Map<String, serde_json::Value>,
     /// Whether the message has been flagged to skip further processing.
     pub skip: bool,
+    /// Structured content blocks (e.g., Text, Thinking, ToolUse, ToolResult).
+    /// Populated on the outbound path by LLM responses; empty on inbound.
+    #[serde(default)]
+    pub content_blocks: Vec<ContentBlock>,
 }
 
 impl MessageContext {
@@ -64,6 +70,7 @@ impl MessageContext {
             raw_message_log: vec![raw_log],
             metadata: serde_json::Map::new(),
             skip: false,
+            content_blocks: vec![],
         }
     }
 
@@ -84,6 +91,9 @@ pub struct ProcessedMessage {
     pub metadata: serde_json::Map<String, serde_json::Value>,
     /// Whether the message should be suppressed entirely.
     pub suppress: bool,
+    /// Structured content blocks carried from the outbound chain.
+    #[serde(default)]
+    pub content_blocks: Vec<ContentBlock>,
 }
 
 impl ProcessedMessage {
@@ -95,6 +105,7 @@ impl ProcessedMessage {
             content: raw.content,
             metadata: serde_json::Map::new(),
             suppress: false,
+            content_blocks: vec![],
         }
     }
 }
