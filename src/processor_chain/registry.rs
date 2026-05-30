@@ -72,6 +72,7 @@ impl ProcessorRegistry {
             match processor.process(&ctx).await? {
                 Some(out) => {
                     ctx.content = out.content;
+                    ctx.content_blocks = out.content_blocks;
                     for (k, v) in out.metadata {
                         ctx.metadata.insert(k, v);
                     }
@@ -91,6 +92,7 @@ impl ProcessorRegistry {
             content: ctx.content,
             metadata: ctx.metadata,
             suppress: ctx.skip,
+            content_blocks: ctx.content_blocks,
         })
     }
 
@@ -117,6 +119,7 @@ impl ProcessorRegistry {
         };
         let mut ctx = MessageContext::from_raw(synthetic_raw);
         ctx.metadata = llm_output.metadata.clone();
+        ctx.content_blocks = llm_output.content_blocks.clone();
         if llm_output.suppress {
             ctx.skip = true;
         }
@@ -131,6 +134,7 @@ impl ProcessorRegistry {
             match processor.process(&ctx).await? {
                 Some(out) => {
                     ctx.content = out.content;
+                    ctx.content_blocks = out.content_blocks;
                     for (k, v) in out.metadata {
                         ctx.metadata.insert(k, v);
                     }
@@ -150,6 +154,7 @@ impl ProcessorRegistry {
             content: ctx.content,
             metadata: ctx.metadata,
             suppress: ctx.skip,
+            content_blocks: ctx.content_blocks,
         })
     }
 }

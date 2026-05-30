@@ -185,6 +185,7 @@ impl MessageProcessor for MarkdownNormalizer {
             content,
             metadata: ctx.metadata.clone(),
             suppress: false,
+            content_blocks: vec![],
         }))
     }
 }

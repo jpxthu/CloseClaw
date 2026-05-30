@@ -38,6 +38,7 @@ impl MessageProcessor for MockOutboundProcessor {
             content: self.output_content.clone(),
             metadata: serde_json::Map::new(),
             suppress: self.output_suppress,
+            content_blocks: vec![],
         }))
     }
 }
@@ -121,7 +122,7 @@ async fn test_send_outbound_no_registry_bypass() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 }
@@ -152,7 +153,7 @@ async fn test_send_outbound_text_path() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 }
@@ -184,7 +185,7 @@ async fn test_send_outbound_interactive_path() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 
@@ -225,7 +226,7 @@ async fn test_send_outbound_suppress() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 
@@ -240,7 +241,7 @@ async fn test_send_outbound_unknown_session() {
         .await;
 
     let result = gw
-        .send_outbound("nonexistent-session", "tracking", "raw")
+        .send_outbound("nonexistent-session", "tracking", "raw", vec![])
         .await;
     assert!(matches!(result, Err(GatewayError::MissingSessionId)));
 }
@@ -251,7 +252,7 @@ async fn test_send_outbound_unknown_channel() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    let result = gw.send_outbound(&sid, "unknown", "raw").await;
+    let result = gw.send_outbound(&sid, "unknown", "raw", vec![]).await;
     assert!(matches!(result, Err(GatewayError::UnknownChannel(_))));
 }
 

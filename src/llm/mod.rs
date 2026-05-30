@@ -141,6 +141,25 @@ pub trait LLMProvider: Send + Sync {
     /// List available models
     fn models(&self) -> Vec<&str>;
 
+    /// Send a chat request and return a unified response with structured content blocks.
+    /// Default implementation wraps `chat()` response as a single Text block.
+    async fn chat_unified(
+        &self,
+        request: ChatRequest,
+    ) -> Result<crate::llm::types::UnifiedResponse, LLMError> {
+        let response = self.chat(request).await?;
+        Ok(crate::llm::types::UnifiedResponse {
+            content_blocks: vec![crate::llm::types::ContentBlock::Text(response.content)],
+            usage: crate::llm::types::UnifiedUsage {
+                prompt_tokens: response.usage.prompt_tokens,
+                completion_tokens: response.usage.completion_tokens,
+                total_tokens: Some(response.usage.total_tokens),
+                reasoning_tokens: None,
+            },
+            finish_reason: None,
+        })
+    }
+
     /// Returns true if this is a stub provider that returns fake responses.
     /// When true, callers should treat this as a configuration error.
     fn is_stub(&self) -> bool {

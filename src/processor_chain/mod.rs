@@ -11,7 +11,9 @@
 //! - [`ProcessError`] — error types
 
 pub mod context;
+pub mod context_tests;
 pub mod dsl_parser;
+pub mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
 pub mod markdown_normalizer;

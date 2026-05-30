@@ -53,6 +53,7 @@ impl MessageProcessor for TraceProcessor {
             content: ctx.content.clone(),
             metadata: meta,
             suppress: false,
+            content_blocks: vec![],
         }))
     }
 }
@@ -270,6 +271,7 @@ async fn test_processor_chain_metadata_merge() {
                 content: ctx.content.clone(),
                 metadata: meta,
                 suppress: false,
+                content_blocks: vec![],
             }))
         }
     }

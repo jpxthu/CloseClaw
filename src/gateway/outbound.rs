@@ -21,6 +21,7 @@ impl Gateway {
         session_id: &str,
         channel: &str,
         raw_output: &str,
+        content_blocks: Vec<crate::llm::types::ContentBlock>,
     ) -> Result<(), GatewayError> {
         // Step 1: resolve chat_id
         let chat_id = self
@@ -47,6 +48,7 @@ impl Gateway {
                 content: raw_output.to_string(),
                 metadata: serde_json::Map::new(),
                 suppress: false,
+                content_blocks: content_blocks.clone(),
             };
             let result = registry
                 .process_outbound(processed)
@@ -120,6 +122,7 @@ impl Gateway {
                 content: raw_output.to_string(),
                 metadata: serde_json::Map::new(),
                 suppress: false,
+                content_blocks: content_blocks.clone(),
             };
             let result = registry.process_outbound(processed).await;
             match result {

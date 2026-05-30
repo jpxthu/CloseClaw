@@ -146,6 +146,7 @@ impl MessageProcessor for RawLogProcessor {
             content: ctx.content.clone(),
             metadata: ctx.metadata.clone(),
             suppress: false,
+            content_blocks: vec![],
         }))
     }
 }
