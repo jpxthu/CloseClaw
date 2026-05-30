@@ -1,7 +1,7 @@
 //! Tests for file_ops skill — permission engine integration and error paths
 use crate::permission::actions::ActionBuilder;
 use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
-use crate::permission::Effect;
+use crate::permission::{Effect, MatchType};
 use crate::skills::builtin::FileOpsSkill;
 use crate::skills::Skill;
 use std::sync::Arc;
@@ -71,6 +71,72 @@ fn make_allowed_engine() -> Arc<crate::permission::PermissionEngine> {
             RuleBuilder::new()
                 .name("allow-file-list")
                 .subject_agent("test-agent")
+                .allow()
+                .action(
+                    ActionBuilder::file("list", vec!["**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        // UserAndAgent rules (intersection model requires both phases to allow)
+        .rule(
+            RuleBuilder::new()
+                .name("user-allow-file-read")
+                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
+                .allow()
+                .action(
+                    ActionBuilder::file("read", vec!["**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("user-allow-file-write")
+                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
+                .allow()
+                .action(
+                    ActionBuilder::file("write", vec!["**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("user-allow-file-exists")
+                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
+                .allow()
+                .action(
+                    ActionBuilder::file("exists", vec!["**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("user-allow-file-delete")
+                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
+                .allow()
+                .action(
+                    ActionBuilder::file("delete", vec!["**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("user-allow-file-list")
+                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
                 .allow()
                 .action(
                     ActionBuilder::file("list", vec!["**".to_string()])

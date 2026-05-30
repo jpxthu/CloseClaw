@@ -33,22 +33,40 @@ async fn test_file_ops_read_requires_agent_id_when_engine_set() {
 
 #[tokio::test]
 async fn test_file_ops_read_with_permission() {
-    let rule = Rule {
-        name: "allow-read".to_string(),
-        subject: Subject::AgentOnly {
-            agent: "test-agent".to_string(),
-            match_type: MatchType::Exact,
+    let rules = vec![
+        Rule {
+            name: "allow-read".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
         },
-        effect: Effect::Allow,
-        actions: vec![Action::File {
-            operation: "read".to_string(),
-            paths: vec!["**".to_string()],
-        }],
-        template: None,
-        priority: 0,
-    };
+        Rule {
+            name: "user-allow-read".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "*".to_string(),
+                agent: "test-agent".to_string(),
+                user_match: MatchType::Glob,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        },
+    ];
     let ruleset = crate::permission::RuleSet {
-        rules: vec![rule],
+        rules,
         defaults: crate::permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
@@ -128,22 +146,40 @@ async fn test_file_ops_exists_requires_agent_id_when_engine_set() {
 
 #[tokio::test]
 async fn test_file_ops_exists_with_permission() {
-    let rule = Rule {
-        name: "allow-exists".to_string(),
-        subject: Subject::AgentOnly {
-            agent: "test-agent".to_string(),
-            match_type: MatchType::Exact,
+    let rules = vec![
+        Rule {
+            name: "allow-exists".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
         },
-        effect: Effect::Allow,
-        actions: vec![Action::File {
-            operation: "read".to_string(),
-            paths: vec!["**".to_string()],
-        }],
-        template: None,
-        priority: 0,
-    };
+        Rule {
+            name: "user-allow-exists".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "*".to_string(),
+                agent: "test-agent".to_string(),
+                user_match: MatchType::Glob,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        },
+    ];
     let ruleset = crate::permission::RuleSet {
-        rules: vec![rule],
+        rules,
         defaults: crate::permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
