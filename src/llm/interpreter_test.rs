@@ -24,6 +24,8 @@ fn test_default_interpreter_response_identity() {
             prompt_tokens: 10,
             completion_tokens: 5,
             total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -153,6 +155,8 @@ fn test_minimax_interpreter_empty_content_uses_reasoning() {
             prompt_tokens: 10,
             completion_tokens: 5,
             total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -173,6 +177,8 @@ fn test_minimax_interpreter_text_content_preferred() {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: None,
     };
@@ -214,6 +220,8 @@ fn test_glm_interpreter_reasoning_threshold_short() {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: None,
     };
@@ -234,6 +242,8 @@ fn test_glm_interpreter_reasoning_threshold_exact_boundary() {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: None,
     };
@@ -254,6 +264,8 @@ fn test_glm_interpreter_text_preferred_over_reasoning() {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: None,
     };
@@ -300,6 +312,8 @@ fn test_deepseek_interpreter_response_identity() {
             prompt_tokens: 10,
             completion_tokens: 5,
             total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -324,6 +338,8 @@ fn test_deepseek_interpreter_stream_event_passthrough() {
             prompt_tokens: 10,
             completion_tokens: 5,
             total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
             reasoning_tokens: None,
         }),
         finish_reason: Some("stop".into()),

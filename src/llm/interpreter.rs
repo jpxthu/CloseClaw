@@ -76,6 +76,8 @@ impl ModelInterpreter for DefaultInterpreter {
             completion_tokens: response.usage.completion_tokens,
             total_tokens: response.usage.total_tokens,
             reasoning_tokens: None,
+            cache_read_tokens: response.usage.cache_read_tokens,
+            cache_write_tokens: response.usage.cache_write_tokens,
         };
         UnifiedResponse {
             content_blocks,
@@ -227,6 +229,8 @@ impl ModelInterpreter for MinimaxInterpreter {
                 completion_tokens: response.usage.completion_tokens,
                 total_tokens: response.usage.total_tokens,
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: response.finish_reason,
         }
@@ -287,6 +291,8 @@ impl ModelInterpreter for GlmInterpreter {
                 completion_tokens: response.usage.completion_tokens,
                 total_tokens: response.usage.total_tokens,
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: response.finish_reason,
         }

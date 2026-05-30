@@ -18,3 +18,6 @@ pub use chat_protocol::{
 pub use anthropic::AnthropicProtocol;
 pub use glm::GlmProtocol;
 pub use openai::OpenAiProtocol;
+
+#[cfg(test)]
+mod anthropic_tests;
