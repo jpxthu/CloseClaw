@@ -3,6 +3,8 @@
 //! Re-exports all builtin tool implementations and provides a single
 //! registration entry point.
 
+pub mod bash;
+pub mod bash_classify;
 pub mod coding_agent;
 pub mod file_ops;
 pub mod git_ops;
@@ -11,6 +13,7 @@ pub mod search;
 pub mod skill_creator;
 pub mod skill_tool;
 
+pub use bash::BashTool;
 pub use coding_agent::CodingAgentTool;
 pub use file_ops::{EditTool, GrepTool, LsTool, ReadTool, WriteTool};
 pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatusTool};
@@ -21,11 +24,12 @@ pub use skill_tool::SkillTool;
 
 use std::sync::Arc;
 
+use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::skills::DiskSkillRegistry;
 
 /// Registers all built-in tools with the given registry.
 ///
-/// Currently registers 15 tools:
+/// Currently registers 16 tools:
 ///
 /// 5 file_ops tools:
 /// - [`ReadTool`]
@@ -45,6 +49,9 @@ use crate::skills::DiskSkillRegistry;
 /// - [`GitPushTool`]
 /// - [`GitPullTool`]
 ///
+/// 1 bash tool:
+/// - [`BashTool`]
+///
 /// 3 stub tools:
 /// - [`CodingAgentTool`]
 /// - [`SkillCreatorTool`]
@@ -52,6 +59,7 @@ use crate::skills::DiskSkillRegistry;
 pub async fn register_builtin_tools(
     registry: &crate::tools::ToolRegistry,
     disk_registry: Arc<DiskSkillRegistry>,
+    permission_engine: Arc<PermissionEngine>,
 ) {
     // file_ops
     registry.register(ReadTool::new()).await.ok();
@@ -71,6 +79,11 @@ pub async fn register_builtin_tools(
     // stub
     registry.register(CodingAgentTool::new()).await.ok();
     registry.register(SkillCreatorTool::new()).await.ok();
+    // bash
+    registry
+        .register(BashTool::new(permission_engine))
+        .await
+        .ok();
     // skills
     registry.register(SkillTool::new(disk_registry)).await.ok();
 }
