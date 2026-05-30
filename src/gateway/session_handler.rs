@@ -48,6 +48,8 @@ pub enum HandleResult {
     MessageQueued,
     /// An LLM call has been spawned and will run asynchronously.
     LlmStarted,
+    /// An approval command was processed (approve/deny).
+    ApprovalProcessed,
 }
 
 /// Gateway-layer LLM session handler with busy/pending state management.

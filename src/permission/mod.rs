@@ -4,6 +4,7 @@
 
 pub mod actions;
 pub mod approval;
+pub mod approval_flow;
 pub mod engine;
 pub mod rules;
 pub mod sandbox;
