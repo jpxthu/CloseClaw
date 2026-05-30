@@ -45,12 +45,12 @@ impl MessageMetadata {
 /// Outcome of handling an inbound message.
 #[derive(Debug)]
 pub enum HandleResult {
-    /// The message was enqueued because the session is busy.
-    MessageQueued,
+    MessageQueued, // enqueued (session busy)
     /// An LLM call has been spawned and will run asynchronously.
     LlmStarted,
     /// An approval command was processed (approve/deny).
     ApprovalProcessed,
+    SlashHandled, // slash command dispatched
 }
 
 /// Gateway-layer LLM session handler with busy/pending state management.

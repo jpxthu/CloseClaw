@@ -18,6 +18,7 @@ pub mod processor_chain;
 pub mod renderer;
 pub mod session;
 pub mod skills;
+pub mod slash;
 pub mod system_prompt;
 pub mod tasks;
 pub mod tools;
