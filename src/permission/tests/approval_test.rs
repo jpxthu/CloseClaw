@@ -2,7 +2,9 @@
 //! ApprovalQueue unit tests
 //!
 
-use crate::permission::approval::{ApprovalQueue, ApproveOrDeny, RejectReason};
+use crate::permission::approval::{
+    ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectReason, RejectWhitelistReason,
+};
 use crate::permission::engine::engine_risk::RiskLevel;
 use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
 
@@ -153,7 +155,7 @@ fn test_approve_triggers_approve_callback() {
         )
         .unwrap();
 
-    assert!(queue.approve(&id));
+    assert!(queue.approve(&id, ApprovalMode::Once).unwrap());
     assert_eq!(queue.pending_count(), 0);
     assert!(queue.get_pending(&id).is_none());
 }
@@ -185,7 +187,7 @@ fn test_deny_triggers_deny_callback() {
 #[test]
 fn test_approve_nonexistent_returns_false() {
     let mut queue = ApprovalQueue::new();
-    assert!(!queue.approve("nonexistent-id"));
+    assert!(!queue.approve("nonexistent-id", ApprovalMode::Once).unwrap());
 }
 
 #[test]
@@ -275,7 +277,7 @@ fn test_callback_signature_send() {
     }
     let mut queue = ApprovalQueue::new();
     let body = make_file_op("a");
-    queue.enqueue(
+    let _ = queue.enqueue(
         body,
         dummy_caller(),
         "op".to_string(),
