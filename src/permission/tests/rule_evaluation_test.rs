@@ -13,6 +13,18 @@ async fn test_user_and_agent_rule_matching() {
     let ruleset = RuleSetBuilder::new()
         .rule(
             RuleBuilder::new()
+                .name("agent-allows-read")
+                .subject_agent("dev-agent-01")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
                 .name("alice-read")
                 .subject_user_and_agent(
                     "ou_alice",
@@ -107,6 +119,18 @@ async fn test_bare_request_uses_agent_only_matching() {
                 .build()
                 .unwrap(),
         )
+        .rule(
+            RuleBuilder::new()
+                .name("user-allows-read")
+                .subject_user_and_agent("", "dev-agent-01", MatchType::Exact, MatchType::Exact)
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
         .default_file(Effect::Deny)
         .build()
         .unwrap();
@@ -129,6 +153,23 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
             RuleBuilder::new()
                 .name("dev-agent-full")
                 .subject_agent("dev-agent-01")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("user-allows-read")
+                .subject_user_and_agent(
+                    "ou_alice",
+                    "dev-agent-01",
+                    MatchType::Exact,
+                    MatchType::Exact,
+                )
                 .allow()
                 .action(Action::File {
                     operation: "read".to_string(),
