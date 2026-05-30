@@ -118,20 +118,38 @@ mod tests {
     fn make_engine_with_allow_rule() -> Arc<crate::permission::PermissionEngine> {
         use crate::permission::engine::engine_types::MatchType;
         let rules = RuleSet {
-            rules: vec![Rule {
-                name: "test-allow".to_string(),
-                subject: Subject::AgentOnly {
-                    agent: "agent-1".to_string(),
-                    match_type: MatchType::Exact,
+            rules: vec![
+                Rule {
+                    name: "test-allow".to_string(),
+                    subject: Subject::AgentOnly {
+                        agent: "agent-1".to_string(),
+                        match_type: MatchType::Exact,
+                    },
+                    effect: Effect::Allow,
+                    actions: vec![Action::File {
+                        operation: "read".to_string(),
+                        paths: vec!["*".to_string()],
+                    }],
+                    template: None,
+                    priority: 0,
                 },
-                effect: Effect::Allow,
-                actions: vec![Action::File {
-                    operation: "read".to_string(),
-                    paths: vec!["*".to_string()],
-                }],
-                template: None,
-                priority: 0,
-            }],
+                Rule {
+                    name: "test-user-allow".to_string(),
+                    subject: Subject::UserAndAgent {
+                        user_id: "*".to_string(),
+                        agent: "agent-1".to_string(),
+                        user_match: MatchType::Glob,
+                        agent_match: MatchType::Exact,
+                    },
+                    effect: Effect::Allow,
+                    actions: vec![Action::File {
+                        operation: "read".to_string(),
+                        paths: vec!["*".to_string()],
+                    }],
+                    template: None,
+                    priority: 0,
+                },
+            ],
             defaults: Defaults::default(),
             template_includes: vec![],
             agent_creators: HashMap::new(),

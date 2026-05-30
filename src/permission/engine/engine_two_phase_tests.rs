@@ -42,11 +42,9 @@ fn file_request(agent: &str, path: &str, user_id: &str) -> PermissionRequest {
         },
     }
 }
-
 // -------------------------------------------------------------------------
 // Two-phase evaluation tests
 // -------------------------------------------------------------------------
-
 /// Agent Allow + User Allow → Allowed (non-owner)
 #[test]
 fn test_two_phase_agent_allow_user_allow() {
@@ -162,9 +160,9 @@ fn test_two_phase_agent_allow_user_no_match() {
         // No UserAndAgent rule for alice+test-agent
     ];
     let engine = make_ruleset(Effect::Deny, rules);
-    // Agent Allow + User None → Allowed (User has no stance, Agent result takes effect)
+    // Agent Allow + User None → Denied (intersection model: both must Allow)
     let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
-    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
+    assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
 /// Two phases both have no match → Denied (default policy)
@@ -273,16 +271,13 @@ fn test_two_phase_non_owner_needs_both_phases() {
     let engine = make_ruleset(Effect::Deny, rules);
     // Alice is not owner, Agent phase has no match, User phase Allow is not enough alone
     let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
-    // Agent None + User Allow → Allowed (according to current merge logic in evaluate)
-    // This test documents the actual merge behavior
-    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
+    // Agent None + User Allow → Denied (intersection model: both must Allow)
+    assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
-
 // ---------------------------------------------------------------------------
 // Extra deny subjects tests
 // ---------------------------------------------------------------------------
-
-/// extra_deny_subjects = None → normal Allow unchanged
+/// extra_deny_subjects = None → Agent Allow + User no match → Denied (intersection model)
 #[test]
 fn test_extra_deny_subjects_empty() {
     let rules = vec![Rule {
@@ -300,8 +295,9 @@ fn test_extra_deny_subjects_empty() {
         priority: 10,
     }];
     let engine = make_ruleset(Effect::Deny, rules);
+    // Only AgentOnly Allow rule, no UserAndAgent rule → intersection model → Denied
     let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
-    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
+    assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
 /// extra_deny_subjects has a matching subject → overrides result to Denied
@@ -330,7 +326,7 @@ fn test_extra_deny_subjects_match() {
         file_request("test-agent", "/data/file.txt", "alice"),
         Some(extra),
     );
-    let deny_resp = match resp {
+    match resp {
         PermissionResponse::Denied {
             reason,
             rule,
@@ -346,20 +342,38 @@ fn test_extra_deny_subjects_match() {
 /// extra_deny_subjects has a subject but does NOT match caller → normal Allow
 #[test]
 fn test_extra_deny_subjects_no_match() {
-    let rules = vec![Rule {
-        name: "agent-allows-read".to_string(),
-        subject: Subject::AgentOnly {
-            agent: "test-agent".to_string(),
-            match_type: MatchType::Exact,
+    let rules = vec![
+        Rule {
+            name: "agent-allows-read".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 10,
         },
-        effect: Effect::Allow,
-        actions: vec![super::engine_types::Action::File {
-            operation: "read".to_string(),
-            paths: vec!["/data/**".to_string()],
-        }],
-        template: None,
-        priority: 10,
-    }];
+        Rule {
+            name: "user-allows-read".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "alice".to_string(),
+                agent: "test-agent".to_string(),
+                user_match: MatchType::Exact,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 10,
+        },
+    ];
     let engine = make_ruleset(Effect::Deny, rules);
     let extra = vec![Subject::AgentOnly {
         agent: "other-agent".to_string(),
@@ -375,20 +389,38 @@ fn test_extra_deny_subjects_no_match() {
 /// Normal two-phase result is Allow, but extra_deny matches → overrides to Denied
 #[test]
 fn test_extra_deny_overrides_allow() {
-    let rules = vec![Rule {
-        name: "agent-allows-read".to_string(),
-        subject: Subject::AgentOnly {
-            agent: "test-agent".to_string(),
-            match_type: MatchType::Exact,
+    let rules = vec![
+        Rule {
+            name: "agent-allows-read".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 10,
         },
-        effect: Effect::Allow,
-        actions: vec![super::engine_types::Action::File {
-            operation: "read".to_string(),
-            paths: vec!["/data/**".to_string()],
-        }],
-        template: None,
-        priority: 10,
-    }];
+        Rule {
+            name: "user-allows-read".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "alice".to_string(),
+                agent: "test-agent".to_string(),
+                user_match: MatchType::Exact,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 10,
+        },
+    ];
     let engine = make_ruleset(Effect::Deny, rules);
     let extra = vec![Subject::AgentOnly {
         agent: "test-agent".to_string(),
@@ -401,11 +433,9 @@ fn test_extra_deny_overrides_allow() {
     assert!(matches!(resp, PermissionResponse::Denied { reason, .. }
             if reason.contains("parent agent restriction")));
 }
-
 // ---------------------------------------------------------------------------
 // get_agent_deny_subjects tests
 // ---------------------------------------------------------------------------
-
 /// get_agent_deny_subjects extracts parent AgentOnly Deny rules, replacing agent with child_id
 #[test]
 fn test_get_agent_deny_subjects_basic() {
