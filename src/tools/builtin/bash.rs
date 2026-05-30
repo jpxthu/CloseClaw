@@ -6,6 +6,7 @@ use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_types::PermissionResponse;
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::builtin::bash_classify;
+use crate::tools::security::{BashSecurityAnalyzer, TrustLevel};
 use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
@@ -211,12 +212,30 @@ async fn execute_bash_call(
     let _ = args.get("description");
     let _ = args.get("dangerouslyDisableSandbox");
 
-    // --- 2. Permission check ---
+    // --- 2. Security analysis ---
+    let mut analyzer = BashSecurityAnalyzer::new().map_err(ToolCallError::ExecutionFailed)?;
+    let sec_result = analyzer.analyze(command);
+    match sec_result.trust_level {
+        TrustLevel::Trusted => {}
+        TrustLevel::Uncertain | TrustLevel::Malicious => {
+            return Err(ToolCallError::ExecutionFailed(format!(
+                "Command {} (reason: {})",
+                if sec_result.trust_level == TrustLevel::Malicious {
+                    "blocked"
+                } else {
+                    "requires approval"
+                },
+                sec_result.reason.unwrap_or_default()
+            )));
+        }
+    }
+
+    // --- 3. Permission check ---
     if let PermissionResponse::Denied { reason, .. } = perm.check(&ctx.agent_id, "exec") {
         return Err(ToolCallError::PermissionDenied(reason));
     }
 
-    // --- 3. Execute subprocess ---
+    // --- 4. Execute subprocess ---
     let result = execute_command(command, &cwd, timeout_ms, run_in_background, bg).await;
     match result {
         Ok(r) => Ok(r),
@@ -412,7 +431,7 @@ fn build_result(
 ) -> ToolResult {
     let category = bash_classify::classify_command(command);
     let no_output = bash_classify::no_output_expected(category);
-    let interpretation = bash_classify::interpret_exit_code(command, exit_code);
+    let interpretation = crate::tools::security::interpret_exit_code(command, exit_code);
     let persisted_path = stdout
         .persisted_path
         .as_deref()

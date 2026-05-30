@@ -13,6 +13,7 @@
 
 pub mod builtin;
 pub mod registry;
+pub mod security;
 
 pub use registry::ToolRegistry;
 
