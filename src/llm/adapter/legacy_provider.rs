@@ -74,6 +74,8 @@ impl<P: LLMProvider> LegacyProviderAdapter<P> {
                 prompt_tokens: response.usage.prompt_tokens,
                 completion_tokens: response.usage.completion_tokens,
                 total_tokens: Some(response.usage.total_tokens),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: None,
         }

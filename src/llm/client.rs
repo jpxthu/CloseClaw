@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 
+use crate::llm::cache_adapter::CacheAdapter;
 use crate::llm::interpreter::InterpreterRegistry;
 use crate::llm::plugin::PluginPipeline;
 use crate::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream, ProtocolError};
@@ -87,6 +88,7 @@ pub struct UnifiedChatClient {
     protocol: Arc<dyn ChatProtocol>,
     interpreter_registry: Arc<InterpreterRegistry>,
     plugin_pipeline: Arc<PluginPipeline>,
+    cache_adapter: Arc<dyn CacheAdapter>,
 }
 
 impl std::fmt::Debug for UnifiedChatClient {
@@ -94,24 +96,45 @@ impl std::fmt::Debug for UnifiedChatClient {
         f.debug_struct("UnifiedChatClient")
             .field("provider", &self.provider.id())
             .field("protocol", &self.protocol.protocol_id())
+            .field("cache_adapter", &self.cache_adapter.name())
             .finish()
     }
 }
 
 impl UnifiedChatClient {
-    /// Creates a new `UnifiedChatClient` from its four components.
+    /// Creates a new `UnifiedChatClient` from its components including a
+    /// cache adapter.
     pub fn new(
         provider: Arc<dyn Provider>,
         protocol: Arc<dyn ChatProtocol>,
         interpreter_registry: InterpreterRegistry,
         plugin_pipeline: PluginPipeline,
+        cache_adapter: Arc<dyn CacheAdapter>,
     ) -> Self {
         Self {
             provider,
             protocol,
             interpreter_registry: Arc::new(interpreter_registry),
             plugin_pipeline: Arc::new(plugin_pipeline),
+            cache_adapter,
         }
+    }
+
+    /// Convenience constructor that uses [`NoopCacheAdapter`](crate::llm::cache_adapter::NoopCacheAdapter)
+    /// for backward compatibility.
+    pub fn with_noop_cache_adapter(
+        provider: Arc<dyn Provider>,
+        protocol: Arc<dyn ChatProtocol>,
+        interpreter_registry: InterpreterRegistry,
+        plugin_pipeline: PluginPipeline,
+    ) -> Self {
+        Self::new(
+            provider,
+            protocol,
+            interpreter_registry,
+            plugin_pipeline,
+            Arc::new(crate::llm::cache_adapter::NoopCacheAdapter),
+        )
     }
 
     /// Returns the provider identifier.
@@ -134,6 +157,7 @@ impl UnifiedChatClient {
     pub async fn chat(&self, mut request: InternalRequest) -> Result<UnifiedResponse> {
         let model = request.model.clone();
         let provider_id = self.provider.id();
+        self.cache_adapter.apply(&mut request);
         self.plugin_pipeline.before_request(&mut request);
         let interpreter = self.interpreter_registry.resolve(provider_id, &model);
         interpreter.inject_extra_body(&mut request);
@@ -177,6 +201,7 @@ impl UnifiedChatClient {
     ) -> Result<OutgoingEventStream> {
         let model = request.model.clone();
         let provider_id = self.provider.id();
+        self.cache_adapter.apply(&mut request);
         self.plugin_pipeline.before_request(&mut request);
         let interpreter = self.interpreter_registry.resolve(provider_id, &model);
         interpreter.inject_extra_body(&mut request);
