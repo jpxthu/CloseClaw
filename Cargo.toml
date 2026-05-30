@@ -46,6 +46,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Regex
 regex = "1.10"
+regex-lite = "0.1"
 
 # Async trait (for IMAdapter)
 async-trait = "0.1"
@@ -81,6 +82,10 @@ dirs = "5"
 # Glob pattern matching (for conditional skill activation)
 glob = "0.3"
 async-stream = "0.3.6"
+
+# Tree-sitter for Bash AST parsing
+tree-sitter = "0.24"
+tree-sitter-bash = "0.23"
 
 
 [dev-dependencies]
