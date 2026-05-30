@@ -119,7 +119,7 @@ Session 启动时，按五层优先级从低到高依次扫描：先加载低优
 
 ### 加载与注入
 
-Session 启动时，磁盘加载层扫描五层目录、解析 SKILL.md 并写入注册中心。随后注入层从注册中心获取 skill 集合，生成 listing 并注入 session transcript。完整注入流程见 [skill-listing-injection.md](skill-listing-injection.md)。
+Session 启动时，磁盘加载层扫描五层目录、解析 SKILL.md 并写入注册中心。随后注入层从注册中心获取 skill 集合，生成 listing 作为 SkillListingSection 注入 system prompt 静态层。完整注入流程见 [skill-listing-injection.md](skill-listing-injection.md)。
 
 ### 技能调用
 
@@ -140,10 +140,10 @@ Agent 决策调用某个 skill
 
 热重载跨模块协作，分两阶段：
 
-1. **skills 模块**：文件变更事件触发 → 300ms debounce → 使注册中心 listing 缓存失效 → 重新扫描变更目录 → 重新生成 listing
-2. **system prompt 构建器**：检测到缓存已失效 → 获取新列表 → 查找 session 转录中旧的 listing 消息 → 替换消息内容（保留消息位置）
+1. **skills 模块**：文件变更事件触发 → 300ms debounce → 使注册中心 listing 缓存失效 → 重新扫描变更目录 → 重新生成 listing。不下发信号、不通知 SessionManager。
+2. **system prompt 构建器**：下次 session 创建、archive 恢复或 compaction 发生时，重新调用 build_from_workspace，从 registry 获取最新 listing，生成新的 SkillListingSection 替换 system prompt 中的旧版本。
 
-替换完成后 agent 在下一轮对话中看到更新后的 skill 列表。
+不涉及 session transcript 操作，无需查找或修改 transcript 中的消息。
 
 ## 模块关系
 
