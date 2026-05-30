@@ -10,11 +10,8 @@ use crate::config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
-use crate::llm::retry::backoff_delay;
-#[cfg(test)]
-use crate::llm::LLMError;
 use crate::llm::{
-    DeepSeekProvider, ErrorKind, GlmProvider, LLMProvider, MiniMaxProvider, ModelInfo,
+    DeepSeekProvider, GlmProvider, LLMProvider, MiniMaxProvider, ModelDiscovery, ModelInfo,
     ProviderModelKnowledge, VolcEngineProvider,
 };
 use dialoguer::{Input, Select};
@@ -22,7 +19,6 @@ use dialoguer::{Input, Select};
 use std::panic;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 /// Parse user input for model selection into a vector of 0-based indices.
 ///
@@ -287,7 +283,18 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         ctx.provider = Some(build_provider(info, cred));
         let provider = ctx.provider.as_ref().unwrap();
 
-        let models = fetch_models_with_retry(provider, cred).await;
+        print!("Fetching models from provider...");
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+        let discovery = ModelDiscovery::new();
+        let p = Arc::clone(provider);
+        let models = discovery
+            .discover(info.id, cred, move |cred: &str| {
+                let p = Arc::clone(&p);
+                let cred = cred.to_string();
+                async move { p.fetch_model_list(&cred).await }
+            })
+            .await;
+        println!(" done");
         ctx.fetched_models = models;
     }
 
@@ -449,6 +456,3 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod e2e_tests;
