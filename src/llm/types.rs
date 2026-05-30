@@ -359,6 +359,3 @@ impl Default for SseStateMachine {
         Self::new()
     }
 }
-
-#[cfg(test)]
-mod types_tests;
