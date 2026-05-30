@@ -294,6 +294,7 @@ impl MessageProcessor for MessageCleaner {
             content,
             metadata,
             suppress: false,
+            content_blocks: vec![],
         }))
     }
 }

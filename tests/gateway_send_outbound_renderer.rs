@@ -50,6 +50,7 @@ impl MessageProcessor for MockOutboundProcessor {
             content: self.output_content.clone(),
             metadata,
             suppress: self.output_suppress,
+            content_blocks: vec![],
         }))
     }
 }
@@ -161,7 +162,7 @@ async fn test_send_outbound_with_renderer_text() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 
@@ -206,7 +207,7 @@ async fn test_send_outbound_with_renderer_interactive() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 
@@ -250,7 +251,7 @@ async fn test_send_outbound_with_renderer_dsl_result_passed() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 
@@ -290,7 +291,7 @@ async fn test_send_outbound_no_renderer_fallback_text() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 
@@ -309,7 +310,7 @@ async fn test_send_outbound_no_renderer_no_registry_bypass() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "bypass raw")
+    gw.send_outbound(&sid, "tracking", "bypass raw", vec![])
         .await
         .unwrap();
 
@@ -349,7 +350,7 @@ async fn test_send_outbound_renderer_with_suppress() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output")
+    gw.send_outbound(&sid, "tracking", "raw output", vec![])
         .await
         .unwrap();
 
@@ -379,6 +380,6 @@ async fn test_send_outbound_renderer_requires_registry() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    let result = gw.send_outbound(&sid, "tracking", "raw").await;
+    let result = gw.send_outbound(&sid, "tracking", "raw", vec![]).await;
     assert!(matches!(result, Err(GatewayError::OutboundError(_))));
 }

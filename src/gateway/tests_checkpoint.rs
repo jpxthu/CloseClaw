@@ -264,7 +264,7 @@ async fn test_gateway_without_checkpoint_manager_has_no_cm() {
     add_session(&mut msg, &sm).await;
     // Without cm, send_outbound just sends without saving checkpoints
     let result = gw
-        .send_outbound("test_channel", &msg.metadata["session_id"], "hello")
+        .send_outbound("test_channel", &msg.metadata["session_id"], "hello", vec![])
         .await;
     assert!(result.is_ok());
 }
@@ -292,7 +292,7 @@ async fn test_send_outbound_with_cm_saves_checkpoint_on_success() {
     let mut msg = make_message();
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
-    gw.send_outbound("test_channel", &session_id, "hello")
+    gw.send_outbound("test_channel", &session_id, "hello", vec![])
         .await
         .unwrap();
     // Verify: checkpoint was saved
@@ -344,7 +344,7 @@ async fn test_send_outbound_without_cm_does_not_save_checkpoint() {
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
 
-    gw.send_outbound("test_channel", &session_id, "hello")
+    gw.send_outbound("test_channel", &session_id, "hello", vec![])
         .await
         .unwrap();
 
@@ -384,7 +384,7 @@ async fn test_send_failure_does_not_trigger_checkpoint() {
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
 
-    let result = gw.send_outbound("test_channel", &session_id, "hello").await;
+    let result = gw.send_outbound("test_channel", &session_id, "hello", vec![]).await;
     assert!(result.is_err(), "send should fail");
 
     // Verify: no checkpoint was saved
@@ -429,7 +429,7 @@ async fn test_send_outbound_interactive_triggers_checkpoint() {
         "content": r#"{"type":"card","elements":[{"tag":"markdown","content":"**hello**"}]}"#
     })
     .to_string();
-    gw.send_outbound("test_channel", &session_id, &interactive_json)
+    gw.send_outbound("test_channel", &session_id, &interactive_json, vec![])
         .await
         .unwrap();
 
@@ -473,7 +473,7 @@ async fn test_send_outbound_pending_message_contains_correct_data() {
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
 
-    gw.send_outbound("test_channel", &session_id, "test content")
+    gw.send_outbound("test_channel", &session_id, "test content", vec![])
         .await
         .unwrap();
 

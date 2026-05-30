@@ -12,6 +12,7 @@ use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_sy
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
 use crate::llm::types::ContentBlock;
+use crate::llm::types::UnifiedResponse;
 use crate::llm::{ChatRequest, ChatResponse, Message as ChatMessage};
 use crate::session::compaction::{
     execute_compact, CompactConfig, CompactionResult, CompactionService,
@@ -56,18 +57,17 @@ pub enum HandleResult {
 pub struct SessionMessageHandler {
     session_manager: Arc<SessionManager>,
     fallback_client: Arc<FallbackClient>,
-    output_tx: Arc<RwLock<Option<mpsc::Sender<String>>>>,
+    output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     compaction_service: Arc<std::sync::Mutex<CompactionService>>,
 }
 
 // ── Construction ───────────────────────────────────────────────────────────
-
 impl SessionMessageHandler {
     /// Create a new handler with an output channel for streaming responses.
     pub fn new(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
-        output_tx: mpsc::Sender<String>,
+        output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
     ) -> Self {
         Self {
             session_manager,
@@ -257,7 +257,7 @@ impl SessionMessageHandler {
         meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-    ) -> Result<String, crate::llm::LLMError> {
+    ) -> Result<UnifiedResponse, crate::llm::LLMError> {
         // ── Static layer ───────────────────────────────────────────────
         let (static_prompt_opt, turn_count, workdir_path) =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
@@ -297,17 +297,17 @@ impl SessionMessageHandler {
             temperature: 0.7,
             max_tokens: None,
         };
-        let response: ChatResponse = fallback_client.chat(request).await?;
-        Ok(response.content)
+        let response = fallback_client.chat_unified(request).await?;
+        Ok(response)
     }
 
     /// Clear busy flag, send output, and drain pending messages.
     async fn finish_llm(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        result: Result<String, crate::llm::LLMError>,
+        result: Result<UnifiedResponse, crate::llm::LLMError>,
         fallback_client: &Arc<FallbackClient>,
-        output_tx: &Arc<RwLock<Option<mpsc::Sender<String>>>>,
+        output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     ) {
         Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
         Self::drain_pending_loop(session_manager, session_id, fallback_client, output_tx).await;
@@ -316,19 +316,27 @@ impl SessionMessageHandler {
     async fn clear_busy_and_send(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        result: Result<String, crate::llm::LLMError>,
-        output_tx: &Arc<RwLock<Option<mpsc::Sender<String>>>>,
+        result: Result<UnifiedResponse, crate::llm::LLMError>,
+        output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     ) {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             let cs = cs.write().await;
             cs.set_llm_busy(false);
         }
-
         match result {
-            Ok(text) => {
+            Ok(response) => {
+                let text = response
+                    .content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
                 let guard = output_tx.read().await;
                 if let Some(tx) = guard.as_ref() {
-                    let _ = tx.send(text).await;
+                    let _ = tx.send((text, response.content_blocks)).await;
                 }
             }
             Err(err) => {
@@ -341,7 +349,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         fallback_client: &Arc<FallbackClient>,
-        output_tx: &Arc<RwLock<Option<mpsc::Sender<String>>>>,
+        output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     ) {
         loop {
             // Get next pending message
@@ -368,9 +376,7 @@ impl SessionMessageHandler {
         }
     }
 }
-
 // ── Compaction helpers ─────────────────────────────────────────────────────
-
 fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
     blocks
         .iter()
@@ -419,10 +425,13 @@ async fn apply_compact_result(
     sm.rebuild_system_prompt(session_id).await;
 }
 
-async fn send_output(output_tx: &Arc<RwLock<Option<mpsc::Sender<String>>>>, text: &str) {
+async fn send_output(
+    output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
+    text: &str,
+) {
     let guard = output_tx.read().await;
     if let Some(tx) = guard.as_ref() {
-        let _ = tx.send(text.to_string()).await;
+        let _ = tx.send((text.to_string(), vec![])).await;
     }
 }
 
@@ -437,13 +446,12 @@ async fn load_compact_inputs(
     let llm_msgs = build_compact_messages(ChatSession::messages(&*cs_read));
     Some((model, llm_msgs))
 }
-
 /// Run manual `/compact` invocation.
 #[allow(clippy::too_many_arguments)]
 async fn run_manual_compact(
     sm: Arc<SessionManager>,
     fc: Arc<FallbackClient>,
-    output_tx: Arc<RwLock<Option<mpsc::Sender<String>>>>,
+    output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     svc: Arc<std::sync::Mutex<CompactionService>>,
     sid: String,
     model: String,
@@ -468,7 +476,6 @@ async fn run_manual_compact(
         }
     }
 }
-
 /// Finalize auto-compact result.
 async fn finalize_auto_compact(
     sm: &Arc<SessionManager>,
