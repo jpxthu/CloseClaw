@@ -4,11 +4,13 @@
 
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_types::PermissionResponse;
+use crate::tasks::BackgroundTaskManager;
 use crate::tools::builtin::bash_classify;
 use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,6 +25,9 @@ const PREVIEW_BYTES: usize = 2_000;
 
 /// Directory for persisted output files.
 const PERSIST_DIR: &str = "/tmp/openclaw";
+
+/// Auto-backgroundize timeout (15 seconds).
+const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 
 /// Processed output: either inline content or a persisted-output reference.
 struct OutputProcessed {
@@ -39,12 +44,20 @@ struct OutputProcessed {
 /// an async subprocess with timeout control.
 pub struct BashTool {
     permission_engine: Arc<PermissionEngine>,
+    bg_manager: Arc<BackgroundTaskManager>,
 }
 
 impl BashTool {
-    /// Creates a new `BashTool` backed by the given permission engine.
-    pub fn new(permission_engine: Arc<PermissionEngine>) -> Self {
-        Self { permission_engine }
+    /// Creates a new `BashTool` backed by the given permission engine
+    /// and background task manager.
+    pub fn new(
+        permission_engine: Arc<PermissionEngine>,
+        bg_manager: Arc<BackgroundTaskManager>,
+    ) -> Self {
+        Self {
+            permission_engine,
+            bg_manager,
+        }
     }
 }
 
@@ -65,9 +78,9 @@ impl Tool for BashTool {
     fn detail(&self) -> String {
         "Execute a shell command via subprocess. Supports timeout control \
          (default 120s, max 600s), output truncation with head-preservation \
-         strategy (threshold 30,000 chars), and output persistence to disk \
-         when output exceeds threshold. Returns stdout, stderr, exit code, \
-         and semantic interpretation of return codes for known command types."
+         (threshold 30,000 chars), and output persistence to disk when \
+         output exceeds threshold. Supports run_in_background for async \
+         execution. Commands exceeding 15s are auto-backgrounded."
             .to_string()
     }
 
@@ -89,7 +102,7 @@ impl Tool for BashTool {
                 },
                 "run_in_background": {
                     "type": "boolean",
-                    "description": "Run command in background (not yet implemented)"
+                    "description": "Run command in background, returns task ID immediately"
                 },
                 "cwd": {
                     "type": "string",
@@ -113,49 +126,11 @@ impl Tool for BashTool {
     }
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
-        // --- 1. Parse parameters ---
-        let err_msg = "missing required parameter: command";
-        let command = args
-            .get("command")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolCallError::InvalidArgs(err_msg.into()))?;
-        if command.is_empty() {
-            return Err(ToolCallError::InvalidArgs(
-                "command must not be empty".into(),
-            ));
-        }
-
-        let timeout_ms = parse_timeout(&args);
-        let cwd = resolve_cwd(&args, ctx);
-
-        if args.get("run_in_background") == Some(&Value::Bool(true)) {
-            return Err(ToolCallError::ExecutionFailed(
-                "background tasks not yet implemented".into(),
-            ));
-        }
-        // `description` and `dangerouslyDisableSandbox` are parsed but ignored.
-        let _ = args.get("description");
-        let _ = args.get("dangerouslyDisableSandbox");
-
-        // --- 2. Permission check ---
-        if let PermissionResponse::Denied { reason, .. } =
-            self.permission_engine.check(&ctx.agent_id, "exec")
-        {
-            return Err(ToolCallError::PermissionDenied(reason));
-        }
-
-        // --- 3. Execute subprocess ---
-        let result = execute_command(command, &cwd, timeout_ms).await;
-        match result {
-            Ok(r) => Ok(r),
-            Err(e) => Err(ToolCallError::ExecutionFailed(e)),
-        }
+        execute_bash_call(&self.permission_engine, &self.bg_manager, args, ctx).await
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
+// --- Helper functions ---
 
 /// Parse and clamp the `timeout` parameter. Default 120 000 ms, max 600 000 ms.
 fn parse_timeout(args: &Value) -> u64 {
@@ -183,46 +158,169 @@ fn resolve_cwd(args: &Value, ctx: &ToolContext) -> String {
         .unwrap_or_else(|_| "/".to_string())
 }
 
-/// Execute a shell command via `sh -c` with timeout.
-///
-/// Returns a [`ToolResult`] on success or an error message on failure.
-async fn execute_command(command: &str, cwd: &str, timeout_ms: u64) -> Result<ToolResult, String> {
-    use tokio::process::Command;
+/// Returns true if the command should NOT be auto-backgrounded.
+/// Sleep, true, false and variants are excluded from auto-backgrounding.
+fn auto_backgroundize_excluded(command: &str) -> bool {
+    let trimmed = command.trim();
+    // Strip arguments (e.g., "sleep 5" → "sleep")
+    let first_token = trimmed.split_whitespace().next().unwrap_or("");
+    let base = std::path::Path::new(first_token)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(first_token);
+    matches!(base, "sleep" | "true" | "false")
+}
 
-    let child = Command::new("sh")
+/// Read all bytes from an optional async reader and return as String.
+async fn read_pipe<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> String {
+    use tokio::io::AsyncReadExt;
+    match pipe {
+        Some(mut r) => {
+            let mut buf = Vec::new();
+            let _ = r.read_to_end(&mut buf).await;
+            String::from_utf8_lossy(&buf).to_string()
+        }
+        None => String::new(),
+    }
+}
+
+/// Execute the BashTool call: parse args, check permissions, run command.
+async fn execute_bash_call(
+    perm: &PermissionEngine,
+    bg: &BackgroundTaskManager,
+    args: Value,
+    ctx: &ToolContext,
+) -> Result<ToolResult, ToolCallError> {
+    // --- 1. Parse parameters ---
+    let err_msg = "missing required parameter: command";
+    let command = args
+        .get("command")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolCallError::InvalidArgs(err_msg.into()))?;
+    if command.is_empty() {
+        return Err(ToolCallError::InvalidArgs(
+            "command must not be empty".into(),
+        ));
+    }
+
+    let timeout_ms = parse_timeout(&args);
+    let cwd = resolve_cwd(&args, ctx);
+    let run_in_background = args.get("run_in_background") == Some(&Value::Bool(true));
+
+    // `description` and `dangerouslyDisableSandbox` are ignored.
+    let _ = args.get("description");
+    let _ = args.get("dangerouslyDisableSandbox");
+
+    // --- 2. Permission check ---
+    if let PermissionResponse::Denied { reason, .. } = perm.check(&ctx.agent_id, "exec") {
+        return Err(ToolCallError::PermissionDenied(reason));
+    }
+
+    // --- 3. Execute subprocess ---
+    let result = execute_command(command, &cwd, timeout_ms, run_in_background, bg).await;
+    match result {
+        Ok(r) => Ok(r),
+        Err(e) => Err(ToolCallError::ExecutionFailed(e)),
+    }
+}
+
+// --- Sub-execution helpers ---
+
+/// Spawn a shell command as a child process.
+fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, String> {
+    use tokio::process::Command;
+    Command::new("sh")
         .arg("-c")
         .arg(command)
         .current_dir(cwd)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("failed to spawn command: {}", e))?;
+        .map_err(|e| format!("failed to spawn command: {}", e))
+}
 
-    let output =
-        tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait_with_output()).await;
-
-    match output {
-        Ok(Ok(output)) => {
-            let stdout_raw = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr_raw = String::from_utf8_lossy(&output.stderr).to_string();
-            let exit_code = output.status.code().unwrap_or(-1);
+/// Wait on a foreground child process, with timeout.
+///
+/// On success, reads stdout/stderr and builds the tool result.
+/// On timeout, hands the child back to the background task manager.
+async fn handle_foreground_result(
+    mut child: tokio::process::Child,
+    command: &str,
+    cwd: &str,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    bg_timeout: Duration,
+    bg_manager: &BackgroundTaskManager,
+) -> Result<ToolResult, String> {
+    let wait_result = tokio::time::timeout(bg_timeout, child.wait()).await;
+    match wait_result {
+        Ok(Ok(status)) => {
+            let exit_code = status.code().unwrap_or(-1);
+            let stdout_raw = read_pipe(stdout_handle).await;
+            let stderr_raw = read_pipe(stderr_handle).await;
             let stdout_p = process_output(&stdout_raw);
             let stderr_p = process_output(&stderr_raw);
             Ok(build_result(command, stdout_p, stderr_p, exit_code, false))
         }
         Ok(Err(e)) => Err(format!("failed to wait on command: {}", e)),
-        Err(_elapsed) => Ok(build_result(
-            command,
-            process_output(""),
-            process_output(""),
-            -1,
-            true,
-        )),
+        // Timeout: auto-backgroundize the running child
+        Err(_elapsed) => {
+            child.stdout = stdout_handle;
+            child.stderr = stderr_handle;
+            let task = bg_manager
+                .backgroundize(child, command, Path::new(cwd))
+                .await
+                .map_err(|e| format!("failed to backgroundize command: {}", e))?;
+            Ok(build_auto_background_result(&task))
+        }
     }
 }
 
+/// Execute a shell command via `sh -c` with timeout.
+///
+/// When `run_in_background` is true, immediately spawns a background
+/// task. Otherwise executes in foreground with a 15-second
+/// auto-backgroundize budget.
+async fn execute_command(
+    command: &str,
+    cwd: &str,
+    timeout_ms: u64,
+    run_in_background: bool,
+    bg_manager: &BackgroundTaskManager,
+) -> Result<ToolResult, String> {
+    let mut child = spawn_sh_command(command, cwd)?;
+
+    if run_in_background {
+        let task = bg_manager
+            .backgroundize(child, command, Path::new(cwd))
+            .await
+            .map_err(|e| format!("failed to background task: {}", e))?;
+        return Ok(build_background_result(&task));
+    }
+
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+    let bg_timeout = if auto_backgroundize_excluded(command) {
+        Duration::from_millis(timeout_ms)
+    } else {
+        Duration::from_millis(AUTO_BG_TIMEOUT_MS)
+    };
+
+    handle_foreground_result(
+        child,
+        command,
+        cwd,
+        stdout_handle,
+        stderr_handle,
+        bg_timeout,
+        bg_manager,
+    )
+    .await
+}
+
 /// Truncate a string at a safe UTF-8 character boundary.
-/// Returns the first `max_bytes` bytes without splitting a multi-byte character.
+/// Returns the first `max_bytes` bytes without splitting a multi-byte
+/// character.
 fn safe_truncate(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
         return s;
@@ -236,7 +334,8 @@ fn safe_truncate(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
-/// Truncate output beyond [`MAX_OUTPUT_CHARS`] and persist full output to disk.
+/// Truncate output beyond [`MAX_OUTPUT_CHARS`] and persist full output
+/// to disk.
 ///
 /// Returns an [`OutputProcessed`] with either inline content or a
 /// persisted-output reference string.
@@ -336,163 +435,31 @@ fn build_result(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn test_permission_engine() -> Arc<PermissionEngine> {
-        use crate::permission::rules::RuleSetBuilder;
-        Arc::new(PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new().build().unwrap(),
-        ))
-    }
-
-    fn test_tool_context() -> ToolContext {
-        ToolContext {
-            agent_id: "test-agent".to_string(),
-            workdir: None,
-        }
-    }
-
-    // --- process_output ---
-
-    #[test]
-    fn test_process_output_short_string() {
-        let out = process_output("hello world");
-        assert_eq!(out.inline, "hello world");
-        assert!(out.persisted_path.is_none());
-        assert_eq!(out.persisted_size, 0);
-    }
-
-    #[test]
-    fn test_process_output_exact_boundary() {
-        let exact: String = "a".repeat(MAX_OUTPUT_CHARS);
-        let out = process_output(&exact);
-        assert_eq!(out.inline, exact);
-        assert!(out.persisted_path.is_none());
-    }
-
-    #[test]
-    fn test_process_output_long_string_truncates() {
-        let long: String = "x".repeat(MAX_OUTPUT_CHARS + 1000);
-        let out = process_output(&long);
-        // When persist succeeds, inline is a <persisted-output> reference
-        assert!(out.inline.contains("<persisted-output"));
-        assert!(out.persisted_path.is_some());
-        assert_eq!(out.persisted_size, long.len());
-        if let Some(ref p) = out.persisted_path {
-            let _ = std::fs::remove_file(p);
-        }
-    }
-
-    // --- persist_output ---
-
-    #[test]
-    fn test_persist_output_writes_file() {
-        let path = persist_output("test persist data").unwrap();
-        assert!(std::path::Path::new(&path).exists());
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, "test persist data");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn test_persist_output_cleans_up() {
-        let path = persist_output("cleanup test").unwrap();
-        assert!(std::path::Path::new(&path).exists());
-        std::fs::remove_file(&path).unwrap();
-        assert!(!std::path::Path::new(&path).exists());
-    }
-
-    // --- parse_timeout ---
-
-    #[test]
-    fn test_parse_timeout_default() {
-        let args = serde_json::json!({});
-        assert_eq!(parse_timeout(&args), 120_000);
-    }
-
-    #[test]
-    fn test_parse_timeout_custom() {
-        let args = serde_json::json!({"timeout": 5000});
-        assert_eq!(parse_timeout(&args), 5000);
-    }
-
-    #[test]
-    fn test_parse_timeout_clamped() {
-        let args = serde_json::json!({"timeout": 900_000});
-        assert_eq!(parse_timeout(&args), 600_000);
-    }
-
-    #[test]
-    fn test_parse_timeout_zero() {
-        let args = serde_json::json!({"timeout": 0});
-        assert_eq!(parse_timeout(&args), 0);
-    }
-
-    // --- resolve_cwd ---
-
-    #[test]
-    fn test_resolve_cwd_no_cwd_no_workdir() {
-        let args = serde_json::json!({});
-        let ctx = test_tool_context();
-        let result = resolve_cwd(&args, &ctx);
-        let expected = std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "/".to_string());
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_resolve_cwd_with_cwd_arg() {
-        let args = serde_json::json!({"cwd": "/tmp/test"});
-        let ctx = test_tool_context();
-        assert_eq!(resolve_cwd(&args, &ctx), "/tmp/test");
-    }
-
-    // --- BashTool metadata ---
-
-    #[test]
-    fn test_bash_tool_name_and_group() {
-        let tool = BashTool::new(test_permission_engine());
-        assert_eq!(tool.name(), "Bash");
-        assert_eq!(tool.group(), "bash");
-    }
-
-    #[test]
-    fn test_bash_tool_flags() {
-        let tool = BashTool::new(test_permission_engine());
-        let flags = tool.flags();
-        assert!(flags.is_destructive);
-        assert!(flags.is_expensive);
-    }
-
-    // --- input_schema ---
-
-    #[test]
-    fn test_input_schema_command_required() {
-        let tool = BashTool::new(test_permission_engine());
-        let schema = tool.input_schema();
-        let required = schema["required"].as_array().unwrap();
-        assert!(required.contains(&json!("command")));
-    }
-
-    #[test]
-    fn test_input_schema_six_properties() {
-        let tool = BashTool::new(test_permission_engine());
-        let schema = tool.input_schema();
-        let props = schema["properties"].as_object().unwrap();
-        assert_eq!(props.len(), 6);
-        for name in &[
-            "command",
-            "timeout",
-            "description",
-            "run_in_background",
-            "cwd",
-            "dangerouslyDisableSandbox",
-        ] {
-            assert!(props.contains_key(*name), "missing property: {}", name);
-        }
+/// Build a [`ToolResult`] for an explicitly backgrounded command.
+fn build_background_result(task: &crate::tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+        }),
+        new_messages: vec![],
+        context_modifier: None,
     }
 }
+
+/// Build a [`ToolResult`] for an auto-backgrounded command (15s timeout).
+fn build_auto_background_result(task: &crate::tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+            "assistantAutoBackgrounded": true,
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+#[cfg(test)]
+#[path = "bash_tests.rs"]
+mod tests;

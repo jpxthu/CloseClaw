@@ -19,6 +19,7 @@ pub mod renderer;
 pub mod session;
 pub mod skills;
 pub mod system_prompt;
+pub mod tasks;
 pub mod tools;
 
 use tracing::info;
