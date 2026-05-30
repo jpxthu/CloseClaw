@@ -12,11 +12,13 @@ use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
 
+use crate::permission::approval_flow::ApprovalFlow;
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::PersistenceService;
 use crate::session::storage::SqliteStorage;
 use crate::session::sweeper::ArchiveSweeper;
+use crate::skills::builtin::builtin_skills_with_engine_and_approval_flow;
 use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
 use crate::tools::builtin::register_builtin_tools;
 use crate::tools::ToolRegistry;
@@ -59,6 +61,8 @@ pub struct Daemon {
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Skill file watcher handle (RAII: stops on drop)
     _skill_watcher: Option<SkillWatcherHandle>,
+    /// Daemon-level approval orchestrator
+    pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
 }
 // --- Lifecycle: start, run ---
 impl Daemon {
@@ -175,6 +179,21 @@ impl Daemon {
             .set_skill_registry(skill_registry.clone())
             .await;
 
+        let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+            Arc::clone(&session_manager),
+            Arc::new(|_| {}),
+            tokio::runtime::Handle::current(),
+        )));
+
+        // Connect approval flow to gateway
+        gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
+
+        // Create builtin skills with approval flow injected
+        let _builtin_skills = builtin_skills_with_engine_and_approval_flow(
+            Arc::clone(&permission_engine),
+            Arc::clone(&approval_flow),
+        );
+
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -188,6 +207,7 @@ impl Daemon {
             sweeper_shutdown_tx: sweeper_tx,
             skill_registry,
             _skill_watcher: Some(skill_watcher),
+            approval_flow,
         })
     }
     /// Run the daemon — blocks until shutdown signal is received.
@@ -210,6 +230,8 @@ impl Daemon {
             Ok(n) => tracing::info!(count = n, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
+        // Clear all pending approval requests (denied with callbacks triggered)
+        self.approval_flow.lock().await.clear();
         let _ = self.sweeper_shutdown_tx.send(());
         Ok(())
     }
@@ -224,6 +246,8 @@ impl Daemon {
             Ok(n) => tracing::info!(count = n, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
+        // Clear all pending approval requests (denied with callbacks triggered)
+        self.approval_flow.lock().await.clear();
         let _ = self.sweeper_shutdown_tx.send(());
         Ok(())
     }

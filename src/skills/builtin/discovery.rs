@@ -1,4 +1,6 @@
 //! Skill discovery skill - allows agents to search and install skills from ClawHub
+use crate::permission::approval_flow::ApprovalFlow;
+use crate::permission::engine::engine_risk::RiskLevel;
 use crate::permission::engine::Caller;
 use crate::permission::engine::PermissionRequestBody;
 use crate::permission::{PermissionRequest, PermissionResponse};
@@ -9,22 +11,40 @@ use std::sync::Arc;
 #[allow(clippy::new_without_default)]
 pub struct SkillDiscoverySkill {
     engine: Option<Arc<crate::permission::PermissionEngine>>,
+    approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
 }
 
 impl Default for SkillDiscoverySkill {
     fn default() -> Self {
-        Self { engine: None }
+        Self {
+            engine: None,
+            approval_flow: None,
+        }
     }
 }
 
 impl SkillDiscoverySkill {
     pub fn new() -> Self {
-        Self { engine: None }
+        Self {
+            engine: None,
+            approval_flow: None,
+        }
     }
 
     pub fn with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Self {
         Self {
             engine: Some(engine),
+            approval_flow: None,
+        }
+    }
+
+    pub fn with_engine_and_approval_flow(
+        engine: Arc<crate::permission::PermissionEngine>,
+        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    ) -> Self {
+        Self {
+            engine: Some(engine),
+            approval_flow: Some(approval_flow),
         }
     }
 }
@@ -86,7 +106,7 @@ impl Skill for SkillDiscoverySkill {
                         creator_id: String::new(),
                     };
                     let request = PermissionRequest::WithCaller {
-                        caller,
+                        caller: caller.clone(),
                         request: PermissionRequestBody::InterAgentMsg {
                             from: agent_id.to_string(),
                             to: "*".to_string(),
@@ -95,7 +115,29 @@ impl Skill for SkillDiscoverySkill {
                     let extra_deny_subjects = engine.get_agent_deny_subjects(agent_id, agent_id);
                     match engine.evaluate(request, Some(extra_deny_subjects)) {
                         PermissionResponse::Allowed { .. } => {}
-                        PermissionResponse::Denied { reason, .. } => {
+                        PermissionResponse::Denied {
+                            reason, risk_level, ..
+                        } => {
+                            if let Some(ref flow) = self.approval_flow {
+                                let body = PermissionRequestBody::InterAgentMsg {
+                                    from: agent_id.to_string(),
+                                    to: "*".to_string(),
+                                };
+                                let session_id = args
+                                    .get("session_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let mut flow = flow.lock().await;
+                                if let Some(request_id) = flow
+                                    .submit_denial(&caller, &body, risk_level, session_id, false)
+                                {
+                                    return Ok(serde_json::json!({
+                                        "status": "approval_pending",
+                                        "request_id": request_id,
+                                        "message": "Operation pending owner approval",
+                                    }));
+                                }
+                            }
                             return Err(SkillError::PermissionDenied(reason));
                         }
                     }
