@@ -274,21 +274,17 @@ async fn test_config_loading_drives_agent_creation() {
         "agents": [
             {
                 "name": "orchestrator",
-                "model": "gpt-4",
-                "persona": "Master orchestrator",
-                "max_iterations": 100
+                "model": "gpt-4"
             },
             {
                 "name": "builder",
                 "model": "claude-3-opus",
-                "parent": "orchestrator",
-                "persona": "Code builder"
+                "parent_id": "orchestrator"
             },
             {
                 "name": "tester",
                 "model": "claude-3-sonnet",
-                "parent": "orchestrator",
-                "persona": "Test engineer"
+                "parent_id": "orchestrator"
             }
         ]
     }"#;

@@ -8,9 +8,10 @@ mod provider;
 mod types;
 mod validation;
 
+pub use crate::agent::config::AgentConfig;
 pub use directory::{AgentDirectoryEntry, AgentDirectoryProvider};
 pub use provider::AgentsConfigProvider;
-pub use types::{AgentConfig, AgentsConfig};
+pub use types::AgentsConfig;
 pub use validation::validate_agents_config;
 
 #[cfg(test)]
@@ -23,7 +24,7 @@ mod tests {
             "version": "1.0.0",
             "agents": [
                 { "name": "orchestrator", "model": "gpt-4" },
-                { "name": "coder", "model": "claude-3-opus", "parent": "orchestrator" }
+                { "name": "coder", "model": "claude-3-opus", "parent_id": "orchestrator" }
             ]
         }"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
@@ -35,7 +36,7 @@ mod tests {
     fn test_missing_parent() {
         let json = r#"{
             "version": "1.0.0",
-            "agents": [{ "name": "coder", "model": "claude-3-opus", "parent": "nonexistent" }]
+            "agents": [{ "name": "coder", "model": "claude-3-opus", "parent_id": "nonexistent" }]
         }"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         assert!(provider.validate().is_err());
