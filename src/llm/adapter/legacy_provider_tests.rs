@@ -31,6 +31,10 @@ fn make_internal_request(content: &str) -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        session_id: None,
         reasoning_level: ReasoningLevel::default(),
     }
 }

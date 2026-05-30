@@ -219,6 +219,10 @@ mod tests {
             max_tokens: Some(256),
             stream: false,
             extra_body: Default::default(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
             reasoning_level: ReasoningLevel::default(),
         }
     }
@@ -231,6 +235,8 @@ mod tests {
                 completion_tokens: 5,
                 total_tokens: Some(15),
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: Some("stop".to_string()),
         }

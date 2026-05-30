@@ -134,6 +134,8 @@ fn test_build_api_request_does_not_modify_self_messages() {
             completion_tokens: 1,
             total_tokens: Some(2),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     });

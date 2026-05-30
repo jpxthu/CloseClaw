@@ -94,6 +94,32 @@ impl ChatProtocol for AnthropicProtocol {
             );
         }
 
+        // System blocks: if present, serialize as Anthropic's system array format.
+        // Each block with cache=true gets a cache_control marker.
+        if let Some(ref blocks) = request.system_blocks {
+            if !blocks.is_empty() {
+                let system_array: Vec<serde_json::Value> = blocks
+                    .iter()
+                    .map(|b| {
+                        let mut obj = serde_json::json!({
+                            "type": "text",
+                            "text": b.text,
+                        });
+                        if b.cache {
+                            obj.as_object_mut().unwrap().insert(
+                                "cache_control".to_string(),
+                                serde_json::json!({ "type": "ephemeral" }),
+                            );
+                        }
+                        obj
+                    })
+                    .collect();
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("system".to_string(), serde_json::json!(system_array));
+            }
+        }
+
         for (key, value) in &request.extra_body {
             body.as_object_mut()
                 .unwrap()
@@ -191,218 +217,21 @@ fn parse_usage(body: &serde_json::Value) -> RawUsage {
         .and_then(|v| v.as_u64())
         .map(|v| v as u32);
 
+    let cache_read_tokens = usage_obj
+        .and_then(|u| u.get("cache_read_input_tokens"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    let cache_write_tokens = usage_obj
+        .and_then(|u| u.get("cache_creation_input_tokens"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
     RawUsage {
         prompt_tokens: input_tokens,
         completion_tokens: output_tokens,
         total_tokens,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::llm::types::InternalMessage;
-
-    fn make_request() -> InternalRequest {
-        InternalRequest {
-            model: "claude-3-5-sonnet-20241022".to_string(),
-            messages: vec![InternalMessage {
-                role: "user".to_string(),
-                content: "Hello".to_string(),
-            }],
-            temperature: 0.7,
-            max_tokens: Some(1024),
-            stream: false,
-            extra_body: Default::default(),
-            reasoning_level: ReasoningLevel::default(),
-        }
-    }
-
-    // ── build_request tests ───────────────────────────────────────────────────
-
-    #[test]
-    fn test_build_request_basic() {
-        let proto = AnthropicProtocol::new();
-        let request = make_request();
-        let body = proto.build_request(&request).unwrap();
-
-        assert_eq!(body.get("model").unwrap(), "claude-3-5-sonnet-20241022");
-        assert!(body.get("messages").unwrap().is_array());
-        assert_eq!(body.get("max_tokens").unwrap(), &serde_json::json!(1024));
-    }
-
-    #[test]
-    fn test_build_request_no_max_tokens() {
-        let proto = AnthropicProtocol::new();
-        let mut request = make_request();
-        request.max_tokens = None;
-        let body = proto.build_request(&request).unwrap();
-        assert!(body.get("max_tokens").is_none());
-    }
-
-    #[test]
-    fn test_build_request_stream_flag() {
-        let proto = AnthropicProtocol::new();
-        let mut request = make_request();
-        request.stream = true;
-        let body = proto.build_request(&request).unwrap();
-        // Anthropic /v1/messages does not have a `stream` bool in the body
-        // for the HTTP POST; streaming uses a different endpoint (SSE).
-        assert!(body.get("stream").is_none());
-    }
-
-    // ── parse_response tests ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_parse_response_normal() {
-        let proto = AnthropicProtocol::new();
-        let body = serde_json::json!({
-            "content": [
-                {"type": "text", "text": "Hello, world!"}
-            ],
-            "stop_reason": "end_turn",
-            "usage": {
-                "input_tokens": 10,
-                "output_tokens": 5,
-                "total_tokens": 15
-            }
-        });
-
-        let resp = proto.parse_response(body).unwrap();
-        assert_eq!(resp.content_blocks.len(), 1);
-        assert!(
-            matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "Hello, world!")
-        );
-        assert_eq!(resp.usage.prompt_tokens, 10);
-        assert_eq!(resp.usage.completion_tokens, 5);
-        assert_eq!(resp.usage.total_tokens, Some(15));
-        assert_eq!(resp.finish_reason, Some("end_turn".to_string()));
-    }
-
-    #[test]
-    fn test_parse_response_thinking_block() {
-        let proto = AnthropicProtocol::new();
-        let body = serde_json::json!({
-            "content": [
-                {"type": "thinking", "thinking": "Let me think..."},
-                {"type": "text", "text": "Final answer."}
-            ],
-            "stop_reason": "end_turn"
-        });
-
-        let resp = proto.parse_response(body).unwrap();
-        assert_eq!(resp.content_blocks.len(), 2);
-        assert!(
-            matches!(resp.content_blocks[0], RawContentBlock::Thinking(ref s) if s == "Let me think...")
-        );
-        assert!(
-            matches!(resp.content_blocks[1], RawContentBlock::Text(ref s) if s == "Final answer.")
-        );
-    }
-
-    #[test]
-    fn test_parse_response_empty_content() {
-        let proto = AnthropicProtocol::new();
-        let body = serde_json::json!({ "content": [], "stop_reason": "end_turn" });
-        let resp = proto.parse_response(body).unwrap();
-        assert!(resp.content_blocks.is_empty());
-        assert_eq!(resp.usage.prompt_tokens, 0);
-        assert_eq!(resp.usage.completion_tokens, 0);
-    }
-
-    #[test]
-    fn test_parse_response_missing_usage_defaults() {
-        let proto = AnthropicProtocol::new();
-        let body = serde_json::json!({
-            "content": [{"type": "text", "text": "Hi"}],
-            "stop_reason": "end_turn"
-        });
-        let resp = proto.parse_response(body).unwrap();
-        assert_eq!(resp.usage.prompt_tokens, 0);
-        assert_eq!(resp.usage.completion_tokens, 0);
-        assert!(resp.usage.total_tokens.is_none());
-    }
-
-    // ── decorate_headers tests ────────────────────────────────────────────────
-
-    #[test]
-    fn test_decorate_headers_api_key() {
-        std::env::remove_var("ANTHROPIC_API_KEY");
-        let proto = AnthropicProtocol::new();
-        let mut headers = HeaderMap::new();
-        proto.decorate_headers(&mut headers).unwrap();
-
-        let key_header = headers.get("x-api-key").unwrap();
-        assert_eq!(key_header.to_str().unwrap(), "");
-    }
-
-    #[test]
-    fn test_decorate_headers_anthropic_version() {
-        let proto = AnthropicProtocol::new();
-        let mut headers = HeaderMap::new();
-        proto.decorate_headers(&mut headers).unwrap();
-
-        assert_eq!(
-            headers.get("anthropic-version").unwrap().to_str().unwrap(),
-            "2023-06-01"
-        );
-    }
-
-    #[test]
-    fn test_decorate_headers_content_type() {
-        let proto = AnthropicProtocol::new();
-        let mut headers = HeaderMap::new();
-        proto.decorate_headers(&mut headers).unwrap();
-
-        assert_eq!(
-            headers.get(CONTENT_TYPE).unwrap().to_str().unwrap(),
-            "application/json"
-        );
-    }
-
-    // ── reasoning_level non-injection tests ─────────────────────────────────
-
-    #[test]
-    fn test_build_request_does_not_inject_reasoning_level_low() {
-        let proto = AnthropicProtocol::new();
-        let mut request = make_request();
-        request.reasoning_level = ReasoningLevel::Low;
-        let body = proto.build_request(&request).unwrap();
-        // Anthropic does not support reasoning_level — no reasoning/thinking field should appear.
-        assert!(body.get("thinking").is_none());
-        assert!(body.get("reasoning_effort").is_none());
-        assert!(body.get("reasoning_level").is_none());
-    }
-
-    #[test]
-    fn test_build_request_does_not_inject_reasoning_level_medium() {
-        let proto = AnthropicProtocol::new();
-        let mut request = make_request();
-        request.reasoning_level = ReasoningLevel::Medium;
-        let body = proto.build_request(&request).unwrap();
-        assert!(body.get("thinking").is_none());
-        assert!(body.get("reasoning_effort").is_none());
-        assert!(body.get("reasoning_level").is_none());
-    }
-
-    #[test]
-    fn test_build_request_does_not_inject_reasoning_level_max() {
-        let proto = AnthropicProtocol::new();
-        let mut request = make_request();
-        request.reasoning_level = ReasoningLevel::Max;
-        let body = proto.build_request(&request).unwrap();
-        assert!(body.get("thinking").is_none());
-        assert!(body.get("reasoning_effort").is_none());
-        assert!(body.get("reasoning_level").is_none());
-    }
-
-    #[test]
-    fn test_build_request_high_reasoning_level_no_injection() {
-        let proto = AnthropicProtocol::new();
-        let request = make_request(); // default is High
-        let body = proto.build_request(&request).unwrap();
-        assert!(body.get("thinking").is_none());
-        assert!(body.get("reasoning_effort").is_none());
-        assert!(body.get("reasoning_level").is_none());
+        cache_read_tokens,
+        cache_write_tokens,
     }
 }

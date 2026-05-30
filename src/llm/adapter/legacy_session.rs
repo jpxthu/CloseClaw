@@ -140,6 +140,10 @@ impl ChatSession for LegacySessionAdapter {
             max_tokens: None,
             stream: false,
             extra_body: Default::default(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
             reasoning_level: self.reasoning_level,
         }
     }
@@ -205,6 +209,8 @@ mod tests {
                 completion_tokens: 2,
                 total_tokens: Some(3),
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: Some("stop".into()),
         });
@@ -226,6 +232,8 @@ mod tests {
                 completion_tokens: 0,
                 total_tokens: Some(0),
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: None,
         });
@@ -247,6 +255,8 @@ mod tests {
                 completion_tokens: 1,
                 total_tokens: Some(2),
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: Some("stop".into()),
         });

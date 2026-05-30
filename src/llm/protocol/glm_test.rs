@@ -13,6 +13,10 @@ fn make_request() -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        session_id: None,
         reasoning_level: ReasoningLevel::default(),
     }
 }
@@ -39,7 +43,6 @@ fn test_build_request_stream() {
     let body = proto.build_request(&request).unwrap();
     assert_eq!(body.get("stream").unwrap(), &serde_json::json!(true));
 }
-// ── parse_response tests ──────────────────────────────────────────────────
 
 #[test]
 fn test_parse_response_normal() {
@@ -124,7 +127,6 @@ fn test_parse_response_empty_choices() {
     assert!(resp.content_blocks.is_empty());
     assert_eq!(resp.usage.prompt_tokens, 0);
 }
-// ── decorate_headers tests ────────────────────────────────────────────────
 
 #[test]
 fn test_decorate_headers_bearer() {
@@ -146,7 +148,6 @@ fn test_decorate_headers_content_type() {
         "application/json"
     );
 }
-// ── SSE parsing tests ──────────────────────────────────────────────────────
 
 fn make_sse_chunk(data: &str) -> RawSseChunk {
     RawSseChunk {
@@ -246,7 +247,6 @@ async fn test_parse_sse_empty_chunk_breaks() {
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
     assert!(stream.next().await.is_none());
 }
-// ── SSE tool_calls parsing tests ──────────────────────────────────────────
 
 #[tokio::test]
 async fn test_parse_sse_tool_calls_basic() {

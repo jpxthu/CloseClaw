@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+use crate::llm::cache_adapter::NoopCacheAdapter;
 use crate::llm::interpreter::InterpreterRegistry;
 use crate::llm::plugin::PluginPipeline;
 use crate::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
@@ -72,6 +73,8 @@ impl Provider for StubProvider {
                 prompt_tokens: 1,
                 completion_tokens: 2,
                 total_tokens: Some(3),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: Some("stop".into()),
         })
@@ -134,6 +137,8 @@ impl ChatProtocol for StubProtocol {
                 prompt_tokens: 0,
                 completion_tokens: 0,
                 total_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: None,
         })
@@ -159,7 +164,7 @@ impl ChatProtocol for StubProtocol {
                 yield StreamEvent::BlockStart { index: 0, block_type: ContentBlockType::Text };
                 yield StreamEvent::BlockDelta { index: 0, delta: ContentDelta::Text { text: "hello".into() } };
                 yield StreamEvent::MessageEnd {
-                    usage: Some(UnifiedUsage { prompt_tokens: 1, completion_tokens: 1, total_tokens: Some(2), reasoning_tokens: None }),
+                    usage: Some(UnifiedUsage { prompt_tokens: 1, completion_tokens: 1, total_tokens: Some(2), reasoning_tokens: None, cache_read_tokens: None, cache_write_tokens: None }),
                     finish_reason: Some("stop".into()),
                 };
             }
@@ -202,12 +207,16 @@ fn make_request() -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        session_id: None,
         reasoning_level: ReasoningLevel::default(),
     }
 }
 
 fn make_client(pipeline: PluginPipeline) -> UnifiedChatClient {
-    UnifiedChatClient::new(
+    UnifiedChatClient::with_noop_cache_adapter(
         Arc::new(StubProvider::new()),
         Arc::new(StubProtocol::new()),
         InterpreterRegistry::default(),
@@ -254,6 +263,8 @@ async fn test_chat_interpreter_resolves() {
                     completion_tokens: 0,
                     total_tokens: Some(0),
                     reasoning_tokens: None,
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
                 },
                 finish_reason: None,
             }
@@ -263,7 +274,7 @@ async fn test_chat_interpreter_resolves() {
         }
     }
     let registry = InterpreterRegistry::new(vec![(Box::new(CheckInterpreter), "stub/*")]);
-    let client = UnifiedChatClient::new(
+    let client = UnifiedChatClient::with_noop_cache_adapter(
         Arc::new(StubProvider::new()),
         Arc::new(StubProtocol::new()),
         registry,

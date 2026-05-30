@@ -230,6 +230,8 @@ fn test_append_response_adds_message() {
             completion_tokens: 2,
             total_tokens: Some(3),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -251,6 +253,8 @@ fn test_append_tool_result_increments_turn() {
             completion_tokens: 1,
             total_tokens: Some(2),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     });
@@ -272,6 +276,8 @@ fn test_append_response_empty_blocks_no_turn_increment() {
             completion_tokens: 0,
             total_tokens: Some(0),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: None,
     });
@@ -305,6 +311,8 @@ fn test_build_api_request_without_system_prompt() {
             completion_tokens: 1,
             total_tokens: Some(2),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     });
@@ -327,6 +335,8 @@ fn test_conversation_session_multiple_turns() {
             completion_tokens: 2,
             total_tokens: Some(3),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     });
@@ -343,6 +353,8 @@ fn test_conversation_session_multiple_turns() {
             completion_tokens: 3,
             total_tokens: Some(4),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     });
@@ -380,6 +392,8 @@ fn test_replace_messages_overwrites_existing() {
             completion_tokens: 1,
             total_tokens: Some(2),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     });
@@ -413,6 +427,8 @@ fn test_replace_messages_empty_vec_clears() {
             completion_tokens: 1,
             total_tokens: Some(2),
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
     });

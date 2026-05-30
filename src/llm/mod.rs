@@ -2,6 +2,7 @@
 
 pub mod adapter;
 pub mod anthropic;
+pub mod cache_adapter;
 pub mod fallback;
 pub mod glm;
 pub mod glm_stream;
@@ -157,6 +158,8 @@ pub trait LLMProvider: Send + Sync {
                 completion_tokens: response.usage.completion_tokens,
                 total_tokens: Some(response.usage.total_tokens),
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
             finish_reason: None,
         })

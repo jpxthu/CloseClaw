@@ -184,6 +184,10 @@ mod tests {
             max_tokens: Some(100),
             stream: false,
             extra_body: serde_json::Map::new(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
             reasoning_level: ReasoningLevel::default(),
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -217,6 +221,10 @@ mod tests {
             max_tokens: None,
             stream: true,
             extra_body: extra.clone(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
             reasoning_level: ReasoningLevel::default(),
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -237,6 +245,10 @@ mod tests {
             max_tokens: None,
             stream: false,
             extra_body: serde_json::Map::new(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
             reasoning_level: ReasoningLevel::default(),
         };
         let json = serde_json::to_string(&req).unwrap();

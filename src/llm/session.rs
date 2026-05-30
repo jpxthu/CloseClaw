@@ -299,6 +299,10 @@ impl ChatSession for ConversationSession {
             max_tokens: None,
             stream: false,
             extra_body: Default::default(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
             reasoning_level: self.reasoning_level,
         }
     }

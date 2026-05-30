@@ -19,6 +19,10 @@ fn make_request() -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        session_id: None,
         reasoning_level: ReasoningLevel::default(),
     }
 }
@@ -257,4 +261,39 @@ fn test_build_request_default_reasoning_level_is_high() {
     let request = make_request();
     let body = proto.build_request(&request).unwrap();
     assert_eq!(body.get("reasoning_effort").unwrap(), "high");
+}
+
+#[test]
+fn test_parse_response_cached_tokens() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "prompt_tokens_details": {
+                "cached_tokens": 80
+            }
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.usage.cache_read_tokens, Some(80));
+    assert_eq!(resp.usage.cache_write_tokens, None);
+}
+
+#[test]
+fn test_parse_response_no_cached_tokens() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.usage.cache_read_tokens, None);
+    assert_eq!(resp.usage.cache_write_tokens, None);
 }
