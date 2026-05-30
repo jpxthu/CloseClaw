@@ -1,16 +1,15 @@
 //! Workdir Context and gitStatus
 //!
-//! Manages the current working directory for the agent session and provides
-//! git status information for injection into the system prompt.
+//! Provides git status information for injection into the system prompt.
+//! All functions accept an explicit path parameter — no global state.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::RwLock;
 
-/// Workdir context returned by set_workdir
+/// Workdir context returned by build_workdir_context
 #[derive(Debug, Clone)]
 pub struct WorkdirContext {
-    /// Absolute path to the current working directory
+    /// Absolute path to the working directory
     pub path: String,
     /// Whether this is a git repository
     pub has_git: bool,
@@ -20,20 +19,23 @@ pub struct WorkdirContext {
     pub recent_changes: usize,
 }
 
-/// Current workdir state
-static CURRENT_WORKDIR: RwLock<Option<PathBuf>> = RwLock::new(None);
+// ---------------------------------------------------------------------------
+// Public API — parameterized, no global state
+// ---------------------------------------------------------------------------
 
-/// Set the current working directory and return its metadata.
-pub fn set_workdir(path: String) -> WorkdirContext {
-    let abs_path = if Path::new(&path).is_absolute() {
-        PathBuf::from(&path)
+/// Build a WorkdirContext for the given path.
+///
+/// Resolves relative paths against `cwd`. Canonicalizes the result.
+pub fn build_workdir_context(path: &str) -> WorkdirContext {
+    let abs_path = if Path::new(path).is_absolute() {
+        PathBuf::from(path)
     } else {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("/"))
-            .join(&path)
+            .join(path)
     };
 
-    let canonical = abs_path.canonicalize().unwrap_or(abs_path.clone());
+    let canonical = abs_path.canonicalize().unwrap_or(abs_path);
     let has_git = is_git_repo(&canonical);
     let branch = if has_git {
         get_git_branch(&canonical)
@@ -46,10 +48,6 @@ pub fn set_workdir(path: String) -> WorkdirContext {
         0
     };
 
-    if let Ok(mut guard) = CURRENT_WORKDIR.write() {
-        *guard = Some(canonical.clone());
-    }
-
     WorkdirContext {
         path: canonical.to_string_lossy().to_string(),
         has_git,
@@ -58,24 +56,31 @@ pub fn set_workdir(path: String) -> WorkdirContext {
     }
 }
 
-/// Get the current working directory (if set)
-pub fn get_workdir() -> Option<String> {
-    CURRENT_WORKDIR
-        .read()
-        .ok()?
-        .as_ref()
-        .map(|p| p.to_string_lossy().to_string())
-}
+/// Build a git status string for the given path (None if not a git repo).
+pub fn build_git_status_for(path: &str) -> Option<String> {
+    let p = Path::new(path);
 
-/// Clear the current working directory
-pub fn clear_workdir() {
-    if let Ok(mut guard) = CURRENT_WORKDIR.write() {
-        *guard = None;
+    if !is_git_repo(p) {
+        return None;
     }
+
+    let branch = get_git_branch(p)?;
+    let changes = count_uncommitted_changes(p);
+
+    let status_summary = if changes == 0 {
+        "clean".to_string()
+    } else {
+        format!("{} uncommitted change(s)", changes)
+    };
+
+    Some(format!(
+        "On branch {}\n  status: {}",
+        branch, status_summary
+    ))
 }
 
 // ---------------------------------------------------------------------------
-// Git helpers
+// Git helpers (private, unchanged)
 // ---------------------------------------------------------------------------
 
 fn is_git_repo(path: &Path) -> bool {
@@ -108,7 +113,6 @@ fn get_git_branch(path: &Path) -> Option<String> {
 }
 
 fn count_uncommitted_changes(path: &Path) -> usize {
-    // Count: staged + unstaged + untracked
     let staged = git_status_count(path, "--cached");
     let unstaged = git_status_count(path, "");
     let untracked = git_status_count(path, "--others");
@@ -140,56 +144,42 @@ fn git_status_count(path: &Path, extra_arg: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// Build a git status string for the current workdir (empty if not a git repo)
-pub fn build_git_status() -> Option<String> {
-    let workdir = get_workdir()?;
-    let path = Path::new(&workdir);
-
-    if !is_git_repo(path) {
-        return None;
-    }
-
-    let branch = get_git_branch(path)?;
-    let changes = count_uncommitted_changes(path);
-
-    let status_summary = if changes == 0 {
-        "clean".to_string()
-    } else {
-        format!("{} uncommitted change(s)", changes)
-    };
-
-    Some(format!(
-        "On branch {}\n  status: {}",
-        branch, status_summary
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     #[test]
-    fn test_set_and_get_workdir() {
+    fn test_build_workdir_context_with_temp_dir() {
         let temp = std::env::temp_dir();
-        let ctx = set_workdir(temp.to_string_lossy().to_string());
+        let ctx = build_workdir_context(&temp.to_string_lossy());
         assert!(ctx.path.contains("tmp") || ctx.path.contains("temp"));
-        assert_eq!(get_workdir(), Some(ctx.path.clone()));
-        clear_workdir();
     }
 
     #[test]
-    fn test_workdir_git_detection() {
-        // Use the repo root which IS a git repo
-        let ctx = set_workdir(env!("CARGO_MANIFEST_DIR").to_string());
-        assert!(ctx.has_git || !ctx.has_git); // Just check it runs
-        clear_workdir();
+    fn test_build_workdir_context_git_detection() {
+        let ctx = build_workdir_context(env!("CARGO_MANIFEST_DIR"));
+        // Just verify it runs without panicking
+        assert!(ctx.has_git || !ctx.has_git);
     }
 
     #[test]
-    fn test_workdir_relative_path() {
-        let ctx = set_workdir(".".to_string());
+    fn test_build_workdir_context_relative_path() {
+        let ctx = build_workdir_context(".");
         assert!(!ctx.path.is_empty());
-        clear_workdir();
+    }
+
+    #[test]
+    fn test_build_git_status_for_repo() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let status = build_git_status_for(manifest);
+        // The project root is a git repo, so we expect Some
+        assert!(status.is_some());
+    }
+
+    #[test]
+    fn test_build_git_status_for_non_repo() {
+        let status = build_git_status_for("/tmp");
+        // /tmp is typically not a git repo
+        assert!(status.is_none());
     }
 }

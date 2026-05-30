@@ -40,7 +40,7 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
 #[test]
 fn test_build_dynamic_sections_channel_context() {
     let meta = make_meta("user_42", "feishu", 1700000000);
-    let sections = build_dynamic_sections(0, &meta);
+    let sections = build_dynamic_sections(0, &meta, None);
 
     // Find ChannelContext section
     let cc = sections
@@ -58,7 +58,7 @@ fn test_build_dynamic_sections_channel_context() {
 #[test]
 fn test_build_dynamic_sections_session_state() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(7, &meta);
+    let sections = build_dynamic_sections(7, &meta, None);
 
     let ss = sections
         .iter()
@@ -73,7 +73,7 @@ fn test_build_dynamic_sections_session_state() {
 #[test]
 fn test_build_dynamic_sections_turn_count_zero() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta);
+    let sections = build_dynamic_sections(0, &meta, None);
     let ss = sections
         .iter()
         .find(|s: &&Section| s.name() == "session_state")
@@ -88,7 +88,7 @@ fn test_build_dynamic_sections_append_section() {
     clear_append_section();
     let meta = make_meta("u", "ch", 0);
     set_append_section("extra instructions here".to_string());
-    let sections = build_dynamic_sections(0, &meta);
+    let sections = build_dynamic_sections(0, &meta, None);
     let has_append = sections.iter().any(|s| s.name() == "append");
     // Due to global state races with other tests, we only assert the
     // round-trip: set → get returns Some, then get returns None after build.
@@ -102,7 +102,7 @@ fn test_build_dynamic_sections_append_section() {
 
     // Part 2: not set → build → should be absent
     clear_append_section();
-    let sections2 = build_dynamic_sections(0, &meta);
+    let sections2 = build_dynamic_sections(0, &meta, None);
     assert!(
         !sections2.iter().any(|s| s.name() == "append"),
         "AppendSection absent when unset"
@@ -113,7 +113,7 @@ fn test_build_dynamic_sections_append_section() {
 #[test]
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
-    let sections = build_dynamic_sections(3, &meta);
+    let sections = build_dynamic_sections(3, &meta, None);
     let full = build_full_system_prompt(Some("You are helpful."), &sections);
 
     // Contains static layer
@@ -130,7 +130,7 @@ fn test_build_full_system_prompt_composition() {
 #[test]
 fn test_build_full_system_prompt_no_static() {
     let meta = make_meta("bob", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta);
+    let sections = build_dynamic_sections(0, &meta, None);
     let full = build_full_system_prompt(None, &sections);
 
     // No boundary marker when no static prompt
@@ -147,7 +147,7 @@ fn test_build_full_system_prompt_empty_dynamic() {
     clear_append_section();
     let meta = make_meta("", "", 0);
     // build_dynamic_sections always returns ChannelContext + SessionState (at minimum)
-    let sections = build_dynamic_sections(0, &meta);
+    let sections = build_dynamic_sections(0, &meta, None);
     // These two sections always render to non-empty strings, so dynamic is never truly empty.
     // But we verify the composition still works.
     let full = build_full_system_prompt(Some("static"), &sections);
@@ -185,23 +185,87 @@ async fn test_handle_message_backward_compat() {
     assert!(!sm.is_session_busy(&sid).await);
 }
 
-/// GitStatus section is included when CURRENT_WORKDIR points to a git repo.
+/// GitStatus section: build_dynamic_sections no longer reads global state.
+/// Git status is tested via build_git_status_for directly.
 #[test]
-fn test_build_dynamic_sections_git_status() {
-    use crate::system_prompt::workdir::{clear_workdir, set_workdir};
-
-    // Point workdir at this crate's root (which is a git repo)
-    let ctx = set_workdir(env!("CARGO_MANIFEST_DIR").to_string());
+fn test_build_dynamic_sections_no_global_workdir() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta);
+    let sections = build_dynamic_sections(0, &meta, None);
+    // Without a workdir_path parameter, no GitStatus section should appear
     let has_git = sections.iter().any(|s| s.name() == "git_status");
-    // The crate root may or may not be a git repo depending on
-    // how the repo is laid out, so we just verify the function
-    // does not panic and returns a well-formed Vec.
+    assert!(!has_git, "GitStatus should not appear without workdir_path");
     assert!(!sections.is_empty());
-    // If it IS a git repo, git_status should be present
-    if ctx.has_git {
-        assert!(has_git, "GitStatus should be present for a git repo");
-    }
-    clear_workdir();
+}
+
+/// When a workdir_path is provided, WorkingDirectory section is included.
+#[test]
+fn test_build_dynamic_sections_working_directory() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(0, &meta, Some("/tmp/test"));
+    let wd = sections.iter().find(|s| s.name() == "working_directory");
+    assert!(
+        wd.is_some(),
+        "WorkingDirectory should be present when workdir_path is Some"
+    );
+    let rendered = wd.unwrap().render();
+    assert!(rendered.contains("## Working Directory"));
+}
+
+/// When a git repo path is provided, both WorkingDirectory and GitStatus appear.
+#[test]
+fn test_build_dynamic_sections_git_status_with_path() {
+    let meta = make_meta("u", "ch", 0);
+    // Use CARGO_MANIFEST_DIR which is a git repo
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let sections = build_dynamic_sections(0, &meta, Some(manifest_dir));
+    let has_wd = sections.iter().any(|s| s.name() == "working_directory");
+    let has_git = sections.iter().any(|s| s.name() == "git_status");
+    assert!(has_wd, "WorkingDirectory should be present");
+    assert!(has_git, "GitStatus should be present for a git repo path");
+}
+
+/// When a non-git path is provided, WorkingDirectory appears but GitStatus does not.
+#[test]
+fn test_build_dynamic_sections_no_git_for_non_repo() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(0, &meta, Some("/tmp"));
+    let has_wd = sections.iter().any(|s| s.name() == "working_directory");
+    let has_git = sections.iter().any(|s| s.name() == "git_status");
+    assert!(has_wd, "WorkingDirectory should be present");
+    assert!(!has_git, "GitStatus should not appear for non-git path");
+}
+
+/// WorkingDirectory render sanitizes workspaces/ prefix to ~/.
+#[test]
+fn test_working_directory_render_sanitization() {
+    let meta = make_meta("u", "ch", 0);
+    // Use a path that contains workspaces/ to test sanitization
+    let fake_workdir = "/home/user/.closeclaw/workspaces/agent1/user1/";
+    let sections = build_dynamic_sections(0, &meta, Some(fake_workdir));
+    let wd = sections
+        .iter()
+        .find(|s| s.name() == "working_directory")
+        .unwrap();
+    let rendered = wd.render();
+    assert!(
+        rendered.contains("~/agent1/user1/"),
+        "rendered should show sanitized path, got: {}",
+        rendered
+    );
+    assert!(
+        !rendered.contains(".closeclaw"),
+        "rendered should not expose .closeclaw, got: {}",
+        rendered
+    );
+}
+
+/// workdir path with workspaces/ prefix does not expose config_dir root.
+#[test]
+fn test_workdir_path_no_config_dir_exposure() {
+    use crate::system_prompt::sections::sanitize_workdir_path;
+    let path = "/home/alice/.closeclaw/workspaces/my-agent/u123/";
+    let sanitized = sanitize_workdir_path(path);
+    assert_eq!(sanitized, "~/my-agent/u123/");
+    assert!(!sanitized.contains(".closeclaw"));
+    assert!(!sanitized.contains("/home/alice"));
 }

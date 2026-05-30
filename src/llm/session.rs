@@ -6,6 +6,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -75,11 +76,12 @@ pub struct ConversationSession {
     is_llm_busy: Arc<AtomicBool>,
     pending_messages: VecDeque<crate::session::persistence::PendingMessage>,
     reasoning_level: ReasoningLevel,
+    workdir: PathBuf,
 }
 
 impl ConversationSession {
-    /// Creates a new session with the given model.
-    pub fn new(session_id: String, model: String) -> Self {
+    /// Creates a new session with the given model and working directory.
+    pub fn new(session_id: String, model: String, workdir: PathBuf) -> Self {
         Self {
             session_id,
             messages: Vec::new(),
@@ -90,7 +92,18 @@ impl ConversationSession {
             is_llm_busy: Arc::new(AtomicBool::new(false)),
             pending_messages: VecDeque::new(),
             reasoning_level: ReasoningLevel::default(),
+            workdir,
         }
+    }
+
+    /// Returns the current working directory.
+    pub fn workdir(&self) -> &Path {
+        &self.workdir
+    }
+
+    /// Sets the working directory.
+    pub fn set_workdir(&mut self, path: PathBuf) {
+        self.workdir = path;
     }
 
     /// Sets the system prompt.

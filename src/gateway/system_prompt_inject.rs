@@ -9,8 +9,16 @@ use crate::system_prompt::workdir;
 
 /// Build dynamic sections from metadata and session state.
 ///
-/// Constructs ChannelContext, SessionState, and optionally GitStatus/AppendSection.
-pub(crate) fn build_dynamic_sections(turn_count: u32, meta: &MessageMetadata) -> Vec<Section> {
+/// Constructs ChannelContext, SessionState, and optionally WorkingDirectory,
+/// GitStatus, and AppendSection.
+///
+/// `workdir_path` — when `Some`, injects a `WorkingDirectory` section and
+/// builds git status for that path instead of using global state.
+pub(crate) fn build_dynamic_sections(
+    turn_count: u32,
+    meta: &MessageMetadata,
+    workdir_path: Option<&str>,
+) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
     sections.push(Section::ChannelContext {
@@ -26,8 +34,12 @@ pub(crate) fn build_dynamic_sections(turn_count: u32, meta: &MessageMetadata) ->
         pending_tasks: vec![],
     });
 
-    if let Some(status) = workdir::build_git_status() {
-        sections.push(Section::GitStatus(status));
+    if let Some(path) = workdir_path {
+        sections.push(Section::WorkingDirectory(path.to_string()));
+
+        if let Some(status) = workdir::build_git_status_for(path) {
+            sections.push(Section::GitStatus(status));
+        }
     }
 
     if let Some(append_content) = get_append_section() {

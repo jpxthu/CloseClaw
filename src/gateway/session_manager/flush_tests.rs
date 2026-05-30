@@ -10,6 +10,7 @@ use crate::system_prompt::{
 use async_trait::async_trait;
 use serial_test::serial;
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
@@ -259,7 +260,6 @@ async fn test_session_manager_get_chat_id_missing() {
     let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
     assert!(chat_id.is_none());
 }
-
 // ── pending_messages flush scenarios ───────────────────────────────────────────
 
 #[tokio::test]
@@ -290,6 +290,7 @@ async fn test_flush_all_with_pending_messages() {
     let conv_session = Arc::new(RwLock::new(ConversationSession::new(
         session_id.to_string(),
         "gpt-4o".to_string(),
+        PathBuf::from("/tmp"),
     )));
     {
         let mut cs = conv_session.write().await;
@@ -348,6 +349,7 @@ async fn test_flush_all_without_pending_messages() {
     let conv_session = Arc::new(RwLock::new(ConversationSession::new(
         session_id.to_string(),
         "gpt-4o".to_string(),
+        PathBuf::from("/tmp"),
     )));
     {
         let mut conv_sessions = mgr.conversation_sessions.write().await;
@@ -446,7 +448,6 @@ fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
         ReasoningLevel::default(),
     )
 }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Step 1.4 — rebuild_system_prompt unit tests
 // ═══════════════════════════════════════════════════════════════════════════
