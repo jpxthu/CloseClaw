@@ -7,7 +7,6 @@ pub mod skill_reload;
 use crate::config::agents::AgentsConfigProvider;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
-use crate::config::providers::CredentialsProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
@@ -16,6 +15,7 @@ use crate::permission::approval_flow::ApprovalFlow;
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::PersistenceService;
+use crate::session::persistence::ReasoningLevel;
 use crate::session::storage::SqliteStorage;
 use crate::session::sweeper::ArchiveSweeper;
 use crate::skills::builtin::builtin_skills_with_engine_and_approval_flow;
@@ -150,6 +150,7 @@ impl Daemon {
             None,
             Some(PathBuf::from(config_dir)),
             Self::read_bootstrap_mode(),
+            ReasoningLevel::default(),
         ));
         let gateway = Gateway::new(gateway_config, Arc::clone(&session_manager));
         gateway
@@ -167,9 +168,12 @@ impl Daemon {
         // Create ToolRegistry and register builtin tools
         let tool_registry = Arc::new(ToolRegistry::new());
         {
-            let guard = skill_registry.read().unwrap();
-            if let Some(ref disk_reg) = *guard {
-                register_builtin_tools(&tool_registry, Arc::new(disk_reg.clone())).await;
+            let disk_reg_opt = {
+                let guard = skill_registry.read().unwrap();
+                guard.as_ref().map(|dr| Arc::new(dr.clone()))
+            };
+            if let Some(disk_reg) = disk_reg_opt {
+                register_builtin_tools(&tool_registry, disk_reg).await;
             }
         }
 
@@ -275,6 +279,7 @@ impl Daemon {
         }
     }
     /// Load and validate agents.json
+    #[allow(dead_code)]
     fn load_agents_config(config_dir: &str) -> anyhow::Result<AgentsConfigProvider> {
         let path = format!("{}/agents.json", config_dir);
         let provider = AgentsConfigProvider::new(&path)

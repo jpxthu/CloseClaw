@@ -93,6 +93,7 @@ impl PluginPipeline {
     }
 
     /// Appends a plugin to the end of the pipeline.
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, plugin: Box<dyn ModelPlugin>) -> Self {
         self.plugins.push(plugin);
         self
@@ -146,6 +147,7 @@ impl PluginPipeline {
 mod tests {
     use super::*;
     use crate::llm::types::{ContentBlock, ContentBlockType, UnifiedUsage};
+    use crate::session::persistence::ReasoningLevel;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -217,6 +219,7 @@ mod tests {
             max_tokens: Some(256),
             stream: false,
             extra_body: Default::default(),
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 

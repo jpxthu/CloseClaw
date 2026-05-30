@@ -9,7 +9,8 @@ use crate::im::IMAdapter;
 use crate::llm::session::{ChatSession, ConversationSession};
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use crate::session::persistence::{
-    PendingMessage, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
+    PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
+    SessionStatus,
 };
 use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
@@ -43,6 +44,8 @@ pub struct SessionManager {
     tool_registry: RwLock<Option<Arc<ToolRegistry>>>,
     /// Skill registry for building system prompt SkillListingSection
     skill_registry: RwLock<Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>>,
+    /// Default reasoning level for new sessions
+    default_reasoning_level: ReasoningLevel,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -61,6 +64,7 @@ impl SessionManager {
         storage: Option<Arc<dyn PersistenceService>>,
         workspace_dir: Option<PathBuf>,
         bootstrap_mode: BootstrapMode,
+        default_reasoning_level: ReasoningLevel,
     ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
@@ -72,6 +76,7 @@ impl SessionManager {
             bootstrap_mode,
             tool_registry: RwLock::new(None),
             skill_registry: RwLock::new(None),
+            default_reasoning_level,
         }
     }
 
@@ -230,7 +235,7 @@ impl SessionManager {
             workdir: workdir_ctx,
         };
 
-        let workspace_root = self.workspace_dir.clone().unwrap_or_else(|| PathBuf::new());
+        let workspace_root = self.workspace_dir.clone().unwrap_or_default();
 
         let prompt = build_from_workspace(
             &workspace_root,
@@ -247,7 +252,8 @@ impl SessionManager {
         .await;
 
         let conv_session = ConversationSession::new(session_id.clone(), "default".to_string())
-            .with_system_prompt(prompt);
+            .with_system_prompt(prompt)
+            .with_reasoning_level(self.default_reasoning_level);
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use closeclaw::gateway::{DmScope, GatewayConfig, SessionManager};
 use closeclaw::im::processor::{ProcessError, ProcessorRegistry};
 use closeclaw::session::bootstrap::BootstrapMode;
+use closeclaw::session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,6 +29,7 @@ fn test_session_manager() -> Arc<SessionManager> {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ))
 }
 

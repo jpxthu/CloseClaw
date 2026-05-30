@@ -2,16 +2,35 @@
 
 use super::{
     AuthProfileEntryConfig, AuthProfilesConfig, BrowserConfig, CommandsConfig, CronConfig,
-    HookEntryConfig, HooksConfig, HooksInternalConfig, MessagesConfig, MetaConfig, SessionConfig,
-    SessionMaintenanceConfig, SystemConfigData, UpdateConfig, WizardConfig,
+    HookEntryConfig, HooksConfig, HooksInternalConfig, LlmConfig, MessagesConfig, MetaConfig,
+    SessionConfig, SessionMaintenanceConfig, SystemConfigData, UpdateConfig, WizardConfig,
 };
 use crate::config::ConfigProvider;
+use crate::session::persistence::ReasoningLevel;
 
 fn minimal_config() -> SystemConfigData {
     SystemConfigData::default()
 }
 
 fn full_config() -> SystemConfigData {
+    let mut entries = std::collections::BTreeMap::new();
+    entries.insert("boot-md".to_string(), HookEntryConfig { enabled: true });
+    entries.insert(
+        "command-logger".to_string(),
+        HookEntryConfig { enabled: true },
+    );
+    entries.insert(
+        "session-memory".to_string(),
+        HookEntryConfig { enabled: true },
+    );
+    let mut profiles = std::collections::BTreeMap::new();
+    profiles.insert(
+        "minimax-portal:default".to_string(),
+        AuthProfileEntryConfig {
+            provider: "minimax-portal".to_string(),
+            mode: "oauth".to_string(),
+        },
+    );
     SystemConfigData {
         wizard: Some(WizardConfig {
             last_run_at: Some("2026-04-22T03:11:53.234Z".to_string()),
@@ -47,17 +66,7 @@ fn full_config() -> SystemConfigData {
         hooks: Some(HooksConfig {
             internal: HooksInternalConfig {
                 enabled: true,
-                entries: std::collections::BTreeMap::from([
-                    ("boot-md".to_string(), HookEntryConfig { enabled: true }),
-                    (
-                        "command-logger".to_string(),
-                        HookEntryConfig { enabled: true },
-                    ),
-                    (
-                        "session-memory".to_string(),
-                        HookEntryConfig { enabled: true },
-                    ),
-                ]),
+                entries,
             },
         }),
         browser: Some(BrowserConfig {
@@ -65,31 +74,8 @@ fn full_config() -> SystemConfigData {
             headless: true,
             default_profile: Some("openclaw".to_string()),
         }),
-        auth: Some(AuthProfilesConfig {
-            profiles: std::collections::BTreeMap::from([
-                (
-                    "minimax-portal:default".to_string(),
-                    AuthProfileEntryConfig {
-                        provider: "minimax-portal".to_string(),
-                        mode: "oauth".to_string(),
-                    },
-                ),
-                (
-                    "deepseek:default".to_string(),
-                    AuthProfileEntryConfig {
-                        provider: "deepseek".to_string(),
-                        mode: "api_key".to_string(),
-                    },
-                ),
-                (
-                    "zai:default".to_string(),
-                    AuthProfileEntryConfig {
-                        provider: "zai".to_string(),
-                        mode: "api_key".to_string(),
-                    },
-                ),
-            ]),
-        }),
+        auth: Some(AuthProfilesConfig { profiles }),
+        llm: None,
     }
 }
 
@@ -345,147 +331,91 @@ fn test_is_default_true_when_all_sub_structs_are_default() {
         hooks: Some(HooksConfig::default()),
         browser: Some(BrowserConfig::default()),
         auth: None,
+        llm: None,
     };
     assert!(cfg.is_default());
 }
 
 #[test]
-fn test_is_default_false_when_update_check_on_start_false() {
-    let cfg = SystemConfigData {
-        update: Some(UpdateConfig {
-            check_on_start: false,
-        }),
-        ..Default::default()
-    };
-    assert!(!cfg.is_default());
-}
-
-#[test]
-fn test_is_default_false_when_commands_native_false() {
-    let cfg = SystemConfigData {
-        commands: Some(CommandsConfig {
-            native: false,
+fn test_is_default_false_when_sub_struct_not_default() {
+    let cases: Vec<SystemConfigData> = vec![
+        SystemConfigData {
+            update: Some(UpdateConfig {
+                check_on_start: false,
+            }),
             ..Default::default()
-        }),
-        ..Default::default()
-    };
-    assert!(!cfg.is_default());
-}
-
-#[test]
-fn test_is_default_false_when_commands_owner_display_set() {
-    let cfg = SystemConfigData {
-        commands: Some(CommandsConfig {
-            owner_display: Some("raw".to_string()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    assert!(!cfg.is_default());
-}
-
-#[test]
-fn test_is_default_false_when_browser_headless_false() {
-    let cfg = SystemConfigData {
-        browser: Some(BrowserConfig {
-            headless: false,
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    assert!(!cfg.is_default());
-}
-
-#[test]
-fn test_is_default_false_when_hooks_internal_disabled() {
-    let cfg = SystemConfigData {
-        hooks: Some(HooksConfig {
-            internal: HooksInternalConfig {
-                enabled: false,
+        },
+        SystemConfigData {
+            commands: Some(CommandsConfig {
+                native: false,
                 ..Default::default()
-            },
-        }),
-        ..Default::default()
-    };
-    assert!(!cfg.is_default());
-}
-
-#[test]
-fn test_is_default_false_when_cron_disabled() {
-    let cfg = SystemConfigData {
-        cron: Some(CronConfig { enabled: false }),
-        ..Default::default()
-    };
-    assert!(!cfg.is_default());
-}
-
-#[test]
-fn test_validate_maintenance_mode_warn_valid() {
-    let cfg = SystemConfigData {
-        session: Some(SessionConfig {
-            dm_scope: "per-account-channel-peer".to_string(),
-            maintenance: SessionMaintenanceConfig {
-                mode: "warn".to_string(),
-                prune_after: "7d".to_string(),
-                max_entries: 500,
-            },
-        }),
-        ..Default::default()
-    };
-    cfg.validate().expect("mode=warn should be valid");
-}
-
-#[test]
-fn test_validate_maintenance_mode_off_valid() {
-    let cfg = SystemConfigData {
-        session: Some(SessionConfig {
-            dm_scope: "per-account-channel-peer".to_string(),
-            maintenance: SessionMaintenanceConfig {
-                mode: "off".to_string(),
-                prune_after: "7d".to_string(),
-                max_entries: 500,
-            },
-        }),
-        ..Default::default()
-    };
-    cfg.validate().expect("mode=off should be valid");
-}
-
-#[test]
-fn test_validate_dm_scope_per_channel_peer_valid() {
-    let cfg = SystemConfigData {
-        session: Some(SessionConfig {
-            dm_scope: "per-channel-peer".to_string(),
+            }),
             ..Default::default()
-        }),
-        ..Default::default()
-    };
-    cfg.validate()
-        .expect("dmScope=per-channel-peer should be valid");
+        },
+        SystemConfigData {
+            commands: Some(CommandsConfig {
+                owner_display: Some("raw".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        SystemConfigData {
+            browser: Some(BrowserConfig {
+                headless: false,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        SystemConfigData {
+            hooks: Some(HooksConfig {
+                internal: HooksInternalConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+            }),
+            ..Default::default()
+        },
+        SystemConfigData {
+            cron: Some(CronConfig { enabled: false }),
+            ..Default::default()
+        },
+    ];
+    for cfg in cases {
+        assert!(!cfg.is_default());
+    }
 }
 
 #[test]
-fn test_validate_dm_scope_per_peer_valid() {
-    let cfg = SystemConfigData {
-        session: Some(SessionConfig {
-            dm_scope: "per-peer".to_string(),
+fn test_validate_maintenance_modes_valid() {
+    for mode in ["warn", "off"] {
+        let cfg = SystemConfigData {
+            session: Some(SessionConfig {
+                dm_scope: "per-account-channel-peer".to_string(),
+                maintenance: SessionMaintenanceConfig {
+                    mode: mode.to_string(),
+                    ..Default::default()
+                },
+            }),
             ..Default::default()
-        }),
-        ..Default::default()
-    };
-    cfg.validate().expect("dmScope=per-peer should be valid");
+        };
+        cfg.validate()
+            .unwrap_or_else(|e| panic!("mode={mode} should be valid: {e}"));
+    }
 }
 
 #[test]
-fn test_validate_dm_scope_main_valid() {
-    let cfg = SystemConfigData {
-        session: Some(SessionConfig {
-            dm_scope: "main".to_string(),
+fn test_validate_dm_scope_valid() {
+    for scope in ["per-channel-peer", "per-peer", "main"] {
+        let cfg = SystemConfigData {
+            session: Some(SessionConfig {
+                dm_scope: scope.to_string(),
+                ..Default::default()
+            }),
             ..Default::default()
-        }),
-        ..Default::default()
-    };
-    cfg.validate().expect("dmScope=main should be valid");
+        };
+        cfg.validate()
+            .unwrap_or_else(|e| panic!("dmScope={scope} should be valid: {e}"));
+    }
 }
 
 #[test]
@@ -493,4 +423,56 @@ fn test_validate_empty_session_valid() {
     SystemConfigData::default()
         .validate()
         .expect("no session config should be valid");
+}
+
+#[test]
+fn test_llm_config_default() {
+    let config = LlmConfig::default();
+    assert_eq!(config.reasoning_level, ReasoningLevel::High);
+}
+
+#[test]
+fn test_system_config_data_without_llm_field() {
+    let config: SystemConfigData = serde_json::from_str("{}").unwrap();
+    assert!(config.llm.is_none());
+}
+
+#[test]
+fn test_system_config_data_with_llm_reasoning_level() {
+    let config: SystemConfigData =
+        serde_json::from_str(r#"{"llm": {"reasoningLevel": "low"}}"#).unwrap();
+    assert_eq!(config.llm.unwrap().reasoning_level, ReasoningLevel::Low);
+}
+
+#[test]
+fn test_system_config_data_with_llm_high() {
+    let config: SystemConfigData =
+        serde_json::from_str(r#"{"llm": {"reasoningLevel": "high"}}"#).unwrap();
+    assert_eq!(config.llm.unwrap().reasoning_level, ReasoningLevel::High);
+}
+
+#[test]
+fn test_system_config_data_with_llm_max() {
+    let config: SystemConfigData =
+        serde_json::from_str(r#"{"llm": {"reasoningLevel": "max"}}"#).unwrap();
+    assert_eq!(config.llm.unwrap().reasoning_level, ReasoningLevel::Max);
+}
+
+#[test]
+fn test_system_config_data_llm_defaults_when_missing() {
+    let config: SystemConfigData = serde_json::from_str(r#"{"llm": {}}"#).unwrap();
+    assert_eq!(
+        config.llm.unwrap().reasoning_level,
+        ReasoningLevel::default()
+    );
+}
+
+#[test]
+fn test_llm_config_serde_roundtrip() {
+    let config = LlmConfig {
+        reasoning_level: ReasoningLevel::Medium,
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: LlmConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(config, parsed);
 }

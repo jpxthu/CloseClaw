@@ -8,6 +8,7 @@ use std::sync::Arc;
 fn test_session_manager() -> Arc<SessionManager> {
     use crate::gateway::{DmScope, GatewayConfig};
     use crate::session::bootstrap::loader::BootstrapMode;
+    use crate::session::persistence::ReasoningLevel;
 
     let config = GatewayConfig {
         name: "test".to_string(),
@@ -20,6 +21,7 @@ fn test_session_manager() -> Arc<SessionManager> {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ))
 }
 

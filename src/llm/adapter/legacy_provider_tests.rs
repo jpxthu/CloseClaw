@@ -9,6 +9,7 @@ use super::*;
 // Re-export types used in tests that aren't brought in by the parent's glob.
 use crate::llm::types::InternalMessage;
 use crate::llm::LLMError;
+use crate::session::persistence::ReasoningLevel;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ fn make_internal_request(content: &str) -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        reasoning_level: ReasoningLevel::default(),
     }
 }
 

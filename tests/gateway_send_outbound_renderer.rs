@@ -10,6 +10,7 @@ use closeclaw::processor_chain::{
 };
 use closeclaw::renderer::{RenderedOutput, Renderer};
 use closeclaw::session::bootstrap::BootstrapMode;
+use closeclaw::session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -136,6 +137,7 @@ async fn test_send_outbound_with_renderer_text() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
@@ -180,6 +182,7 @@ async fn test_send_outbound_with_renderer_interactive() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
@@ -219,6 +222,7 @@ async fn test_send_outbound_with_renderer_dsl_result_passed() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let dsl_json = serde_json::to_string(&DslParseResult {
         clean_content: "Clean content".to_string(),
@@ -266,6 +270,7 @@ async fn test_send_outbound_no_renderer_fallback_text() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
@@ -320,6 +325,7 @@ async fn test_send_outbound_renderer_with_suppress() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let registry = Arc::new({
         let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
@@ -360,6 +366,7 @@ async fn test_send_outbound_renderer_requires_registry() {
         None,
         None,
         BootstrapMode::Minimal,
+        ReasoningLevel::default(),
     ));
     let renderer = Arc::new(MockRenderer::new(
         "text",

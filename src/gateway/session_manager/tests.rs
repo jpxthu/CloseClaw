@@ -44,7 +44,13 @@ fn test_message() -> Message {
 
 #[tokio::test]
 async fn test_find_or_create_existing_session() {
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let msg = test_message();
     let session_id = mgr.compute_session_key("feishu", &msg, None);
     {
@@ -67,7 +73,13 @@ async fn test_find_or_create_existing_session() {
 
 #[tokio::test]
 async fn test_find_or_create_new_user_creates_session() {
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let msg = test_message();
 
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
@@ -80,6 +92,7 @@ async fn test_find_or_create_new_user_creates_session() {
 
 #[tokio::test]
 async fn test_archived_session_restoration() {
+    use crate::session::persistence::ReasoningLevel;
     use crate::session::persistence::SessionCheckpoint;
     use std::sync::Arc;
 
@@ -99,6 +112,7 @@ async fn test_archived_session_restoration() {
         Some(mock_storage.clone()),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
     let msg = test_message();
 
@@ -146,6 +160,7 @@ async fn test_bootstrap_full_injects_all_files() {
         None,
         workspace_dir.clone(),
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
     let msg = test_message();
 
@@ -186,7 +201,13 @@ async fn test_bootstrap_minimal_injects_five_files() {
         ("MEMORY.md", "memory content"),
     ]);
     let workspace_dir = Some(tmp.path().to_path_buf());
-    let mgr = SessionManager::new(&test_config(), None, workspace_dir, BootstrapMode::Minimal);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        workspace_dir,
+        BootstrapMode::Minimal,
+        ReasoningLevel::default(),
+    );
     let msg = test_message();
 
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
@@ -218,7 +239,13 @@ async fn test_bootstrap_minimal_injects_five_files() {
 async fn test_no_workspace_dir_no_system_prompt() {
     clear_global_prompt_state();
 
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let msg = test_message();
 
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
@@ -249,6 +276,7 @@ async fn test_partial_bootstrap_files() {
         None,
         Some(tmp.path().to_path_buf()),
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
     let msg = test_message();
 
@@ -282,7 +310,13 @@ async fn test_find_or_create_with_tool_registry() {
 
     let tmp = make_temp_workspace(&[("AGENTS.md", "agents content")]);
     let workspace_dir = Some(tmp.path().to_path_buf());
-    let mgr = SessionManager::new(&test_config(), None, workspace_dir, BootstrapMode::Minimal);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        workspace_dir,
+        BootstrapMode::Minimal,
+        ReasoningLevel::default(),
+    );
 
     // Inject ToolRegistry with builtin tools
     let disk_reg = Arc::new(DiskSkillRegistry::new(vec![]));
@@ -309,16 +343,17 @@ async fn test_find_or_create_with_tool_registry() {
 
 #[tokio::test]
 async fn test_find_or_create_no_storage() {
-    // When storage is None, archived restoration returns false,
-    // and find_or_create should still successfully create a new session.
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let msg = test_message();
-
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(result, "feishu:user-a:agent-b");
-
     let sessions = mgr.sessions.read().await;
-    assert!(sessions.contains_key(&result));
     let session = sessions.get(&result).unwrap();
     assert_eq!(session.agent_id, "agent-b");
     assert_eq!(session.channel, "feishu");
@@ -332,69 +367,53 @@ struct MockPersistService {
 
 #[async_trait::async_trait]
 impl PersistenceService for MockPersistService {
-    async fn save_checkpoint(
-        &self,
-        _checkpoint: &SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
+    async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
         Ok(())
     }
-
     async fn load_checkpoint(
         &self,
-        _session_id: &str,
+        _: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         Ok(self.archived_checkpoint.lock().await.take())
     }
-
-    async fn delete_checkpoint(&self, _session_id: &str) -> Result<(), PersistenceError> {
+    async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
         Ok(())
     }
-
     async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
     }
-
     async fn restore_checkpoint(
         &self,
-        _session_id: &str,
+        _: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         *self.restore_called.lock().await = true;
         Ok(self.archived_checkpoint.lock().await.take())
     }
-
-    async fn archive_checkpoint(
-        &self,
-        _checkpoint: &SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
+    async fn archive_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
         Ok(())
     }
-
     async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
     }
-
-    async fn purge_checkpoint(&self, _session_id: &str) -> Result<(), PersistenceError> {
+    async fn purge_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
         Ok(())
     }
-
-    async fn invalidate_session(&self, _session_id: &str) -> Result<(), PersistenceError> {
+    async fn invalidate_session(&self, _: &str) -> Result<(), PersistenceError> {
         Ok(())
     }
-
     async fn list_idle_sessions_for_agent(
         &self,
-        _agent_id: &str,
-        _role: AgentRole,
-        _idle_minutes: i64,
+        _: &str,
+        _: AgentRole,
+        _: i64,
     ) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
     }
-
     async fn list_expired_archived_sessions_for_agent(
         &self,
-        _agent_id: &str,
-        _role: AgentRole,
-        _purge_after_minutes: i64,
+        _: &str,
+        _: AgentRole,
+        _: i64,
     ) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
     }
@@ -411,86 +430,61 @@ async fn test_find_or_create_creates_workspace_directory() {
         None,
         workspace_dir.clone(),
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
     let msg = test_message();
-
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-
-    // Verify workspace directory was created
-    let expected_workspace = workspace_dir
-        .unwrap()
-        .join("workspaces")
-        .join("agent-b")
-        .join("user-a");
-    assert!(
-        expected_workspace.exists(),
-        "workspace directory should be created at {:?}",
-        expected_workspace
-    );
-    assert!(expected_workspace.is_dir());
-}
-
-#[tokio::test]
-async fn test_find_or_create_workspace_idempotent() {
-    // Calling find_or_create twice should not fail (idempotent workspace creation)
-    let tmp = tempfile::TempDir::new().unwrap();
-    let workspace_dir = Some(tmp.path().to_path_buf());
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        workspace_dir.clone(),
-        BootstrapMode::Full,
-    );
-    let msg = test_message();
-
-    let session_id1 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    let session_id2 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-
-    assert_eq!(session_id1, session_id2);
     let expected_workspace = workspace_dir
         .unwrap()
         .join("workspaces")
         .join("agent-b")
         .join("user-a");
     assert!(expected_workspace.exists());
+    assert!(expected_workspace.is_dir());
+
+    // Idempotent: calling again should not fail
+    let session_id2 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert_eq!(session_id, session_id2);
 }
 
 #[tokio::test]
 async fn test_find_or_create_no_workspace_dir_skipped() {
-    // When workspace_dir is None, workspace creation is skipped
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let msg = test_message();
-
-    let result = mgr.find_or_create("feishu", &msg, None).await;
-    assert!(result.is_ok());
+    assert!(mgr.find_or_create("feishu", &msg, None).await.is_ok());
 }
 
 #[tokio::test]
-async fn test_find_or_create_workspace_invalid_agent_id() {
+async fn test_find_or_create_workspace_invalid_ids() {
+    // invalid agent_id
     let tmp = tempfile::TempDir::new().unwrap();
-    let workspace_dir = Some(tmp.path().to_path_buf());
-    let mgr = SessionManager::new(&test_config(), None, workspace_dir, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        Some(tmp.path().to_path_buf()),
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let mut msg = test_message();
     msg.to = "../etc".to_string();
+    assert!(mgr.find_or_create("feishu", &msg, None).await.is_err());
 
-    let result = mgr.find_or_create("feishu", &msg, None).await;
-    assert!(
-        result.is_err(),
-        "invalid agent_id should fail workspace creation"
-    );
-}
-
-#[tokio::test]
-async fn test_find_or_create_workspace_invalid_user_id() {
+    // invalid user_id
     let tmp = tempfile::TempDir::new().unwrap();
-    let workspace_dir = Some(tmp.path().to_path_buf());
-    let mgr = SessionManager::new(&test_config(), None, workspace_dir, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        Some(tmp.path().to_path_buf()),
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let mut msg = test_message();
     msg.from = r#"..\foo"#.to_string();
-
-    let result = mgr.find_or_create("feishu", &msg, None).await;
-    assert!(
-        result.is_err(),
-        "invalid user_id should fail workspace creation"
-    );
+    assert!(mgr.find_or_create("feishu", &msg, None).await.is_err());
 }

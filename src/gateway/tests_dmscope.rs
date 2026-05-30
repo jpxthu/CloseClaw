@@ -3,6 +3,7 @@
 use crate::gateway::{DmScope, GatewayConfig, SessionManager};
 use crate::im::IMAdapter;
 use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::ReasoningLevel;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -78,6 +79,7 @@ fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManage
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
     (gw, sm)
