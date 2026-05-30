@@ -170,6 +170,8 @@ mod tests {
 
     // ── InternalRequest serde roundtrip tests ────────────────────────────────
 
+    use crate::session::persistence::ReasoningLevel;
+
     #[test]
     fn test_internal_request_basic_roundtrip() {
         let req = InternalRequest {
@@ -182,6 +184,7 @@ mod tests {
             max_tokens: Some(100),
             stream: false,
             extra_body: serde_json::Map::new(),
+            reasoning_level: ReasoningLevel::default(),
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: InternalRequest = serde_json::from_str(&json).unwrap();
@@ -214,6 +217,7 @@ mod tests {
             max_tokens: None,
             stream: true,
             extra_body: extra.clone(),
+            reasoning_level: ReasoningLevel::default(),
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: InternalRequest = serde_json::from_str(&json).unwrap();
@@ -233,6 +237,7 @@ mod tests {
             max_tokens: None,
             stream: false,
             extra_body: serde_json::Map::new(),
+            reasoning_level: ReasoningLevel::default(),
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("extra_body"));

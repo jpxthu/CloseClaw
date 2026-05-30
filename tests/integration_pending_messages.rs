@@ -18,6 +18,7 @@ use closeclaw::gateway::{DmScope, GatewayConfig, Message};
 use closeclaw::llm::fake::FakeProvider;
 use closeclaw::llm::LLMRegistry;
 use closeclaw::session::bootstrap::BootstrapMode;
+use closeclaw::session::persistence::ReasoningLevel;
 use closeclaw::session::PendingMessage;
 
 /// Build a minimal GatewayConfig for testing.
@@ -51,6 +52,7 @@ async fn setup_session_manager() -> Arc<SessionManager> {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
 
     let registry = Arc::new(LLMRegistry::new());

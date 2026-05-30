@@ -117,7 +117,9 @@ impl PersistenceService for MemoryStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::persistence::{ReasoningMode, ReasoningModeState, SessionStatus};
+    use crate::session::persistence::{
+        ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
+    };
     use chrono::Utc;
 
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -142,6 +144,7 @@ mod tests {
             chat_id: None,
             agent_id: None,
             role: None,
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 

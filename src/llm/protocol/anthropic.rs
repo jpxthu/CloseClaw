@@ -11,6 +11,7 @@ use crate::llm::types::{
     InternalMessage, InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawUsage,
     SseStateMachine,
 };
+use crate::session::persistence::ReasoningLevel;
 
 use crate::llm::protocol::{
     ChatProtocol, IncomingSseStream, OutgoingEventStream, ProtocolError, Result,
@@ -66,6 +67,14 @@ impl ChatProtocol for AnthropicProtocol {
     }
 
     fn build_request(&self, request: &InternalRequest) -> Result<serde_json::Value> {
+        // Anthropic does not support reasoning level parameters.
+        if request.reasoning_level != ReasoningLevel::High {
+            tracing::warn!(
+                reasoning_level = %request.reasoning_level,
+                "Anthropic protocol does not support reasoning_level parameter, ignoring"
+            );
+        }
+
         let mut body = serde_json::json!({
             "model": request.model,
             "messages": request.messages.iter().map(build_message).collect::<Vec<_>>(),
@@ -205,6 +214,7 @@ mod tests {
             max_tokens: Some(1024),
             stream: false,
             extra_body: Default::default(),
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 
@@ -348,5 +358,51 @@ mod tests {
             headers.get(CONTENT_TYPE).unwrap().to_str().unwrap(),
             "application/json"
         );
+    }
+
+    // ── reasoning_level non-injection tests ─────────────────────────────────
+
+    #[test]
+    fn test_build_request_does_not_inject_reasoning_level_low() {
+        let proto = AnthropicProtocol::new();
+        let mut request = make_request();
+        request.reasoning_level = ReasoningLevel::Low;
+        let body = proto.build_request(&request).unwrap();
+        // Anthropic does not support reasoning_level — no reasoning/thinking field should appear.
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoning_level").is_none());
+    }
+
+    #[test]
+    fn test_build_request_does_not_inject_reasoning_level_medium() {
+        let proto = AnthropicProtocol::new();
+        let mut request = make_request();
+        request.reasoning_level = ReasoningLevel::Medium;
+        let body = proto.build_request(&request).unwrap();
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoning_level").is_none());
+    }
+
+    #[test]
+    fn test_build_request_does_not_inject_reasoning_level_max() {
+        let proto = AnthropicProtocol::new();
+        let mut request = make_request();
+        request.reasoning_level = ReasoningLevel::Max;
+        let body = proto.build_request(&request).unwrap();
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoning_level").is_none());
+    }
+
+    #[test]
+    fn test_build_request_high_reasoning_level_no_injection() {
+        let proto = AnthropicProtocol::new();
+        let request = make_request(); // default is High
+        let body = proto.build_request(&request).unwrap();
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoning_level").is_none());
     }
 }

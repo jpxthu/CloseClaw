@@ -19,6 +19,7 @@ use crate::llm::types::{
     InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage, StreamEvent,
     UnifiedResponse, UnifiedUsage,
 };
+use crate::session::persistence::ReasoningLevel;
 
 use crate::llm::client::UnifiedChatClient;
 
@@ -201,6 +202,7 @@ fn make_request() -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        reasoning_level: ReasoningLevel::default(),
     }
 }
 

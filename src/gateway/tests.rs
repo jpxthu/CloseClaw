@@ -5,6 +5,7 @@
 use crate::gateway::{DmScope, GatewayConfig, GatewayError, Message, SessionManager};
 use crate::im::{AdapterError, IMAdapter};
 use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::ReasoningLevel;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -74,6 +75,7 @@ fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManage
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let gw = crate::gateway::Gateway::new(config, Arc::clone(&sm));
     (gw, sm)
@@ -276,6 +278,7 @@ async fn test_no_sessions_for_unknown_agent() {
             None,
             None,
             BootstrapMode::Full,
+            ReasoningLevel::default(),
         )),
     );
     assert!(gw.get_agent_sessions("nobody").await.is_empty());

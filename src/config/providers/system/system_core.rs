@@ -12,13 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::providers::ConfigError;
 use crate::config::ConfigProvider;
+use crate::session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
 // Sub-config structs
 // ---------------------------------------------------------------------------
 
 /// Wizard run state.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WizardConfig {
     #[serde(default)]
@@ -29,17 +30,6 @@ pub struct WizardConfig {
     pub last_run_command: Option<String>,
     #[serde(default)]
     pub last_run_mode: Option<String>,
-}
-
-impl Default for WizardConfig {
-    fn default() -> Self {
-        Self {
-            last_run_at: None,
-            last_run_version: None,
-            last_run_command: None,
-            last_run_mode: None,
-        }
-    }
 }
 
 /// Update check settings.
@@ -59,7 +49,7 @@ impl Default for UpdateConfig {
 }
 
 /// Meta / version touch tracking.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MetaConfig {
     #[serde(default)]
@@ -68,29 +58,12 @@ pub struct MetaConfig {
     pub last_touched_at: Option<String>,
 }
 
-impl Default for MetaConfig {
-    fn default() -> Self {
-        Self {
-            last_touched_version: None,
-            last_touched_at: None,
-        }
-    }
-}
-
 /// Message acknowledgement settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MessagesConfig {
     #[serde(default)]
     pub ack_reaction_scope: Option<String>,
-}
-
-impl Default for MessagesConfig {
-    fn default() -> Self {
-        Self {
-            ack_reaction_scope: None,
-        }
-    }
 }
 
 /// Built-in command enable/disable flags.
@@ -221,19 +194,11 @@ impl Default for HooksInternalConfig {
 }
 
 /// Hooks root.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HooksConfig {
     #[serde(default)]
     pub internal: HooksInternalConfig,
-}
-
-impl Default for HooksConfig {
-    fn default() -> Self {
-        Self {
-            internal: HooksInternalConfig::default(),
-        }
-    }
 }
 
 /// Browser / headless browser settings.
@@ -259,7 +224,7 @@ impl Default for BrowserConfig {
 }
 
 /// Single auth profile entry (provider + mode only — no apiKey).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthProfileEntryConfig {
     pub provider: String,
@@ -267,29 +232,20 @@ pub struct AuthProfileEntryConfig {
     pub mode: String,
 }
 
-impl Default for AuthProfileEntryConfig {
-    fn default() -> Self {
-        Self {
-            provider: String::new(),
-            mode: String::new(),
-        }
-    }
-}
-
 /// Auth profiles map.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthProfilesConfig {
     #[serde(default)]
     pub profiles: BTreeMap<String, AuthProfileEntryConfig>,
 }
 
-impl Default for AuthProfilesConfig {
-    fn default() -> Self {
-        Self {
-            profiles: BTreeMap::new(),
-        }
-    }
+/// LLM inference settings.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmConfig {
+    #[serde(default)]
+    pub reasoning_level: ReasoningLevel,
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +257,7 @@ impl Default for AuthProfilesConfig {
 /// Represents the union of all "system" fields in openclaw.json:
 /// wizard, update, meta, messages, commands, session, cron, hooks,
 /// browser, and auth (profiles only).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemConfigData {
     #[serde(default)]
@@ -324,23 +280,8 @@ pub struct SystemConfigData {
     pub browser: Option<BrowserConfig>,
     #[serde(default)]
     pub auth: Option<AuthProfilesConfig>,
-}
-
-impl Default for SystemConfigData {
-    fn default() -> Self {
-        Self {
-            wizard: None,
-            update: None,
-            meta: None,
-            messages: None,
-            commands: None,
-            session: None,
-            cron: None,
-            hooks: None,
-            browser: None,
-            auth: None,
-        }
-    }
+    #[serde(default)]
+    pub llm: Option<LlmConfig>,
 }
 
 impl SystemConfigData {
@@ -428,5 +369,9 @@ impl ConfigProvider for SystemConfigData {
                 .as_ref()
                 .map_or(true, |b| b == &BrowserConfig::default())
             && self.auth.is_none()
+            && self
+                .llm
+                .as_ref()
+                .map_or(true, |l| l == &LlmConfig::default())
     }
 }

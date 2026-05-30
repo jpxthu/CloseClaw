@@ -6,6 +6,8 @@ use super::{
 use crate::llm::types::RawSseChunk;
 use futures::StreamExt;
 
+use crate::session::persistence::ReasoningLevel;
+
 fn make_request() -> InternalRequest {
     InternalRequest {
         model: "gpt-4".to_string(),
@@ -17,6 +19,7 @@ fn make_request() -> InternalRequest {
         max_tokens: Some(256),
         stream: false,
         extra_body: Default::default(),
+        reasoning_level: ReasoningLevel::default(),
     }
 }
 
@@ -208,4 +211,50 @@ async fn test_parse_sse_text_then_tool_calls() {
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
 
     assert!(stream.next().await.is_none());
+}
+
+// ── reasoning_level → reasoning_effort mapping tests ───────────────────────
+
+#[test]
+fn test_build_request_reasoning_level_low() {
+    let proto = OpenAiProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::Low;
+    let body = proto.build_request(&request).unwrap();
+    assert_eq!(body.get("reasoning_effort").unwrap(), "off");
+}
+
+#[test]
+fn test_build_request_reasoning_level_medium() {
+    let proto = OpenAiProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::Medium;
+    let body = proto.build_request(&request).unwrap();
+    assert_eq!(body.get("reasoning_effort").unwrap(), "base");
+}
+
+#[test]
+fn test_build_request_reasoning_level_high() {
+    let proto = OpenAiProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::High;
+    let body = proto.build_request(&request).unwrap();
+    assert_eq!(body.get("reasoning_effort").unwrap(), "high");
+}
+
+#[test]
+fn test_build_request_reasoning_level_max() {
+    let proto = OpenAiProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::Max;
+    let body = proto.build_request(&request).unwrap();
+    assert_eq!(body.get("reasoning_effort").unwrap(), "reasoner");
+}
+
+#[test]
+fn test_build_request_default_reasoning_level_is_high() {
+    let proto = OpenAiProtocol::new();
+    let request = make_request();
+    let body = proto.build_request(&request).unwrap();
+    assert_eq!(body.get("reasoning_effort").unwrap(), "high");
 }

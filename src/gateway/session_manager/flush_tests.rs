@@ -2,6 +2,7 @@ use super::*;
 use crate::gateway::{GatewayConfig, Message};
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::ReasoningLevel;
 use crate::session::persistence::{AgentRole, PendingMessage, PersistenceError, SessionCheckpoint};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -117,7 +118,13 @@ impl crate::session::persistence::PersistenceService for FlushAllMockStorage {
 
 #[tokio::test]
 async fn test_flush_all_no_storage() {
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let result = mgr.flush_all().await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
@@ -126,7 +133,13 @@ async fn test_flush_all_no_storage() {
 #[tokio::test]
 async fn test_flush_all_empty_sessions() {
     let storage = Arc::new(FlushAllMockStorage::new());
-    let mgr = SessionManager::new(&test_config(), Some(storage), None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let result = mgr.flush_all().await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
@@ -140,6 +153,7 @@ async fn test_flush_all_saves_checkpoints() {
         Some(storage.clone()),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
 
     let session_ids = vec!["session-a", "session-b", "session-c"];
@@ -184,6 +198,7 @@ async fn test_flush_all_partial_failure() {
         Some(storage.clone()),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
 
     let session_ids = vec!["session-a", "session-b", "session-c"];
@@ -212,7 +227,13 @@ async fn test_flush_all_partial_failure() {
 
 #[tokio::test]
 async fn test_session_manager_get_chat_id() {
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let msg = test_message();
     let sid = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     let chat_id = mgr.get_chat_id(&sid).await;
@@ -222,7 +243,13 @@ async fn test_session_manager_get_chat_id() {
 
 #[tokio::test]
 async fn test_session_manager_get_chat_id_missing() {
-    let mgr = SessionManager::new(&test_config(), None, None, BootstrapMode::Full);
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
     let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
     assert!(chat_id.is_none());
 }
@@ -237,6 +264,7 @@ async fn test_flush_all_with_pending_messages() {
         Some(storage.clone()),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
 
     let session_id = "session-with-pending";
@@ -294,6 +322,7 @@ async fn test_flush_all_without_pending_messages() {
         Some(storage.clone()),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
 
     let session_id = "session-no-pending";
@@ -340,6 +369,7 @@ async fn test_flush_all_no_conversation_session() {
         Some(storage.clone()),
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     );
 
     let session_id = "session-no-conv";

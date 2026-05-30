@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::llm::turn::TurnCounter;
 use crate::llm::types::{ContentBlock, InternalMessage, InternalRequest, UnifiedResponse};
+use crate::session::persistence::ReasoningLevel;
 
 /// A single message in a conversation session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +74,7 @@ pub struct ConversationSession {
     compaction_state: Option<String>,
     is_llm_busy: Arc<AtomicBool>,
     pending_messages: VecDeque<crate::session::persistence::PendingMessage>,
+    reasoning_level: ReasoningLevel,
 }
 
 impl ConversationSession {
@@ -87,12 +89,19 @@ impl ConversationSession {
             compaction_state: None,
             is_llm_busy: Arc::new(AtomicBool::new(false)),
             pending_messages: VecDeque::new(),
+            reasoning_level: ReasoningLevel::default(),
         }
     }
 
     /// Sets the system prompt.
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
+        self
+    }
+
+    /// Sets the reasoning level.
+    pub fn with_reasoning_level(mut self, level: ReasoningLevel) -> Self {
+        self.reasoning_level = level;
         self
     }
 
@@ -228,6 +237,7 @@ impl ChatSession for ConversationSession {
             max_tokens: None,
             stream: false,
             extra_body: Default::default(),
+            reasoning_level: self.reasoning_level,
         }
     }
 

@@ -2,6 +2,7 @@ use super::*;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::LLMRegistry;
 use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::ReasoningLevel;
 
 fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
     let registry = Arc::new(LLMRegistry::new());
@@ -35,6 +36,7 @@ async fn test_idle_message_returns_llm_started() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
@@ -55,6 +57,7 @@ async fn test_busy_message_returns_queued() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
@@ -88,6 +91,7 @@ async fn test_no_pending_no_recursion() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
@@ -116,6 +120,7 @@ async fn test_llm_failure_resets_busy() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
@@ -153,6 +158,7 @@ async fn test_pending_consumed_after_llm_done() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
@@ -189,6 +195,7 @@ async fn test_multiple_pending_fifo_order() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
@@ -230,6 +237,7 @@ async fn test_compact_command_detected() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
@@ -258,6 +266,7 @@ async fn test_compact_command_with_instruction() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
@@ -420,6 +429,7 @@ async fn test_handle_message_backward_compat() {
         None,
         None,
         BootstrapMode::Full,
+        ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let handler = handler_with_sm(Arc::clone(&sm));
