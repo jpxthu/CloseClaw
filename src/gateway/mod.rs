@@ -495,6 +495,6 @@ impl From<super::im::AdapterError> for GatewayError {
 }
 
 #[cfg(test)]
+mod session_handler_tests;
 mod tests;
-mod tests_archive;
 mod tests_dmscope;

@@ -130,6 +130,16 @@ impl ConversationSession {
         self.pending_messages.len()
     }
 
+    /// Returns the model name.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Replaces all session messages with the given list.
+    pub fn replace_messages(&mut self, new_messages: Vec<SessionMessage>) {
+        self.messages = new_messages;
+    }
+
     /// Returns a clone of all pending messages without consuming the queue.
     pub fn get_pending_messages(&self) -> Vec<crate::session::persistence::PendingMessage> {
         self.pending_messages.iter().cloned().collect()
