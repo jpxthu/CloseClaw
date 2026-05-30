@@ -80,7 +80,7 @@ SkillListingSection 渲染格式为 `## Available Skills\n\n{content}\n`。
 
 ### Compaction 保护
 
-System prompt 独立于对话消息流存储（作为 `ConversationSession.system_prompt` 字段），compaction 只压缩对话消息列表。SkillListingSection 作为 system prompt 的一部分，天然不受 compaction 影响，无需额外保护逻辑。
+System prompt 独立于对话消息流存储（作为 `ConversationSession.system_prompt` 字段），compaction 只压缩对话消息列表。compaction 完成后，通过 `rebuild_system_prompt` 触发 system prompt 重建，确保 SkillListingSection 包含最新内容（与 session 创建、archive 恢复走同一重建路径）。
 
 ### 条件激活
 
@@ -148,4 +148,4 @@ Agent 读取 system prompt 中的 skill listing
 - **上游**：Session 启动流程（触发初始注入）、文件监听器 Skill Watcher（触发热重载）
 - **下游**：DiskSkillRegistry（获取 skill 列表数据源）、System Prompt 构建器（接收 listing 字符串作为输入，创建 SkillListingSection 并拼入 system prompt）
 - **相关**：Skills 模块主体（SkillTool 调用后注入正文，与列表注入完全独立、互不干扰）
-- **无关**：Compaction 模块（skill listing 作为 system prompt 的一部分，天然不受压缩影响）
+- **关联**：Compaction 模块（间接关联）：compaction 后通过 `rebuild_system_prompt` 触发 system prompt 重建，SkillListingSection 在重建时从 `DiskSkillRegistry` 获取最新 listing，与 session 创建、archive 恢复走同一路径
