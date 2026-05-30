@@ -315,3 +315,70 @@ fn test_conversation_session_multiple_turns() {
     assert_eq!(session.turn_count(), 2);
     assert_eq!(session.messages().len(), 2);
 }
+
+// ── model() getter ───────────────────────────────────────────────────────
+
+#[test]
+fn test_model_returns_model_name() {
+    let session = ConversationSession::new("s1".into(), "glm-5.1".into());
+    assert_eq!(session.model(), "glm-5.1");
+}
+
+#[test]
+fn test_model_returns_empty_string() {
+    let session = ConversationSession::new("s2".into(), String::new());
+    assert_eq!(session.model(), "");
+}
+
+// ── replace_messages() ───────────────────────────────────────────────────
+
+#[test]
+fn test_replace_messages_overwrites_existing() {
+    let mut session = ConversationSession::new("s3".into(), "gpt-4o".into());
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Text("old".into())],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    });
+    assert_eq!(session.messages().len(), 1);
+
+    let new_msgs = vec![
+        SessionMessage {
+            role: "user".into(),
+            content_blocks: vec![ContentBlock::Text("new user".into())],
+            timestamp: Utc::now(),
+        },
+        SessionMessage {
+            role: "assistant".into(),
+            content_blocks: vec![ContentBlock::Text("new asst".into())],
+            timestamp: Utc::now(),
+        },
+    ];
+    session.replace_messages(new_msgs);
+    assert_eq!(session.messages().len(), 2);
+    assert_eq!(session.messages()[0].role, "user");
+    assert_eq!(session.messages()[1].role, "assistant");
+}
+
+#[test]
+fn test_replace_messages_empty_vec_clears() {
+    let mut session = ConversationSession::new("s4".into(), "gpt-4o".into());
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Text("msg".into())],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    });
+    assert_eq!(session.messages().len(), 1);
+    session.replace_messages(vec![]);
+    assert_eq!(session.messages().len(), 0);
+}

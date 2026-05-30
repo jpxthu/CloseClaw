@@ -14,6 +14,8 @@ pub mod bootstrap;
 pub mod checkpoint_manager;
 pub mod compaction;
 #[cfg(test)]
+pub mod compaction_async_tests;
+#[cfg(test)]
 pub mod compaction_tests;
 pub mod events;
 pub mod persistence;

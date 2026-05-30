@@ -138,6 +138,13 @@ pub async fn execute_compact(
     let before_char_count: usize = messages.iter().map(|m| m.content.chars().count()).sum();
     let before_token_count = estimate_messages_tokens(messages);
 
+    // Filter: only user/assistant messages enter the compaction request.
+    // System-prompt and other roles are excluded per compact-process.md.
+    let conversation_messages: Vec<&Message> = messages
+        .iter()
+        .filter(|m| m.role == "user" || m.role == "assistant")
+        .collect();
+
     // Build system prompt with compaction instructions
     let compact_prompt = build_compact_prompt(custom_instructions);
     let system_message = Message {
@@ -145,9 +152,17 @@ pub async fn execute_compact(
         content: compact_prompt,
     };
 
+    let mut request_messages = vec![system_message];
+    for msg in &conversation_messages {
+        request_messages.push(Message {
+            role: msg.role.clone(),
+            content: msg.content.clone(),
+        });
+    }
+
     let request = ChatRequest {
         model: model_name.to_string(),
-        messages: vec![system_message],
+        messages: request_messages,
         temperature: 0.3,
         max_tokens: Some(8192),
     };
