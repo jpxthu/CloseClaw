@@ -8,7 +8,9 @@ pub mod disk;
 pub mod registry;
 pub mod skill_creator;
 
-pub use builtin::{builtin_skills, builtin_skills_with_engine};
+pub use builtin::{
+    builtin_skills, builtin_skills_with_engine, builtin_skills_with_engine_and_approval_flow,
+};
 pub use coding_agent::CodingAgentSkill;
 pub use disk::{
     init_disk_skills, resolve_skill, start_skill_watcher, DiskSkillRegistry, ResolvedSkill,

@@ -16,6 +16,7 @@ pub use git_ops::GitOpsSkill;
 pub use permission::PermissionSkill;
 pub use search::SearchSkill;
 
+use crate::permission::approval_flow::ApprovalFlow;
 use crate::skills::Skill;
 use std::sync::Arc;
 
@@ -51,6 +52,28 @@ impl BuiltinSkills {
             Arc::new(super::SkillCreatorSkill::new()),
         ]
     }
+
+    /// Create all built-in skills with a shared permission engine and approval flow injected.
+    pub fn all_with_engine_and_approval_flow(
+        engine: Arc<crate::permission::PermissionEngine>,
+        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    ) -> Vec<Arc<dyn Skill>> {
+        vec![
+            Arc::new(FileOpsSkill::with_engine_and_approval_flow(
+                engine.clone(),
+                approval_flow.clone(),
+            )) as Arc<dyn Skill>,
+            Arc::new(GitOpsSkill::new()),
+            Arc::new(SearchSkill::new()),
+            Arc::new(PermissionSkill::with_engine(engine.clone())),
+            Arc::new(SkillDiscoverySkill::with_engine_and_approval_flow(
+                engine,
+                approval_flow,
+            )),
+            Arc::new(super::CodingAgentSkill::new(None)),
+            Arc::new(super::SkillCreatorSkill::new()),
+        ]
+    }
 }
 
 /// Get all built-in skills (without permission engine).
@@ -63,6 +86,14 @@ pub fn builtin_skills_with_engine(
     engine: Arc<crate::permission::PermissionEngine>,
 ) -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all_with_engine(engine)
+}
+
+/// Get all built-in skills with a shared permission engine and approval flow injected.
+pub fn builtin_skills_with_engine_and_approval_flow(
+    engine: Arc<crate::permission::PermissionEngine>,
+    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+) -> Vec<Arc<dyn Skill>> {
+    BuiltinSkills::all_with_engine_and_approval_flow(engine, approval_flow)
 }
 
 #[cfg(test)]

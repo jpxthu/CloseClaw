@@ -1,4 +1,7 @@
 //! File operations skill
+use crate::permission::approval_flow::ApprovalFlow;
+use crate::permission::engine::engine_risk::RiskLevel;
+use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
 use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
@@ -7,22 +10,40 @@ use std::sync::Arc;
 #[allow(clippy::new_without_default)]
 pub struct FileOpsSkill {
     engine: Option<Arc<crate::permission::PermissionEngine>>,
+    approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
 }
 
 impl Default for FileOpsSkill {
     fn default() -> Self {
-        Self { engine: None }
+        Self {
+            engine: None,
+            approval_flow: None,
+        }
     }
 }
 
 impl FileOpsSkill {
     pub fn new() -> Self {
-        Self { engine: None }
+        Self {
+            engine: None,
+            approval_flow: None,
+        }
     }
 
     pub fn with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Self {
         Self {
             engine: Some(engine),
+            approval_flow: None,
+        }
+    }
+
+    pub fn with_engine_and_approval_flow(
+        engine: Arc<crate::permission::PermissionEngine>,
+        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    ) -> Self {
+        Self {
+            engine: Some(engine),
+            approval_flow: Some(approval_flow),
         }
     }
 }
@@ -66,7 +87,35 @@ impl Skill for FileOpsSkill {
                 .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
             match engine.check(agent_id, action) {
                 PermissionResponse::Allowed { .. } => {}
-                PermissionResponse::Denied { reason, .. } => {
+                PermissionResponse::Denied {
+                    reason, risk_level, ..
+                } => {
+                    if let Some(ref flow) = self.approval_flow {
+                        let caller = Caller {
+                            user_id: "unknown".to_string(),
+                            agent: agent_id.to_string(),
+                            creator_id: String::new(),
+                        };
+                        let body = PermissionRequestBody::ToolCall {
+                            agent: agent_id.to_string(),
+                            skill: "file_ops".to_string(),
+                            method: method.to_string(),
+                        };
+                        let session_id = args
+                            .get("session_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let mut flow = flow.lock().await;
+                        if let Some(request_id) =
+                            flow.submit_denial(&caller, &body, risk_level, session_id, false)
+                        {
+                            return Ok(serde_json::json!({
+                                "status": "approval_pending",
+                                "request_id": request_id,
+                                "message": "Operation pending owner approval",
+                            }));
+                        }
+                    }
                     return Err(SkillError::PermissionDenied(reason));
                 }
             }
