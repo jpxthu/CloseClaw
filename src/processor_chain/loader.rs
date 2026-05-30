@@ -15,7 +15,6 @@ use crate::renderer::{RenderedOutput, Renderer};
 use super::dsl_parser::DslParser;
 use super::error::ProcessError;
 use super::markdown_normalizer::MarkdownNormalizer;
-use super::markdown_to_card::MarkdownToCard;
 use super::message_cleaner::MessageCleaner;
 use super::processor::MessageProcessor;
 use super::raw_log_processor::{RawLogConfig, RawLogProcessor};
@@ -79,9 +78,6 @@ pub enum ProcessorConfig {
     /// [`DslParser`](super::dsl_parser::DslParser) — outbound processor that
     /// parses `::button[...]` DSL instructions and stores them in metadata.
     DslParser,
-    /// [`MarkdownToCard`](super::markdown_to_card::MarkdownToCard) — outbound
-    /// processor that renders markdown as Feishu interactive cards.
-    MarkdownToCard,
 }
 
 fn default_log_dir() -> PathBuf {
@@ -119,11 +115,6 @@ impl ProcessorChainLoader {
             registry.register(processor);
         }
         for processor_config in &config.outbound {
-            // MarkdownToCard is kept for backward-compatible deserialization
-            // but is not registered — rendering is now handled by the Renderer.
-            if matches!(processor_config, ProcessorConfig::MarkdownToCard) {
-                continue;
-            }
             let processor = Self::build_processor(processor_config)?;
             registry.register(processor);
         }
@@ -159,7 +150,6 @@ impl ProcessorChainLoader {
             ProcessorConfig::MessageCleaner => Ok(Arc::new(MessageCleaner::new())),
             ProcessorConfig::MarkdownNormalizer => Ok(Arc::new(MarkdownNormalizer::new())),
             ProcessorConfig::DslParser => Ok(Arc::new(DslParser::default())),
-            ProcessorConfig::MarkdownToCard => Ok(Arc::new(MarkdownToCard::default())),
         }
     }
 }
@@ -256,47 +246,15 @@ mod tests {
     }
 
     #[test]
-    fn test_load_markdown_to_card_outbound() {
-        // MarkdownToCard is kept for backward-compatible deserialization
-        // but is NOT registered to the registry (rendering is now handled by Renderer).
-        let config = ProcessorChainConfig {
-            inbound: vec![],
-            outbound: vec![ProcessorConfig::MarkdownToCard],
-            renderer: None,
-        };
-        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
-        assert_eq!(registry.outbound_len(), 0);
-        assert!(renderer.is_none());
-    }
-
-    #[test]
-    fn test_markdown_to_card_deserializes_but_not_registered() {
-        // Verify MarkdownToCard deserializes correctly.
-        let json = r#"{"type":"markdown_to_card"}"#;
-        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
-        assert!(matches!(config, ProcessorConfig::MarkdownToCard));
-
-        // Verify it is NOT registered when used in a chain config.
-        let chain_config = ProcessorChainConfig {
-            inbound: vec![],
-            outbound: vec![ProcessorConfig::MarkdownToCard],
-            renderer: None,
-        };
-        let (registry, _) = ProcessorChainLoader::load(&chain_config).unwrap();
-        assert_eq!(registry.outbound_len(), 0);
-    }
-
-    #[test]
     fn test_load_both_inbound_and_outbound() {
-        // MarkdownToCard in outbound is deserialized but NOT registered.
         let config = ProcessorChainConfig {
             inbound: vec![ProcessorConfig::MessageCleaner],
-            outbound: vec![ProcessorConfig::DslParser, ProcessorConfig::MarkdownToCard],
+            outbound: vec![ProcessorConfig::DslParser],
             renderer: None,
         };
         let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 1);
-        assert_eq!(registry.outbound_len(), 1); // MarkdownToCard skipped
+        assert_eq!(registry.outbound_len(), 1);
         assert!(renderer.is_none());
     }
 
@@ -345,16 +303,6 @@ mod tests {
         match config {
             ProcessorConfig::DslParser => {}
             _ => panic!("expected DslParser variant"),
-        }
-    }
-
-    #[test]
-    fn test_markdown_to_card_deserialization() {
-        let json = r#"{"type":"markdown_to_card"}"#;
-        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
-        match config {
-            ProcessorConfig::MarkdownToCard => {}
-            _ => panic!("expected MarkdownToCard variant"),
         }
     }
 
