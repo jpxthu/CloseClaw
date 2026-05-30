@@ -253,6 +253,7 @@ mod tests {
         set_override_prompt(None);
         set_agent_prompt(None);
         set_custom_prompt(None);
+        invalidate_all_sections();
     }
 
     #[test]
