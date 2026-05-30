@@ -393,8 +393,14 @@ async fn apply_compact_result(
         content_blocks: vec![ContentBlock::Text(result.boundary_message.clone())],
         timestamp: chrono::Utc::now(),
     };
-    let mut cs = cs.write().await;
-    cs.replace_messages(vec![boundary]);
+    {
+        let mut cs = cs.write().await;
+        cs.replace_messages(vec![boundary]);
+    }
+    // Rebuild system prompt after compaction so skills stay fresh.
+    // The write guard above is now dropped, so rebuild_system_prompt
+    // can safely acquire its own write lock.
+    sm.rebuild_system_prompt(session_id).await;
 }
 
 async fn send_output(output_tx: &Arc<RwLock<Option<mpsc::Sender<String>>>>, text: &str) {

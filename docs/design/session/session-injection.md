@@ -119,4 +119,4 @@ archived session 被访问
 ### 无关
 
 - **LLM Provider**（无调用关系）：注入完成后的 system prompt 通过 ConversationSession 传递给 LLM provider，注入链路本身不调用 provider。
-- **Compaction 模块**（无调用关系）：compaction 时 skill listing 的保护策略在 compaction 模块定义，注入链路不参与压缩逻辑。
+- **Compaction 模块**（间接关联）：compaction 后通过 `rebuild_system_prompt` 触发重建，注入链路不直接参与压缩逻辑。
