@@ -20,6 +20,8 @@ pub mod session;
 pub mod stub;
 pub mod turn;
 pub mod types;
+#[cfg(test)]
+mod types_tests;
 
 pub mod deepseek;
 pub mod volcengine;
