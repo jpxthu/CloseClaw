@@ -7,9 +7,12 @@
 //! - Deduplication is based on `OperationKey` (SHA256 of caller + `PermissionRequestBody` JSON).
 //! - Callbacks are triggered on approve/deny/clear operations.
 //!
-//! # Example
+//! # Examples
+//!
+//! ## Single-use approval (`Once` mode)
+//!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApproveOrDeny};
+//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode};
 //! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
 //! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
@@ -36,6 +39,94 @@
 //!         }),
 //!     )
 //!     .expect("enqueue succeeded");
+//!
+//! // Approve with single-use mode
+//! let approved = queue
+//!     .approve(&request_id, ApprovalMode::Once)
+//!     .expect("approval succeeded");
+//! assert!(approved);
+//! ```
+//!
+//! ## Whitelist approval (`WithWhitelist` mode)
+//!
+//! Low and Medium risk operations can be approved with whitelist mode,
+//! which allows future auto-approval of the same operation.
+//! High and critical risk operations are rejected.
+//!
+//! ```
+//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode};
+//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
+//! use closeclaw::permission::engine::engine_risk::RiskLevel;
+//!
+//! let mut queue = ApprovalQueue::new();
+//! let request = PermissionRequestBody::ToolCall {
+//!     agent: "test".to_string(),
+//!     skill: "test_skill".to_string(),
+//!     method: "test_method".to_string(),
+//! };
+//! let caller = Caller {
+//!     user_id: "user_123".to_string(),
+//!     agent: "agent_001".to_string(),
+//!     creator_id: "creator_001".to_string(),
+//! };
+//! let request_id = queue
+//!     .enqueue(
+//!         request,
+//!         caller,
+//!         "Test operation".to_string(),
+//!         RiskLevel::Low,
+//!         "session_resume".to_string(),
+//!         Box::new(|result| {
+//!             println!("Result: {:?}", result);
+//!         }),
+//!     )
+//!     .expect("enqueue succeeded");
+//!
+//! // Approve with whitelist mode (succeeds for Low risk)
+//! let approved = queue
+//!     .approve(&request_id, ApprovalMode::WithWhitelist)
+//!     .expect("approval succeeded");
+//! assert!(approved);
+//! ```
+//!
+//! High-risk operations are rejected with [`RejectWhitelistReason::HighRisk`]:
+//!
+//! ```
+//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, RejectWhitelistReason};
+//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
+//! use closeclaw::permission::engine::engine_risk::RiskLevel;
+//!
+//! let mut queue = ApprovalQueue::new();
+//! let request = PermissionRequestBody::ToolCall {
+//!     agent: "test".to_string(),
+//!     skill: "test_skill".to_string(),
+//!     method: "test_method".to_string(),
+//! };
+//! let caller = Caller {
+//!     user_id: "user_456".to_string(),
+//!     agent: "agent_002".to_string(),
+//!     creator_id: "creator_002".to_string(),
+//! };
+//! let request_id = queue
+//!     .enqueue(
+//!         request,
+//!         caller,
+//!         "Dangerous operation".to_string(),
+//!         RiskLevel::High,
+//!         "session_resume".to_string(),
+//!         Box::new(|result| {
+//!             println!("Result: {:?}", result);
+//!         }),
+//!     )
+//!     .expect("enqueue succeeded");
+//!
+//! // Reject: high-risk cannot be whitelisted
+//! let err = queue
+//!     .approve(&request_id, ApprovalMode::WithWhitelist)
+//!     .unwrap_err();
+//! assert_eq!(err, RejectWhitelistReason::HighRisk);
+//! // The request is still pending (not resolved)
+//! assert!(queue.get_pending(&request_id).is_some());
 //! ```
 
 use chrono::{DateTime, Utc};
@@ -67,6 +158,30 @@ pub enum RejectReason {
 
 /// Callback invoked when an approval decision is made.
 pub type Callback = Box<dyn FnOnce(ApproveOrDeny) + Send>;
+
+/// Approval mode that controls whether the operation may be whitelisted.
+///
+/// - `Once`: approve the operation one time only (existing behavior).
+/// - `WithWhitelist`: approve and add to the whitelist for future auto-approval.
+///   High-risk and critical-risk operations are rejected in this mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalMode {
+    /// Single-use approval — the operation is allowed once.
+    Once,
+    /// Approval with whitelist — the operation is allowed and added to the whitelist.
+    /// Only available for Low and Medium risk operations.
+    WithWhitelist,
+}
+
+/// Reason a whitelist approval was rejected.
+///
+/// This is returned when `ApprovalMode::WithWhitelist` is used for a
+/// high-risk or critical-risk operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejectWhitelistReason {
+    /// The operation's risk level is too high for whitelisting.
+    HighRisk,
+}
 
 /// A pending approval entry.
 #[derive(Debug, Clone)]
@@ -171,9 +286,33 @@ impl ApprovalQueue {
     /// Approve a pending request by its ID.
     ///
     /// Triggers the callback with `ApproveOrDeny::Approve` and removes the entry.
-    /// Returns `true` if the request existed and was approved, `false` otherwise.
-    pub fn approve(&mut self, request_id: &str) -> bool {
-        self.do_resolve(request_id, ApproveOrDeny::Approve)
+    ///
+    /// # `mode` parameter
+    ///
+    /// - [`ApprovalMode::Once`]: approve the operation one time only.
+    ///   Returns `Ok(true)` if the request existed and was approved,
+    ///   `Ok(false)` if the request was not found.
+    /// - [`ApprovalMode::WithWhitelist`]: approve **and** add to the whitelist.
+    ///   Returns `Err(RejectWhitelistReason::HighRisk)` when the request's
+    ///   `risk_level` is `High` or `Critical` — such operations may not be
+    ///   whitelisted.  For `Low` / `Medium` risks the behaviour is identical
+    ///   to `Once` mode.
+    pub fn approve(
+        &mut self,
+        request_id: &str,
+        mode: ApprovalMode,
+    ) -> Result<bool, RejectWhitelistReason> {
+        if mode == ApprovalMode::WithWhitelist {
+            if let Some(pending) = self.pending.get(request_id) {
+                match pending.risk_level {
+                    RiskLevel::High | RiskLevel::Critical => {
+                        return Err(RejectWhitelistReason::HighRisk);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(self.do_resolve(request_id, ApproveOrDeny::Approve))
     }
 
     /// Deny a pending request by its ID.
