@@ -11,6 +11,7 @@
 #![cfg(feature = "fake-llm")]
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use closeclaw::gateway::session_manager::SessionManager;
@@ -193,7 +194,8 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
     let cp = cp.unwrap();
 
     // Create a fresh ConversationSession and restore pending messages
-    let mut session = ConversationSession::new(sid.clone(), "fake-model".to_string());
+    let mut session =
+        ConversationSession::new(sid.clone(), "fake-model".to_string(), PathBuf::from("/tmp"));
     session.restore_pending_messages(cp.pending_messages);
 
     // All checkpoint messages have sent=true (transcript format limitation),

@@ -35,6 +35,7 @@ pub enum Section {
     },
     AppendSection(String),
     GitStatus(String),
+    WorkingDirectory(String),
 }
 
 impl Section {
@@ -64,6 +65,7 @@ impl Section {
             Section::SessionState { .. } => "session_state",
             Section::AppendSection(_) => "append",
             Section::GitStatus(_) => "git_status",
+            Section::WorkingDirectory(_) => "working_directory",
         }
     }
     fn format_session_state(&self, turn_count: u32, pending_tasks: &[String]) -> String {
@@ -127,6 +129,10 @@ impl Section {
             }
             Section::GitStatus(content) => {
                 format!("## Git Status\n{}\n", content)
+            }
+            Section::WorkingDirectory(path) => {
+                let sanitized = sanitize_workdir_path(path);
+                format!("## Working Directory\n当前工作目录：{}\n", sanitized)
             }
         }
     }
@@ -266,6 +272,20 @@ pub fn get_append_section() -> Option<String> {
 pub fn clear_append_section() {
     if let Ok(mut guard) = APPEND_SECTION.write() {
         *guard = None;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Working Directory sanitization
+// ---------------------------------------------------------------------------
+
+/// Strip path prefix up to and including `workspaces/`, prepend `~/`.
+/// If the path doesn't contain `workspaces/`, return unchanged.
+pub fn sanitize_workdir_path(path: &str) -> String {
+    if let Some(idx) = path.find("workspaces/") {
+        format!("~/{}", &path[idx + "workspaces/".len()..])
+    } else {
+        path.to_string()
     }
 }
 
@@ -432,6 +452,31 @@ mod tests {
         assert!(rendered.contains("## Git Status"));
         assert!(rendered.contains("On branch master"));
         assert!(!s.is_cacheable());
+    }
+
+    #[test]
+    fn test_working_directory_section() {
+        let s =
+            Section::WorkingDirectory("/home/user/.closeclaw/workspaces/agent1/user1/".to_string());
+        assert!(!s.is_cacheable());
+        assert_eq!(s.name(), "working_directory");
+        let rendered = s.render();
+        assert!(rendered.contains("## Working Directory"));
+        assert!(rendered.contains("~/agent1/user1/"));
+        assert!(!rendered.contains(".closeclaw"));
+    }
+
+    #[test]
+    fn test_sanitize_workdir_path() {
+        assert_eq!(
+            sanitize_workdir_path("/home/user/.closeclaw/workspaces/a/u/"),
+            "~/a/u/"
+        );
+        assert_eq!(
+            sanitize_workdir_path("/some/random/path"),
+            "/some/random/path"
+        );
+        assert_eq!(sanitize_workdir_path(""), "");
     }
 
     #[test]

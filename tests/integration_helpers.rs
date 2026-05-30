@@ -4,6 +4,8 @@
 //! All functions are inline (no dependency on `pub(crate)` functions from `src/`).
 
 #[cfg(feature = "fake-llm")]
+use std::path::PathBuf;
+#[cfg(feature = "fake-llm")]
 use std::sync::Arc;
 
 #[cfg(feature = "fake-llm")]
@@ -71,7 +73,11 @@ pub fn setup_session_with_storage() -> (
             .await;
     });
 
-    let session = ConversationSession::new("test-session".to_string(), "fake-model".to_string());
+    let session = ConversationSession::new(
+        "test-session".to_string(),
+        "fake-model".to_string(),
+        PathBuf::from("/tmp"),
+    );
 
     (session, storage, fake_provider, test_root)
 }

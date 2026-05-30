@@ -11,6 +11,7 @@
 #![cfg(feature = "fake-llm")]
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use closeclaw::gateway::session_manager::SessionManager;
@@ -115,8 +116,11 @@ async fn test_mark_sent_changes_flag() {
 async fn test_restore_skips_sent_true() {
     use closeclaw::llm::session::ConversationSession;
 
-    let mut session =
-        ConversationSession::new("restore-test".to_string(), "fake-model".to_string());
+    let mut session = ConversationSession::new(
+        "restore-test".to_string(),
+        "fake-model".to_string(),
+        PathBuf::from("/tmp"),
+    );
 
     // Build a mixed list: one sent=true, one sent=false
     let mut msg_sent = PendingMessage::new("msg-sent".to_string(), "already sent".to_string());

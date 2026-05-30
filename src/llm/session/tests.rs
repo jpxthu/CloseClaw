@@ -1,6 +1,7 @@
 use super::*;
 use crate::llm::types::UnifiedUsage;
 use crate::session::persistence::PendingMessage;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -8,20 +9,23 @@ use std::thread;
 
 #[test]
 fn test_is_llm_busy_default_false() {
-    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
+    let session =
+        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     assert!(!session.is_llm_busy());
 }
 
 #[test]
 fn test_set_llm_busy_true() {
-    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
+    let session =
+        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.set_llm_busy(true);
     assert!(session.is_llm_busy());
 }
 
 #[test]
 fn test_set_llm_busy_false_recovers() {
-    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into());
+    let session =
+        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.set_llm_busy(true);
     session.set_llm_busy(false);
     assert!(!session.is_llm_busy());
@@ -32,6 +36,7 @@ fn test_set_llm_busy_concurrent_no_panic() {
     let session = Arc::new(ConversationSession::new(
         "sess_concurrent".into(),
         "gpt-4o".into(),
+        PathBuf::from("/tmp"),
     ));
     let handles: Vec<_> = (0..4)
         .map(|i| {
@@ -50,14 +55,22 @@ fn test_set_llm_busy_concurrent_no_panic() {
 
 #[test]
 fn test_pending_initial_state() {
-    let session = ConversationSession::new("sess_pending".into(), "gpt-4o".into());
+    let session = ConversationSession::new(
+        "sess_pending".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
     assert_eq!(session.pending_count(), 0);
     assert!(!session.has_pending());
 }
 
 #[test]
 fn test_push_pending_sets_has_pending_and_increments_count() {
-    let mut session = ConversationSession::new("sess_pending".into(), "gpt-4o".into());
+    let mut session = ConversationSession::new(
+        "sess_pending".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
     assert_eq!(session.pending_count(), 0);
     session.push_pending(PendingMessage::new("msg_1".into(), "hello".into()));
     assert!(session.has_pending());
@@ -68,7 +81,8 @@ fn test_push_pending_sets_has_pending_and_increments_count() {
 
 #[test]
 fn test_pop_pending_fifo_order() {
-    let mut session = ConversationSession::new("sess_fifo".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_fifo".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.push_pending(PendingMessage::new("msg_A".into(), "first".into()));
     session.push_pending(PendingMessage::new("msg_B".into(), "second".into()));
     let first = session.pop_pending();
@@ -81,13 +95,15 @@ fn test_pop_pending_fifo_order() {
 
 #[test]
 fn test_pop_pending_returns_none_when_empty() {
-    let mut session = ConversationSession::new("sess_empty".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_empty".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     assert!(session.pop_pending().is_none());
 }
 
 #[test]
 fn test_get_pending_messages_does_not_consume_queue() {
-    let mut session = ConversationSession::new("sess_get".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_get".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.push_pending(PendingMessage::new("msg_1".into(), "hello".into()));
     session.push_pending(PendingMessage::new("msg_2".into(), "world".into()));
 
@@ -107,14 +123,22 @@ fn test_get_pending_messages_does_not_consume_queue() {
 
 #[test]
 fn test_get_pending_messages_empty() {
-    let session = ConversationSession::new("sess_empty_get".into(), "gpt-4o".into());
+    let session = ConversationSession::new(
+        "sess_empty_get".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
     let msgs = session.get_pending_messages();
     assert!(msgs.is_empty());
 }
 
 #[test]
 fn test_restore_pending_messages_only_sent_false() {
-    let mut session = ConversationSession::new("sess_restore".into(), "gpt-4o".into());
+    let mut session = ConversationSession::new(
+        "sess_restore".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
 
     let mut sent_msg = PendingMessage::new("sent_1".into(), "already sent".into());
     sent_msg.mark_sent();
@@ -130,7 +154,11 @@ fn test_restore_pending_messages_only_sent_false() {
 
 #[test]
 fn test_restore_pending_messages_skips_all_sent() {
-    let mut session = ConversationSession::new("sess_restore_skip".into(), "gpt-4o".into());
+    let mut session = ConversationSession::new(
+        "sess_restore_skip".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
 
     let mut msg1 = PendingMessage::new("a".into(), "a".into());
     msg1.mark_sent();
@@ -143,7 +171,11 @@ fn test_restore_pending_messages_skips_all_sent() {
 
 #[test]
 fn test_restore_pending_messages_empty_vec_no_op() {
-    let mut session = ConversationSession::new("sess_restore_empty".into(), "gpt-4o".into());
+    let mut session = ConversationSession::new(
+        "sess_restore_empty".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
     session.push_pending(PendingMessage::new("existing".into(), "existing".into()));
 
     session.restore_pending_messages(vec![]);
@@ -178,7 +210,8 @@ fn test_session_message_serde_roundtrip() {
 
 #[test]
 fn test_conversation_session_new() {
-    let session = ConversationSession::new("sess_42".into(), "gpt-4o".into());
+    let session =
+        ConversationSession::new("sess_42".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     assert_eq!(session.messages().len(), 0);
     assert_eq!(session.turn_count(), 0);
     assert!(session.system_prompt().is_none());
@@ -188,7 +221,8 @@ fn test_conversation_session_new() {
 
 #[test]
 fn test_append_response_adds_message() {
-    let mut session = ConversationSession::new("sess_1".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_1".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     let response = UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Hi there!".into())],
         usage: UnifiedUsage {
@@ -208,7 +242,8 @@ fn test_append_response_adds_message() {
 
 #[test]
 fn test_append_tool_result_increments_turn() {
-    let mut session = ConversationSession::new("sess_2".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_2".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Using tool...".into())],
         usage: UnifiedUsage {
@@ -228,7 +263,8 @@ fn test_append_tool_result_increments_turn() {
 
 #[test]
 fn test_append_response_empty_blocks_no_turn_increment() {
-    let mut session = ConversationSession::new("sess_3".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_3".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.append_response(UnifiedResponse {
         content_blocks: vec![],
         usage: UnifiedUsage {
@@ -247,7 +283,7 @@ fn test_append_response_empty_blocks_no_turn_increment() {
 
 #[test]
 fn test_build_api_request_includes_system_prompt() {
-    let session = ConversationSession::new("sess_4".into(), "gpt-4o".into())
+    let session = ConversationSession::new("sess_4".into(), "gpt-4o".into(), PathBuf::from("/tmp"))
         .with_system_prompt("You are helpful.");
     let req = session.build_api_request();
     assert!(req
@@ -260,7 +296,8 @@ fn test_build_api_request_includes_system_prompt() {
 
 #[test]
 fn test_build_api_request_without_system_prompt() {
-    let mut session = ConversationSession::new("sess_5".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_5".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Who are you?".into())],
         usage: UnifiedUsage {
@@ -280,7 +317,8 @@ fn test_build_api_request_without_system_prompt() {
 
 #[test]
 fn test_conversation_session_multiple_turns() {
-    let mut session = ConversationSession::new("sess_6".into(), "gpt-4o".into());
+    let mut session =
+        ConversationSession::new("sess_6".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
 
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("First response".into())],
@@ -320,13 +358,13 @@ fn test_conversation_session_multiple_turns() {
 
 #[test]
 fn test_model_returns_model_name() {
-    let session = ConversationSession::new("s1".into(), "glm-5.1".into());
+    let session = ConversationSession::new("s1".into(), "glm-5.1".into(), PathBuf::from("/tmp"));
     assert_eq!(session.model(), "glm-5.1");
 }
 
 #[test]
 fn test_model_returns_empty_string() {
-    let session = ConversationSession::new("s2".into(), String::new());
+    let session = ConversationSession::new("s2".into(), String::new(), PathBuf::from("/tmp"));
     assert_eq!(session.model(), "");
 }
 
@@ -334,7 +372,7 @@ fn test_model_returns_empty_string() {
 
 #[test]
 fn test_replace_messages_overwrites_existing() {
-    let mut session = ConversationSession::new("s3".into(), "gpt-4o".into());
+    let mut session = ConversationSession::new("s3".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("old".into())],
         usage: UnifiedUsage {
@@ -367,7 +405,7 @@ fn test_replace_messages_overwrites_existing() {
 
 #[test]
 fn test_replace_messages_empty_vec_clears() {
-    let mut session = ConversationSession::new("s4".into(), "gpt-4o".into());
+    let mut session = ConversationSession::new("s4".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("msg".into())],
         usage: UnifiedUsage {
@@ -389,36 +427,47 @@ use crate::session::persistence::ReasoningLevel;
 
 #[test]
 fn test_conversation_session_default_reasoning_level() {
-    let session = ConversationSession::new("s_rl_default".into(), "gpt-4o".into());
+    let session = ConversationSession::new(
+        "s_rl_default".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
     assert_eq!(session.reasoning_level, ReasoningLevel::High);
 }
 
 #[test]
 fn test_conversation_session_with_reasoning_level() {
-    let session = ConversationSession::new("s_rl_custom".into(), "gpt-4o".into())
-        .with_reasoning_level(ReasoningLevel::Low);
+    let session =
+        ConversationSession::new("s_rl_custom".into(), "gpt-4o".into(), PathBuf::from("/tmp"))
+            .with_reasoning_level(ReasoningLevel::Low);
     assert_eq!(session.reasoning_level, ReasoningLevel::Low);
 }
 
 #[test]
 fn test_build_api_request_includes_reasoning_level() {
-    let session = ConversationSession::new("s_rl_req".into(), "gpt-4o".into())
-        .with_reasoning_level(ReasoningLevel::Max);
+    let session =
+        ConversationSession::new("s_rl_req".into(), "gpt-4o".into(), PathBuf::from("/tmp"))
+            .with_reasoning_level(ReasoningLevel::Max);
     let req = session.build_api_request();
     assert_eq!(req.reasoning_level, ReasoningLevel::Max);
 }
 
 #[test]
 fn test_build_api_request_default_reasoning_level() {
-    let session = ConversationSession::new("s_rl_def_req".into(), "gpt-4o".into());
+    let session = ConversationSession::new(
+        "s_rl_def_req".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
     let req = session.build_api_request();
     assert_eq!(req.reasoning_level, ReasoningLevel::High);
 }
 
 #[test]
 fn test_build_api_request_reasoning_level_medium() {
-    let session = ConversationSession::new("s_rl_med".into(), "gpt-4o".into())
-        .with_reasoning_level(ReasoningLevel::Medium);
+    let session =
+        ConversationSession::new("s_rl_med".into(), "gpt-4o".into(), PathBuf::from("/tmp"))
+            .with_reasoning_level(ReasoningLevel::Medium);
     let req = session.build_api_request();
     assert_eq!(req.reasoning_level, ReasoningLevel::Medium);
 }
