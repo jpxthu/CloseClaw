@@ -385,6 +385,10 @@ pub enum PermissionRequestBody {
         agent: String,
         config_file: String,
     },
+    SlashCommand {
+        agent: String,
+        command: String,
+    },
 }
 
 impl PermissionRequestBody {
@@ -397,6 +401,7 @@ impl PermissionRequestBody {
             PermissionRequestBody::ToolCall { agent, .. } => agent,
             PermissionRequestBody::InterAgentMsg { from, .. } => from,
             PermissionRequestBody::ConfigWrite { agent, .. } => agent,
+            PermissionRequestBody::SlashCommand { agent, .. } => agent,
         }
     }
 }

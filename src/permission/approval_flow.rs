@@ -161,6 +161,9 @@ impl ApprovalFlow {
             PermissionRequestBody::ConfigWrite { agent, config_file } => {
                 format!("{} config write {}", agent, config_file)
             }
+            PermissionRequestBody::SlashCommand { agent, command } => {
+                format!("{} slash /{}", agent, command)
+            }
         };
 
         let session_resume = session_id.to_string();
