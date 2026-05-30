@@ -105,6 +105,12 @@ impl ConversationSession {
         self
     }
 
+    /// Replace the system prompt on an existing session.
+    /// Used by `SessionManager::rebuild_system_prompt` after compaction.
+    pub fn replace_system_prompt(&mut self, prompt: impl Into<String>) {
+        self.system_prompt = Some(prompt.into());
+    }
+
     /// Appends a message to the session.
     fn push_message(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
         self.messages.push(SessionMessage {

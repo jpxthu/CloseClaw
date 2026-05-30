@@ -15,6 +15,7 @@ use crate::session::persistence::{
 use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
+use crate::system_prompt::sections::invalidate_all_sections;
 use crate::system_prompt::workdir::set_workdir;
 use crate::tools::{ToolContext, ToolRegistry};
 use std::collections::HashMap;
@@ -408,6 +409,67 @@ impl SessionManager {
         let mut cs = cs.write().await;
         cs.push_pending(msg);
         Ok(())
+    }
+
+    /// Rebuild the system prompt for an existing session.
+    /// Called after compaction to pick up skill/config changes.
+    /// Lock Safety: acquires its own write lock; callers must NOT hold
+    /// any external write guard on the same session.
+    pub async fn rebuild_system_prompt(&self, session_id: &str) {
+        let cs = match self.get_conversation_session(session_id).await {
+            Some(cs) => cs,
+            None => return,
+        };
+        let agent_id = {
+            let sessions = self.sessions.read().await;
+            match sessions.get(session_id) {
+                Some(session) => session.agent_id.clone(),
+                None => return,
+            }
+        };
+        invalidate_all_sections();
+
+        // Build new system prompt (same logic as find_or_create)
+        let bootstrap_files = if let Some(ref workspace) = self.workspace_dir {
+            load_bootstrap_files(workspace, self.bootstrap_mode)
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
+        } else {
+            vec![]
+        };
+
+        let tool_registry_guard = self.tool_registry.read().await;
+        let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
+        let skill_registry = self.skill_registry.read().await.clone();
+
+        let workdir_ctx = self
+            .workspace_dir
+            .as_ref()
+            .map(|p| set_workdir(p.to_string_lossy().to_string()));
+        let tool_ctx = ToolContext {
+            agent_id: agent_id.clone(),
+            workdir: workdir_ctx,
+        };
+
+        let workspace_root = self.workspace_dir.clone().unwrap_or_default();
+
+        let prompt = build_from_workspace(
+            &workspace_root,
+            WorkspaceBuildConfig {
+                bootstrap_files,
+                tool_registry: tool_registry_ref,
+                tool_ctx: &tool_ctx,
+                skill_registry,
+                agent_id: Some(&agent_id),
+                dynamic_sections: vec![],
+                append_section: None,
+            },
+        )
+        .await;
+
+        let mut cs = cs.write().await;
+        cs.replace_system_prompt(prompt);
     }
 
     /// Pop the oldest pending message for a given session.

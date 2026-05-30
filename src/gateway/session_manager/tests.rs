@@ -11,9 +11,8 @@ use std::io::Write;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
-/// Clear all global prompt state and section cache.
-/// Must be called before each test that exercises system prompt generation,
-/// because the global SECTION_CACHE and priority prompts are shared across tests.
+/// Clear global prompt state and section cache. Must be called before tests
+/// that exercise system prompt generation (global SECTION_CACHE is shared).
 fn clear_global_prompt_state() {
     set_override_prompt(None);
     set_agent_prompt(None);
@@ -44,13 +43,7 @@ fn test_message() -> Message {
 
 #[tokio::test]
 async fn test_find_or_create_existing_session() {
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = make_test_mgr(None);
     let msg = test_message();
     let session_id = mgr.compute_session_key("feishu", &msg, None);
     {
@@ -65,26 +58,16 @@ async fn test_find_or_create_existing_session() {
             },
         );
     }
-
-    // find_or_create should return the existing session (read-lock fast path)
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(result, session_id);
 }
 
 #[tokio::test]
 async fn test_find_or_create_new_user_creates_session() {
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = make_test_mgr(None);
     let msg = test_message();
-
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     let sessions = mgr.sessions.read().await;
-    assert!(sessions.contains_key(&result));
     let session = sessions.get(&result).unwrap();
     assert_eq!(session.agent_id, "agent-b");
     assert_eq!(session.channel, "feishu");
@@ -92,11 +75,6 @@ async fn test_find_or_create_new_user_creates_session() {
 
 #[tokio::test]
 async fn test_archived_session_restoration() {
-    use crate::session::persistence::ReasoningLevel;
-    use crate::session::persistence::SessionCheckpoint;
-    use std::sync::Arc;
-
-    // Build a mock storage that returns an Archived checkpoint
     let mock_storage = Arc::new(MockPersistService {
         archived_checkpoint: Mutex::new(Some(
             SessionCheckpoint::new("feishu:user-a:agent-b".to_string())
@@ -105,21 +83,16 @@ async fn test_archived_session_restoration() {
         )),
         restore_called: Mutex::new(false),
     });
-
-    let config = test_config();
-    let mut mgr = SessionManager::new(
-        &config,
+    let mgr = SessionManager::new(
+        &test_config(),
         Some(mock_storage.clone()),
         None,
         BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let msg = test_message();
-
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(result, "feishu:user-a:agent-b");
-
-    // Verify restore was called
     let called = *mock_storage.restore_called.lock().await;
     assert!(called, "restore_checkpoint should have been called");
 }
@@ -137,9 +110,17 @@ fn make_temp_workspace(files: &[(&str, &str)]) -> TempDir {
     tmp
 }
 
-/// Test 1: workspace_dir + BootstrapMode::Full → system prompt contains all 7 files.
-/// Uses #[serial] because build_from_workspace shares a global SECTION_CACHE
-/// that caches RoleSection by name — parallel tests would get stale cached content.
+/// Shorthand for `SessionManager::new` with test defaults (Full mode, no storage).
+fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
+    SessionManager::new(
+        &test_config(),
+        None,
+        workspace.map(std::path::PathBuf::from),
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    )
+}
+
 #[tokio::test]
 #[serial]
 async fn test_bootstrap_full_injects_all_files() {
@@ -185,7 +166,6 @@ async fn test_bootstrap_full_injects_all_files() {
     assert!(prompt.contains("memory content"), "missing memory content");
 }
 
-/// Test 2: workspace_dir + BootstrapMode::Minimal → system prompt contains only 5 minimal files.
 #[tokio::test]
 #[serial]
 async fn test_bootstrap_minimal_injects_five_files() {
@@ -232,20 +212,11 @@ async fn test_bootstrap_minimal_injects_five_files() {
     // even in minimal mode when the workspace contains MEMORY.md.
 }
 
-/// Test 3: No workspace_dir → system prompt exists (contains ToolsSection) but
-/// has no bootstrap file content.
 #[tokio::test]
 #[serial]
 async fn test_no_workspace_dir_no_system_prompt() {
     clear_global_prompt_state();
-
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = make_test_mgr(None);
     let msg = test_message();
 
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
@@ -260,7 +231,6 @@ async fn test_no_workspace_dir_no_system_prompt() {
     );
 }
 
-/// Test 4: Partial bootstrap files → system prompt contains only existing files.
 #[tokio::test]
 #[serial]
 async fn test_partial_bootstrap_files() {
@@ -298,7 +268,6 @@ async fn test_partial_bootstrap_files() {
     );
 }
 
-/// Test 5: ToolRegistry injection → ToolsSection contains actual tool names.
 #[tokio::test]
 #[serial]
 async fn test_find_or_create_with_tool_registry() {
@@ -348,20 +317,10 @@ async fn test_find_or_create_with_tool_registry() {
 
 #[tokio::test]
 async fn test_find_or_create_no_storage() {
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = make_test_mgr(None);
     let msg = test_message();
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(result, "feishu:user-a:agent-b");
-    let sessions = mgr.sessions.read().await;
-    let session = sessions.get(&result).unwrap();
-    assert_eq!(session.agent_id, "agent-b");
-    assert_eq!(session.channel, "feishu");
 }
 
 // Mock persistence service for tests
@@ -439,35 +398,25 @@ async fn test_find_or_create_creates_workspace_directory() {
     );
     let msg = test_message();
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    let expected_workspace = workspace_dir
+    let expected = workspace_dir
         .unwrap()
         .join("workspaces")
         .join("agent-b")
         .join("user-a");
-    assert!(expected_workspace.exists());
-    assert!(expected_workspace.is_dir());
-
-    // Idempotent: calling again should not fail
+    assert!(expected.exists() && expected.is_dir());
     let session_id2 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(session_id, session_id2);
 }
 
 #[tokio::test]
 async fn test_find_or_create_no_workspace_dir_skipped() {
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = make_test_mgr(None);
     let msg = test_message();
     assert!(mgr.find_or_create("feishu", &msg, None).await.is_ok());
 }
 
 #[tokio::test]
 async fn test_find_or_create_workspace_invalid_ids() {
-    // invalid agent_id
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = SessionManager::new(
         &test_config(),
@@ -480,7 +429,6 @@ async fn test_find_or_create_workspace_invalid_ids() {
     msg.to = "../etc".to_string();
     assert!(mgr.find_or_create("feishu", &msg, None).await.is_err());
 
-    // invalid user_id
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = SessionManager::new(
         &test_config(),
