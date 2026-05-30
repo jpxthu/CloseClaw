@@ -1,0 +1,193 @@
+//! Async tests for compaction module (requires fake-llm feature)
+
+#[cfg(all(test, feature = "fake-llm"))]
+mod tests {
+    use crate::llm::fake::FakeProvider;
+    use crate::llm::Message;
+    use crate::session::compaction::{execute_compact, CompactionError};
+
+    #[tokio::test]
+    async fn test_execute_compact_success() {
+        let provider = FakeProvider::builder()
+            .then_ok("<summary>Compacted summary content</summary>", "glm-5.1")
+            .build();
+
+        let messages = vec![
+            Message {
+                role: "user".to_string(),
+                content: "Hello, this is a test message".to_string(),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: "Hi! How can I help you?".to_string(),
+            },
+        ];
+
+        let result = execute_compact(&messages, &provider, "glm-5.1", None, false).await;
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.performed);
+        assert!(r.boundary_message.contains("Compacted summary content"));
+        assert!(r.boundary_message.contains("手动压缩"));
+        assert!(r.message.contains("2 messages"));
+
+        // Verify mock received the correct messages
+        let captured = provider.captured_requests();
+        assert_eq!(captured.len(), 1);
+        let req = &captured[0];
+        // First message is the compaction system prompt
+        assert_eq!(req.messages[0].role, "system");
+        assert!(req.messages[0].content.contains("session summarizer"));
+        // Second message is the user message
+        assert_eq!(req.messages[1].role, "user");
+        assert_eq!(req.messages[1].content, "Hello, this is a test message");
+        // Third message is the assistant message
+        assert_eq!(req.messages[2].role, "assistant");
+        assert_eq!(req.messages[2].content, "Hi! How can I help you?");
+    }
+
+    #[tokio::test]
+    async fn test_execute_compact_empty_messages() {
+        let provider = FakeProvider::builder()
+            .then_ok("<summary>content</summary>", "glm-5.1")
+            .build();
+
+        let messages: Vec<Message> = vec![];
+
+        let result = execute_compact(&messages, &provider, "glm-5.1", None, true).await;
+
+        assert!(result.is_err());
+        assert!(matches!(result, Err(CompactionError::EmptyMessages)));
+    }
+
+    #[tokio::test]
+    async fn test_execute_compact_llm_failure() {
+        let provider = FakeProvider::builder()
+            .then_err(crate::llm::LLMError::RateLimitExceeded)
+            .build();
+
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: "test".to_string(),
+        }];
+
+        let result = execute_compact(&messages, &provider, "glm-5.1", None, false).await;
+
+        assert!(result.is_err());
+        assert!(matches!(result, Err(CompactionError::LLMCallFailed(_))));
+    }
+
+    #[tokio::test]
+    async fn test_execute_compact_no_summary() {
+        let provider = FakeProvider::builder()
+            .then_ok("No summary tag in response", "glm-5.1")
+            .build();
+
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: "test".to_string(),
+        }];
+
+        let result = execute_compact(&messages, &provider, "glm-5.1", None, true).await;
+
+        assert!(result.is_err());
+        assert!(matches!(result, Err(CompactionError::SummaryParseFailed)));
+    }
+
+    #[tokio::test]
+    async fn test_execute_compact_with_custom_instructions() {
+        let provider = FakeProvider::builder()
+            .then_ok("<summary>Test summary</summary>", "glm-5.1")
+            .build();
+
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: "Test".to_string(),
+        }];
+
+        let result = execute_compact(
+            &messages,
+            &provider,
+            "glm-5.1",
+            Some("重点保留用户名"),
+            true,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.boundary_message.contains("Test summary"));
+        assert!(r.boundary_message.contains("自动压缩"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_compact_auto_trigger() {
+        let provider = FakeProvider::builder()
+            .then_ok("<summary>Auto summary</summary>", "glm-5.1")
+            .build();
+
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: "test".to_string(),
+        }];
+
+        let result = execute_compact(&messages, &provider, "glm-5.1", None, true).await;
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.is_auto);
+    }
+
+    #[tokio::test]
+    async fn test_execute_compact_filters_system_role() {
+        let provider = FakeProvider::builder()
+            .then_ok("<summary>Filtered summary</summary>", "glm-5.1")
+            .build();
+
+        let messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: "You are a helpful assistant.".to_string(),
+            },
+            Message {
+                role: "user".to_string(),
+                content: "Hello from user".to_string(),
+            },
+            Message {
+                role: "system".to_string(),
+                content: "Another system instruction.".to_string(),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: "Hello from assistant".to_string(),
+            },
+        ];
+
+        let result = execute_compact(&messages, &provider, "glm-5.1", None, false).await;
+
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.performed);
+
+        // Verify the ChatRequest does NOT contain system role messages (except compaction prompt)
+        let captured = provider.captured_requests();
+        assert_eq!(captured.len(), 1);
+        let req = &captured[0];
+
+        // Total messages: 1 compaction system prompt + 2 filtered conversation messages = 3
+        assert_eq!(req.messages.len(), 3);
+
+        // First is the compaction system prompt
+        assert_eq!(req.messages[0].role, "system");
+        assert!(req.messages[0].content.contains("session summarizer"));
+
+        // Second is the user message
+        assert_eq!(req.messages[1].role, "user");
+        assert_eq!(req.messages[1].content, "Hello from user");
+
+        // Third is the assistant message
+        assert_eq!(req.messages[2].role, "assistant");
+        assert_eq!(req.messages[2].content, "Hello from assistant");
+    }
+}
