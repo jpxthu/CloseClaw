@@ -22,6 +22,7 @@
 //! assert!(elements.unwrap().iter().all(|e| e.get("tag").and_then(|t| t.as_str()) != Some("action")));
 //! ```
 
+pub mod code_block;
 pub mod feishu;
 
 use serde::{Deserialize, Serialize};
