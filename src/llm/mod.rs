@@ -17,6 +17,7 @@ pub mod protocol;
 pub mod provider;
 pub mod retry;
 pub mod session;
+pub mod stats;
 pub mod stub;
 pub mod turn;
 pub mod types;
