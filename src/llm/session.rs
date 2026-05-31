@@ -10,8 +10,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use crate::llm::stats::RunningStats;
 use crate::llm::turn::TurnCounter;
-use crate::llm::types::{ContentBlock, InternalMessage, InternalRequest, UnifiedResponse};
+use crate::llm::types::{
+    ContentBlock, InternalMessage, InternalRequest, UnifiedResponse, UnifiedUsage,
+};
 use crate::session::persistence::ReasoningLevel;
 
 /// A single message in a conversation session.
@@ -77,6 +80,7 @@ pub struct ConversationSession {
     pending_messages: VecDeque<crate::session::persistence::PendingMessage>,
     reasoning_level: ReasoningLevel,
     workdir: PathBuf,
+    stats: RunningStats,
 }
 
 impl ConversationSession {
@@ -93,6 +97,7 @@ impl ConversationSession {
             pending_messages: VecDeque::new(),
             reasoning_level: ReasoningLevel::default(),
             workdir,
+            stats: RunningStats::new(),
         }
     }
 
@@ -156,6 +161,16 @@ impl ConversationSession {
     /// Returns the number of pending messages.
     pub fn pending_count(&self) -> usize {
         self.pending_messages.len()
+    }
+
+    /// Returns a read-only reference to the running usage statistics.
+    pub fn stats(&self) -> &RunningStats {
+        &self.stats
+    }
+
+    /// Accumulates a single API call's usage into the session stats.
+    pub fn accumulate_usage(&mut self, usage: &UnifiedUsage) {
+        self.stats.accumulate(usage);
     }
 
     /// Returns the model name.
