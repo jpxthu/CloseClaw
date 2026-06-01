@@ -2,4 +2,5 @@
 pub struct SlashContext {
     pub sender_id: String,
     pub session_id: String,
+    pub channel: String,
 }

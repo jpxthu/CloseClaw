@@ -15,8 +15,12 @@ struct EchoHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for EchoHandler {
-    fn name(&self) -> &str {
-        "echo"
+    fn commands(&self) -> &[&str] {
+        &["echo"]
+    }
+
+    fn description(&self) -> &str {
+        "Echo back the arguments"
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -28,8 +32,12 @@ struct HelpHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for HelpHandler {
-    fn name(&self) -> &str {
-        "help"
+    fn commands(&self) -> &[&str] {
+        &["help"]
+    }
+
+    fn description(&self) -> &str {
+        "Print this help message"
     }
 
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -37,17 +45,16 @@ impl SlashHandler for HelpHandler {
     }
 }
 
-/// A handler that overrides `requires_permission` to return `true`.
 struct RiskyHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for RiskyHandler {
-    fn name(&self) -> &str {
-        "exec"
+    fn commands(&self) -> &[&str] {
+        &["exec"]
     }
 
-    fn requires_permission(&self) -> bool {
-        true
+    fn description(&self) -> &str {
+        "Execute a shell command"
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -80,28 +87,27 @@ async fn test_parse_slash() {
 
 #[tokio::test]
 async fn test_handler_registry() {
-    let mut registry = HandlerRegistry::new();
+    let registry = HandlerRegistry::new();
     registry.register(Arc::new(EchoHandler));
     registry.register(Arc::new(HelpHandler));
 
     // Hit
     let h = registry.get("echo").unwrap();
-    assert_eq!(h.name(), "echo");
+    assert_eq!(h.commands(), ["echo"]);
 
     let h = registry.get("help").unwrap();
-    assert_eq!(h.name(), "help");
+    assert_eq!(h.commands(), ["help"]);
 
     // Miss
     assert!(registry.get("unknown").is_none());
 }
 
 #[tokio::test]
-async fn test_slash_handler_requires_permission() {
+async fn test_slash_handler_immediate_default() {
     // Default is false
     let safe = EchoHandler;
-    assert!(!safe.requires_permission());
+    assert!(!safe.immediate());
 
-    // Overridden to true
     let risky = RiskyHandler;
-    assert!(risky.requires_permission());
+    assert!(!risky.immediate());
 }

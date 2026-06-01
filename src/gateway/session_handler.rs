@@ -111,12 +111,6 @@ impl SessionMessageHandler {
         content: String,
         meta: MessageMetadata,
     ) -> HandleResult {
-        if content.starts_with("/compact") {
-            return self.handle_compact_command(session_id, &content).await;
-        }
-        if content.trim() == "/clear" {
-            return self.handle_clear_command(session_id).await;
-        }
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued;
@@ -176,7 +170,7 @@ impl SessionMessageHandler {
 
 impl SessionMessageHandler {
     /// Handle `/compact [instruction]` manual compaction.
-    async fn handle_compact_command(&self, session_id: &str, content: &str) -> HandleResult {
+    pub async fn handle_compact_command(&self, session_id: &str, content: &str) -> HandleResult {
         let instruction: Option<String> = content
             .strip_prefix("/compact")
             .map(|s| s.trim().to_string())
@@ -208,15 +202,9 @@ impl SessionMessageHandler {
         HandleResult::LlmStarted
     }
 
-    /// Handle `/clear`: invalidate static-layer cache and rebuild system prompt.
-    async fn handle_clear_command(&self, session_id: &str) -> HandleResult {
-        self.session_manager.rebuild_system_prompt(session_id).await;
-        send_output(
-            &self.output_tx,
-            "System prompt 缓存已清除，下次请求将重新构建。",
-        )
-        .await;
-        HandleResult::LlmStarted
+    /// Send a text reply through the output channel (used by slash handlers).
+    pub async fn send_reply(&self, text: String) {
+        send_output(&self.output_tx, &text).await;
     }
 
     async fn check_and_run_auto_compact(&self, session_id: &str) {

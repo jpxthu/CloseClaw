@@ -21,8 +21,12 @@ struct SafeHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for SafeHandler {
-    fn name(&self) -> &str {
-        "help"
+    fn commands(&self) -> &[&str] {
+        &["help"]
+    }
+
+    fn description(&self) -> &str {
+        "Help command"
     }
 
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -34,12 +38,12 @@ struct RiskyHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for RiskyHandler {
-    fn name(&self) -> &str {
-        "exec"
+    fn commands(&self) -> &[&str] {
+        &["exec"]
     }
 
-    fn requires_permission(&self) -> bool {
-        true
+    fn description(&self) -> &str {
+        "Execute a shell command"
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -69,7 +73,7 @@ fn make_gateway() -> Arc<Gateway> {
 }
 
 fn make_dispatcher() -> Arc<SlashDispatcher> {
-    let mut registry = HandlerRegistry::new();
+    let registry = HandlerRegistry::new();
     registry.register(Arc::new(SafeHandler));
     registry.register(Arc::new(RiskyHandler));
     Arc::new(SlashDispatcher::new(registry))
@@ -148,4 +152,19 @@ async fn test_slash_not_entering_agent_session() {
     // Non-slash content returns None → falls through to agent session.
     let result = gw.dispatch_slash("sess1", "hello", Some("user123")).await;
     assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn test_unknown_slash_command_returns_reply() {
+    let gw = make_gateway();
+    // 空注册表——没有任何 handler
+    gw.set_slash_dispatcher(Arc::new(SlashDispatcher::new(HandlerRegistry::new())))
+        .await;
+
+    // 发送一个不存在的 slash 命令
+    let result = gw
+        .dispatch_slash("sess1", "/xyz_unknown", Some("user123"))
+        .await;
+    // 应该返回 Some(HandleResult::SlashHandled)，不是 None
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
