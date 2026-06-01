@@ -1,6 +1,6 @@
 //! Agents JSON ConfigProvider
 //!
-//! Loads and validates agents.json configuration.
+//! Loads and validates agents.json (registration list of agent IDs).
 
 use std::collections::HashMap;
 use std::fs;
@@ -8,7 +8,6 @@ use std::path::Path;
 
 use super::validation::validate_agents_config;
 use super::AgentsConfig;
-use crate::agent::config::AgentConfig;
 use crate::config::{ConfigError, ConfigProvider};
 
 /// AgentsConfigProvider implements ConfigProvider for agents.json
@@ -58,22 +57,26 @@ impl AgentsConfigProvider {
         validate_agents_config(&self.config)
     }
 
-    /// Get an agent config by name
-    pub fn get(&self, name: &str) -> Option<&AgentConfig> {
-        self.config.agents.iter().find(|a| a.name == name)
-    }
-
-    /// Get all agents
-    pub fn agents(&self) -> &[AgentConfig] {
-        &self.config.agents
-    }
-
-    /// Build a lookup map of agent name -> AgentConfig
-    pub fn lookup(&self) -> HashMap<&str, &AgentConfig> {
+    /// Check whether the given agent ID is registered.
+    pub fn get(&self, id: &str) -> Option<&str> {
         self.config
             .agents
             .iter()
-            .map(|a| (a.name.as_str(), a))
+            .find(|a| a.as_str() == id)
+            .map(String::as_str)
+    }
+
+    /// Get all registered agent IDs.
+    pub fn agents(&self) -> &[String] {
+        &self.config.agents
+    }
+
+    /// Build a lookup map of agent ID -> ID (useful for membership tests).
+    pub fn lookup(&self) -> HashMap<&str, &str> {
+        self.config
+            .agents
+            .iter()
+            .map(|id| (id.as_str(), id.as_str()))
             .collect()
     }
 }
@@ -124,11 +127,7 @@ mod tests {
     #[test]
     fn test_from_json_str_valid() {
         let json = r#"{
-            "version": "1.0",
-            "agents": [
-                {"name": "agent-a", "model": "gpt-4"},
-                {"name": "agent-b", "model": "claude-3"}
-            ]
+            "agents": ["agent-a", "agent-b"]
         }"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         assert!(provider.is_default()); // from_json_str uses "memory" path
@@ -144,30 +143,29 @@ mod tests {
 
     #[test]
     fn test_inner() {
-        let json = r#"{"version":"1","agents":[{"name":"x","model":"y"}]}"#;
+        let json = r#"{"agents":["x"]}"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
-        assert_eq!(provider.inner().version, "1");
+        assert_eq!(provider.inner().agents, vec!["x".to_string()]);
     }
 
     #[test]
     fn test_get_found() {
-        let json = r#"{"version":"1","agents":[{"name":"alpha","model":"m1"},{"name":"beta","model":"m2"}]}"#;
+        let json = r#"{"agents":["alpha","beta"]}"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
-        let agent = provider.get("alpha").unwrap();
-        assert_eq!(agent.model.as_deref(), Some("m1"));
+        assert_eq!(provider.get("alpha"), Some("alpha"));
+        assert_eq!(provider.get("beta"), Some("beta"));
     }
 
     #[test]
     fn test_get_not_found() {
-        let json = r#"{"version":"1","agents":[{"name":"alpha","model":"m1"}]}"#;
+        let json = r#"{"agents":["alpha"]}"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         assert!(provider.get("nonexistent").is_none());
     }
 
     #[test]
     fn test_lookup() {
-        let json =
-            r#"{"version":"1","agents":[{"name":"a","model":"m"},{"name":"b","model":"n"}]}"#;
+        let json = r#"{"agents":["a","b"]}"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         let map = provider.lookup();
         assert_eq!(map.len(), 2);
@@ -177,9 +175,23 @@ mod tests {
 
     #[test]
     fn test_validate_valid() {
-        let json = r#"{"version":"1","agents":[{"name":"agent1","model":"gpt-4"}]}"#;
+        let json = r#"{"agents":["agent1","agent2"]}"#;
         let provider = AgentsConfigProvider::from_json_str(json).unwrap();
         assert!(provider.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_duplicate() {
+        let json = r#"{"agents":["agent1","agent1"]}"#;
+        let provider = AgentsConfigProvider::from_json_str(json).unwrap();
+        assert!(provider.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_id() {
+        let json = r#"{"agents":[""]}"#;
+        let provider = AgentsConfigProvider::from_json_str(json).unwrap();
+        assert!(provider.validate().is_err());
     }
 
     #[test]
@@ -192,7 +204,7 @@ mod tests {
     fn test_new_from_temp_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("agents.json");
-        let json = r#"{"version":"1","agents":[{"name":"test","model":"m"}]}"#;
+        let json = r#"{"agents":["test"]}"#;
         std::fs::write(&path, json).unwrap();
         let provider = AgentsConfigProvider::new(&path).unwrap();
         assert_eq!(provider.agents().len(), 1);

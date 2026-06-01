@@ -268,36 +268,17 @@ async fn test_heartbeat_timeout_marks_agent_dead() {
 async fn test_config_loading_drives_agent_creation() {
     let registry: SharedAgentRegistry = create_registry(30);
 
-    // Simulate agents.json config
+    // Simulate agents.json config (registration list of agent IDs)
     let json = r#"{
-        "version": "1.0.0",
-        "agents": [
-            {
-                "name": "orchestrator",
-                "model": "gpt-4"
-            },
-            {
-                "name": "builder",
-                "model": "claude-3-opus",
-                "parent_id": "orchestrator"
-            },
-            {
-                "name": "tester",
-                "model": "claude-3-sonnet",
-                "parent_id": "orchestrator"
-            }
-        ]
+        "agents": ["orchestrator", "builder", "tester"]
     }"#;
 
     let provider = AgentsConfigProvider::from_json_str(json).unwrap();
     provider.validate().unwrap();
 
     // Create agents from config
-    for agent_config in provider.agents() {
-        let _agent = registry
-            .register(agent_config.name.clone(), None)
-            .await
-            .unwrap();
+    for agent_id in provider.agents() {
+        let _agent = registry.register(agent_id.clone(), None).await.unwrap();
     }
 
     let agents = registry.list().await;
@@ -310,33 +291,9 @@ async fn test_config_loading_drives_agent_creation() {
 }
 
 #[tokio::test]
-async fn test_config_validation_rejects_invalid_parent() {
+async fn test_config_validation_rejects_duplicate_ids() {
     let json = r#"{
-        "version": "1.0.0",
-        "agents": [
-            {
-                "name": "orphan-agent",
-                "model": "claude-3-opus",
-                "parent": "nonexistent-parent"
-            }
-        ]
-    }"#;
-
-    let provider = AgentsConfigProvider::from_json_str(json).unwrap();
-    let result = provider.validate();
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("nonexistent-parent"));
-}
-
-#[tokio::test]
-async fn test_config_validation_rejects_duplicate_names() {
-    let json = r#"{
-        "version": "1.0.0",
-        "agents": [
-            { "name": "agent", "model": "gpt-4" },
-            { "name": "agent", "model": "claude-3-opus" }
-        ]
+        "agents": ["agent", "agent"]
     }"#;
 
     let provider = AgentsConfigProvider::from_json_str(json).unwrap();
@@ -344,6 +301,19 @@ async fn test_config_validation_rejects_duplicate_names() {
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("Duplicate"));
+}
+
+#[tokio::test]
+async fn test_config_validation_rejects_empty_id() {
+    let json = r#"{
+        "agents": [""]
+    }"#;
+
+    let provider = AgentsConfigProvider::from_json_str(json).unwrap();
+    let result = provider.validate();
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("empty"));
 }
 
 // ---------------------------------------------------------------------------
