@@ -4,21 +4,37 @@ use crate::slash::context::SlashContext;
 pub enum SlashResult {
     /// Reply with a text message.
     Reply(String),
+    /// Switch mode (future).
+    SetMode(String),
+    /// Create a new session (future).
+    NewSession,
+    /// Stop the current run (future).
+    Stop,
+    /// Compact context with optional instruction.
+    Compact { instruction: Option<String> },
+    /// Append to system prompt (future).
+    SystemAppend { content: String },
+    /// Execute a sub-command (future).
+    Exec { command: String },
     /// Unknown command — no handler matched.
     Unknown(String),
 }
 
 /// Trait for slash command handlers.
 ///
-/// Implementors define a command name, whether elevated permissions are
-/// required, and the async execution logic.
+/// Implementors define which commands they handle, a description for help
+/// text, whether the command is immediate (responds even when LLM is busy),
+/// and the async execution logic.
 #[async_trait::async_trait]
 pub trait SlashHandler: Send + Sync {
-    /// Command name (without the leading `/`).
-    fn name(&self) -> &str;
+    /// Command names (without the leading `/`).
+    fn commands(&self) -> &[&str];
 
-    /// Whether this command requires elevated permission for non-owners.
-    fn requires_permission(&self) -> bool {
+    /// Short description (for /help listing).
+    fn description(&self) -> &str;
+
+    /// Whether this is an immediate command (responds even when LLM is busy).
+    fn immediate(&self) -> bool {
         false
     }
 

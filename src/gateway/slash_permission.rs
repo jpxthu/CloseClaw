@@ -7,9 +7,6 @@
 use std::sync::Arc;
 
 use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::engine::engine_types::{
-    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
-};
 use crate::slash::{parse_slash, SlashContext, SlashDispatcher, SlashResult};
 
 use super::{Gateway, HandleResult};
@@ -42,43 +39,62 @@ impl Gateway {
         let dispatcher_guard = self.slash_dispatcher.read().await;
         let dispatcher = dispatcher_guard.as_ref()?;
 
-        let (cmd, args) = parse_slash(content)?;
-        let handler = dispatcher.get_handler(cmd)?;
-
-        // Owner bypasses all permission checks.
-        let is_owner = sender_id == Some("owner");
-
-        if !is_owner && handler.requires_permission() {
-            let engine_guard = self.permission_engine.read().await;
-            if let Some(engine) = engine_guard.as_ref() {
-                let request = PermissionRequest::WithCaller {
-                    caller: Caller {
-                        user_id: sender_id.unwrap_or("").to_owned(),
-                        agent: "gateway".into(),
-                        creator_id: String::new(),
-                    },
-                    request: PermissionRequestBody::SlashCommand {
-                        agent: "gateway".into(),
-                        command: cmd.to_owned(),
-                    },
-                };
-                match engine.evaluate(request, None) {
-                    PermissionResponse::Denied { .. } => {
-                        // TODO: send "permission denied" reply via adapter
-                        return Some(HandleResult::SlashHandled);
-                    }
-                    PermissionResponse::Allowed { .. } => {}
-                }
+        let (cmd, args) = match parse_slash(content) {
+            Some(parsed) => parsed,
+            None => return None, // 不是 slash 命令
+        };
+        let Some(handler) = dispatcher.get_handler(cmd) else {
+            // 未知 slash 命令：发送"未知指令"提示
+            let reply = format!("未知指令：/{cmd}。输入 /help 查看所有可用指令。");
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply(reply).await;
             }
-        }
+            return Some(HandleResult::SlashHandled);
+        };
+
+        // Permission check removed — will be re-implemented via a separate
+        // mechanism in a future step. For now, all slash commands are dispatched
+        // directly regardless of sender.
 
         // Execute the handler.
         let ctx = SlashContext {
             sender_id: sender_id.unwrap_or("").to_owned(),
             session_id: session_id.to_owned(),
+            channel: String::new(), // 占位；Step 1.7 会从 Gateway::handle_inbound_message 传入实际 channel
         };
-        let _result = handler.handle(args, &ctx).await;
-        // TODO: route SlashResult::Reply(msg) back through the adapter
+        let result = handler.handle(args, &ctx).await;
+
+        match result {
+            SlashResult::Reply(text) => {
+                if let Some(sh) = self.session_handler.as_ref() {
+                    sh.send_reply(text).await;
+                }
+            }
+            SlashResult::Compact { instruction } => {
+                if let Some(sh) = self.session_handler.as_ref() {
+                    // Reconstruct the /compact command for handle_compact_command
+                    let cmd = match &instruction {
+                        Some(inst) => format!("/compact {}", inst),
+                        None => "/compact".to_string(),
+                    };
+                    sh.handle_compact_command(session_id, &cmd).await;
+                }
+            }
+            SlashResult::SetMode(_)
+            | SlashResult::NewSession
+            | SlashResult::Stop
+            | SlashResult::SystemAppend { .. }
+            | SlashResult::Exec { .. } => {
+                tracing::warn!(
+                    cmd,
+                    "SlashResult variant not yet routed through dispatch_slash"
+                );
+            }
+            SlashResult::Unknown(_) => {
+                // Should not happen — dispatcher only invokes handler on match.
+                tracing::debug!("SlashResult::Unknown returned from handler");
+            }
+        }
 
         Some(HandleResult::SlashHandled)
     }
