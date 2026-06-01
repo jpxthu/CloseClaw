@@ -293,18 +293,6 @@ impl Daemon {
             _ => BootstrapMode::Full,
         }
     }
-    /// Load and validate agents.json
-    #[allow(dead_code)]
-    fn load_agents_config(config_dir: &str) -> anyhow::Result<AgentsConfigProvider> {
-        let path = format!("{}/agents.json", config_dir);
-        let provider = AgentsConfigProvider::new(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to load {}: {}", path, e))?;
-        provider
-            .validate()
-            .map_err(|e| anyhow::anyhow!("Invalid agents config: {}", e))?;
-        info!("Loaded agents config from {}", path);
-        Ok(provider)
-    }
     /// Build permission engine, loading templates from config_dir/templates/ if present.
     fn build_permission_engine(config_dir: &str) -> Arc<PermissionEngine> {
         let rule_set = RuleSet {

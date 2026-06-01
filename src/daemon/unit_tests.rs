@@ -138,55 +138,6 @@ fn test_load_env_file_whitespace_trimming() {
     assert_eq!(std::env::var("KEY2").unwrap(), "value2");
 }
 
-// ============================================================
-// Daemon::load_agents_config tests
-// ============================================================
-
-#[test]
-fn test_load_agents_config_success() {
-    let dir = TempDir::new().unwrap();
-    let agents_path = dir.path().join("agents.json");
-    let agents_json = serde_json::json!({
-        "version": "1.0",
-        "agents": [
-            {
-                "name": "guide",
-                "model": "minimax/MiniMax-M2",
-                "persona": "test persona",
-                "max_iterations": 10,
-                "timeout_minutes": 5
-            }
-        ]
-    });
-    std::fs::write(&agents_path, agents_json.to_string()).unwrap();
-
-    let config_dir = dir.path().to_str().unwrap();
-    let result = Daemon::load_agents_config(config_dir);
-    assert!(result.is_ok(), "expected ok, got: {:?}", result.err());
-    let provider = result.unwrap();
-    assert_eq!(provider.agents().len(), 1);
-    assert_eq!(provider.agents()[0].name, "guide");
-}
-
-#[test]
-fn test_load_agents_config_file_not_found() {
-    let result = Daemon::load_agents_config("/nonexistent/path");
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("Failed to load") || err_msg.contains("agents.json"));
-}
-
-#[test]
-fn test_load_agents_config_invalid_json() {
-    let dir = TempDir::new().unwrap();
-    let agents_path = dir.path().join("agents.json");
-    std::fs::write(&agents_path, "not json").unwrap();
-
-    let result = Daemon::load_agents_config(dir.path().to_str().unwrap());
-    assert!(result.is_err());
-}
-
-// ============================================================
 // Daemon::build_permission_engine tests
 // ============================================================
 

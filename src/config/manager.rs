@@ -208,13 +208,15 @@ pub struct ConfigInfo {
 /// - `list_configs()`: metadata about all config files
 pub struct ConfigManager {
     /// Base directory containing all config files.
-    config_dir: PathBuf,
+    pub(crate) config_dir: PathBuf,
     /// Thread-safe backup manager.
     backup_manager: SafeBackupManager,
     /// In-memory cache of all loaded config sections.
     sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
     /// Loaded credentials provider (from config/credentials/ directory).
     credentials_provider: RwLock<CredentialsProvider>,
+    /// Resolved agent configurations (loaded from two-level directories).
+    pub(crate) agents: RwLock<HashMap<String, super::agents::ResolvedAgentConfig>>,
 }
 
 impl ConfigManager {
@@ -230,6 +232,7 @@ impl ConfigManager {
             backup_manager,
             sections: RwLock::new(HashMap::new()),
             credentials_provider: RwLock::new(CredentialsProvider::default()),
+            agents: RwLock::new(HashMap::new()),
         })
     }
 
@@ -299,6 +302,13 @@ impl ConfigManager {
         // Store as JSON value in sections (may be empty/default if dir is absent)
         if let Ok(json) = serde_json::to_value(&creds_provider) {
             sections.insert(ConfigSection::Credentials, json);
+        }
+
+        drop(sections);
+
+        // Load agent configurations (non-fatal if agents.json is absent)
+        if let Err(e) = self.load_agents(None) {
+            warn!("failed to load agent configs: {}", e);
         }
 
         Ok(())
