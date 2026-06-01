@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::llm::session::{ChatSession, SessionMessage};
+use crate::llm::streaming::StreamingSink;
 use crate::llm::turn::TurnCounter;
 use crate::llm::types::{ContentBlock, InternalMessage, InternalRequest, UnifiedResponse};
 use crate::llm::Message;
@@ -18,7 +19,7 @@ use crate::session::persistence::ReasoningLevel;
 ///
 /// Wraps the old `Vec<Message>` representation so that existing code can be
 /// migrated to the new session trait incrementally.
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct LegacySessionAdapter {
     messages: Vec<SessionMessage>,
     system_prompt: Option<String>,
@@ -26,6 +27,8 @@ pub struct LegacySessionAdapter {
     turn_counter: TurnCounter,
     is_llm_busy: Arc<AtomicBool>,
     reasoning_level: ReasoningLevel,
+    streaming_sink: Option<Arc<dyn StreamingSink>>,
+    stream_enabled: bool,
 }
 
 impl LegacySessionAdapter {
@@ -50,6 +53,8 @@ impl LegacySessionAdapter {
             turn_counter: TurnCounter::new(),
             is_llm_busy: Arc::new(AtomicBool::new(false)),
             reasoning_level: ReasoningLevel::default(),
+            streaming_sink: None,
+            stream_enabled: false,
         }
     }
 
@@ -66,6 +71,24 @@ impl LegacySessionAdapter {
             content_blocks,
             timestamp: Utc::now(),
         });
+    }
+}
+
+impl std::fmt::Debug for LegacySessionAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LegacySessionAdapter")
+            .field("messages", &self.messages)
+            .field("system_prompt", &self.system_prompt)
+            .field("model", &self.model)
+            .field("turn_counter", &self.turn_counter)
+            .field("is_llm_busy", &self.is_llm_busy)
+            .field("reasoning_level", &self.reasoning_level)
+            .field(
+                "streaming_sink",
+                &self.streaming_sink.as_ref().map(|_| "<StreamingSink>"),
+            )
+            .field("stream_enabled", &self.stream_enabled)
+            .finish()
     }
 }
 
@@ -138,7 +161,7 @@ impl ChatSession for LegacySessionAdapter {
             messages: msgs,
             temperature: 0.0,
             max_tokens: None,
-            stream: false,
+            stream: self.stream_enabled,
             extra_body: Default::default(),
             system_static: None,
             system_dynamic: None,
@@ -146,6 +169,18 @@ impl ChatSession for LegacySessionAdapter {
             session_id: None,
             reasoning_level: self.reasoning_level,
         }
+    }
+
+    fn set_streaming_sink(&mut self, sink: Arc<dyn StreamingSink>) {
+        self.streaming_sink = Some(sink);
+    }
+
+    fn stream_enabled(&self) -> bool {
+        self.stream_enabled
+    }
+
+    fn set_stream_enabled(&mut self, enabled: bool) {
+        self.stream_enabled = enabled;
     }
 
     fn is_llm_busy(&self) -> bool {

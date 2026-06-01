@@ -9,11 +9,12 @@
 
 use crate::gateway::session_manager::SessionManager;
 use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
+use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
 use crate::llm::types::ContentBlock;
 use crate::llm::types::UnifiedResponse;
-use crate::llm::{ChatRequest, ChatResponse, Message as ChatMessage};
+use crate::llm::{ChatRequest, Message as ChatMessage};
 use crate::session::compaction::{
     execute_compact, CompactConfig, CompactionResult, CompactionService,
 };
@@ -32,7 +33,6 @@ pub struct MessageMetadata {
 }
 
 impl MessageMetadata {
-    /// Create a default `MessageMetadata` with empty sender/channel and current time.
     pub fn default_meta() -> Self {
         Self {
             sender_id: String::new(),
@@ -59,15 +59,17 @@ pub struct SessionMessageHandler {
     fallback_client: Arc<FallbackClient>,
     output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     compaction_service: Arc<std::sync::Mutex<CompactionService>>,
+    unified_client: Arc<UnifiedChatClient>,
 }
 
-// ── Construction ───────────────────────────────────────────────────────────
+// ── Construction ──
 impl SessionMessageHandler {
     /// Create a new handler with an output channel for streaming responses.
     pub fn new(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
+        unified_client: Arc<UnifiedChatClient>,
     ) -> Self {
         Self {
             session_manager,
@@ -76,13 +78,14 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
+            unified_client,
         }
     }
-
     /// Create a new handler without an output channel (used in tests).
     pub fn new_no_output(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
+        unified_client: Arc<UnifiedChatClient>,
     ) -> Self {
         Self {
             session_manager,
@@ -91,19 +94,17 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
+            unified_client,
         }
     }
 }
-
-// ── Message dispatch ───────────────────────────────────────────────────────
-
+// ── Message dispatch ──
 impl SessionMessageHandler {
     /// Handle an inbound message using default metadata.
     pub async fn handle_message(&self, session_id: &str, content: String) -> HandleResult {
         self.handle_message_with_meta(session_id, content, MessageMetadata::default_meta())
             .await
     }
-
     /// Handle an inbound message with explicit metadata.
     pub async fn handle_message_with_meta(
         &self,
@@ -130,10 +131,22 @@ impl SessionMessageHandler {
         let content_for_task = content;
         let sm = Arc::clone(&self.session_manager);
         let fc = Arc::clone(&self.fallback_client);
+        let uc = Arc::clone(&self.unified_client);
         let output_tx = Arc::clone(&self.output_tx);
 
         tokio::spawn(async move {
-            let result = Self::call_llm(&fc, &content_for_task, &meta, &sm, &session_id).await;
+            // Check if streaming is enabled for this session
+            let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
+                cs.read().await.stream_enabled()
+            } else {
+                false
+            };
+
+            let result = if stream_enabled {
+                Self::call_llm_streaming(&uc, &content_for_task, &meta, &sm, &session_id).await
+            } else {
+                Self::call_llm(&fc, &content_for_task, &meta, &sm, &session_id).await
+            };
             Self::finish_llm(&sm, &session_id, result, &fc, &output_tx).await;
         });
 
@@ -165,9 +178,7 @@ impl SessionMessageHandler {
         }
     }
 }
-
-// ── Compaction ─────────────────────────────────────────────────────────────
-
+// ── Compaction ──
 impl SessionMessageHandler {
     /// Handle `/compact [instruction]` manual compaction.
     pub async fn handle_compact_command(&self, session_id: &str, content: &str) -> HandleResult {
@@ -232,11 +243,7 @@ impl SessionMessageHandler {
         .await;
     }
 }
-
-// ── Dynamic section building ──────────────────────────────────────────────
-
-// ── LLM calling ───────────────────────────────────────────────────────────
-
+// ── LLM calling ──
 impl SessionMessageHandler {
     /// Make a non-streaming LLM call with full system prompt injection.
     async fn call_llm(
@@ -313,6 +320,11 @@ impl SessionMessageHandler {
         }
         match result {
             Ok(response) => {
+                // Append response to session message history
+                if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                    let mut cs_write = cs.write().await;
+                    cs_write.append_response(response.clone());
+                }
                 let text = response
                     .content_blocks
                     .iter()
@@ -364,7 +376,7 @@ impl SessionMessageHandler {
         }
     }
 }
-// ── Compaction helpers ─────────────────────────────────────────────────────
+// ── Compaction helpers ──
 fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
     blocks
         .iter()
@@ -422,7 +434,6 @@ async fn send_output(
         let _ = tx.send((text.to_string(), vec![])).await;
     }
 }
-
 /// Load compaction inputs: (model, llm_messages). Returns None if session not found.
 async fn load_compact_inputs(
     sm: &Arc<SessionManager>,
