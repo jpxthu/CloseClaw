@@ -2,7 +2,7 @@
 
 ## 概述
 
-配置模块管理 CloseClaw 所有运行时配置。配置按职责拆分为独立 JSON 文件，通过 ConfigManager 提供统一的读写入口、变更校验、备份保护和自动回退能力。
+配置模块管理 CloseClaw 所有运行时配置。配置按职责拆分为独立的结构化配置文件，通过 ConfigManager 提供统一的读写入口、变更校验、备份保护和自动回退能力。
 
 ## 架构
 
@@ -18,7 +18,7 @@
 │   ├── gateway.json         # Gateway 服务配置
 │   ├── plugins.json         # 插件列表与配置
 │   ├── system.json          # 系统级配置（会话、定时任务、钩子、消息等）
-│   ├── agents.json           # Agent 全局注册表
+│   ├── agents.json          # Agent 注册清单（显式 ID 列表，JSONC）
 │   ├── credentials/         # 凭据子目录（按供应商分文件，物理隔离）
 │   │   ├── feishu.json
 │   │   ├── minimax.json
@@ -31,6 +31,13 @@
 └── skills/                  # Skill 文件目录
 ```
 
+项目级（可选，由用户自行创建）：
+
+```
+<repo>/.closeclaw/
+└── agents.json              # 项目级 Agent 注册清单（仅包含项目特有 agent 的 ID）
+```
+
 ### 核心组件
 
 - **ConfigManager**：所有配置读写的统一入口。负责加载所有子配置文件到内存、提供读写接口、管理写入流程（校验 → 备份 → 原子写入 → 更新内存）、启动时自动回退损坏文件。
@@ -38,9 +45,11 @@
 - **BackupManager**：滚动备份管理，每次写入前创建备份，在 `.backups/` 下维护每个配置文件最近 N 份历史备份（命名格式 `<文件名>.<时间戳>.json`），支持回退到最近可用备份。ConfigManager 和 ConfigReloadManager 共用 BackupManager 进行回退保护。
 - **ConfigReloadManager**：文件变更监控与热重载，监听配置目录变更事件，增量重载变更文件，校验通过后更新内存配置并推送变更通知到已有会话（详见 hot-reload.md）。
 - **凭据分离**：credentials 作为 config 子目录，按供应商分文件存储敏感凭据，与业务配置物理隔离。models 等业务配置只引用供应商名称，凭据由 CredentialsProvider 动态注入。凭据加载失败不阻塞 daemon 启动，仅影响需要该供应商的功能。
-- **配置迁移**：支持从旧版单文件配置自动迁移到多文件结构。首次启动时检测旧格式，引导拆分为 config/ 下各子文件，迁移后保留旧文件备份。后续版本可完全移除旧格式支持。
-- **AgentsConfigProvider**：管理 Agent 全局注册表（agents.json），记录所有已注册 Agent 的元信息（名称、模型、父 Agent 关系）。启动时校验 Agent 间引用完整性（如 parent 引用的 Agent 必须存在）。
-- **AgentDirectoryProvider**：扫描 `agents/` 目录，为每个 Agent 加载独立的 `config.json` 和 `permissions.json`，提供 Agent 配置的 CRUD 操作（创建、更新、删除、重载），支持 Agent 的独立配置管理。
+- **配置迁移**：支持从旧版单文件配置自动迁移到多文件结构。首次启动时检测旧格式，引导拆分为 config/ 下各子文件，迁移后保留旧文件备份。
+- **AgentsConfigProvider**：管理 Agent 注册清单（`config/agents.json`），一个显式的 Agent ID 列表。只列出已显式注册的 ID，不在列表中的 Agent 即使目录存在也不加载。支持 JSONC 格式，注释掉某行即取消注册。
+- **AgentDirectoryProvider**：根据注册清单中的 ID，扫描 `agents/` 目录加载每个 Agent 的 `config.json` 和 `permissions.json`。支持多级加载（项目级优先于用户级），同 ID 的配置进行字段级覆盖合并。仅加载注册清单中列出的 ID，目录中存在但未被注册的 Agent 配置会被忽略。
+
+  AgentDirectoryProvider 不属于 ConfigProvider 体系（ConfigProvider 封装单个子配置文件，而 AgentDirectoryProvider 组合扫描多个文件和多级目录），由 ConfigManager 直接持有和调用。
 
 子功能文档：
 
@@ -73,6 +82,11 @@ Daemon 启动
   └─→ Daemon 正常运行，热重载监听器后台运行
 ```
 
+### Agent 配置加载
+
+Agent 配置加载流程详见 [agent-config.md](../agent/agent-config.md) → 配置加载流程，由 AgentDirectoryProvider 执行。
+```
+
 ### 配置写入
 
 ```
@@ -103,6 +117,7 @@ Daemon 启动
 | plugins | 插件名非空、插件可解析 |
 | system | 版本号非空、cron 表达式合法 |
 | credentials | 供应商 ID 与 models 引用匹配、api_key 非空 |
+| agents | ID 列表为有效 JSONC 格式、每个 ID 对应的 config.json 可解析、parent_id 引用的 ID 已注册 |
 
 ## 模块关系
 
