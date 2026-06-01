@@ -10,6 +10,9 @@ use crate::config::providers::ConfigProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
+use crate::slash::dispatcher::SlashDispatcher;
+use crate::slash::handlers::{ClearHandler, CompactHandler, HelpHandler};
+use crate::slash::registry::HandlerRegistry;
 
 use crate::permission::approval_flow::ApprovalFlow;
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
@@ -157,6 +160,17 @@ impl Daemon {
             .set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>)
             .await;
         let gateway = Arc::new(gateway);
+
+        // ── Slash Dispatcher ────────────────────────────────────────────────
+        let slash_registry = Arc::new(HandlerRegistry::new());
+        slash_registry.register(Arc::new(CompactHandler));
+        slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&session_manager))));
+        let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
+        slash_registry.register(Arc::new(help_handler));
+        let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
+        gateway.set_slash_dispatcher(slash_dispatcher).await;
+        info!("Slash dispatcher installed");
+
         info!("Gateway initialized");
         Self::init_feishu_adapter(config_dir, &gateway).await?;
         let shutdown = shutdown::ShutdownHandle::new();
