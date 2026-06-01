@@ -2,6 +2,7 @@
 //!
 //! Implements ConfigProvider trait for extensible config management.
 
+pub mod agent_loader;
 pub mod agents;
 pub mod backup;
 pub mod manager;
@@ -17,7 +18,7 @@ pub use manager::{
 };
 
 pub use crate::session::compaction::CompactConfig;
-pub use agents::{AgentDirectoryEntry, AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
+pub use agents::{AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use migration::{migrate_if_needed, ConfigMigrationError};
 pub use providers::{
     ChannelsConfigData, ConfigError, ConfigProvider, GatewayConfigData, ModelsConfigData,
