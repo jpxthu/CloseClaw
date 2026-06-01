@@ -43,8 +43,8 @@ Agent 模块以配置和协调逻辑的形式嵌入系统：session 创建时读
 
 核心组件：
 
-- **Agent 配置档案**：每个 agent 对应一份 JSON 配置，定义其能力边界（模型、工具、workspace、权限基线、spawn 约束）。存储支持项目级、用户级、系统内置三级优先级，字段级覆盖合并。
-- **Agent 类型**：框架内置仅一个通用 agent（全工具、全 bootstrap），其他 agent 由用户通过 JSON 配置文件自定义。Agent 能力完全由配置字段组合决定。
+- **Agent 配置档案**：每个 agent 对应一个独立的配置目录（`agents/<id>/`），目录下存放 `config.json` 和 `permissions.json`。配置定义能力边界（模型、工具、workspace、spawn 约束），权限独立存储。存储支持项目级和用户级两级优先级，字段级覆盖合并。详见 [agent-config.md](agent-config.md)。
+- **Agent 类型**：初始 Agent 由 CLI 配置向导在首次运行时创建（默认 ID `master`），其他 agent 由用户通过配置文件自定义。Agent 能力完全由配置字段组合决定。
 - **Spawn 协调**：父 agent 通过 sessions_spawn 工具创建子 session。协调层负责前置检查（深度、并发、白名单）、参数组装、announce 回传注册。参见 `agent-spawn.md`。
 - **Fork 模式**：spawn 的变体，在子 session 中注入父 agent 的对话历史，使子 agent 继承上下文认知。参见 `agent-spawn.md`。
 - **权限继承**：子 agent 的实际权限沿 spawn 链路收窄——只能收窄，不能放宽。参见 `agent-permissions.md`。
@@ -61,21 +61,7 @@ Agent 模块以配置和协调逻辑的形式嵌入系统：session 创建时读
 
 ### Agent 配置加载
 
-系统启动时加载所有 agent 配置，生成 ResolvedAgentConfig 注册到内存：
-
-```
-内置 agent 定义（仅 general-purpose）
-  +
-扫描用户级配置（~/.closeclaw/agents/*.json）
-  +
-扫描项目级配置（<cwd>/.closeclaw/agents/*.json）
-  ↓
-按优先级合并同 ID 的 agent 配置（字段级覆盖）
-  ↓
-生成 ResolvedAgentConfig（所有字段已补齐默认值）
-  ↓
-注册到内存配置注册表
-```
+配置加载流程详见 [agent-config.md](agent-config.md) → 配置加载流程。
 
 ### Session 创建时读取 Agent 配置
 
@@ -85,12 +71,14 @@ Gateway/Daemon 确定目标 agent ID
 Session 模块读取该 agent 的 ResolvedAgentConfig
   ↓ 分发各字段到对应模块
   model        → 设置 session 默认模型
+  workspace    → 设置 session 工作目录
   bootstrapMode → 决定 bootstrap 文件加载集
   agentDir     → bootstrap 文件读取路径
-  permissions  → 传递 agent_id 给权限模块，Permission 自行加载 Agent 权限规则
   skills       → 过滤 skill 注册表
   tools/disallowedTools → 过滤 tool 注册表
   subagents    → 注入 session 的 spawn 控制上下文
+
+permissions.json → Permission 独立加载 Agent 权限基线
   ↓
 Session 创建完成
 ```
@@ -117,9 +105,10 @@ Agent 协调层前置检查（depth/并发/白名单/requireAgentId/权限）
 
 | 模块 | 调用关系 |
 |------|---------|
+| Config | 启动时加载 Agent 注册清单和配置目录，生成 ResolvedAgentConfig |
 | Gateway/Daemon | 外部消息到达时确定目标 agent，触发 session 创建 |
 | Session | session 创建时读取 agent 配置档案，决定 bootstrap、模型、工具集、skills 过滤 |
-| Skills | skill 在 fork 模式下通过 agent spawn 机制创建子 session |
+| Skills | 会话型 skill（需独立 session 的 skill）通过 sessions_spawn 创建子 session |
 | Tools | sessions_spawn / sessions_steer / sessions_kill 注册在 tools 模块，执行逻辑由 agent 模块提供 |
 
 ### 下游（Agent 模块调用谁）
@@ -137,5 +126,5 @@ Agent 协调层前置检查（depth/并发/白名单/requireAgentId/权限）
 | Card | 卡片渲染由 renderer 处理 |
 | IM Adapter | 消息路由由 gateway 处理 |
 | LLM Provider | agent 模块不直接调用 LLM |
-| Permission | Agent 不直接调用 Permission；Permission 从 Agent 配置加载权限基线规则并在 spawn 时沿链路计算继承权限，属于数据依赖关系 |
+| Permission | Agent 不直接调用 Permission；Permission 从 permissions.json 加载权限基线规则并在 spawn 时沿链路计算继承权限，属于间接数据依赖关系 |
 | Processor Chain / Renderer | 消息出站处理与 agent 模块无关 |
