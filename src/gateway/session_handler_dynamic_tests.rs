@@ -1,18 +1,150 @@
 use super::session_handler::MessageMetadata;
 use super::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
 use super::*;
+use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
+use crate::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
+use crate::llm::provider::{Provider, ProviderError};
+use crate::llm::types::ProtocolId;
+use crate::llm::types::{
+    InternalRequest, InternalResponse, RawContentBlock, RawSseChunk, RawUsage, SseStateMachine,
+};
 use crate::llm::LLMRegistry;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::system_prompt::sections::{
     clear_append_section, get_append_section, set_append_section, Section,
 };
+use async_trait::async_trait;
+use reqwest::header::HeaderMap;
+use reqwest::Client;
+
+#[derive(Debug, Clone)]
+struct TestProvider {
+    client: Client,
+    headers: HeaderMap,
+}
+impl TestProvider {
+    fn new() -> Self {
+        Self {
+            client: Client::new(),
+            headers: HeaderMap::new(),
+        }
+    }
+}
+#[async_trait]
+impl Provider for TestProvider {
+    fn id(&self) -> &str {
+        "test"
+    }
+    fn base_url(&self) -> &str {
+        "http://localhost"
+    }
+    fn api_key(&self) -> &str {
+        ""
+    }
+    fn supported_protocols(&self) -> &[ProtocolId] {
+        &[]
+    }
+    fn http_client(&self) -> &Client {
+        &self.client
+    }
+    fn default_headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+    async fn send(
+        &self,
+        _req: InternalRequest,
+        _body: serde_json::Value,
+    ) -> std::result::Result<InternalResponse, ProviderError> {
+        Ok(InternalResponse {
+            content_blocks: vec![RawContentBlock::Text("test".into())],
+            usage: RawUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        })
+    }
+    async fn send_streaming(
+        &self,
+        _req: InternalRequest,
+        _body: serde_json::Value,
+    ) -> std::result::Result<crate::llm::provider::SseStream, ProviderError> {
+        let (_, rx) = tokio::sync::mpsc::channel(1);
+        Ok(rx)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TestProtocol {
+    id: ProtocolId,
+}
+impl TestProtocol {
+    fn new() -> Self {
+        Self {
+            id: ProtocolId::new("test"),
+        }
+    }
+}
+#[async_trait]
+impl ChatProtocol for TestProtocol {
+    fn protocol_id(&self) -> &ProtocolId {
+        &self.id
+    }
+    fn path(&self) -> &str {
+        "/chat"
+    }
+    fn build_request(
+        &self,
+        _req: &InternalRequest,
+    ) -> crate::llm::protocol::Result<serde_json::Value> {
+        Ok(serde_json::json!({}))
+    }
+    fn parse_response(
+        &self,
+        _body: serde_json::Value,
+    ) -> crate::llm::protocol::Result<InternalResponse> {
+        Ok(InternalResponse {
+            content_blocks: vec![RawContentBlock::Text("test".into())],
+            usage: RawUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        })
+    }
+    fn decorate_headers(&self, _h: &mut HeaderMap) -> crate::llm::protocol::Result<()> {
+        Ok(())
+    }
+    fn create_sse_machine(&self) -> SseStateMachine {
+        SseStateMachine::new()
+    }
+    async fn parse_sse_stream(
+        &self,
+        _incoming: IncomingSseStream,
+        _machine: SseStateMachine,
+    ) -> OutgoingEventStream {
+        Box::pin(futures::stream::empty())
+    }
+}
 
 fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
     let registry = Arc::new(LLMRegistry::new());
     let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
-    SessionMessageHandler::new_no_output(sm, fallback)
+    let uc = Arc::new(UnifiedChatClient::with_noop_cache_adapter(
+        Arc::new(TestProvider::new()),
+        Arc::new(TestProtocol::new()),
+        Default::default(),
+        Default::default(),
+    ));
+    SessionMessageHandler::new_no_output(sm, fallback, uc)
 }
 
 fn make_msg() -> crate::gateway::Message {

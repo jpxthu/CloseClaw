@@ -6,6 +6,7 @@ pub mod approval;
 pub mod message;
 pub mod outbound;
 pub mod session_handler;
+mod session_handler_streaming;
 pub mod session_manager;
 pub mod slash_permission;
 pub mod system_prompt_inject;
