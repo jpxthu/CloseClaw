@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::llm::stats::RunningStats;
+use crate::llm::streaming::StreamingSink;
 use crate::llm::turn::TurnCounter;
 use crate::llm::types::{
     ContentBlock, InternalMessage, InternalRequest, UnifiedResponse, UnifiedUsage,
@@ -62,12 +63,21 @@ pub trait ChatSession: Send + Sync {
     /// and max_tokens.
     fn build_api_request(&self) -> InternalRequest;
 
+    /// Sets the streaming sink for this session.
+    fn set_streaming_sink(&mut self, sink: Arc<dyn StreamingSink>);
+
+    /// Returns whether streaming is enabled for this session.
+    fn stream_enabled(&self) -> bool;
+
+    /// Enables or disables streaming for this session.
+    fn set_stream_enabled(&mut self, enabled: bool);
+
     /// Returns whether the LLM is currently busy (processing a request).
     fn is_llm_busy(&self) -> bool;
 }
 
 /// A simple in-memory implementation of `ChatSession`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct ConversationSession {
     session_id: String,
@@ -81,6 +91,8 @@ pub struct ConversationSession {
     reasoning_level: ReasoningLevel,
     workdir: PathBuf,
     stats: RunningStats,
+    streaming_sink: Option<Arc<dyn StreamingSink>>,
+    stream_enabled: bool,
 }
 
 impl ConversationSession {
@@ -98,6 +110,8 @@ impl ConversationSession {
             reasoning_level: ReasoningLevel::default(),
             workdir,
             stats: RunningStats::new(),
+            streaming_sink: None,
+            stream_enabled: false,
         }
     }
 
@@ -166,6 +180,11 @@ impl ConversationSession {
     /// Returns a read-only reference to the running usage statistics.
     pub fn stats(&self) -> &RunningStats {
         &self.stats
+    }
+
+    /// Returns the streaming sink, if set.
+    pub fn streaming_sink(&self) -> Option<&Arc<dyn StreamingSink>> {
+        self.streaming_sink.as_ref()
     }
 
     /// Accumulates a single API call's usage into the session stats.
@@ -244,6 +263,29 @@ impl ConversationSession {
     }
 }
 
+impl std::fmt::Debug for ConversationSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConversationSession")
+            .field("session_id", &self.session_id)
+            .field("messages", &self.messages)
+            .field("system_prompt", &self.system_prompt)
+            .field("turn_counter", &self.turn_counter)
+            .field("model", &self.model)
+            .field("compaction_state", &self.compaction_state)
+            .field("is_llm_busy", &self.is_llm_busy)
+            .field("pending_messages", &self.pending_messages)
+            .field("reasoning_level", &self.reasoning_level)
+            .field("workdir", &self.workdir)
+            .field("stats", &self.stats)
+            .field(
+                "streaming_sink",
+                &self.streaming_sink.as_ref().map(|_| "<StreamingSink>"),
+            )
+            .field("stream_enabled", &self.stream_enabled)
+            .finish()
+    }
+}
+
 impl ChatSession for ConversationSession {
     fn messages(&self) -> &[SessionMessage] {
         &self.messages
@@ -312,7 +354,7 @@ impl ChatSession for ConversationSession {
             messages: msgs,
             temperature: 0.0,
             max_tokens: None,
-            stream: false,
+            stream: self.stream_enabled,
             extra_body: Default::default(),
             system_static: None,
             system_dynamic: None,
@@ -320,6 +362,18 @@ impl ChatSession for ConversationSession {
             session_id: None,
             reasoning_level: self.reasoning_level,
         }
+    }
+
+    fn set_streaming_sink(&mut self, sink: Arc<dyn StreamingSink>) {
+        self.streaming_sink = Some(sink);
+    }
+
+    fn stream_enabled(&self) -> bool {
+        self.stream_enabled
+    }
+
+    fn set_stream_enabled(&mut self, enabled: bool) {
+        self.stream_enabled = enabled;
     }
 
     fn is_llm_busy(&self) -> bool {

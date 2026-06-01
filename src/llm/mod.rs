@@ -18,6 +18,7 @@ pub mod provider;
 pub mod retry;
 pub mod session;
 pub mod stats;
+pub mod streaming;
 pub mod stub;
 pub mod turn;
 pub mod types;
@@ -60,6 +61,7 @@ pub use client::UnifiedChatClient;
 pub use interpreter::{DefaultInterpreter, InterpreterRegistry, ModelInterpreter};
 pub use plugin::PluginPipeline;
 pub use session::{ChatSession, ConversationSession, SessionMessage};
+pub use streaming::{StreamDone, StreamingSink};
 pub use turn::TurnCounter;
 pub use types::{InternalRequest, ProtocolId};
 
