@@ -66,6 +66,30 @@ pub struct ToolContext {
 }
 
 // ---------------------------------------------------------------------------
+// PromptGenerationContext —动态提示词生成上下文
+// ---------------------------------------------------------------------------
+
+/// Runtime context for dynamic tool prompt generation.
+///
+/// Distinct from [`ToolContext`]: `ToolContext` carries execution-time
+/// information used when the LLM *calls* a tool, while
+/// `PromptGenerationContext` carries information used when the system
+/// prompt *describes* a tool. The two contexts evolve independently.
+#[derive(Debug, Clone)]
+pub struct PromptGenerationContext {
+    /// ID of the agent for which the prompt is being built.
+    pub agent_id: String,
+    /// Current working directory context (if set).
+    pub workdir: Option<crate::system_prompt::WorkdirContext>,
+    /// Names of all tools currently available to the LLM.
+    ///
+    /// Only names are passed (not descriptors) to avoid coupling
+    /// `PromptGenerationContext` back to [`ToolDescriptor`] and to
+    /// keep the context cheap to construct.
+    pub available_tool_names: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // ToolDescriptor —一级摘要数据
 // ---------------------------------------------------------------------------
 
@@ -193,6 +217,18 @@ pub trait Tool: Send + Sync {
     /// Shown when the LLM requests second-level detail (via ToolSearch).
     fn detail(&self) -> String;
 
+    /// Returns the prompt-layer description for this tool.
+    ///
+    /// Unlike [`Tool::detail`] (which is a static string), `generate_prompt`
+    /// can adapt its output to runtime context: current permissions, the set
+    /// of available tools, the working directory, etc.
+    ///
+    /// The default implementation falls back to [`Tool::detail`], so existing
+    /// tools behave identically until they opt in to a custom Prompt layer.
+    fn generate_prompt(&self, _context: &PromptGenerationContext) -> String {
+        self.detail()
+    }
+
     /// Returns the JSON Schema for this tool's input parameters.
     fn input_schema(&self) -> Value;
 
@@ -206,6 +242,9 @@ pub trait Tool: Send + Sync {
     /// Returns this tool's runtime flags.
     fn flags(&self) -> ToolFlags;
 }
+
+#[cfg(test)]
+mod prompt_generation_tests;
 
 #[cfg(test)]
 mod tests {
@@ -248,5 +287,55 @@ mod tests {
         let err = ToolError::NotFound("Read".to_string());
         assert!(err.to_string().contains("Read"));
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_prompt_generation_context_construction() {
+        let ctx = PromptGenerationContext {
+            agent_id: "agent-1".to_string(),
+            workdir: None,
+            available_tool_names: vec!["Read".to_string(), "Bash".to_string()],
+        };
+        assert_eq!(ctx.agent_id, "agent-1");
+        assert!(ctx.workdir.is_none());
+        assert_eq!(ctx.available_tool_names.len(), 2);
+    }
+
+    /// Minimal test tool for verifying `generate_prompt` default behavior.
+    struct StaticTool;
+
+    #[async_trait]
+    impl Tool for StaticTool {
+        fn name(&self) -> &str {
+            "StaticTool"
+        }
+        fn group(&self) -> &str {
+            "test"
+        }
+        fn summary(&self) -> String {
+            "summary".to_string()
+        }
+        fn detail(&self) -> String {
+            "static-detail".to_string()
+        }
+        fn input_schema(&self) -> Value {
+            serde_json::json!({})
+        }
+        fn flags(&self) -> ToolFlags {
+            ToolFlags::default()
+        }
+    }
+
+    #[test]
+    fn test_generate_prompt_default_falls_back_to_detail() {
+        let tool = StaticTool;
+        let ctx = PromptGenerationContext {
+            agent_id: "agent-1".to_string(),
+            workdir: None,
+            available_tool_names: vec![],
+        };
+        // Default implementation should return exactly the value of `detail()`.
+        assert_eq!(tool.generate_prompt(&ctx), tool.detail());
+        assert_eq!(tool.generate_prompt(&ctx), "static-detail");
     }
 }
