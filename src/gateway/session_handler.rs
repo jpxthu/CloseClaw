@@ -324,6 +324,7 @@ impl SessionMessageHandler {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                     let mut cs_write = cs.write().await;
                     cs_write.append_response(response.clone());
+                    cs_write.accumulate_usage(&response.usage);
                 }
                 let text = response
                     .content_blocks
