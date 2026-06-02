@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+
 use tempfile::TempDir;
 
 #[test]
@@ -7,7 +9,7 @@ fn test_agent_config_save_load() {
     let temp = TempDir::new().unwrap();
     let config = AgentConfig {
         id: "test-id".to_string(),
-        name: "Test Agent".to_string(),
+        name: Some("Test Agent".to_string()),
         parent_id: Some("parent-id".to_string()),
         max_child_depth: 2,
         created_at: Utc::now(),
@@ -74,7 +76,7 @@ fn test_default_communication_config() {
 fn test_communication_allowed() {
     let parent = AgentConfig {
         id: "parent-1".to_string(),
-        name: "Parent".to_string(),
+        name: Some("Parent".to_string()),
         parent_id: None,
         max_child_depth: 2,
         created_at: Utc::now(),
@@ -88,7 +90,7 @@ fn test_communication_allowed() {
 
     let child = AgentConfig {
         id: "child-1".to_string(),
-        name: "Child".to_string(),
+        name: Some("Child".to_string()),
         parent_id: Some("parent-1".to_string()),
         max_child_depth: 1,
         created_at: Utc::now(),
@@ -110,7 +112,7 @@ fn test_communication_allowed() {
 fn test_communication_denied_outbound() {
     let agent_a = AgentConfig {
         id: "agent-a".to_string(),
-        name: "Agent A".to_string(),
+        name: Some("Agent A".to_string()),
         parent_id: None,
         max_child_depth: 2,
         created_at: Utc::now(),
@@ -124,7 +126,7 @@ fn test_communication_denied_outbound() {
 
     let agent_c = AgentConfig {
         id: "agent-c".to_string(),
-        name: "Agent C".to_string(),
+        name: Some("Agent C".to_string()),
         parent_id: None,
         max_child_depth: 2,
         created_at: Utc::now(),
@@ -145,7 +147,7 @@ fn test_communication_denied_outbound() {
 fn test_communication_denied_inbound() {
     let agent_a = AgentConfig {
         id: "agent-a".to_string(),
-        name: "Agent A".to_string(),
+        name: Some("Agent A".to_string()),
         parent_id: None,
         max_child_depth: 2,
         created_at: Utc::now(),
@@ -159,7 +161,7 @@ fn test_communication_denied_inbound() {
 
     let agent_b = AgentConfig {
         id: "agent-b".to_string(),
-        name: "Agent B".to_string(),
+        name: Some("Agent B".to_string()),
         parent_id: None,
         max_child_depth: 2,
         created_at: Utc::now(),
@@ -194,7 +196,7 @@ fn test_agent_config_new_fields_defaults() {
 fn test_agent_config_new_fields_roundtrip() {
     let config = AgentConfig {
         id: "test-agent".to_string(),
-        name: "Test".to_string(),
+        name: Some("Test".to_string()),
         model: Some("gpt-4o".to_string()),
         workspace: Some("/tmp/workspace".to_string()),
         agent_dir: Some("/tmp/agent_dir".to_string()),
@@ -271,7 +273,7 @@ fn test_agent_config_json_with_new_fields() {
     let config: AgentConfig = serde_json::from_str(json).unwrap();
 
     assert_eq!(config.id, "from-json");
-    assert_eq!(config.name, "Json Agent");
+    assert_eq!(config.name, Some("Json Agent".to_string()));
     assert_eq!(config.model, Some("deepseek-v3".to_string()));
     assert_eq!(config.workspace, Some("/home/user/project".to_string()));
     assert_eq!(
@@ -321,7 +323,7 @@ fn test_agent_config_camel_case_parse() {
     let config: AgentConfig = serde_json::from_str(json).unwrap();
 
     assert_eq!(config.id, "code-reviewer");
-    assert_eq!(config.name, "代码审查助手");
+    assert_eq!(config.name, Some("代码审查助手".to_string()));
     assert_eq!(config.parent_id, None);
     assert_eq!(config.model, Some("deepseek/deepseek-chat".to_string()));
     assert_eq!(config.workspace, None);
@@ -346,7 +348,7 @@ fn test_max_depth_allowed() {
     // Root agent with max_child_depth=3, currently at depth 0
     let root = AgentConfig {
         id: "root".to_string(),
-        name: "Root".to_string(),
+        name: Some("Root".to_string()),
         parent_id: None,
         max_child_depth: 3,
         created_at: Utc::now(),
@@ -375,7 +377,7 @@ fn test_max_depth_exceeded() {
     // Agent at depth 3, max_child_depth=2 (already exceeded!)
     let leaf = AgentConfig {
         id: "leaf".to_string(),
-        name: "Leaf".to_string(),
+        name: Some("Leaf".to_string()),
         parent_id: Some("parent".to_string()),
         max_child_depth: 2,
         created_at: Utc::now(),
@@ -388,7 +390,7 @@ fn test_max_depth_exceeded() {
     let get_parent = |id: &str| match id {
         "parent" => Some(AgentConfig {
             id: "parent".to_string(),
-            name: "Parent".to_string(),
+            name: Some("Parent".to_string()),
             parent_id: Some("grandparent".to_string()),
             max_child_depth: 2,
             created_at: Utc::now(),
@@ -398,7 +400,7 @@ fn test_max_depth_exceeded() {
         }),
         "grandparent" => Some(AgentConfig {
             id: "grandparent".to_string(),
-            name: "Grandparent".to_string(),
+            name: Some("Grandparent".to_string()),
             parent_id: None,
             max_child_depth: 3,
             created_at: Utc::now(),
@@ -421,4 +423,75 @@ fn test_max_depth_exceeded() {
         }
         _ => panic!("expected ExceedsMaxDepth"),
     }
+}
+
+// =====================================================================
+// Step 1.5 — Tests for `AgentConfig.name` becoming optional and
+// `ResolvedAgentConfig` falling back to `id` when name is missing/empty.
+// =====================================================================
+
+#[test]
+fn test_agent_config_name_defaults_to_none() {
+    // Minimal JSON with only `id`: `name` must default to `None`.
+    let json = r#"{"id": "x"}"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.id, "x");
+    assert_eq!(config.name, None);
+}
+
+#[test]
+fn test_agent_config_name_empty_string_fallback() {
+    // JSON with `name: ""` is preserved as `Some("")` at the deserialization
+    // layer. The empty-string → id fallback happens later in
+    // `ResolvedAgentConfig::from_single` / `merge`, not in serde.
+    let json = r#"{"id": "x", "name": ""}"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.id, "x");
+    assert_eq!(config.name, Some("".to_string()));
+}
+
+#[test]
+fn test_resolved_config_name_fallback_to_id() {
+    // `name = None` → resolved `name` must equal `id`.
+    let config = AgentConfig {
+        id: "agent-x".to_string(),
+        name: None,
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    assert_eq!(resolved.id, "agent-x");
+    assert_eq!(resolved.name, "agent-x");
+}
+
+#[test]
+fn test_resolved_config_name_empty_string_fallback() {
+    // `name = Some("")` → resolved `name` must equal `id`.
+    let config = AgentConfig {
+        id: "agent-y".to_string(),
+        name: Some("".to_string()),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    assert_eq!(resolved.id, "agent-y");
+    assert_eq!(resolved.name, "agent-y");
+}
+
+#[test]
+fn test_resolved_config_merge_name_fallback() {
+    // Both project and user have no usable name → merged name falls back to
+    // the resolved `id`. Project.name is `None`, user.name is `Some("")`.
+    let project = AgentConfig {
+        id: "agent-z".to_string(),
+        name: None,
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "agent-z".to_string(),
+        name: Some("".to_string()),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(resolved.id, "agent-z");
+    assert_eq!(resolved.name, "agent-z");
+    assert_eq!(resolved.source, ConfigSource::Merged);
 }

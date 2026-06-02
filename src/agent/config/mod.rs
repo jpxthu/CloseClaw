@@ -21,7 +21,8 @@ pub struct AgentConfig {
     #[serde(default)]
     pub id: String,
     /// Human-readable name.
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
     /// Parent agent ID (if this agent was spawned by another).
     #[serde(default)]
     pub parent_id: Option<String>,
@@ -138,7 +139,7 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             id: String::new(),
-            name: String::new(),
+            name: None,
             parent_id: None,
             max_child_depth: default_max_child_depth(),
             created_at: chrono::Utc::now(),

@@ -17,6 +17,9 @@ pub use types::AgentsConfig;
 pub use validation::validate_agents_config;
 
 #[cfg(test)]
+mod directory_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

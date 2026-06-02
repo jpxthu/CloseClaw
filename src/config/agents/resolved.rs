@@ -14,12 +14,18 @@
 //!   value is kept; otherwise the field's default applies.
 //! - `bootstrap_mode`, scalar `SubagentsConfig` fields: a non-default
 //!   project value overrides the user; otherwise the user value is kept.
-//! - Required `String` fields (`id`, `name`): project wins when non-empty,
-//!   otherwise fall back to the user value.
+//! - `id` (required, validated at the end): project's non-empty value
+//!   wins, otherwise the user's non-empty value. A fully empty `id`
+//!   after merging is rejected with [`ConfigError::MissingId`].
+//! - `name` (optional, falls back to `id`): project's non-empty value
+//!   wins, otherwise the user's non-empty value, otherwise falls back
+//!   to the resolved `id`. `None` and `Some("")` are both treated as
+//!   "not provided" and trigger the fallback.
 
 use std::path::PathBuf;
 
 use crate::agent::config::{AgentConfig, SubagentsConfig};
+use crate::config::ConfigError;
 use crate::session::bootstrap::BootstrapMode;
 
 /// Configuration source level.
@@ -56,12 +62,34 @@ pub struct ResolvedAgentConfig {
 
 impl ResolvedAgentConfig {
     /// Convert a single `AgentConfig` into a resolved form, tagging it
-    /// with the given `source` level. No fallback is performed; fields
-    /// come straight from `config`.
-    pub fn from_single(config: AgentConfig, source: ConfigSource) -> Self {
-        Self {
+    /// with the given `source` level. The `path` argument is used purely
+    /// for error reporting when `id` validation fails.
+    ///
+    /// Name fallback: a missing (`None`) or empty (`Some("")`) `name`
+    /// falls back to `id`. Both levels are treated as "not provided"
+    /// to keep the behavior consistent with the design doc
+    /// ("name 默认同 id").
+    ///
+    /// Returns [`ConfigError::MissingId`] when the resolved `id` is
+    /// empty after the fallback chain.
+    pub fn from_single(
+        config: AgentConfig,
+        source: ConfigSource,
+        path: &str,
+    ) -> Result<Self, ConfigError> {
+        if config.id.is_empty() {
+            return Err(ConfigError::MissingId {
+                path: path.to_string(),
+            });
+        }
+        let name = config
+            .name
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| config.id.clone());
+
+        Ok(Self {
             id: config.id,
-            name: config.name,
+            name,
             parent_id: config.parent_id,
             model: config.model,
             workspace: config.workspace.map(PathBuf::from),
@@ -72,27 +100,41 @@ impl ResolvedAgentConfig {
             disallowed_tools: config.disallowed_tools,
             subagents: config.subagents,
             source,
-        }
+        })
     }
 
     /// Merge project-level and user-level configs into a resolved form.
     ///
     /// Project fields take precedence over user fields; see the module
     /// documentation for the full rule set. The resulting `source` is
-    /// always [`ConfigSource::Merged`].
-    pub fn merge(project: AgentConfig, user: AgentConfig) -> Self {
+    /// always [`ConfigSource::Merged`]. The `path` argument is used
+    /// purely for error reporting when `id` validation fails.
+    ///
+    /// Name resolution: project's non-empty value wins, otherwise the
+    /// user's non-empty value, otherwise the resolved `id` is used as
+    /// a fallback. `None` and `Some("")` are both treated as "not
+    /// provided" at each level.
+    ///
+    /// Returns [`ConfigError::MissingId`] when the resolved `id` is
+    /// empty after the project-then-user fallback.
+    pub fn merge(project: AgentConfig, user: AgentConfig, path: &str) -> Result<Self, ConfigError> {
         let id = if !project.id.is_empty() {
             project.id
         } else {
             user.id
         };
-        let name = if !project.name.is_empty() {
-            project.name
-        } else {
-            user.name
-        };
+        if id.is_empty() {
+            return Err(ConfigError::MissingId {
+                path: path.to_string(),
+            });
+        }
+        let name = project
+            .name
+            .filter(|n| !n.is_empty())
+            .or_else(|| user.name.filter(|n| !n.is_empty()))
+            .unwrap_or_else(|| id.clone());
 
-        Self {
+        Ok(Self {
             id,
             name,
             parent_id: project.parent_id.or(user.parent_id),
@@ -127,16 +169,20 @@ impl ResolvedAgentConfig {
             },
             subagents: merge_subagents(project.subagents, user.subagents),
             source: ConfigSource::Merged,
-        }
+        })
     }
 }
 
-impl From<AgentConfig> for ResolvedAgentConfig {
+impl TryFrom<AgentConfig> for ResolvedAgentConfig {
+    type Error = ConfigError;
+
     /// Convert via [`ResolvedAgentConfig::from_single`], defaulting the
     /// source to [`ConfigSource::User`]. Callers that know the source
-    /// should call [`ResolvedAgentConfig::from_single`] directly.
-    fn from(config: AgentConfig) -> Self {
-        Self::from_single(config, ConfigSource::User)
+    /// should call [`ResolvedAgentConfig::from_single`] directly. The
+    /// `path` used for error reporting is `"<unknown>"` since the
+    /// `TryFrom` trait does not expose a source location.
+    fn try_from(config: AgentConfig) -> Result<Self, Self::Error> {
+        Self::from_single(config, ConfigSource::User, "<unknown>")
     }
 }
 
