@@ -27,12 +27,13 @@ System Prompt 的 Section 类型定义见 [system_prompt/README.md](../system_pr
 
 四个 Section 拼接后写入 ConversationSession 的 system_prompt 字段。
 
-### 静态层与动态层的注入行为
+### 静态层、动态层、追加区的注入行为
 
-静态层和动态层的边界定义见 [system_prompt/README.md](../system_prompt/README.md)。注入链路的行为：
+静态层、动态层和追加区的边界定义见 [system_prompt/README.md](../system_prompt/README.md)。注入链路的行为：
 
 - **静态层**（RoleSection + ToolsSection + SkillListingSection + MemorySection）：session 创建时注入，写入 ConversationSession 的 system_prompt 字段，进入 checkpoint 持久化。
-- **动态层**（ChannelContext + SessionState + GitStatus + AppendSection）：每次 API 请求时注入，不持久化，不改变 session 的 system_prompt 字段。
+- **动态层**（ChannelContext + SessionState + GitStatus）：每次 API 请求时注入，不持久化，不改变 session 的 system_prompt 字段。
+- **追加区（AppendSection）**：独立分区，持久化在会话状态中。由 `/system` 子指令增删，由 system prompt builder 在每次构建 prompt 时读取拼入。追加区不受上下文压缩影响，会话恢复时保留。详细设计见 [slash/system-append.md](../slash/system-append.md)。
 
 ### 无 Workspace 的 Session
 
@@ -88,7 +89,7 @@ API 请求到达
   发送 LLM 请求
 ```
 
-动态层不进 checkpoint，不改变 session 的 system_prompt 字段。
+动态层不进 checkpoint，不改变 session 的 system_prompt 字段。追加区持久化在会话状态中，每次 API 请求时读取并拼入。
 
 ### Session 恢复时的重新注入
 
