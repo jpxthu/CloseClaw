@@ -38,6 +38,13 @@ pub trait SlashHandler: Send + Sync {
         false
     }
 
+    /// Whether this command requires permission evaluation by the permission
+    /// engine before execution. High-risk handlers (e.g. `/exec`) override this
+    /// to return `true`; the default is `false` (safe handlers execute directly).
+    fn requires_permission(&self) -> bool {
+        false
+    }
+
     /// Execute the command with the given arguments and context.
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult;
 }

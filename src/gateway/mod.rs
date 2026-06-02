@@ -207,6 +207,10 @@ impl Gateway {
     /// If `sender_id` is provided and the message starts with `/approve` or
     /// `/deny`, the approval flow intercepts the command (owner-only).
     ///
+    /// `channel` identifies the IM platform / channel the message originated
+    /// from (e.g. `"feishu"`). It is forwarded to `dispatch_slash` so that
+    /// `SlashContext.channel` reflects the real source.
+    ///
     /// Returns `HandleResult` (`LlmStarted`/`MessageQueued`/`ApprovalProcessed`),
     /// or `None` if no handler configured.
     pub async fn handle_inbound_message(
@@ -214,6 +218,7 @@ impl Gateway {
         session_id: &str,
         content: String,
         sender_id: Option<&str>,
+        channel: &str,
     ) -> Option<HandleResult> {
         // ── Approval command interception ──────────────────────────────
         if let Some(result) = self
@@ -225,7 +230,10 @@ impl Gateway {
 
         // ── Slash command dispatch ─────────────────────────────────────
         if content.starts_with('/') {
-            if let Some(result) = self.dispatch_slash(session_id, &content, sender_id).await {
+            if let Some(result) = self
+                .dispatch_slash(session_id, &content, sender_id, channel)
+                .await
+            {
                 return Some(result);
             }
         }
