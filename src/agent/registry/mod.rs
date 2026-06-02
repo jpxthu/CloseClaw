@@ -34,15 +34,6 @@ pub enum RegistryError {
 /// Result type for registry operations
 pub type RegistryResult<T> = Result<T, RegistryError>;
 
-/// Result of a cleanup operation
-#[derive(Debug)]
-pub struct CleanupResult {
-    /// Agents that were successfully cleaned up
-    pub cleaned: Vec<String>,
-    /// Agent IDs that failed to be removed, with their errors
-    pub failed: Vec<(String, RegistryError)>,
-}
-
 /// Thread-safe agent registry for managing all agent lifecycles
 #[derive(Debug)]
 pub struct AgentRegistry {
@@ -50,8 +41,6 @@ pub struct AgentRegistry {
     pub(super) agents: RwLock<HashMap<String, Agent>>,
     /// Map of agent ID to running process handle
     pub(super) processes: RwLock<HashMap<String, AgentProcessHandle>>,
-    /// Heartbeat timeout in seconds
-    pub(super) heartbeat_timeout_secs: i64,
     /// Graceful shutdown: wait timeout in seconds
     pub(super) wait_timeout_secs: u64,
     /// Graceful shutdown: grace period in seconds
@@ -65,21 +54,26 @@ impl Default for AgentRegistry {
 }
 
 impl AgentRegistry {
-    /// Create a new registry with specified heartbeat timeout.
-    pub fn new(heartbeat_timeout_secs: i64) -> Self {
-        Self::new_with_graceful_shutdown(heartbeat_timeout_secs, 30, 10)
+    /// Create a new registry. The `heartbeat_timeout_secs` parameter is
+    /// retained for backward compatibility (20+ existing call sites) but
+    /// is no longer used; runtime heartbeat/liveness tracking is owned by
+    /// the session module.
+    pub fn new(_heartbeat_timeout_secs: i64) -> Self {
+        Self::new_with_graceful_shutdown(30, 30, 10)
     }
 
     /// Create a new registry with graceful shutdown configuration.
+    /// `heartbeat_timeout_secs` is retained for backward compatibility but
+    /// is no longer used; runtime heartbeat/liveness tracking is owned by
+    /// the session module.
     pub fn new_with_graceful_shutdown(
-        heartbeat_timeout_secs: i64,
+        _heartbeat_timeout_secs: i64,
         wait_timeout_secs: u64,
         grace_period_secs: u64,
     ) -> Self {
         Self {
             agents: RwLock::new(HashMap::new()),
             processes: RwLock::new(HashMap::new()),
-            heartbeat_timeout_secs,
             wait_timeout_secs,
             grace_period_secs,
         }

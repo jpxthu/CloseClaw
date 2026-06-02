@@ -1,8 +1,8 @@
 //! Lifecycle methods for AgentRegistry
 
 use super::{
-    Agent, AgentProcess, AgentRegistry, AgentState, AgentStateTransition, CleanupResult,
-    RegistryError, RegistryResult, TransitionTrigger,
+    Agent, AgentProcess, AgentRegistry, AgentState, AgentStateTransition, RegistryError,
+    RegistryResult, TransitionTrigger,
 };
 use tracing::{debug, error, info, warn};
 
@@ -113,16 +113,6 @@ impl AgentRegistry {
         let _ = transition;
         Ok(agent.clone())
     }
-
-    /// Update heartbeat for an agent
-    pub async fn update_heartbeat(&self, id: &str) -> RegistryResult<()> {
-        let mut agents = self.agents.write().await;
-        let agent = agents
-            .get_mut(id)
-            .ok_or_else(|| RegistryError::AgentNotFound(id.to_string()))?;
-        agent.update_heartbeat();
-        Ok(())
-    }
 }
 
 impl AgentRegistry {
@@ -168,35 +158,6 @@ impl AgentRegistry {
         let mut process = process.ok_or_else(|| RegistryError::AgentNotFound(id.to_string()))?;
         process.send_message(message).await?;
         Ok(())
-    }
-
-    /// Check for dead agents and clean them up
-    pub async fn cleanup_dead(&self) -> CleanupResult {
-        let mut dead_ids = Vec::new();
-        {
-            let agents = self.agents.read().await;
-            for (id, agent) in agents.iter() {
-                if agent.is_terminal() {
-                    continue;
-                }
-                if !agent.is_alive(self.heartbeat_timeout_secs) {
-                    warn!(agent_id = %id, "agent heartbeat expired, marking for cleanup");
-                    dead_ids.push(id.clone());
-                }
-            }
-        }
-        let mut cleaned = Vec::new();
-        let mut failed = Vec::new();
-        for id in &dead_ids {
-            match self.remove(id).await {
-                Ok(_) => cleaned.push(id.clone()),
-                Err(e) => {
-                    error!(agent_id = %id, error = %e, "failed to cleanup dead agent");
-                    failed.push((id.clone(), e));
-                }
-            }
-        }
-        CleanupResult { cleaned, failed }
     }
 }
 
