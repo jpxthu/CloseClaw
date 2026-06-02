@@ -1,4 +1,4 @@
-//! Tests for [`LegacyProviderAdapter`] using [`FakeProvider`] as the inner LLMProvider.
+//! Tests for [`LegacyProviderBridge`] using [`FakeProvider`] as the inner LLMProvider.
 //!
 //! These tests live in a separate file so that `legacy_provider.rs` stays under
 //! the 500-line pre-commit limit while still allowing `#[path]` module inclusion
@@ -39,8 +39,8 @@ fn make_internal_request(content: &str) -> InternalRequest {
     }
 }
 
-fn adapter<P: LLMProvider>(inner: P) -> LegacyProviderAdapter<P> {
-    LegacyProviderAdapter::new(
+fn adapter<P: LLMProvider>(inner: P) -> LegacyProviderBridge<P> {
+    LegacyProviderBridge::new(
         inner,
         "https://api.example.com".into(),
         "test-key".into(),

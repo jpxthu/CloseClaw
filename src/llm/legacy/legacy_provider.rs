@@ -1,4 +1,4 @@
-//! [`LegacyProviderAdapter`] wraps an old-style [`LLMProvider`] into the new [`Provider`] trait.
+//! [`LegacyProviderBridge`] wraps an old-style [`LLMProvider`] into the new [`Provider`] trait.
 //!
 //! Bridges the legacy interface (`ChatRequest`/`ChatResponse`/`Message`) to the
 //! new architecture (`InternalRequest`/`InternalResponse`/`InternalMessage`).
@@ -13,13 +13,13 @@ use crate::llm::types::{
 };
 use crate::llm::{ChatRequest, ChatResponse, ChatStreamChunk, LLMProvider, Message};
 
-/// Adapter wrapping an old-style [`LLMProvider`] into the new [`Provider`] trait.
+/// Bridge wrapping an old-style [`LLMProvider`] into the new [`Provider`] trait.
 ///
 /// `send()` converts [`InternalRequest`] → [`ChatRequest`], delegates to
 /// `inner.chat()`, then converts [`ChatResponse`] → [`InternalResponse`].
 /// `send_streaming()` does the same via `inner.chat_streaming()`, wrapping
 /// each [`ChatStreamChunk`] into a [`RawSseChunk`].
-pub struct LegacyProviderAdapter<P> {
+pub struct LegacyProviderBridge<P> {
     inner: P,
     base_url: String,
     api_key: String,
@@ -28,7 +28,7 @@ pub struct LegacyProviderAdapter<P> {
     default_headers: HeaderMap,
 }
 
-impl<P: LLMProvider> LegacyProviderAdapter<P> {
+impl<P: LLMProvider> LegacyProviderBridge<P> {
     /// Creates a new adapter wrapping `inner` with the given configuration.
     pub fn new(
         inner: P,
@@ -112,7 +112,7 @@ impl<P: LLMProvider> LegacyProviderAdapter<P> {
 }
 
 #[async_trait]
-impl<P: LLMProvider> Provider for LegacyProviderAdapter<P> {
+impl<P: LLMProvider> Provider for LegacyProviderBridge<P> {
     fn id(&self) -> &str {
         self.inner.name()
     }
@@ -177,7 +177,7 @@ impl<P: LLMProvider> Provider for LegacyProviderAdapter<P> {
     }
 }
 
-// Tests for LegacyProviderAdapter — compiled only when the fake-llm feature is enabled.
+// Tests for LegacyProviderBridge — compiled only when the fake-llm feature is enabled.
 // This mirrors the pattern used by FakeProvider (fake.rs → fake_tests.rs).
 #[cfg(all(test, feature = "fake-llm"))]
 #[path = "legacy_provider_tests.rs"]
