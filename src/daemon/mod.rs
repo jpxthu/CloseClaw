@@ -4,7 +4,6 @@
 //! Handles graceful shutdown via ShutdownCoordinator.
 pub mod shutdown;
 pub mod skill_reload;
-use crate::config::agents::AgentsConfigProvider;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};

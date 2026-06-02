@@ -262,7 +262,7 @@ impl PersistenceService for SqliteStorage {
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
             let status = status_to_db(&checkpoint.status);
-            let mode = mode_to_db(&checkpoint.mode);
+            let _mode = mode_to_db(&checkpoint.mode);
             let mode_state_json = serde_json::to_string(&checkpoint.mode_state)
                 .map_err(PersistenceError::Serialization)?;
             let pending_json = serde_json::to_string(&checkpoint.pending_messages)

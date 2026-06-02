@@ -2,7 +2,7 @@
 //!
 //! Allows the LLM to query which tools the current agent is permitted to use.
 
-use crate::tools::{Tool, ToolContext, ToolFlags};
+use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
 

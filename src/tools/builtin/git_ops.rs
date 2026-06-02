@@ -3,9 +3,12 @@
 //! Each tool wraps a git subcommand via `std::process::Command`,
 //! independent from the [`crate::skills`] module.
 
-use crate::tools::{Tool, ToolContext, ToolError, ToolFlags};
+use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
+
+#[cfg(test)]
+use crate::tools::ToolContext;
 
 // ---------------------------------------------------------------------------
 // Shared helper

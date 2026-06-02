@@ -1,7 +1,6 @@
 //! GLm LLM Provider
 
 use async_trait::async_trait;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,6 +96,7 @@ struct GlmErrorBody {
 // ---------------------------------------------------------------------------//
 
 /// Response from GET /api/coding/paas/v4/models (GLM model list API)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GlmModelsResponse {
     data: Vec<GlmModel>,
@@ -105,6 +105,7 @@ struct GlmModelsResponse {
 }
 
 /// A single model entry from the /models API
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GlmModel {
     id: String,

@@ -1,6 +1,6 @@
 //! Inbox manager implementation
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::fs;

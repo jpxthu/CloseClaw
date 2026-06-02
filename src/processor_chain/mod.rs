@@ -11,9 +11,11 @@
 //! - [`ProcessError`] — error types
 
 pub mod context;
-pub mod context_tests;
+#[cfg(test)]
+mod context_tests;
 pub mod dsl_parser;
-pub mod dsl_parser_tests;
+#[cfg(test)]
+mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
 pub mod markdown_normalizer;
@@ -21,7 +23,8 @@ pub mod message_cleaner;
 pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
-pub mod registry_tests;
+#[cfg(test)]
+mod registry_tests;
 
 pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
 pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig, RendererConfig};

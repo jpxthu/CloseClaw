@@ -1,7 +1,6 @@
 //! MiniMax LLM Provider
 
 use async_trait::async_trait;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,6 +56,7 @@ struct MiniMaxMessage {
     reasoning_content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 struct MiniMaxUsage {
     #[serde(default)]
@@ -70,6 +70,7 @@ struct MiniMaxUsage {
 }
 
 /// MiniMax completion tokens details
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MiniMaxCompletionTokensDetails {
     #[serde(default)]
@@ -84,6 +85,7 @@ struct MiniMaxBaseResp {
 }
 
 /// Response from GET /v1/models (MiniMax model list API, OpenAI-compatible)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MiniMaxModelsResponse {
     data: Vec<MiniMaxModel>,
@@ -92,6 +94,7 @@ struct MiniMaxModelsResponse {
 }
 
 /// A single model entry from the /models API
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MiniMaxModel {
     id: String,
