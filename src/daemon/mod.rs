@@ -9,7 +9,8 @@ use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use crate::im::feishu::FeishuAdapter;
+use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
+use crate::renderer::feishu::FeishuRenderer;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{
     ClearHandler, CompactHandler, ExecHandler, HelpHandler, WorkdirHandler,
@@ -181,7 +182,7 @@ impl Daemon {
         info!("Slash dispatcher installed");
 
         info!("Gateway initialized");
-        Self::init_feishu_adapter(config_dir, &gateway).await?;
+        Self::init_feishu_plugin(config_dir, &gateway).await?;
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
         // Initialize skill hot reload system
@@ -333,8 +334,15 @@ impl Daemon {
 }
 // --- Service init helpers ---
 impl Daemon {
-    /// Initialize Feishu adapter from env or config.
-    async fn init_feishu_adapter(_config_dir: &str, gateway: &Arc<Gateway>) -> anyhow::Result<()> {
+    /// Initialize Feishu IM plugin from env or config.
+    ///
+    /// Reads `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and `FEISHU_VERIFICATION_TOKEN`
+    /// from the environment. If all three are present, builds a [`FeishuAdapter`]
+    /// and [`FeishuRenderer`], wraps them in a [`FeishuPlugin`], and registers
+    /// the plugin with the gateway via [`Gateway::register_plugin`]. When any
+    /// credential is missing the plugin is skipped and the gateway operates
+    /// without Feishu support.
+    async fn init_feishu_plugin(_config_dir: &str, gateway: &Arc<Gateway>) -> anyhow::Result<()> {
         let app_id = std::env::var("FEISHU_APP_ID").ok();
         let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
         let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
@@ -342,12 +350,13 @@ impl Daemon {
             (app_id, app_secret, verification_token)
         {
             let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
-            gateway
-                .register_adapter("feishu".to_string(), adapter)
-                .await;
-            info!("Feishu adapter registered");
+            let renderer = Arc::new(FeishuRenderer::new());
+            let plugin: Arc<dyn crate::im::IMPlugin> =
+                Arc::new(FeishuPlugin::new(adapter, renderer));
+            gateway.register_plugin(plugin).await;
+            info!("Feishu plugin registered");
         } else {
-            info!("Feishu credentials not found in env — Feishu adapter not registered");
+            info!("Feishu credentials not found in env — Feishu plugin not registered");
         }
         Ok(())
     }
