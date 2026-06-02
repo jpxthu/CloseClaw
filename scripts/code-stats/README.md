@@ -17,16 +17,16 @@
 
 ```bash
 # 1. 采集代码统计（git 历史，按天）
-python3 scripts/collect_code_stats.py
+python3 scripts/code-stats/collect_code_stats.py
 
 # 2. 采集真实 UT 覆盖率（当前 HEAD，~几分钟）
-python3 scripts/collect_coverage.py
+python3 scripts/code-stats/collect_coverage.py
 
 # 3. 生成图表
-python3 scripts/draw_stats.py
+python3 scripts/code-stats/draw_stats.py
 
 # 4. 用浏览器打开
-open scripts/code_stats_chart.html
+open scripts/code-stats/code_stats_chart.html
 ```
 
 每次想记录一个覆盖率数据点，运行一次 `collect_coverage.py`（同一天不会重复记录）。
