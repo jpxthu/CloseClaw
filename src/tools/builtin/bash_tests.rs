@@ -22,6 +22,7 @@ fn test_tool_context() -> ToolContext {
     ToolContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
+        session_id: None,
     }
 }
 
