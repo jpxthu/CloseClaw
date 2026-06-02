@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
-REPO = SCRIPT_DIR.parent
+REPO = SCRIPT_DIR.parent.parent
 DATA_DIR = SCRIPT_DIR / "data"
 HISTORY_FILE = DATA_DIR / "coverage_history.jsonl"
 
