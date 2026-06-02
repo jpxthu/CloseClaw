@@ -281,7 +281,7 @@ async fn test_parse_sse_tool_calls_basic() {
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
-        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id: id }, .. } if id == "call_xyz"
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id }, .. } if id == "call_xyz"
     ));
     // ToolUseName
     let evt = stream.next().await.unwrap().unwrap();
@@ -414,7 +414,7 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
-        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id: id }, .. } if id == "call_q"
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id }, .. } if id == "call_q"
     ));
 
     // ToolUseName

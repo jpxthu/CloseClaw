@@ -188,8 +188,6 @@ fn test_build_permission_engine_with_templates_dir() {
 // Daemon::init_llm_registry tests
 // ============================================================
 
-use crate::llm::stub::StubProvider;
-
 #[tokio::test]
 async fn test_init_llm_registry_credentials_file_priority() {
     // Arrange: temp dir with config/credentials/openai.json containing an api key

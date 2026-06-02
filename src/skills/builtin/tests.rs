@@ -5,7 +5,6 @@ use crate::skills::builtin::{
 };
 use crate::skills::Skill;
 use std::sync::Arc;
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_file_ops_read_requires_agent_id_when_engine_set() {

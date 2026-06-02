@@ -7,9 +7,6 @@ use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
 
-#[cfg(test)]
-use crate::tools::ToolContext;
-
 // ---------------------------------------------------------------------------
 // Shared helper
 // ---------------------------------------------------------------------------
@@ -297,13 +294,6 @@ impl Tool for GitPullTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn new_ctx() -> ToolContext {
-        ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        }
-    }
 
     // --- GitStatusTool ----------------------------------------------------
 

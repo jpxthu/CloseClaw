@@ -109,7 +109,6 @@ mod wizard_context_tests {
 
 #[cfg(test)]
 mod provider_config_protocol_tests {
-    use super::*;
     use crate::config::providers::models::{ModelDefinition, ProviderConfig};
 
     /// Test 1: ProviderConfig serializes with protocol field present

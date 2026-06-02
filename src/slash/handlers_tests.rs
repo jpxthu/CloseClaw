@@ -354,7 +354,7 @@ async fn test_workdir_handler_cd_valid_path() {
                 "expected '工作目录已变更为' in reply, got: {text}"
             );
         }
-        other => panic!("expected Reply, got non-Reply variant"),
+        _other => panic!("expected Reply, got non-Reply variant"),
     }
 }
 
@@ -376,7 +376,7 @@ async fn test_workdir_handler_cd_invalid_path() {
                 "expected '目录不存在' in reply, got: {text}"
             );
         }
-        other => panic!("expected Reply, got non-Reply variant"),
+        _other => panic!("expected Reply, got non-Reply variant"),
     }
 }
 
@@ -395,7 +395,7 @@ async fn test_workdir_handler_pwd() {
         SlashResult::Reply(text) => {
             assert!(!text.is_empty(), "expected non-empty pwd reply");
         }
-        other => panic!("expected Reply, got non-Reply variant"),
+        _other => panic!("expected Reply, got non-Reply variant"),
     }
 }
 
@@ -415,7 +415,7 @@ async fn test_workdir_handler_git_placeholder() {
                 "expected 'git 指令即将支持' in reply, got: {text}"
             );
         }
-        other => panic!("expected Reply, got non-Reply variant"),
+        _other => panic!("expected Reply, got non-Reply variant"),
     }
 }
 
@@ -435,6 +435,6 @@ async fn test_workdir_handler_cd_no_args() {
                 "expected '用法' in reply, got: {text}"
             );
         }
-        other => panic!("expected Reply, got non-Reply variant"),
+        _other => panic!("expected Reply, got non-Reply variant"),
     }
 }

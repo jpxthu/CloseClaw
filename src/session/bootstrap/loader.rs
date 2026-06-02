@@ -157,7 +157,6 @@ pub fn load_bootstrap_files(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     fn create_test_files(dir: &Path, files: &[&str]) {
