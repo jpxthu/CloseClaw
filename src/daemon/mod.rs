@@ -11,7 +11,7 @@ use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
 use crate::slash::dispatcher::SlashDispatcher;
-use crate::slash::handlers::{ClearHandler, CompactHandler, HelpHandler};
+use crate::slash::handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 use crate::slash::registry::HandlerRegistry;
 
 use crate::permission::approval_flow::ApprovalFlow;
@@ -165,10 +165,16 @@ impl Daemon {
         let slash_registry = Arc::new(HandlerRegistry::new());
         slash_registry.register(Arc::new(CompactHandler));
         slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&session_manager))));
+        slash_registry.register(Arc::new(ExecHandler));
         let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
         slash_registry.register(Arc::new(help_handler));
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
         gateway.set_slash_dispatcher(slash_dispatcher).await;
+        // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
+        // dispatch_slash 在 Branch 2 时能取到 engine。
+        gateway
+            .set_permission_engine(Arc::clone(&permission_engine))
+            .await;
         info!("Slash dispatcher installed");
 
         info!("Gateway initialized");

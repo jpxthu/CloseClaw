@@ -117,3 +117,38 @@ impl SlashHandler for HelpHandler {
         SlashResult::Reply(lines.join("\n"))
     }
 }
+
+// ── ExecHandler ─────────────────────────────────────────────────────────────
+
+/// `/exec` — execute a shell command as owner, gated by the permission engine.
+///
+/// `ExecHandler` itself does not perform any authorization: it only constructs
+/// `SlashResult::Exec { command }`. The Gateway's permission routing is
+/// responsible for evaluating the request via the permission engine before
+/// execution.
+pub struct ExecHandler;
+
+#[async_trait::async_trait]
+impl SlashHandler for ExecHandler {
+    fn commands(&self) -> &[&str] {
+        &["exec"]
+    }
+
+    fn description(&self) -> &str {
+        "以 owner 身份执行 shell 命令（需权限审批）"
+    }
+
+    fn immediate(&self) -> bool {
+        false
+    }
+
+    fn requires_permission(&self) -> bool {
+        true
+    }
+
+    async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
+        SlashResult::Exec {
+            command: args.to_owned(),
+        }
+    }
+}
