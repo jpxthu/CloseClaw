@@ -12,14 +12,18 @@ pub mod slash_permission;
 pub mod system_prompt_inject;
 
 #[cfg(test)]
+mod tests_plugin;
+#[cfg(test)]
 mod tests_slash_permission;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::permission::approval_flow::ApprovalFlow;
 use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::renderer::RenderedOutput;
 use crate::session::checkpoint_manager::CheckpointManager;
 use crate::session::persistence::PersistenceService;
 use crate::slash::SlashDispatcher;
@@ -105,13 +109,12 @@ pub struct Session {
     pub created_at: i64,
 }
 
-/// Gateway - routes messages between IM adapters and agents
+/// Gateway - routes messages between IM plugins and agents
 pub struct Gateway {
     config: GatewayConfig,
-    adapters: RwLock<HashMap<String, Arc<dyn super::im::IMAdapter>>>,
+    plugins: RwLock<HashMap<String, Arc<dyn super::im::IMPlugin>>>,
     session_manager: Arc<SessionManager>,
     processor_registry: Option<Arc<ProcessorRegistry>>,
-    renderer: Option<Arc<dyn crate::renderer::Renderer>>,
     checkpoint_manager: Option<Arc<CheckpointManager<dyn PersistenceService>>>,
     session_handler: Option<Arc<SessionMessageHandler>>,
     /// Daemon-level approval flow for intercepting `/approve` / `/deny` commands.
@@ -127,10 +130,9 @@ impl Gateway {
     pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
         Self {
             config,
-            adapters: RwLock::new(HashMap::new()),
+            plugins: RwLock::new(HashMap::new()),
             session_manager,
             processor_registry: None,
-            renderer: None,
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
@@ -147,35 +149,9 @@ impl Gateway {
     ) -> Self {
         Self {
             config,
-            adapters: RwLock::new(HashMap::new()),
+            plugins: RwLock::new(HashMap::new()),
             session_manager,
             processor_registry: Some(registry),
-            renderer: None,
-            checkpoint_manager: None,
-            session_handler: None,
-            approval_flow: RwLock::new(None),
-            slash_dispatcher: RwLock::new(None),
-            permission_engine: RwLock::new(None),
-        }
-    }
-
-    /// Create a new Gateway with a renderer.
-    ///
-    /// The renderer is used in `send_outbound` to render LLM output to
-    /// platform-specific formats (card or text). Optionally takes a
-    /// processor registry for preprocessing.
-    pub fn with_renderer(
-        config: GatewayConfig,
-        session_manager: Arc<SessionManager>,
-        renderer: Arc<dyn crate::renderer::Renderer>,
-        registry: Option<Arc<ProcessorRegistry>>,
-    ) -> Self {
-        Self {
-            config,
-            adapters: RwLock::new(HashMap::new()),
-            session_manager,
-            processor_registry: registry,
-            renderer: Some(renderer),
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
@@ -254,17 +230,28 @@ impl Gateway {
         self.session_manager.flush_all().await
     }
 
-    /// Register an IM adapter.
-    pub async fn register_adapter(&self, name: String, adapter: Arc<dyn super::im::IMAdapter>) {
-        let mut adapters = self.adapters.write().await;
-        adapters.insert(name, adapter);
+    /// Register an IM plugin.
+    ///
+    /// The plugin's [`platform`](super::im::IMPlugin::platform) identifier is
+    /// used as the registry key. Re-registering the same platform replaces
+    /// the previous plugin.
+    pub async fn register_plugin(&self, plugin: Arc<dyn super::im::IMPlugin>) {
+        let key = plugin.platform().to_string();
+        let mut plugins = self.plugins.write().await;
+        plugins.insert(key, plugin);
+    }
+
+    /// Get a registered IM plugin by platform identifier.
+    pub async fn get_plugin(&self, platform: &str) -> Option<Arc<dyn super::im::IMPlugin>> {
+        let plugins = self.plugins.read().await;
+        plugins.get(platform).cloned()
     }
 
     /// Route an incoming message to the appropriate agent.
     ///
     /// Reads `session_id` from `message.metadata`. Returns `MissingSessionId`
     /// if absent. Validates the session exists in the active sessions table
-    /// before forwarding to the adapter.
+    /// before forwarding to the registered IM plugin.
     pub async fn route_message(
         &self,
         channel: &str,
@@ -282,10 +269,10 @@ impl Gateway {
             return Err(GatewayError::MissingSessionId);
         }
 
-        // Find the adapter for this channel.
-        let adapters = self.adapters.read().await;
-        let adapter = adapters
-            .get(channel)
+        // Find the IM plugin registered for this channel.
+        let plugin = self
+            .get_plugin(channel)
+            .await
             .ok_or(GatewayError::UnknownChannel(channel.to_string()))?;
 
         // Validate message size.
@@ -293,8 +280,12 @@ impl Gateway {
             return Err(GatewayError::MessageTooLarge);
         }
 
-        // Forward to adapter for delivery.
-        adapter.send_message(&message).await?;
+        // Build a text RenderedOutput and forward to the plugin.
+        let output = RenderedOutput {
+            msg_type: "text".into(),
+            payload: json!({"content": {"text": message.content}}),
+        };
+        plugin.send(&output, &message.to, None).await?;
 
         Ok(())
     }

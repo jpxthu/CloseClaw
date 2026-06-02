@@ -1,26 +1,34 @@
-//! Tests for Gateway::send_outbound — renderer integration tests (issue #469).
+//! Tests for Gateway::send_outbound — plugin integration tests (issue #829).
+//!
+//! Verifies that the unified plugin path (render → send) works correctly
+//! for text, interactive, suppress, and dsl_result scenarios.
 
 mod gateway_send_outbound_basic;
 
 use async_trait::async_trait;
-use closeclaw::gateway::{Gateway, GatewayError, Message, SessionManager};
-use closeclaw::im::IMAdapter;
+use closeclaw::gateway::{Gateway, GatewayError, SessionManager};
+use closeclaw::im::{AdapterError, IMPlugin, NormalizedMessage};
+use closeclaw::llm::types::ContentBlock;
 use closeclaw::processor_chain::{
     dsl_parser::DslParseResult, MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
-use closeclaw::renderer::{RenderedOutput, Renderer};
+use closeclaw::renderer::RenderedOutput;
 use closeclaw::session::bootstrap::BootstrapMode;
 use closeclaw::session::persistence::ReasoningLevel;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// MockOutboundProcessor — test processor for outbound chain.
+use gateway_send_outbound_basic::{make_config, make_outbound_gw, make_outbound_message};
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+/// MockOutboundProcessor — test processor for the outbound chain.
 #[derive(Debug)]
 struct MockOutboundProcessor {
     name: String,
     output_content: String,
     output_suppress: bool,
-    #[allow(dead_code)]
     dsl_result_json: Option<String>,
 }
 
@@ -55,22 +63,27 @@ impl MessageProcessor for MockOutboundProcessor {
     }
 }
 
-/// MockRenderer — records render calls and returns configurable output.
-#[derive(Debug)]
-struct MockRenderer {
+/// TrackingPlugin — records render and send calls for assertion.
+///
+/// `render()` returns a preconfigured [`RenderedOutput`].
+/// `send()` records that it was called.
+struct TrackingPlugin {
     platform_name: String,
-    render_content: Mutex<Option<String>>,
-    render_dsl_result: Mutex<Option<DslParseResult>>,
-    output: RenderedOutput,
+    /// Captured render inputs: (content text from first Text block, dsl_result)
+    render_called: Mutex<Option<(String, Option<DslParseResult>)>>,
+    /// Whether `send()` was called
+    send_called: Mutex<bool>,
+    /// The RenderedOutput returned by `render()`
+    render_output: RenderedOutput,
 }
 
-impl MockRenderer {
-    fn new(msg_type: &str, payload: serde_json::Value) -> Self {
+impl TrackingPlugin {
+    fn new(platform: &str, msg_type: &str, payload: serde_json::Value) -> Self {
         Self {
-            platform_name: "mock".to_string(),
-            render_content: Mutex::new(None),
-            render_dsl_result: Mutex::new(None),
-            output: RenderedOutput {
+            platform_name: platform.to_string(),
+            render_called: Mutex::new(None),
+            send_called: Mutex::new(false),
+            render_output: RenderedOutput {
                 msg_type: msg_type.to_string(),
                 payload,
             },
@@ -78,60 +91,67 @@ impl MockRenderer {
     }
 }
 
-impl Renderer for MockRenderer {
+#[async_trait]
+impl IMPlugin for TrackingPlugin {
     fn platform(&self) -> &str {
         &self.platform_name
     }
-    fn render(&self, content: &str, dsl_result: Option<&DslParseResult>) -> RenderedOutput {
-        *self.render_content.lock().unwrap() = Some(content.to_string());
-        *self.render_dsl_result.lock().unwrap() = dsl_result.cloned();
-        self.output.clone()
-    }
-}
 
-/// MockAdapter that tracks send_message and send_card_json calls.
-#[derive(Debug, Default)]
-struct TrackingAdapter {
-    send_message_called: Mutex<bool>,
-    send_card_json_called: Mutex<bool>,
-}
-
-#[async_trait]
-impl IMAdapter for TrackingAdapter {
-    fn name(&self) -> &str {
-        "tracking"
-    }
-    async fn handle_webhook(
+    async fn parse_inbound(
         &self,
         _payload: &[u8],
-    ) -> Result<Message, closeclaw::im::AdapterError> {
-        Ok(Message {
-            id: "1".into(),
-            from: "a".into(),
-            to: "b".into(),
-            content: "hi".into(),
-            channel: "tracking".into(),
-            timestamp: 0,
-            metadata: HashMap::new(),
-        })
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
     }
-    async fn send_message(&self, _message: &Message) -> Result<(), closeclaw::im::AdapterError> {
-        *self.send_message_called.lock().unwrap() = true;
-        Ok(())
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        // Capture the text from the first Text block for assertion.
+        let text = content_blocks
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        *self.render_called.lock().unwrap() = Some((text, dsl_result.cloned()));
+        self.render_output.clone()
     }
-    async fn validate_signature(&self, _: &str, _: &[u8]) -> bool {
-        true
-    }
-    async fn send_card_json(&self, _: &str, _: &str) -> Result<(), closeclaw::im::AdapterError> {
-        *self.send_card_json_called.lock().unwrap() = true;
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        *self.send_called.lock().unwrap() = true;
         Ok(())
     }
 }
 
-use gateway_send_outbound_basic::{make_config, make_outbound_gw, make_outbound_message};
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn make_registry_with_processor(
+    processor: MockOutboundProcessor,
+) -> Arc<closeclaw::processor_chain::ProcessorRegistry> {
+    Arc::new({
+        let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
+        r.register(Arc::new(processor));
+        r
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_send_outbound_with_renderer_text() {
+async fn test_plugin_text_path() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -140,24 +160,19 @@ async fn test_send_outbound_with_renderer_text() {
         BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
-    let registry = Arc::new({
-        let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
-        r.register(Arc::new(MockOutboundProcessor {
-            name: "clean".into(),
-            output_content: "plain text content".to_string(),
-            output_suppress: false,
-            dsl_result_json: None,
-        }));
-        r
+    let registry = make_registry_with_processor(MockOutboundProcessor {
+        name: "clean".into(),
+        output_content: "plain text content".to_string(),
+        output_suppress: false,
+        dsl_result_json: None,
     });
-    let renderer = Arc::new(MockRenderer::new(
+    let plugin = Arc::new(TrackingPlugin::new(
+        "tracking",
         "text",
-        serde_json::json!({"msg_type": "text", "content": {"text": "rendered text"}}),
+        serde_json::json!({"content": {"text": "rendered text"}}),
     ));
-    let gw = Gateway::with_renderer(config, Arc::clone(&sm), renderer.clone(), Some(registry));
-    let adapter = Arc::new(TrackingAdapter::default());
-    gw.register_adapter("tracking".into(), adapter.clone())
-        .await;
+    let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), registry);
+    gw.register_plugin(plugin.clone()).await;
 
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
@@ -166,17 +181,18 @@ async fn test_send_outbound_with_renderer_text() {
         .await
         .unwrap();
 
-    assert_eq!(
-        renderer.render_content.lock().unwrap().clone(),
-        Some("plain text content".to_string())
-    );
-    assert!(renderer.render_dsl_result.lock().unwrap().is_none());
-    assert!(*adapter.send_message_called.lock().unwrap());
-    assert!(!*adapter.send_card_json_called.lock().unwrap());
+    // render() was called with the processor's output content
+    let render = plugin.render_called.lock().unwrap().clone();
+    let (ref text, ref dsl) = render.as_ref().expect("render should have been called");
+    assert_eq!(text, "plain text content");
+    assert!(dsl.is_none());
+
+    // send() was called
+    assert!(*plugin.send_called.lock().unwrap());
 }
 
 #[tokio::test]
-async fn test_send_outbound_with_renderer_interactive() {
+async fn test_plugin_interactive_path() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -185,24 +201,19 @@ async fn test_send_outbound_with_renderer_interactive() {
         BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
-    let registry = Arc::new({
-        let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
-        r.register(Arc::new(MockOutboundProcessor {
-            name: "rich".into(),
-            output_content: "# Title\nBody content".to_string(),
-            output_suppress: false,
-            dsl_result_json: None,
-        }));
-        r
+    let registry = make_registry_with_processor(MockOutboundProcessor {
+        name: "rich".into(),
+        output_content: "# Title\nBody".to_string(),
+        output_suppress: false,
+        dsl_result_json: None,
     });
-    let renderer = Arc::new(MockRenderer::new(
+    let plugin = Arc::new(TrackingPlugin::new(
+        "tracking",
         "interactive",
-        serde_json::json!({"msg_type": "interactive", "card": {"elements": []}}),
+        serde_json::json!({"card": {"elements": []}}),
     ));
-    let gw = Gateway::with_renderer(config, Arc::clone(&sm), renderer.clone(), Some(registry));
-    let adapter = Arc::new(TrackingAdapter::default());
-    gw.register_adapter("tracking".into(), adapter.clone())
-        .await;
+    let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), registry);
+    gw.register_plugin(plugin.clone()).await;
 
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
@@ -211,12 +222,11 @@ async fn test_send_outbound_with_renderer_interactive() {
         .await
         .unwrap();
 
-    assert!(*adapter.send_card_json_called.lock().unwrap());
-    assert!(!*adapter.send_message_called.lock().unwrap());
+    assert!(*plugin.send_called.lock().unwrap());
 }
 
 #[tokio::test]
-async fn test_send_outbound_with_renderer_dsl_result_passed() {
+async fn test_plugin_dsl_result_passed_to_render() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -230,23 +240,19 @@ async fn test_send_outbound_with_renderer_dsl_result_passed() {
         instructions: vec![],
     })
     .unwrap();
-    let registry = Arc::new({
-        let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
-        r.register(Arc::new(MockOutboundProcessor {
-            name: "with_dsl".into(),
-            output_content: "Raw with DSL".to_string(),
-            output_suppress: false,
-            dsl_result_json: Some(dsl_json),
-        }));
-        r
+    let registry = make_registry_with_processor(MockOutboundProcessor {
+        name: "with_dsl".into(),
+        output_content: "Raw with DSL".to_string(),
+        output_suppress: false,
+        dsl_result_json: Some(dsl_json),
     });
-    let renderer = Arc::new(MockRenderer::new(
+    let plugin = Arc::new(TrackingPlugin::new(
+        "tracking",
         "text",
-        serde_json::json!({"msg_type": "text", "content": {"text": "rendered"}}),
+        serde_json::json!({"content": {"text": "rendered"}}),
     ));
-    let gw = Gateway::with_renderer(config, Arc::clone(&sm), renderer.clone(), Some(registry));
-    gw.register_adapter("tracking".into(), Arc::new(TrackingAdapter::default()))
-        .await;
+    let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), registry);
+    gw.register_plugin(plugin.clone()).await;
 
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
@@ -255,16 +261,14 @@ async fn test_send_outbound_with_renderer_dsl_result_passed() {
         .await
         .unwrap();
 
-    let captured_dsl = renderer.render_dsl_result.lock().unwrap().clone();
-    assert!(captured_dsl.is_some());
-    assert_eq!(
-        captured_dsl.as_ref().unwrap().clean_content,
-        "Clean content"
-    );
+    let render = plugin.render_called.lock().unwrap().clone();
+    let (_, ref dsl) = render.as_ref().expect("render should have been called");
+    let dsl = dsl.as_ref().expect("dsl_result should have been passed");
+    assert_eq!(dsl.clean_content, "Clean content");
 }
 
 #[tokio::test]
-async fn test_send_outbound_no_renderer_fallback_text() {
+async fn test_plugin_suppress_skips_send() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -273,20 +277,19 @@ async fn test_send_outbound_no_renderer_fallback_text() {
         BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
-    let registry = Arc::new({
-        let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
-        r.register(Arc::new(MockOutboundProcessor {
-            name: "plain".into(),
-            output_content: "plain fallback".to_string(),
-            output_suppress: false,
-            dsl_result_json: None,
-        }));
-        r
+    let registry = make_registry_with_processor(MockOutboundProcessor {
+        name: "suppressor".into(),
+        output_content: "ignored".to_string(),
+        output_suppress: true,
+        dsl_result_json: None,
     });
+    let plugin = Arc::new(TrackingPlugin::new(
+        "tracking",
+        "text",
+        serde_json::json!({"content": {"text": "should not send"}}),
+    ));
     let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), registry);
-    let adapter = Arc::new(TrackingAdapter::default());
-    gw.register_adapter("tracking".into(), adapter.clone())
-        .await;
+    gw.register_plugin(plugin.clone()).await;
 
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
@@ -295,17 +298,21 @@ async fn test_send_outbound_no_renderer_fallback_text() {
         .await
         .unwrap();
 
-    assert!(*adapter.send_message_called.lock().unwrap());
-    assert!(!*adapter.send_card_json_called.lock().unwrap());
+    // Suppress → neither render nor send should be called
+    assert!(plugin.render_called.lock().unwrap().is_none());
+    assert!(!*plugin.send_called.lock().unwrap());
 }
 
 #[tokio::test]
-async fn test_send_outbound_no_renderer_no_registry_bypass() {
+async fn test_no_registry_bypass_uses_plugin() {
     let config = make_config();
     let (gw, sm) = make_outbound_gw(config);
-    let adapter = Arc::new(TrackingAdapter::default());
-    gw.register_adapter("tracking".into(), adapter.clone())
-        .await;
+    let plugin = Arc::new(TrackingPlugin::new(
+        "tracking",
+        "text",
+        serde_json::json!({"content": {"text": "bypass"}}),
+    ));
+    gw.register_plugin(plugin.clone()).await;
 
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
@@ -314,72 +321,35 @@ async fn test_send_outbound_no_renderer_no_registry_bypass() {
         .await
         .unwrap();
 
-    assert!(*adapter.send_message_called.lock().unwrap());
-    assert!(!*adapter.send_card_json_called.lock().unwrap());
+    // Even without a processor registry, the plugin should be used
+    assert!(plugin.render_called.lock().unwrap().is_some());
+    assert!(*plugin.send_called.lock().unwrap());
 }
 
 #[tokio::test]
-async fn test_send_outbound_renderer_with_suppress() {
+async fn test_unknown_channel_returns_error() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Minimal,
-        ReasoningLevel::default(),
-    ));
-    let registry = Arc::new({
-        let mut r = closeclaw::processor_chain::ProcessorRegistry::new();
-        r.register(Arc::new(MockOutboundProcessor {
-            name: "suppressor".into(),
-            output_content: "ignored".to_string(),
-            output_suppress: true,
-            dsl_result_json: None,
-        }));
-        r
-    });
-    let renderer = Arc::new(MockRenderer::new(
-        "text",
-        serde_json::json!({"msg_type": "text", "content": {"text": "should not send"}}),
-    ));
-    let gw = Gateway::with_renderer(config, Arc::clone(&sm), renderer.clone(), Some(registry));
-    let adapter = Arc::new(TrackingAdapter::default());
-    gw.register_adapter("tracking".into(), adapter.clone())
-        .await;
-
+    let (gw, sm) = make_outbound_gw(config);
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![])
-        .await
-        .unwrap();
-
-    assert!(!*adapter.send_message_called.lock().unwrap());
-    assert!(!*adapter.send_card_json_called.lock().unwrap());
-    assert!(renderer.render_content.lock().unwrap().is_none());
+    let result = gw.send_outbound(&sid, "unknown", "raw", vec![]).await;
+    assert!(matches!(result, Err(GatewayError::UnknownChannel(_))));
 }
 
 #[tokio::test]
-async fn test_send_outbound_renderer_requires_registry() {
+async fn test_unknown_session_returns_error() {
     let config = make_config();
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Minimal,
-        ReasoningLevel::default(),
-    ));
-    let renderer = Arc::new(MockRenderer::new(
+    let (gw, _sm) = make_outbound_gw(config);
+    let plugin = Arc::new(TrackingPlugin::new(
+        "tracking",
         "text",
-        serde_json::json!({"msg_type": "text", "content": {"text": "x"}}),
+        serde_json::json!({"content": {"text": "x"}}),
     ));
-    let gw = Gateway::with_renderer(config, Arc::clone(&sm), renderer, None);
-    gw.register_adapter("tracking".into(), Arc::new(TrackingAdapter::default()))
+    gw.register_plugin(plugin).await;
+
+    let result = gw
+        .send_outbound("nonexistent-session", "tracking", "raw", vec![])
         .await;
-
-    let msg = make_outbound_message("agent-1", "hello");
-    let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
-
-    let result = gw.send_outbound(&sid, "tracking", "raw", vec![]).await;
-    assert!(matches!(result, Err(GatewayError::OutboundError(_))));
+    assert!(matches!(result, Err(GatewayError::MissingSessionId)));
 }

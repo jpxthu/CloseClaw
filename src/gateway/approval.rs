@@ -7,28 +7,32 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde_json::json;
+
+use crate::im::IMPlugin;
 use crate::permission::approval::ApprovalMode;
 use crate::permission::approval_flow::{ApprovalFlow, ApprovalNotification};
+use crate::renderer::RenderedOutput;
 
-use super::{Gateway, HandleResult, Message};
+use super::{Gateway, HandleResult};
 
 impl Gateway {
     /// Set the approval flow for intercepting `/approve` / `/deny` commands.
     ///
     /// Also installs the `on_notify_owner` callback that sends approval
-    /// notifications to the owner via the Gateway's adapters.
+    /// notifications to the owner via the Gateway's plugins.
     pub async fn set_approval_flow(&self, flow: Arc<tokio::sync::Mutex<ApprovalFlow>>) {
         let handle = tokio::runtime::Handle::current();
-        let adapters = self.adapters.read().await;
-        // Clone Arc adapter refs for each channel so the callback can send messages.
-        let adapter_clones: HashMap<String, Arc<dyn crate::im::IMAdapter>> = adapters
+        let plugins = self.plugins.read().await;
+        // Clone Arc plugin refs for each channel so the callback can send messages.
+        let plugin_clones: HashMap<String, Arc<dyn IMPlugin>> = plugins
             .iter()
             .map(|(k, v)| (k.clone(), Arc::clone(v)))
             .collect();
-        drop(adapters);
+        drop(plugins);
 
         // Build the on_notify_owner callback.
-        // This closure captures the adapter clones and runtime handle to send
+        // This closure captures the plugin clones and runtime handle to send
         // approval notifications asynchronously.
         let notify_cb = move |notification: ApprovalNotification| {
             let request_id = notification.request_id;
@@ -42,23 +46,18 @@ impl Gateway {
                 request_id, agent, user, op, risk, request_id, request_id
             );
 
-            // Find the first available adapter and send to the owner.
-            // The owner channel is determined by the adapter's default target.
-            let adapters = adapter_clones.clone();
+            // Find the first available plugin and send to the owner.
+            // The owner channel is determined by the plugin's default target.
+            let plugins = plugin_clones.clone();
             let handle = handle.clone();
             handle.spawn(async move {
-                // Try each registered adapter until one succeeds.
-                for (channel_name, adapter) in &adapters {
-                    let msg = Message {
-                        id: format!("approval-notify-{}", chrono::Utc::now().timestamp_millis()),
-                        from: "system".to_string(),
-                        to: "owner".to_string(),
-                        content: text.clone(),
-                        channel: channel_name.clone(),
-                        timestamp: chrono::Utc::now().timestamp(),
-                        metadata: std::collections::HashMap::new(),
+                // Try each registered plugin until one succeeds.
+                for (channel_name, plugin) in &plugins {
+                    let output = RenderedOutput {
+                        msg_type: "text".into(),
+                        payload: json!({"content": {"text": text}}),
                     };
-                    match adapter.send_message(&msg).await {
+                    match plugin.send(&output, "owner", None).await {
                         Ok(()) => break,
                         Err(e) => {
                             tracing::warn!(

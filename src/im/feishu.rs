@@ -2,8 +2,12 @@
 //!
 //! Implements IMAdapter for Feishu messaging platform.
 
-use super::{AdapterError, IMAdapter};
+use super::{AdapterError, IMAdapter, IMPlugin, NormalizedMessage};
 use crate::gateway::Message;
+use crate::llm::types::ContentBlock;
+use crate::processor_chain::DslParseResult;
+use crate::renderer::feishu::FeishuRenderer;
+use crate::renderer::{RenderedOutput, Renderer};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -295,5 +299,95 @@ impl IMAdapter for FeishuAdapter {
         let result = hasher.finalize();
         let expected = format!("{:x}", result);
         expected == signature
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FeishuPlugin — IMPlugin wrapper for the Feishu platform
+// ---------------------------------------------------------------------------
+
+/// Unified IM plugin for Feishu, wrapping a [`FeishuAdapter`] (HTTP I/O) and a
+/// [`FeishuRenderer`] (LLM `ContentBlock`s → card / text payloads) behind a
+/// single [`IMPlugin`] implementation. The gateway registers one instance per
+/// platform via `IMPlugin::platform()` and routes all inbound / outbound calls
+/// through it.
+pub struct FeishuPlugin {
+    adapter: Arc<FeishuAdapter>,
+    renderer: Arc<FeishuRenderer>,
+}
+
+impl FeishuPlugin {
+    /// Build a new [`FeishuPlugin`] from a Feishu adapter and renderer.
+    pub(crate) fn new(adapter: Arc<FeishuAdapter>, renderer: Arc<FeishuRenderer>) -> Self {
+        Self { adapter, renderer }
+    }
+}
+
+#[async_trait]
+impl IMPlugin for FeishuPlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        let message = self.adapter.handle_webhook(payload).await?;
+        Ok(Some(NormalizedMessage {
+            platform: message.channel,
+            sender_id: message.from,
+            peer_id: message.to,
+            content: message.content,
+            timestamp: message.timestamp,
+            thread_id: None,
+            account_id: message.metadata.get("account_id").cloned(),
+        }))
+    }
+
+    async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
+        self.adapter.validate_signature(signature, payload).await
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        self.renderer.render(content_blocks, dsl_result)
+    }
+
+    async fn send(
+        &self,
+        output: &RenderedOutput,
+        peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        match output.msg_type.as_str() {
+            "text" => {
+                let text = output
+                    .payload
+                    .get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                let message = Message {
+                    id: String::new(),
+                    from: String::new(),
+                    to: peer_id.to_string(),
+                    content: text.to_string(),
+                    channel: "feishu".to_string(),
+                    timestamp: chrono::Utc::now().timestamp(),
+                    metadata: HashMap::new(),
+                };
+                self.adapter.send_message(&message).await
+            }
+            "interactive" => {
+                let card_json = serde_json::to_string(&output.payload)
+                    .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+                self.adapter.send_card_json(peer_id, &card_json).await
+            }
+            _ => Err(AdapterError::UnsupportedOperation),
+        }
     }
 }
