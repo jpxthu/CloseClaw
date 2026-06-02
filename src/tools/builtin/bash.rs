@@ -280,7 +280,6 @@ fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, S
 async fn handle_foreground_result(
     mut child: tokio::process::Child,
     command: &str,
-    cwd: &str,
     stdout_handle: Option<tokio::process::ChildStdout>,
     stderr_handle: Option<tokio::process::ChildStderr>,
     bg_timeout: Duration,
@@ -302,7 +301,7 @@ async fn handle_foreground_result(
             child.stdout = stdout_handle;
             child.stderr = stderr_handle;
             let task = bg_manager
-                .backgroundize(child, command, Path::new(cwd))
+                .backgroundize(child, command)
                 .await
                 .map_err(|e| format!("failed to backgroundize command: {}", e))?;
             Ok(build_auto_background_result(&task))
@@ -322,15 +321,17 @@ async fn execute_command(
     run_in_background: bool,
     bg_manager: &BackgroundTaskManager,
 ) -> Result<ToolResult, String> {
-    let mut child = spawn_sh_command(command, cwd)?;
-
     if run_in_background {
+        // Per #762 design: `spawn()` is the "self-cold-start" path; do not
+        // pre-spawn a Child and pass it through `backgroundize()` here.
         let task = bg_manager
-            .backgroundize(child, command, Path::new(cwd))
+            .spawn(command, Path::new(cwd))
             .await
-            .map_err(|e| format!("failed to background task: {}", e))?;
+            .map_err(|e| format!("failed to spawn background task: {}", e))?;
         return Ok(build_background_result(&task));
     }
+
+    let mut child = spawn_sh_command(command, cwd)?;
 
     let stdout_handle = child.stdout.take();
     let stderr_handle = child.stderr.take();
@@ -343,7 +344,6 @@ async fn execute_command(
     handle_foreground_result(
         child,
         command,
-        cwd,
         stdout_handle,
         stderr_handle,
         bg_timeout,

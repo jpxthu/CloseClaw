@@ -165,3 +165,257 @@ fn test_input_schema_six_properties() {
         assert!(props.contains_key(*name), "missing property: {}", name);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.3: UT for run_in_background + auto-background paths
+// (Refs: issue #814 — `run_in_background` must use `spawn()`, auto-bg must
+// include `assistantAutoBackgrounded: true` + `backgroundTaskId`.)
+// ---------------------------------------------------------------------------
+
+// --- build_background_result ---
+
+#[test]
+fn test_build_background_result_has_task_id_and_output_path() {
+    use crate::tasks::{BackgroundTask, TaskState};
+    use std::path::PathBuf;
+    let task = BackgroundTask {
+        id: "task-abc-123".to_string(),
+        command: "echo hi".to_string(),
+        state: TaskState::Running,
+        output_path: PathBuf::from("/tmp/openclaw/x/output"),
+    };
+    let result = build_background_result(&task);
+    assert_eq!(
+        result.data["backgroundTaskId"],
+        json!("task-abc-123"),
+        "explicit-background result must expose backgroundTaskId"
+    );
+    assert_eq!(
+        result.data["outputPath"],
+        json!("/tmp/openclaw/x/output"),
+        "explicit-background result must expose outputPath"
+    );
+}
+
+#[test]
+fn test_build_background_result_has_no_auto_backgrounded_flag() {
+    use crate::tasks::{BackgroundTask, TaskState};
+    use std::path::PathBuf;
+    let task = BackgroundTask {
+        id: "task-no-auto".to_string(),
+        command: "true".to_string(),
+        state: TaskState::Running,
+        output_path: PathBuf::from("/tmp/openclaw/y/output"),
+    };
+    let result = build_background_result(&task);
+    // Explicit `run_in_background: true` must NOT set the auto flag.
+    let flag = &result.data["assistantAutoBackgrounded"];
+    assert!(
+        flag.is_null() || flag == &json!(false),
+        "explicit-background result must not set assistantAutoBackgrounded=true, got: {}",
+        flag
+    );
+}
+
+// --- build_auto_background_result ---
+
+#[test]
+fn test_build_auto_background_result_has_task_id_and_flag() {
+    use crate::tasks::{BackgroundTask, TaskState};
+    use std::path::PathBuf;
+    let task = BackgroundTask {
+        id: "task-auto-bg".to_string(),
+        command: "sleep 10".to_string(),
+        state: TaskState::Running,
+        output_path: PathBuf::from("/tmp/openclaw/z/output"),
+    };
+    let result = build_auto_background_result(&task);
+    assert_eq!(
+        result.data["backgroundTaskId"],
+        json!("task-auto-bg"),
+        "auto-background result must expose backgroundTaskId"
+    );
+    assert_eq!(
+        result.data["outputPath"],
+        json!("/tmp/openclaw/z/output"),
+        "auto-background result must expose outputPath"
+    );
+    assert_eq!(
+        result.data["assistantAutoBackgrounded"],
+        json!(true),
+        "auto-background result must set assistantAutoBackgrounded=true"
+    );
+}
+
+// --- execute_command with run_in_background: true ---
+
+#[tokio::test]
+async fn test_execute_command_run_in_background_returns_background_task() {
+    use crate::tasks::TaskState;
+    let bg_manager = BackgroundTaskManager::new();
+
+    let result = execute_command("echo run_in_bg", "/tmp", 5_000, true, &bg_manager)
+        .await
+        .expect("execute_command(run_in_background) should succeed");
+
+    // Required fields per design (background-tasks.md)
+    let task_id = result.data["backgroundTaskId"]
+        .as_str()
+        .expect("backgroundTaskId must be a non-null string");
+    assert!(!task_id.is_empty(), "backgroundTaskId must not be empty");
+    assert!(
+        result.data["outputPath"].is_string(),
+        "outputPath must be a string, got: {}",
+        result.data["outputPath"]
+    );
+
+    // The explicit-background path must NOT set the auto flag.
+    let flag = &result.data["assistantAutoBackgrounded"];
+    assert!(
+        flag.is_null() || flag == &json!(false),
+        "explicit-background path must not set assistantAutoBackgrounded=true, got: {}",
+        flag
+    );
+
+    // The task must be tracked by the manager (state: Running).
+    let snapshot = bg_manager
+        .get_task(task_id)
+        .await
+        .expect("background task must be tracked by the manager");
+    assert_eq!(snapshot.id, task_id);
+    assert_eq!(snapshot.command, "echo run_in_bg");
+    assert_eq!(snapshot.state, TaskState::Running);
+    assert!(bg_manager.is_running(task_id).await);
+
+    // Wait for completion so the spawned tokio task is dropped before
+    // the test exits (avoids leaving an orphan in CI).
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if !bg_manager.is_running(task_id).await {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_execute_command_run_in_background_with_long_command() {
+    // Verify that `run_in_background: true` does NOT pre-spawn a Child
+    // via `spawn_sh_command` (which would fail for an invalid command
+    // like `nonexistent_xyz`). With the new `spawn()` path, the task is
+    // registered immediately and the command runs in the background.
+    let bg_manager = BackgroundTaskManager::new();
+    let result = execute_command(
+        "nonexistent_xyz_abcdef_12345",
+        "/tmp",
+        5_000,
+        true,
+        &bg_manager,
+    )
+    .await
+    .expect("execute_command(run_in_background) should succeed even for unknown commands");
+    let task_id = result.data["backgroundTaskId"]
+        .as_str()
+        .expect("backgroundTaskId must be a string");
+    assert!(!task_id.is_empty());
+    // Task is registered as Running (the actual command failure is
+    // observed asynchronously in the spawned task).
+    assert!(bg_manager.is_running(task_id).await);
+
+    // Wait for the spawned task to settle into a Failed state.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if !bg_manager.is_running(task_id).await {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+}
+
+// --- handle_foreground_result: auto-background path ---
+
+#[tokio::test]
+async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
+    let bg_manager = BackgroundTaskManager::new();
+    // Spawn a child that will outlast the bg_timeout.
+    let mut child = spawn_sh_command("sleep 5", "/tmp").expect("spawn sleep");
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+
+    // Use a tiny bg_timeout so the auto-background path is triggered
+    // almost immediately. This is the exact branch Step 1.2 unlocked:
+    // `backgroundize(child, command)` is now called WITHOUT a cwd arg.
+    let result = handle_foreground_result(
+        child,
+        "sleep 5",
+        stdout_handle,
+        stderr_handle,
+        std::time::Duration::from_millis(100),
+        &bg_manager,
+    )
+    .await
+    .expect("auto-background path should succeed");
+
+    let task_id = result.data["backgroundTaskId"]
+        .as_str()
+        .expect("auto-bg result must expose backgroundTaskId");
+    assert!(!task_id.is_empty());
+    assert_eq!(
+        result.data["assistantAutoBackgrounded"],
+        json!(true),
+        "auto-bg result must set assistantAutoBackgrounded=true"
+    );
+    assert!(
+        result.data["outputPath"].is_string(),
+        "auto-bg result must expose outputPath"
+    );
+
+    // The task is now managed by the manager (state: Running).
+    assert!(bg_manager.is_running(task_id).await);
+
+    // Clean up: kill the orphan sleep so it does not linger after the
+    // test process exits.
+    let _ = bg_manager.kill(task_id).await;
+}
+
+#[tokio::test]
+async fn test_handle_foreground_result_returns_foreground_on_success() {
+    // Control test: when the child completes before bg_timeout, the
+    // result must be a foreground result (no background fields).
+    let bg_manager = BackgroundTaskManager::new();
+    let mut child = spawn_sh_command("true", "/tmp").expect("spawn true");
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+
+    let result = handle_foreground_result(
+        child,
+        "true",
+        stdout_handle,
+        stderr_handle,
+        std::time::Duration::from_secs(5),
+        &bg_manager,
+    )
+    .await
+    .expect("foreground path should succeed");
+
+    assert_eq!(
+        result.data["exitCode"],
+        json!(0),
+        "foreground result must include exitCode=0"
+    );
+    assert!(
+        result.data["backgroundTaskId"].is_null(),
+        "foreground result must not expose backgroundTaskId, got: {}",
+        result.data["backgroundTaskId"]
+    );
+    let flag = &result.data["assistantAutoBackgrounded"];
+    assert!(
+        flag.is_null() || flag == &json!(false),
+        "foreground result must not set assistantAutoBackgrounded=true, got: {}",
+        flag
+    );
+}

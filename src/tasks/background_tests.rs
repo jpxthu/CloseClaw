@@ -280,3 +280,112 @@ async fn test_mark_notified() {
     assert_eq!(notifs.len(), 1);
     assert_eq!(notifs[0].task_id, task.id);
 }
+
+// ---------------------------------------------------------------------------
+// 11. backgroundize — no cwd parameter (Step 1.2 / Step 1.3)
+//
+// Refs: issue #814 Step 1.2 — `backgroundize(child, command)` signature,
+// dropping the unused `_cwd` parameter. The fact that this test compiles
+// verifies the new signature; the runtime assertions verify the
+// take-over behavior is unchanged.
+// ---------------------------------------------------------------------------
+
+/// Helper: spawn a `sh -c <command>` child and return the Child + its
+/// stdout/stderr handles. Mirrors what BashTool does in the foreground
+/// path before handing the child to the manager.
+async fn spawn_test_child(
+    command: &str,
+) -> (
+    tokio::process::Child,
+    Option<tokio::process::ChildStdout>,
+    Option<tokio::process::ChildStderr>,
+) {
+    use tokio::process::Command;
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn test child");
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    (child, stdout, stderr)
+}
+
+#[tokio::test]
+async fn test_backgroundize_signature_no_cwd() {
+    // This test exists to exercise the new `backgroundize(child, command)`
+    // signature: NO `cwd` argument. If the signature regresses, this
+    // file will fail to compile.
+    let (mgr, _tmp) = test_manager();
+    let (child, _stdout, _stderr) = spawn_test_child("true").await;
+
+    let task = mgr
+        .backgroundize(child, "true")
+        .await
+        .expect("backgroundize(child, command) should succeed");
+
+    assert_eq!(task.state, TaskState::Running);
+    assert_eq!(task.command, "true");
+    assert!(mgr.is_running(&task.id).await);
+
+    // Eventually completes successfully.
+    let snapshot = wait_for_completion(&mgr, &task.id).await;
+    assert_eq!(snapshot.state, TaskState::Completed { exit_code: 0 });
+}
+
+#[tokio::test]
+async fn test_backgroundize_takes_over_long_running_child() {
+    // Verify the take-over path: hand off a long-running child, then
+    // kill it via the manager. The child is owned by the manager after
+    // `backgroundize`, so a subsequent `kill` must succeed.
+    let (mgr, _tmp) = test_manager();
+    let (child, _stdout, _stderr) = spawn_test_child("sleep 60").await;
+
+    let task = mgr
+        .backgroundize(child, "sleep 60")
+        .await
+        .expect("backgroundize should accept a long-running child");
+    assert!(mgr.is_running(&task.id).await);
+
+    // Give the manager a moment to wire up the kill_tx.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    mgr.kill(&task.id).await.expect("kill should succeed");
+    let snapshot = mgr.get_task(&task.id).await.unwrap();
+    assert_eq!(snapshot.state, TaskState::Killed);
+}
+
+#[tokio::test]
+async fn test_backgroundize_captures_child_output() {
+    // Verify that stdout/stderr from the taken-over child are captured
+    // into the task output file. The auto-background path in BashTool
+    // relies on this for the LLM to later read the command's output.
+    let (mgr, _tmp) = test_manager();
+    let (mut child, stdout_handle, stderr_handle) = spawn_test_child("echo bgize_output").await;
+
+    // `spawn_test_child` extracted stdout/stderr so the caller can decide
+    // whether to consume them. `backgroundize()` reads them itself via
+    // `child.stdout.take()`, so we must put the handles back on the child
+    // first — mirroring what `BashTool::handle_foreground_result` does in
+    // the auto-background path.
+    child.stdout = stdout_handle;
+    child.stderr = stderr_handle;
+
+    let task = mgr
+        .backgroundize(child, "echo bgize_output")
+        .await
+        .expect("backgroundize should succeed");
+    let _ = wait_for_completion(&mgr, &task.id).await;
+
+    let content = tokio::fs::read_to_string(&task.output_path)
+        .await
+        .expect("output file should be readable");
+    assert!(
+        content.contains("bgize_output"),
+        "expected captured stdout in {:?}, got: {:?}",
+        task.output_path,
+        content
+    );
+}
