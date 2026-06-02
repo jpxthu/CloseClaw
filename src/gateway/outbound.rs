@@ -65,12 +65,35 @@ impl Gateway {
                 .and_then(|v| v.as_str())
                 .and_then(|s| serde_json::from_str(s).ok());
 
+            // Step 1.2: pass the full ContentBlock stream to the renderer.
+            // The renderer decides per-block rendering (text/thinking/tool_use/tool_result)
+            // and extracts DSL-stripped plain text internally for the single-Text
+            // fast path. Previously this call site derived `clean_content` from
+            // `dsl_result` itself; that responsibility now lives in the renderer.
+            //
+            // Fallback: when content_blocks is empty (e.g. legacy caller that
+            // didn't produce structured blocks), wrap the raw `result.content`
+            // in a single Text block so simple text paths still work.
+            let owned_fallback;
+            let blocks_for_render: &[crate::llm::types::ContentBlock] =
+                if result.content_blocks.is_empty() {
+                    owned_fallback = vec![crate::llm::types::ContentBlock::Text(
+                        result.content.clone(),
+                    )];
+                    &owned_fallback
+                } else {
+                    &result.content_blocks
+                };
+
+            // Preserve a plain-text fallback string in case the renderer's
+            // text branch returns a payload missing the `content.text` field
+            // (defensive: older code paths may rely on it).
             let content = dsl_result
                 .as_ref()
                 .map(|r| r.clean_content.as_str())
                 .unwrap_or(&result.content);
 
-            let rendered = renderer.render(content, dsl_result.as_ref());
+            let rendered = renderer.render(blocks_for_render, dsl_result.as_ref());
             let payload_str =
                 serde_json::to_string(&rendered.payload).unwrap_or_else(|_| "{}".to_string());
 
