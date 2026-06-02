@@ -1,5 +1,7 @@
 //! Unit tests for the MiniMax provider.
 
+#![allow(deprecated)]
+
 use super::*;
 use crate::llm::{Message, ReqwestHttpClient};
 
