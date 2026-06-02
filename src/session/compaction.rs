@@ -3,6 +3,8 @@
 //! Provides token estimation, auto-compaction threshold detection, and circuit breaker
 //! for LLM context window management.
 
+#![allow(deprecated)]
+
 use serde::{Deserialize, Serialize};
 
 use crate::llm::Message;

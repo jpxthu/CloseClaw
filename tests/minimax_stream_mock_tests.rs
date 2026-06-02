@@ -3,6 +3,8 @@
 //! Error fixture tests: base_resp error mapping (AuthFailed, ModelNotFound, InvalidRequest).
 //! Streaming fixture tests: SSE delta merging and usage extraction.
 
+#![allow(deprecated)]
+
 use closeclaw::llm::MiniMaxProvider;
 use closeclaw::llm::{ChatRequest, LLMProvider, Message as LLMMessage};
 use mockito::Server;

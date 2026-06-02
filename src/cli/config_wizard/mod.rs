@@ -1,5 +1,7 @@
 //! Config Wizard - interactive CLI configuration flow
 
+#![allow(deprecated)]
+
 pub mod fetch;
 pub mod types;
 

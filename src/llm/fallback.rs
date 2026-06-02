@@ -2,6 +2,8 @@
 //!
 //! Wraps LLM calls with retry, cooldown tracking, and model-level fallback.
 
+#![allow(deprecated)]
+
 use crate::llm::retry::{
     backoff_delay, CooldownManager, MAX_TRANSIENT_RETRIES, MAX_UNKNOWN_RETRIES,
     TRANSIENT_BASE_DELAY, TRANSIENT_MAX_DELAY,
