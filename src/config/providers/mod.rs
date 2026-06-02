@@ -43,4 +43,7 @@ pub enum ConfigError {
 
     #[error("JSON parse error: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Missing required agent id in {path}")]
+    MissingId { path: String },
 }
