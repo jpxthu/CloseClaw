@@ -42,6 +42,15 @@ fn make_ctx() -> ToolContext {
     }
 }
 
+/// Build a `PromptGenerationContext` for the named tools.
+fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
+    PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: names.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
 #[tokio::test]
 async fn test_register_and_get_detail() {
     let reg = ToolRegistry::new();
@@ -183,7 +192,7 @@ async fn test_tool_info_from_tool() {
 
     let guard = reg.tools.read().await;
     let tool = guard.get("Read").unwrap();
-    let info = ToolInfo::from_tool(tool);
+    let info = ToolInfo::from_tool(tool, &make_prompt_ctx(&["Read"]));
     assert_eq!(info.name, "Read");
     assert_eq!(info.group, "file_ops");
     assert_eq!(info.detail, "detail for Read");
@@ -217,7 +226,7 @@ async fn test_build_tools_section() {
     .await
     .unwrap();
 
-    let ctx = make_ctx();
+    let ctx = make_prompt_ctx(&["Read", "ToolSearch"]);
     let section = reg.build_tools_section(&ctx).await;
     assert!(section.contains("file_ops"), "section: {section}");
     assert!(
@@ -259,7 +268,7 @@ async fn test_build_tools_section_with_detail() {
     .await
     .unwrap();
 
-    let ctx = make_ctx();
+    let ctx = make_prompt_ctx(&["Read", "Write"]);
     let section = reg.build_tools_section(&ctx).await;
     // Eager: bold name + detail
     assert!(
@@ -304,7 +313,7 @@ async fn test_build_tools_section_deferred_group() {
     .await
     .unwrap();
 
-    let ctx = make_ctx();
+    let ctx = make_prompt_ctx(&["SlowOp", "Cleanup"]);
     let section = reg.build_tools_section(&ctx).await;
     // Deferred group header must show "(deferred)"
     assert!(
@@ -385,7 +394,7 @@ async fn test_build_tools_section_danger_marks() {
     .await
     .unwrap();
 
-    let ctx = make_ctx();
+    let ctx = make_prompt_ctx(&["Viewer", "Deleter", "Lister", "DReader", "DDeleter"]);
     let section = reg.build_tools_section(&ctx).await;
     // Eager read-only: bold name + "(read-only)" + detail
     assert!(
@@ -451,7 +460,7 @@ async fn test_build_tools_section_eager_and_deferred_group() {
     .await
     .unwrap();
 
-    let ctx = make_ctx();
+    let ctx = make_prompt_ctx(&["Query", "Purge", "Compute"]);
     let section = reg.build_tools_section(&ctx).await;
     // Mixed group (eager + deferred): should say "(always loaded)"
     assert!(
@@ -478,7 +487,7 @@ async fn test_build_tools_section_eager_and_deferred_group() {
 #[tokio::test]
 async fn test_build_tools_section_empty() {
     let reg = ToolRegistry::new();
-    let ctx = make_ctx();
+    let ctx = make_prompt_ctx(&[]);
     let section = reg.build_tools_section(&ctx).await;
     assert!(section.is_empty());
 }

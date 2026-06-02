@@ -7,7 +7,9 @@ use crate::permission::engine::engine_types::PermissionResponse;
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::builtin::bash_classify;
 use crate::tools::security::{BashSecurityAnalyzer, TrustLevel};
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use crate::tools::{
+    PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
+};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -83,6 +85,19 @@ impl Tool for BashTool {
          output exceeds threshold. Supports run_in_background for async \
          execution. Commands exceeding 15s are auto-backgrounded."
             .to_string()
+    }
+
+    #[rustfmt::skip]
+    fn generate_prompt(&self, context: &PromptGenerationContext) -> String {
+        let Some(wd) = &context.workdir else { return self.detail() };
+        let mut s = format!(" Working directory: {}.", wd.path);
+        if wd.has_git {
+            if let Some(b) = &wd.branch { s.push_str(&format!(" Branch: {}.", b)); }
+            if wd.recent_changes > 0 {
+                s.push_str(&format!(" {} uncommitted change(s).", wd.recent_changes));
+            }
+        }
+        format!("{}{}", self.detail(), s)
     }
 
     fn input_schema(&self) -> Value {

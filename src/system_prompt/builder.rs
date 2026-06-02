@@ -6,6 +6,7 @@ use super::sections::{
     get_cached_section, invalidate_all_sections, load_cached_file_section, read_file_section,
     Section,
 };
+use super::tools_section::build_tools_section;
 use crate::skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -155,17 +156,7 @@ fn append_append_section(base: String, append: Option<String>) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tools section builder
-// ---------------------------------------------------------------------------
-
 use crate::tools::{ToolContext, ToolRegistry};
-
-/// Build the Tools section content from a registry.
-pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> Section {
-    let content = registry.build_tools_section(ctx).await;
-    Section::ToolsSection(content)
-}
 
 // ---------------------------------------------------------------------------
 // Convenience: build from file-based workspace sections
@@ -245,9 +236,6 @@ mod tests {
     use super::*;
     use crate::permission::engine::engine_eval::PermissionEngine;
     use crate::permission::rules::RuleSetBuilder;
-    use crate::skills::DiskSkillRegistry;
-    use crate::tools::builtin::register_builtin_tools;
-    use crate::tools::ToolRegistry;
     use std::sync::Arc;
 
     /// Helper to create a test PermissionEngine.
@@ -379,119 +367,5 @@ mod tests {
         let result1 = build_system_prompt(sections.clone(), None);
         let result2 = build_system_prompt(sections, None);
         assert_eq!(result1, result2);
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section_returns_tools_section() {
-        let registry = ToolRegistry::new();
-        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
-        let ctx = crate::tools::ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        };
-        let section = build_tools_section(&registry, &ctx).await;
-        match section {
-            Section::ToolsSection(_) => {}
-            _ => panic!("expected ToolsSection, got {:?}", section),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section_contains_group_headers() {
-        let registry = ToolRegistry::new();
-        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
-        let ctx = crate::tools::ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        };
-        let section = build_tools_section(&registry, &ctx).await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
-        // Should contain file_ops and meta group headers
-        assert!(
-            content.contains("file_ops"),
-            "missing file_ops group: {}",
-            content
-        );
-        assert!(content.contains("meta"), "missing meta group: {}", content);
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section_contains_tool_names() {
-        let registry = ToolRegistry::new();
-        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
-        let ctx = crate::tools::ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        };
-        let section = build_tools_section(&registry, &ctx).await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
-        // All 7 tool names should appear
-        for name in &[
-            "Read",
-            "Write",
-            "Edit",
-            "Grep",
-            "Ls",
-            "ToolSearch",
-            "PermissionQuery",
-        ] {
-            assert!(
-                content.contains(name),
-                "tool {} not found in: {}",
-                name,
-                content
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section_respects_max_length() {
-        let registry = ToolRegistry::new();
-        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
-        let ctx = crate::tools::ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        };
-        let section = build_tools_section(&registry, &ctx).await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
-        // With all builtin tools + detail the section should be well under 15000 chars
-        assert!(
-            content.chars().count() <= 15000,
-            "section too long: {}",
-            content
-        );
-    }
-
-    #[tokio::test]
-    async fn test_build_tools_section_empty_registry() {
-        let registry = ToolRegistry::new();
-        let ctx = crate::tools::ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        };
-        let section = build_tools_section(&registry, &ctx).await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
-        // Empty registry should produce empty content
-        assert!(
-            content.is_empty(),
-            "expected empty content, got: {}",
-            content
-        );
     }
 }

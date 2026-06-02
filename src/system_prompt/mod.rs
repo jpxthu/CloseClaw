@@ -10,16 +10,18 @@
 
 pub mod builder;
 pub mod sections;
+pub mod tools_section;
 pub mod workdir;
 
 pub use builder::{
-    build_from_workspace, build_system_prompt, build_tools_section, set_agent_prompt,
-    set_custom_prompt, set_override_prompt, WorkspaceBuildConfig,
+    build_from_workspace, build_system_prompt, set_agent_prompt, set_custom_prompt,
+    set_override_prompt, WorkspaceBuildConfig,
 };
 pub use sections::{
     clear_append_section, get_append_section, get_cached_section, invalidate_all_sections,
     invalidate_section, set_append_section, Section,
 };
+pub use tools_section::build_tools_section;
 pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};
 
 /// Maximum character length for append_section content
