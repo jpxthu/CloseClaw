@@ -120,6 +120,7 @@ impl SlashHandler for CapturingHandler {
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         *self.last_ctx.lock().expect("ctx mutex poisoned") = Some(SlashContext {
+            command: ctx.command.clone(),
             sender_id: ctx.sender_id.clone(),
             session_id: ctx.session_id.clone(),
             channel: ctx.channel.clone(),

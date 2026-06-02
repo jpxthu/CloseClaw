@@ -158,6 +158,7 @@ impl Gateway {
         channel: &str,
     ) -> Option<HandleResult> {
         let ctx = SlashContext {
+            command: cmd_name.to_owned(),
             sender_id: sender_id.unwrap_or("").to_owned(),
             session_id: session_id.to_owned(),
             channel: channel.to_owned(),

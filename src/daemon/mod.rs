@@ -11,7 +11,9 @@ use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::FeishuAdapter;
 use crate::slash::dispatcher::SlashDispatcher;
-use crate::slash::handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
+use crate::slash::handlers::{
+    ClearHandler, CompactHandler, ExecHandler, HelpHandler, WorkdirHandler,
+};
 use crate::slash::registry::HandlerRegistry;
 
 use crate::permission::approval_flow::ApprovalFlow;
@@ -166,6 +168,7 @@ impl Daemon {
         slash_registry.register(Arc::new(CompactHandler));
         slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&session_manager))));
         slash_registry.register(Arc::new(ExecHandler));
+        slash_registry.register(Arc::new(WorkdirHandler::new(Arc::clone(&session_manager))));
         let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
         slash_registry.register(Arc::new(help_handler));
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));

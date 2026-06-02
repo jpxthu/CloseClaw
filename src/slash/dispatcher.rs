@@ -59,7 +59,13 @@ impl SlashDispatcher {
         let Some(handler) = self.registry.get(cmd) else {
             return SlashResult::Unknown(content.to_owned());
         };
-        handler.handle(args, ctx).await
+        let ctx_with_cmd = SlashContext {
+            command: cmd.to_owned(),
+            sender_id: ctx.sender_id.clone(),
+            session_id: ctx.session_id.clone(),
+            channel: ctx.channel.clone(),
+        };
+        handler.handle(args, &ctx_with_cmd).await
     }
 
     /// Check whether a command is an Immediate command (responds even when

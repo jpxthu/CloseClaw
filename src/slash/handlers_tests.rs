@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
+use crate::gateway::session_manager::SessionManager;
 use crate::slash::context::SlashContext;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handler::{SlashHandler, SlashResult};
-use crate::slash::handlers::{ClearHandler, CompactHandler, HelpHandler};
+use crate::slash::handlers::{ClearHandler, CompactHandler, HelpHandler, WorkdirHandler};
 use crate::slash::registry::HandlerRegistry;
 
 // ── Mock handler ────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ impl SlashHandler for MockHandler {
 
 fn dummy_ctx() -> SlashContext {
     SlashContext {
+        command: String::new(),
         sender_id: "test_sender".to_owned(),
         session_id: "test_session".to_owned(),
         channel: "test_channel".to_owned(),
@@ -274,4 +276,165 @@ fn test_dispatcher_all_handlers() {
     let dispatcher = SlashDispatcher::new(registry);
     let handlers = dispatcher.all_handlers();
     assert_eq!(handlers.len(), 2);
+}
+
+// ── WorkdirHandler tests ────────────────────────────────────────────────────
+
+/// Construct a SessionManager the same way `test_clear_handler_handle_returns_reply`
+/// does. Returns just the manager — tests that need a session call
+/// `create_test_session` to obtain a `session_id`.
+fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
+    use crate::gateway::DmScope;
+    use crate::session::bootstrap::loader::BootstrapMode;
+    use crate::session::persistence::ReasoningLevel;
+
+    let gc = crate::gateway::GatewayConfig {
+        name: String::new(),
+        rate_limit_per_minute: 0,
+        max_message_size: 0,
+        dm_scope: DmScope::default(),
+    };
+    Arc::new(SessionManager::new(
+        &gc,
+        None, // storage
+        None, // workspace_dir
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ))
+}
+
+/// Pre-create a session via `SessionManager::find_or_create` and return its id.
+/// The returned id can be used to build a `SlashContext` so the handler resolves
+/// to a real session for `get_conversation_session`.
+async fn create_test_session(sm: &SessionManager) -> String {
+    use crate::gateway::Message;
+
+    let msg = Message {
+        id: "workdir-test-msg-1".to_string(),
+        from: "user-a".to_string(),
+        to: "agent-b".to_string(),
+        content: "hello".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: 0,
+        metadata: std::collections::HashMap::new(),
+    };
+    let account_id: Option<&str> = None;
+    sm.find_or_create("feishu", &msg, account_id)
+        .await
+        .expect("session")
+}
+
+#[test]
+fn test_workdir_handler_commands_and_description() {
+    let sm = make_workdir_session_manager();
+    let h = WorkdirHandler::new(sm);
+    assert_eq!(h.commands(), &["cd", "pwd", "git"]);
+    assert_eq!(h.description(), "工作目录操作");
+    assert!(!h.immediate());
+}
+
+#[tokio::test]
+async fn test_workdir_handler_cd_valid_path() {
+    let sm = make_workdir_session_manager();
+    let session_id = create_test_session(&sm).await;
+    let handler = WorkdirHandler::new(Arc::clone(&sm));
+
+    let mut ctx = dummy_ctx();
+    ctx.session_id = session_id;
+    ctx.command = "cd".to_owned();
+
+    // Use a portable temp-dir path instead of hardcoding "/tmp" so the test
+    // passes on every platform (e.g. Windows uses %TEMP%).
+    let target_path = std::env::temp_dir();
+    let result = handler.handle(&target_path.to_string_lossy(), &ctx).await;
+    match result {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("工作目录已变更为"),
+                "expected '工作目录已变更为' in reply, got: {text}"
+            );
+        }
+        other => panic!("expected Reply, got non-Reply variant"),
+    }
+}
+
+#[tokio::test]
+async fn test_workdir_handler_cd_invalid_path() {
+    let sm = make_workdir_session_manager();
+    let session_id = create_test_session(&sm).await;
+    let handler = WorkdirHandler::new(Arc::clone(&sm));
+
+    let mut ctx = dummy_ctx();
+    ctx.session_id = session_id;
+    ctx.command = "cd".to_owned();
+
+    let result = handler.handle("/nonexistent_xyz_path", &ctx).await;
+    match result {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("目录不存在"),
+                "expected '目录不存在' in reply, got: {text}"
+            );
+        }
+        other => panic!("expected Reply, got non-Reply variant"),
+    }
+}
+
+#[tokio::test]
+async fn test_workdir_handler_pwd() {
+    let sm = make_workdir_session_manager();
+    let session_id = create_test_session(&sm).await;
+    let handler = WorkdirHandler::new(Arc::clone(&sm));
+
+    let mut ctx = dummy_ctx();
+    ctx.session_id = session_id;
+    ctx.command = "pwd".to_owned();
+
+    let result = handler.handle("", &ctx).await;
+    match result {
+        SlashResult::Reply(text) => {
+            assert!(!text.is_empty(), "expected non-empty pwd reply");
+        }
+        other => panic!("expected Reply, got non-Reply variant"),
+    }
+}
+
+#[tokio::test]
+async fn test_workdir_handler_git_placeholder() {
+    let sm = make_workdir_session_manager();
+    let handler = WorkdirHandler::new(Arc::clone(&sm));
+
+    let mut ctx = dummy_ctx();
+    ctx.command = "git".to_owned();
+
+    let result = handler.handle("status", &ctx).await;
+    match result {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("git 指令即将支持"),
+                "expected 'git 指令即将支持' in reply, got: {text}"
+            );
+        }
+        other => panic!("expected Reply, got non-Reply variant"),
+    }
+}
+
+#[tokio::test]
+async fn test_workdir_handler_cd_no_args() {
+    let sm = make_workdir_session_manager();
+    let handler = WorkdirHandler::new(Arc::clone(&sm));
+
+    let mut ctx = dummy_ctx();
+    ctx.command = "cd".to_owned();
+
+    let result = handler.handle("", &ctx).await;
+    match result {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("用法"),
+                "expected '用法' in reply, got: {text}"
+            );
+        }
+        other => panic!("expected Reply, got non-Reply variant"),
+    }
 }

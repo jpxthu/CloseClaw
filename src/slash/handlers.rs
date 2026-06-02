@@ -1,11 +1,13 @@
 //! Built-in slash command handlers.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::gateway::SessionManager;
 use crate::slash::context::SlashContext;
 use crate::slash::handler::{SlashHandler, SlashResult};
 use crate::slash::registry::HandlerRegistry;
+use crate::system_prompt::build_git_status_for;
 
 // ── CompactHandler ──────────────────────────────────────────────────────────
 
@@ -149,6 +151,120 @@ impl SlashHandler for ExecHandler {
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Exec {
             command: args.to_owned(),
+        }
+    }
+}
+
+// ── WorkdirHandler ──────────────────────────────────────────────────────────
+
+/// `/cd`, `/pwd`, `/git` — operate on the session's working directory.
+///
+/// All three commands are handled by a single struct because they share the
+/// same `SessionManager` dependency. Subcommand dispatch happens inside
+/// [`Self::handle`] by inspecting `ctx.command`.
+///
+/// - `/cd <path>`: validate the path exists, then look up the
+///   `ConversationSession` via `SessionManager::get_conversation_session`,
+///   mutate its workdir in place, and reply with the new path plus the
+///   current git branch (if any).
+/// - `/pwd`: read `ConversationSession::workdir` and reply with the path.
+/// - `/git <args>`: placeholder reply — full implementation will route
+///   through the permission engine for read-only git subcommands.
+///
+/// `immediate()` returns `false` so `/cd` queues behind a running LLM turn
+/// (consistent with the design doc — workdir changes should not interrupt
+/// in-flight LLM work).
+pub struct WorkdirHandler {
+    session_manager: Arc<SessionManager>,
+}
+
+impl WorkdirHandler {
+    /// Create a new WorkdirHandler operating on the given session manager.
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
+    }
+
+    /// Handle `/cd <path>`: validate path, set session workdir, reply with
+    /// path + git status.
+    async fn handle_cd(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        let path_str = args.trim();
+        if path_str.is_empty() {
+            return SlashResult::Reply("用法：/cd <路径>".to_owned());
+        }
+
+        let path = PathBuf::from(path_str);
+        if !Path::new(&path).exists() {
+            return SlashResult::Reply(format!("目录不存在：{path_str}"));
+        }
+
+        // Inline: look up ConversationSession and mutate its workdir directly.
+        // (Previously this lived on SessionManager::set_session_workdir, which
+        // was a thin wrapper around the same two operations.)
+        let Some(conv) = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await
+        else {
+            return SlashResult::Reply("当前会话未激活".to_owned());
+        };
+        {
+            let mut cs = conv.write().await;
+            cs.set_workdir(path.clone());
+        }
+
+        let git_status = build_git_status_for(&path.to_string_lossy());
+        let mut reply = format!("工作目录已变更为：{}", path.display());
+        if let Some(status) = git_status {
+            reply.push('\n');
+            reply.push_str(&status);
+        }
+        SlashResult::Reply(reply)
+    }
+
+    /// Handle `/pwd`: read the current session workdir and reply with the path.
+    async fn handle_pwd(&self, ctx: &SlashContext) -> SlashResult {
+        let Some(conv) = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await
+        else {
+            return SlashResult::Reply("当前会话未激活".to_owned());
+        };
+        let cs = conv.read().await;
+        SlashResult::Reply(cs.workdir().display().to_string())
+    }
+
+    /// Handle `/git <args>`: placeholder. Real routing through the permission
+    /// engine arrives in a follow-up step.
+    fn handle_git(&self, _args: &str) -> SlashResult {
+        SlashResult::Reply("git 指令即将支持".to_owned())
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for WorkdirHandler {
+    fn commands(&self) -> &[&str] {
+        &["cd", "pwd", "git"]
+    }
+
+    fn description(&self) -> &str {
+        "工作目录操作"
+    }
+
+    fn immediate(&self) -> bool {
+        false
+    }
+
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        match ctx.command.as_str() {
+            "cd" => self.handle_cd(args, ctx).await,
+            "pwd" => self.handle_pwd(ctx).await,
+            "git" => self.handle_git(args),
+            // WorkdirHandler should never be invoked with an unknown command;
+            // the dispatcher only routes registered commands to us.
+            other => SlashResult::Reply(format!(
+                "未知子指令：{other}。WorkdirHandler 支持 cd / pwd / git。"
+            )),
         }
     }
 }
