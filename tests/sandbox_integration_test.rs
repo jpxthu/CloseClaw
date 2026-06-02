@@ -13,7 +13,6 @@
 
 use std::hash::Hash;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use closeclaw::permission::engine::{
     Action, Caller, CommandArgs, Effect, PermissionRequest, PermissionRequestBody,
@@ -255,7 +254,7 @@ async fn test_sandbox_new_with_custom_policy() {
         blocked_syscalls: vec![],
     };
 
-    let sandbox = Sandbox::new(&socket_path).with_policy(policy.clone());
+    let _sandbox = Sandbox::new(&socket_path).with_policy(policy.clone());
 
     // apply() should work with the custom policy
     assert!(policy.apply().is_ok());

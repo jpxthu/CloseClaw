@@ -237,7 +237,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct MemStorage {
         checkpoints: Mutex<Vec<SessionCheckpoint>>,
-        archived: Mutex<Vec<String>>,
+        _archived: Mutex<Vec<String>>,
         invalidated: Mutex<Vec<String>>,
         archive_called: Mutex<Vec<String>>,
         purge_called: Mutex<Vec<String>>,

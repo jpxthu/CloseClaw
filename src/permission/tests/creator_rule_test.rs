@@ -3,7 +3,7 @@
 //!
 
 use crate::permission::engine::{
-    Action, Caller, Effect, MatchType, PermissionEngine, PermissionRequest, PermissionRequestBody,
+    Action, Caller, Effect, PermissionEngine, PermissionRequest, PermissionRequestBody,
     PermissionResponse,
 };
 use crate::permission::rules::RuleSetBuilder;

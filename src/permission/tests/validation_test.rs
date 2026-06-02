@@ -1,5 +1,5 @@
 use crate::permission::engine::{
-    Action, MatchType, PermissionRequest, PermissionRequestBody, Rule, Subject, TemplateRef,
+    Action, MatchType, PermissionRequestBody, Rule, Subject, TemplateRef,
 };
 
 #[test]

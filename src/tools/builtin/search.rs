@@ -7,9 +7,6 @@ use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
 
-#[cfg(test)]
-use crate::tools::ToolContext;
-
 // ---------------------------------------------------------------------------
 // ToolSearchTool
 // ---------------------------------------------------------------------------
@@ -98,13 +95,6 @@ impl Tool for ToolSearchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn new_ctx() -> ToolContext {
-        ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        }
-    }
 
     #[test]
     fn test_toolsearch_name_group() {

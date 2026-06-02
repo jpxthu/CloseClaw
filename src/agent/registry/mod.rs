@@ -8,7 +8,7 @@ pub mod query;
 
 use crate::agent::process::{AgentProcess, AgentProcessHandle};
 #[cfg(test)]
-use crate::agent::state::{is_valid_transition, Checkpoint, DestroyConfirmation, SourceLocation};
+use crate::agent::state::is_valid_transition;
 use crate::agent::state::{AgentStateTransition, ErrorInfo, SuspendedReason, TransitionTrigger};
 use crate::agent::{Agent, AgentState};
 use std::collections::HashMap;

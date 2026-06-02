@@ -485,8 +485,8 @@ mod tests {
             ContentBlock::Thinking("ignored".to_string()),
             ContentBlock::Text("More text\n::button[label:Y;action:b;value:2]".to_string()),
         ];
-        let resultConvenience = DslParseResult::from_content_blocks(&blocks);
+        let result_convenience = DslParseResult::from_content_blocks(&blocks);
         let result_manual = DslParser::default().parse_content_blocks(&blocks);
-        assert_eq!(resultConvenience, result_manual);
+        assert_eq!(result_convenience, result_manual);
     }
 }

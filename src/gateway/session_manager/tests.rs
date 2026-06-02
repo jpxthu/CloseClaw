@@ -5,7 +5,6 @@ use crate::session::persistence::{AgentRole, PersistenceError, SessionCheckpoint
 use crate::system_prompt::{
     invalidate_all_sections, set_agent_prompt, set_custom_prompt, set_override_prompt,
 };
-use async_trait::async_trait;
 use serial_test::serial;
 use std::io::Write;
 use tempfile::TempDir;

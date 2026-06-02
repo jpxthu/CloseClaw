@@ -91,7 +91,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_disk_hit() {
         let disk_reg = DiskSkillRegistry::new(vec![make_disk_skill("disk-skill")]);
-        let mut bundled_reg = SkillRegistry::new();
+        let bundled_reg = SkillRegistry::new();
         bundled_reg
             .register(Arc::new(BundledMockSkill("disk-skill".into())))
             .await;
@@ -99,14 +99,14 @@ mod tests {
         let result = resolve_skill("disk-skill", &disk_reg, &bundled_reg).await;
         match result {
             Some(ResolvedSkill::Disk(_)) => {}
-            other => panic!("expected Disk, got unexpected variant"),
+            _other => panic!("expected Disk, got unexpected variant"),
         }
     }
 
     #[tokio::test]
     async fn test_resolve_bundled_hit() {
         let disk_reg = DiskSkillRegistry::new(vec![]);
-        let mut bundled_reg = SkillRegistry::new();
+        let bundled_reg = SkillRegistry::new();
         bundled_reg
             .register(Arc::new(BundledMockSkill("bundled-skill".into())))
             .await;
@@ -114,7 +114,7 @@ mod tests {
         let result = resolve_skill("bundled-skill", &disk_reg, &bundled_reg).await;
         match result {
             Some(ResolvedSkill::Bundled(_)) => {}
-            other => panic!("expected Bundled, got unexpected variant"),
+            _other => panic!("expected Bundled, got unexpected variant"),
         }
     }
 
@@ -131,7 +131,7 @@ mod tests {
     async fn test_resolve_disk_priority_over_bundled() {
         // Both disk and bundled have a skill named "foo"; disk should win
         let disk_reg = DiskSkillRegistry::new(vec![make_disk_skill("foo")]);
-        let mut bundled_reg = SkillRegistry::new();
+        let bundled_reg = SkillRegistry::new();
         bundled_reg
             .register(Arc::new(BundledMockSkill("foo".into())))
             .await;
@@ -139,7 +139,7 @@ mod tests {
         let result = resolve_skill("foo", &disk_reg, &bundled_reg).await;
         match result {
             Some(ResolvedSkill::Disk(_)) => {}
-            other => panic!("expected Disk (priority), got unexpected variant"),
+            _other => panic!("expected Disk (priority), got unexpected variant"),
         }
     }
 }

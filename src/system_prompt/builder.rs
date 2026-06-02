@@ -234,16 +234,6 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
 mod tests {
     use super::super::sections::Section;
     use super::*;
-    use crate::permission::engine::engine_eval::PermissionEngine;
-    use crate::permission::rules::RuleSetBuilder;
-    use std::sync::Arc;
-
-    /// Helper to create a test PermissionEngine.
-    fn test_permission_engine() -> Arc<PermissionEngine> {
-        Arc::new(PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new().build().unwrap(),
-        ))
-    }
 
     /// Clear all global prompt state to prevent cross-test pollution.
     fn clear_all_prompts() {

@@ -276,7 +276,7 @@ async fn test_glm_5_1_unicode_mock() {
     assert_response_fields(&resp, "glm-5.1", "Spring");
     // Verify Unicode content is preserved
     let json: GlmResponse = serde_json::from_str(fixture).unwrap();
-    let content = json
+    let _content = json
         .choices
         .as_ref()
         .and_then(|c| c.first())
