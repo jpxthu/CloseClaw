@@ -15,6 +15,7 @@ use crate::session::bootstrap::BootstrapMode;
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentConfig {
     /// Unique identifier for this agent.
     #[serde(default)]
@@ -90,6 +91,7 @@ fn default_bootstrap_mode() -> BootstrapMode {
 
 /// Sub-agent spawn control configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SubagentsConfig {
     /// Whitelist of allowed target agent IDs; `["*"]` means no restriction.
     #[serde(default = "default_all")]

@@ -253,17 +253,17 @@ fn test_agent_config_json_with_new_fields() {
         "name": "Json Agent",
         "model": "deepseek-v3",
         "workspace": "/home/user/project",
-        "agent_dir": "/home/user/.agents/my-agent",
-        "bootstrap_mode": "minimal",
+        "agentDir": "/home/user/.agents/my-agent",
+        "bootstrapMode": "minimal",
         "skills": ["coding", "search"],
         "tools": ["read", "write", "exec"],
-        "disallowed_tools": ["web_search"],
+        "disallowedTools": ["web_search"],
         "subagents": {
-            "allow_agents": ["coding-agent", "review-agent"],
-            "require_agent_id": true,
-            "max_spawn_depth": 2,
-            "max_children": 8,
-            "default_child_agent": "coding-agent",
+            "allowAgents": ["coding-agent", "review-agent"],
+            "requireAgentId": true,
+            "maxSpawnDepth": 2,
+            "maxChildren": 8,
+            "defaultChildAgent": "coding-agent",
             "model": "gpt-4o-mini"
         }
     }"#;
@@ -294,6 +294,51 @@ fn test_agent_config_json_with_new_fields() {
         Some("coding-agent".to_string())
     );
     assert_eq!(config.subagents.model, Some("gpt-4o-mini".to_string()));
+}
+
+#[test]
+fn test_agent_config_camel_case_parse() {
+    // JSON 示例直接取自设计文档 docs/design/agent/agent-config.md，
+    // 验证用户按设计文档编写的 camelCase 配置能被正确解析。
+    let json = r#"{
+        "id": "code-reviewer",
+        "name": "代码审查助手",
+        "parentId": null,
+        "model": "deepseek/deepseek-chat",
+        "workspace": null,
+        "agentDir": null,
+        "bootstrapMode": "minimal",
+        "skills": ["code-review"],
+        "tools": ["read", "grep", "glob", "web_search", "web_fetch"],
+        "disallowedTools": [],
+        "subagents": {
+            "allowAgents": [],
+            "maxSpawnDepth": 0,
+            "maxChildren": 0
+        }
+    }"#;
+
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+
+    assert_eq!(config.id, "code-reviewer");
+    assert_eq!(config.name, "代码审查助手");
+    assert_eq!(config.parent_id, None);
+    assert_eq!(config.model, Some("deepseek/deepseek-chat".to_string()));
+    assert_eq!(config.workspace, None);
+    assert_eq!(config.agent_dir, None);
+    assert_eq!(config.bootstrap_mode, BootstrapMode::Minimal);
+    assert_eq!(config.skills, vec!["code-review"]);
+    assert_eq!(
+        config.tools,
+        vec!["read", "grep", "glob", "web_search", "web_fetch"]
+    );
+    assert!(config.disallowed_tools.is_empty());
+    assert!(config.subagents.allow_agents.is_empty());
+    assert!(!config.subagents.require_agent_id);
+    assert_eq!(config.subagents.max_spawn_depth, 0);
+    assert_eq!(config.subagents.max_children, 0);
+    assert_eq!(config.subagents.default_child_agent, None);
+    assert_eq!(config.subagents.model, None);
 }
 
 #[test]
