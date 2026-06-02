@@ -60,7 +60,7 @@ async fn test_hierarchy_get_children() {
     );
 }
 
-/// Hierarchy queries: get_parent, get_ancestors, count, list_by_state
+/// Hierarchy queries: get_parent, get_ancestors, count, list() + filter by state
 #[tokio::test]
 async fn test_hierarchy_get_ancestors() {
     let registry = create_registry(30);
@@ -84,9 +84,19 @@ async fn test_hierarchy_get_ancestors() {
     assert_eq!(ancestors[1].name, "root");
 
     assert_eq!(registry.count().await, 3);
-    let idle = registry.list_by_state(AgentState::Idle).await;
+    let idle = registry
+        .list()
+        .await
+        .into_iter()
+        .filter(|a| a.state == AgentState::Idle)
+        .collect::<Vec<_>>();
     assert_eq!(idle.len(), 3);
-    let running = registry.list_by_state(AgentState::Running).await;
+    let running = registry
+        .list()
+        .await
+        .into_iter()
+        .filter(|a| a.state == AgentState::Running)
+        .collect::<Vec<_>>();
     assert!(running.is_empty());
 }
 

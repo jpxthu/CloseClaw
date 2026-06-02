@@ -1,7 +1,6 @@
 //! Query methods for AgentRegistry
 
-use super::{Agent, AgentRegistry, AgentState, RegistryError, RegistryResult};
-use tracing::warn;
+use super::{Agent, AgentRegistry, RegistryError, RegistryResult};
 
 impl AgentRegistry {
     /// Get an agent by ID
@@ -13,40 +12,10 @@ impl AgentRegistry {
             .ok_or_else(|| RegistryError::AgentNotFound(id.to_string()))
     }
 
-    /// Get an agent by ID, checking if alive (heartbeat)
-    pub async fn get_alive(&self, id: &str) -> RegistryResult<Agent> {
-        let agent = self.get(id).await?;
-        if !agent.is_alive(self.heartbeat_timeout_secs) {
-            warn!(agent_id = %id, "agent heartbeat expired");
-            return Err(RegistryError::AgentNotFound(id.to_string()));
-        }
-        Ok(agent)
-    }
-
     /// List all registered agents
     pub async fn list(&self) -> Vec<Agent> {
         let agents = self.agents.read().await;
         agents.values().cloned().collect()
-    }
-
-    /// List only alive agents (heartbeat within threshold)
-    pub async fn list_alive(&self) -> Vec<Agent> {
-        let agents = self.agents.read().await;
-        agents
-            .values()
-            .filter(|a| a.is_alive(self.heartbeat_timeout_secs))
-            .cloned()
-            .collect()
-    }
-
-    /// List agents by state
-    pub async fn list_by_state(&self, state: AgentState) -> Vec<Agent> {
-        let agents = self.agents.read().await;
-        agents
-            .values()
-            .filter(|a| a.state == state)
-            .cloned()
-            .collect()
     }
 }
 
