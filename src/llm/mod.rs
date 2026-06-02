@@ -1,6 +1,5 @@
 //! LLM Interface - Abstract trait for multiple LLM providers
 
-pub mod adapter;
 pub mod anthropic;
 pub mod cache_adapter;
 pub mod fallback;
@@ -8,6 +7,7 @@ pub mod glm;
 pub mod glm_stream;
 pub mod http_client;
 pub mod knowledge;
+pub mod legacy;
 pub mod minimax;
 pub mod model_cache;
 pub mod model_discovery;
@@ -122,7 +122,7 @@ pub type StreamingResponse = tokio::sync::mpsc::Receiver<ChatStreamChunk>;
 /// LLM provider trait - implemented by each LLM provider
 #[deprecated(
     note = "LLMProvider is superseded by the `Provider` trait in `crate::llm::Provider`. \
-          Use LegacyProviderAdapter to bridge old providers to the new trait."
+          Use LegacyProviderBridge to bridge old providers to the new trait."
 )]
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
