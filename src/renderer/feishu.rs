@@ -6,6 +6,7 @@
 
 use serde::Serialize;
 
+use crate::llm::types::ContentBlock;
 use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
 
 use super::code_block::{parse_content_segments, ContentSegment};
@@ -42,6 +43,27 @@ pub enum CardElement {
     Hr,
     #[serde(rename = "action")]
     Action { actions: Vec<CardAction> },
+    /// Feishu card `note` element — used to surface tool-call metadata
+    /// (name + truncated input) inline with the response.
+    #[serde(rename = "note")]
+    Note { elements: Vec<CardNoteElement> },
+}
+
+/// Inner element of a [`CardElement::Note`]. Currently only `plain_text`
+/// is exposed because that's all Feishu's note element supports.
+#[derive(Debug, Clone, Serialize)]
+pub struct CardNoteElement {
+    pub tag: String,
+    pub content: String,
+}
+
+impl CardNoteElement {
+    pub fn plain_text(content: impl Into<String>) -> Self {
+        Self {
+            tag: "plain_text".into(),
+            content: content.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,7 +83,7 @@ pub struct CardText {
 }
 
 // ---------------------------------------------------------------------------
-// FeishuRenderer
+// FeishuRenderer — helpers
 // ---------------------------------------------------------------------------
 
 /// Renderer implementation for Feishu.
@@ -73,7 +95,8 @@ impl FeishuRenderer {
         Self
     }
 
-    /// Returns true when content needs a card (has DSL, header, newlines, or inline formatting).
+    /// Returns true when content needs a card (has DSL, header, newlines, or
+    /// inline formatting).
     fn should_use_card(content: &str, has_dsl: bool) -> bool {
         let md = content.trim();
         if md.is_empty() {
@@ -83,6 +106,27 @@ impl FeishuRenderer {
             return true;
         }
         contains_inline(md)
+    }
+
+    /// Returns true when the structured content blocks warrant an interactive
+    /// card.
+    fn should_use_card_for_blocks(content_blocks: &[ContentBlock], has_dsl: bool) -> bool {
+        if content_blocks.is_empty() {
+            return false;
+        }
+        if has_dsl {
+            return true;
+        }
+        let has_non_text = content_blocks
+            .iter()
+            .any(|b| !matches!(b, ContentBlock::Text(_)));
+        if content_blocks.len() > 1 || has_non_text {
+            return true;
+        }
+        if let ContentBlock::Text(text) = &content_blocks[0] {
+            return Self::should_use_card(text, false);
+        }
+        true
     }
 
     /// Extracts `# Title` from first line.
@@ -119,6 +163,138 @@ impl FeishuRenderer {
             .collect()
     }
 }
+
+// ---------------------------------------------------------------------------
+// FeishuRenderer — per-block renderers
+// ---------------------------------------------------------------------------
+
+impl FeishuRenderer {
+    /// Render a Text block using the legacy markdown → card-element pipeline.
+    fn render_text_block(
+        &self,
+        text: &str,
+        dsl_result: Option<&DslParseResult>,
+    ) -> (Option<String>, Vec<CardElement>) {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return (None, Vec::new());
+        }
+        let (title, body) = Self::extract_header(trimmed);
+        let mut elements = Self::to_elements(&body);
+        if let Some(r) = dsl_result {
+            elements.extend(Self::render_buttons(&r.instructions));
+        }
+        (title, elements)
+    }
+
+    /// Render a Thinking block as a Feishu markdown quote block.
+    fn render_thinking_block(content: &str) -> CardElement {
+        let quoted = content
+            .lines()
+            .map(|line| {
+                if line.is_empty() {
+                    ">".to_string()
+                } else {
+                    format!("> {line}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let body = if quoted.is_empty() {
+            "> 💭 Thinking".to_string()
+        } else {
+            format!("> 💭 Thinking\n{quoted}")
+        };
+        CardElement::Markdown { content: body }
+    }
+
+    /// Render a ToolUse block as a Feishu `note` element.
+    fn render_tool_use_block(name: &str, input: &str) -> CardElement {
+        const INPUT_PREVIEW_LIMIT: usize = 200;
+        let preview: String = input.chars().take(INPUT_PREVIEW_LIMIT).collect();
+        let truncated = input.chars().count() > INPUT_PREVIEW_LIMIT;
+        let summary = if truncated {
+            format!("{preview}…")
+        } else {
+            preview
+        };
+        let line = if summary.is_empty() {
+            format!("🔧 {name}")
+        } else {
+            format!("🔧 {name}: {summary}")
+        };
+        CardElement::Note {
+            elements: vec![CardNoteElement::plain_text(line)],
+        }
+    }
+
+    /// Render a ToolResult block as a markdown element.
+    fn render_tool_result_block(content: &str) -> CardElement {
+        const RESULT_LIMIT: usize = 2000;
+        let char_count = content.chars().count();
+        if char_count <= RESULT_LIMIT {
+            return CardElement::Markdown {
+                content: format!("**Result**\n```\n{content}\n```"),
+            };
+        }
+        let preview: String = content.chars().take(RESULT_LIMIT).collect();
+        CardElement::Markdown {
+            content: format!(
+                "**Result**\n```\n{preview}\n```\n\n\
+                 _结果过长，已截断（{char_count} 字符，显示前 {RESULT_LIMIT}）_"
+            ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FeishuRenderer — block dispatch
+// ---------------------------------------------------------------------------
+
+impl FeishuRenderer {
+    /// Dispatch content blocks by type, producing a title and card elements.
+    fn dispatch_blocks(
+        &self,
+        content_blocks: &[ContentBlock],
+        dsl_result: Option<&DslParseResult>,
+    ) -> (Option<String>, Vec<CardElement>) {
+        let mut title: Option<String> = None;
+        let mut elements: Vec<CardElement> = Vec::new();
+
+        for block in content_blocks {
+            match block {
+                ContentBlock::Text(text) => {
+                    if title.is_none() {
+                        let (t, body) = Self::extract_header(text.trim());
+                        title = t;
+                        elements.extend(Self::to_elements(&body));
+                    } else {
+                        elements.extend(Self::to_elements(text.trim()));
+                    }
+                }
+                ContentBlock::Thinking(content) => {
+                    elements.push(Self::render_thinking_block(content));
+                }
+                ContentBlock::ToolUse { name, input, .. } => {
+                    elements.push(Self::render_tool_use_block(name, input));
+                }
+                ContentBlock::ToolResult { content, .. } => {
+                    elements.push(Self::render_tool_result_block(content));
+                }
+            }
+        }
+
+        if let Some(r) = dsl_result {
+            elements.extend(Self::render_buttons(&r.instructions));
+        }
+
+        (title, elements)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FeishuRenderer — card building
+// ---------------------------------------------------------------------------
 
 impl FeishuRenderer {
     /// Renders DSL instructions as buttons.
@@ -191,14 +367,21 @@ fn contains_inline(s: &str) -> bool {
         || (s.contains('[') && s.contains("]("))
 }
 
+// ---------------------------------------------------------------------------
+// Renderer trait impl
+// ---------------------------------------------------------------------------
+
 impl Renderer for FeishuRenderer {
     fn platform(&self) -> &str {
         "feishu"
     }
 
-    fn render(&self, content: &str, dsl_result: Option<&DslParseResult>) -> RenderedOutput {
-        let trimmed = content.trim();
-        if trimmed.is_empty() {
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        if content_blocks.is_empty() {
             return Self::build_text("");
         }
 
@@ -206,220 +389,27 @@ impl Renderer for FeishuRenderer {
             .as_ref()
             .is_some_and(|r| !r.instructions.is_empty());
 
-        if !Self::should_use_card(trimmed, has_dsl) {
-            return Self::build_text(trimmed);
+        // Backward-compat fast path: single Text block, no card needed.
+        if content_blocks.len() == 1 {
+            if let ContentBlock::Text(text) = &content_blocks[0] {
+                if !has_dsl && !Self::should_use_card(text, false) {
+                    return Self::build_text(text.trim());
+                }
+            }
         }
 
-        let (title, body) = Self::extract_header(trimmed);
-        let elements = Self::to_elements(&body);
-        let mut all = elements;
-
-        if let Some(r) = dsl_result {
-            all.extend(Self::render_buttons(&r.instructions));
+        if !Self::should_use_card_for_blocks(content_blocks, has_dsl) {
+            return Self::build_text("");
         }
 
-        Self::build_card(title, all)
+        let (title, elements) = self.dispatch_blocks(content_blocks, dsl_result);
+        Self::build_card(title, elements)
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests (separate file)
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::processor_chain::dsl_parser::DslParseResult;
-
-    fn btn(label: &str, action: &str, value: &str) -> DslInstruction {
-        DslInstruction::Button {
-            label: label.into(),
-            action: action.into(),
-            value: value.into(),
-        }
-    }
-
-    #[test]
-    fn test_platform() {
-        let r = FeishuRenderer::new();
-        assert_eq!(r.platform(), "feishu");
-    }
-
-    #[test]
-    fn test_empty_content() {
-        let r = FeishuRenderer::new();
-        let out = r.render("", None);
-        assert_eq!(out.msg_type, "text");
-        assert_eq!(out.payload["content"]["text"], "");
-    }
-
-    #[test]
-    fn test_plain_text() {
-        let r = FeishuRenderer::new();
-        let out = r.render("hello world", None);
-        assert_eq!(out.msg_type, "text");
-        assert_eq!(out.payload["content"]["text"], "hello world");
-    }
-
-    #[test]
-    fn test_rich_formatting() {
-        let r = FeishuRenderer::new();
-        let out = r.render("**bold** and _italic_", None);
-        assert_eq!(out.msg_type, "interactive");
-    }
-
-    #[test]
-    fn test_multiline() {
-        let r = FeishuRenderer::new();
-        let out = r.render("Line 1\nLine 2", None);
-        assert_eq!(out.msg_type, "interactive");
-    }
-
-    #[test]
-    fn test_header_extraction() {
-        let r = FeishuRenderer::new();
-        let out = r.render("# My Title\nBody content", None);
-        assert_eq!(out.msg_type, "interactive");
-        assert_eq!(out.payload["card"]["header"]["title"], "My Title");
-        assert_eq!(out.payload["card"]["header"]["template"], "blue");
-    }
-
-    #[test]
-    fn test_hr_element() {
-        let r = FeishuRenderer::new();
-        let out = r.render("Before\n---\nAfter", None);
-        let els = out.payload["card"]["elements"].as_array().unwrap();
-        assert!(els.iter().any(|e| e["tag"] == "hr"));
-    }
-
-    #[test]
-    fn test_dsl_button() {
-        let r = FeishuRenderer::new();
-        let dsl = DslParseResult {
-            clean_content: "Hi".into(),
-            instructions: vec![btn("Yes", "y", "1")],
-        };
-        let out = r.render("Hello", Some(&dsl));
-        assert_eq!(out.msg_type, "interactive");
-        let els = out.payload["card"]["elements"].as_array().unwrap();
-        let action = els.iter().find(|e| e["tag"] == "action").unwrap();
-        assert_eq!(action["actions"][0]["type"], "primary");
-    }
-
-    #[test]
-    fn test_dsl_multi_buttons() {
-        let r = FeishuRenderer::new();
-        let dsl = DslParseResult {
-            clean_content: "Hi".into(),
-            instructions: vec![btn("A", "a", "1"), btn("B", "b", "2")],
-        };
-        let out = r.render("Hello", Some(&dsl));
-        let els = out.payload["card"]["elements"].as_array().unwrap();
-        let action = els.iter().find(|e| e["tag"] == "action").unwrap();
-        assert_eq!(action["actions"][0]["type"], "primary");
-        assert_eq!(action["actions"][1]["type"], "default");
-    }
-
-    #[test]
-    fn test_no_dsl_none() {
-        let r = FeishuRenderer::new();
-        let out = r.render("No DSL here", None);
-        assert_eq!(out.msg_type, "text");
-    }
-
-    // ---- Code block integration tests ----
-
-    /// Helper: extract markdown content strings from CardElement::Markdown items.
-    fn markdown_contents(elements: &[CardElement]) -> Vec<String> {
-        elements
-            .iter()
-            .filter_map(|e| match e {
-                CardElement::Markdown { content } => Some(content.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn test_code_block_with_language() {
-        let els = FeishuRenderer::to_elements("```rust\nfn main() {}\n```");
-        let mds = markdown_contents(&els);
-        assert!(
-            mds.iter().any(|m| m.contains("```rust")),
-            "should contain ```rust marker"
-        );
-        assert!(
-            mds.iter().any(|m| m.contains("fn main()")),
-            "should contain code"
-        );
-    }
-
-    #[test]
-    fn test_code_block_without_language() {
-        let els = FeishuRenderer::to_elements("```\nsome code\n```");
-        let mds = markdown_contents(&els);
-        assert!(
-            mds.iter().any(|m| m.starts_with("```\n")),
-            "should start with ```"
-        );
-        assert!(
-            mds.iter().any(|m| m.contains("some code")),
-            "should contain code"
-        );
-    }
-
-    #[test]
-    fn test_multiple_code_blocks_interleaved() {
-        let input = "Intro text\n```rust\ncode1\n```\nMiddle text\n```python\ncode2\n```";
-        let els = FeishuRenderer::to_elements(input);
-        let mds = markdown_contents(&els);
-        // Should have: "Intro text", code block 1, "Middle text", code block 2
-        assert!(mds.iter().any(|m| m.contains("Intro text")));
-        assert!(mds
-            .iter()
-            .any(|m| m.contains("```rust") && m.contains("code1")));
-        assert!(mds.iter().any(|m| m.contains("Middle text")));
-        assert!(mds
-            .iter()
-            .any(|m| m.contains("```python") && m.contains("code2")));
-    }
-
-    #[test]
-    fn test_code_block_only() {
-        let els = FeishuRenderer::to_elements("```js\nconsole.log(1);\n```");
-        // Should be exactly one Markdown element (the code block)
-        assert_eq!(els.len(), 1);
-        match &els[0] {
-            CardElement::Markdown { content } => {
-                assert!(content.starts_with("```js\n"));
-                assert!(content.ends_with("```"));
-            }
-            other => panic!("expected Markdown, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_empty_code_block() {
-        let els = FeishuRenderer::to_elements("```\n\n```");
-        let mds = markdown_contents(&els);
-        assert!(!mds.is_empty(), "should produce at least one element");
-        assert!(
-            mds.iter().any(|m| m.contains("```")),
-            "should preserve ``` markers"
-        );
-    }
-
-    #[test]
-    fn test_no_code_block_regression() {
-        let els = FeishuRenderer::to_elements("Just plain text\nAnother line");
-        // No element should contain ``` markers
-        for el in &els {
-            if let CardElement::Markdown { content } = el {
-                assert!(
-                    !content.contains("```"),
-                    "plain text should not contain ```"
-                );
-            }
-        }
-    }
-}
+mod feishu_tests;
