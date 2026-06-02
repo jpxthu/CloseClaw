@@ -4,9 +4,11 @@
 //! Handles graceful shutdown via ShutdownCoordinator.
 pub mod shutdown;
 pub mod skill_reload;
+use crate::agent::spawn::SpawnController;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
+use crate::config::ConfigManager;
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::renderer::feishu::FeishuRenderer;
@@ -196,8 +198,27 @@ impl Daemon {
                 guard.as_ref().map(|dr| Arc::new(dr.clone()))
             };
             if let Some(disk_reg) = disk_reg_opt {
-                register_builtin_tools(&tool_registry, disk_reg, Arc::clone(&permission_engine))
-                    .await;
+                // Create ConfigManager and load agent configs (non-fatal if missing).
+                let config_manager = Arc::new(
+                    ConfigManager::new(PathBuf::from(config_dir))
+                        .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
+                );
+                if let Err(e) = config_manager.load_agents(None) {
+                    tracing::warn!(error = %e, "failed to load agent configs from ConfigManager — spawn validation will use defaults");
+                }
+                // Create SpawnController for session-based spawn validation.
+                let spawn_controller = Arc::new(SpawnController::new(
+                    Arc::clone(&config_manager),
+                    Arc::clone(&session_manager),
+                ));
+                register_builtin_tools(
+                    &tool_registry,
+                    disk_reg,
+                    Arc::clone(&permission_engine),
+                    spawn_controller,
+                    Arc::clone(&session_manager),
+                )
+                .await;
             }
         }
 

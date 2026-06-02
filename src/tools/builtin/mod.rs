@@ -10,6 +10,7 @@ pub mod file_ops;
 pub mod git_ops;
 pub mod permission;
 pub mod search;
+pub mod sessions_spawn;
 pub mod skill_creator;
 pub mod skill_tool;
 
@@ -19,17 +20,20 @@ pub use file_ops::{EditTool, GrepTool, LsTool, ReadTool, WriteTool};
 pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatusTool};
 pub use permission::PermissionQueryTool;
 pub use search::ToolSearchTool;
+pub use sessions_spawn::SessionsSpawnTool;
 pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
 
 use std::sync::Arc;
 
+use crate::agent::spawn::SpawnController;
+use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::skills::DiskSkillRegistry;
 
 /// Registers all built-in tools with the given registry.
 ///
-/// Currently registers 16 tools:
+/// Currently registers 17 tools:
 ///
 /// 5 file_ops tools:
 /// - [`ReadTool`]
@@ -52,6 +56,9 @@ use crate::skills::DiskSkillRegistry;
 /// 1 bash tool:
 /// - [`BashTool`]
 ///
+/// 1 sessions tool:
+/// - [`SessionsSpawnTool`]
+///
 /// 3 stub tools:
 /// - [`CodingAgentTool`]
 /// - [`SkillCreatorTool`]
@@ -60,6 +67,8 @@ pub async fn register_builtin_tools(
     registry: &crate::tools::ToolRegistry,
     disk_registry: Arc<DiskSkillRegistry>,
     permission_engine: Arc<PermissionEngine>,
+    spawn_controller: Arc<SpawnController>,
+    session_manager: Arc<SessionManager>,
 ) {
     // file_ops
     registry.register(ReadTool::new()).await.ok();
@@ -87,4 +96,13 @@ pub async fn register_builtin_tools(
         .ok();
     // skills
     registry.register(SkillTool::new(disk_registry)).await.ok();
+    // sessions
+    registry
+        .register(SessionsSpawnTool::new(spawn_controller, session_manager))
+        .await
+        .ok();
 }
+
+#[cfg(test)]
+#[path = "sessions_spawn_tests.rs"]
+mod sessions_spawn_tests;

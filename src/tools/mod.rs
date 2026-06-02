@@ -63,6 +63,12 @@ pub struct ToolContext {
     pub agent_id: String,
     /// Current working directory context (if set).
     pub workdir: Option<crate::system_prompt::WorkdirContext>,
+    /// ID of the session that owns this tool invocation, if known.
+    ///
+    /// Used by session-aware tools (e.g. `sessions_spawn`) to identify the
+    /// parent session. `None` for tools invoked outside any tracked session
+    /// (e.g. one-off CLI calls, prompt generation contexts).
+    pub session_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

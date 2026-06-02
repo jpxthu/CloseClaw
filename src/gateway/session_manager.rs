@@ -15,7 +15,6 @@ use crate::session::persistence::{
 use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
-use crate::system_prompt::sections::invalidate_all_sections;
 use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::{ToolContext, ToolRegistry};
 use std::collections::HashMap;
@@ -24,6 +23,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::warn;
 
+mod rebuild;
+mod spawn;
+pub use spawn::{ChildSessionInfo, SpawnMode};
 /// SessionManager holds all session state previously belonging to Gateway.
 /// It provides find_or_create to lookup or create a session by channel + message.
 pub struct SessionManager {
@@ -47,6 +49,8 @@ pub struct SessionManager {
     skill_registry: RwLock<Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>>,
     /// Default reasoning level for new sessions
     default_reasoning_level: ReasoningLevel,
+    /// Children tracking table: parent_session_id → list of child sessions.
+    children: RwLock<HashMap<String, Vec<ChildSessionInfo>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -78,6 +82,7 @@ impl SessionManager {
             tool_registry: RwLock::new(None),
             skill_registry: RwLock::new(None),
             default_reasoning_level,
+            children: RwLock::new(HashMap::new()),
         }
     }
 
@@ -223,6 +228,7 @@ impl SessionManager {
         let tool_ctx = ToolContext {
             agent_id: agent_id.clone(),
             workdir: workdir_ctx,
+            session_id: None,
         };
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
         let prompt = build_from_workspace(
@@ -297,6 +303,7 @@ impl SessionManager {
                             agent_id: cp.chat_id.unwrap_or_else(|| message.to.clone()),
                             channel: channel.to_string(),
                             created_at: chrono::Utc::now().timestamp(),
+                            depth: 0,
                         },
                     );
                 }
@@ -310,6 +317,7 @@ impl SessionManager {
                     agent_id: message.to.clone(),
                     channel: channel.to_string(),
                     created_at: chrono::Utc::now().timestamp(),
+                    depth: 0,
                 },
             );
         }
@@ -420,61 +428,6 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Rebuild the system prompt for an existing session.
-    /// Called after compaction to pick up skill/config changes.
-    /// Lock Safety: acquires its own write lock; callers must NOT hold
-    /// any external write guard on the same session.
-    pub async fn rebuild_system_prompt(&self, session_id: &str) {
-        let cs = match self.get_conversation_session(session_id).await {
-            Some(cs) => cs,
-            None => return,
-        };
-        let agent_id = {
-            let sessions = self.sessions.read().await;
-            match sessions.get(session_id) {
-                Some(session) => session.agent_id.clone(),
-                None => return,
-            }
-        };
-        invalidate_all_sections();
-        let bootstrap_files = if let Some(ref workspace) = self.workspace_dir {
-            load_bootstrap_files(workspace, self.bootstrap_mode)
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
-        } else {
-            vec![]
-        };
-        let tool_registry_guard = self.tool_registry.read().await;
-        let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
-        let skill_registry = self.skill_registry.read().await.clone();
-        let session_workdir = {
-            let cs_read = cs.read().await;
-            cs_read.workdir().to_path_buf()
-        };
-        let tool_ctx = ToolContext {
-            agent_id: agent_id.clone(),
-            workdir: Some(build_workdir_context(&session_workdir.to_string_lossy())),
-        };
-        let workspace_root = self.workspace_dir.clone().unwrap_or_default();
-        let prompt = build_from_workspace(
-            &workspace_root,
-            WorkspaceBuildConfig {
-                bootstrap_files,
-                tool_registry: tool_registry_ref,
-                tool_ctx: &tool_ctx,
-                skill_registry,
-                agent_id: Some(&agent_id),
-                dynamic_sections: vec![],
-                append_section: None,
-            },
-        )
-        .await;
-
-        let mut cs = cs.write().await;
-        cs.replace_system_prompt(prompt);
-    }
-
     /// Pop the oldest pending message for a given session.
     /// Returns None if the session does not exist or the queue is empty.
     pub async fn pop_pending_message(&self, session_id: &str) -> Option<PendingMessage> {
@@ -485,11 +438,12 @@ impl SessionManager {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Unit tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod flush_tests;
+#[cfg(test)]
+mod rebuild_tests;
+#[cfg(test)]
+mod spawn_tests;
 #[cfg(test)]
 mod tests;

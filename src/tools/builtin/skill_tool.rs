@@ -194,6 +194,7 @@ mod tests {
         ToolContext {
             agent_id: "test-agent".to_string(),
             workdir: None,
+            session_id: None,
         }
     }
 

@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 
 /// Clear global prompt state and section cache. Must be called before tests
 /// that exercise system prompt generation (global SECTION_CACHE is shared).
-fn clear_global_prompt_state() {
+pub(super) fn clear_global_prompt_state() {
     set_override_prompt(None);
     set_agent_prompt(None);
     set_custom_prompt(None);
@@ -54,6 +54,7 @@ async fn test_find_or_create_existing_session() {
                 agent_id: "agent-b".to_string(),
                 channel: "feishu".to_string(),
                 created_at: chrono::Utc::now().timestamp(),
+                depth: 0,
             },
         );
     }
@@ -110,7 +111,7 @@ fn make_temp_workspace(files: &[(&str, &str)]) -> TempDir {
 }
 
 /// Shorthand for `SessionManager::new` with test defaults (Full mode, no storage).
-fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
+pub(super) fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
     SessionManager::new(
         &test_config(),
         None,
@@ -270,6 +271,8 @@ async fn test_partial_bootstrap_files() {
 #[tokio::test]
 #[serial]
 async fn test_find_or_create_with_tool_registry() {
+    use crate::agent::spawn::SpawnController;
+    use crate::config::ConfigManager;
     use crate::permission::engine::engine_eval::PermissionEngine;
     use crate::permission::rules::RuleSetBuilder;
     use crate::skills::DiskSkillRegistry;
@@ -287,6 +290,7 @@ async fn test_find_or_create_with_tool_registry() {
         BootstrapMode::Minimal,
         ReasoningLevel::default(),
     );
+    let mgr = Arc::new(mgr);
 
     // Inject ToolRegistry with builtin tools
     let disk_reg = Arc::new(DiskSkillRegistry::new(vec![]));
@@ -294,7 +298,21 @@ async fn test_find_or_create_with_tool_registry() {
     let perm_engine = Arc::new(PermissionEngine::new_with_default_data_root(
         RuleSetBuilder::new().build().unwrap(),
     ));
-    register_builtin_tools(&tool_registry, disk_reg, perm_engine).await;
+    // SpawnController needs a ConfigManager; in this test we just need the
+    // registration call to succeed — empty agent config is fine.
+    let cfg_mgr = Arc::new(
+        ConfigManager::new(tmp.path().to_path_buf())
+            .expect("failed to create ConfigManager for test"),
+    );
+    let spawn_controller = Arc::new(SpawnController::new(Arc::clone(&cfg_mgr), Arc::clone(&mgr)));
+    register_builtin_tools(
+        &tool_registry,
+        disk_reg,
+        perm_engine,
+        spawn_controller,
+        Arc::clone(&mgr),
+    )
+    .await;
     mgr.set_tool_registry(tool_registry).await;
 
     let msg = test_message();

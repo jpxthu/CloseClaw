@@ -107,6 +107,8 @@ pub struct Session {
     pub agent_id: String,
     pub channel: String,
     pub created_at: i64,
+    /// Nesting depth. 0 for root sessions, parent.depth + 1 for child sessions.
+    pub depth: u32,
 }
 
 /// Gateway - routes messages between IM plugins and agents

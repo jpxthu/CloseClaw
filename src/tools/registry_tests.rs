@@ -39,6 +39,7 @@ fn make_ctx() -> ToolContext {
     ToolContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
+        session_id: None,
     }
 }
 

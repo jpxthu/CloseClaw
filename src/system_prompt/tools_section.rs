@@ -35,11 +35,17 @@ pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::spawn::SpawnController;
+    use crate::config::ConfigManager;
+    use crate::gateway::{GatewayConfig, SessionManager};
     use crate::permission::engine::engine_eval::PermissionEngine;
     use crate::permission::rules::RuleSetBuilder;
+    use crate::session::bootstrap::BootstrapMode;
+    use crate::session::persistence::ReasoningLevel;
     use crate::skills::DiskSkillRegistry;
     use crate::tools::builtin::register_builtin_tools;
     use std::sync::Arc;
+    use tempfile::TempDir;
 
     fn test_permission_engine() -> Arc<PermissionEngine> {
         Arc::new(PermissionEngine::new_with_default_data_root(
@@ -47,14 +53,51 @@ mod tests {
         ))
     }
 
+    /// Build a minimal SpawnController + SessionManager pair for tests
+    /// that only need to exercise the tool-registration path.
+    fn test_spawn_deps() -> (Arc<SpawnController>, Arc<SessionManager>) {
+        let tmp = TempDir::new().expect("tempdir for test");
+        let cfg_mgr = Arc::new(
+            ConfigManager::new(tmp.path().to_path_buf())
+                .expect("failed to create ConfigManager for test"),
+        );
+        let cfg = GatewayConfig {
+            name: "test".to_string(),
+            rate_limit_per_minute: 100,
+            max_message_size: 65536,
+            dm_scope: crate::gateway::DmScope::PerChannelPeer,
+        };
+        let session_manager = Arc::new(SessionManager::new(
+            &cfg,
+            None,
+            None,
+            BootstrapMode::Minimal,
+            ReasoningLevel::default(),
+        ));
+        let spawn_controller = Arc::new(SpawnController::new(
+            Arc::clone(&cfg_mgr),
+            Arc::clone(&session_manager),
+        ));
+        (spawn_controller, session_manager)
+    }
+
     #[tokio::test]
     async fn test_build_tools_section_returns_tools_section() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
+        let (spawn_controller, session_manager) = test_spawn_deps();
+        register_builtin_tools(
+            &registry,
+            disk_registry,
+            test_permission_engine(),
+            spawn_controller,
+            session_manager,
+        )
+        .await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
+            session_id: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         match section {
@@ -67,10 +110,19 @@ mod tests {
     async fn test_build_tools_section_contains_group_headers() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
+        let (spawn_controller, session_manager) = test_spawn_deps();
+        register_builtin_tools(
+            &registry,
+            disk_registry,
+            test_permission_engine(),
+            spawn_controller,
+            session_manager,
+        )
+        .await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
+            session_id: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {
@@ -89,10 +141,19 @@ mod tests {
     async fn test_build_tools_section_contains_tool_names() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
+        let (spawn_controller, session_manager) = test_spawn_deps();
+        register_builtin_tools(
+            &registry,
+            disk_registry,
+            test_permission_engine(),
+            spawn_controller,
+            session_manager,
+        )
+        .await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
+            session_id: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {
@@ -121,10 +182,19 @@ mod tests {
     async fn test_build_tools_section_respects_max_length() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        register_builtin_tools(&registry, disk_registry, test_permission_engine()).await;
+        let (spawn_controller, session_manager) = test_spawn_deps();
+        register_builtin_tools(
+            &registry,
+            disk_registry,
+            test_permission_engine(),
+            spawn_controller,
+            session_manager,
+        )
+        .await;
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
+            session_id: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {
@@ -144,6 +214,7 @@ mod tests {
         let ctx = crate::tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
+            session_id: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {
