@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::tools::{Tool, ToolContext, ToolDescriptor, ToolError};
+use crate::tools::{PromptGenerationContext, Tool, ToolContext, ToolDescriptor, ToolError};
 
 use serde_json::Value;
 
@@ -23,12 +23,13 @@ struct ToolInfo {
 }
 
 impl ToolInfo {
-    fn from_tool(tool: &Arc<dyn Tool>) -> Self {
+    fn from_tool(tool: &Arc<dyn Tool>, context: &PromptGenerationContext) -> Self {
         let flags = tool.flags();
         Self {
             name: tool.name().to_string(),
             group: tool.group().to_string(),
-            detail: tool.detail(),
+            // Use the dynamic Prompt layer (default falls back to `detail()`).
+            detail: tool.generate_prompt(context),
             input_schema: tool.input_schema(),
             is_deferred: flags.is_deferred_by_default,
             is_read_only: flags.is_read_only,
@@ -184,11 +185,20 @@ impl ToolRegistry {
     ///
     /// Groups tools by `group()`, formats each group with a header and tool
     /// list, then truncates at `TOOLS_SECTION_MAX_LEN` if needed.
-    pub async fn build_tools_section(&self, _ctx: &ToolContext) -> String {
+    ///
+    /// `ctx` is the prompt-generation context: it carries agent identity,
+    /// workdir, and the list of currently available tool names. Each tool's
+    /// `detail` field is produced by [`Tool::generate_prompt`], so a tool that
+    /// has opted into a custom Prompt layer will see a tailored description
+    /// here; otherwise the static `detail()` string is used.
+    pub async fn build_tools_section(&self, ctx: &PromptGenerationContext) -> String {
         let guard = self.tools.read().await;
 
         // Collect ToolInfo from all registered tools
-        let tool_infos: Vec<ToolInfo> = guard.values().map(|t| ToolInfo::from_tool(t)).collect();
+        let tool_infos: Vec<ToolInfo> = guard
+            .values()
+            .map(|t| ToolInfo::from_tool(t, ctx))
+            .collect();
 
         // Group by group name
         let mut groups_map: std::collections::HashMap<String, Vec<ToolInfo>> =
