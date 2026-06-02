@@ -4,9 +4,8 @@
 mod tests {
     use crate::llm::Message;
     use crate::session::compaction::{
-        build_compact_prompt, estimate_messages_tokens, estimate_tokens, extract_summary,
-        format_boundary_message, get_context_window, CompactConfig, CompactionError,
-        CompactionService, TokenWarningState,
+        build_compact_prompt, estimate_tokens, extract_summary, format_boundary_message,
+        get_context_window, CompactConfig, CompactionError, CompactionService, TokenWarningState,
     };
 
     #[test]

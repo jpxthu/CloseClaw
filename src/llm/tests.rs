@@ -2,8 +2,6 @@
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use crate::llm::{
         minimax::minimax_stream::{
             extract_message_text, parse_sse_line, parse_stream_chunk, process_buffer,
@@ -370,7 +368,7 @@ mod tests {
     fn test_streaming_integration_process_all_chunks() {
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
         let fixture = include_str!("../../tests/fixtures/llm/minimax/streaming.txt");
-        let mut delta_count = 0;
+        let mut _delta_count = 0;
 
         for line in fixture.lines() {
             let line = line.trim();
@@ -386,7 +384,7 @@ mod tests {
                 if !should_continue {
                     break;
                 }
-                delta_count += 1;
+                _delta_count += 1;
             }
         }
 

@@ -8,11 +8,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use crate::permission::engine::engine_eval::PermissionEngine;
 #[cfg(test)]
-use crate::permission::engine::engine_types::{
-    Effect, PermissionRequest, PermissionRequestBody as _, PermissionResponse, Rule, RuleSet,
-};
+use crate::permission::engine::engine_types::{Effect, PermissionRequest, PermissionResponse};
 #[cfg(test)]
-use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+use crate::permission::rules::RuleSetBuilder;
 
 /// Risk level for permission requests.
 /// Used to annotate denied responses with severity information.

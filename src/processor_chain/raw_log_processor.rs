@@ -153,8 +153,6 @@ impl MessageProcessor for RawLogProcessor {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use chrono::Utc;
     use tempfile::TempDir;
 
@@ -228,7 +226,7 @@ mod tests {
 
         processor.process(&ctx).await.unwrap();
 
-        let mut entries: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().collect();
+        let entries: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().collect();
         assert_eq!(entries.len(), 1);
 
         let name = entries[0].file_name();

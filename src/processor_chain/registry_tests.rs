@@ -64,19 +64,6 @@ impl TestProc {
         };
         (Arc::new(proc), counter)
     }
-
-    fn with_metadata(mut self, key: &str, val: serde_json::Value) -> Self {
-        self.metadata_kv = Some((key.to_string(), val));
-        self
-    }
-    fn with_suppress(mut self) -> Self {
-        self.suppress = true;
-        self
-    }
-    fn with_skip(mut self) -> Self {
-        self.skip = true;
-        self
-    }
 }
 
 #[async_trait]

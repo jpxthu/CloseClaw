@@ -2,9 +2,7 @@
 //! ApprovalQueue unit tests
 //!
 
-use crate::permission::approval::{
-    ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectReason, RejectWhitelistReason,
-};
+use crate::permission::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectReason};
 use crate::permission::engine::engine_risk::RiskLevel;
 use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
 

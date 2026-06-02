@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::llm::cache_adapter::NoopCacheAdapter;
 use crate::llm::interpreter::InterpreterRegistry;
 use crate::llm::plugin::PluginPipeline;
 use crate::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};

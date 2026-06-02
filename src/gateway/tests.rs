@@ -141,18 +141,6 @@ async fn add_session(
     msg.metadata.insert("session_id".into(), sid);
 }
 
-fn feishu_msg(from: &str, to: &str) -> Message {
-    Message {
-        id: "x".into(),
-        from: from.into(),
-        to: to.into(),
-        content: "hi".into(),
-        channel: "feishu".into(),
-        timestamp: 0,
-        metadata: HashMap::new(),
-    }
-}
-
 // ── Serialization tests ─────────────────────────────────────────────────────
 
 #[test]

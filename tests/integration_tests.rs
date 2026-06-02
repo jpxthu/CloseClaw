@@ -14,7 +14,6 @@ use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
 use closeclaw::agent::AgentState;
 use closeclaw::agent::{SuspendedReason, TransitionTrigger};
 use closeclaw::config::agents::AgentsConfigProvider;
-use closeclaw::config::ConfigProvider;
 use closeclaw::permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
 use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
 use closeclaw::skills::Skill;

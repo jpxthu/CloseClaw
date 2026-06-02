@@ -204,7 +204,6 @@ impl AgentRegistry {
 mod tests {
     use super::*;
     use crate::agent::registry::create_registry;
-    use crate::agent::state::SuspendedReason;
 
     #[tokio::test]
     async fn test_register_agent() {

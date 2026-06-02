@@ -76,18 +76,6 @@ fn make_config() -> GatewayConfig {
     }
 }
 
-fn make_message(to: &str, content: &str) -> crate::gateway::Message {
-    crate::gateway::Message {
-        id: "msg_1".to_string(),
-        from: "ou_sender".to_string(),
-        to: to.to_string(),
-        content: content.to_string(),
-        channel: "mock".to_string(),
-        timestamp: chrono::Utc::now().timestamp(),
-        metadata: HashMap::new(),
-    }
-}
-
 fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManager>) {
     let sm = Arc::new(SessionManager::new(
         &config,

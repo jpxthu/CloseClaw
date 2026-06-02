@@ -7,9 +7,6 @@ use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
 
-#[cfg(test)]
-use crate::tools::ToolContext;
-
 // ---------------------------------------------------------------------------
 // ReadTool
 // ---------------------------------------------------------------------------
@@ -342,13 +339,6 @@ impl Tool for LsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn new_ctx() -> ToolContext {
-        ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-        }
-    }
 
     #[test]
     fn test_read_name_group_summary() {

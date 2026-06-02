@@ -136,8 +136,7 @@ impl AgentDirectoryProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits};
-    use std::collections::HashMap;
+    use crate::agent::config::{ActionPermission, PermissionLimits};
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -328,7 +327,7 @@ mod tests {
 
         // Add a config file and reload.
         write_config(user.path(), "theta", "Theta");
-        let mut provider = provider;
+        let provider = provider;
         // Provider has no public `reload` callable here? Yes it does.
         // We need `&mut self`, so reconstruct via the constructor for the
         // first call, then mutate via `reload` after the change.

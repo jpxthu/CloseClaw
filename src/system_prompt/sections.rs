@@ -296,7 +296,6 @@ pub fn sanitize_workdir_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     use tempfile::tempdir;
 

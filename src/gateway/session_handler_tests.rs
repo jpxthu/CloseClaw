@@ -3,10 +3,9 @@ use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
 use crate::llm::provider::{Provider, ProviderError};
-use crate::llm::session::ChatSession;
 use crate::llm::types::ProtocolId;
 use crate::llm::types::{
-    InternalRequest, InternalResponse, RawContentBlock, RawSseChunk, RawUsage, SseStateMachine,
+    InternalRequest, InternalResponse, RawContentBlock, RawUsage, SseStateMachine,
 };
 use crate::llm::LLMRegistry;
 use crate::session::bootstrap::BootstrapMode;

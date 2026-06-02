@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::slash::context::SlashContext;
-use crate::slash::dispatcher::{parse_slash, SlashDispatcher};
+use crate::slash::dispatcher::parse_slash;
 use crate::slash::handler::{SlashHandler, SlashResult};
 use crate::slash::registry::HandlerRegistry;
 

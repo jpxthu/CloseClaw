@@ -132,10 +132,6 @@ mod tests {
                 calls: std::sync::Mutex::new(Vec::new()),
             }
         }
-
-        fn take_calls(&self) -> Vec<Arc<reqwest::Request>> {
-            self.calls.lock().unwrap().clone()
-        }
     }
 
     #[async_trait]
