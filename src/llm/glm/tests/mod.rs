@@ -1,5 +1,7 @@
 //! Unit tests for the GLM provider.
 
+#![allow(deprecated)]
+
 use super::*;
 use crate::llm::http_client::MockTimeoutHttpClient;
 use mockito::Server;

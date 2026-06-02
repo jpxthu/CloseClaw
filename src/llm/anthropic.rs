@@ -1,5 +1,7 @@
 //! Anthropic LLM Provider
 
+#![allow(deprecated)]
+
 use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider};
 use async_trait::async_trait;
 

@@ -3,6 +3,8 @@
 //! Bridges the legacy interface (`ChatRequest`/`ChatResponse`/`Message`) to the
 //! new architecture (`InternalRequest`/`InternalResponse`/`InternalMessage`).
 
+#![allow(deprecated)]
+
 use async_trait::async_trait;
 use reqwest::header::HeaderMap;
 use reqwest::Client;

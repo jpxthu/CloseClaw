@@ -3,6 +3,8 @@
 //! Each test spins up a mockito server, points MiniMaxProvider at it,
 //! sends a chat request, and validates the deserialized response.
 
+#![allow(deprecated)]
+
 use closeclaw::llm::MiniMaxProvider;
 use closeclaw::llm::{ChatRequest, LLMProvider, Message as LLMMessage};
 use mockito::Server;

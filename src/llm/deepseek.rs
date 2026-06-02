@@ -3,6 +3,8 @@
 //! Uses the DeepSeek API. Chat endpoint is OpenAI-compatible at
 //! `base_url/chat/completions`. Model list is fetched from `base_url/models`.
 
+#![allow(deprecated)]
+
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

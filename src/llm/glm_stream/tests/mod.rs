@@ -1,5 +1,7 @@
 //! Unit tests for GLM streaming SSE parsing.
 
+#![allow(deprecated)]
+
 use crate::llm::glm_stream::{parse_sse_line, parse_stream_chunk, process_buffer};
 use crate::llm::{ChatRequest, ChatStreamChunk, GlmProvider, LLMProvider, Message, Usage};
 

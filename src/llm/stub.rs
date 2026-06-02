@@ -1,5 +1,7 @@
 //! Stub LLM Provider - Returns fixed responses for testing
 
+#![allow(deprecated)]
+
 use async_trait::async_trait;
 
 use super::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};

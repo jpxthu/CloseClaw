@@ -3,6 +3,8 @@
 //! Tests the StubProvider and LLMRegistry integration.
 //! These tests verify that the agent+LLM call chain works in CI.
 
+#![allow(deprecated)]
+
 use std::sync::Arc;
 
 use closeclaw::llm::{ChatRequest, LLMProvider, LLMRegistry, Message, StubProvider};

@@ -1,5 +1,7 @@
 //! Types for the Config Wizard
 
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 
 use crate::llm::{model_info::ModelInfo, LLMProvider};

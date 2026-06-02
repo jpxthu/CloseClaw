@@ -1,5 +1,7 @@
 //! LLM Interface - Abstract trait for multiple LLM providers
 
+#![allow(deprecated)]
+
 pub mod anthropic;
 pub mod cache_adapter;
 pub mod fallback;
