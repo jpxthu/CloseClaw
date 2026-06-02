@@ -2,7 +2,10 @@
 
 use async_trait::async_trait;
 
-use super::{ChatRequest, ChatResponse, LLMError, LLMProvider, Message, Usage};
+use super::{ChatRequest, ChatResponse, LLMError, LLMProvider, Usage};
+
+#[cfg(test)]
+use super::Message;
 
 /// A stub LLM provider that returns fixed responses.
 /// Always returns `is_stub() == true` so callers can detect test configurations.

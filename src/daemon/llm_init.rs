@@ -13,6 +13,7 @@ impl Daemon {
     /// For each provider (openai, anthropic, minimax):
     /// 1. Try to load api_key from `config_dir/config/credentials/<provider>.json`
     /// 2. Fall back to the corresponding env var if the file does not have it
+    #[allow(dead_code)] // only invoked from `#[cfg(test)] mod unit_tests`
     pub(crate) async fn init_llm_registry(config_dir: &Path) -> Arc<LLMRegistry> {
         let registry = Arc::new(LLMRegistry::new());
 

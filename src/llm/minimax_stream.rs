@@ -30,6 +30,7 @@ pub(crate) struct MiniMaxStreamRequest<'a> {
 }
 
 /// A single SSE chunk from MiniMax streaming API.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamChunk {
     #[serde(default)]
@@ -44,6 +45,7 @@ pub(crate) struct MiniMaxStreamChunk {
     pub(crate) object: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamChoice {
     #[serde(default)]
@@ -57,6 +59,7 @@ pub(crate) struct MiniMaxStreamChoice {
     pub(crate) message: Option<MiniMaxStreamMessage>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamDelta {
     #[serde(default)]
@@ -67,6 +70,7 @@ pub(crate) struct MiniMaxStreamDelta {
     pub(crate) reasoning_content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamMessage {
     #[serde(default)]
@@ -77,6 +81,7 @@ pub(crate) struct MiniMaxStreamMessage {
     pub(crate) reasoning_content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamUsage {
     #[serde(default)]
@@ -89,6 +94,7 @@ pub(crate) struct MiniMaxStreamUsage {
     pub(crate) completion_tokens_details: Option<MiniMaxStreamCompletionTokensDetails>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxStreamCompletionTokensDetails {
     #[serde(default)]

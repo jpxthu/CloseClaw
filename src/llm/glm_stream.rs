@@ -14,9 +14,7 @@
 
 use serde::Deserialize;
 
-use crate::llm::{
-    ChatRequest, ChatStreamChunk, GlmProvider, HttpClient, LLMError, StreamingResponse, Usage,
-};
+use crate::llm::{ChatRequest, ChatStreamChunk, GlmProvider, LLMError, StreamingResponse, Usage};
 
 use serde::Serialize;
 
@@ -44,6 +42,7 @@ pub(crate) struct GlmStreamChunk {
     error: Option<GlmStreamError>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmStreamChoice {
     #[serde(default)]
@@ -54,6 +53,7 @@ pub(crate) struct GlmStreamChoice {
     finish_reason: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmStreamDelta {
     #[serde(default)]
@@ -64,6 +64,7 @@ pub(crate) struct GlmStreamDelta {
     reasoning_content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmStreamUsage {
     #[serde(default)]
@@ -78,12 +79,14 @@ pub(crate) struct GlmStreamUsage {
     prompt_tokens_details: Option<GlmStreamPromptTokensDetails>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmStreamCompletionTokensDetails {
     #[serde(default)]
     reasoning_tokens: Option<u32>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmStreamPromptTokensDetails {
     #[serde(default)]

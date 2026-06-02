@@ -42,6 +42,7 @@ struct PostContent {
 }
 
 /// A single segment within a post paragraph.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct PostSegment {
     tag: String,

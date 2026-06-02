@@ -24,6 +24,7 @@ struct VolcEngineRequest<'a> {
 }
 
 /// VolcEngine chat response body (OpenAI-compatible)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineResponse {
     id: Option<String>,
@@ -35,6 +36,7 @@ struct VolcEngineResponse {
     error: Option<VolcEngineErrorBody>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineChoice {
     message: VolcEngineMessage,
@@ -42,6 +44,7 @@ struct VolcEngineChoice {
     finish_reason: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineMessage {
     role: String,

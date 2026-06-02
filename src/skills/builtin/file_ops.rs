@@ -1,6 +1,5 @@
 //! File operations skill
 use crate::permission::approval_flow::ApprovalFlow;
-use crate::permission::engine::engine_risk::RiskLevel;
 use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
 use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};

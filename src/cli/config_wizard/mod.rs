@@ -11,7 +11,7 @@ use crate::config::providers::{
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
 use crate::llm::{
-    DeepSeekProvider, GlmProvider, LLMProvider, MiniMaxProvider, ModelDiscovery, ModelInfo,
+    DeepSeekProvider, GlmProvider, LLMProvider, MiniMaxProvider, ModelDiscovery,
     ProviderModelKnowledge, VolcEngineProvider,
 };
 use dialoguer::{Input, Select};
@@ -19,6 +19,9 @@ use dialoguer::{Input, Select};
 use std::panic;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(test)]
+use crate::llm::ModelInfo;
 
 /// Parse user input for model selection into a vector of 0-based indices.
 ///

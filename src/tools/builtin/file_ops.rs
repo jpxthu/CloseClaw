@@ -3,10 +3,12 @@
 //! Each tool is an independent [`Tool`] implementation, completely separate
 //! from the [`crate::skills`] module.
 
-use crate::tools::{Tool, ToolContext, ToolError, ToolFlags};
+use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
-use std::path::Path;
+
+#[cfg(test)]
+use crate::tools::ToolContext;
 
 // ---------------------------------------------------------------------------
 // ReadTool

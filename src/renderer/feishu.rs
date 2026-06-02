@@ -170,6 +170,7 @@ impl FeishuRenderer {
 
 impl FeishuRenderer {
     /// Render a Text block using the legacy markdown → card-element pipeline.
+    #[allow(dead_code)] // legacy per-block renderer kept for potential future use
     fn render_text_block(
         &self,
         text: &str,

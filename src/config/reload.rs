@@ -3,7 +3,6 @@
 //! Watches config files for changes and automatically reloads them.
 //! Validates new config before applying, maintains backup of last known good config.
 
-use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -45,6 +44,7 @@ pub enum ReloadResult {
 ///
 /// # Type Parameters
 /// * `P` - The ConfigProvider implementation type
+#[allow(dead_code)] // `watcher_handle` is reserved for future lifecycle management
 pub struct ConfigReloadManager<P> {
     /// Inner provider (wrapped in Arc<Mutex> for interior mutability)
     provider: Arc<std::sync::Mutex<P>>,

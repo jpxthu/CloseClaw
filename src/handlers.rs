@@ -6,6 +6,7 @@ use closeclaw::permission::{Defaults, PermissionEngine, RuleSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[allow(dead_code)] // pub API for masking secrets in CLI output (covered by tests)
 pub fn mask_key(key: &str) -> String {
     if key.len() <= 8 {
         "****".to_string()

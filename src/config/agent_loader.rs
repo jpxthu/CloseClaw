@@ -7,8 +7,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use tracing::warn;
-
 use super::agents::{AgentDirectoryProvider, AgentsConfig, ResolvedAgentConfig};
 use super::manager::{ConfigLoadError, ConfigManager};
 
