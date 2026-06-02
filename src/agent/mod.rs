@@ -4,6 +4,7 @@ pub mod communication;
 pub mod config;
 pub mod process;
 pub mod registry;
+pub mod spawn;
 pub mod state;
 
 pub use state::{
@@ -93,3 +94,7 @@ mod tests {
         assert!(!agent.is_terminal());
     }
 }
+
+#[cfg(test)]
+#[path = "spawn_tests.rs"]
+mod spawn_tests;

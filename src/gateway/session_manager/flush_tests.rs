@@ -4,17 +4,11 @@ use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::session::persistence::{AgentRole, PendingMessage, PersistenceError, SessionCheckpoint};
-use crate::system_prompt::{
-    invalidate_all_sections, set_agent_prompt, set_custom_prompt, set_override_prompt,
-};
 use async_trait::async_trait;
-use serial_test::serial;
-use std::io::Write;
 use std::path::PathBuf;
-use tempfile::TempDir;
 use tokio::sync::Mutex;
 
-fn test_config() -> GatewayConfig {
+pub(super) fn test_config() -> GatewayConfig {
     GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
@@ -23,7 +17,7 @@ fn test_config() -> GatewayConfig {
     }
 }
 
-fn test_message() -> Message {
+pub(super) fn test_message() -> Message {
     Message {
         id: "msg-1".to_string(),
         from: "user-a".to_string(),
@@ -32,6 +26,16 @@ fn test_message() -> Message {
         channel: "feishu".to_string(),
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
+    }
+}
+
+pub(super) fn make_test_session(id: &str) -> Session {
+    Session {
+        id: id.to_string(),
+        agent_id: "agent-b".to_string(),
+        channel: "feishu".to_string(),
+        created_at: chrono::Utc::now().timestamp(),
+        depth: 0,
     }
 }
 
@@ -167,15 +171,7 @@ async fn test_flush_all_saves_checkpoints() {
     {
         let mut sessions = mgr.sessions.write().await;
         for sid in &session_ids {
-            sessions.insert(
-                sid.to_string(),
-                Session {
-                    id: sid.to_string(),
-                    agent_id: format!("agent-for-{}", sid),
-                    channel: "feishu".to_string(),
-                    created_at: chrono::Utc::now().timestamp(),
-                },
-            );
+            sessions.insert(sid.to_string(), make_test_session(sid));
         }
     }
 
@@ -212,15 +208,7 @@ async fn test_flush_all_partial_failure() {
     {
         let mut sessions = mgr.sessions.write().await;
         for sid in &session_ids {
-            sessions.insert(
-                sid.to_string(),
-                Session {
-                    id: sid.to_string(),
-                    agent_id: format!("agent-for-{}", sid),
-                    channel: "feishu".to_string(),
-                    created_at: chrono::Utc::now().timestamp(),
-                },
-            );
+            sessions.insert(sid.to_string(), make_test_session(sid));
         }
     }
 
@@ -276,15 +264,7 @@ async fn test_flush_all_with_pending_messages() {
     let session_id = "session-with-pending";
     {
         let mut sessions = mgr.sessions.write().await;
-        sessions.insert(
-            session_id.to_string(),
-            Session {
-                id: session_id.to_string(),
-                agent_id: "agent-b".to_string(),
-                channel: "feishu".to_string(),
-                created_at: chrono::Utc::now().timestamp(),
-            },
-        );
+        sessions.insert(session_id.to_string(), make_test_session(session_id));
     }
 
     let conv_session = Arc::new(RwLock::new(ConversationSession::new(
@@ -335,15 +315,7 @@ async fn test_flush_all_without_pending_messages() {
     let session_id = "session-no-pending";
     {
         let mut sessions = mgr.sessions.write().await;
-        sessions.insert(
-            session_id.to_string(),
-            Session {
-                id: session_id.to_string(),
-                agent_id: "agent-b".to_string(),
-                channel: "feishu".to_string(),
-                created_at: chrono::Utc::now().timestamp(),
-            },
-        );
+        sessions.insert(session_id.to_string(), make_test_session(session_id));
     }
 
     let conv_session = Arc::new(RwLock::new(ConversationSession::new(
@@ -383,15 +355,7 @@ async fn test_flush_all_no_conversation_session() {
     let session_id = "session-no-conv";
     {
         let mut sessions = mgr.sessions.write().await;
-        sessions.insert(
-            session_id.to_string(),
-            Session {
-                id: session_id.to_string(),
-                agent_id: "agent-b".to_string(),
-                channel: "feishu".to_string(),
-                created_at: chrono::Utc::now().timestamp(),
-            },
-        );
+        sessions.insert(session_id.to_string(), make_test_session(session_id));
     }
 
     let result = mgr.flush_all().await;
@@ -422,79 +386,4 @@ async fn test_with_pending_messages_bulk_set() {
     assert_eq!(cp.pending_messages[1].message_id, "msg_3");
 }
 
-fn clear_global_prompt_state() {
-    set_override_prompt(None);
-    set_agent_prompt(None);
-    set_custom_prompt(None);
-    invalidate_all_sections();
-}
-
-fn make_temp_workspace(files: &[(&str, &str)]) -> TempDir {
-    let tmp = TempDir::new().unwrap();
-    for (name, content) in files {
-        let path = tmp.path().join(name);
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(content.as_bytes()).unwrap();
-    }
-    tmp
-}
-
-fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
-    SessionManager::new(
-        &test_config(),
-        None,
-        workspace.map(std::path::PathBuf::from),
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    )
-}
-// ═══════════════════════════════════════════════════════════════════════════
-// Step 1.4 — rebuild_system_prompt unit tests
-// ═══════════════════════════════════════════════════════════════════════════
-
-#[tokio::test]
-#[serial]
-async fn test_rebuild_system_prompt_normal() {
-    clear_global_prompt_state();
-    let tmp = make_temp_workspace(&[
-        ("AGENTS.md", "original agents"),
-        ("SOUL.md", "original soul"),
-    ]);
-    let mgr = make_test_mgr(Some(tmp.path()));
-    let msg = test_message();
-    let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    {
-        let conv = mgr.get_conversation_session(&session_id).await.unwrap();
-        let conv = conv.read().await;
-        assert!(conv.system_prompt().unwrap().contains("original agents"));
-    }
-    std::fs::write(tmp.path().join("AGENTS.md"), "updated agents").unwrap();
-    mgr.rebuild_system_prompt(&session_id).await;
-    {
-        let conv = mgr.get_conversation_session(&session_id).await.unwrap();
-        let conv = conv.read().await;
-        assert!(conv.system_prompt().unwrap().contains("updated agents"));
-    }
-}
-
-#[tokio::test]
-#[serial]
-async fn test_rebuild_system_prompt_edge_cases() {
-    // nonexistent session — should not panic
-    let mgr = make_test_mgr(None);
-    mgr.rebuild_system_prompt("nonexistent-session-id").await;
-
-    // no workspace — system prompt should only have tools + skills
-    clear_global_prompt_state();
-    let msg = test_message();
-    let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    mgr.rebuild_system_prompt(&session_id).await;
-    {
-        let conv = mgr.get_conversation_session(&session_id).await.unwrap();
-        let conv = conv.read().await;
-        let prompt = conv.system_prompt().unwrap();
-        assert!(!prompt.contains("agents content"));
-        assert!(!prompt.contains("soul content"));
-        assert!(!prompt.contains("memory content"));
-    }
-}
+// rebuild tests moved to rebuild_tests.rs (file kept under 500 lines)
