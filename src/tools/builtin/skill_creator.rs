@@ -2,9 +2,12 @@
 //!
 //! This is a placeholder stub. Full implementation tracked in issue #282.
 
-use crate::tools::{Tool, ToolContext, ToolFlags};
+use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
+
+#[cfg(test)]
+use crate::tools::ToolContext;
 
 // ---------------------------------------------------------------------------
 // SkillCreatorTool

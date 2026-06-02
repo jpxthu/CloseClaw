@@ -24,7 +24,8 @@ pub mod context;
 pub mod helpers;
 pub mod loader;
 pub mod protection;
-pub mod tests;
+#[cfg(test)]
+mod tests;
 pub mod types;
 
 // Re-exports for convenience

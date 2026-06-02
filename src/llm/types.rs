@@ -329,7 +329,6 @@ fn default_temperature() -> f32 {
 /// Tracks the current state during SSE parsing to correctly assemble
 /// incremental deltas into complete content blocks.
 #[derive(Debug, Clone)]
-#[allow(unexpected_cfgs)]
 #[cfg_attr(feature = "server", derive(serde::Serialize, serde::Deserialize))]
 pub struct SseStateMachine {
     /// Index of the currently active content block being parsed.

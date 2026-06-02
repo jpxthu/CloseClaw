@@ -3,9 +3,12 @@
 //! Allows the LLM to dynamically retrieve second-level tool detail
 //! by keyword or exact name match.
 
-use crate::tools::{Tool, ToolContext, ToolError, ToolFlags};
+use crate::tools::{Tool, ToolFlags};
 
 use serde_json::Value;
+
+#[cfg(test)]
+use crate::tools::ToolContext;
 
 // ---------------------------------------------------------------------------
 // ToolSearchTool

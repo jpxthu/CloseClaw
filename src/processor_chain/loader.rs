@@ -10,7 +10,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use crate::renderer::feishu::FeishuRenderer;
-use crate::renderer::{RenderedOutput, Renderer};
+use crate::renderer::Renderer;
 
 use super::dsl_parser::DslParser;
 use super::error::ProcessError;

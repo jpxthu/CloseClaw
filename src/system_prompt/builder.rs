@@ -2,14 +2,14 @@
 //!
 //! Orchestrates section assembly and renders the final system prompt string.
 
-use super::sections::{
-    get_cached_section, invalidate_all_sections, load_cached_file_section, read_file_section,
-    Section,
-};
+use super::sections::{get_cached_section, load_cached_file_section, read_file_section, Section};
 use super::tools_section::build_tools_section;
 use crate::skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+
+#[cfg(test)]
+use crate::system_prompt::sections::invalidate_all_sections;
 
 /// Static override: if set, replaces the entire prompt
 static OVERRIDE_PROMPT: RwLock<Option<String>> = RwLock::new(None);

@@ -1,7 +1,6 @@
 //! FeishuMessageCleaner — inbound MessageProcessor for feishu webhook events.
 
 use async_trait::async_trait;
-use std::collections::BTreeMap;
 
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase, ProcessedMessage};
 use serde_json::Value;

@@ -24,6 +24,7 @@ struct DeepSeekRequest<'a> {
 }
 
 /// DeepSeek chat response body (OpenAI-compatible)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DeepSeekResponse {
     id: Option<String>,
@@ -35,6 +36,7 @@ struct DeepSeekResponse {
     error: Option<DeepSeekErrorBody>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DeepSeekChoice {
     message: DeepSeekMessage,
@@ -42,6 +44,7 @@ struct DeepSeekChoice {
     finish_reason: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DeepSeekMessage {
     role: String,
@@ -77,6 +80,7 @@ struct DeepSeekModelsResponse {
 }
 
 /// A single model entry from the /models API
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DeepSeekModel {
     id: String,
@@ -103,6 +107,7 @@ struct DeepSeekModel {
     pricing: Option<DeepSeekModelPricing>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 struct DeepSeekModelPricing {
     #[serde(default)]

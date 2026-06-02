@@ -1,6 +1,5 @@
 //! Skill discovery skill - allows agents to search and install skills from ClawHub
 use crate::permission::approval_flow::ApprovalFlow;
-use crate::permission::engine::engine_risk::RiskLevel;
 use crate::permission::engine::Caller;
 use crate::permission::engine::PermissionRequestBody;
 use crate::permission::{PermissionRequest, PermissionResponse};

@@ -7,7 +7,8 @@
 //! - Stats and monitoring
 
 pub mod manager;
-pub mod tests;
+#[cfg(test)]
+mod tests;
 pub mod types;
 
 pub use manager::InboxManager;
