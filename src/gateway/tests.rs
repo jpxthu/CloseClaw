@@ -3,46 +3,77 @@
 //! All tests live here so that src/gateway/mod.rs stays under 500 lines.
 
 use crate::gateway::{DmScope, GatewayConfig, GatewayError, Message, SessionManager};
-use crate::im::{AdapterError, IMAdapter};
+use crate::im::{AdapterError, IMPlugin, NormalizedMessage};
+use crate::llm::types::ContentBlock;
+use crate::processor_chain::DslParseResult;
+use crate::renderer::RenderedOutput;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use async_trait::async_trait;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// ── Mock adapter ────────────────────────────────────────────────────────────
+// ── Mock plugin ─────────────────────────────────────────────────────────────
 
-struct MockAdapter {
+/// Mock IM plugin used to exercise Gateway's plugin registry and dispatch
+/// paths. `platform` is configurable so the same struct can be registered
+/// under different keys (e.g. `"mock"`, `"ch"`, `"feishu"`) per test.
+struct MockPlugin {
+    platform: String,
     should_fail: bool,
 }
 
+impl MockPlugin {
+    fn new(platform: &str) -> Self {
+        Self {
+            platform: platform.to_string(),
+            should_fail: false,
+        }
+    }
+
+    fn failing(platform: &str) -> Self {
+        Self {
+            platform: platform.to_string(),
+            should_fail: true,
+        }
+    }
+}
+
 #[async_trait]
-impl IMAdapter for MockAdapter {
-    fn name(&self) -> &str {
-        "mock"
+impl IMPlugin for MockPlugin {
+    fn platform(&self) -> &str {
+        &self.platform
     }
 
-    async fn handle_webhook(&self, _payload: &[u8]) -> Result<Message, AdapterError> {
-        Ok(Message {
-            id: "1".into(),
-            from: "a".into(),
-            to: "b".into(),
-            content: "hi".into(),
-            channel: "mock".into(),
-            timestamp: 0,
-            metadata: HashMap::new(),
-        })
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
     }
 
-    async fn send_message(&self, _message: &Message) -> Result<(), AdapterError> {
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: json!({"content": {"text": ""}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
         if self.should_fail {
             return Err(AdapterError::SendFailed("mock error".into()));
         }
         Ok(())
-    }
-
-    async fn validate_signature(&self, _signature: &str, _payload: &[u8]) -> bool {
-        true
     }
 }
 
@@ -81,17 +112,13 @@ fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManage
     (gw, sm)
 }
 
-/// Setup: gateway + session_manager + registered mock adapter.
+/// Setup: gateway + session_manager + registered mock plugin under `channel`.
 async fn setup(
     config: GatewayConfig,
     channel: &str,
 ) -> (crate::gateway::Gateway, Arc<SessionManager>) {
     let (gw, sm) = make_gw(config);
-    gw.register_adapter(
-        channel.to_string(),
-        Arc::new(MockAdapter { should_fail: false }),
-    )
-    .await;
+    gw.register_plugin(Arc::new(MockPlugin::new(channel))).await;
     (gw, sm)
 }
 
@@ -251,7 +278,7 @@ async fn test_route_message_too_large() {
 #[tokio::test]
 async fn test_route_adapter_error() {
     let (gw, sm) = make_gw(make_config());
-    gw.register_adapter("mock".into(), Arc::new(MockAdapter { should_fail: true }))
+    gw.register_plugin(Arc::new(MockPlugin::failing("mock")))
         .await;
     let msg = msg_with_session(&sm, "mock", "agent-1", "hello").await;
     let result = gw.route_message("mock", msg, None).await;
