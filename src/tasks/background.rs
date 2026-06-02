@@ -157,7 +157,6 @@ impl BackgroundTaskManager {
         &self,
         mut child: tokio::process::Child,
         command: &str,
-        _cwd: &Path,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
