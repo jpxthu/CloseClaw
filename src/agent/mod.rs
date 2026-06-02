@@ -2,7 +2,6 @@
 
 pub mod communication;
 pub mod config;
-pub mod inbox;
 pub mod process;
 pub mod registry;
 pub mod state;
