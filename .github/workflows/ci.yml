@@ -77,6 +77,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      - name: Strict warning check
+        run: cargo check -- -D warnings
+
       - name: Run clippy
         run: cargo clippy --all 2>&1 | tee clippy-output.txt
         continue-on-error: true
