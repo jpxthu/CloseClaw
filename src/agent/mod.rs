@@ -28,8 +28,6 @@ pub struct Agent {
     pub parent_id: Option<String>,
     /// When this agent was created
     pub created_at: DateTime<Utc>,
-    /// Last heartbeat received from this agent
-    pub last_heartbeat: DateTime<Utc>,
 }
 
 impl Agent {
@@ -44,7 +42,6 @@ impl Agent {
             state: AgentState::Idle,
             parent_id,
             created_at: now,
-            last_heartbeat: now,
         }
     }
 
@@ -53,32 +50,9 @@ impl Agent {
         self.state = state;
     }
 
-    /// Update the last heartbeat timestamp
-    pub fn update_heartbeat(&mut self) {
-        self.last_heartbeat = Utc::now();
-    }
-
-    /// Check if the agent is still alive (heartbeat within threshold)
-    pub fn is_alive(&self, heartbeat_timeout_secs: i64) -> bool {
-        let elapsed = Utc::now()
-            .signed_duration_since(self.last_heartbeat)
-            .num_seconds();
-        elapsed < heartbeat_timeout_secs
-    }
-
     /// Check if the agent is in a terminal state
     pub fn is_terminal(&self) -> bool {
         matches!(self.state, AgentState::Stopped | AgentState::Error(_))
-    }
-
-    /// Emit a state transition event for the given state change.
-    pub fn emit_transition(
-        &self,
-        from_state: AgentState,
-        to_state: AgentState,
-        trigger: TransitionTrigger,
-    ) -> AgentStateTransition {
-        AgentStateTransition::new(from_state, to_state, trigger)
     }
 }
 
@@ -102,15 +76,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_alive() {
-        let agent = Agent::new("test".to_string(), None);
-        // Fresh agent should be alive with a reasonable timeout
-        assert!(agent.is_alive(60));
-        // Should not be alive with zero timeout
-        assert!(!agent.is_alive(0));
-    }
-
-    #[test]
     fn test_is_terminal() {
         let mut agent = Agent::new("test".to_string(), None);
         assert!(!agent.is_terminal());
@@ -126,18 +91,5 @@ mod tests {
 
         agent.set_state(AgentState::Suspended(SuspendedReason::Forced));
         assert!(!agent.is_terminal());
-    }
-
-    #[test]
-    fn test_emit_transition() {
-        let agent = Agent::new("test".to_string(), None);
-        let t = agent.emit_transition(
-            AgentState::Idle,
-            AgentState::Running,
-            TransitionTrigger::UserRequest,
-        );
-        assert!(matches!(t.from_state, AgentState::Idle));
-        assert!(matches!(t.to_state, AgentState::Running));
-        assert!(matches!(t.trigger, TransitionTrigger::UserRequest));
     }
 }

@@ -227,35 +227,22 @@ async fn test_agent_parent_child_hierarchy() {
     let all = registry.list().await;
     assert_eq!(all.len(), 3);
 
-    // List by state
-    let running = registry.list_by_state(AgentState::Running).await;
+    // Filter agents by state
+    let running = registry
+        .list()
+        .await
+        .into_iter()
+        .filter(|a| a.state == AgentState::Running)
+        .collect::<Vec<_>>();
     assert!(running.is_empty());
 
-    let idle = registry.list_by_state(AgentState::Idle).await;
-    assert_eq!(idle.len(), 3);
-}
-
-#[tokio::test]
-async fn test_heartbeat_timeout_marks_agent_dead() {
-    // Create registry with very short timeout (1 second)
-    let registry: SharedAgentRegistry = create_registry(1);
-
-    let agent = registry
-        .register("test-agent".to_string(), None)
+    let idle = registry
+        .list()
         .await
-        .unwrap();
-    let agent_id = agent.id.clone();
-
-    // Agent should be alive immediately
-    let alive = registry.get_alive(&agent_id).await;
-    assert!(alive.is_ok());
-
-    // Wait for heartbeat to expire
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-    // Agent should now be considered dead
-    let alive = registry.get_alive(&agent_id).await;
-    assert!(alive.is_err());
+        .into_iter()
+        .filter(|a| a.state == AgentState::Idle)
+        .collect::<Vec<_>>();
+    assert_eq!(idle.len(), 3);
 }
 
 // ---------------------------------------------------------------------------
