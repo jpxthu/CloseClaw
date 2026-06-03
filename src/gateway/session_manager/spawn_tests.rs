@@ -7,11 +7,15 @@
 
 use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
+use super::SessionManager;
 use crate::agent::config::SubagentsConfig;
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
 use serial_test::serial;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
     ResolvedAgentConfig {
@@ -30,6 +34,23 @@ fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentCo
     }
 }
 
+/// Pre-populate a parent `ConversationSession` in the manager's
+/// `conversation_sessions` map.
+///
+/// Step 1.5 of the cascade-stop plan requires the parent session to
+/// be present in `conversation_sessions` so `create_child_session`
+/// can derive the child's cancel token from the parent's token tree
+/// and register the child handle for cascade stopping. In production
+/// the parent is registered by `find_or_create`; tests exercise
+/// `create_child_session` in isolation and must do this setup
+/// themselves.
+async fn register_parent_session(mgr: &SessionManager, parent_id: &str, workdir: PathBuf) {
+    let cs = ConversationSession::new(parent_id.to_string(), "test-model".to_string(), workdir);
+    let arc = Arc::new(RwLock::new(cs));
+    let mut conv = mgr.conversation_sessions.write().await;
+    conv.insert(parent_id.to_string(), arc);
+}
+
 #[tokio::test]
 #[serial]
 async fn test_create_child_session_basic() {
@@ -38,6 +59,10 @@ async fn test_create_child_session_basic() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
     let config = test_resolved_config("child-agent", None);
+
+    // Step 1.5 requires the parent to live in conversation_sessions
+    // so the child can be wired into the parent's cancel token tree.
+    register_parent_session(&mgr, "parent-session-1", tmp.path().to_path_buf()).await;
 
     let child_id = mgr
         .create_child_session(
@@ -87,6 +112,10 @@ async fn test_create_child_session_workspace_fallback() {
     let explicit = tempfile::TempDir::new().unwrap();
     let config = test_resolved_config("child-agent", Some(explicit.path().to_path_buf()));
 
+    // Step 1.5: pre-populate parent so child can inherit its cancel
+    // token tree.
+    register_parent_session(&mgr, "parent-x", explicit.path().to_path_buf()).await;
+
     let child_id = mgr
         .create_child_session(
             &config,
@@ -132,6 +161,12 @@ async fn test_create_child_session_registers_child_info() {
 
     let mgr = make_test_mgr(None);
     let config = test_resolved_config("worker-1", None);
+
+    // Step 1.5: pre-populate parent so child inherits the parent's
+    // cancel token tree and is registered in the parent's
+    // child_handles.
+    let parent_workdir = std::env::temp_dir();
+    register_parent_session(&mgr, "parent-7", parent_workdir).await;
 
     let child_id = mgr
         .create_child_session(

@@ -69,6 +69,25 @@ pub struct ToolContext {
     /// parent session. `None` for tools invoked outside any tracked session
     /// (e.g. one-off CLI calls, prompt generation contexts).
     pub session_id: Option<String>,
+    /// The LLM-side tool call identifier (the `id` field of a
+    /// `ContentBlock::ToolUse`).
+    ///
+    /// Used as the key under which a tool registers its `KillHandle`
+    /// against the owning `ConversationSession` so that cascade-stop
+    /// can find and kill in-flight subprocesses. `None` for tool
+    /// invocations that are not driven by an LLM tool-use block (e.g.
+    /// CLI-only or test invocations).
+    pub call_id: Option<String>,
+    /// Strong reference to the owning `ConversationSession`.
+    ///
+    /// Set by the dispatcher when invoking a tool from a tracked LLM
+    /// turn. Tools that spawn long-running subprocesses (e.g.
+    /// `BashTool`) clone this into their `KillHandle` adapter and
+    /// register the handle on the session via
+    /// `register_tool_handle`, then unregister on completion. `None`
+    /// for tool invocations that are not bound to a tracked session.
+    pub session:
+        Option<std::sync::Arc<tokio::sync::RwLock<crate::llm::session::ConversationSession>>>,
 }
 
 // ---------------------------------------------------------------------------

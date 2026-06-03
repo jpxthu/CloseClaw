@@ -69,6 +69,8 @@ fn ctx_without_session() -> ToolContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
         session_id: None,
+        call_id: None,
+        session: None,
     }
 }
 
@@ -79,6 +81,8 @@ fn ctx_with_session() -> ToolContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
         session_id: Some("parent-session".to_string()),
+        call_id: None,
+        session: None,
     }
 }
 

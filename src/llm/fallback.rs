@@ -298,6 +298,7 @@ mod tests {
                             }
                             LLMError::ApiError(msg) => Err(LLMError::ApiError(msg.clone())),
                             LLMError::NetworkError(msg) => Err(LLMError::NetworkError(msg.clone())),
+                            LLMError::Cancelled => Err(LLMError::Cancelled),
                         }
                     }
                 }),

@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
+use tokio_util::sync::CancellationToken;
 
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use crate::gateway::session_manager::SessionManager;
@@ -108,7 +109,42 @@ impl SessionMessageHandler {
         let mut last_usage = None;
         let mut first_token = true;
 
-        while let Some(event_result) = stream.next().await {
+        // Acquire this session's cancellation token so a streaming
+        // request can be aborted mid-stream by a cascade stop. Fall
+        // back to a never-cancelled token if the session is gone.
+        let cancel_token: CancellationToken =
+            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                cs.read().await.cancel_token().clone()
+            } else {
+                CancellationToken::new()
+            };
+
+        // Loop body: race the next stream event against cancellation.
+        // We need an explicit `loop { tokio::select! { ... } }` because
+        // a plain `while let Some(...) = stream.next().await` would
+        // block on the stream and ignore the cancel token.
+        loop {
+            let event_result = tokio::select! {
+                next = stream.next() => next,
+                _ = cancel_token.cancelled() => {
+                    // Restore idle state so the session can accept the
+                    // next request. Tool/child cleanup is owned by
+                    // `stop()` itself; we just abort the in-flight LLM
+                    // stream here.
+                    if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                        cs.read().await.set_llm_state(LlmState::Idle);
+                    }
+                    if let Some(ref s) = sink {
+                        s.send_error("cancelled".to_string());
+                    }
+                    tracing::info!(session_id = %session_id, "streaming LLM request cancelled");
+                    return Err(LLMError::Cancelled);
+                }
+            };
+            let Some(event_result) = event_result else {
+                // Stream ended normally.
+                break;
+            };
             match event_result {
                 Ok(StreamEvent::BlockDelta {
                     delta: ContentDelta::Text { text },

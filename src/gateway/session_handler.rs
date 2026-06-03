@@ -15,13 +15,14 @@ use crate::llm::session::ChatSession;
 use crate::llm::session_state::LlmState;
 use crate::llm::types::ContentBlock;
 use crate::llm::types::UnifiedResponse;
-use crate::llm::{ChatRequest, Message as ChatMessage};
+use crate::llm::{ChatRequest, LLMError, Message as ChatMessage};
 use crate::session::compaction::{
     execute_compact, CompactConfig, CompactionResult, CompactionService,
 };
 use crate::session::persistence::PendingMessage;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+use tokio_util::sync::CancellationToken;
 
 /// Metadata about an inbound message, passed through the handling pipeline.
 pub struct MessageMetadata {
@@ -296,7 +297,34 @@ impl SessionMessageHandler {
             temperature: 0.7,
             max_tokens: None,
         };
-        let response = fallback_client.chat_unified(request).await?;
+
+        // Acquire this session's cancellation token so an in-flight
+        // request can be aborted by a cascade stop (parent or local).
+        // If the conversation session is gone we fall back to a never-
+        // cancelled token so the request still completes normally.
+        let cancel_token: CancellationToken =
+            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                cs.read().await.cancel_token().clone()
+            } else {
+                CancellationToken::new()
+            };
+
+        // Race the LLM call against the cancel signal. `biased;` is not
+        // required here (both branches are first-class), but using a
+        // plain `tokio::select!` keeps the polling order natural.
+        let response = tokio::select! {
+            res = fallback_client.chat_unified(request) => res?,
+            _ = cancel_token.cancelled() => {
+                // Restore idle state so the session can accept the next
+                // request. The actual cascade-cleanup (tool/child
+                // handles, states) is handled by `stop()`.
+                if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                    cs.read().await.set_llm_state(LlmState::Idle);
+                }
+                tracing::info!(session_id = %session_id, "LLM request cancelled");
+                return Err(LLMError::Cancelled);
+            }
+        };
         Ok(response)
     }
 }

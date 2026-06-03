@@ -14,6 +14,10 @@ fake-llm = []
 [dependencies]
 # Async runtime - pinned to older version to avoid edition2024 issues
 tokio = { version = "=1.35.0", features = ["full"] }
+# Cancellation tokens with native parent/child derivation (used for cascade stop)
+# The `sync` module (containing `CancellationToken`) is always available; no
+# extra feature flags are required.
+tokio-util = "0.7"
 futures = "0.3"
 
 # Serialization
