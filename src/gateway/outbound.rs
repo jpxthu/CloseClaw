@@ -195,6 +195,16 @@ impl Gateway {
             crate::session::persistence::PendingMessage::new(msg.id.clone(), msg.content.clone());
         pending.mark_sent();
         let mut cp = checkpoint.add_pending_message(pending);
+        // Sync per-session append-section list from ConversationSession
+        // (issue #860: archived session restore preserves append content).
+        if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            let cs = cs.read().await;
+            cp.system_appends = cs.system_appends().to_vec();
+        }
         cp.touch();
         if let Err(e) = cm.save(cp).await {
             tracing::warn!(session_id, "failed to save checkpoint: {}", e);

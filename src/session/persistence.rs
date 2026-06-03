@@ -41,6 +41,11 @@ pub struct SessionCheckpoint {
     pub role: Option<AgentRole>,
     /// 推理深度等级
     pub reasoning_level: ReasoningLevel,
+    /// Per-session 追加区内容（system prompt append section）
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub system_appends: Vec<String>,
 }
 
 impl SessionCheckpoint {
@@ -64,6 +69,7 @@ impl SessionCheckpoint {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
+            system_appends: Vec::new(),
         }
     }
 

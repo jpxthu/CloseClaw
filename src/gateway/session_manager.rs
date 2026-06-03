@@ -296,6 +296,9 @@ impl SessionManager {
                     if let Some(cs) = conv_sessions.get(&session_id) {
                         let mut cs = cs.write().await;
                         cs.restore_pending_messages(cp.pending_messages);
+                        // Restore per-session append-section list from checkpoint
+                        // (issue #860: archived session restore preserves append content).
+                        cs.restore_system_appends(cp.system_appends);
                     }
                     drop(conv_sessions);
 
@@ -377,12 +380,18 @@ impl SessionManager {
         let mut saved = 0;
         for (session_id, session) in sessions.iter() {
             let pending = pending_map.get(session_id).cloned().unwrap_or_default();
-            let cp = SessionCheckpoint::new(session_id.clone())
+            let mut cp = SessionCheckpoint::new(session_id.clone())
                 .with_status(SessionStatus::Active)
                 .with_channel(session.channel.clone())
                 .with_chat_id(session.agent_id.clone())
                 .with_agent_id(session.agent_id.clone())
                 .with_pending_messages(pending);
+            // Sync per-session append-section list from ConversationSession
+            // (issue #860: archived session restore preserves append content).
+            if let Some(cs) = conv_sessions.get(session_id) {
+                let cs = cs.read().await;
+                cp.system_appends = cs.system_appends().to_vec();
+            }
             if storage.save_checkpoint(&cp).await.is_ok() {
                 saved += 1;
             } else {

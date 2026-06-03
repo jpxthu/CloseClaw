@@ -27,20 +27,25 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) -> Result<UnifiedResponse, LLMError> {
-        let (static_prompt_opt, turn_count, workdir_path) =
+        let (static_prompt_opt, turn_count, workdir_path, system_appends) =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 let cs_read = cs.read().await;
                 (
                     cs_read.system_prompt().map(|s| s.to_string()),
                     cs_read.turn_count(),
                     cs_read.workdir().to_string_lossy().into_owned(),
+                    cs_read.system_appends().to_vec(),
                 )
             } else {
-                (None, 0, String::new())
+                (None, 0, String::new(), Vec::new())
             };
 
-        let dynamic_sections =
-            build_dynamic_sections(turn_count, meta, Some(workdir_path.as_str()));
+        let dynamic_sections = build_dynamic_sections(
+            turn_count,
+            meta,
+            Some(workdir_path.as_str()),
+            &system_appends,
+        );
         let full_prompt = build_full_system_prompt(static_prompt_opt.as_deref(), &dynamic_sections);
 
         let mut messages = vec![];

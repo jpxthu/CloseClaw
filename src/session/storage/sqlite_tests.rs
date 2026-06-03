@@ -29,6 +29,7 @@ mod tests {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
+            system_appends: Vec::new(),
         }
     }
 
@@ -383,6 +384,7 @@ mod tests {
             agent_id: Some("agent-eda".to_string()),
             role: Some(AgentRole::SubAgent),
             reasoning_level: ReasoningLevel::default(),
+            system_appends: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -419,6 +421,7 @@ mod tests {
             agent_id: None,
             role: Some(AgentRole::SubAgent),
             reasoning_level: ReasoningLevel::default(),
+            system_appends: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -455,6 +458,7 @@ mod tests {
             agent_id: Some("my-agent".to_string()),
             role: Some(AgentRole::MainAgent),
             reasoning_level: ReasoningLevel::default(),
+            system_appends: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

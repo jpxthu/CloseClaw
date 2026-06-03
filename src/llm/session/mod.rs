@@ -80,6 +80,10 @@ pub struct ConversationSession {
     /// In-memory queue of announce events. Drained at the start of
     /// each parent turn. Not persisted across process restarts.
     announce_queue: Vec<AnnounceEvent>,
+    /// Per-session append-section items, managed by `/system` subcommand.
+    /// Persisted in `SessionCheckpoint::system_appends` so archived
+    /// sessions restore their append list intact.
+    system_appends: Vec<String>,
     /// LLM interaction state. See [`super::session_state`].
     pub(crate) llm_state: Arc<RwLock<LlmState>>,
     /// Per-call tool states. See [`super::session_state`].
@@ -121,6 +125,7 @@ impl ConversationSession {
             streaming_sink: None,
             stream_enabled: false,
             announce_queue: Vec::new(),
+            system_appends: Vec::new(),
             llm_state: Arc::new(RwLock::new(LlmState::Idle)),
             tool_states: Arc::new(RwLock::new(HashMap::new())),
             child_states: Arc::new(RwLock::new(HashMap::new())),
@@ -268,6 +273,50 @@ impl ConversationSession {
     /// Inject a system message into the conversation history.
     pub fn inject_system_message(&mut self, text: String) {
         self.push_message("system", vec![ContentBlock::Text(text)]);
+    }
+}
+
+/// Per-session append-section items (managed by `/system` subcommand).
+///
+/// Replaces the previous global static `APPEND_SECTION` in
+/// [`crate::system_prompt::sections`] so archived sessions can
+/// restore their append list intact. The legacy global is kept alive
+/// in #862 and is no longer touched on the production path.
+impl ConversationSession {
+    /// Append `content` to the per-session append-section list.
+    /// Truncates to `APPEND_SECTION_MAX_LEN` (500) chars if needed.
+    /// Returns the index of the newly added item (0-based, sequential).
+    pub fn add_system_append(&mut self, content: String) -> usize {
+        use crate::system_prompt::APPEND_SECTION_MAX_LEN;
+        let truncated: String = if content.chars().count() > APPEND_SECTION_MAX_LEN {
+            content
+                .chars()
+                .take(APPEND_SECTION_MAX_LEN)
+                .collect::<String>()
+        } else {
+            content
+        };
+        let next_index = self.system_appends.len();
+        self.system_appends.push(truncated);
+        next_index
+    }
+
+    /// Clear all append-section items. Returns the count cleared.
+    pub fn clear_system_appends(&mut self) -> usize {
+        let n = self.system_appends.len();
+        self.system_appends.clear();
+        n
+    }
+
+    /// Replace the current append-section list with `items`
+    /// (typically called from a checkpoint restore path).
+    pub fn restore_system_appends(&mut self, items: Vec<String>) {
+        self.system_appends = items;
+    }
+
+    /// Read-only access to the append-section list in insertion order.
+    pub fn system_appends(&self) -> &[String] {
+        &self.system_appends
     }
 }
 

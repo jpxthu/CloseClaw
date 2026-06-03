@@ -272,6 +272,7 @@ pub fn load_checkpoint_inner(
             _ => None,
         },
         reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+        system_appends: Vec::new(),
     }))
 }
 
