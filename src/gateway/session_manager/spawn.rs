@@ -112,6 +112,8 @@ impl SessionManager {
             agent_id: agent_id.clone(),
             workdir: Some(build_workdir_context(&workdir_path.to_string_lossy())),
             session_id: Some(child_session_id.clone()),
+            call_id: None,
+            session: None,
         };
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
         // Per-agent tool filtering is not yet supported by build_from_workspace;
@@ -136,10 +138,41 @@ impl SessionManager {
             .model
             .clone()
             .unwrap_or_else(|| "default".to_string());
-        let mut cs =
-            ConversationSession::new(child_session_id.clone(), model, workdir_path.clone())
-                .with_system_prompt(prompt)
-                .with_reasoning_level(self.default_reasoning_level);
+
+        // 5a. Wire child into parent's cancel-token tree (Step 1.5).
+        // Look up the parent session's ConversationSession so we can
+        // derive a child token from its cancellation source. The
+        // token tree is one-way: parent.cancel() cascades to this
+        // child automatically; a child cancel() never affects the
+        // parent.
+        let child_token = {
+            let conv_sessions = self.conversation_sessions.read().await;
+            let parent_cs = conv_sessions.get(parent_session_id).ok_or_else(|| {
+                format!(
+                    "parent session not found in conversation_sessions: {}",
+                    parent_session_id
+                )
+            })?;
+            // Bind the read guard to a local so it is dropped before
+            // `conv_sessions` goes out of scope at the end of this
+            // block. The CancellationToken returned by
+            // `child_cancel_token` is owned (it's a fresh child of
+            // the parent's token tree), so once the guard is dropped
+            // we can still use it.
+            let parent_guard = parent_cs.read().await;
+            let token = parent_guard.child_cancel_token();
+            drop(parent_guard);
+            token
+        };
+
+        let mut cs = ConversationSession::with_cancel_token(
+            child_session_id.clone(),
+            model,
+            workdir_path.clone(),
+            child_token,
+        )
+        .with_system_prompt(prompt)
+        .with_reasoning_level(self.default_reasoning_level);
 
         // 6. Inject task as pending message
         let pending_msg =
@@ -147,12 +180,30 @@ impl SessionManager {
         cs.push_pending(pending_msg);
 
         // 7. Register to conversation_sessions and sessions mappings
+        let child_cs_arc = std::sync::Arc::new(tokio::sync::RwLock::new(cs));
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
-            conv_sessions.insert(
-                child_session_id.clone(),
-                std::sync::Arc::new(tokio::sync::RwLock::new(cs)),
-            );
+            conv_sessions.insert(child_session_id.clone(), child_cs_arc.clone());
+        }
+
+        // 7a. Register the child session handle with the parent so
+        // stop(cascade=true) can recursively stop this child (Step 1.5).
+        // We re-borrow `conversation_sessions` rather than holding the
+        // parent's Arc here to avoid aliasing the same write lock
+        // through both arms; a fresh read is sufficient and cheap.
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            if let Some(parent_cs) = conv_sessions.get(parent_session_id) {
+                parent_cs.read().await.register_child_handle(
+                    &child_session_id,
+                    std::sync::Arc::downgrade(&child_cs_arc),
+                );
+            }
+            // If the parent is missing we already inserted the child
+            // into conversation_sessions; the announce path will
+            // surface the orphan via cleanup. We deliberately do not
+            // roll back here to keep the error path simple — the
+            // child is still reachable and completable.
         }
         {
             let mut sessions = self.sessions.write().await;

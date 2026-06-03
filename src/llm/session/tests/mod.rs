@@ -1,9 +1,10 @@
 use super::*;
-use crate::llm::types::UnifiedUsage;
+use crate::llm::types::{UnifiedResponse, UnifiedUsage};
 use crate::session::persistence::PendingMessage;
 use std::path::PathBuf;
 
 mod exec_state_tests;
+mod stop_tests;
 mod streaming_tests;
 
 // ── pending_messages queue ──────────────────────────────────────────────────

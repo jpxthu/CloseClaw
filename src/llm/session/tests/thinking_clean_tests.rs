@@ -1,5 +1,5 @@
 use super::*;
-use crate::llm::types::UnifiedUsage;
+use crate::llm::types::{UnifiedResponse, UnifiedUsage};
 use std::path::PathBuf;
 
 #[test]
