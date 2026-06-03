@@ -29,6 +29,27 @@ pub struct SessionMessage {
     pub timestamp: DateTime<Utc>,
 }
 
+/// Announce event pushed by a child session to its parent.
+///
+/// Produced when a run-mode child session completes its task; the parent
+/// session drains these at the start of its next turn and injects the
+/// result text as a `role="system"` SessionMessage.
+///
+/// Defined here (alongside `ConversationSession`) to avoid a `gateway -> llm`
+/// reverse-dependency for the announce pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnounceEvent {
+    /// ID of the child session that completed.
+    pub child_session_id: String,
+    /// Agent ID of the child that completed.
+    pub child_agent_id: String,
+    /// Concatenated Text content blocks from the child's final assistant
+    /// message. Thinking blocks are filtered out.
+    pub result_text: String,
+    /// When the child session finished. Used for logging / debug.
+    pub completed_at: DateTime<Utc>,
+}
+
 /// Trait for managing conversation session state.
 ///
 /// All implementations must be thread-safe (`Send + Sync`) to allow
@@ -93,6 +114,10 @@ pub struct ConversationSession {
     stats: RunningStats,
     streaming_sink: Option<Arc<dyn StreamingSink>>,
     stream_enabled: bool,
+    /// In-memory queue of announce events produced by run-mode child
+    /// sessions. Drained at the start of each parent turn. Not persisted
+    /// across process restarts.
+    announce_queue: Vec<AnnounceEvent>,
 }
 
 impl ConversationSession {
@@ -112,6 +137,7 @@ impl ConversationSession {
             stats: RunningStats::new(),
             streaming_sink: None,
             stream_enabled: false,
+            announce_queue: Vec::new(),
         }
     }
 
@@ -261,6 +287,34 @@ impl ConversationSession {
             }
         }
     }
+
+    /// Push an announce event onto the in-memory announce queue.
+    ///
+    /// Called by `SessionManager::push_announce` (typically from
+    /// `try_push_announce`) after a run-mode child session completes.
+    /// Events are drained at the start of the parent's next turn.
+    pub fn push_announce_to_queue(&mut self, event: AnnounceEvent) {
+        self.announce_queue.push(event);
+    }
+
+    /// Drain all queued announce events, returning them in FIFO order.
+    ///
+    /// Called by `SessionManager::drain_announces` at the start of
+    /// `drain_pending_loop`. After this call the queue is empty.
+    pub fn drain_announce_queue(&mut self) -> Vec<AnnounceEvent> {
+        std::mem::take(&mut self.announce_queue)
+    }
+
+    /// Inject a system message into the conversation history.
+    ///
+    /// Unlike `push_message`, this is a semantic API used for announce
+    /// injection: it only appends a `role="system"` `SessionMessage` to
+    /// the in-memory `messages` list. It does **not** trigger any
+    /// checkpoint persistence — checkpoint writes only happen on
+    /// daemon shutdown via `SessionManager::flush_all`.
+    pub fn inject_system_message(&mut self, text: String) {
+        self.push_message("system", vec![ContentBlock::Text(text)]);
+    }
 }
 
 impl std::fmt::Debug for ConversationSession {
@@ -282,6 +336,7 @@ impl std::fmt::Debug for ConversationSession {
                 &self.streaming_sink.as_ref().map(|_| "<StreamingSink>"),
             )
             .field("stream_enabled", &self.stream_enabled)
+            .field("announce_queue", &self.announce_queue)
             .finish()
     }
 }
