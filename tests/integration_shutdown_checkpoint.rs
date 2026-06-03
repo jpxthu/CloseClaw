@@ -215,7 +215,7 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
 //           graceful shutdown triggered by SIGTERM.
 //
 // This is an E2E test that starts a real daemon process, sends SIGTERM,
-// and verifies that `sessions.db` was created in the config directory.
+// and verifies that `sessions.sqlite` was created in the config directory.
 // The in-process tests (1.2/1.3/1.5) cover checkpoint content correctness;
 // this test verifies the SIGTERM → graceful shutdown → SqliteStorage init link.
 // ---------------------------------------------------------------------------
@@ -284,11 +284,11 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
         status
     );
 
-    // Verify SqliteStorage was initialized — `sessions.db` must exist
-    let sessions_db = config_dir.join("sessions.db");
+    // Verify SqliteStorage was initialized — `sessions.sqlite` must exist
+    let sessions_sqlite = config_dir.join("sessions.sqlite");
     assert!(
-        sessions_db.exists(),
-        "sessions.db should exist after SIGTERM graceful shutdown, proving \
+        sessions_sqlite.exists(),
+        "sessions.sqlite should exist after SIGTERM graceful shutdown, proving \
          SqliteStorage was initialized via the flush_all → graceful shutdown path"
     );
 }

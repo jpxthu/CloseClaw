@@ -45,8 +45,15 @@ impl SqliteStorage {
         std::fs::create_dir_all(&archived_dir)
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
+        // Migrate legacy `sessions.db` to `sessions.sqlite` (per design doc)
+        let legacy_db_path = data_dir.join("sessions.db");
+        let db_path = data_dir.join("sessions.sqlite");
+        if legacy_db_path.exists() {
+            std::fs::rename(&legacy_db_path, &db_path)
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        }
+
         // Open or create SQLite database
-        let db_path = data_dir.join("sessions.db");
         let conn =
             Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
@@ -258,7 +265,7 @@ impl PersistenceService for SqliteStorage {
         let checkpoint = checkpoint.clone();
 
         spawn_blocking(move || {
-            let conn = Connection::open(data_dir.join("sessions.db"))
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
             let status = status_to_db(&checkpoint.status);
@@ -329,7 +336,7 @@ impl PersistenceService for SqliteStorage {
         let session_id = session_id.to_string();
 
         spawn_blocking(move || {
-            let conn = Connection::open(data_dir.join("sessions.db"))
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
             Self::load_checkpoint_inner(&conn, &data_dir, &session_id)
         })
@@ -344,7 +351,7 @@ impl PersistenceService for SqliteStorage {
         let session_id = session_id.to_string();
 
         spawn_blocking(move || {
-            let conn = Connection::open(data_dir.join("sessions.db"))
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
             conn.execute(
@@ -375,7 +382,7 @@ impl PersistenceService for SqliteStorage {
         let data_dir = self.data_dir.clone();
 
         spawn_blocking(move || {
-            let conn = Connection::open(data_dir.join("sessions.db"))
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
             let mut stmt = conn

@@ -42,7 +42,7 @@ pub fn delete_transcript(path: &Path) {
 /// Archive a checkpoint: move its active transcript to archived_sessions/
 /// and mark the DB record as archived.
 pub fn do_archive(data_dir: &Path, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
     begin_immediate(&conn)?;
@@ -92,7 +92,7 @@ pub fn do_restore(
     data_dir: &Path,
     session_id: &str,
 ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
     begin_immediate(&conn)?;
@@ -305,7 +305,7 @@ fn read_transcript(
 /// Purge an archived checkpoint: delete its archived transcript and remove
 /// the DB record.
 pub fn do_purge(data_dir: &Path, session_id: &str) -> Result<(), PersistenceError> {
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
     begin_immediate(&conn)?;
@@ -326,7 +326,7 @@ pub fn do_purge(data_dir: &Path, session_id: &str) -> Result<(), PersistenceErro
 
 /// List all archived session IDs.
 pub fn do_list_archived(data_dir: &Path) -> Result<Vec<String>, PersistenceError> {
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
     let mut stmt = conn
@@ -347,7 +347,7 @@ pub fn list_idle_sessions_inner(
     data_dir: &Path,
     idle_minutes: i64,
 ) -> Result<Vec<String>, PersistenceError> {
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
     let cutoff = Utc::now().timestamp_millis() - idle_minutes * 60 * 1000;
     let mut stmt = conn
@@ -369,7 +369,7 @@ pub fn list_expired_archived_sessions_inner(
     if purge_after_minutes == 0 {
         return Ok(Vec::new());
     }
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
     let cutoff = Utc::now().timestamp_millis() - purge_after_minutes * 60 * 1000;
     let mut stmt = conn
@@ -391,7 +391,7 @@ pub fn list_idle_sessions_for_agent_inner(
     role: &str,
     idle_minutes: i64,
 ) -> Result<Vec<String>, PersistenceError> {
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
     let cutoff = Utc::now().timestamp_millis() - idle_minutes * 60 * 1000;
     let mut stmt = conn
@@ -420,7 +420,7 @@ pub fn list_expired_archived_sessions_for_agent_inner(
     if purge_after_minutes == 0 {
         return Ok(Vec::new());
     }
-    let db_path = data_dir.join("sessions.db");
+    let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
     let cutoff = Utc::now().timestamp_millis() - purge_after_minutes * 60 * 1000;
     let mut stmt = conn
