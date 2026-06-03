@@ -57,7 +57,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 - **存储**：system prompt 作为独立字段持久化，不混入对话消息列表。
 - **API 调用**：每次调用 LLM 时，system prompt 前置到消息列表最前端，与对话消息组合为完整请求。
 - **Compaction**：system prompt 不进入压缩消息流。压缩后的 transcript 由 system prompt + boundary message 组成。
-- **恢复**：会话从 checkpoint 恢复时，从持久化存储加载 system prompt，从 transcript 加载压缩后的对话历史。
+- **恢复**：会话从 checkpoint 恢复时，重新走注入流程（build_from_workspace），从最新 bootstrap 文件重建 system prompt，确保 prompt 内容最新。
 
 此设计确保角色定义在任意次压缩后依然完整，无需哈希校验或重新注入。
 
@@ -104,7 +104,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
   [Session Compaction | 手动压缩] 摘要内容
 ```
 
-system prompt 在压缩前后完全一致，不参与摘要流程。
+压缩不修改 system prompt 内容，但 compaction 完成后可能触发 session injection 重建 system prompt（以刷新 skill 列表等动态内容），详见 session-injection.md。
 
 ## 模块关系
 

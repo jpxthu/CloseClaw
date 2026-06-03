@@ -15,7 +15,7 @@
 | [platform](platform/README.md) | 操作系统抽象层：进程管理、信号处理、配置目录、终端 I/O 的平台差异封装 |
 | [processor_chain](processor_chain/README.md) | 统一出入站消息处理：入站归一化、DSL 解析、ContentBlock[] 传递 |
 | [im_adapter](im_adapter/README.md) | IM 平台插件化适配框架：IMPlugin trait 统一接口，每个平台一个插件（含 Adapter + Renderer），通用代码渲染和流式渲染能力 |
-| [session](session/README.md) | Agent 会话生命周期管理：创建、持久化、压缩、归档与清理 |
+| [session](session/README.md) | Agent 会话生命周期管理：持久化（创建、压缩、归档、清理）和执行层（三维执行状态、级联停止、后台结果注入） |
 | [slash](slash/README.md) | 斜杠指令系统：Gateway 层拦截、统一分派、Handler 执行，不进入 LLM 对话流程 |
 | [skills](skills/README.md) | Agent 可复用能力插件体系：磁盘即插即用、五层优先级、frontmatter 配置驱动、双执行模式 |
 | [system_prompt](system_prompt/README.md) | 每次 API 调用的固定前缀：静态/动态层划分、Section 类型、缓存策略、构建与注入入口 |
