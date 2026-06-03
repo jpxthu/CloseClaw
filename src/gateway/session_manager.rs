@@ -23,6 +23,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::warn;
 
+mod announce;
 mod rebuild;
 mod spawn;
 pub use spawn::{ChildSessionInfo, SpawnMode};
@@ -440,10 +441,14 @@ impl SessionManager {
 
 // Unit tests
 #[cfg(test)]
+mod announce_tests;
+#[cfg(test)]
 mod flush_tests;
 #[cfg(test)]
 mod rebuild_tests;
 #[cfg(test)]
 mod spawn_tests;
+#[cfg(test)]
+mod test_helpers;
 #[cfg(test)]
 mod tests;

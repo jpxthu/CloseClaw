@@ -153,6 +153,7 @@ async fn test_create_child_session_registers_child_info() {
         .expect("parent-7 should have a children entry");
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].session_id, child_id);
+    assert_eq!(list[0].parent_session_id, "parent-7");
     assert_eq!(list[0].agent_id, "worker-1");
     assert_eq!(list[0].depth, 1);
     assert_eq!(list[0].mode, SpawnMode::Session);
