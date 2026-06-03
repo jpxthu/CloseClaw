@@ -12,6 +12,7 @@ use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_sy
 use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
+use crate::llm::session_state::LlmState;
 use crate::llm::types::ContentBlock;
 use crate::llm::types::UnifiedResponse;
 use crate::llm::{ChatRequest, Message as ChatMessage};
@@ -161,6 +162,9 @@ impl SessionMessageHandler {
         {
             let cs = cs.write().await;
             cs.set_llm_busy(busy);
+            if busy {
+                cs.set_llm_state(LlmState::Requesting);
+            }
         }
     }
 

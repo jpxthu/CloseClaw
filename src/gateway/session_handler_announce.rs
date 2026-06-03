@@ -24,6 +24,7 @@ use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use crate::gateway::session_manager::SessionManager;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
+use crate::llm::session_state::LlmState;
 use crate::llm::types::ContentBlock;
 use crate::llm::types::UnifiedResponse;
 
@@ -49,6 +50,7 @@ impl SessionMessageHandler {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             let cs = cs.write().await;
             cs.set_llm_busy(false);
+            cs.set_llm_state(LlmState::Idle);
         }
         match result {
             Ok(response) => {
@@ -96,6 +98,7 @@ impl SessionMessageHandler {
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 let cs = cs.write().await;
                 cs.set_llm_busy(true);
+                cs.set_llm_state(LlmState::Requesting);
             }
 
             let meta = MessageMetadata::default_meta();
