@@ -4,7 +4,7 @@
 //! system prompt.
 
 use crate::gateway::session_handler::MessageMetadata;
-use crate::system_prompt::sections::{clear_append_section, get_append_section, Section};
+use crate::system_prompt::sections::Section;
 use crate::system_prompt::workdir;
 
 /// Build dynamic sections from metadata and session state.
@@ -14,10 +14,16 @@ use crate::system_prompt::workdir;
 ///
 /// `workdir_path` — when `Some`, injects a `WorkingDirectory` section and
 /// builds git status for that path instead of using global state.
+///
+/// `system_appends` — per-session append list (managed by `/system`
+/// subcommand). When non-empty, a single `AppendSection` is pushed at
+/// the end of the section list, formatted as a `[N] 内容` numbered
+/// list in insertion order.
 pub(crate) fn build_dynamic_sections(
     turn_count: u32,
     meta: &MessageMetadata,
     workdir_path: Option<&str>,
+    system_appends: &[String],
 ) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
@@ -42,9 +48,14 @@ pub(crate) fn build_dynamic_sections(
         }
     }
 
-    if let Some(append_content) = get_append_section() {
-        sections.push(Section::AppendSection(append_content));
-        clear_append_section();
+    if !system_appends.is_empty() {
+        let body: String = system_appends
+            .iter()
+            .enumerate()
+            .map(|(idx, content)| format!("[{}] {}", idx, content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sections.push(Section::AppendSection(body));
     }
 
     sections

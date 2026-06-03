@@ -138,6 +138,7 @@ mod tests {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
+            system_appends: Vec::new(),
         }
     }
 

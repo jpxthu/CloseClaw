@@ -6,6 +6,7 @@ use std::path::PathBuf;
 mod exec_state_tests;
 mod stop_tests;
 mod streaming_tests;
+mod system_appends_tests;
 
 // ── pending_messages queue ──────────────────────────────────────────────────
 

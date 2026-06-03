@@ -12,9 +12,7 @@ use crate::llm::types::{
 use crate::llm::LLMRegistry;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
-use crate::system_prompt::sections::{
-    clear_append_section, get_append_section, set_append_section, Section,
-};
+use crate::system_prompt::sections::Section;
 use async_trait::async_trait;
 use reqwest::header::HeaderMap;
 use reqwest::Client;
@@ -172,7 +170,7 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
 #[test]
 fn test_build_dynamic_sections_channel_context() {
     let meta = make_meta("user_42", "feishu", 1700000000);
-    let sections = build_dynamic_sections(0, &meta, None);
+    let sections = build_dynamic_sections(0, &meta, None, &[]);
 
     // Find ChannelContext section
     let cc = sections
@@ -190,7 +188,7 @@ fn test_build_dynamic_sections_channel_context() {
 #[test]
 fn test_build_dynamic_sections_session_state() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(7, &meta, None);
+    let sections = build_dynamic_sections(7, &meta, None, &[]);
 
     let ss = sections
         .iter()
@@ -205,7 +203,7 @@ fn test_build_dynamic_sections_session_state() {
 #[test]
 fn test_build_dynamic_sections_turn_count_zero() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta, None);
+    let sections = build_dynamic_sections(0, &meta, None, &[]);
     let ss = sections
         .iter()
         .find(|s: &&Section| s.name() == "session_state")
@@ -213,31 +211,42 @@ fn test_build_dynamic_sections_turn_count_zero() {
     assert!(ss.render().contains("turn_count: 0"));
 }
 
-/// AppendSection is included when set, cleared after use; absent when unset.
+/// AppendSection reflects the per-session system_appends slice:
+/// absent when empty, formatted as a numbered `[N] 内容` list when
+/// non-empty, and pushed as the last section in the list.
 #[test]
 fn test_build_dynamic_sections_append_section() {
-    // Part 1: set → build → should include and clear
-    clear_append_section();
     let meta = make_meta("u", "ch", 0);
-    set_append_section("extra instructions here".to_string());
-    let sections = build_dynamic_sections(0, &meta, None);
-    let has_append = sections.iter().any(|s| s.name() == "append");
-    // Due to global state races with other tests, we only assert the
-    // round-trip: set → get returns Some, then get returns None after build.
-    // (Other tests may clear between set and build in parallel runs.)
-    if has_append {
-        assert!(
-            get_append_section().is_none(),
-            "AppendSection should be cleared after build"
-        );
-    }
 
-    // Part 2: not set → build → should be absent
-    clear_append_section();
-    let sections2 = build_dynamic_sections(0, &meta, None);
+    // Part 1: empty slice → no AppendSection
+    let sections = build_dynamic_sections(0, &meta, None, &[]);
     assert!(
-        !sections2.iter().any(|s| s.name() == "append"),
-        "AppendSection absent when unset"
+        !sections.iter().any(|s| s.name() == "append"),
+        "AppendSection absent when system_appends is empty"
+    );
+
+    // Part 2: non-empty slice → AppendSection with numbered list, last
+    let items = vec![
+        "first extra instruction".to_string(),
+        "second extra instruction".to_string(),
+    ];
+    let sections2 = build_dynamic_sections(0, &meta, None, &items);
+    let last = sections2.last().expect("sections should be non-empty");
+    assert_eq!(
+        last.name(),
+        "append",
+        "AppendSection must be the last section"
+    );
+    let rendered = last.render();
+    assert!(
+        rendered.contains("[0] first extra instruction"),
+        "rendered should include [0] entry, got: {}",
+        rendered
+    );
+    assert!(
+        rendered.contains("[1] second extra instruction"),
+        "rendered should include [1] entry, got: {}",
+        rendered
     );
 }
 
@@ -245,7 +254,7 @@ fn test_build_dynamic_sections_append_section() {
 #[test]
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
-    let sections = build_dynamic_sections(3, &meta, None);
+    let sections = build_dynamic_sections(3, &meta, None, &[]);
     let full = build_full_system_prompt(Some("You are helpful."), &sections);
 
     // Contains static layer
@@ -262,7 +271,7 @@ fn test_build_full_system_prompt_composition() {
 #[test]
 fn test_build_full_system_prompt_no_static() {
     let meta = make_meta("bob", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta, None);
+    let sections = build_dynamic_sections(0, &meta, None, &[]);
     let full = build_full_system_prompt(None, &sections);
 
     // No boundary marker when no static prompt
@@ -275,11 +284,10 @@ fn test_build_full_system_prompt_no_static() {
 /// build_full_system_prompt with static but empty dynamic sections.
 #[test]
 fn test_build_full_system_prompt_empty_dynamic() {
-    // Clear append section so dynamic sections are only ChannelContext + SessionState
-    clear_append_section();
+    // Pass empty system_appends so dynamic sections are only ChannelContext + SessionState
     let meta = make_meta("", "", 0);
     // build_dynamic_sections always returns ChannelContext + SessionState (at minimum)
-    let sections = build_dynamic_sections(0, &meta, None);
+    let sections = build_dynamic_sections(0, &meta, None, &[]);
     // These two sections always render to non-empty strings, so dynamic is never truly empty.
     // But we verify the composition still works.
     let full = build_full_system_prompt(Some("static"), &sections);
@@ -322,7 +330,7 @@ async fn test_handle_message_backward_compat() {
 #[test]
 fn test_build_dynamic_sections_no_global_workdir() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta, None);
+    let sections = build_dynamic_sections(0, &meta, None, &[]);
     // Without a workdir_path parameter, no GitStatus section should appear
     let has_git = sections.iter().any(|s| s.name() == "git_status");
     assert!(!has_git, "GitStatus should not appear without workdir_path");
@@ -333,7 +341,7 @@ fn test_build_dynamic_sections_no_global_workdir() {
 #[test]
 fn test_build_dynamic_sections_working_directory() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta, Some("/tmp/test"));
+    let sections = build_dynamic_sections(0, &meta, Some("/tmp/test"), &[]);
     let wd = sections.iter().find(|s| s.name() == "working_directory");
     assert!(
         wd.is_some(),
@@ -349,7 +357,7 @@ fn test_build_dynamic_sections_git_status_with_path() {
     let meta = make_meta("u", "ch", 0);
     // Use CARGO_MANIFEST_DIR which is a git repo
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let sections = build_dynamic_sections(0, &meta, Some(manifest_dir));
+    let sections = build_dynamic_sections(0, &meta, Some(manifest_dir), &[]);
     let has_wd = sections.iter().any(|s| s.name() == "working_directory");
     let has_git = sections.iter().any(|s| s.name() == "git_status");
     assert!(has_wd, "WorkingDirectory should be present");
@@ -360,7 +368,7 @@ fn test_build_dynamic_sections_git_status_with_path() {
 #[test]
 fn test_build_dynamic_sections_no_git_for_non_repo() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(0, &meta, Some("/tmp"));
+    let sections = build_dynamic_sections(0, &meta, Some("/tmp"), &[]);
     let has_wd = sections.iter().any(|s| s.name() == "working_directory");
     let has_git = sections.iter().any(|s| s.name() == "git_status");
     assert!(has_wd, "WorkingDirectory should be present");
@@ -373,7 +381,7 @@ fn test_working_directory_render_sanitization() {
     let meta = make_meta("u", "ch", 0);
     // Use a path that contains workspaces/ to test sanitization
     let fake_workdir = "/home/user/.closeclaw/workspaces/agent1/user1/";
-    let sections = build_dynamic_sections(0, &meta, Some(fake_workdir));
+    let sections = build_dynamic_sections(0, &meta, Some(fake_workdir), &[]);
     let wd = sections
         .iter()
         .find(|s| s.name() == "working_directory")
