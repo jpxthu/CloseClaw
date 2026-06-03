@@ -101,7 +101,7 @@ fn test_system_appends_restore() {
 
 #[test]
 fn test_system_appends_max_len_truncation() {
-    use crate::system_prompt::APPEND_SECTION_MAX_LEN;
+    use super::super::APPEND_SECTION_MAX_LEN;
 
     let mut session = new_session();
 

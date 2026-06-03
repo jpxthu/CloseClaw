@@ -21,6 +21,15 @@ use crate::llm::turn::TurnCounter;
 use crate::llm::types::{ContentBlock, UnifiedUsage};
 use crate::session::persistence::ReasoningLevel;
 
+/// Maximum length of an individual append-section item (in characters).
+///
+/// Used by [`ConversationSession::add_system_append`] to truncate
+/// user-supplied content. Previously lived in `crate::system_prompt`
+/// alongside the now-removed global `APPEND_SECTION` static;
+/// migrated here as part of issue #862 since the per-session
+/// `system_appends` list is the only remaining production consumer.
+pub const APPEND_SECTION_MAX_LEN: usize = 500;
+
 // Re-export `KillHandle` so call sites that `use crate::llm::session::KillHandle`
 // keep working after the trait moved to `session_handles` in Step 1.8.
 pub(crate) use crate::llm::session_handles::KillHandle;
@@ -280,14 +289,13 @@ impl ConversationSession {
 ///
 /// Replaces the previous global static `APPEND_SECTION` in
 /// [`crate::system_prompt::sections`] so archived sessions can
-/// restore their append list intact. The legacy global is kept alive
-/// in #862 and is no longer touched on the production path.
+/// restore their append list intact. The legacy global was removed
+/// in #862 and is no longer present.
 impl ConversationSession {
     /// Append `content` to the per-session append-section list.
     /// Truncates to `APPEND_SECTION_MAX_LEN` (500) chars if needed.
     /// Returns the index of the newly added item (0-based, sequential).
     pub fn add_system_append(&mut self, content: String) -> usize {
-        use crate::system_prompt::APPEND_SECTION_MAX_LEN;
         let truncated: String = if content.chars().count() > APPEND_SECTION_MAX_LEN {
             content
                 .chars()
