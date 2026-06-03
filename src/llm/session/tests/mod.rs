@@ -2,56 +2,9 @@ use super::*;
 use crate::llm::types::UnifiedUsage;
 use crate::session::persistence::PendingMessage;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::thread;
 
+mod exec_state_tests;
 mod streaming_tests;
-
-// ── llm_busy state ─────────────────────────────────────────────────────────
-
-#[test]
-fn test_is_llm_busy_default_false() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
-    assert!(!session.is_llm_busy());
-}
-
-#[test]
-fn test_set_llm_busy_true() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
-    session.set_llm_busy(true);
-    assert!(session.is_llm_busy());
-}
-
-#[test]
-fn test_set_llm_busy_false_recovers() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
-    session.set_llm_busy(true);
-    session.set_llm_busy(false);
-    assert!(!session.is_llm_busy());
-}
-
-#[test]
-fn test_set_llm_busy_concurrent_no_panic() {
-    let session = Arc::new(ConversationSession::new(
-        "sess_concurrent".into(),
-        "gpt-4o".into(),
-        PathBuf::from("/tmp"),
-    ));
-    let handles: Vec<_> = (0..4)
-        .map(|i| {
-            let s = Arc::clone(&session);
-            thread::spawn(move || {
-                s.set_llm_busy(i % 2 == 0);
-            })
-        })
-        .collect();
-    for h in handles {
-        h.join().expect("thread panicked");
-    }
-}
 
 // ── pending_messages queue ──────────────────────────────────────────────────
 
@@ -114,10 +67,8 @@ fn test_get_pending_messages_does_not_consume_queue() {
     assert_eq!(msgs[0].message_id, "msg_1");
     assert_eq!(msgs[1].message_id, "msg_2");
 
-    // Queue is unmodified after get_pending_messages
     assert_eq!(session.pending_count(), 2);
 
-    // Verify they are clones (can modify returned Vec without affecting queue)
     let popped = session.pop_pending().unwrap();
     assert_eq!(popped.message_id, "msg_1");
     assert_eq!(session.pending_count(), 1);

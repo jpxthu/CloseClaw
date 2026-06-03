@@ -5,11 +5,12 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
+use crate::llm::session_state::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
 use crate::llm::stats::RunningStats;
 use crate::llm::streaming::StreamingSink;
 use crate::llm::turn::TurnCounter;
@@ -118,6 +119,14 @@ pub struct ConversationSession {
     /// sessions. Drained at the start of each parent turn. Not persisted
     /// across process restarts.
     announce_queue: Vec<AnnounceEvent>,
+    /// Current LLM interaction state. In-memory only; not persisted.
+    pub(crate) llm_state: Arc<RwLock<LlmState>>,
+    /// Per-call tool execution states keyed by tool call id. In-memory
+    /// only; not persisted.
+    pub(crate) tool_states: Arc<RwLock<HashMap<String, ToolExecState>>>,
+    /// Per-child session states keyed by child session id. In-memory
+    /// only; not persisted.
+    pub(crate) child_states: Arc<RwLock<HashMap<String, ChildSessionState>>>,
 }
 
 impl ConversationSession {
@@ -138,6 +147,9 @@ impl ConversationSession {
             streaming_sink: None,
             stream_enabled: false,
             announce_queue: Vec::new(),
+            llm_state: Arc::new(RwLock::new(LlmState::Idle)),
+            tool_states: Arc::new(RwLock::new(HashMap::new())),
+            child_states: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -326,7 +338,6 @@ impl std::fmt::Debug for ConversationSession {
             .field("turn_counter", &self.turn_counter)
             .field("model", &self.model)
             .field("compaction_state", &self.compaction_state)
-            .field("is_llm_busy", &self.is_llm_busy)
             .field("pending_messages", &self.pending_messages)
             .field("reasoning_level", &self.reasoning_level)
             .field("workdir", &self.workdir)
@@ -337,6 +348,21 @@ impl std::fmt::Debug for ConversationSession {
             )
             .field("stream_enabled", &self.stream_enabled)
             .field("announce_queue", &self.announce_queue)
+            .field(
+                "llm_state",
+                &*self.llm_state.read().expect("llm_state lock poisoned"),
+            )
+            .field(
+                "tool_states",
+                &*self.tool_states.read().expect("tool_states lock poisoned"),
+            )
+            .field(
+                "child_states",
+                &*self
+                    .child_states
+                    .read()
+                    .expect("child_states lock poisoned"),
+            )
             .finish()
     }
 }
@@ -432,7 +458,9 @@ impl ChatSession for ConversationSession {
     }
 
     fn is_llm_busy(&self) -> bool {
-        self.is_llm_busy.load(Ordering::SeqCst)
+        // Delegate to the three-dimensional execution state model.
+        // Preserves the legacy "LLM or foreground tool active" semantics.
+        self.exec_status() == SessionExecStatus::Busy
     }
 }
 

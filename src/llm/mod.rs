@@ -19,6 +19,8 @@ pub mod protocol;
 pub mod provider;
 pub mod retry;
 pub mod session;
+pub mod session_exec;
+pub mod session_state;
 pub mod stats;
 pub mod streaming;
 pub mod stub;
