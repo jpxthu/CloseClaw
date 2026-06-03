@@ -22,6 +22,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct ChildSessionInfo {
     pub session_id: String,
+    pub parent_session_id: String,
     pub agent_id: String,
     pub depth: u32,
     pub mode: SpawnMode,
@@ -172,6 +173,7 @@ impl SessionManager {
             parent_session_id,
             ChildSessionInfo {
                 session_id: child_session_id.clone(),
+                parent_session_id: parent_session_id.to_string(),
                 agent_id: config.id.clone(),
                 depth,
                 mode,

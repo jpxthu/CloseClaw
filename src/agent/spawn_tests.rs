@@ -108,6 +108,7 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
             parent_id,
             ChildSessionInfo {
                 session_id: format!("child-{}", i),
+                parent_session_id: parent_id.to_string(),
                 agent_id: "child".to_string(),
                 depth: 1,
                 mode: SpawnMode::Run,
