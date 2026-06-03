@@ -6,6 +6,8 @@ Agent 配置档案定义每个 agent 的静态属性和能力边界。每个 age
 
 Agent 配置（JSON）和 Bootstrap 文件（Markdown）是两层独立的事：配置定义"能力边界"（模型、工具、权限、spawn 控制），Bootstrap 定义"身份人格"（AGENTS.md、SOUL.md 等）。配置不混入 Markdown 正文。
 
+Agent 配置档案是纯配置值对象，不包含运行时可变字段。运行时状态（执行状态、对话状态）由 Session 模块管理。
+
 Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 分离，支持独立热更新和故障隔离。
 
 ## 架构
@@ -172,12 +174,11 @@ permissions.json 独立加载
 
 | 模块 | 消费方式 |
 |------|---------|
-| Session | 读取 model、workspace |
+| Session | 读取 model、workspace、subagents 控制参数 |
 | System Prompt | 读取 bootstrapMode、agentDir |
 | Permission | 读取 permissions.json 的权限基线规则 |
 | Skill Registry | 读取 skills 白名单 |
 | Tool Registry | 读取 tools 白名单、disallowedTools 黑名单 |
-| Agent Spawn | 读取 subagents 控制参数 |
 
 ### 无关
 
