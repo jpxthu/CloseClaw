@@ -98,6 +98,8 @@ mod tests {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
+            call_id: None,
+            session: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         match section {
@@ -123,6 +125,8 @@ mod tests {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
+            call_id: None,
+            session: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {
@@ -154,6 +158,8 @@ mod tests {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
+            call_id: None,
+            session: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {
@@ -195,6 +201,8 @@ mod tests {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
+            call_id: None,
+            session: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {
@@ -215,6 +223,8 @@ mod tests {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
+            call_id: None,
+            session: None,
         };
         let section = build_tools_section(&registry, &ctx).await;
         let content = match section {

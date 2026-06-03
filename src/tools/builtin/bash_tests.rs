@@ -5,6 +5,7 @@
 //! private items in the parent module.
 
 use super::*;
+use crate::tools::builtin::bash_kill::{persist_output, process_output, MAX_OUTPUT_CHARS};
 use serde_json::json;
 
 fn test_permission_engine() -> Arc<PermissionEngine> {
@@ -23,6 +24,8 @@ fn test_tool_context() -> ToolContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
         session_id: None,
+        call_id: None,
+        session: None,
     }
 }
 
@@ -253,11 +256,19 @@ fn test_build_auto_background_result_has_task_id_and_flag() {
 #[tokio::test]
 async fn test_execute_command_run_in_background_returns_background_task() {
     use crate::tasks::TaskState;
-    let bg_manager = BackgroundTaskManager::new();
+    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
 
-    let result = execute_command("echo run_in_bg", "/tmp", 5_000, true, &bg_manager)
-        .await
-        .expect("execute_command(run_in_background) should succeed");
+    let result = execute_command(
+        "echo run_in_bg",
+        "/tmp",
+        5_000,
+        true,
+        &bg_manager,
+        None,
+        None,
+    )
+    .await
+    .expect("execute_command(run_in_background) should succeed");
 
     // Required fields per design (background-tasks.md)
     let task_id = result.data["backgroundTaskId"]
@@ -307,13 +318,15 @@ async fn test_execute_command_run_in_background_with_long_command() {
     // via `spawn_sh_command` (which would fail for an invalid command
     // like `nonexistent_xyz`). With the new `spawn()` path, the task is
     // registered immediately and the command runs in the background.
-    let bg_manager = BackgroundTaskManager::new();
+    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
     let result = execute_command(
         "nonexistent_xyz_abcdef_12345",
         "/tmp",
         5_000,
         true,
         &bg_manager,
+        None,
+        None,
     )
     .await
     .expect("execute_command(run_in_background) should succeed even for unknown commands");
@@ -341,20 +354,20 @@ async fn test_execute_command_run_in_background_with_long_command() {
 
 #[tokio::test]
 async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
-    let bg_manager = BackgroundTaskManager::new();
+    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
     // Spawn a child that will outlast the bg_timeout.
-    let mut child = spawn_sh_command("sleep 5", "/tmp").expect("spawn sleep");
-    let stdout_handle = child.stdout.take();
-    let stderr_handle = child.stderr.take();
+    let child = spawn_sh_command("sleep 5", "/tmp").expect("spawn sleep");
+    // Wrap the child in the shared `Arc<Mutex<Option<_>>>` slot that
+    // `handle_foreground_result` now expects (Step 1.4 refactor:
+    // the slot is the same one `BashKillHandle` would observe).
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
     // Use a tiny bg_timeout so the auto-background path is triggered
     // almost immediately. This is the exact branch Step 1.2 unlocked:
     // `backgroundize(child, command)` is now called WITHOUT a cwd arg.
     let result = handle_foreground_result(
-        child,
+        child_arc,
         "sleep 5",
-        stdout_handle,
-        stderr_handle,
         std::time::Duration::from_millis(100),
         &bg_manager,
     )
@@ -387,16 +400,15 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
 async fn test_handle_foreground_result_returns_foreground_on_success() {
     // Control test: when the child completes before bg_timeout, the
     // result must be a foreground result (no background fields).
-    let bg_manager = BackgroundTaskManager::new();
-    let mut child = spawn_sh_command("true", "/tmp").expect("spawn true");
-    let stdout_handle = child.stdout.take();
-    let stderr_handle = child.stderr.take();
+    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
+    let child = spawn_sh_command("true", "/tmp").expect("spawn true");
+    // Wrap the child in the shared slot — `handle_foreground_result`
+    // extracts stdout/stderr and then takes the child for `wait()`.
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
     let result = handle_foreground_result(
-        child,
+        child_arc,
         "true",
-        stdout_handle,
-        stderr_handle,
         std::time::Duration::from_secs(5),
         &bg_manager,
     )

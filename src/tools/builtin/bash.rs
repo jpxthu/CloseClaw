@@ -1,11 +1,18 @@
 //! Built-in BashTool — provides shell command execution capability for agents.
 //! Implements timeout control, output truncation with head-preservation,
 //! output persistence, and command classification.
+//!
+//! Step 1.4 of issue #858 added a kill-handle integration path: foreground
+//! processes register a [`BashKillHandle`] on the owning
+//! `ConversationSession`, background tasks register a
+//! [`BackgroundKillHandle`]. The actual `KillHandle` adapter types and
+//! the output-processing helpers (`process_output`, `build_result`,
+//! etc.) live in the sibling module [`super::bash_kill`] to keep this
+//! file under the CONTRIBUTING.md 500-line hard cap.
 
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_types::PermissionResponse;
 use crate::tasks::BackgroundTaskManager;
-use crate::tools::builtin::bash_classify;
 use crate::tools::security::{BashSecurityAnalyzer, TrustLevel};
 use crate::tools::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
@@ -14,30 +21,15 @@ use crate::tools::{
 use async_trait::async_trait;
 use serde_json::Value;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// Maximum characters per output stream (stdout/stderr) before truncation.
-const MAX_OUTPUT_CHARS: usize = 30_000;
-
-/// Maximum bytes for persisted output file (64 MB).
-const MAX_PERSISTED_BYTES: usize = 64 * 1024 * 1024;
-
-/// Number of bytes to preview from persisted output.
-const PREVIEW_BYTES: usize = 2_000;
-
-/// Directory for persisted output files.
-const PERSIST_DIR: &str = "/tmp/openclaw";
+use super::bash_kill::{
+    build_result, process_output, read_pipe, BackgroundKillHandle, BashKillHandle,
+};
 
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
-
-/// Processed output: either inline content or a persisted-output reference.
-struct OutputProcessed {
-    inline: String,
-    persisted_path: Option<String>,
-    persisted_size: usize,
-}
 
 /// Shell command execution tool.
 ///
@@ -187,23 +179,86 @@ fn auto_backgroundize_excluded(command: &str) -> bool {
     matches!(base, "sleep" | "true" | "false")
 }
 
-/// Read all bytes from an optional async reader and return as String.
-async fn read_pipe<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> String {
-    use tokio::io::AsyncReadExt;
-    match pipe {
-        Some(mut r) => {
-            let mut buf = Vec::new();
-            let _ = r.read_to_end(&mut buf).await;
-            String::from_utf8_lossy(&buf).to_string()
+// --- Sub-execution helpers ---
+
+/// Spawn a shell command as a child process.
+fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, String> {
+    use tokio::process::Command;
+    Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(cwd)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to spawn command: {}", e))
+}
+
+/// Wait on a foreground child process, with timeout.
+///
+/// The child is shared with the [`BashKillHandle`] via
+/// `Arc<Mutex<Option<Child>>>`. Stdout/stderr are extracted first
+/// (they need to be consumed independently of the wait); the child is
+/// then taken out of the `Mutex` for the actual `child.wait()` call
+/// — holding a `std::sync::Mutex` across an `.await` would either
+/// deadlock a current-thread runtime or starve a multi-threaded
+/// runtime's worker. While the child is "out", the `BashKillHandle`
+/// is a no-op; the wait is expected to complete (foreground
+/// commands are short) or be auto-backgroundized.
+///
+/// On timeout, hands the child back to the background task manager
+/// (with stdout/stderr reattached).
+async fn handle_foreground_result(
+    child_arc: Arc<Mutex<Option<tokio::process::Child>>>,
+    command: &str,
+    bg_timeout: Duration,
+    bg_manager: &Arc<BackgroundTaskManager>,
+) -> Result<ToolResult, String> {
+    // 1. Extract stdout/stderr (briefly lock). Reattach to the
+    //    (still-`Some`) child in the slot for the auto-background
+    //    path below.
+    let (stdout_handle, stderr_handle) = {
+        let mut guard = child_arc.lock().expect("child mutex poisoned");
+        let child = guard.as_mut().expect("child present after spawn");
+        (child.stdout.take(), child.stderr.take())
+    };
+
+    // 2. Take the child OUT of the `Mutex` for the `wait()` call.
+    //    Lock is released immediately.
+    let mut child = child_arc
+        .lock()
+        .expect("child mutex poisoned")
+        .take()
+        .expect("child present after spawn");
+
+    let wait_result = tokio::time::timeout(bg_timeout, child.wait()).await;
+    match wait_result {
+        Ok(Ok(status)) => {
+            let exit_code = status.code().unwrap_or(-1);
+            let stdout_raw = read_pipe(stdout_handle).await;
+            let stderr_raw = read_pipe(stderr_handle).await;
+            let stdout_p = process_output(&stdout_raw);
+            let stderr_p = process_output(&stderr_raw);
+            Ok(build_result(command, stdout_p, stderr_p, exit_code, false))
         }
-        None => String::new(),
+        Ok(Err(e)) => Err(format!("failed to wait on command: {}", e)),
+        // Timeout: auto-backgroundize the running child
+        Err(_elapsed) => {
+            child.stdout = stdout_handle;
+            child.stderr = stderr_handle;
+            let task = bg_manager
+                .backgroundize(child, command)
+                .await
+                .map_err(|e| format!("failed to backgroundize command: {}", e))?;
+            Ok(build_auto_background_result(&task))
+        }
     }
 }
 
 /// Execute the BashTool call: parse args, check permissions, run command.
 async fn execute_bash_call(
     perm: &PermissionEngine,
-    bg: &BackgroundTaskManager,
+    bg: &Arc<BackgroundTaskManager>,
     args: Value,
     ctx: &ToolContext,
 ) -> Result<ToolResult, ToolCallError> {
@@ -251,61 +306,19 @@ async fn execute_bash_call(
     }
 
     // --- 4. Execute subprocess ---
-    let result = execute_command(command, &cwd, timeout_ms, run_in_background, bg).await;
+    let result = execute_command(
+        command,
+        &cwd,
+        timeout_ms,
+        run_in_background,
+        bg,
+        ctx.session.as_ref(),
+        ctx.call_id.as_deref(),
+    )
+    .await;
     match result {
         Ok(r) => Ok(r),
         Err(e) => Err(ToolCallError::ExecutionFailed(e)),
-    }
-}
-
-// --- Sub-execution helpers ---
-
-/// Spawn a shell command as a child process.
-fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, String> {
-    use tokio::process::Command;
-    Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .current_dir(cwd)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("failed to spawn command: {}", e))
-}
-
-/// Wait on a foreground child process, with timeout.
-///
-/// On success, reads stdout/stderr and builds the tool result.
-/// On timeout, hands the child back to the background task manager.
-async fn handle_foreground_result(
-    mut child: tokio::process::Child,
-    command: &str,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
-    bg_timeout: Duration,
-    bg_manager: &BackgroundTaskManager,
-) -> Result<ToolResult, String> {
-    let wait_result = tokio::time::timeout(bg_timeout, child.wait()).await;
-    match wait_result {
-        Ok(Ok(status)) => {
-            let exit_code = status.code().unwrap_or(-1);
-            let stdout_raw = read_pipe(stdout_handle).await;
-            let stderr_raw = read_pipe(stderr_handle).await;
-            let stdout_p = process_output(&stdout_raw);
-            let stderr_p = process_output(&stderr_raw);
-            Ok(build_result(command, stdout_p, stderr_p, exit_code, false))
-        }
-        Ok(Err(e)) => Err(format!("failed to wait on command: {}", e)),
-        // Timeout: auto-backgroundize the running child
-        Err(_elapsed) => {
-            child.stdout = stdout_handle;
-            child.stderr = stderr_handle;
-            let task = bg_manager
-                .backgroundize(child, command)
-                .await
-                .map_err(|e| format!("failed to backgroundize command: {}", e))?;
-            Ok(build_auto_background_result(&task))
-        }
     }
 }
 
@@ -314,12 +327,23 @@ async fn handle_foreground_result(
 /// When `run_in_background` is true, immediately spawns a background
 /// task. Otherwise executes in foreground with a 15-second
 /// auto-backgroundize budget.
+///
+/// `session` and `call_id` (when both `Some`) drive the kill-handle
+/// integration from Step 1.4 of issue #858: the foreground path
+/// registers a [`BashKillHandle`] for the duration of the wait, the
+/// background path registers a [`BackgroundKillHandle`] for the
+/// lifetime of the task. Both are `None`-safe — tool invocations
+/// outside a tracked session (CLI, tests, prompt generation) skip
+/// registration entirely.
+#[allow(clippy::too_many_arguments)]
 async fn execute_command(
     command: &str,
     cwd: &str,
     timeout_ms: u64,
     run_in_background: bool,
-    bg_manager: &BackgroundTaskManager,
+    bg_manager: &Arc<BackgroundTaskManager>,
+    session: Option<&Arc<tokio::sync::RwLock<crate::llm::session::ConversationSession>>>,
+    call_id: Option<&str>,
 ) -> Result<ToolResult, String> {
     if run_in_background {
         // Per #762 design: `spawn()` is the "self-cold-start" path; do not
@@ -328,145 +352,50 @@ async fn execute_command(
             .spawn(command, Path::new(cwd))
             .await
             .map_err(|e| format!("failed to spawn background task: {}", e))?;
+
+        // Register BackgroundKillHandle so cascade-stop can find the
+        // task. No unregister — background tasks run independently
+        // of the tool invocation, and the handle is naturally
+        // reaped when the entry is removed from the manager.
+        if let (Some(s), Some(cid)) = (session, call_id) {
+            let handle: Arc<dyn crate::llm::session::KillHandle> = Arc::new(BackgroundKillHandle {
+                bg_manager: Arc::clone(bg_manager),
+                task_id: task.id.clone(),
+            });
+            s.read().await.register_tool_handle(cid.to_string(), handle);
+        }
+
         return Ok(build_background_result(&task));
     }
 
-    let mut child = spawn_sh_command(command, cwd)?;
+    // Foreground path: spawn, wrap child in a shared slot, register
+    // the kill handle, wait, then unregister.
+    let child = spawn_sh_command(command, cwd)?;
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
-    let stdout_handle = child.stdout.take();
-    let stderr_handle = child.stderr.take();
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        let handle: Arc<dyn crate::llm::session::KillHandle> = Arc::new(BashKillHandle {
+            child: Arc::clone(&child_arc),
+        });
+        s.read().await.register_tool_handle(cid.to_string(), handle);
+    }
+
     let bg_timeout = if auto_backgroundize_excluded(command) {
         Duration::from_millis(timeout_ms)
     } else {
         Duration::from_millis(AUTO_BG_TIMEOUT_MS)
     };
 
-    handle_foreground_result(
-        child,
-        command,
-        stdout_handle,
-        stderr_handle,
-        bg_timeout,
-        bg_manager,
-    )
-    .await
-}
+    let result = handle_foreground_result(child_arc, command, bg_timeout, bg_manager).await;
 
-/// Truncate a string at a safe UTF-8 character boundary.
-/// Returns the first `max_bytes` bytes without splitting a multi-byte
-/// character.
-fn safe_truncate(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes {
-        return s;
+    // Unregister on both success and failure. The handle's `Arc` is
+    // dropped here; if the foreground wait consumed the child, the
+    // slot was already `None` and the drop is a no-op.
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        s.read().await.unregister_tool_handle(cid);
     }
-    let end = s
-        .char_indices()
-        .map(|(i, c)| i + c.len_utf8())
-        .take_while(|&end| end <= max_bytes)
-        .last()
-        .unwrap_or(0);
-    &s[..end]
-}
 
-/// Truncate output beyond [`MAX_OUTPUT_CHARS`] and persist full output
-/// to disk.
-///
-/// Returns an [`OutputProcessed`] with either inline content or a
-/// persisted-output reference string.
-fn process_output(raw: &str) -> OutputProcessed {
-    let char_count = raw.chars().count();
-    if char_count <= MAX_OUTPUT_CHARS {
-        return OutputProcessed {
-            inline: raw.to_string(),
-            persisted_path: None,
-            persisted_size: 0,
-        };
-    }
-    let truncated: String = raw.chars().take(MAX_OUTPUT_CHARS).collect();
-    let removed_bytes = raw.len() - truncated.len();
-    let inline = format!(
-        "{}\n[truncated, {} bytes removed]",
-        truncated, removed_bytes
-    );
-    match persist_output(raw) {
-        Ok(path) => {
-            let preview = safe_truncate(raw, PREVIEW_BYTES);
-            let reference = format!(
-                "<persisted-output path=\"{}\" size=\"{}\">\n{}\n</persisted-output>",
-                path,
-                raw.len(),
-                preview,
-            );
-            OutputProcessed {
-                inline: reference,
-                persisted_path: Some(path),
-                persisted_size: raw.len(),
-            }
-        }
-        Err(e) => {
-            eprintln!("warn: failed to persist bash output: {}", e);
-            OutputProcessed {
-                inline,
-                persisted_path: None,
-                persisted_size: 0,
-            }
-        }
-    }
-}
-
-/// Persist full output to a temporary file.
-///
-/// Writes to `/tmp/openclaw/bash_output_{ts}_{pid}_{counter}.txt`. If the
-/// output exceeds [`MAX_PERSISTED_BYTES`], the file is truncated.
-fn persist_output(raw: &str) -> Result<String, String> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    std::fs::create_dir_all(PERSIST_DIR)
-        .map_err(|e| format!("failed to create {}: {}", PERSIST_DIR, e))?;
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let pid = std::process::id();
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = format!("{}/bash_output_{}_{}_{}.txt", PERSIST_DIR, ts, pid, seq);
-    let content = safe_truncate(raw, MAX_PERSISTED_BYTES);
-    std::fs::write(&path, content).map_err(|e| format!("failed to write {}: {}", path, e))?;
-    Ok(path)
-}
-
-/// Build a [`ToolResult`] from processed execution outputs.
-fn build_result(
-    command: &str,
-    stdout: OutputProcessed,
-    stderr: OutputProcessed,
-    exit_code: i32,
-    interrupted: bool,
-) -> ToolResult {
-    let category = bash_classify::classify_command(command);
-    let no_output = bash_classify::no_output_expected(category);
-    let interpretation = crate::tools::security::interpret_exit_code(command, exit_code);
-    let persisted_path = stdout
-        .persisted_path
-        .as_deref()
-        .or(stderr.persisted_path.as_deref())
-        .map(str::to_string);
-    let persisted_size = stdout.persisted_size + stderr.persisted_size;
-    ToolResult {
-        data: serde_json::json!({
-            "stdout": stdout.inline,
-            "stderr": stderr.inline,
-            "exitCode": exit_code,
-            "interrupted": interrupted,
-            "persistedOutputPath": persisted_path,
-            "persistedOutputSize": persisted_size,
-            "returnCodeInterpretation": interpretation,
-            "noOutputExpected": no_output
-        }),
-        new_messages: vec![],
-        context_modifier: None,
-    }
+    result
 }
 
 /// Build a [`ToolResult`] for an explicitly backgrounded command.

@@ -46,6 +46,8 @@ async fn test_build_from_workspace_skill_listing_injected() {
         agent_id: "test".to_string(),
         workdir: None,
         session_id: None,
+        call_id: None,
+        session: None,
     };
 
     let result = build_from_workspace(
@@ -92,6 +94,8 @@ async fn test_build_from_workspace_no_skill_info_no_section() {
         agent_id: "test".to_string(),
         workdir: None,
         session_id: None,
+        call_id: None,
+        session: None,
     };
 
     let result = build_from_workspace(
@@ -127,6 +131,8 @@ async fn test_build_from_workspace_empty_listing_no_section() {
         agent_id: "test".to_string(),
         workdir: None,
         session_id: None,
+        call_id: None,
+        session: None,
     };
 
     let result = build_from_workspace(
@@ -163,6 +169,8 @@ async fn test_build_from_workspace_skill_section_not_duplicated() {
         agent_id: "test".to_string(),
         workdir: None,
         session_id: None,
+        call_id: None,
+        session: None,
     };
 
     let result = build_from_workspace(

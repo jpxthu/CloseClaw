@@ -5,6 +5,7 @@
 
 pub mod bash;
 pub mod bash_classify;
+pub mod bash_kill;
 pub mod coding_agent;
 pub mod file_ops;
 pub mod git_ops;

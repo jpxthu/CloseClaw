@@ -20,6 +20,7 @@ pub mod provider;
 pub mod retry;
 pub mod session;
 pub mod session_exec;
+pub(crate) mod session_handles;
 pub mod session_state;
 pub mod stats;
 pub mod streaming;
@@ -215,6 +216,11 @@ pub enum LLMError {
 
     #[error("Network error: {0}")]
     NetworkError(String),
+
+    /// Request was cancelled by the session's cancellation token
+    /// (cascade stop or explicit `/stop`). Never retried.
+    #[error("Request cancelled")]
+    Cancelled,
 }
 
 /// Classifies an LLM error to determine retry strategy
@@ -262,6 +268,8 @@ impl LLMError {
             }
             // Network errors are transient
             LLMError::NetworkError(_) => Transient,
+            // Cancellation is caller-initiated, never retry.
+            LLMError::Cancelled => InvalidRequest,
         }
     }
 }

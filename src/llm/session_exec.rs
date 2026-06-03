@@ -4,6 +4,11 @@
 //! session dimensions defined in `session_state.rs`. The overall
 //! `exec_status()` combines the three dimensions according to the state
 //! table in `docs/design/session/session-execution.md`.
+//!
+//! The handle / cancel-token / cascade-stop surface lives in
+//! [`super::session_handles`]; the state transitions below are kept
+//! independent of kill handling so the two concerns can evolve
+//! separately.
 
 use super::session::ConversationSession;
 use super::session_state::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
@@ -74,9 +79,12 @@ impl ConversationSession {
             .values()
             .any(|s| matches!(s, ToolExecState::RunningBackground))
     }
+}
 
-    // ── child session state ──────────────────────────────────────────────
+// ── child session state + overall status ─────────────────────────────
 
+#[allow(dead_code)]
+impl ConversationSession {
     /// Registers a new child session in the `Running` state. Returns
     /// `true` if newly registered, `false` if a child with the same id
     /// already exists.
@@ -130,8 +138,6 @@ impl ConversationSession {
             .values()
             .any(|s| matches!(s, ChildSessionState::Running))
     }
-
-    // ── overall status ───────────────────────────────────────────────────
 
     /// Computes the overall session execution status by combining the
     /// three dimensions. Lock acquisition order is **always**

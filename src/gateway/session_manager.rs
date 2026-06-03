@@ -230,6 +230,8 @@ impl SessionManager {
             agent_id: agent_id.clone(),
             workdir: workdir_ctx,
             session_id: None,
+            call_id: None,
+            session: None,
         };
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
         let prompt = build_from_workspace(

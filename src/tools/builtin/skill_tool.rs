@@ -195,6 +195,8 @@ mod tests {
             agent_id: "test-agent".to_string(),
             workdir: None,
             session_id: None,
+            call_id: None,
+            session: None,
         }
     }
 
