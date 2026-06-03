@@ -12,6 +12,7 @@ use crate::gateway::session_manager::SessionManager;
 use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
 use crate::llm::client::UnifiedChatClient;
 use crate::llm::session::ChatSession;
+use crate::llm::session_state::LlmState;
 use crate::llm::streaming::{StreamDone, StreamingSink};
 use crate::llm::types::{ContentBlock, ContentDelta, StreamEvent, UnifiedResponse, UnifiedUsage};
 use crate::llm::{LLMError, Message as ChatMessage};
@@ -82,6 +83,11 @@ impl SessionMessageHandler {
                 None
             };
 
+        // Set LLM state to Requesting before dispatching the stream.
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            cs.read().await.set_llm_state(LlmState::Requesting);
+        }
+
         let mut stream = match unified_client.chat_streaming(internal_request).await {
             Ok(s) => s,
             Err(e) => {
@@ -90,12 +96,17 @@ impl SessionMessageHandler {
                 if let Some(ref s) = sink {
                     s.send_error(msg.clone());
                 }
+                // Reset LLM state on error.
+                if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                    cs.read().await.set_llm_state(LlmState::Idle);
+                }
                 return Err(LLMError::ApiError(msg));
             }
         };
 
         let mut full_text = String::new();
         let mut last_usage = None;
+        let mut first_token = true;
 
         while let Some(event_result) = stream.next().await {
             match event_result {
@@ -103,6 +114,14 @@ impl SessionMessageHandler {
                     delta: ContentDelta::Text { text },
                     ..
                 }) => {
+                    // Transition to Receiving on first text delta.
+                    if first_token {
+                        if let Some(cs) = session_manager.get_conversation_session(session_id).await
+                        {
+                            cs.read().await.set_llm_state(LlmState::Receiving);
+                        }
+                        first_token = false;
+                    }
                     full_text.push_str(&text);
                     if let Some(ref s) = sink {
                         s.send_text(&text);
@@ -135,6 +154,11 @@ impl SessionMessageHandler {
                 }
                 _ => {}
             }
+        }
+
+        // Reset LLM state to Idle after stream completes.
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            cs.read().await.set_llm_state(LlmState::Idle);
         }
 
         Ok(UnifiedResponse {
