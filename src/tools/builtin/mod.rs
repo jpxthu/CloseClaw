@@ -11,7 +11,9 @@ pub mod file_ops;
 pub mod git_ops;
 pub mod permission;
 pub mod search;
+pub mod sessions_kill;
 pub mod sessions_spawn;
+pub mod sessions_steer;
 pub mod skill_creator;
 pub mod skill_tool;
 
@@ -21,7 +23,9 @@ pub use file_ops::{EditTool, GrepTool, LsTool, ReadTool, WriteTool};
 pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatusTool};
 pub use permission::PermissionQueryTool;
 pub use search::ToolSearchTool;
+pub use sessions_kill::SessionsKillTool;
 pub use sessions_spawn::SessionsSpawnTool;
+pub use sessions_steer::SessionsSteerTool;
 pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
 
@@ -34,7 +38,7 @@ use crate::skills::DiskSkillRegistry;
 
 /// Registers all built-in tools with the given registry.
 ///
-/// Currently registers 17 tools:
+/// Currently registers 19 tools:
 ///
 /// 5 file_ops tools:
 /// - [`ReadTool`]
@@ -57,8 +61,10 @@ use crate::skills::DiskSkillRegistry;
 /// 1 bash tool:
 /// - [`BashTool`]
 ///
-/// 1 sessions tool:
+/// 3 sessions tools:
 /// - [`SessionsSpawnTool`]
+/// - [`SessionsSteerTool`]
+/// - [`SessionsKillTool`]
 ///
 /// 3 stub tools:
 /// - [`CodingAgentTool`]
@@ -99,7 +105,18 @@ pub async fn register_builtin_tools(
     registry.register(SkillTool::new(disk_registry)).await.ok();
     // sessions
     registry
-        .register(SessionsSpawnTool::new(spawn_controller, session_manager))
+        .register(SessionsSpawnTool::new(
+            spawn_controller,
+            session_manager.clone(),
+        ))
+        .await
+        .ok();
+    registry
+        .register(SessionsSteerTool::new(session_manager.clone()))
+        .await
+        .ok();
+    registry
+        .register(SessionsKillTool::new(session_manager))
         .await
         .ok();
 }
@@ -107,3 +124,7 @@ pub async fn register_builtin_tools(
 #[cfg(test)]
 #[path = "sessions_spawn_tests.rs"]
 mod sessions_spawn_tests;
+
+#[cfg(test)]
+#[path = "sessions_steer_kill_tests.rs"]
+mod sessions_steer_kill_tests;

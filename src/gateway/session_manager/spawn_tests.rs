@@ -193,3 +193,180 @@ async fn test_create_child_session_registers_child_info() {
     assert_eq!(list[0].depth, 1);
     assert_eq!(list[0].mode, SpawnMode::Session);
 }
+
+#[tokio::test]
+#[serial]
+async fn test_steer_child_injects_pending_message() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let config = test_resolved_config("steer-child", None);
+
+    register_parent_session(&mgr, "parent-steer", tmp.path().to_path_buf()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-steer",
+            1,
+            "initial task",
+            false,
+            None,
+            SpawnMode::Session,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // Steer the child with a new task
+    mgr.steer_child(&child_id, "new task")
+        .await
+        .expect("steer_child should succeed");
+
+    // Verify the pending message was injected
+    let cs = mgr
+        .get_conversation_session(&child_id)
+        .await
+        .expect("conversation session should exist");
+    let cs_guard = cs.read().await;
+    let pending = cs_guard.get_pending_messages();
+    // There should be 2 pending messages: the original task + the steer message
+    assert!(
+        pending.len() >= 2,
+        "expected at least 2 pending messages, got {}",
+        pending.len()
+    );
+    let steer_msg = pending
+        .iter()
+        .find(|m| m.content == "new task")
+        .expect("pending messages should contain 'new task'");
+    assert_eq!(steer_msg.content, "new task");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_kill_child_removes_from_all_tables() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let config = test_resolved_config("kill-child", None);
+
+    register_parent_session(&mgr, "parent-kill", tmp.path().to_path_buf()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-kill",
+            1,
+            "doomed task",
+            false,
+            None,
+            SpawnMode::Session,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // Confirm child exists before kill
+    assert!(mgr.has_session(&child_id).await);
+    assert!(mgr.get_conversation_session(&child_id).await.is_some());
+    assert_eq!(mgr.count_active_children("parent-kill").await, 1);
+
+    // Kill the child
+    mgr.kill_child("parent-kill", &child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    // Verify child is removed from sessions
+    assert!(
+        !mgr.has_session(&child_id).await,
+        "has_session should return false after kill"
+    );
+
+    // Verify child is removed from conversation_sessions
+    assert!(
+        mgr.get_conversation_session(&child_id).await.is_none(),
+        "get_conversation_session should return None after kill"
+    );
+
+    // Verify child is removed from children tracking table
+    assert_eq!(
+        mgr.count_active_children("parent-kill").await,
+        0,
+        "children table should be empty after kill"
+    );
+    let children = mgr.children.read().await;
+    assert!(
+        children.get("parent-kill").is_none(),
+        "parent entry should be removed from children table when list is empty"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_validate_child_ownership_returns_none_for_run_mode() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let config = test_resolved_config("run-child", None);
+
+    register_parent_session(&mgr, "parent-validate-run", tmp.path().to_path_buf()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-validate-run",
+            1,
+            "run task",
+            false,
+            None,
+            SpawnMode::Run,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // validate_child_ownership should return None for Run mode children
+    let result = mgr
+        .validate_child_ownership("parent-validate-run", &child_id)
+        .await;
+    assert!(
+        result.is_none(),
+        "validate_child_ownership should return None for Run mode children"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_validate_child_ownership_returns_info_for_session_mode() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let config = test_resolved_config("session-child", None);
+
+    register_parent_session(&mgr, "parent-validate-session", tmp.path().to_path_buf()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-validate-session",
+            1,
+            "session task",
+            false,
+            None,
+            SpawnMode::Session,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // validate_child_ownership should return Some for Session mode children
+    let result = mgr
+        .validate_child_ownership("parent-validate-session", &child_id)
+        .await;
+    let info =
+        result.expect("validate_child_ownership should return Some for Session mode children");
+    assert_eq!(info.session_id, child_id);
+    assert_eq!(info.mode, SpawnMode::Session);
+    assert_eq!(info.parent_session_id, "parent-validate-session");
+}

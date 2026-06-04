@@ -260,4 +260,78 @@ impl SessionManager {
         }
         Ok(PathBuf::from("/tmp"))
     }
+
+    /// Validate that a child session is owned by the given parent and
+    /// was spawned in `Session` mode (persistent). Returns the child
+    /// info on success, `None` otherwise.
+    ///
+    /// Pure read operation — does not hold the children lock across
+    /// any await point.
+    pub(crate) async fn validate_child_ownership(
+        &self,
+        parent_id: &str,
+        child_id: &str,
+    ) -> Option<ChildSessionInfo> {
+        let children = self.children.read().await;
+        children
+            .get(parent_id)
+            .and_then(|list| {
+                list.iter()
+                    .find(|info| info.session_id == child_id && info.mode == SpawnMode::Session)
+            })
+            .cloned()
+    }
+
+    /// Inject a new task into a persistent child session's pending
+    /// message queue. The task is enqueued (FIFO) and will be
+    /// consumed after the child's current turn completes.
+    pub(crate) async fn steer_child(&self, child_id: &str, task: &str) -> Result<(), String> {
+        let cs = self
+            .get_conversation_session(child_id)
+            .await
+            .ok_or_else(|| format!("child session not found: {}", child_id))?;
+        let pending_msg = PendingMessage::new(format!("{}-steer", child_id), task.to_string());
+        cs.write().await.push_pending(pending_msg);
+        Ok(())
+    }
+
+    /// Force-terminate a child session: cancel its token tree,
+    /// remove it from `conversation_sessions`, `sessions`, and
+    /// the parent's `children` tracking table. The archive is
+    /// preserved (no purge).
+    pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
+        let cs = self
+            .get_conversation_session(child_id)
+            .await
+            .ok_or_else(|| format!("child session not found: {}", child_id))?;
+
+        // Cascade-stop: cancels the token tree and cleans up tool
+        // handles / child handles.
+        cs.read().await.stop(true).await;
+
+        // Remove from conversation_sessions.
+        {
+            let mut conv_sessions = self.conversation_sessions.write().await;
+            conv_sessions.remove(child_id);
+        }
+
+        // Remove from sessions.
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.remove(child_id);
+        }
+
+        // Remove from children tracking table.
+        {
+            let mut children = self.children.write().await;
+            if let Some(list) = children.get_mut(parent_id) {
+                list.retain(|info| info.session_id != child_id);
+                if list.is_empty() {
+                    children.remove(parent_id);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
