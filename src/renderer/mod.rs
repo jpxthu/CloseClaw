@@ -25,6 +25,7 @@
 
 pub mod code_block;
 pub mod feishu;
+pub mod streaming;
 
 use serde::{Deserialize, Serialize};
 

@@ -3,30 +3,55 @@
 //! Extracted from `session_handler.rs` to keep file sizes under the
 //! 500-line project limit.
 
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use futures::StreamExt;
+use futures::Stream;
 use tokio_util::sync::CancellationToken;
 
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
+use crate::gateway::outbound::StreamResult;
 use crate::gateway::session_manager::SessionManager;
 use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
+use crate::gateway::Gateway;
+use crate::im::IMPlugin;
 use crate::llm::client::UnifiedChatClient;
+use crate::llm::protocol::ProtocolError;
 use crate::llm::session::ChatSession;
 use crate::llm::session_state::LlmState;
 use crate::llm::streaming::{StreamDone, StreamingSink};
-use crate::llm::types::{ContentBlock, ContentDelta, StreamEvent, UnifiedResponse, UnifiedUsage};
+use crate::llm::types::{ContentBlock, ContentDelta, StreamEvent};
 use crate::llm::{LLMError, Message as ChatMessage};
 
 impl SessionMessageHandler {
-    /// Make a streaming LLM call using UnifiedChatClient.
+    /// Make a streaming LLM call and dispatch it through Gateway's
+    /// streaming outbound pipeline.
+    ///
+    /// The function:
+    /// 1. Builds the request (system prompt + user message).
+    /// 2. Opens the LLM stream and wraps it with [`SinkUpdater`] so the
+    ///    session's [`StreamingSink`] (CLI/websocket consumers) still
+    ///    receives per-delta text notifications.
+    /// 3. Calls [`Gateway::send_outbound_streaming`] which drives the
+    ///    [`crate::renderer::streaming::DefaultStreamingRenderer`] and
+    ///    dispatches incremental output to `plugin` via the IM platform.
+    /// 4. Returns the accumulated [`StreamResult`] (content blocks + usage)
+    ///    for the post-LLM completion pipeline.
+    ///
+    /// Cancellation: the LLM call is raced against `cancel_token.cancelled()`
+    /// so a cascade stop can abort the in-flight stream.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn call_llm_streaming(
         unified_client: &Arc<UnifiedChatClient>,
         content: &str,
         meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-    ) -> Result<UnifiedResponse, LLMError> {
+        channel: &str,
+        gateway: &Arc<Gateway>,
+        plugin: &Arc<dyn IMPlugin>,
+    ) -> Result<StreamResult, LLMError> {
         let (static_prompt_opt, turn_count, workdir_path, system_appends) =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 let cs_read = cs.read().await;
@@ -80,7 +105,7 @@ impl SessionMessageHandler {
             reasoning_level: crate::session::persistence::ReasoningLevel::default(),
         };
 
-        // Get streaming sink from session
+        // Get streaming sink from session (CLI/websocket consumers).
         let sink: Option<Arc<dyn StreamingSink>> =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 let cs_read = cs.read().await;
@@ -94,7 +119,7 @@ impl SessionMessageHandler {
             cs.read().await.set_llm_state(LlmState::Requesting);
         }
 
-        let mut stream = match unified_client.chat_streaming(internal_request).await {
+        let stream = match unified_client.chat_streaming(internal_request).await {
             Ok(s) => s,
             Err(e) => {
                 let msg = e.to_string();
@@ -110,13 +135,8 @@ impl SessionMessageHandler {
             }
         };
 
-        let mut full_text = String::new();
-        let mut last_usage = None;
-        let mut first_token = true;
-
         // Acquire this session's cancellation token so a streaming
-        // request can be aborted mid-stream by a cascade stop. Fall
-        // back to a never-cancelled token if the session is gone.
+        // request can be aborted mid-stream by a cascade stop.
         let cancel_token: CancellationToken =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 cs.read().await.cancel_token().clone()
@@ -124,99 +144,165 @@ impl SessionMessageHandler {
                 CancellationToken::new()
             };
 
-        // Loop body: race the next stream event against cancellation.
-        // We need an explicit `loop { tokio::select! { ... } }` because
-        // a plain `while let Some(...) = stream.next().await` would
-        // block on the stream and ignore the cancel token.
-        loop {
-            let event_result = tokio::select! {
-                next = stream.next() => next,
-                _ = cancel_token.cancelled() => {
-                    // Restore idle state so the session can accept the
-                    // next request. Tool/child cleanup is owned by
-                    // `stop()` itself; we just abort the in-flight LLM
-                    // stream here.
-                    if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                        cs.read().await.set_llm_state(LlmState::Idle);
-                    }
-                    if let Some(ref s) = sink {
-                        s.send_error("cancelled".to_string());
-                    }
-                    tracing::info!(session_id = %session_id, "streaming LLM request cancelled");
-                    return Err(LLMError::Cancelled);
+        // Wrap the raw LLM stream with SinkUpdater so the session's
+        // StreamingSink (CLI/websocket) still receives per-delta text
+        // notifications in parallel with the IM plugin dispatch in
+        // `send_outbound_streaming`.
+        let wrapped = SinkUpdater::new(
+            stream,
+            sink.clone(),
+            Arc::clone(session_manager),
+            session_id.to_string(),
+        );
+
+        // Race the streaming outbound dispatch against the cancel token.
+        let dispatch_result = tokio::select! {
+            res = gateway.send_outbound_streaming(session_id, channel, wrapped, plugin) => res,
+            _ = cancel_token.cancelled() => {
+                if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                    cs.read().await.set_llm_state(LlmState::Idle);
                 }
-            };
-            let Some(event_result) = event_result else {
-                // Stream ended normally.
-                break;
-            };
-            match event_result {
-                Ok(StreamEvent::BlockDelta {
-                    delta: ContentDelta::Text { text },
-                    ..
-                }) => {
-                    // Transition to Receiving on first text delta.
-                    if first_token {
-                        if let Some(cs) = session_manager.get_conversation_session(session_id).await
-                        {
-                            cs.read().await.set_llm_state(LlmState::Receiving);
-                        }
-                        first_token = false;
-                    }
-                    full_text.push_str(&text);
-                    if let Some(ref s) = sink {
-                        s.send_text(&text);
-                    }
+                if let Some(ref s) = sink {
+                    s.send_error("cancelled".to_string());
                 }
-                Ok(StreamEvent::MessageEnd { usage, .. }) => {
-                    last_usage = usage;
-                    if let Some(ref s) = sink {
-                        s.send_done(StreamDone {
-                            model: String::new(),
-                            usage: last_usage.clone(),
-                        });
-                    }
-                    break;
-                }
-                Ok(StreamEvent::Error { message }) => {
-                    tracing::error!(error = %message, "streaming LLM call failed");
-                    if let Some(ref s) = sink {
-                        s.send_error(message.clone());
-                    }
-                    return Err(LLMError::ApiError(message));
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    tracing::error!(error = %msg, "streaming LLM call failed");
-                    if let Some(ref s) = sink {
-                        s.send_error(msg.clone());
-                    }
-                    return Err(LLMError::ApiError(msg));
-                }
-                _ => {}
+                tracing::info!(session_id = %session_id, "streaming LLM request cancelled");
+                return Err(LLMError::Cancelled);
             }
-        }
+        };
 
         // Reset LLM state to Idle after stream completes.
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             cs.read().await.set_llm_state(LlmState::Idle);
         }
 
-        Ok(UnifiedResponse {
-            content_blocks: if full_text.is_empty() {
-                vec![]
-            } else {
-                vec![ContentBlock::Text(full_text)]
-            },
-            usage: last_usage.unwrap_or(UnifiedUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: None,
-                reasoning_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            }),
-            finish_reason: None,
-        })
+        let stream_result = dispatch_result.map_err(|e| {
+            let msg = e.to_string();
+            if let Some(ref s) = sink {
+                s.send_error(msg.clone());
+            }
+            LLMError::ApiError(msg)
+        })?;
+
+        // Best-effort: notify sink of stream completion with usage, so
+        // CLI/websocket consumers see a matching `send_done` after the
+        // last `send_text` (matching the StreamingSink contract).
+        if let Some(ref s) = sink {
+            s.send_done(StreamDone {
+                model: String::new(),
+                usage: Some(stream_result.usage.clone()),
+            });
+        }
+
+        // If streaming produced no text content blocks, fall back to a
+        // single empty text block so the post-LLM completion pipeline
+        // (which appends to history) still has something to record.
+        if stream_result.content_blocks.is_empty() {
+            return Ok(StreamResult {
+                content_blocks: vec![ContentBlock::Text(String::new())],
+                usage: stream_result.usage,
+            });
+        }
+        Ok(stream_result)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SinkUpdater: stream wrapper that mirrors LLM events to the session's
+// StreamingSink while forwarding them downstream to the renderer.
+// ---------------------------------------------------------------------------
+
+/// Wraps an LLM [`Stream`] so each event is mirrored to the session's
+/// [`StreamingSink`] before being forwarded to the downstream consumer
+/// (the IM plugin in `send_outbound_streaming`).
+///
+/// - `BlockDelta(Text)` → `sink.send_text` (and triggers the
+///   `Requesting → Receiving` state transition on the first text delta).
+/// - `MessageEnd` → `sink.send_done` with the final usage.
+/// - `Error` → `sink.send_error`.
+/// - Protocol/transport errors → `sink.send_error` with the stringified
+///   error message.
+///
+/// `StreamEvent` derives `Clone` so the wrapper can emit a clone of each
+/// event after performing side effects on the original.
+struct SinkUpdater<S> {
+    inner: S,
+    sink: Option<Arc<dyn StreamingSink>>,
+    session_manager: Arc<SessionManager>,
+    session_id: String,
+    first_token: bool,
+}
+
+impl<S> SinkUpdater<S> {
+    fn new(
+        inner: S,
+        sink: Option<Arc<dyn StreamingSink>>,
+        session_manager: Arc<SessionManager>,
+        session_id: String,
+    ) -> Self {
+        Self {
+            inner,
+            sink,
+            session_manager,
+            session_id,
+            first_token: true,
+        }
+    }
+}
+
+impl<S> Stream for SinkUpdater<S>
+where
+    S: Stream<Item = Result<StreamEvent, ProtocolError>> + Unpin,
+{
+    type Item = Result<StreamEvent, ProtocolError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.inner).poll_next(cx) {
+            Poll::Ready(Some(Ok(event))) => {
+                match &event {
+                    StreamEvent::BlockDelta {
+                        delta: ContentDelta::Text { text },
+                        ..
+                    } => {
+                        if self.first_token {
+                            self.first_token = false;
+                            let sm = Arc::clone(&self.session_manager);
+                            let sid = self.session_id.clone();
+                            tokio::spawn(async move {
+                                if let Some(cs) = sm.get_conversation_session(&sid).await {
+                                    cs.read().await.set_llm_state(LlmState::Receiving);
+                                }
+                            });
+                        }
+                        if let Some(ref sink) = self.sink {
+                            sink.send_text(text);
+                        }
+                    }
+                    StreamEvent::MessageEnd { usage, .. } => {
+                        if let Some(ref sink) = self.sink {
+                            sink.send_done(StreamDone {
+                                model: String::new(),
+                                usage: usage.clone(),
+                            });
+                        }
+                    }
+                    StreamEvent::Error { message } => {
+                        if let Some(ref sink) = self.sink {
+                            sink.send_error(message.clone());
+                        }
+                    }
+                    _ => {}
+                }
+                Poll::Ready(Some(Ok(event)))
+            }
+            Poll::Ready(Some(Err(e))) => {
+                let msg = e.to_string();
+                if let Some(ref sink) = self.sink {
+                    sink.send_error(msg);
+                }
+                Poll::Ready(Some(Err(e)))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

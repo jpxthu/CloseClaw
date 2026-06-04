@@ -164,6 +164,9 @@ impl Daemon {
             .set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>)
             .await;
         let gateway = Arc::new(gateway);
+        // Wire the self-ref so `handle_inbound_message` can pass
+        // a strong `Arc<Gateway>` into the streaming LLM path.
+        gateway.set_self_ref(Arc::clone(&gateway));
 
         // ── Slash Dispatcher ────────────────────────────────────────────────
         let slash_registry = Arc::new(HandlerRegistry::new());

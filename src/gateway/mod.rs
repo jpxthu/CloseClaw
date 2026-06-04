@@ -7,6 +7,7 @@ pub mod message;
 pub mod outbound;
 pub mod session_handler;
 mod session_handler_announce;
+mod session_handler_dispatch;
 mod session_handler_streaming;
 pub mod session_manager;
 pub mod slash_permission;
@@ -126,6 +127,15 @@ pub struct Gateway {
     slash_dispatcher: RwLock<Option<Arc<SlashDispatcher>>>,
     /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
+    /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
+    ///
+    /// `handle_inbound_message` is called with `&self`, but
+    /// `SessionMessageHandler` needs an `Arc<Gateway>` to call
+    /// `send_outbound_streaming`. The caller wires this after wrapping
+    /// the `Gateway` in `Arc::new(...)` via `set_self_ref`. Until set,
+    /// the slot is `None`; the handler falls back to the non-streaming
+    /// path in that case.
+    self_ref: std::sync::Mutex<Option<Arc<Gateway>>>,
 }
 
 impl Gateway {
@@ -141,6 +151,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
+            self_ref: std::sync::Mutex::new(None),
         }
     }
 
@@ -160,6 +171,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
+            self_ref: std::sync::Mutex::new(None),
         }
     }
 
@@ -181,6 +193,17 @@ impl Gateway {
         self
     }
 
+    /// Wire the back-reference to the owning `Arc<Gateway>`.
+    ///
+    /// Call this immediately after `Arc::new(Gateway::new(...))` so that
+    /// `handle_inbound_message` can pass a strong `Arc<Gateway>` to the
+    /// session handler for streaming dispatch.
+    pub fn set_self_ref(&self, arc: Arc<Gateway>) {
+        if let Ok(mut slot) = self.self_ref.lock() {
+            *slot = Some(arc);
+        }
+    }
+
     /// Handle an inbound message through the busy/pending state machine.
     ///
     /// If `sender_id` is provided and the message starts with `/approve` or
@@ -189,6 +212,13 @@ impl Gateway {
     /// `channel` identifies the IM platform / channel the message originated
     /// from (e.g. `"feishu"`). It is forwarded to `dispatch_slash` so that
     /// `SlashContext.channel` reflects the real source.
+    ///
+    /// When a plugin is registered for `channel` AND the self-ref is wired
+    /// (see [`set_self_ref`](Self::set_self_ref)), this dispatches through
+    /// [`SessionMessageHandler::handle_message_with_gateway`] so streaming
+    /// LLM output can flow through [`Gateway::send_outbound_streaming`].
+    /// Otherwise it falls back to the non-streaming path
+    /// [`SessionMessageHandler::handle_message`].
     ///
     /// Returns `HandleResult` (`LlmStarted`/`MessageQueued`/`ApprovalProcessed`),
     /// or `None` if no handler configured.
@@ -218,6 +248,28 @@ impl Gateway {
         }
 
         let handler = self.session_handler.as_ref()?;
+
+        // Streaming path: plugin is registered for this channel AND the
+        // self-ref is wired AND the handler has a back-ref. Falls back
+        // to the non-streaming path otherwise.
+        let gw_arc = self
+            .self_ref
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(Arc::clone));
+        if let (Some(gw), Some(plugin)) = (gw_arc, self.get_plugin(channel).await) {
+            let meta = crate::gateway::session_handler::MessageMetadata {
+                sender_id: sender_id.unwrap_or("").to_string(),
+                channel: channel.to_string(),
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            return Some(
+                handler
+                    .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
+                    .await,
+            );
+        }
+
         Some(handler.handle_message(session_id, content).await)
     }
 
