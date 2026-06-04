@@ -11,8 +11,6 @@ use std::sync::Arc;
 // Test imports — from the library crate
 // ---------------------------------------------------------------------------
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
-use closeclaw::agent::AgentState;
-use closeclaw::agent::{SuspendedReason, TransitionTrigger};
 use closeclaw::config::agents::AgentsConfigProvider;
 use closeclaw::permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
 use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
@@ -111,71 +109,11 @@ fn make_test_ruleset() -> RuleSet {
 // Tests agent creation, state transitions, parent-child hierarchy, heartbeat
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn test_agent_registry_lifecycle() {
-    // Build registry
-    let registry: SharedAgentRegistry = create_registry(30);
-
-    // Register agent
-    let agent = registry
-        .register("test-agent".to_string(), None)
-        .await
-        .unwrap();
-    let agent_id = agent.id.clone();
-
-    // Verify agent is idle
-    let retrieved = registry.get(&agent_id).await.unwrap();
-    assert_eq!(retrieved.state, AgentState::Idle);
-    assert_eq!(retrieved.name, "test-agent");
-
-    // Transition to Running
-    registry
-        .update_state(&agent_id, AgentState::Running, TransitionTrigger::Scheduler)
-        .await
-        .unwrap();
-
-    // Verify state changed
-    let retrieved = registry.get(&agent_id).await.unwrap();
-    assert_eq!(retrieved.state, AgentState::Running);
-
-    // Transition to Waiting
-    registry
-        .update_state(&agent_id, AgentState::Waiting, TransitionTrigger::Scheduler)
-        .await
-        .unwrap();
-
-    // Transition to Suspended
-    registry
-        .update_state(
-            &agent_id,
-            AgentState::Suspended(SuspendedReason::SelfRequested),
-            TransitionTrigger::Scheduler,
-        )
-        .await
-        .unwrap();
-
-    // Transition to Stopped
-    registry
-        .update_state(
-            &agent_id,
-            AgentState::Stopped,
-            TransitionTrigger::SystemShutdown,
-        )
-        .await
-        .unwrap();
-
-    // Verify terminal state - can't transition back to Running
-    let result = registry
-        .update_state(&agent_id, AgentState::Running, TransitionTrigger::Scheduler)
-        .await;
-    assert!(result.is_err());
-
-    // Cleanup
-    registry.remove(&agent_id).await.unwrap();
-
-    // Verify agent gone
-    assert!(registry.get(&agent_id).await.is_err());
-}
+// Note: `test_agent_registry_lifecycle` was removed in Step 1.3 along with
+// the `update_state` API and the `Agent::state` field. The
+// `AgentState` machine itself still lives in `crate::agent::state` and
+// is exercised by its own unit tests; runtime state for sessions lives
+// in the session module.
 
 #[tokio::test]
 async fn test_agent_parent_child_hierarchy() {
@@ -227,22 +165,8 @@ async fn test_agent_parent_child_hierarchy() {
     let all = registry.list().await;
     assert_eq!(all.len(), 3);
 
-    // Filter agents by state
-    let running = registry
-        .list()
-        .await
-        .into_iter()
-        .filter(|a| a.state == AgentState::Running)
-        .collect::<Vec<_>>();
-    assert!(running.is_empty());
-
-    let idle = registry
-        .list()
-        .await
-        .into_iter()
-        .filter(|a| a.state == AgentState::Idle)
-        .collect::<Vec<_>>();
-    assert_eq!(idle.len(), 3);
+    // Step 1.1 removed `Agent::state`; list() now returns the plain
+    // hierarchy without state filtering.
 }
 
 // ---------------------------------------------------------------------------

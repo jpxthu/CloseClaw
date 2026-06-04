@@ -7,11 +7,6 @@ pub mod registry;
 pub mod spawn;
 pub mod state;
 
-pub use state::{
-    is_valid_transition, AgentState, AgentStateTransition, Checkpoint, DestroyConfirmation,
-    ErrorInfo, PausePoint, SourceLocation, SuspendedReason, TransitionTrigger,
-};
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -23,8 +18,6 @@ pub struct Agent {
     pub id: String,
     /// Human-readable name
     pub name: String,
-    /// Current lifecycle state
-    pub state: AgentState,
     /// Parent agent ID (if this agent was spawned by another)
     pub parent_id: Option<String>,
     /// When this agent was created
@@ -32,7 +25,7 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Create a new agent in Idle state
+    /// Create a new agent config record
     /// Silently converts empty string parent_id to None (data corruption guard).
     pub fn new(name: String, parent_id: Option<String>) -> Self {
         let parent_id = parent_id.filter(|id| !id.is_empty());
@@ -40,20 +33,9 @@ impl Agent {
         Self {
             id: Uuid::new_v4().to_string(),
             name,
-            state: AgentState::Idle,
             parent_id,
             created_at: now,
         }
-    }
-
-    /// Update the agent's state
-    pub fn set_state(&mut self, state: AgentState) {
-        self.state = state;
-    }
-
-    /// Check if the agent is in a terminal state
-    pub fn is_terminal(&self) -> bool {
-        matches!(self.state, AgentState::Stopped | AgentState::Error(_))
     }
 }
 
@@ -64,7 +46,6 @@ mod tests {
     #[test]
     fn test_agent_creation() {
         let agent = Agent::new("test-agent".to_string(), None);
-        assert!(matches!(agent.state, AgentState::Idle));
         assert!(agent.parent_id.is_none());
         assert!(!agent.id.is_empty());
     }
@@ -74,24 +55,6 @@ mod tests {
         let parent_id = "parent-123".to_string();
         let agent = Agent::new("child-agent".to_string(), Some(parent_id.clone()));
         assert_eq!(agent.parent_id, Some(parent_id));
-    }
-
-    #[test]
-    fn test_is_terminal() {
-        let mut agent = Agent::new("test".to_string(), None);
-        assert!(!agent.is_terminal());
-
-        agent.set_state(AgentState::Stopped);
-        assert!(agent.is_terminal());
-
-        agent.set_state(AgentState::Error(ErrorInfo::new("oops", false)));
-        assert!(agent.is_terminal());
-
-        agent.set_state(AgentState::Running);
-        assert!(!agent.is_terminal());
-
-        agent.set_state(AgentState::Suspended(SuspendedReason::Forced));
-        assert!(!agent.is_terminal());
     }
 }
 

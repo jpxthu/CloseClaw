@@ -97,16 +97,11 @@ impl AgentRegistry {
         let agents = self.agents.read().await;
         agents.len()
     }
-
-    /// Get the wait timeout for graceful shutdown.
-    pub fn wait_timeout_secs(&self) -> u64 {
-        self.wait_timeout_secs
-    }
-
-    /// Get the grace period for graceful shutdown.
-    pub fn grace_period_secs(&self) -> u64 {
-        self.grace_period_secs
-    }
+    // Note: `wait_timeout_secs()` and `grace_period_secs()` accessors were
+    // removed in Step 1.2 because the corresponding `wait_timeout_secs` and
+    // `grace_period_secs` fields are no longer stored on `AgentRegistry`.
+    // Runtime state (including any graceful-shutdown knobs) is owned by the
+    // session module now.
 }
 
 #[cfg(test)]
