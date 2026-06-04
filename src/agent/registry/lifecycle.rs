@@ -1,10 +1,7 @@
 //! Lifecycle methods for AgentRegistry
 
-use super::{
-    Agent, AgentProcess, AgentRegistry, AgentState, AgentStateTransition, RegistryError,
-    RegistryResult, TransitionTrigger,
-};
-use tracing::{debug, error, info, warn};
+use super::{Agent, AgentProcess, AgentRegistry, RegistryError, RegistryResult};
+use tracing::{debug, error, info};
 
 impl AgentRegistry {
     /// Register a new agent (creates metadata, doesn't spawn process yet)
@@ -70,48 +67,8 @@ impl AgentRegistry {
             processes.insert(agent_id.clone(), process);
         }
 
-        self.update_state(&agent_id, AgentState::Running, TransitionTrigger::Scheduler)
-            .await?;
-
         info!(agent_id = %agent_id, "agent spawned successfully");
         Ok(agent)
-    }
-}
-
-impl AgentRegistry {
-    /// Update agent state
-    pub async fn update_state(
-        &self,
-        id: &str,
-        new_state: AgentState,
-        trigger: TransitionTrigger,
-    ) -> RegistryResult<Agent> {
-        let mut agents = self.agents.write().await;
-        let agent = agents
-            .get_mut(id)
-            .ok_or_else(|| RegistryError::AgentNotFound(id.to_string()))?;
-
-        if !crate::agent::state::is_valid_transition(&agent.state, &new_state) {
-            return Err(RegistryError::InvalidStateTransition(format!(
-                "{:?} -> {:?}",
-                agent.state, new_state
-            )));
-        }
-
-        let from_state = agent.state.clone();
-        let transition = AgentStateTransition::new(from_state.clone(), new_state.clone(), trigger);
-        debug!(
-            agent_id = %id,
-            from = ?from_state,
-            to = ?new_state,
-            trigger = ?transition.trigger,
-            timestamp = %transition.timestamp,
-            "state transition"
-        );
-
-        agent.set_state(new_state);
-        let _ = transition;
-        Ok(agent.clone())
     }
 }
 
@@ -139,13 +96,7 @@ impl AgentRegistry {
             debug!(agent_id = %id, "killing agent process");
             p.kill().await?;
         }
-        match self
-            .update_state(id, AgentState::Stopped, TransitionTrigger::SystemShutdown)
-            .await
-        {
-            Ok(_) => debug!(agent_id = %id, "agent stopped"),
-            Err(e) => warn!(agent_id = %id, error = %e, "failed to update agent state to Stopped"),
-        }
+        debug!(agent_id = %id, "agent stopped");
         Ok(())
     }
 
@@ -163,7 +114,6 @@ impl AgentRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::agent::registry::create_registry;
 
     #[tokio::test]
@@ -174,45 +124,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(agent.name, "test-agent");
-        assert!(matches!(agent.state, AgentState::Idle));
-    }
-
-    #[tokio::test]
-    async fn test_update_state() {
-        let registry = create_registry(30);
-        let agent = registry.register("test".to_string(), None).await.unwrap();
-        registry
-            .update_state(
-                &agent.id,
-                AgentState::Running,
-                TransitionTrigger::UserRequest,
-            )
-            .await
-            .unwrap();
-        let updated = registry.get(&agent.id).await.unwrap();
-        assert!(matches!(updated.state, AgentState::Running));
-    }
-
-    #[tokio::test]
-    async fn test_invalid_state_transition() {
-        let registry = create_registry(30);
-        let agent = registry.register("test".to_string(), None).await.unwrap();
-        registry
-            .update_state(
-                &agent.id,
-                AgentState::Stopped,
-                TransitionTrigger::UserRequest,
-            )
-            .await
-            .unwrap();
-        let result = registry
-            .update_state(
-                &agent.id,
-                AgentState::Running,
-                TransitionTrigger::UserRequest,
-            )
-            .await;
-        assert!(result.is_err());
+        // Step 1.1 removed `Agent::state`; the registry no longer
+        // tracks state, so no state assertion here.
     }
 
     #[tokio::test]
@@ -223,4 +136,7 @@ mod tests {
         assert_eq!(removed.id, agent.id);
         assert!(registry.get(&agent.id).await.is_err());
     }
+    // Note: `test_update_state` / `test_invalid_state_transition` were
+    // removed because `update_state()` is gone. Step 1.3 cleanup is a
+    // no-op for these tests.
 }

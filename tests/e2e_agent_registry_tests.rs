@@ -1,8 +1,8 @@
 //! E2E integration tests for Agent Registry lifecycle.
-//! Uses `register` + `update_state` to simulate lifecycle (issue #494 degraded approach).
+//! Focused on hierarchy, register/get/list/remove/get_children/get_descendants
+//! after the Step 1.3 removal of the state machine and cascade APIs.
 
 use closeclaw::agent::registry::create_registry;
-use closeclaw::agent::{AgentState, ErrorInfo, SuspendedReason, TransitionTrigger};
 
 /// Parent-child registration: root -> child -> grandchild
 #[tokio::test]
@@ -60,7 +60,7 @@ async fn test_hierarchy_get_children() {
     );
 }
 
-/// Hierarchy queries: get_parent, get_ancestors, count, list() + filter by state
+/// Hierarchy queries: get_parent, get_ancestors, count, list()
 #[tokio::test]
 async fn test_hierarchy_get_ancestors() {
     let registry = create_registry(30);
@@ -84,216 +84,14 @@ async fn test_hierarchy_get_ancestors() {
     assert_eq!(ancestors[1].name, "root");
 
     assert_eq!(registry.count().await, 3);
-    let idle = registry
-        .list()
-        .await
-        .into_iter()
-        .filter(|a| a.state == AgentState::Idle)
-        .collect::<Vec<_>>();
-    assert_eq!(idle.len(), 3);
-    let running = registry
-        .list()
-        .await
-        .into_iter()
-        .filter(|a| a.state == AgentState::Running)
-        .collect::<Vec<_>>();
-    assert!(running.is_empty());
+    // Step 1.1 removed `Agent::state`; list() now returns the plain
+    // hierarchy without state filtering.
+    let all = registry.list().await;
+    assert_eq!(all.len(), 3);
 }
 
-/// State machine: Idle → Running → Suspended(Forced) → Running → Error(recoverable) → Running
-#[tokio::test]
-async fn test_state_machine_complete_transitions() {
-    let registry = create_registry(30);
-    let agent = registry.register("test".to_string(), None).await.unwrap();
-    assert!(matches!(agent.state, AgentState::Idle));
-
-    let agent = registry
-        .update_state(
-            &agent.id,
-            AgentState::Running,
-            TransitionTrigger::UserRequest,
-        )
-        .await
-        .unwrap();
-    assert!(matches!(agent.state, AgentState::Running));
-
-    let agent = registry
-        .update_state(
-            &agent.id,
-            AgentState::Suspended(SuspendedReason::Forced),
-            TransitionTrigger::Scheduler,
-        )
-        .await
-        .unwrap();
-    assert!(matches!(
-        agent.state,
-        AgentState::Suspended(SuspendedReason::Forced)
-    ));
-
-    let agent = registry
-        .update_state(
-            &agent.id,
-            AgentState::Running,
-            TransitionTrigger::UserRequest,
-        )
-        .await
-        .unwrap();
-    assert!(matches!(agent.state, AgentState::Running));
-
-    let agent = registry
-        .update_state(
-            &agent.id,
-            AgentState::Error(ErrorInfo::new(" recoverable error", true)),
-            TransitionTrigger::Error,
-        )
-        .await
-        .unwrap();
-    assert!(matches!(
-        agent.state,
-        AgentState::Error(ErrorInfo {
-            recoverable: true,
-            ..
-        })
-    ));
-
-    let agent = registry
-        .update_state(
-            &agent.id,
-            AgentState::Running,
-            TransitionTrigger::UserRequest,
-        )
-        .await
-        .unwrap();
-    assert!(matches!(agent.state, AgentState::Running));
-}
-
-/// Cascade stop: parent stop terminates all descendants
-#[tokio::test]
-async fn test_cascade_stop() {
-    let registry = create_registry(30);
-    let root = registry.register("root".to_string(), None).await.unwrap();
-    let child = registry
-        .register("child".to_string(), Some(root.id.clone()))
-        .await
-        .unwrap();
-    let grandchild = registry
-        .register("grandchild".to_string(), Some(child.id.clone()))
-        .await
-        .unwrap();
-
-    for id in [&root.id, &child.id, &grandchild.id] {
-        registry
-            .update_state(id, AgentState::Running, TransitionTrigger::UserRequest)
-            .await
-            .unwrap();
-    }
-
-    registry.stop_agent(&root.id, true).await.unwrap();
-
-    assert!(matches!(
-        registry.get(&root.id).await.unwrap().state,
-        AgentState::Stopped
-    ));
-    assert!(matches!(
-        registry.get(&child.id).await.unwrap().state,
-        AgentState::Stopped
-    ));
-    assert!(matches!(
-        registry.get(&grandchild.id).await.unwrap().state,
-        AgentState::Stopped
-    ));
-}
-
-/// Cascade suspend/resume: suspend_agent(cascade=true) + resume_agent
-#[tokio::test]
-async fn test_cascade_suspend_resume() {
-    let registry = create_registry(30);
-    let parent = registry.register("parent".to_string(), None).await.unwrap();
-    let child = registry
-        .register("child".to_string(), Some(parent.id.clone()))
-        .await
-        .unwrap();
-
-    registry
-        .update_state(
-            &parent.id,
-            AgentState::Running,
-            TransitionTrigger::UserRequest,
-        )
-        .await
-        .unwrap();
-    registry
-        .update_state(
-            &child.id,
-            AgentState::Running,
-            TransitionTrigger::UserRequest,
-        )
-        .await
-        .unwrap();
-
-    registry
-        .suspend_agent(&parent.id, SuspendedReason::Forced, true)
-        .await
-        .unwrap();
-
-    assert!(matches!(
-        registry.get(&parent.id).await.unwrap().state,
-        AgentState::Suspended(SuspendedReason::Forced)
-    ));
-    assert!(matches!(
-        registry.get(&child.id).await.unwrap().state,
-        AgentState::Suspended(SuspendedReason::Forced)
-    ));
-
-    for agent_id in [parent.id.clone(), child.id.clone()] {
-        registry.resume_agent(&agent_id).await.unwrap();
-    }
-
-    assert!(matches!(
-        registry.get(&parent.id).await.unwrap().state,
-        AgentState::Running
-    ));
-    assert!(matches!(
-        registry.get(&child.id).await.unwrap().state,
-        AgentState::Running
-    ));
-}
-
-/// Terminal state and destroy: Stopped/Error(non-recoverable) cannot resume, destroy confirms
-#[tokio::test]
-async fn test_terminal_state_rejection_and_destroy() {
-    let registry = create_registry(30);
-
-    // Part A: Stopped cannot be resumed
-    let a = registry.register("a".to_string(), None).await.unwrap();
-    registry
-        .update_state(&a.id, AgentState::Running, TransitionTrigger::UserRequest)
-        .await
-        .unwrap();
-    registry.stop_agent(&a.id, false).await.unwrap();
-    assert!(registry.resume_agent(&a.id).await.is_err());
-
-    // Part B: Error(non-recoverable) cannot be resumed
-    let b = registry.register("b".to_string(), None).await.unwrap();
-    registry
-        .update_state(&b.id, AgentState::Running, TransitionTrigger::UserRequest)
-        .await
-        .unwrap();
-    registry
-        .update_state(
-            &b.id,
-            AgentState::Error(ErrorInfo::new("non-recoverable", false)),
-            TransitionTrigger::Error,
-        )
-        .await
-        .unwrap();
-    assert!(registry.resume_agent(&b.id).await.is_err());
-
-    // Part C: destroy with confirmation
-    let c = registry.register("c".to_string(), None).await.unwrap();
-    let conf = registry.destroy_agent(&c.id, true).await.unwrap();
-    let token = conf.unwrap().confirm_token;
-    assert!(registry.get(&c.id).await.is_ok());
-    registry.confirm_destroy(&c.id, &token).await.unwrap();
-    assert!(registry.get(&c.id).await.is_err());
-}
+// Note: `test_state_machine_complete_transitions`, `test_cascade_stop`,
+// `test_cascade_suspend_resume`, and `test_terminal_state_rejection_and_destroy`
+// were removed in Step 1.3 along with the `update_state` / cascade APIs.
+// The `AgentState` machine itself still lives in `crate::agent::state` and
+// is exercised by its own unit tests.
