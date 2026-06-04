@@ -2,15 +2,11 @@
 //!
 //! Provides centralized management for creating, tracking, and removing agents.
 
-pub mod cascade;
 pub mod lifecycle;
 pub mod query;
 
 use crate::agent::process::{AgentProcess, AgentProcessHandle};
-#[cfg(test)]
-use crate::agent::state::is_valid_transition;
-use crate::agent::state::{AgentStateTransition, ErrorInfo, SuspendedReason, TransitionTrigger};
-use crate::agent::{Agent, AgentState};
+use crate::agent::Agent;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -41,15 +37,11 @@ pub struct AgentRegistry {
     pub(super) agents: RwLock<HashMap<String, Agent>>,
     /// Map of agent ID to running process handle
     pub(super) processes: RwLock<HashMap<String, AgentProcessHandle>>,
-    /// Graceful shutdown: wait timeout in seconds
-    pub(super) wait_timeout_secs: u64,
-    /// Graceful shutdown: grace period in seconds
-    pub(super) grace_period_secs: u64,
 }
 
 impl Default for AgentRegistry {
     fn default() -> Self {
-        Self::new_with_graceful_shutdown(30, 30, 10)
+        Self::new_with_graceful_shutdown(30)
     }
 }
 
@@ -59,23 +51,17 @@ impl AgentRegistry {
     /// is no longer used; runtime heartbeat/liveness tracking is owned by
     /// the session module.
     pub fn new(_heartbeat_timeout_secs: i64) -> Self {
-        Self::new_with_graceful_shutdown(30, 30, 10)
+        Self::new_with_graceful_shutdown(30)
     }
 
     /// Create a new registry with graceful shutdown configuration.
     /// `heartbeat_timeout_secs` is retained for backward compatibility but
     /// is no longer used; runtime heartbeat/liveness tracking is owned by
     /// the session module.
-    pub fn new_with_graceful_shutdown(
-        _heartbeat_timeout_secs: i64,
-        wait_timeout_secs: u64,
-        grace_period_secs: u64,
-    ) -> Self {
+    pub fn new_with_graceful_shutdown(_heartbeat_timeout_secs: i64) -> Self {
         Self {
             agents: RwLock::new(HashMap::new()),
             processes: RwLock::new(HashMap::new()),
-            wait_timeout_secs,
-            grace_period_secs,
         }
     }
 }
@@ -90,50 +76,10 @@ pub fn create_registry(heartbeat_timeout_secs: i64) -> SharedAgentRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_state_transition_validation() {
-        use AgentState::*;
-        assert!(is_valid_transition(&Idle, &Running));
-        assert!(is_valid_transition(&Running, &Waiting));
-        assert!(is_valid_transition(&Running, &Stopped));
-        assert!(is_valid_transition(
-            &Running,
-            &Suspended(SuspendedReason::Forced)
-        ));
-        assert!(is_valid_transition(
-            &Waiting,
-            &Suspended(SuspendedReason::SelfRequested)
-        ));
-        assert!(is_valid_transition(
-            &Suspended(SuspendedReason::Forced),
-            &Running
-        ));
-        assert!(is_valid_transition(
-            &Suspended(SuspendedReason::SelfRequested),
-            &Running
-        ));
-        assert!(is_valid_transition(
-            &Suspended(SuspendedReason::SelfRequested),
-            &Stopped
-        ));
-        assert!(!is_valid_transition(&Stopped, &Running));
-        assert!(!is_valid_transition(
-            &Error(ErrorInfo::new("fatal", false)),
-            &Running
-        ));
-        assert!(is_valid_transition(
-            &Error(ErrorInfo::new("recoverable", true)),
-            &Running
-        ));
-        assert!(is_valid_transition(&Running, &Running));
-    }
-
-    #[tokio::test]
-    async fn test_graceful_shutdown_config() {
-        let registry = AgentRegistry::new_with_graceful_shutdown(30, 60, 20);
-        assert_eq!(registry.wait_timeout_secs(), 60);
-        assert_eq!(registry.grace_period_secs(), 20);
-    }
+    // Note: state-machine tests (`test_state_transition_validation` /
+    // `test_graceful_shutdown_config`) were removed in Step 1.3 along
+    // with the registry's `update_state` API and the `wait_timeout_secs`
+    // / `grace_period_secs` knobs. The `AgentState` machine itself still
+    // lives in `crate::agent::state` and is exercised by its own unit
+    // tests.
 }
