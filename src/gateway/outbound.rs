@@ -5,9 +5,56 @@
 
 use super::{Gateway, GatewayError, Message};
 use crate::im::IMPlugin;
-use crate::llm::types::ContentBlock;
+use crate::llm::types::{
+    ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedResponse, UnifiedUsage,
+};
+use crate::processor_chain::dsl_parser::DslParser;
 use crate::processor_chain::{DslParseResult, ProcessedMessage};
+use crate::renderer::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRenderer};
 use crate::renderer::RenderedOutput;
+use futures::StreamExt;
+
+/// Result of a streaming outbound dispatch.
+///
+/// Carries the accumulated content blocks (for downstream consumers like
+/// `append_response`) and the final token usage reported by the LLM's
+/// `MessageEnd` event.
+#[derive(Debug, Clone)]
+pub struct StreamResult {
+    /// All [`ContentBlock`]s produced by the renderer during the stream.
+    pub content_blocks: Vec<ContentBlock>,
+    /// Token usage statistics from the LLM's `MessageEnd` event.
+    pub usage: UnifiedUsage,
+}
+
+impl From<UnifiedResponse> for StreamResult {
+    /// Convert a non-streaming `UnifiedResponse` into a `StreamResult`.
+    ///
+    /// Used by the post-LLM completion path (`finish_llm` /
+    /// `clear_busy_and_send`) so both streaming and non-streaming
+    /// call sites can share the same downstream handling. `finish_reason`
+    /// is dropped because `StreamResult` does not carry one.
+    fn from(response: UnifiedResponse) -> Self {
+        StreamResult {
+            content_blocks: response.content_blocks,
+            usage: response.usage,
+        }
+    }
+}
+
+impl From<StreamResult> for UnifiedResponse {
+    /// Convert a `StreamResult` back into a `UnifiedResponse` for
+    /// `ChatSession::append_response`, which only accepts the legacy
+    /// shape. `finish_reason` is set to `None` because streaming does
+    /// not surface a structured finish reason.
+    fn from(result: StreamResult) -> Self {
+        UnifiedResponse {
+            content_blocks: result.content_blocks,
+            usage: result.usage,
+            finish_reason: None,
+        }
+    }
+}
 
 /// Per-call context for dispatching a rendered output and persisting its
 /// checkpoint. Bundled into a struct to keep the helper's parameter list short.
@@ -210,4 +257,191 @@ impl Gateway {
             tracing::warn!(session_id, "failed to save checkpoint: {}", e);
         }
     }
+
+    /// Send a streaming LLM response via the registered IM plugin.
+    ///
+    /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,
+    /// dispatching incremental output to `plugin` as it becomes available:
+    /// - Text delta → line buffer → complete lines → `plugin.send` (text)
+    /// - BlockEnd (non-Text) → `plugin.render(&[block], None)` → `plugin.send`
+    /// - MessageEnd → flush + `DslParser::parse` on accumulated DSL lines →
+    ///   `plugin.render` + `plugin.send`
+    ///
+    /// Accumulated `content_blocks` and the LLM-reported `usage` are returned
+    /// in a [`StreamResult`]. `thread_id` is always `None` (consistent with
+    /// [`send_outbound`](Self::send_outbound)).
+    pub async fn send_outbound_streaming<E: std::fmt::Display>(
+        &self,
+        session_id: &str,
+        channel: &str,
+        mut stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
+        plugin: &std::sync::Arc<dyn IMPlugin>,
+    ) -> Result<StreamResult, GatewayError> {
+        let chat_id = self
+            .session_manager
+            .get_chat_id(session_id)
+            .await
+            .ok_or(GatewayError::MissingSessionId)?;
+
+        let mut state = StreamState::new();
+        while let Some(event_result) = stream.next().await {
+            let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+            self.process_stream_event(plugin, &chat_id, event, &mut state)
+                .await?;
+        }
+        tracing::debug!(session_id, channel, "streaming outbound complete");
+        Ok(StreamState::into_result(state))
+    }
+
+    /// Process a single [`StreamEvent`] and update `state`.
+    ///
+    /// Split from `send_outbound_streaming` to keep the main loop under the
+    /// 50-line helper cap.
+    async fn process_stream_event(
+        &self,
+        plugin: &std::sync::Arc<dyn IMPlugin>,
+        chat_id: &str,
+        event: StreamEvent,
+        state: &mut StreamState,
+    ) -> Result<(), GatewayError> {
+        match event {
+            StreamEvent::BlockDelta { delta, .. } => {
+                let is_text_delta = matches!(delta, ContentDelta::Text { .. });
+                // Reconstruct event for the renderer (index is unused for BlockDelta).
+                let out = state
+                    .renderer
+                    .handle_event(StreamEvent::BlockDelta { index: 0, delta });
+                // For Text deltas, the renderer may emit completed text lines
+                // and dsl lines; non-Text deltas only update internal state.
+                if is_text_delta {
+                    dispatch_text_and_dsl(plugin, chat_id, out, state).await?;
+                }
+            }
+            StreamEvent::BlockEnd { block_type, .. } => {
+                let mut out = state.renderer.handle_event(event);
+                if block_type != ContentBlockType::Text {
+                    let render_blocks = std::mem::take(&mut out.render_blocks);
+                    for block in render_blocks {
+                        send_render_block(plugin, chat_id, &block).await?;
+                        state.content_blocks.push(block);
+                    }
+                }
+                dispatch_text_and_dsl(plugin, chat_id, out, state).await?;
+            }
+            StreamEvent::MessageEnd { usage, .. } => {
+                let mut out = state.renderer.flush();
+                let render_blocks = std::mem::take(&mut out.render_blocks);
+                dispatch_text_and_dsl(plugin, chat_id, out, state).await?;
+                for block in render_blocks {
+                    send_render_block(plugin, chat_id, &block).await?;
+                    state.content_blocks.push(block);
+                }
+                send_dsl_lines(plugin, chat_id, &state.dsl_lines).await?;
+                if let Some(u) = usage {
+                    state.usage = u;
+                }
+            }
+            StreamEvent::Error { message } => {
+                return Err(GatewayError::OutboundError(message));
+            }
+            StreamEvent::BlockStart { .. } => {
+                state.renderer.handle_event(event);
+            }
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Streaming outbound helpers
+// ---------------------------------------------------------------------------
+
+/// Mutable state carried across stream events in `send_outbound_streaming`.
+struct StreamState {
+    renderer: DefaultStreamingRenderer,
+    content_blocks: Vec<ContentBlock>,
+    dsl_lines: Vec<String>,
+    usage: UnifiedUsage,
+}
+
+impl StreamState {
+    fn new() -> Self {
+        Self {
+            renderer: DefaultStreamingRenderer::new(),
+            content_blocks: Vec::new(),
+            dsl_lines: Vec::new(),
+            usage: UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: None,
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+        }
+    }
+
+    fn into_result(self) -> StreamResult {
+        StreamResult {
+            content_blocks: self.content_blocks,
+            usage: self.usage,
+        }
+    }
+}
+
+/// Send any text messages from `out` and accumulate dsl lines into `state`.
+async fn dispatch_text_and_dsl(
+    plugin: &std::sync::Arc<dyn IMPlugin>,
+    chat_id: &str,
+    out: StreamingOutput,
+    state: &mut StreamState,
+) -> Result<(), GatewayError> {
+    for text in out.text_messages {
+        send_text(plugin, chat_id, &text).await?;
+        state.content_blocks.push(ContentBlock::Text(text));
+    }
+    state.dsl_lines.extend(out.dsl_lines);
+    Ok(())
+}
+
+/// Construct a text [`RenderedOutput`] and dispatch via `plugin.send`.
+async fn send_text(
+    plugin: &std::sync::Arc<dyn IMPlugin>,
+    chat_id: &str,
+    text: &str,
+) -> Result<(), GatewayError> {
+    let rendered = RenderedOutput {
+        msg_type: "text".to_string(),
+        payload: serde_json::json!({ "content": { "text": text } }),
+    };
+    plugin.send(&rendered, chat_id, None).await?;
+    Ok(())
+}
+
+/// Call `plugin.render(&[block], None)` and dispatch via `plugin.send`.
+async fn send_render_block(
+    plugin: &std::sync::Arc<dyn IMPlugin>,
+    chat_id: &str,
+    block: &ContentBlock,
+) -> Result<(), GatewayError> {
+    let rendered = plugin.render(std::slice::from_ref(block), None);
+    plugin.send(&rendered, chat_id, None).await?;
+    Ok(())
+}
+
+/// Parse accumulated DSL lines and dispatch via `plugin.render + plugin.send`.
+async fn send_dsl_lines(
+    plugin: &std::sync::Arc<dyn IMPlugin>,
+    chat_id: &str,
+    dsl_lines: &[String],
+) -> Result<(), GatewayError> {
+    if dsl_lines.is_empty() {
+        return Ok(());
+    }
+    let dsl_text = dsl_lines.join("\n");
+    let dsl_result = DslParser.parse(&dsl_text);
+    let blocks = vec![ContentBlock::Text(dsl_result.clean_content.clone())];
+    let rendered = plugin.render(&blocks, Some(&dsl_result));
+    plugin.send(&rendered, chat_id, None).await?;
+    Ok(())
 }

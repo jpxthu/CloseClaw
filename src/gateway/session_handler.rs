@@ -7,6 +7,7 @@
 //! `FallbackClient::chat()` (non-streaming) is used for all LLM calls.
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
+use super::Gateway;
 use crate::gateway::session_manager::SessionManager;
 use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
 use crate::llm::client::UnifiedChatClient;
@@ -19,7 +20,6 @@ use crate::llm::{ChatRequest, LLMError, Message as ChatMessage};
 use crate::session::compaction::{
     execute_compact, CompactConfig, CompactionResult, CompactionService,
 };
-use crate::session::persistence::PendingMessage;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -57,11 +57,19 @@ pub enum HandleResult {
 
 /// Gateway-layer LLM session handler with busy/pending state management.
 pub struct SessionMessageHandler {
-    session_manager: Arc<SessionManager>,
-    fallback_client: Arc<FallbackClient>,
-    output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
-    compaction_service: Arc<std::sync::Mutex<CompactionService>>,
-    unified_client: Arc<UnifiedChatClient>,
+    pub(super) session_manager: Arc<SessionManager>,
+    pub(super) fallback_client: Arc<FallbackClient>,
+    pub(super) output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
+    pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
+    pub(super) unified_client: Arc<UnifiedChatClient>,
+    /// Optional back-reference to the owning [`Gateway`] (weak).
+    ///
+    /// When set, `handle_message_with_gateway` can route streaming LLM
+    /// output through [`Gateway::send_outbound_streaming`]. When `None`
+    /// (default in tests), the handler still works for non-streaming
+    /// paths; `handle_message_with_gateway` is the only entry point that
+    /// can consume a streaming session and it requires this ref.
+    pub(super) gateway: Option<Arc<std::sync::Weak<Gateway>>>,
 }
 
 // ── Construction ──
@@ -81,6 +89,7 @@ impl SessionMessageHandler {
                 CompactConfig::default(),
             ))),
             unified_client,
+            gateway: None,
         }
     }
     /// Create a new handler without an output channel (used in tests).
@@ -97,7 +106,17 @@ impl SessionMessageHandler {
                 CompactConfig::default(),
             ))),
             unified_client,
+            gateway: None,
         }
+    }
+    /// Attach a back-reference (weak) to the owning [`Gateway`].
+    ///
+    /// Once set, [`handle_message_with_gateway`](Self::handle_message_with_gateway)
+    /// can route streaming LLM output through
+    /// [`Gateway::send_outbound_streaming`].
+    pub fn with_gateway_ref(mut self, gateway: std::sync::Weak<Gateway>) -> Self {
+        self.gateway = Some(Arc::new(gateway));
+        self
     }
 }
 // ── Message dispatch ──
@@ -119,68 +138,8 @@ impl SessionMessageHandler {
             return HandleResult::MessageQueued;
         }
         self.check_and_run_auto_compact(session_id).await;
-        self.dispatch_llm_call(session_id, content, meta).await
-    }
-
-    async fn dispatch_llm_call(
-        &self,
-        session_id: &str,
-        content: String,
-        meta: MessageMetadata,
-    ) -> HandleResult {
-        self.set_busy(session_id, true).await;
-        let session_id = session_id.to_string();
-        let content_for_task = content;
-        let sm = Arc::clone(&self.session_manager);
-        let fc = Arc::clone(&self.fallback_client);
-        let uc = Arc::clone(&self.unified_client);
-        let output_tx = Arc::clone(&self.output_tx);
-
-        tokio::spawn(async move {
-            // Check if streaming is enabled for this session
-            let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
-                cs.read().await.stream_enabled()
-            } else {
-                false
-            };
-
-            let result = if stream_enabled {
-                Self::call_llm_streaming(&uc, &content_for_task, &meta, &sm, &session_id).await
-            } else {
-                Self::call_llm(&fc, &content_for_task, &meta, &sm, &session_id).await
-            };
-            Self::finish_llm(&sm, &session_id, result, &fc, &output_tx).await;
-        });
-
-        HandleResult::LlmStarted
-    }
-
-    async fn set_busy(&self, session_id: &str, busy: bool) {
-        if let Some(cs) = self
-            .session_manager
-            .get_conversation_session(session_id)
+        self.dispatch_llm_call(session_id, content, meta, None, None)
             .await
-        {
-            let cs = cs.write().await;
-            cs.set_llm_busy(busy);
-            if busy {
-                cs.set_llm_state(LlmState::Requesting);
-            }
-        }
-    }
-
-    async fn enqueue_pending(&self, session_id: &str, content: String) {
-        let msg = PendingMessage::new(
-            format!("pending-{}", chrono::Utc::now().timestamp_millis()),
-            content,
-        );
-        if let Err(e) = self
-            .session_manager
-            .push_pending_message(session_id, msg)
-            .await
-        {
-            tracing::warn!(session_id, error = %e, "failed to enqueue pending message");
-        }
     }
 }
 // ── Compaction ──
@@ -223,7 +182,7 @@ impl SessionMessageHandler {
         send_output(&self.output_tx, &text).await;
     }
 
-    async fn check_and_run_auto_compact(&self, session_id: &str) {
+    pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
         let Some((model, llm_messages)) =
             load_compact_inputs(&self.session_manager, session_id).await
         else {

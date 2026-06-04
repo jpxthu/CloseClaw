@@ -21,19 +21,24 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
+use crate::gateway::outbound::StreamResult;
 use crate::gateway::session_manager::SessionManager;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
 use crate::llm::session_state::LlmState;
 use crate::llm::types::ContentBlock;
-use crate::llm::types::UnifiedResponse;
 
 impl SessionMessageHandler {
     /// Clear busy flag, send output, and drain pending messages.
+    ///
+    /// Accepts a [`StreamResult`] (returned by the streaming LLM call) or an
+    /// `LLMError`. The non-streaming `call_llm` path converts its
+    /// `UnifiedResponse` into a `StreamResult` via [`StreamResult::from`]
+    /// before calling this entry point.
     pub(super) async fn finish_llm(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        result: Result<UnifiedResponse, crate::llm::LLMError>,
+        result: Result<StreamResult, crate::llm::LLMError>,
         fallback_client: &Arc<FallbackClient>,
         output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     ) {
@@ -44,7 +49,7 @@ impl SessionMessageHandler {
     async fn clear_busy_and_send(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        result: Result<UnifiedResponse, crate::llm::LLMError>,
+        result: Result<StreamResult, crate::llm::LLMError>,
         output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     ) {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
@@ -53,14 +58,17 @@ impl SessionMessageHandler {
             cs.set_llm_state(LlmState::Idle);
         }
         match result {
-            Ok(response) => {
-                // Append response to session message history
+            Ok(stream_result) => {
+                // Append response to session message history. `append_response`
+                // takes a `UnifiedResponse`; convert via the existing
+                // `From<StreamResult> for UnifiedResponse` impl.
+                let unified: crate::llm::types::UnifiedResponse = stream_result.clone().into();
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                     let mut cs_write = cs.write().await;
-                    cs_write.append_response(response.clone());
-                    cs_write.accumulate_usage(&response.usage);
+                    cs_write.append_response(unified);
+                    cs_write.accumulate_usage(&stream_result.usage);
                 }
-                let text = response
+                let text = stream_result
                     .content_blocks
                     .iter()
                     .filter_map(|b| match b {
@@ -71,7 +79,7 @@ impl SessionMessageHandler {
                     .join("");
                 let guard = output_tx.read().await;
                 if let Some(tx) = guard.as_ref() {
-                    let _ = tx.send((text, response.content_blocks)).await;
+                    let _ = tx.send((text, stream_result.content_blocks)).await;
                 }
             }
             Err(err) => {
@@ -102,14 +110,17 @@ impl SessionMessageHandler {
             }
 
             let meta = MessageMetadata::default_meta();
-            let result = Self::call_llm(
+            // Non-streaming path: `call_llm` returns `UnifiedResponse`.
+            // Convert to `StreamResult` for the unified `finish_llm` entry point.
+            let result: Result<StreamResult, crate::llm::LLMError> = Self::call_llm(
                 fallback_client,
                 &pending.content,
                 &meta,
                 session_manager,
                 session_id,
             )
-            .await;
+            .await
+            .map(Into::into);
             Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
         }
     }
