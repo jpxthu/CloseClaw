@@ -15,7 +15,6 @@ use std::time::SystemTime;
 pub enum Section {
     // --- Static sections (cached) ---
     RoleSection(String),
-    WorkspaceSection(String),
     ToolsSection(String),
     MemorySection(String),
     HeartbeatSection(String),
@@ -41,7 +40,6 @@ impl Section {
         matches!(
             self,
             Section::RoleSection(_)
-                | Section::WorkspaceSection(_)
                 | Section::ToolsSection(_)
                 | Section::MemorySection(_)
                 | Section::HeartbeatSection(_)
@@ -53,7 +51,6 @@ impl Section {
     pub fn name(&self) -> &'static str {
         match self {
             Section::RoleSection(_) => "role",
-            Section::WorkspaceSection(_) => "workspace",
             Section::ToolsSection(_) => "tools",
             Section::MemorySection(_) => "memory",
             Section::HeartbeatSection(_) => "heartbeat",
@@ -87,9 +84,6 @@ impl Section {
         match self {
             Section::RoleSection(content) => {
                 format!("## Role\n{}\n", content)
-            }
-            Section::WorkspaceSection(content) => {
-                format!("## Workspace\n{}\n", content)
             }
             Section::ToolsSection(content) => {
                 format!("## Tools\n{}\n", content)
@@ -418,5 +412,80 @@ mod tests {
 
         // Cache should be cleared
         assert_eq!(get_cached_section("skill_listing", Some(999)), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage for all remaining Section variants after WorkspaceSection removal
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_role_section_name() {
+        let s = Section::RoleSection("You are a helpful assistant.".to_string());
+        assert_eq!(s.name(), "role");
+    }
+
+    #[test]
+    fn test_tools_section() {
+        let s = Section::ToolsSection("tool_a\ntool_b".to_string());
+        assert!(s.is_cacheable());
+        assert_eq!(s.name(), "tools");
+        let rendered = s.render();
+        assert!(rendered.starts_with("## Tools\n"));
+        assert!(rendered.contains("tool_a"));
+    }
+
+    #[test]
+    fn test_memory_section() {
+        let s = Section::MemorySection("remember X".to_string());
+        assert!(s.is_cacheable());
+        assert_eq!(s.name(), "memory");
+        let rendered = s.render();
+        assert!(rendered.starts_with("## Memory\n"));
+        assert!(rendered.contains("remember X"));
+    }
+
+    #[test]
+    fn test_heartbeat_section() {
+        let s = Section::HeartbeatSection("hb data".to_string());
+        assert!(s.is_cacheable());
+        assert_eq!(s.name(), "heartbeat");
+        let rendered = s.render();
+        assert!(rendered.starts_with("## Heartbeat Context\n"));
+        assert!(rendered.contains("hb data"));
+    }
+
+    #[test]
+    fn test_channel_context_name() {
+        let s = Section::ChannelContext {
+            chat_name: "c".to_string(),
+            sender_id: "s".to_string(),
+            timestamp: "t".to_string(),
+        };
+        assert_eq!(s.name(), "channel_context");
+    }
+
+    #[test]
+    fn test_session_state_name() {
+        let s = Section::SessionState {
+            turn_count: 1,
+            pending_tasks: vec![],
+        };
+        assert_eq!(s.name(), "session_state");
+    }
+
+    #[test]
+    fn test_append_section() {
+        let s = Section::AppendSection("extra info".to_string());
+        assert!(!s.is_cacheable());
+        assert_eq!(s.name(), "append");
+        let rendered = s.render();
+        assert!(rendered.starts_with("## Append\n"));
+        assert!(rendered.contains("extra info"));
+    }
+
+    #[test]
+    fn test_git_status_name() {
+        let s = Section::GitStatus("On branch main".to_string());
+        assert_eq!(s.name(), "git_status");
     }
 }
