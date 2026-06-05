@@ -118,6 +118,7 @@ fn scan_layer(
             manifest,
             readme_path,
             skill_dir,
+            body: parsed.body,
         };
 
         if let Some(existing) = skills.get(&name) {
@@ -300,5 +301,73 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
+    }
+
+    #[test]
+    fn test_scan_populates_body() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("my-skill").join("SKILL.md"),
+            "---\ndescription: A skill\n---\n\n# Hello\n\nInstructions here.\n",
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].body, "# Hello\n\nInstructions here.");
+    }
+
+    #[test]
+    fn test_scan_body_empty_when_no_body_text() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("no-body").join("SKILL.md"),
+            "---\ndescription: No body\n---\n",
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].body, "");
+    }
+
+    #[test]
+    fn test_scan_body_with_bom() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("bom-skill").join("SKILL.md"),
+            concat!("\u{feff}", "---\ndescription: BOM skill\n---\n\n# Body\n"),
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].body, "# Body");
+    }
+
+    #[test]
+    fn test_scan_body_preserves_multiline() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("multi").join("SKILL.md"),
+            "---\ndescription: Multi\n---\n\n# Step 1\nDo A.\n\n# Step 2\nDo B.\n",
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].body, "# Step 1\nDo A.\n\n# Step 2\nDo B.");
     }
 }

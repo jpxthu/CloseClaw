@@ -19,6 +19,6 @@ pub use loader::scan_all_skills;
 pub use registry::DiskSkillRegistry;
 pub use resolve::{resolve_skill, ResolvedSkill};
 pub use types::{
-    DiskSkill, LoadBodyError, ParseError, ParsedSkill, ScanConfig, SkillContext, SkillEffort,
-    SkillManifest, SkillSource,
+    DiskSkill, ParseError, ParsedSkill, ScanConfig, SkillContext, SkillEffort, SkillManifest,
+    SkillSource,
 };

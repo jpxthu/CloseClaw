@@ -74,6 +74,7 @@ async fn test_create_child_session_basic() {
             None,
             SpawnMode::Run,
             false,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -127,6 +128,7 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             SpawnMode::Session,
             false,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -146,6 +148,7 @@ async fn test_create_child_session_workspace_fallback() {
             Some(other.path().to_str().unwrap()),
             SpawnMode::Run,
             false,
+            None,
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
@@ -181,6 +184,7 @@ async fn test_create_child_session_registers_child_info() {
             None,
             SpawnMode::Session,
             false,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -219,6 +223,7 @@ async fn test_steer_child_injects_pending_message() {
             None,
             SpawnMode::Session,
             false,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -269,6 +274,7 @@ async fn test_kill_child_removes_from_all_tables() {
             None,
             SpawnMode::Session,
             false,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -329,6 +335,7 @@ async fn test_validate_child_ownership_returns_none_for_run_mode() {
             None,
             SpawnMode::Run,
             false,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -364,6 +371,7 @@ async fn test_validate_child_ownership_returns_info_for_session_mode() {
             None,
             SpawnMode::Session,
             false,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -377,4 +385,83 @@ async fn test_validate_child_ownership_returns_info_for_session_mode() {
     assert_eq!(info.session_id, child_id);
     assert_eq!(info.mode, SpawnMode::Session);
     assert_eq!(info.parent_session_id, "parent-validate-session");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_create_child_session_allowed_tools_override() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+
+    // Config with some tools listed
+    let config = ResolvedAgentConfig {
+        id: "tools-agent".to_string(),
+        name: "tools-agent".to_string(),
+        parent_id: None,
+        model: Some("test-model".to_string()),
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: BootstrapMode::Full,
+        skills: vec![],
+        tools: vec!["ToolA".into(), "ToolB".into(), "ToolC".into()],
+        disallowed_tools: vec![],
+        subagents: SubagentsConfig::default(),
+        source: ConfigSource::Merged,
+    };
+
+    register_parent_session(&mgr, "parent-tools", tmp.path().to_path_buf()).await;
+
+    // Create child with allowed_tools override
+    let allowed = vec!["ToolA".to_string(), "ToolC".to_string()];
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-tools",
+            1,
+            "restricted task",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            Some(allowed),
+        )
+        .await
+        .expect("create_child_session with allowed_tools should succeed");
+
+    // Child should be created successfully
+    assert!(mgr.has_session(&child_id).await);
+    assert_eq!(mgr.get_session_depth(&child_id).await, Some(1));
+}
+
+#[tokio::test]
+#[serial]
+async fn test_create_child_session_no_allowed_tools_preserves_config() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+
+    let config = test_resolved_config("no-restrict", None);
+
+    register_parent_session(&mgr, "parent-no-restrict", tmp.path().to_path_buf()).await;
+
+    // Create child without allowed_tools (None) — should use config's tools as-is
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-no-restrict",
+            1,
+            "normal task",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+        )
+        .await
+        .expect("create_child_session without allowed_tools should succeed");
+
+    assert!(mgr.has_session(&child_id).await);
 }
