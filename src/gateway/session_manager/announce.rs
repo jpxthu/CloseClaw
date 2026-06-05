@@ -150,6 +150,16 @@ impl SessionManager {
                 "try_push_announce: push_announce failed"
             );
         }
+
+        // Unregister child handle from parent's ConversationSession.
+        // This cleans up the Weak reference so the parent's child_handles
+        // map does not accumulate stale entries for completed children.
+        if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
+            parent_cs
+                .read()
+                .await
+                .unregister_child_handle(child_session_id);
+        }
     }
 
     /// Find the (parent_session_id, child_agent_id) of a child whose
