@@ -257,6 +257,14 @@ impl ConversationSession {
         self.pending_messages.pop_front()
     }
 
+    /// Clears all pending messages from the queue.
+    /// Returns the number of messages that were cleared.
+    pub fn clear_pending(&mut self) -> usize {
+        let n = self.pending_messages.len();
+        self.pending_messages.clear();
+        n
+    }
+
     /// Returns whether there are any pending messages.
     pub fn has_pending(&self) -> bool {
         !self.pending_messages.is_empty()

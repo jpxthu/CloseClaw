@@ -106,8 +106,8 @@ async fn test_handler_registry() {
 async fn test_slash_handler_immediate_default() {
     // Default is false
     let safe = EchoHandler;
-    assert!(!safe.immediate());
+    assert!(!safe.immediate("echo"));
 
     let risky = RiskyHandler;
-    assert!(!risky.immediate());
+    assert!(!risky.immediate("exec"));
 }

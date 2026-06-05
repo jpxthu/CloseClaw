@@ -29,7 +29,7 @@ impl SlashHandler for MockHandler {
     fn description(&self) -> &str {
         self.desc
     }
-    fn immediate(&self) -> bool {
+    fn immediate(&self, _cmd: &str) -> bool {
         self.imm
     }
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -75,7 +75,7 @@ fn test_compact_handler_commands_and_description() {
     let h = CompactHandler;
     assert_eq!(h.commands(), &["compact"]);
     assert_eq!(h.description(), "手动压缩对话历史");
-    assert!(!h.immediate());
+    assert!(!h.immediate("compact"));
 }
 
 // ── ClearHandler tests ────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ fn test_help_handler_commands_and_description() {
     let help = HelpHandler::new(Arc::new(registry));
     assert_eq!(help.commands(), &["help"]);
     assert_eq!(help.description(), "显示所有可用指令");
-    assert!(help.immediate());
+    assert!(help.immediate("help"));
 }
 
 // ── HandlerRegistry iter / all_commands tests ───────────────────────────────
@@ -292,7 +292,7 @@ fn test_workdir_handler_commands_and_description() {
     let h = WorkdirHandler::new(sm);
     assert_eq!(h.commands(), &["cd", "pwd", "git"]);
     assert_eq!(h.description(), "工作目录操作");
-    assert!(!h.immediate());
+    assert!(!h.immediate("cd"));
 }
 
 #[tokio::test]
@@ -364,7 +364,7 @@ fn test_reasoning_handler_commands_and_description() {
     let h = ReasoningHandler::new(sm);
     assert_eq!(h.commands(), &["reasoning"]);
     assert_eq!(h.description(), "查询或设置推理深度");
-    assert!(h.immediate());
+    assert!(h.immediate("reasoning"));
 }
 
 #[tokio::test]
@@ -422,7 +422,7 @@ fn test_system_handler_commands_and_description() {
     let h = SystemHandler::new(make_workdir_session_manager());
     assert_eq!(h.commands(), &["system"]);
     assert_eq!(h.description(), "管理 system prompt 追加区");
-    assert!(!h.immediate());
+    assert!(!h.immediate("system"));
 }
 
 #[tokio::test]
