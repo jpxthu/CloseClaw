@@ -80,6 +80,26 @@ impl ConfigManager {
 
         *self.agents.write().expect("RwLock for agents was poisoned") = provider.entries().clone();
 
+        // Sync agent permissions
+        let mut perms_map = self.agent_permissions.write().expect("RwLock poisoned");
+        let provider_perms = provider.permissions();
+        for id in &agents_cfg.agents {
+            if let Some(p) = provider_perms.get(id) {
+                perms_map.insert(id.clone(), p.clone());
+            } else {
+                // Registered agent missing permissions.json → synthesize full-deny baseline
+                perms_map.insert(
+                    id.clone(),
+                    crate::agent::config::AgentPermissions {
+                        agent_id: id.clone(),
+                        permissions: std::collections::HashMap::new(),
+                        inherited_from: None,
+                    },
+                );
+            }
+        }
+        drop(perms_map);
+
         Ok(())
     }
 
@@ -98,5 +118,13 @@ impl ConfigManager {
             .expect("RwLock for agents was poisoned")
             .get(id)
             .cloned()
+    }
+
+    /// Get all agent permissions (clone).
+    pub fn agent_permissions(&self) -> HashMap<String, crate::agent::config::AgentPermissions> {
+        self.agent_permissions
+            .read()
+            .expect("RwLock for agent_permissions was poisoned")
+            .clone()
     }
 }

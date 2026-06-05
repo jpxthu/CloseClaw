@@ -24,6 +24,9 @@ pub struct PermissionEngine {
     templates: HashMap<String, crate::permission::templates::Template>,
     /// Data root directory for workspace path resolution
     data_root: PathBuf,
+    /// Per-agent effective permissions cache (populated by spawn validation)
+    pub(crate) agent_permissions:
+        std::sync::RwLock<HashMap<String, crate::agent::config::AgentPermissions>>,
 }
 
 // --- Construction & index management ---
@@ -37,6 +40,7 @@ impl PermissionEngine {
             user_agent_rule_index: HashMap::new(),
             templates: HashMap::new(),
             data_root,
+            agent_permissions: std::sync::RwLock::new(HashMap::new()),
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -124,6 +128,11 @@ impl PermissionEngine {
             request_type = ?request.body(),
             "permission check initiated"
         );
+
+        // Step 0.7: Agent effective permissions pre-check
+        if let Some(response) = self.check_agent_effective_permissions(&agent_id, request.body()) {
+            return response;
+        }
 
         // Step 0: Creator rule (highest priority)
         if let Some(response) = self.check_creator_rule(&caller, &agent_id) {
