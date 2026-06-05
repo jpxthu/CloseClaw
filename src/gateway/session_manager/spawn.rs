@@ -8,6 +8,7 @@
 use super::SessionManager;
 use crate::config::agents::ResolvedAgentConfig;
 use crate::gateway::Session;
+use crate::llm::session::ChatSession;
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use crate::session::persistence::PendingMessage;
@@ -81,6 +82,7 @@ impl SessionManager {
         light_context: bool,
         workspace: Option<&str>,
         mode: SpawnMode,
+        fork: bool,
     ) -> Result<String, String> {
         // 1. Generate child session_id
         let child_session_id = Uuid::new_v4().to_string();
@@ -173,6 +175,15 @@ impl SessionManager {
         )
         .with_system_prompt(prompt)
         .with_reasoning_level(self.default_reasoning_level);
+
+        // 6a. Fork mode: inject parent session's conversation history
+        //     before the task so the child inherits the parent's context.
+        if fork {
+            if let Some(parent_cs) = self.get_conversation_session(parent_session_id).await {
+                let parent_msgs = parent_cs.read().await.messages().to_vec();
+                cs.clone_messages_from(&parent_msgs);
+            }
+        }
 
         // 6. Inject task as pending message
         let pending_msg =
