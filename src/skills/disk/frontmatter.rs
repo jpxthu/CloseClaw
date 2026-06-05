@@ -20,6 +20,47 @@
 
 use super::{ParseError, ParsedSkill, SkillManifest};
 
+/// Extract the skill body (instruction text) from a SKILL.md raw string.
+///
+/// Returns the text after the closing `---` delimiter of the frontmatter,
+/// trimmed of leading/trailing whitespace. Returns an empty string when
+/// no frontmatter is present or when the frontmatter block has no body.
+pub fn extract_skill_body(raw: &str) -> &str {
+    let raw = raw.trim();
+
+    // Strip UTF-8 BOM if present
+    let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
+
+    // Find opening `---`
+    let start = match raw.find("---\n").or_else(|| raw.find("---\r\n")) {
+        Some(s) => s,
+        None => return "",
+    };
+
+    let after_open = &raw[start + 3..];
+
+    // Find closing `---`
+    let after_skip = after_open.trim_start_matches('\n').trim_start_matches('\r');
+
+    let close_pos = match after_skip
+        .find("\n---")
+        .or_else(|| after_skip.find("\r\n---"))
+        .or_else(|| after_skip.find("---"))
+    {
+        Some(p) => p,
+        None => return "",
+    };
+
+    // Advance past the closing delimiter
+    let after_close = &after_skip[close_pos..];
+    let after_close = after_close
+        .trim_start_matches('\n')
+        .trim_start_matches('\r')
+        .trim_start_matches("---");
+
+    after_close.trim()
+}
+
 /// Parse a SKILL.md file, extracting YAML frontmatter.
 pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, ParseError> {
     let raw = raw.trim();
@@ -212,5 +253,50 @@ user_invocable: false
         let parsed = parse_skill_md(input).expect("parse ok");
         let yaml = serde_yaml::to_string(&parsed.manifest).expect("serialize ok");
         assert!(yaml.contains("serde-skill"));
+    }
+
+    #[test]
+    fn test_extract_skill_body_standard() {
+        let input = concat!(
+            "---\n",
+            "name: \"test\"\n",
+            "description: \"A test skill\"\n",
+            "---\n",
+            "\n",
+            "# Title\n",
+            "\n",
+            "Some instructions here.\n",
+        );
+
+        let body = extract_skill_body(input);
+        assert_eq!(body, "# Title\n\nSome instructions here.");
+    }
+
+    #[test]
+    fn test_extract_skill_body_no_frontmatter() {
+        let input = "Just some text with no frontmatter.";
+        let body = extract_skill_body(input);
+        assert_eq!(body, "");
+    }
+
+    #[test]
+    fn test_extract_skill_body_no_body() {
+        let input = "---\ndescription: A skill\n---\n";
+        let body = extract_skill_body(input);
+        assert_eq!(body, "");
+    }
+
+    #[test]
+    fn test_extract_skill_body_with_bom() {
+        let input = concat!("\u{feff}", "---\ndescription: With BOM\n---\n# Body\n");
+        let body = extract_skill_body(input);
+        assert_eq!(body, "# Body");
+    }
+
+    #[test]
+    fn test_extract_skill_body_whitespace_trim() {
+        let input = "---\ndescription: Skill\n---\n\n  # Title  \n\nContent.  \n  ";
+        let body = extract_skill_body(input);
+        assert_eq!(body, "# Title  \n\nContent.");
     }
 }

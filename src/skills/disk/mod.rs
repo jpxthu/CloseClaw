@@ -12,13 +12,13 @@ pub mod registry;
 pub mod resolve;
 pub mod types;
 
-pub use frontmatter::parse_skill_md;
+pub use frontmatter::{extract_skill_body, parse_skill_md};
 pub use hot_reload::{start_skill_watcher, SkillWatcherHandle};
 pub use init::init_disk_skills;
 pub use loader::scan_all_skills;
 pub use registry::DiskSkillRegistry;
 pub use resolve::{resolve_skill, ResolvedSkill};
 pub use types::{
-    DiskSkill, ParseError, ParsedSkill, ScanConfig, SkillContext, SkillEffort, SkillManifest,
-    SkillSource,
+    DiskSkill, LoadBodyError, ParseError, ParsedSkill, ScanConfig, SkillContext, SkillEffort,
+    SkillManifest, SkillSource,
 };
