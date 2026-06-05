@@ -232,6 +232,7 @@ impl Gateway {
             channel: channel.to_string(),
             timestamp: chrono::Utc::now().timestamp(),
             metadata: std::collections::HashMap::new(),
+            thread_id: None,
         }
     }
 

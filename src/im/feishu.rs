@@ -263,6 +263,7 @@ impl IMAdapter for FeishuAdapter {
             channel: "feishu".to_string(),
             timestamp: chrono::Utc::now().timestamp(),
             metadata,
+            thread_id: None,
         })
     }
 
@@ -294,7 +295,9 @@ impl IMAdapter for FeishuAdapter {
 
         let mut url = format!("{}/im/v1/messages?receive_id_type=open_id", FEISHU_API_BASE);
         if let Some(rid) = root_id {
-            url = format!("{}&root_id={}", url, rid);
+            let encoded_rid: String =
+                url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
+            url = format!("{}&root_id={}", url, encoded_rid);
         }
 
         let resp: SendResponse = self
@@ -348,7 +351,9 @@ impl IMAdapter for FeishuAdapter {
 
         let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", FEISHU_API_BASE);
         if let Some(rid) = root_id {
-            url = format!("{}&root_id={}", url, rid);
+            let encoded_rid: String =
+                url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
+            url = format!("{}&root_id={}", url, encoded_rid);
         }
 
         let resp: CardResponse = self
@@ -460,6 +465,7 @@ impl IMPlugin for FeishuPlugin {
                     channel: "feishu".to_string(),
                     timestamp: chrono::Utc::now().timestamp(),
                     metadata: HashMap::new(),
+                    thread_id: None,
                 };
                 self.adapter.send_message(&message, _thread_id).await
             }

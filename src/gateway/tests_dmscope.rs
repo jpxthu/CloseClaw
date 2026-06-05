@@ -118,6 +118,7 @@ fn feishu_msg(from: &str, to: &str) -> crate::gateway::Message {
         channel: "feishu".into(),
         timestamp: 0,
         metadata: HashMap::new(),
+        thread_id: None,
     }
 }
 

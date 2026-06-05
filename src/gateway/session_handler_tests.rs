@@ -153,6 +153,7 @@ fn make_msg() -> crate::gateway::Message {
         channel: "ch".into(),
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
+        thread_id: None,
     }
 }
 

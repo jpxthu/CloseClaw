@@ -134,6 +134,7 @@ mod tests {
             channel: "feishu".into(),
             timestamp: 0,
             metadata: HashMap::new(),
+            thread_id: None,
         };
         assert!(a.send_message(&msg, None).await.is_err());
     }
@@ -341,5 +342,24 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(msg.thread_id, None);
+    }
+
+    // ── root_id URL encoding test ──────────────────────────────────────
+
+    #[test]
+    fn test_root_id_percent_encoding() {
+        // Bug #904: root_id with special characters should be percent-encoded.
+        let rid = "omt_abc=def&ghi";
+        let encoded: String = url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
+        assert_eq!(encoded, "omt_abc%3Ddef%26ghi");
+
+        // Verify the URL construction pattern used in feishu.rs
+        let base_url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id";
+        let url = format!("{}&root_id={}", base_url, encoded);
+        assert!(
+            url.contains("root_id=omt_abc%3Ddef%26ghi"),
+            "URL should contain percent-encoded root_id, got: {}",
+            url
+        );
     }
 }
