@@ -84,6 +84,7 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         channel: "test-channel".to_string(),
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
+        thread_id: None,
     };
     mgr.find_or_create("test-channel", &msg, None)
         .await

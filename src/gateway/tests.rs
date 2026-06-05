@@ -97,6 +97,7 @@ fn make_message(to: &str, content: &str) -> Message {
         channel: "mock".to_string(),
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
+        thread_id: None,
     }
 }
 
@@ -173,6 +174,7 @@ fn msg(from: &str, to: &str) -> Message {
         channel: "ch".into(),
         timestamp: 0,
         metadata: HashMap::new(),
+        thread_id: None,
     }
 }
 
@@ -362,6 +364,7 @@ async fn test_per_channel_peer_different_senders() {
         channel: "ch".into(),
         timestamp: 0,
         metadata: HashMap::new(),
+        thread_id: None,
     };
     let mut m2 = Message {
         id: "2".into(),
@@ -371,6 +374,7 @@ async fn test_per_channel_peer_different_senders() {
         channel: "ch".into(),
         timestamp: 0,
         metadata: HashMap::new(),
+        thread_id: None,
     };
     add_session(&sm, "ch", &mut m1, None).await;
     add_session(&sm, "ch", &mut m2, None).await;

@@ -105,6 +105,7 @@ async fn test_error_cases() {
         channel: "feishu".into(),
         timestamp: 0,
         metadata: HashMap::new(),
+        thread_id: None,
     };
     assert!(a.send_message(&msg, None).await.is_err());
 }

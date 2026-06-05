@@ -279,6 +279,7 @@ async fn create_test_session(sm: &SessionManager) -> String {
         channel: "feishu".to_string(),
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
+        thread_id: None,
     };
     let account_id: Option<&str> = None;
     sm.find_or_create("feishu", &msg, account_id)

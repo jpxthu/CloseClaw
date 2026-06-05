@@ -26,6 +26,7 @@ pub(super) fn test_message() -> Message {
         channel: "feishu".to_string(),
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
+        thread_id: None,
     }
 }
 
@@ -387,3 +388,4 @@ async fn test_with_pending_messages_bulk_set() {
 }
 
 // rebuild tests moved to rebuild_tests.rs (file kept under 500 lines)
+// Bug #904 tests moved to bug904_tests.rs

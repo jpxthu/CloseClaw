@@ -6,13 +6,13 @@
 mod archive_support;
 
 #[cfg(test)]
+mod bug904_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
@@ -22,14 +22,6 @@ use tokio::task::spawn_blocking;
 pub struct SqliteStorage {
     data_dir: PathBuf,
 }
-/// Transcript message entry written to .jsonl files
-#[derive(Debug, Serialize, Deserialize)]
-struct TranscriptEntry {
-    role: String,
-    content: String,
-    timestamp: DateTime<Utc>,
-}
-
 impl SqliteStorage {
     /// Create a new SqliteStorage instance
     ///
@@ -99,41 +91,32 @@ impl SqliteStorage {
 
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_role
                 ON sessions(agent_id, role);
-
-            ALTER TABLE sessions ADD COLUMN thread_id TEXT;
             "#,
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+        // Idempotent migration: only add thread_id column if it doesn't already exist.
+        let column_exists: bool = {
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(sessions)")
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            let has_column = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .any(|name| name == "thread_id");
+            has_column
+        };
+        if !column_exists {
+            conn.execute("ALTER TABLE sessions ADD COLUMN thread_id TEXT", [])
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        }
+
         Ok(())
     }
     /// Returns the data directory path
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
-    }
-
-    /// Write transcript entries to a .jsonl file
-    fn write_transcript(
-        path: &Path,
-        checkpoint: &SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
-        let file = std::fs::File::create(path).map_err(PersistenceError::Io)?;
-        let mut writer = std::io::BufWriter::new(file);
-        for msg in &checkpoint.pending_messages {
-            let entry = TranscriptEntry {
-                role: msg.message_id.clone(),
-                content: msg.content.clone(),
-                timestamp: msg.created_at,
-            };
-            serde_json::to_writer(&mut writer, &entry).map_err(PersistenceError::Serialization)?;
-            use std::io::Write;
-            writeln!(&mut writer).map_err(PersistenceError::Io)?;
-        }
-        Ok(())
-    }
-
-    /// Delete transcript file, ignoring if it does not exist
-    fn delete_transcript(path: &Path) {
-        let _ = std::fs::remove_file(path);
     }
 
     /// List IDs of active sessions idle for at least `idle_minutes`.
@@ -327,7 +310,7 @@ impl PersistenceService for SqliteStorage {
             let transcript_path = data_dir
                 .join("sessions")
                 .join(format!("{}.jsonl", checkpoint.session_id));
-            Self::write_transcript(&transcript_path, &checkpoint)?;
+            archive_support::write_transcript(&transcript_path, &checkpoint)?;
 
             Ok(())
         })
@@ -373,12 +356,12 @@ impl PersistenceService for SqliteStorage {
             let active_path = data_dir
                 .join("sessions")
                 .join(format!("{session_id}.jsonl"));
-            Self::delete_transcript(&active_path);
+            archive_support::delete_transcript(&active_path);
 
             let archived_path = data_dir
                 .join("archived_sessions")
                 .join(format!("{session_id}.jsonl"));
-            Self::delete_transcript(&archived_path);
+            archive_support::delete_transcript(&archived_path);
 
             Ok(())
         })

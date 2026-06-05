@@ -39,6 +39,32 @@ pub fn delete_transcript(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+/// Write transcript entries to a .jsonl file.
+pub fn write_transcript(
+    path: &Path,
+    checkpoint: &SessionCheckpoint,
+) -> Result<(), PersistenceError> {
+    #[derive(serde::Serialize)]
+    struct TranscriptEntry {
+        role: String,
+        content: String,
+        timestamp: DateTime<Utc>,
+    }
+    let file = std::fs::File::create(path).map_err(PersistenceError::Io)?;
+    let mut writer = std::io::BufWriter::new(file);
+    for msg in &checkpoint.pending_messages {
+        let entry = TranscriptEntry {
+            role: msg.message_id.clone(),
+            content: msg.content.clone(),
+            timestamp: msg.created_at,
+        };
+        serde_json::to_writer(&mut writer, &entry).map_err(PersistenceError::Serialization)?;
+        use std::io::Write;
+        writeln!(&mut writer).map_err(PersistenceError::Io)?;
+    }
+    Ok(())
+}
+
 /// Archive a checkpoint: move its active transcript to archived_sessions/
 /// and mark the DB record as archived.
 pub fn do_archive(data_dir: &Path, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {

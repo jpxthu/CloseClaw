@@ -163,6 +163,7 @@ pub(crate) fn make_outbound_message(to: &str, content: &str) -> Message {
         channel: "tracking".to_string(),
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
+        thread_id: None,
     }
 }
 

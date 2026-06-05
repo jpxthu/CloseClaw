@@ -37,6 +37,7 @@ fn test_message() -> Message {
         channel: "feishu".to_string(),
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
+        thread_id: None,
     }
 }
 
