@@ -23,6 +23,7 @@ use crate::llm::session_state::LlmState;
 use crate::llm::streaming::{StreamDone, StreamingSink};
 use crate::llm::types::{ContentBlock, ContentDelta, StreamEvent};
 use crate::llm::{LLMError, Message as ChatMessage};
+use crate::session::persistence::ReasoningLevel;
 
 impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's
@@ -52,7 +53,7 @@ impl SessionMessageHandler {
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
-        let (static_prompt_opt, turn_count, workdir_path, system_appends) =
+        let (static_prompt_opt, turn_count, workdir_path, system_appends, reasoning_level) =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 let cs_read = cs.read().await;
                 (
@@ -60,9 +61,16 @@ impl SessionMessageHandler {
                     cs_read.turn_count(),
                     cs_read.workdir().to_string_lossy().into_owned(),
                     cs_read.system_appends().to_vec(),
+                    cs_read.reasoning_level().clone(),
                 )
             } else {
-                (None, 0, String::new(), Vec::new())
+                (
+                    None,
+                    0,
+                    String::new(),
+                    Vec::new(),
+                    ReasoningLevel::default(),
+                )
             };
 
         let dynamic_sections = build_dynamic_sections(
@@ -102,7 +110,7 @@ impl SessionMessageHandler {
             system_dynamic: None,
             system_blocks: None,
             session_id: None,
-            reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+            reasoning_level,
         };
 
         // Get streaming sink from session (CLI/websocket consumers).

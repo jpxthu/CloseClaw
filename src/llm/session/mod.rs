@@ -180,6 +180,16 @@ impl ConversationSession {
         self
     }
 
+    /// Returns the current reasoning level.
+    pub fn reasoning_level(&self) -> ReasoningLevel {
+        self.reasoning_level
+    }
+
+    /// Overrides the reasoning level at runtime.
+    pub fn set_reasoning_level(&mut self, level: ReasoningLevel) {
+        self.reasoning_level = level;
+    }
+
     /// Replace the system prompt on an existing session.
     /// Used by `SessionManager::rebuild_system_prompt` after compaction.
     pub fn replace_system_prompt(&mut self, prompt: impl Into<String>) {

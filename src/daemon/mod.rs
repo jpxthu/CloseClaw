@@ -14,7 +14,7 @@ use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::renderer::feishu::FeishuRenderer;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{
-    ClearHandler, CompactHandler, ExecHandler, HelpHandler, WorkdirHandler,
+    ClearHandler, CompactHandler, ExecHandler, HelpHandler, ReasoningHandler, WorkdirHandler,
 };
 use crate::slash::registry::HandlerRegistry;
 
@@ -176,6 +176,9 @@ impl Daemon {
         slash_registry.register(Arc::new(WorkdirHandler::new(Arc::clone(&session_manager))));
         let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
         slash_registry.register(Arc::new(help_handler));
+        slash_registry.register(Arc::new(ReasoningHandler::new(Arc::clone(
+            &session_manager,
+        ))));
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
         gateway.set_slash_dispatcher(slash_dispatcher).await;
         // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
