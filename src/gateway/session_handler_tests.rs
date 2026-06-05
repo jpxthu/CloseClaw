@@ -3,6 +3,7 @@ use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
 use crate::llm::provider::{Provider, ProviderError};
+use crate::llm::session_state::LlmState;
 use crate::llm::types::ProtocolId;
 use crate::llm::types::{
     InternalRequest, InternalResponse, RawContentBlock, RawUsage, SseStateMachine,
@@ -196,6 +197,7 @@ async fn test_busy_message_returns_queued() {
     // Manually set busy
     if let Some(cs) = sm.get_conversation_session(&sid).await {
         cs.write().await.set_llm_busy(true);
+        cs.write().await.set_llm_state(LlmState::Requesting);
     }
 
     let handler = handler_with_sm(Arc::clone(&sm));
