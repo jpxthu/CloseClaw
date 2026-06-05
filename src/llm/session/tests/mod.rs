@@ -447,3 +447,30 @@ fn test_build_api_request_reasoning_level_medium() {
     let req = session.build_api_request();
     assert_eq!(req.reasoning_level, ReasoningLevel::Medium);
 }
+
+// ── clear_pending tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_clear_pending_returns_count_and_empties() {
+    let mut session =
+        ConversationSession::new("sess_clear".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    session.push_pending(PendingMessage::new("a".into(), "msg_a".into()));
+    session.push_pending(PendingMessage::new("b".into(), "msg_b".into()));
+    assert_eq!(session.pending_count(), 2);
+
+    let cleared = session.clear_pending();
+    assert_eq!(cleared, 2);
+    assert_eq!(session.pending_count(), 0);
+    assert!(session.get_pending_messages().is_empty());
+}
+
+#[test]
+fn test_clear_pending_empty_returns_zero() {
+    let mut session = ConversationSession::new(
+        "sess_clear_empty".into(),
+        "gpt-4o".into(),
+        PathBuf::from("/tmp"),
+    );
+    let cleared = session.clear_pending();
+    assert_eq!(cleared, 0);
+}

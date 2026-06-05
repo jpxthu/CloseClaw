@@ -401,3 +401,74 @@ async fn test_find_or_create_workspace_invalid_ids() {
     msg.from = r#"..\foo"#.to_string();
     assert!(mgr.find_or_create("feishu", &msg, None).await.is_err());
 }
+
+#[tokio::test]
+async fn test_force_new_for_channel_creates_valid_session() {
+    let mgr = make_test_mgr(None);
+    let new_id = mgr.force_new_for_channel("feishu", "agent-test").await;
+    // Should be non-empty and contain the channel
+    assert!(!new_id.is_empty());
+    assert!(new_id.starts_with("feishu"));
+    // Session should exist in the sessions map
+    assert!(mgr.has_session(&new_id).await);
+    // Channel mapping should be correct
+    assert_eq!(
+        mgr.active_session_for_channel("feishu").await.as_deref(),
+        Some(new_id.as_str())
+    );
+    // ConversationSession should also exist
+    assert!(mgr.get_conversation_session(&new_id).await.is_some());
+}
+
+#[tokio::test]
+async fn test_clear_pending_with_messages() {
+    let mgr = make_test_mgr(None);
+    let msg = test_message();
+    let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    // Push some pending messages
+    use crate::session::persistence::PendingMessage;
+    mgr.push_pending_message(&session_id, PendingMessage::new("p1".into(), "msg1".into()))
+        .await
+        .unwrap();
+    mgr.push_pending_message(&session_id, PendingMessage::new("p2".into(), "msg2".into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        mgr.get_conversation_session(&session_id)
+            .await
+            .unwrap()
+            .read()
+            .await
+            .pending_count(),
+        2
+    );
+    // Clear pending
+    let count = {
+        let cs = mgr.get_conversation_session(&session_id).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.clear_pending()
+    };
+    assert_eq!(count, 2);
+    assert_eq!(
+        mgr.get_conversation_session(&session_id)
+            .await
+            .unwrap()
+            .read()
+            .await
+            .pending_count(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn test_clear_pending_empty() {
+    let mgr = make_test_mgr(None);
+    let msg = test_message();
+    let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    let count = {
+        let cs = mgr.get_conversation_session(&session_id).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.clear_pending()
+    };
+    assert_eq!(count, 0);
+}

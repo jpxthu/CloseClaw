@@ -73,7 +73,7 @@ impl SlashDispatcher {
     pub fn is_immediate(&self, command: &str) -> bool {
         self.registry
             .get(command)
-            .map(|h| h.immediate())
+            .map(|h| h.immediate(command))
             .unwrap_or(false)
     }
 
