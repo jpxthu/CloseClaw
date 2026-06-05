@@ -346,13 +346,13 @@ async fn test_feishu_adapter_send_card_json_default() {
         async fn handle_webhook(&self, _: &[u8]) -> Result<Message, AdapterError> {
             Err(AdapterError::InvalidPayload("x".into()))
         }
-        async fn send_message(&self, _: &Message) -> Result<(), AdapterError> {
+        async fn send_message(&self, _: &Message, _: Option<&str>) -> Result<(), AdapterError> {
             Err(AdapterError::InvalidPayload("x".into()))
         }
         async fn validate_signature(&self, _: &str, _: &[u8]) -> bool {
             true
         }
     }
-    let result = DummyAdapter.send_card_json("chat_1", "{}").await;
+    let result = DummyAdapter.send_card_json("chat_1", "{}", None).await;
     assert!(matches!(result, Err(AdapterError::UnsupportedOperation)));
 }

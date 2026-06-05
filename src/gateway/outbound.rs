@@ -67,6 +67,8 @@ struct DispatchCtx<'a> {
     session_id: &'a str,
     channel: &'a str,
     chat_id: String,
+    /// Optional thread/topic ID for directing the message into a thread.
+    thread_id: Option<String>,
 }
 
 impl Gateway {
@@ -89,8 +91,8 @@ impl Gateway {
     /// 7. Dispatch by `msg_type` (`"text"` / `"interactive"`) through
     ///    `plugin.send`. Any other type is an [`GatewayError::OutboundError`].
     /// 8. After each successful send, trigger checkpoint persistence.
-    /// 9. `thread_id` is not yet wired through — `None` is passed to
-    ///    `plugin.send`.
+    /// 9. `thread_id` is resolved via `session_manager.get_thread_id` and
+    ///    passed to `plugin.send`.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -135,7 +137,10 @@ impl Gateway {
             plugin.render(blocks, dsl_result.as_ref())
         };
 
-        // 5. Dispatch by msg_type and persist checkpoint on success.
+        // 5. Resolve thread_id from session checkpoint.
+        let thread_id = self.session_manager.get_thread_id(session_id).await;
+
+        // 6. Dispatch by msg_type and persist checkpoint on success.
         self.dispatch_and_persist(DispatchCtx {
             plugin: &plugin,
             rendered: &rendered,
@@ -143,6 +148,7 @@ impl Gateway {
             session_id,
             channel,
             chat_id,
+            thread_id,
         })
         .await
     }
@@ -166,14 +172,18 @@ impl Gateway {
                     .unwrap_or(ctx.fallback_text)
                     .to_string();
                 let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id.clone(), text);
-                ctx.plugin.send(ctx.rendered, &ctx.chat_id, None).await?;
+                ctx.plugin
+                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+                    .await?;
                 self.persist_outbound_checkpoint(ctx.session_id, &msg).await;
                 Ok(())
             }
             "interactive" => {
                 let payload_str = serde_json::to_string(&ctx.rendered.payload)
                     .unwrap_or_else(|_| "{}".to_string());
-                ctx.plugin.send(ctx.rendered, &ctx.chat_id, None).await?;
+                ctx.plugin
+                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+                    .await?;
                 let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id, payload_str);
                 self.persist_outbound_checkpoint(ctx.session_id, &msg).await;
                 Ok(())
@@ -268,8 +278,8 @@ impl Gateway {
     ///   `plugin.render` + `plugin.send`
     ///
     /// Accumulated `content_blocks` and the LLM-reported `usage` are returned
-    /// in a [`StreamResult`]. `thread_id` is always `None` (consistent with
-    /// [`send_outbound`](Self::send_outbound)).
+    /// in a [`StreamResult`]. `thread_id` is resolved from the session
+    /// checkpoint and forwarded to all `plugin.send` calls.
     pub async fn send_outbound_streaming<E: std::fmt::Display>(
         &self,
         session_id: &str,
@@ -283,10 +293,13 @@ impl Gateway {
             .await
             .ok_or(GatewayError::MissingSessionId)?;
 
+        // Resolve thread_id from session checkpoint for outbound thread routing.
+        let thread_id = self.session_manager.get_thread_id(session_id).await;
+
         let mut state = StreamState::new();
         while let Some(event_result) = stream.next().await {
             let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-            self.process_stream_event(plugin, &chat_id, event, &mut state)
+            self.process_stream_event(plugin, &chat_id, thread_id.as_deref(), event, &mut state)
                 .await?;
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
@@ -301,6 +314,7 @@ impl Gateway {
         &self,
         plugin: &std::sync::Arc<dyn IMPlugin>,
         chat_id: &str,
+        thread_id: Option<&str>,
         event: StreamEvent,
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
@@ -314,7 +328,7 @@ impl Gateway {
                 // For Text deltas, the renderer may emit completed text lines
                 // and dsl lines; non-Text deltas only update internal state.
                 if is_text_delta {
-                    dispatch_text_and_dsl(plugin, chat_id, out, state).await?;
+                    dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
                 }
             }
             StreamEvent::BlockEnd { block_type, .. } => {
@@ -322,21 +336,21 @@ impl Gateway {
                 if block_type != ContentBlockType::Text {
                     let render_blocks = std::mem::take(&mut out.render_blocks);
                     for block in render_blocks {
-                        send_render_block(plugin, chat_id, &block).await?;
+                        send_render_block(plugin, chat_id, thread_id, &block).await?;
                         state.content_blocks.push(block);
                     }
                 }
-                dispatch_text_and_dsl(plugin, chat_id, out, state).await?;
+                dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
             }
             StreamEvent::MessageEnd { usage, .. } => {
                 let mut out = state.renderer.flush();
                 let render_blocks = std::mem::take(&mut out.render_blocks);
-                dispatch_text_and_dsl(plugin, chat_id, out, state).await?;
+                dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
                 for block in render_blocks {
-                    send_render_block(plugin, chat_id, &block).await?;
+                    send_render_block(plugin, chat_id, thread_id, &block).await?;
                     state.content_blocks.push(block);
                 }
-                send_dsl_lines(plugin, chat_id, &state.dsl_lines).await?;
+                send_dsl_lines(plugin, chat_id, thread_id, &state.dsl_lines).await?;
                 if let Some(u) = usage {
                     state.usage = u;
                 }
@@ -393,11 +407,12 @@ impl StreamState {
 async fn dispatch_text_and_dsl(
     plugin: &std::sync::Arc<dyn IMPlugin>,
     chat_id: &str,
+    thread_id: Option<&str>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        send_text(plugin, chat_id, &text).await?;
+        send_text(plugin, chat_id, thread_id, &text).await?;
         state.content_blocks.push(ContentBlock::Text(text));
     }
     state.dsl_lines.extend(out.dsl_lines);
@@ -408,13 +423,14 @@ async fn dispatch_text_and_dsl(
 async fn send_text(
     plugin: &std::sync::Arc<dyn IMPlugin>,
     chat_id: &str,
+    thread_id: Option<&str>,
     text: &str,
 ) -> Result<(), GatewayError> {
     let rendered = RenderedOutput {
         msg_type: "text".to_string(),
         payload: serde_json::json!({ "content": { "text": text } }),
     };
-    plugin.send(&rendered, chat_id, None).await?;
+    plugin.send(&rendered, chat_id, thread_id).await?;
     Ok(())
 }
 
@@ -422,10 +438,11 @@ async fn send_text(
 async fn send_render_block(
     plugin: &std::sync::Arc<dyn IMPlugin>,
     chat_id: &str,
+    thread_id: Option<&str>,
     block: &ContentBlock,
 ) -> Result<(), GatewayError> {
     let rendered = plugin.render(std::slice::from_ref(block), None);
-    plugin.send(&rendered, chat_id, None).await?;
+    plugin.send(&rendered, chat_id, thread_id).await?;
     Ok(())
 }
 
@@ -433,6 +450,7 @@ async fn send_render_block(
 async fn send_dsl_lines(
     plugin: &std::sync::Arc<dyn IMPlugin>,
     chat_id: &str,
+    thread_id: Option<&str>,
     dsl_lines: &[String],
 ) -> Result<(), GatewayError> {
     if dsl_lines.is_empty() {
@@ -442,6 +460,6 @@ async fn send_dsl_lines(
     let dsl_result = DslParser.parse(&dsl_text);
     let blocks = vec![ContentBlock::Text(dsl_result.clean_content.clone())];
     let rendered = plugin.render(&blocks, Some(&dsl_result));
-    plugin.send(&rendered, chat_id, None).await?;
+    plugin.send(&rendered, chat_id, thread_id).await?;
     Ok(())
 }

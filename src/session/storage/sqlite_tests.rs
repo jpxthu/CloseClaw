@@ -30,6 +30,7 @@ mod tests {
             role: None,
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
+            thread_id: None,
         }
     }
 
@@ -385,6 +386,7 @@ mod tests {
             role: Some(AgentRole::SubAgent),
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
+            thread_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -422,6 +424,7 @@ mod tests {
             role: Some(AgentRole::SubAgent),
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
+            thread_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -459,6 +462,7 @@ mod tests {
             role: Some(AgentRole::MainAgent),
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
+            thread_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 

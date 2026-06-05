@@ -99,6 +99,8 @@ impl SqliteStorage {
 
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_role
                 ON sessions(agent_id, role);
+
+            ALTER TABLE sessions ADD COLUMN thread_id TEXT;
             "#,
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -295,8 +297,8 @@ impl PersistenceService for SqliteStorage {
             conn.execute(
                 "INSERT OR REPLACE INTO sessions
                  (id, agent_id, role, channel, chat_id, status, title,
-                  last_message_at, created_at, archived_at, message_count, metadata)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                  last_message_at, created_at, archived_at, message_count, metadata, thread_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     checkpoint.session_id,
                     checkpoint.agent_id.as_deref().unwrap_or("unknown"),
@@ -316,6 +318,7 @@ impl PersistenceService for SqliteStorage {
                     Option::<i64>::None, // archived_at
                     checkpoint.message_count as i64,
                     metadata_json,
+                    checkpoint.thread_id.as_deref(),
                 ],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
