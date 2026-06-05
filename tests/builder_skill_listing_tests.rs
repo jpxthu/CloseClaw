@@ -26,6 +26,7 @@ fn make_test_skill(name: &str, description: &str, when_to_use: &str, agent_id: &
         },
         readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
         skill_dir: PathBuf::from(format!("/skills/{}", name)),
+        body: String::new(),
     }
 }
 

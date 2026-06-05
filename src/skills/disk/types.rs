@@ -1,6 +1,5 @@
 //! Disk Skill Types - type definitions for the disk skill system
 
-use super::frontmatter::extract_skill_body;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -114,6 +113,9 @@ pub struct DiskSkill {
     pub readme_path: std::path::PathBuf,
     /// Absolute path to the skill directory.
     pub skill_dir: std::path::PathBuf,
+    /// Skill body (instruction text) extracted from the SKILL.md file.
+    /// Empty string until populated by the loader layer.
+    pub body: String,
 }
 
 /// Result of parsing a SKILL.md frontmatter block.
@@ -125,14 +127,8 @@ pub struct ParsedSkill {
     pub description_only: bool,
     /// Raw frontmatter block (without delimiters), kept for traceability.
     pub frontmatter_raw: String,
-}
-
-/// Errors that can occur when loading the skill body from disk.
-#[derive(Debug, thiserror::Error)]
-pub enum LoadBodyError {
-    /// Failed to read the SKILL.md file from disk.
-    #[error("failed to read SKILL.md: {0}")]
-    Io(String),
+    /// Skill body (instruction text) extracted from after the frontmatter.
+    pub body: String,
 }
 
 /// Errors that can occur when parsing SKILL.md frontmatter.
@@ -166,36 +162,9 @@ pub struct ScanConfig {
     pub agent_id: Option<String>,
 }
 
-impl DiskSkill {
-    /// Load the skill body (instruction text) from disk on demand.
-    ///
-    /// Reads the SKILL.md file at `self.readme_path`, extracts the
-    /// text after the frontmatter closing `---` delimiter, and returns
-    /// the trimmed result.
-    pub fn load_body(&self) -> Result<String, LoadBodyError> {
-        let raw = std::fs::read_to_string(&self.readme_path)
-            .map_err(|e| LoadBodyError::Io(e.to_string()))?;
-        let body = extract_skill_body(&raw);
-        Ok(body.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn make_skill(path: std::path::PathBuf) -> DiskSkill {
-        DiskSkill {
-            source: SkillSource::Global,
-            manifest: SkillManifest {
-                name: "test".into(),
-                description: "test".into(),
-                ..Default::default()
-            },
-            readme_path: path,
-            skill_dir: std::path::PathBuf::new(),
-        }
-    }
 
     #[test]
     fn test_skill_source_priority() {
@@ -281,45 +250,5 @@ mod tests {
         assert!(cfg.global_dir.is_none());
         assert!(cfg.project_root.is_none());
         assert!(cfg.agent_id.is_none());
-    }
-
-    #[test]
-    fn test_load_body_existing_file() {
-        let dir = std::env::temp_dir().join(format!("load_body_test_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("SKILL.md");
-        let content = "---\ndescription: Test\n---\n\n# Hello\n\nInstructions here.\n";
-        std::fs::write(&path, content).unwrap();
-
-        let skill = make_skill(path.clone());
-        let body = skill.load_body().unwrap();
-        assert_eq!(body, "# Hello\n\nInstructions here.");
-
-        std::fs::remove_file(&path).unwrap();
-        std::fs::remove_dir(&dir).unwrap();
-    }
-
-    #[test]
-    fn test_load_body_missing_file() {
-        let path = std::path::PathBuf::from("/nonexistent/SKILL.md");
-        let skill = make_skill(path);
-        let err = skill.load_body().unwrap_err();
-        assert!(matches!(err, LoadBodyError::Io(_)));
-    }
-
-    #[test]
-    fn test_load_body_no_frontmatter() {
-        let dir = std::env::temp_dir().join(format!("load_body_no_fm_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("SKILL.md");
-        let content = "Just plain text with no frontmatter.";
-        std::fs::write(&path, content).unwrap();
-
-        let skill = make_skill(path.clone());
-        let body = skill.load_body().unwrap();
-        assert_eq!(body, "");
-
-        std::fs::remove_file(&path).unwrap();
-        std::fs::remove_dir(&dir).unwrap();
     }
 }

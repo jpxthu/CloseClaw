@@ -22,6 +22,7 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
         },
         readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
         skill_dir: PathBuf::from(format!("/skills/{}", name)),
+        body: String::new(),
     }
 }
 
@@ -92,6 +93,7 @@ fn skill_with_agent_id(name: &str, source: SkillSource, agent_id: &str) -> DiskS
         },
         readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
         skill_dir: PathBuf::from(format!("/skills/{}", name)),
+        body: String::new(),
     }
 }
 
@@ -112,6 +114,7 @@ fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) ->
         },
         readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
         skill_dir: PathBuf::from(format!("/skills/{}", name)),
+        body: String::new(),
     }
 }
 
@@ -191,6 +194,7 @@ fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> Disk
         },
         readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
         skill_dir: PathBuf::from(format!("/skills/{}", name)),
+        body: String::new(),
     }
 }
 

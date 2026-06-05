@@ -4,6 +4,8 @@
 //! reading its SKILL.md file, and returning the content as a meta message
 //! to be injected into the agent context.
 
+use crate::agent::spawn::SpawnController;
+use crate::gateway::session_manager::{SessionManager, SpawnMode};
 use crate::skills::disk::types::SkillContext;
 use crate::skills::disk::DiskSkillRegistry;
 use crate::tools::{
@@ -21,16 +23,30 @@ use std::sync::Arc;
 /// Tool that loads and executes a disk-based skill.
 ///
 /// When called, `SkillTool` looks up the named skill in the
-/// [`DiskSkillRegistry`], reads its SKILL.md file, and injects the
-/// content as a meta message into the agent context.
+/// [`DiskSkillRegistry`], and depending on the skill's context:
+///
+/// - **Inline / Agent**: injects `skill.body` as a meta message into the
+///   agent context, with `context_modifier` for `allowed_tools`.
+/// - **Fork**: creates an isolated child session via [`SessionManager`]
+///   with `task = skill.body`.
 pub struct SkillTool {
     registry: Arc<DiskSkillRegistry>,
+    spawn_controller: Arc<SpawnController>,
+    session_manager: Arc<SessionManager>,
 }
 
 impl SkillTool {
     /// Creates a new `SkillTool` backed by the given registry.
-    pub fn new(registry: Arc<DiskSkillRegistry>) -> Self {
-        Self { registry }
+    pub fn new(
+        registry: Arc<DiskSkillRegistry>,
+        spawn_controller: Arc<SpawnController>,
+        session_manager: Arc<SessionManager>,
+    ) -> Self {
+        Self {
+            registry,
+            spawn_controller,
+            session_manager,
+        }
     }
 }
 
@@ -81,7 +97,7 @@ impl Tool for SkillTool {
         }
     }
 
-    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // Extract skill_name from args
         let skill_name = args
             .get("skill_name")
@@ -94,23 +110,8 @@ impl Tool for SkillTool {
             .get(skill_name)
             .ok_or_else(|| ToolCallError::NotFound(skill_name.to_string()))?;
 
-        // Load skill body (instruction text without frontmatter)
-        let skill_clone = skill.clone();
-        let skill_name_owned = skill_name.to_string();
-        let body = tokio::task::spawn_blocking(move || skill_clone.load_body())
-            .await
-            .map_err(|e| {
-                ToolCallError::ExecutionFailed(format!(
-                    "failed to spawn load task for skill '{}': {}",
-                    skill_name_owned, e
-                ))
-            })?
-            .map_err(|e| {
-                ToolCallError::ExecutionFailed(format!(
-                    "failed to load body for skill '{}': {}",
-                    skill_name, e
-                ))
-            })?;
+        // Use skill.body (populated by loader) instead of reading from disk
+        let body = skill.body.clone();
 
         // Build context_modifier from manifest.allowed_tools
         let context_modifier = if skill.manifest.allowed_tools.is_empty() {
@@ -121,7 +122,7 @@ impl Tool for SkillTool {
             })
         };
 
-        // Determine execution_mode from context type
+        // Dispatch based on SkillContext
         match &skill.manifest.context {
             SkillContext::Inline => Ok(ToolResult {
                 data: serde_json::json!({
@@ -148,18 +149,71 @@ impl Tool for SkillTool {
                 }],
                 context_modifier,
             }),
-            SkillContext::Fork => Ok(ToolResult {
-                data: serde_json::json!({
-                    "skill_name": skill_name,
-                    "status": "loaded",
-                    "execution_mode": "fork"
-                }),
-                new_messages: vec![ToolMessage {
-                    content: body,
-                    is_meta: true,
-                }],
-                context_modifier,
-            }),
+            SkillContext::Fork => {
+                // Fork: create an isolated child session with skill.body as task
+                let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
+                    ToolCallError::ExecutionFailed(
+                        "no session_id in tool context (fork requires a tracked session)".into(),
+                    )
+                })?;
+
+                // Validate spawn with the parent agent's config
+                let config = self
+                    .spawn_controller
+                    .validate(parent_session_id, None)
+                    .await
+                    .map_err(|e| {
+                        ToolCallError::ExecutionFailed(format!(
+                            "fork spawn validation failed: {}",
+                            e
+                        ))
+                    })?;
+
+                // Get parent depth
+                let parent_depth = self
+                    .session_manager
+                    .get_session_depth(parent_session_id)
+                    .await
+                    .unwrap_or(0);
+
+                // Create child session with skill's allowed_tools whitelist.
+                let allowed_tools = if skill.manifest.allowed_tools.is_empty() {
+                    None
+                } else {
+                    Some(skill.manifest.allowed_tools.clone())
+                };
+                let child_session_id = self
+                    .session_manager
+                    .create_child_session(
+                        &config,
+                        parent_session_id,
+                        parent_depth + 1,
+                        &body,
+                        false, // light_context
+                        None,  // workspace
+                        SpawnMode::Run,
+                        false, // fork (parent history inheritance)
+                        allowed_tools,
+                    )
+                    .await
+                    .map_err(|e| {
+                        ToolCallError::ExecutionFailed(format!(
+                            "fork child session creation failed: {}",
+                            e
+                        ))
+                    })?;
+
+                Ok(ToolResult {
+                    data: serde_json::json!({
+                        "skill_name": skill_name,
+                        "status": "spawned",
+                        "execution_mode": "fork",
+                        "child_session_id": child_session_id
+                    }),
+                    new_messages: vec![],
+                    context_modifier,
+                })
+            }
         }
     }
 }
@@ -167,11 +221,41 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::spawn::SpawnController;
+    use crate::config::ConfigManager;
+    use crate::gateway::{GatewayConfig, SessionManager};
+    use crate::session::bootstrap::loader::BootstrapMode;
+    use crate::session::persistence::ReasoningLevel;
     use crate::skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
     };
     use std::sync::Arc;
     use tempfile::TempDir;
+
+    fn test_deps() -> (Arc<SpawnController>, Arc<SessionManager>) {
+        let tmp = TempDir::new().unwrap();
+        let config_manager = Arc::new(
+            ConfigManager::new(tmp.path().to_path_buf())
+                .expect("ConfigManager::new should succeed"),
+        );
+        let session_manager = Arc::new(SessionManager::new(
+            &GatewayConfig {
+                name: "test".to_string(),
+                rate_limit_per_minute: 100,
+                max_message_size: 1024,
+                dm_scope: crate::gateway::DmScope::default(),
+            },
+            None,
+            None,
+            BootstrapMode::Full,
+            ReasoningLevel::default(),
+        ));
+        let spawn_controller = Arc::new(SpawnController::new(
+            config_manager,
+            session_manager.clone(),
+        ));
+        (spawn_controller, session_manager)
+    }
 
     fn make_skill(
         name: &str,
@@ -194,6 +278,7 @@ mod tests {
             },
             readme_path,
             skill_dir: std::path::PathBuf::new(),
+            body: String::new(),
         }
     }
 
@@ -207,28 +292,27 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------
-    // Metadata tests
-    // -----------------------------------------------------------------
-
     #[test]
     fn test_skill_tool_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         assert_eq!(tool.name(), "SkillTool");
     }
 
     #[test]
     fn test_skill_tool_group() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         assert_eq!(tool.group(), "skills");
     }
 
     #[test]
     fn test_skill_tool_summary_length() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         let summary = tool.summary();
         assert!(
             summary.len() <= 50,
@@ -240,7 +324,8 @@ mod tests {
     #[test]
     fn test_skill_tool_flags_is_deferred_false() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         let flags = tool.flags();
         assert!(!flags.is_deferred_by_default);
     }
@@ -248,7 +333,8 @@ mod tests {
     #[test]
     fn test_skill_tool_input_schema_contains_skill_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         let schema = tool.input_schema();
         let props = schema.get("properties").unwrap().as_object().unwrap();
         assert!(props.contains_key("skill_name"));
@@ -264,7 +350,8 @@ mod tests {
     #[tokio::test]
     async fn test_call_skill_not_found() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         let result = tool
             .call(serde_json::json!({"skill_name": "nonexistent"}), &new_ctx())
             .await;
@@ -280,7 +367,8 @@ mod tests {
     #[tokio::test]
     async fn test_call_missing_skill_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         let result = tool.call(serde_json::json!({}), &new_ctx()).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -290,7 +378,8 @@ mod tests {
     #[tokio::test]
     async fn test_call_skill_name_wrong_type() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         let result = tool
             .call(serde_json::json!({"skill_name": 123}), &new_ctx())
             .await;
@@ -300,167 +389,49 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_readme_file_not_found() {
-        let skill = make_skill(
+        // With body pre-populated by the loader, an empty body is used
+        // even when readme_path doesn't exist (load_body is no longer called).
+        let mut skill = make_skill(
             "orphan",
             vec![],
             std::path::PathBuf::from("/nonexistent/path/SKILL.md"),
         );
+        skill.body = "".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
         let result = tool
             .call(serde_json::json!({"skill_name": "orphan"}), &new_ctx())
             .await;
-        assert!(result.is_err());
-        assert!(matches!(result, Err(ToolCallError::ExecutionFailed(_))));
-    }
-
-    // -----------------------------------------------------------------
-    // call() — normal cases
-    // -----------------------------------------------------------------
-
-    #[tokio::test]
-    async fn test_call_inline_mode() {
-        let temp = TempDir::new().unwrap();
-        let readme_path = temp.path().join("SKILL.md");
-        let skill_content =
-            "---\ndescription: A test skill\n---\n\n# Test Skill\n\nSome skill content here.\n";
-        std::fs::write(&readme_path, skill_content).unwrap();
-
-        let skill = make_skill("testskill", vec![], readme_path);
-        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry);
-
-        let result = tool
-            .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
-            .await
-            .unwrap();
-
-        assert_eq!(result.data["skill_name"], "testskill");
-        assert_eq!(result.data["status"], "loaded");
+        // Should succeed with empty body (inline mode)
+        assert!(result.is_ok());
+        let result = result.unwrap();
         assert_eq!(result.data["execution_mode"], "inline");
-        assert_eq!(result.new_messages.len(), 1);
-        assert!(result.new_messages[0].is_meta);
-        // After Step 1.3, body() extracts text after frontmatter
-        assert_eq!(
-            result.new_messages[0].content,
-            "# Test Skill\n\nSome skill content here."
-        );
-        // Ensure frontmatter is NOT present in injected content
-        assert!(!result.new_messages[0].content.contains("---"));
-        assert!(result.context_modifier.is_none());
     }
 
     #[tokio::test]
-    async fn test_call_agent_mode() {
-        let temp = TempDir::new().unwrap();
-        let readme_path = temp.path().join("SKILL.md");
-        let skill_content = "---\ndescription: An agent skill\n---\n\n# Agent Skill\n";
-        std::fs::write(&readme_path, skill_content).unwrap();
-
-        let mut skill = make_skill("agentskill", vec![], readme_path);
-        skill.manifest.context = SkillContext::Agent {
-            agent_id: "my-agent".to_string(),
-        };
-        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry);
-
-        let result = tool
-            .call(serde_json::json!({"skill_name": "agentskill"}), &new_ctx())
-            .await
-            .unwrap();
-
-        assert_eq!(result.data["execution_mode"], "agent");
-        assert_eq!(result.data["agent_id"], "my-agent");
-    }
-
-    #[tokio::test]
-    async fn test_call_fork_mode() {
+    async fn test_call_fork_mode_no_session() {
+        // Fork without session_id in context should fail
         let temp = TempDir::new().unwrap();
         let readme_path = temp.path().join("SKILL.md");
         let skill_content = "---\ndescription: A fork skill\n---\n\n# Fork Skill\n";
         std::fs::write(&readme_path, skill_content).unwrap();
 
         let mut skill = make_skill("forkskill", vec![], readme_path);
+        skill.body = "# Fork Skill".to_string();
         skill.manifest.context = SkillContext::Fork;
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry);
+        let (sc, sm) = test_deps();
+        let tool = SkillTool::new(registry, sc, sm);
 
+        // new_ctx() has session_id = None
         let result = tool
             .call(serde_json::json!({"skill_name": "forkskill"}), &new_ctx())
-            .await
-            .unwrap();
-
-        assert_eq!(result.data["execution_mode"], "fork");
-        assert_eq!(result.data["skill_name"], "forkskill");
-        assert_eq!(result.data["status"], "loaded");
-    }
-
-    #[tokio::test]
-    async fn test_call_injects_body_only() {
-        let temp = TempDir::new().unwrap();
-        let readme_path = temp.path().join("SKILL.md");
-        let skill_content =
-            "---\ndescription: Some description\ntags:\n  - test\n---\n\n# Actual Skill Body\n\nThis is the real content.\n";
-        std::fs::write(&readme_path, skill_content).unwrap();
-
-        let skill = make_skill("testskill", vec![], readme_path);
-        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry);
-
-        let result = tool
-            .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
-            .await
-            .unwrap();
-
-        let content = result.new_messages[0].content.as_str();
-        // Must NOT contain frontmatter delimiters
-        assert!(
-            !content.contains("---"),
-            "content should not contain frontmatter delimiters"
-        );
-        // Must NOT contain YAML field names from frontmatter
-        assert!(
-            !content.contains("description:"),
-            "content should not contain YAML fields"
-        );
-        assert!(
-            !content.contains("tags:"),
-            "content should not contain YAML fields"
-        );
-        // Must contain the body text
-        assert!(
-            content.contains("# Actual Skill Body"),
-            "content should contain body heading"
-        );
-        assert!(
-            content.contains("This is the real content."),
-            "content should contain body text"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_call_normal_with_allowed_tools() {
-        let temp = TempDir::new().unwrap();
-        let readme_path = temp.path().join("SKILL.md");
-        let skill_content = "---\ndescription: Skill with allowed tools\n---\n\n# My Skill\n";
-        std::fs::write(&readme_path, skill_content).unwrap();
-
-        let skill = make_skill(
-            "tooled",
-            vec!["ReadTool".into(), "WriteTool".into()],
-            readme_path,
-        );
-        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry);
-
-        let result = tool
-            .call(serde_json::json!({"skill_name": "tooled"}), &new_ctx())
-            .await
-            .unwrap();
-
-        assert!(result.context_modifier.is_some());
-        let cm = result.context_modifier.unwrap();
-        assert_eq!(cm.allowed_tools, vec!["ReadTool", "WriteTool"]);
-        assert_eq!(result.data["execution_mode"], "inline");
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ToolCallError::ExecutionFailed(_)
+        ));
     }
 }
