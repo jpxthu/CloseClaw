@@ -240,6 +240,7 @@ mod tests {
         set_override_prompt(None);
         set_agent_prompt(None);
         set_custom_prompt(None);
+        invalidate_all_sections();
     }
 
     #[test]
@@ -258,6 +259,7 @@ mod tests {
         let sections = vec![];
         let result = build_system_prompt(sections, None);
         assert!(result.contains("agent prompt"));
+        clear_all_prompts();
     }
 
     #[test]
@@ -267,6 +269,7 @@ mod tests {
         let sections = vec![];
         let result = build_system_prompt(sections, None);
         assert!(result.contains("custom prompt"));
+        clear_all_prompts();
     }
 
     #[test]
@@ -302,6 +305,7 @@ mod tests {
         assert!(result.contains("agent prompt"));
         assert!(result.contains("append content"));
         assert!(result.contains("## Append"));
+        clear_all_prompts();
     }
 
     #[test]
@@ -313,6 +317,7 @@ mod tests {
         assert!(result.contains("custom prompt"));
         assert!(result.contains("append notes"));
         assert!(result.contains("## Append"));
+        clear_all_prompts();
     }
 
     #[test]
