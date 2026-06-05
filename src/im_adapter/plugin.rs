@@ -4,7 +4,8 @@
 //! sending for each messaging platform. Gateway selects the appropriate plugin
 //! by its [`platform`](IMPlugin::platform) identifier.
 
-use crate::im::{AdapterError, NormalizedMessage};
+use crate::im_adapter::AdapterError;
+use crate::im_adapter::NormalizedMessage;
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;
 use crate::renderer::RenderedOutput;
