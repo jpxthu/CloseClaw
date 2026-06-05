@@ -1,7 +1,9 @@
 //! Built-in sessions_spawn tool — creates child sessions for sub-agents.
 
 use crate::agent::spawn::SpawnController;
+use crate::config::ConfigManager;
 use crate::gateway::session_manager::{SessionManager, SpawnMode};
+use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
@@ -16,6 +18,19 @@ use std::sync::Arc;
 pub struct SessionsSpawnTool {
     spawn_controller: Arc<SpawnController>,
     session_manager: Arc<SessionManager>,
+    permission_engine: Arc<PermissionEngine>,
+    config_manager: Arc<ConfigManager>,
+}
+
+/// Parsed arguments for a `sessions_spawn` tool call.
+struct SpawnArgs {
+    task: String,
+    agent_id: Option<String>,
+    light_context: bool,
+    workspace: Option<String>,
+    mode: SpawnMode,
+    mode_str: String,
+    fork: bool,
 }
 
 impl SessionsSpawnTool {
@@ -23,11 +38,118 @@ impl SessionsSpawnTool {
     pub fn new(
         spawn_controller: Arc<SpawnController>,
         session_manager: Arc<SessionManager>,
+        permission_engine: Arc<PermissionEngine>,
+        config_manager: Arc<ConfigManager>,
     ) -> Self {
         Self {
             spawn_controller,
             session_manager,
+            permission_engine,
+            config_manager,
         }
+    }
+
+    /// Parse the raw JSON arguments into typed [`SpawnArgs`].
+    fn parse_args(args: &Value) -> Result<SpawnArgs, ToolCallError> {
+        let task = args
+            .get("task")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolCallError::InvalidArgs("missing required field 'task'".into()))?;
+        let agent_id = args
+            .get("agentId")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let light_context = args
+            .get("lightContext")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let workspace = args
+            .get("workspace")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let mode_str = args.get("mode").and_then(|v| v.as_str()).unwrap_or("run");
+        let mode = match mode_str {
+            "session" => SpawnMode::Session,
+            _ => SpawnMode::Run,
+        };
+        let fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
+        Ok(SpawnArgs {
+            task: task.to_string(),
+            agent_id,
+            light_context,
+            workspace,
+            mode,
+            mode_str: mode_str.to_string(),
+            fork,
+        })
+    }
+
+    /// Validate spawn permissions: intersect child permissions with parent effective permissions.
+    ///
+    /// Returns `Ok(())` if the spawn is permitted (or if there are no permissions to check),
+    /// or `Err(ToolCallError)` if the spawn is fully denied.
+    async fn validate_spawn_permissions(
+        &self,
+        config: &crate::config::agents::ResolvedAgentConfig,
+        parent_session_id: &str,
+    ) -> Result<(), ToolCallError> {
+        let child_perms = self
+            .config_manager
+            .agent_permissions()
+            .get(&config.id)
+            .cloned();
+        let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
+        if let (Some(child_perms), Some(parent_agent_id)) = (child_perms, parent_agent_id) {
+            let parent_perms = self
+                .permission_engine
+                .get_agent_effective_permissions(&parent_agent_id)
+                .or_else(|| {
+                    self.config_manager
+                        .agent_permissions()
+                        .get(&parent_agent_id)
+                        .cloned()
+                });
+            if let Some(parent_perms) = parent_perms {
+                self.permission_engine
+                    .validate_and_inject_spawn(&config.id, &child_perms, &parent_perms)
+                    .map_err(|e| {
+                        ToolCallError::ExecutionFailed(format!("spawn permission denied: {}", e))
+                    })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Create a child session for the given config and parameters.
+    ///
+    /// Delegates to [`SessionManager::create_child_session`] with error mapping.
+    #[allow(clippy::too_many_arguments)]
+    async fn create_child(
+        &self,
+        config: &crate::config::agents::ResolvedAgentConfig,
+        parent_session_id: &str,
+        parent_depth: u32,
+        task: &str,
+        light_context: bool,
+        workspace: Option<&str>,
+        mode: SpawnMode,
+        fork: bool,
+    ) -> Result<String, ToolCallError> {
+        self.session_manager
+            .create_child_session(
+                config,
+                parent_session_id,
+                parent_depth + 1,
+                task,
+                light_context,
+                workspace,
+                mode,
+                fork,
+            )
+            .await
+            .map_err(|e| {
+                ToolCallError::ExecutionFailed(format!("child session creation failed: {}", e))
+            })
     }
 }
 
@@ -106,70 +228,42 @@ impl Tool for SessionsSpawnTool {
     }
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
-        // 1. Extract parameters
-        let task = args
-            .get("task")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolCallError::InvalidArgs("missing required field 'task'".into()))?;
-        let agent_id = args.get("agentId").and_then(|v| v.as_str());
-        let light_context = args
-            .get("lightContext")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let workspace = args.get("workspace").and_then(|v| v.as_str());
-        let mode_str = args.get("mode").and_then(|v| v.as_str()).unwrap_or("run");
-        let mode = match mode_str {
-            "session" => SpawnMode::Session,
-            _ => SpawnMode::Run,
-        };
-        let fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
-
-        // 2. Get parent session_id from context
+        let spawn_args = Self::parse_args(&args)?;
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
             ToolCallError::ExecutionFailed("no session_id in tool context".into())
         })?;
-
-        // 3. Validate spawn request
         let config = self
             .spawn_controller
-            .validate(parent_session_id, agent_id)
+            .validate(parent_session_id, spawn_args.agent_id.as_deref())
             .await
             .map_err(|e| {
                 ToolCallError::ExecutionFailed(format!("spawn validation failed: {}", e))
             })?;
-
-        // 4. Get parent depth
+        self.validate_spawn_permissions(&config, parent_session_id)
+            .await?;
         let parent_depth = self
             .session_manager
             .get_session_depth(parent_session_id)
             .await
             .unwrap_or(0);
-
-        // 5. Create child session
         let child_session_id = self
-            .session_manager
-            .create_child_session(
+            .create_child(
                 &config,
                 parent_session_id,
-                parent_depth + 1,
-                task,
-                light_context,
-                workspace,
-                mode,
-                fork,
+                parent_depth,
+                &spawn_args.task,
+                spawn_args.light_context,
+                spawn_args.workspace.as_deref(),
+                spawn_args.mode,
+                spawn_args.fork,
             )
-            .await
-            .map_err(|e| {
-                ToolCallError::ExecutionFailed(format!("child session creation failed: {}", e))
-            })?;
-
-        // 6. Return result
+            .await?;
         Ok(ToolResult {
             data: json!({
                 "session_id": child_session_id,
                 "agent_id": config.id,
                 "depth": parent_depth + 1,
-                "mode": mode_str,
+                "mode": spawn_args.mode_str,
             }),
             new_messages: vec![],
             context_modifier: None,

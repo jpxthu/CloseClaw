@@ -76,6 +76,7 @@ pub async fn register_builtin_tools(
     permission_engine: Arc<PermissionEngine>,
     spawn_controller: Arc<SpawnController>,
     session_manager: Arc<SessionManager>,
+    config_manager: Arc<crate::config::ConfigManager>,
 ) {
     // file_ops
     registry.register(ReadTool::new()).await.ok();
@@ -98,7 +99,7 @@ pub async fn register_builtin_tools(
     // bash
     let bg_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
     registry
-        .register(BashTool::new(permission_engine, bg_manager))
+        .register(BashTool::new(permission_engine.clone(), bg_manager))
         .await
         .ok();
     // skills
@@ -108,6 +109,8 @@ pub async fn register_builtin_tools(
         .register(SessionsSpawnTool::new(
             spawn_controller,
             session_manager.clone(),
+            permission_engine.clone(),
+            config_manager,
         ))
         .await
         .ok();
@@ -124,6 +127,10 @@ pub async fn register_builtin_tools(
 #[cfg(test)]
 #[path = "sessions_spawn_tests.rs"]
 mod sessions_spawn_tests;
+
+#[cfg(test)]
+#[path = "sessions_spawn_permission_tests.rs"]
+mod sessions_spawn_permission_tests;
 
 #[cfg(test)]
 #[path = "sessions_steer_kill_tests.rs"]

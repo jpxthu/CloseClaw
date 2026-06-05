@@ -17,6 +17,18 @@ pub enum SpawnPermissionError {
 }
 
 impl super::engine_eval::PermissionEngine {
+    /// Get the effective permissions for a given agent from the cache.
+    ///
+    /// Returns `Some(AgentPermissions)` if the agent has been previously validated
+    /// and injected into the cache, `None` if not found.
+    pub fn get_agent_effective_permissions(&self, agent_id: &str) -> Option<AgentPermissions> {
+        let cache = self
+            .agent_permissions
+            .read()
+            .expect("agent_permissions lock poisoned");
+        cache.get(agent_id).cloned()
+    }
+
     /// Validate that a child agent's permissions after intersection with parent
     /// are not fully denied, then inject the result into the cache.
     ///

@@ -4,12 +4,12 @@
 //! 1. Missing `task` argument → `ToolCallError::InvalidArgs`
 //! 2. `ToolContext.session_id` is `None` → `ToolCallError::ExecutionFailed`
 //!
+//! Plus a schema validation test for the `fork` parameter.
+//!
 //! These tests don't need a fully-valid agent config because the tool
 //! short-circuits before invoking the spawn controller. We still build
 //! real `SpawnController` + `SessionManager` so the construction path
 //! matches the production wiring.
-
-use std::sync::Arc;
 
 use serde_json::json;
 
@@ -17,10 +17,14 @@ use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::SessionManager;
 use crate::gateway::{DmScope, GatewayConfig};
+use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::tools::builtin::sessions_spawn::SessionsSpawnTool;
 use crate::tools::{Tool, ToolCallError, ToolContext};
+
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,12 +58,17 @@ fn make_config_manager() -> ConfigManager {
     ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")
 }
 
-/// Build a `SessionsSpawnTool` with minimal controller/manager wiring.
+/// Build a `PermissionEngine` with an empty RuleSet.
+fn make_permission_engine() -> PermissionEngine {
+    PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap())
+}
+
 fn make_tool() -> SessionsSpawnTool {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = Arc::new(SpawnController::new(cm, sm.clone()));
-    SessionsSpawnTool::new(controller, sm)
+    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
+    let pe = Arc::new(make_permission_engine());
+    SessionsSpawnTool::new(controller, sm, pe, cm)
 }
 
 /// A `ToolContext` with `session_id = None` — used to exercise the
