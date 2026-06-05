@@ -12,6 +12,7 @@ pub mod config;
 pub mod daemon;
 pub mod gateway;
 pub mod im;
+pub mod im_adapter;
 pub mod llm;
 pub mod permission;
 pub mod processor_chain;

@@ -5,13 +5,12 @@
 pub mod feishu;
 #[cfg(test)]
 pub mod feishu_tests;
-pub mod normalized;
 #[cfg(test)]
 pub mod normalized_tests;
-pub mod plugin;
 pub mod processor;
-pub use normalized::NormalizedMessage;
-pub use plugin::IMPlugin;
+pub use crate::im_adapter::AdapterError;
+pub use crate::im_adapter::IMPlugin;
+pub use crate::im_adapter::NormalizedMessage;
 
 use crate::gateway::Message;
 use async_trait::async_trait;
@@ -50,25 +49,4 @@ pub trait IMAdapter: Send + Sync {
     ) -> Result<(), AdapterError> {
         Err(AdapterError::UnsupportedOperation)
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AdapterError {
-    #[error("Invalid payload: {0}")]
-    InvalidPayload(String),
-
-    #[error("Authentication failed")]
-    AuthFailed,
-
-    #[error("Send failed: {0}")]
-    SendFailed(String),
-
-    #[error("Invalid signature")]
-    InvalidSignature,
-
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Unsupported operation")]
-    UnsupportedOperation,
 }
