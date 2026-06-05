@@ -43,6 +43,15 @@ struct FeishuMessageEvent {
     content: String,
     chat_id: String,
     message_type: String,
+    /// Thread ID — direct thread identifier from Feishu.
+    #[serde(default)]
+    thread_id: Option<String>,
+    /// Root message ID of the thread — used as fallback for thread_id.
+    #[serde(default)]
+    root_id: Option<String>,
+    /// Parent message ID — second fallback for thread_id.
+    #[serde(default)]
+    parent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,6 +243,18 @@ impl IMAdapter for FeishuAdapter {
             .unwrap_or("")
             .to_string();
 
+        // Extract thread_id with priority: thread_id > root_id > parent_id
+        let thread_id = event
+            .event
+            .thread_id
+            .or(event.event.root_id)
+            .or(event.event.parent_id);
+
+        let mut metadata = HashMap::from([("account_id".to_string(), event.header.app_id.clone())]);
+        if let Some(tid) = thread_id {
+            metadata.insert("thread_id".to_string(), tid);
+        }
+
         Ok(Message {
             id: event.header.event_id,
             from: event.event.sender.sender_id.open_id,
@@ -241,11 +262,15 @@ impl IMAdapter for FeishuAdapter {
             content: text,
             channel: "feishu".to_string(),
             timestamp: chrono::Utc::now().timestamp(),
-            metadata: HashMap::from([("account_id".to_string(), event.header.app_id.clone())]),
+            metadata,
         })
     }
 
-    async fn send_message(&self, message: &Message) -> Result<(), AdapterError> {
+    async fn send_message(
+        &self,
+        message: &Message,
+        root_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
         let token = self.get_tenant_token().await?;
 
         #[derive(Serialize)]
@@ -267,12 +292,14 @@ impl IMAdapter for FeishuAdapter {
             content: &serde_json::json!({ "text": &message.content }).to_string(),
         };
 
+        let mut url = format!("{}/im/v1/messages?receive_id_type=open_id", FEISHU_API_BASE);
+        if let Some(rid) = root_id {
+            url = format!("{}&root_id={}", url, rid);
+        }
+
         let resp: SendResponse = self
             .http_client
-            .post(format!(
-                "{}/im/v1/messages?receive_id_type=open_id",
-                FEISHU_API_BASE
-            ))
+            .post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .json(&payload)
             .send()
@@ -285,6 +312,60 @@ impl IMAdapter for FeishuAdapter {
         if resp.code != 0 {
             return Err(AdapterError::SendFailed(format!(
                 "Feishu send error {}: {}",
+                resp.code, resp.msg
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn send_card_json(
+        &self,
+        chat_id: &str,
+        card_json: &str,
+        root_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        let token = self.get_tenant_token().await?;
+
+        #[derive(Serialize)]
+        struct CardRequest<'a> {
+            receive_id: &'a str,
+            msg_type: &'a str,
+            content: &'a str,
+        }
+
+        #[derive(Deserialize)]
+        struct CardResponse {
+            code: i32,
+            msg: String,
+        }
+
+        let payload = CardRequest {
+            receive_id: chat_id,
+            msg_type: "interactive",
+            content: card_json,
+        };
+
+        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", FEISHU_API_BASE);
+        if let Some(rid) = root_id {
+            url = format!("{}&root_id={}", url, rid);
+        }
+
+        let resp: CardResponse = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
+            .json()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+
+        if resp.code != 0 {
+            return Err(AdapterError::SendFailed(format!(
+                "Feishu card send error {}: {}",
                 resp.code, resp.msg
             )));
         }
@@ -340,7 +421,7 @@ impl IMPlugin for FeishuPlugin {
             peer_id: message.to,
             content: message.content,
             timestamp: message.timestamp,
-            thread_id: None,
+            thread_id: message.metadata.get("thread_id").cloned(),
             account_id: message.metadata.get("account_id").cloned(),
         }))
     }
@@ -380,12 +461,14 @@ impl IMPlugin for FeishuPlugin {
                     timestamp: chrono::Utc::now().timestamp(),
                     metadata: HashMap::new(),
                 };
-                self.adapter.send_message(&message).await
+                self.adapter.send_message(&message, _thread_id).await
             }
             "interactive" => {
                 let card_json = serde_json::to_string(&output.payload)
                     .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-                self.adapter.send_card_json(peer_id, &card_json).await
+                self.adapter
+                    .send_card_json(peer_id, &card_json, _thread_id)
+                    .await
             }
             _ => Err(AdapterError::UnsupportedOperation),
         }

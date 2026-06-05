@@ -46,6 +46,11 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
     pub system_appends: Vec<String>,
+    /// 话题 ID（IM 渠道话题消息的线程标识）
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub thread_id: Option<String>,
 }
 
 impl SessionCheckpoint {
@@ -70,6 +75,7 @@ impl SessionCheckpoint {
             role: None,
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
+            thread_id: None,
         }
     }
 
@@ -154,6 +160,12 @@ impl SessionCheckpoint {
     /// Update the reasoning level
     pub fn with_reasoning_level(mut self, level: ReasoningLevel) -> Self {
         self.reasoning_level = level;
+        self
+    }
+
+    /// Update the thread ID
+    pub fn with_thread_id(mut self, thread_id: String) -> Self {
+        self.thread_id = Some(thread_id);
         self
     }
 

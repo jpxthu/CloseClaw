@@ -164,7 +164,7 @@ impl SessionManager {
                 timestamp: chrono::Utc::now().timestamp(),
                 metadata: std::collections::HashMap::new(),
             };
-            if let Err(e) = adapter.send_message(&notification).await {
+            if let Err(e) = adapter.send_message(&notification, None).await {
                 warn!(session_id = %session_id, error = %e,
                     "failed to send restore notification");
             }
@@ -448,6 +448,19 @@ impl SessionManager {
         let mut cs = cs.write().await;
         cs.pop_pending()
     }
+
+    /// Get the thread_id for a session from its checkpoint.
+    /// Returns None if the session has no thread_id or the storage is not available.
+    pub async fn get_thread_id(&self, session_id: &str) -> Option<String> {
+        let storage = self.storage.read().await;
+        let Some(storage) = storage.as_ref() else {
+            return None;
+        };
+        match storage.load_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp.thread_id,
+            _ => None,
+        }
+    }
 }
 
 // Unit tests
@@ -463,3 +476,5 @@ mod spawn_tests;
 mod test_helpers;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_get_thread_id;

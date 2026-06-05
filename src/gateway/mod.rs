@@ -335,12 +335,17 @@ impl Gateway {
             return Err(GatewayError::MessageTooLarge);
         }
 
+        // Resolve thread_id from the session checkpoint.
+        let thread_id = self.session_manager.get_thread_id(session_id).await;
+
         // Build a text RenderedOutput and forward to the plugin.
         let output = RenderedOutput {
             msg_type: "text".into(),
             payload: json!({"content": {"text": message.content}}),
         };
-        plugin.send(&output, &message.to, None).await?;
+        plugin
+            .send(&output, &message.to, thread_id.as_deref())
+            .await?;
 
         Ok(())
     }
@@ -386,3 +391,5 @@ mod session_handler_tests;
 mod tests;
 #[cfg(test)]
 mod tests_dmscope;
+#[cfg(test)]
+mod tests_thread;

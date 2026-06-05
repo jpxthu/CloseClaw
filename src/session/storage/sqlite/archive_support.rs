@@ -149,7 +149,7 @@ pub fn load_checkpoint_inner(
     let mut stmt = conn
         .prepare(
             "SELECT agent_id, role, channel, chat_id, status, title,
-             last_message_at, created_at, archived_at, message_count, metadata
+             last_message_at, created_at, archived_at, message_count, metadata, thread_id
              FROM sessions WHERE id = ?1",
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -167,6 +167,7 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<i64>>(8)?,
             row.get::<_, i64>(9)?,
             row.get::<_, Option<String>>(10)?,
+            row.get::<_, Option<String>>(11)?,
         ))
     }) {
         Ok(r) => r,
@@ -186,6 +187,7 @@ pub fn load_checkpoint_inner(
         _archived_ts,
         msg_count,
         metadata,
+        thread_id,
     ) = row;
 
     let status = match status_db.as_str() {
@@ -278,6 +280,7 @@ pub fn load_checkpoint_inner(
         },
         reasoning_level: crate::session::persistence::ReasoningLevel::default(),
         system_appends,
+        thread_id,
     }))
 }
 

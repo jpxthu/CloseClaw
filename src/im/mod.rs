@@ -3,6 +3,8 @@
 //! Each adapter implements the IMAdapter trait for a specific IM platform.
 
 pub mod feishu;
+#[cfg(test)]
+pub mod feishu_tests;
 pub mod normalized;
 #[cfg(test)]
 pub mod normalized_tests;
@@ -23,15 +25,29 @@ pub trait IMAdapter: Send + Sync {
     /// Handle incoming message from IM platform
     async fn handle_webhook(&self, payload: &[u8]) -> Result<Message, AdapterError>;
 
-    /// Send message to IM platform
-    async fn send_message(&self, message: &Message) -> Result<(), AdapterError>;
+    /// Send message to IM platform.
+    ///
+    /// `root_id` optionally directs the message into a specific thread/topic
+    /// (e.g. Feishu `root_id` query parameter).
+    async fn send_message(
+        &self,
+        message: &Message,
+        root_id: Option<&str>,
+    ) -> Result<(), AdapterError>;
 
     /// Validate webhook signature
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool;
 
     /// Send an interactive card message using pre-serialized JSON.
+    ///
+    /// `root_id` optionally directs the message into a specific thread/topic.
     /// Returns `AdapterError::UnsupportedOperation` by default.
-    async fn send_card_json(&self, _chat_id: &str, _card_json: &str) -> Result<(), AdapterError> {
+    async fn send_card_json(
+        &self,
+        _chat_id: &str,
+        _card_json: &str,
+        _root_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
         Err(AdapterError::UnsupportedOperation)
     }
 }
