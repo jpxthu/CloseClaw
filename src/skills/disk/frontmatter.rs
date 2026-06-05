@@ -20,75 +20,110 @@
 
 use super::{ParseError, ParsedSkill, SkillManifest};
 
+/// Find the byte range of the skill body (text after closing `---`) in a raw SKILL.md string.
+///
+/// The function performs the following steps:
+/// 1. Strips UTF-8 BOM if present.
+/// 2. Trims leading/trailing whitespace.
+/// 3. Locates the opening `---` delimiter.
+/// 4. Locates the closing `---` delimiter.
+/// 5. Returns `Some(start..end)` where `start` is the byte offset right after
+///    the closing delimiter (skipping the trailing newline) and `end` is the
+///    total byte length of the trimmed string.
+///
+/// Returns `None` when there is no valid frontmatter block (missing opening or
+/// closing `---` delimiter, or no content after the closing delimiter).
+pub(crate) fn find_body_range(raw: &str) -> Option<std::ops::Range<usize>> {
+    let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
+    let raw = raw.trim();
+
+    // Find opening `---`
+    let open_pos = raw.find("---\n").or_else(|| raw.find("---\r\n"))?;
+
+    // Search for closing `---` in the content after the opening delimiter.
+    // Skip leading newline(s) after opening `---`.
+    let after_open = &raw[open_pos + 3..];
+    let content_start = after_open.trim_start_matches('\n').trim_start_matches('\r');
+    let trim_len = after_open.len() - content_start.len();
+    let content_offset = open_pos + 3 + trim_len;
+
+    // Find closing `---` pattern.
+    let close_in_content = content_start
+        .find("\n---")
+        .or_else(|| content_start.find("\r\n---"))
+        .or_else(|| content_start.find("---"))?;
+
+    // close_in_content may point to `\n---` or bare `---`.
+    // Locate the actual `---` within that region.
+    let close_region = &content_start[close_in_content..];
+    let dash_offset = close_region
+        .find("---")
+        .expect("close region must contain ---");
+    let body_start = content_offset + close_in_content + dash_offset + 3;
+
+    Some(body_start..raw.len())
+}
+
 /// Extract the skill body (instruction text) from a SKILL.md raw string.
 ///
 /// Returns the text after the closing `---` delimiter of the frontmatter,
 /// trimmed of leading/trailing whitespace. Returns an empty string when
 /// no frontmatter is present or when the frontmatter block has no body.
 pub fn extract_skill_body(raw: &str) -> &str {
+    // Pre-process: strip BOM and trim so the Range from find_body_range
+    // (which is relative to its own BOM-stripped, trimmed copy) is valid.
+    let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
     let raw = raw.trim();
 
-    // Strip UTF-8 BOM if present
-    let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
-
-    // Find opening `---`
-    let start = match raw.find("---\n").or_else(|| raw.find("---\r\n")) {
-        Some(s) => s,
-        None => return "",
-    };
-
-    let after_open = &raw[start + 3..];
-
-    // Find closing `---`
-    let after_skip = after_open.trim_start_matches('\n').trim_start_matches('\r');
-
-    let close_pos = match after_skip
-        .find("\n---")
-        .or_else(|| after_skip.find("\r\n---"))
-        .or_else(|| after_skip.find("---"))
-    {
-        Some(p) => p,
-        None => return "",
-    };
-
-    // Advance past the closing delimiter
-    let after_close = &after_skip[close_pos..];
-    let after_close = after_close
-        .trim_start_matches('\n')
-        .trim_start_matches('\r')
-        .trim_start_matches("---");
-
-    after_close.trim()
+    find_body_range(raw)
+        .map(|range| raw[range].trim())
+        .unwrap_or("")
 }
 
 /// Parse a SKILL.md file, extracting YAML frontmatter.
 pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, ParseError> {
+    // Pre-process: strip BOM and trim, same as find_body_range expects.
+    let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
     let raw = raw.trim();
 
-    // Strip UTF-8 BOM if present
-    let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
+    // Require an opening `---` delimiter.
+    let has_open = raw.find("---\n").or_else(|| raw.find("---\r\n")).is_some();
+    if !has_open {
+        return Err(ParseError::MissingDelimiter);
+    }
 
-    // Find opening `---`
-    let start = raw
-        .find("---\n")
-        .or_else(|| raw.find("---\r\n"))
-        .ok_or(ParseError::MissingDelimiter)?;
+    // Use find_body_range to locate the body (after closing `---`).
+    let body_range = find_body_range(raw);
 
-    let after_delim = raw[start + 3..]
-        .trim_start_matches('\n')
-        .trim_start_matches('\r');
-
-    // Find closing `---`
-    let end = after_delim
-        .find("\n---")
-        .or_else(|| after_delim.find("\r\n---"))
-        .or_else(|| after_delim.find("---"));
-
-    let (frontmatter, _body) = match end {
-        Some(n) => (&after_delim[..n], &after_delim[n..]),
-        None => (after_delim.as_ref(), ""),
+    // Extract frontmatter: everything between opening `---` and closing `---`.
+    // find_body_range guarantees the opening `---` exists when it returns Some,
+    // and when it returns None (no closing `---`) the entire content after the
+    // opening delimiter is frontmatter.
+    let frontmatter = match body_range {
+        Some(ref range) => {
+            // range.start is right after the closing `---`. Extract the
+            // frontmatter between the opening and closing delimiters.
+            let fm_with_close = &raw[..range.start];
+            // The closing `---` may be indented (e.g. `  ---`).
+            // Find the last `---` preceded by a newline + optional whitespace.
+            if let Some(dash_pos) = fm_with_close.rfind("---") {
+                if let Some(nl_pos) = fm_with_close[..dash_pos].rfind('\n') {
+                    &fm_with_close[..nl_pos]
+                } else {
+                    fm_with_close // bare `---` at start (edge case)
+                }
+            } else {
+                fm_with_close
+            }
+        }
+        None => {
+            // No closing `---` — treat entire content as frontmatter, body empty.
+            raw
+        }
     };
 
+    // Strip opening `---` and any trailing newline/whitespace.
+    let frontmatter = &frontmatter[3..];
     let frontmatter_trimmed = frontmatter.trim();
 
     let manifest: SkillManifest = serde_yaml::from_str(frontmatter_trimmed)
@@ -108,7 +143,11 @@ pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, ParseError> {
         && !frontmatter_trimmed.contains("paths:")
         && !frontmatter_trimmed.contains("user_invocable:");
 
-    let body = extract_skill_body(raw).to_string();
+    // Extract body using find_body_range's Range.
+    let body = body_range
+        .map(|range| raw[range].trim())
+        .unwrap_or("")
+        .to_string();
 
     Ok(ParsedSkill {
         manifest,
@@ -366,6 +405,44 @@ Some instructions here."#;
         let input = "---\ndescription: Whitespace body\n---\n   \n  \n";
         let result = parse_skill_md(input).expect("should parse");
         assert_eq!(result.body, "");
+    }
+
+    // --- find_body_range tests ---
+
+    #[test]
+    fn test_find_body_range_standard_frontmatter_and_body() {
+        let input = "---\nname: test\ndescription: Test\n---\n# Body\n";
+        let range = find_body_range(input).expect("should return Some");
+        assert!(!range.is_empty(), "range should not be empty");
+        // The range includes the newline after closing ---
+        assert!(input[range].trim() == "# Body");
+    }
+
+    #[test]
+    fn test_find_body_range_no_frontmatter() {
+        let input = "Just plain text.";
+        assert!(find_body_range(input).is_none());
+    }
+
+    #[test]
+    fn test_find_body_range_with_bom() {
+        let input = concat!("\u{feff}", "---\ndescription: With BOM\n---\n# Body\n");
+        // find_body_range strips BOM and trims, so index into the same processed string
+        let processed = input.strip_prefix('\u{feff}').unwrap_or(input).trim();
+        let range = find_body_range(input).expect("should return Some");
+        assert!(!range.is_empty(), "range should not be empty");
+        // The range includes the newline after closing ---
+        assert!(processed[range].trim() == "# Body");
+    }
+
+    #[test]
+    fn test_find_body_range_frontmatter_only_no_body() {
+        let input = "---\ndescription: Skill\n---\n";
+        let range = find_body_range(input).expect("should return Some");
+        assert!(
+            range.is_empty() || input[range].trim().is_empty(),
+            "body should be empty after closing ---"
+        );
     }
 
     #[test]
