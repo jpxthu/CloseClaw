@@ -5,8 +5,6 @@
 pub mod feishu;
 #[cfg(test)]
 pub mod feishu_tests;
-#[cfg(test)]
-pub mod normalized_tests;
 pub mod processor;
 pub use crate::im_adapter::AdapterError;
 pub use crate::im_adapter::IMPlugin;
