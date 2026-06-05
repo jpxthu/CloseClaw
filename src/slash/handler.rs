@@ -46,7 +46,7 @@ pub trait SlashHandler: Send + Sync {
     fn description(&self) -> &str;
 
     /// Whether this is an immediate command (responds even when LLM is busy).
-    fn immediate(&self) -> bool {
+    fn immediate(&self, _cmd: &str) -> bool {
         false
     }
 

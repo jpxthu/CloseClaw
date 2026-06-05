@@ -20,7 +20,7 @@ fn test_clear_handler_commands_and_description() {
     };
     assert_eq!(h.commands(), &["clear"]);
     assert_eq!(h.description(), "清除 system prompt 静态层缓存并触发重建");
-    assert!(h.immediate());
+    assert!(h.immediate("clear"));
 }
 
 #[test]

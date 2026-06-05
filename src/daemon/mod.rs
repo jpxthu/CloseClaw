@@ -13,11 +13,12 @@ use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::renderer::feishu::FeishuRenderer;
 use crate::slash::dispatcher::SlashDispatcher;
-use crate::slash::handlers::{
-    ClearHandler, CompactHandler, ExecHandler, HelpHandler, ReasoningHandler, SystemHandler,
-    WorkdirHandler,
-};
+use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
 use crate::slash::registry::HandlerRegistry;
+use crate::slash::{
+    ClearHandler, CompactHandler, ExecHandler, HelpHandler, NewSessionHandler, StatusHandler,
+    StopHandler,
+};
 
 use crate::permission::approval_flow::ApprovalFlow;
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
@@ -181,6 +182,9 @@ impl Daemon {
             &session_manager,
         ))));
         slash_registry.register(Arc::new(SystemHandler::new(Arc::clone(&session_manager))));
+        slash_registry.register(Arc::new(NewSessionHandler));
+        slash_registry.register(Arc::new(StopHandler));
+        slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&session_manager))));
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
         gateway.set_slash_dispatcher(slash_dispatcher).await;
         // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得

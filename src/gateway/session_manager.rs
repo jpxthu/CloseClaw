@@ -24,6 +24,7 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 mod announce;
+mod channel;
 mod rebuild;
 mod spawn;
 pub use spawn::{ChildSessionInfo, SpawnMode};
@@ -52,6 +53,10 @@ pub struct SessionManager {
     default_reasoning_level: ReasoningLevel,
     /// Children tracking table: parent_session_id → list of child sessions.
     children: RwLock<HashMap<String, Vec<ChildSessionInfo>>>,
+    /// Channel → active session_id mapping.
+    /// Updated by `force_new_for_channel` so subsequent `find_or_create`
+    /// calls route to the latest session for a channel.
+    channel_active_sessions: RwLock<HashMap<String, String>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -84,6 +89,7 @@ impl SessionManager {
             skill_registry: RwLock::new(None),
             default_reasoning_level,
             children: RwLock::new(HashMap::new()),
+            channel_active_sessions: RwLock::new(HashMap::new()),
         }
     }
 
@@ -193,6 +199,18 @@ impl SessionManager {
         message: &Message,
         account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
+        // Channel-level override: if a channel has an active session
+        // (e.g. from /new), route directly to it.
+        {
+            let channel_map = self.channel_active_sessions.read().await;
+            if let Some(active_id) = channel_map.get(channel) {
+                let sessions = self.sessions.read().await;
+                if sessions.contains_key(active_id) {
+                    return Ok(active_id.clone());
+                }
+            }
+        }
+
         let session_id = self.compute_session_key(channel, message, account_id);
         // Fast path: session already exists
         {

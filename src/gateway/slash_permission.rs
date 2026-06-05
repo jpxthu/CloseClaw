@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::llm::session::ChatSession;
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
@@ -245,10 +246,66 @@ impl Gateway {
                     }
                 }
             }
-            SlashResult::SetMode(_) | SlashResult::NewSession | SlashResult::Stop => {
+            SlashResult::NewSession => {
+                let agent_id = self
+                    .session_manager
+                    .get_chat_id(session_id)
+                    .await
+                    .unwrap_or_default();
+                let new_session_id = self
+                    .session_manager
+                    .force_new_for_channel(channel, &agent_id)
+                    .await;
+                if let Some(sh) = self.session_handler.as_ref() {
+                    sh.send_reply(format!("已创建新 session：{new_session_id}"))
+                        .await;
+                }
+            }
+            SlashResult::Stop => {
+                match self
+                    .session_manager
+                    .get_conversation_session(session_id)
+                    .await
+                {
+                    None => {
+                        if let Some(sh) = self.session_handler.as_ref() {
+                            sh.send_reply("当前会话未激活".to_owned()).await;
+                        }
+                    }
+                    Some(conv) => {
+                        let busy = {
+                            let cs = conv.read().await;
+                            cs.is_llm_busy()
+                        };
+                        if busy {
+                            let mut cs = conv.write().await;
+                            cs.cancel_token.cancel();
+                            // Cascade stop to child handles.
+                            {
+                                let child_handles = cs
+                                    .child_handles
+                                    .read()
+                                    .expect("child_handles lock poisoned");
+                                let handles_to_stop: Vec<_> =
+                                    child_handles.values().filter_map(|w| w.upgrade()).collect();
+                                drop(child_handles);
+                                for child in handles_to_stop {
+                                    let child_cs = child.read().await;
+                                    child_cs.cancel_token.cancel();
+                                }
+                            }
+                            cs.clear_pending();
+                        }
+                        if let Some(sh) = self.session_handler.as_ref() {
+                            sh.send_reply("已停止当前任务".to_owned()).await;
+                        }
+                    }
+                }
+            }
+            SlashResult::SetMode(_) => {
                 tracing::warn!(
                     cmd = cmd_name,
-                    "SlashResult variant not yet routed through dispatch_slash"
+                    "SlashResult::SetMode not yet routed through dispatch_slash"
                 );
             }
             SlashResult::Unknown(_) => {
