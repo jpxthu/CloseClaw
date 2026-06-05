@@ -101,7 +101,11 @@ impl IMAdapter for MockAdapter {
         })
     }
 
-    async fn send_message(&self, _message: &Message) -> Result<(), crate::im::AdapterError> {
+    async fn send_message(
+        &self,
+        _message: &Message,
+        _root_id: Option<&str>,
+    ) -> Result<(), crate::im::AdapterError> {
         Ok(())
     }
 

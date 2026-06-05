@@ -106,7 +106,7 @@ async fn test_error_cases() {
         timestamp: 0,
         metadata: HashMap::new(),
     };
-    assert!(a.send_message(&msg).await.is_err());
+    assert!(a.send_message(&msg, None).await.is_err());
 }
 
 #[tokio::test]

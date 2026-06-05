@@ -190,3 +190,67 @@ pub(super) async fn spawn_n_run_children(
     }
     child_ids
 }
+
+// ── Mock persistence service ──────────────────────────────────────────────
+
+use crate::session::persistence::{
+    AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
+};
+pub struct MockPersistService {
+    pub archived_checkpoint: tokio::sync::Mutex<Option<SessionCheckpoint>>,
+    pub restore_called: tokio::sync::Mutex<bool>,
+}
+
+#[async_trait::async_trait]
+impl PersistenceService for MockPersistService {
+    async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn load_checkpoint(
+        &self,
+        _: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(self.archived_checkpoint.lock().await.take())
+    }
+    async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+    async fn restore_checkpoint(
+        &self,
+        _: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        *self.restore_called.lock().await = true;
+        Ok(self.archived_checkpoint.lock().await.take())
+    }
+    async fn archive_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+    async fn purge_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn invalidate_session(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_idle_sessions_for_agent(
+        &self,
+        _: &str,
+        _: AgentRole,
+        _: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+    async fn list_expired_archived_sessions_for_agent(
+        &self,
+        _: &str,
+        _: AgentRole,
+        _: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+}

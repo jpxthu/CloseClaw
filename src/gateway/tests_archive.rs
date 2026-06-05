@@ -195,7 +195,11 @@ impl IMAdapter for MockAdapter {
         unimplemented!()
     }
 
-    async fn send_message(&self, message: &Message) -> Result<(), crate::im::AdapterError> {
+    async fn send_message(
+        &self,
+        message: &Message,
+        _root_id: Option<&str>,
+    ) -> Result<(), crate::im::AdapterError> {
         {
             let mut fail = self.fail_next.write().await;
             if *fail {

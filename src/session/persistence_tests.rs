@@ -365,4 +365,41 @@ mod tests {
         state.complete();
         assert!(state.is_complete);
     }
+
+    // ── thread_id tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_checkpoint_thread_id_roundtrip() {
+        let cp = SessionCheckpoint::new("s1".into()).with_thread_id("omt_abc123".into());
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.thread_id.as_deref(), Some("omt_abc123"));
+    }
+
+    #[test]
+    fn test_checkpoint_thread_id_default_none() {
+        let cp = SessionCheckpoint::new("s2".into());
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        json_value.as_object_mut().unwrap().remove("thread_id");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            parsed.thread_id.is_none(),
+            "old data without thread_id should default to None"
+        );
+    }
+
+    #[test]
+    fn test_checkpoint_with_thread_id_builder() {
+        let cp = SessionCheckpoint::new("s3".into()).with_thread_id("omt_xyz".into());
+        assert_eq!(cp.thread_id.as_deref(), Some("omt_xyz"));
+    }
+
+    #[test]
+    fn test_checkpoint_thread_id_none_roundtrip() {
+        let cp = SessionCheckpoint::new("s4".into());
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert!(parsed.thread_id.is_none());
+    }
 }

@@ -139,6 +139,7 @@ mod tests {
             role: None,
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
+            thread_id: None,
         }
     }
 
