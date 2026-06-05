@@ -6,19 +6,19 @@ use crate::gateway::session_manager::SessionManager;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 use crate::slash::dispatcher::SlashDispatcher;
-use crate::slash::handler::{SlashHandler, SlashResult};
+use crate::slash::handler::{SlashHandler, SlashResult, SystemAppendAction};
 use crate::slash::handlers::{
-    ClearHandler, CompactHandler, HelpHandler, ReasoningHandler, WorkdirHandler,
+    ClearHandler, CompactHandler, HelpHandler, ReasoningHandler, SystemHandler, WorkdirHandler,
 };
 use crate::slash::registry::HandlerRegistry;
 
 // ── Mock handler ────────────────────────────────────────────────────────────
 
-struct MockHandler {
-    cmds: Vec<&'static str>,
-    desc: &'static str,
-    imm: bool,
-    reply_text: String,
+pub(crate) struct MockHandler {
+    pub(crate) cmds: Vec<&'static str>,
+    pub(crate) desc: &'static str,
+    pub(crate) imm: bool,
+    pub(crate) reply_text: String,
 }
 
 #[async_trait::async_trait]
@@ -37,7 +37,7 @@ impl SlashHandler for MockHandler {
     }
 }
 
-fn dummy_ctx() -> SlashContext {
+pub(crate) fn dummy_ctx() -> SlashContext {
     SlashContext {
         command: String::new(),
         sender_id: "test_sender".to_owned(),
@@ -79,20 +79,6 @@ fn test_compact_handler_commands_and_description() {
 }
 
 // ── ClearHandler tests ────────────────────────────────────────────────────────
-
-#[test]
-fn test_clear_handler_commands_and_description() {
-    // Verify static metadata via trait interface
-    let h = MockHandler {
-        cmds: vec!["clear"],
-        desc: "清除 system prompt 静态层缓存并触发重建",
-        imm: true,
-        reply_text: String::new(),
-    };
-    assert_eq!(h.commands(), &["clear"]);
-    assert_eq!(h.description(), "清除 system prompt 静态层缓存并触发重建");
-    assert!(h.immediate());
-}
 
 #[tokio::test]
 async fn test_clear_handler_handle_returns_reply() {
@@ -254,33 +240,6 @@ fn test_dispatcher_is_immediate_false() {
     assert!(!dispatcher.is_immediate("test_cmd"));
 }
 
-#[test]
-fn test_dispatcher_is_immediate_unknown() {
-    let registry = HandlerRegistry::new();
-    let dispatcher = SlashDispatcher::new(registry);
-    assert!(!dispatcher.is_immediate("nonexistent"));
-}
-
-#[test]
-fn test_dispatcher_all_handlers() {
-    let registry = HandlerRegistry::new();
-    registry.register(Arc::new(MockHandler {
-        cmds: vec!["x"],
-        desc: "x desc",
-        imm: false,
-        reply_text: String::new(),
-    }));
-    registry.register(Arc::new(MockHandler {
-        cmds: vec!["y"],
-        desc: "y desc",
-        imm: true,
-        reply_text: String::new(),
-    }));
-    let dispatcher = SlashDispatcher::new(registry);
-    let handlers = dispatcher.all_handlers();
-    assert_eq!(handlers.len(), 2);
-}
-
 // ── WorkdirHandler tests ────────────────────────────────────────────────────
 
 /// Construct a SessionManager the same way `test_clear_handler_handle_returns_reply`
@@ -378,14 +337,14 @@ async fn test_workdir_handler_cd_invalid_and_no_args() {
 async fn test_workdir_handler_pwd_and_git() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    // pwd
     let h = WorkdirHandler::new(Arc::clone(&sm));
+    // pwd
     let mut ctx = dummy_ctx();
     ctx.session_id = sid.clone();
     ctx.command = "pwd".to_owned();
     match h.handle("", &ctx).await {
         SlashResult::Reply(t) => assert!(!t.is_empty()),
-        _other => panic!("expected Reply"),
+        _ => panic!("expected Reply"),
     }
     // git placeholder
     let mut ctx2 = dummy_ctx();
@@ -393,7 +352,7 @@ async fn test_workdir_handler_pwd_and_git() {
     ctx2.command = "git".to_owned();
     match h.handle("status", &ctx2).await {
         SlashResult::Reply(t) => assert!(t.contains("git 指令即将支持"), "got: {t}"),
-        _other => panic!("expected Reply"),
+        _ => panic!("expected Reply"),
     }
 }
 
@@ -456,32 +415,75 @@ async fn test_reasoning_handler_invalid_level() {
     }
 }
 
+// ── SystemHandler tests ─────────────────────────────────────────────────────
+
 #[test]
-fn test_reasoning_level_getter_setter_symmetry() {
-    let mut s = crate::llm::session::ConversationSession::new(
-        "test-sym".to_owned(),
-        "test-model".to_owned(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    assert_eq!(s.reasoning_level(), ReasoningLevel::High);
-    for &lv in &[
-        ReasoningLevel::Low,
-        ReasoningLevel::Medium,
-        ReasoningLevel::High,
-        ReasoningLevel::Max,
-    ] {
-        s.set_reasoning_level(lv);
-        assert_eq!(s.reasoning_level(), lv);
+fn test_system_handler_commands_and_description() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    assert_eq!(h.commands(), &["system"]);
+    assert_eq!(h.description(), "管理 system prompt 追加区");
+    assert!(!h.immediate());
+}
+
+#[tokio::test]
+async fn test_system_add_returns_append() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    let ctx = dummy_ctx();
+    match h.handle("add 你好", &ctx).await {
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Add(t),
+        } => assert_eq!(t, "你好"),
+        _ => panic!("expected SystemAppend::Add"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_add_empty_returns_usage() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    match h.handle("add", &dummy_ctx()).await {
+        SlashResult::Reply(t) => assert!(t.contains("用法"), "got: {t}"),
+        _ => panic!("expected Reply with usage"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_clear_returns_clear() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    match h.handle("clear", &dummy_ctx()).await {
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Clear,
+        } => {}
+        _ => panic!("expected SystemAppend::Clear"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_unknown_subcommand() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    match h.handle("foo", &dummy_ctx()).await {
+        SlashResult::Reply(t) => assert!(t.contains("未知子指令"), "got: {t}"),
+        _ => panic!("expected Reply with unknown"),
     }
 }
 
 #[test]
-fn test_reasoning_level_with_builder() {
-    let s = crate::llm::session::ConversationSession::new(
-        "test-b".to_owned(),
-        "test-model".to_owned(),
-        std::path::PathBuf::from("/tmp"),
-    )
-    .with_reasoning_level(ReasoningLevel::High);
-    assert_eq!(s.reasoning_level(), ReasoningLevel::High);
+fn test_system_append_action_match() {
+    // Add variant
+    match (SlashResult::SystemAppend {
+        action: SystemAppendAction::Add("test".to_owned()),
+    }) {
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Add(s),
+        } => assert_eq!(s, "test"),
+        _ => panic!("Add match failed"),
+    }
+    // Clear variant
+    match (SlashResult::SystemAppend {
+        action: SystemAppendAction::Clear,
+    }) {
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Clear,
+        } => {}
+        _ => panic!("Clear match failed"),
+    }
 }
