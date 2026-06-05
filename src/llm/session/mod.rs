@@ -214,6 +214,12 @@ impl ConversationSession {
     pub fn model(&self) -> &str {
         &self.model
     }
+
+    /// 将来源消息克隆后注入到自身 messages 列表，
+    /// 保留原始时间戳。用于 Fork 模式注入父 session 的对话历史。
+    pub fn clone_messages_from(&mut self, source: &[SessionMessage]) {
+        self.messages.extend(source.iter().cloned());
+    }
 }
 
 /// Message replacement, stats, and streaming-sink accessors.

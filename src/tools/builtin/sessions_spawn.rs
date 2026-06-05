@@ -87,6 +87,11 @@ impl Tool for SessionsSpawnTool {
                 "model": {
                     "type": "string",
                     "description": "Override the target agent's default model"
+                },
+                "fork": {
+                    "type": "boolean",
+                    "description": "是否 fork 父 agent 上下文：fork=true 时子 session 在 task 之前注入父 agent 的完整对话历史（不含 system prompt），使子 agent 继承父 agent 的上下文认知",
+                    "default": false
                 }
             },
             "required": ["task"]
@@ -117,6 +122,7 @@ impl Tool for SessionsSpawnTool {
             "session" => SpawnMode::Session,
             _ => SpawnMode::Run,
         };
+        let fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
 
         // 2. Get parent session_id from context
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
@@ -150,6 +156,7 @@ impl Tool for SessionsSpawnTool {
                 light_context,
                 workspace,
                 mode,
+                fork,
             )
             .await
             .map_err(|e| {
