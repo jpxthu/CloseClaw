@@ -315,6 +315,14 @@ impl SessionManager {
             conv_sessions.remove(child_id);
         }
 
+        // Unregister child handle from parent's ConversationSession.
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            if let Some(parent_cs) = conv_sessions.get(parent_id) {
+                parent_cs.read().await.unregister_child_handle(child_id);
+            }
+        }
+
         // Remove from sessions.
         {
             let mut sessions = self.sessions.write().await;
