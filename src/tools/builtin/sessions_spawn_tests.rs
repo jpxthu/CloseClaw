@@ -135,3 +135,24 @@ async fn test_sessions_spawn_no_session_id() {
         other => panic!("expected ExecutionFailed, got {:?}", other),
     }
 }
+
+// ---------------------------------------------------------------------------
+// 3. test_sessions_spawn_fork_schema
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_sessions_spawn_fork_schema() {
+    let tool = make_tool();
+    let schema = tool.input_schema();
+
+    let fork_prop = schema["properties"]["fork"]
+        .as_object()
+        .expect("fork should be an object in properties");
+
+    assert_eq!(fork_prop["type"], "boolean");
+    assert_eq!(fork_prop["default"], false);
+    assert!(
+        fork_prop["description"].as_str().unwrap().contains("fork"),
+        "description should mention fork"
+    );
+}

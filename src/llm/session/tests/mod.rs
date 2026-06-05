@@ -3,6 +3,7 @@ use crate::llm::types::{UnifiedResponse, UnifiedUsage};
 use crate::session::persistence::PendingMessage;
 use std::path::PathBuf;
 
+mod clone_messages_tests;
 mod exec_state_tests;
 mod stop_tests;
 mod streaming_tests;

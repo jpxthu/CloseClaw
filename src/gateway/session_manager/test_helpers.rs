@@ -175,6 +175,7 @@ pub(super) async fn spawn_n_run_children(
                 true,
                 None,
                 SpawnMode::Run,
+                false,
             )
             .await
             .expect("create_child_session should succeed");

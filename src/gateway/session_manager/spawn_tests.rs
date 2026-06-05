@@ -73,6 +73,7 @@ async fn test_create_child_session_basic() {
             false,
             None,
             SpawnMode::Run,
+            false,
         )
         .await
         .expect("create_child_session should succeed");
@@ -125,6 +126,7 @@ async fn test_create_child_session_workspace_fallback() {
             true,
             None,
             SpawnMode::Session,
+            false,
         )
         .await
         .expect("create_child_session should succeed");
@@ -143,6 +145,7 @@ async fn test_create_child_session_workspace_fallback() {
             false,
             Some(other.path().to_str().unwrap()),
             SpawnMode::Run,
+            false,
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
@@ -177,6 +180,7 @@ async fn test_create_child_session_registers_child_info() {
             false,
             None,
             SpawnMode::Session,
+            false,
         )
         .await
         .expect("create_child_session should succeed");
@@ -214,6 +218,7 @@ async fn test_steer_child_injects_pending_message() {
             false,
             None,
             SpawnMode::Session,
+            false,
         )
         .await
         .expect("create_child_session should succeed");
@@ -263,6 +268,7 @@ async fn test_kill_child_removes_from_all_tables() {
             false,
             None,
             SpawnMode::Session,
+            false,
         )
         .await
         .expect("create_child_session should succeed");
@@ -322,6 +328,7 @@ async fn test_validate_child_ownership_returns_none_for_run_mode() {
             false,
             None,
             SpawnMode::Run,
+            false,
         )
         .await
         .expect("create_child_session should succeed");
@@ -356,6 +363,7 @@ async fn test_validate_child_ownership_returns_info_for_session_mode() {
             false,
             None,
             SpawnMode::Session,
+            false,
         )
         .await
         .expect("create_child_session should succeed");
