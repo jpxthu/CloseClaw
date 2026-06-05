@@ -94,14 +94,21 @@ impl Tool for SkillTool {
             .get(skill_name)
             .ok_or_else(|| ToolCallError::NotFound(skill_name.to_string()))?;
 
-        // Read the SKILL.md file
-        let readme_content = tokio::fs::read_to_string(&skill.readme_path)
+        // Load skill body (instruction text without frontmatter)
+        let skill_clone = skill.clone();
+        let skill_name_owned = skill_name.to_string();
+        let body = tokio::task::spawn_blocking(move || skill_clone.load_body())
             .await
             .map_err(|e| {
                 ToolCallError::ExecutionFailed(format!(
-                    "failed to read {}: {}",
-                    skill.readme_path.display(),
-                    e
+                    "failed to spawn load task for skill '{}': {}",
+                    skill_name_owned, e
+                ))
+            })?
+            .map_err(|e| {
+                ToolCallError::ExecutionFailed(format!(
+                    "failed to load body for skill '{}': {}",
+                    skill_name, e
                 ))
             })?;
 
@@ -123,7 +130,7 @@ impl Tool for SkillTool {
                     "execution_mode": "inline"
                 }),
                 new_messages: vec![ToolMessage {
-                    content: readme_content,
+                    content: body,
                     is_meta: true,
                 }],
                 context_modifier,
@@ -136,7 +143,7 @@ impl Tool for SkillTool {
                     "agent_id": agent_id
                 }),
                 new_messages: vec![ToolMessage {
-                    content: readme_content,
+                    content: body,
                     is_meta: true,
                 }],
                 context_modifier,
@@ -148,7 +155,7 @@ impl Tool for SkillTool {
                     "execution_mode": "fork"
                 }),
                 new_messages: vec![ToolMessage {
-                    content: readme_content,
+                    content: body,
                     is_meta: true,
                 }],
                 context_modifier,
@@ -333,7 +340,13 @@ mod tests {
         assert_eq!(result.data["execution_mode"], "inline");
         assert_eq!(result.new_messages.len(), 1);
         assert!(result.new_messages[0].is_meta);
-        assert_eq!(result.new_messages[0].content, skill_content);
+        // After Step 1.3, body() extracts text after frontmatter
+        assert_eq!(
+            result.new_messages[0].content,
+            "# Test Skill\n\nSome skill content here."
+        );
+        // Ensure frontmatter is NOT present in injected content
+        assert!(!result.new_messages[0].content.contains("---"));
         assert!(result.context_modifier.is_none());
     }
 
@@ -380,6 +393,49 @@ mod tests {
         assert_eq!(result.data["execution_mode"], "fork");
         assert_eq!(result.data["skill_name"], "forkskill");
         assert_eq!(result.data["status"], "loaded");
+    }
+
+    #[tokio::test]
+    async fn test_call_injects_body_only() {
+        let temp = TempDir::new().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        let skill_content =
+            "---\ndescription: Some description\ntags:\n  - test\n---\n\n# Actual Skill Body\n\nThis is the real content.\n";
+        std::fs::write(&readme_path, skill_content).unwrap();
+
+        let skill = make_skill("testskill", vec![], readme_path);
+        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(registry);
+
+        let result = tool
+            .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
+            .await
+            .unwrap();
+
+        let content = result.new_messages[0].content.as_str();
+        // Must NOT contain frontmatter delimiters
+        assert!(
+            !content.contains("---"),
+            "content should not contain frontmatter delimiters"
+        );
+        // Must NOT contain YAML field names from frontmatter
+        assert!(
+            !content.contains("description:"),
+            "content should not contain YAML fields"
+        );
+        assert!(
+            !content.contains("tags:"),
+            "content should not contain YAML fields"
+        );
+        // Must contain the body text
+        assert!(
+            content.contains("# Actual Skill Body"),
+            "content should contain body heading"
+        );
+        assert!(
+            content.contains("This is the real content."),
+            "content should contain body text"
+        );
     }
 
     #[tokio::test]
