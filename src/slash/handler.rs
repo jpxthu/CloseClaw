@@ -1,6 +1,15 @@
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 
+/// Action for the `SystemAppend` slash result.
+#[derive(Debug, Clone)]
+pub enum SystemAppendAction {
+    /// Append a new system prompt instruction.
+    Add(String),
+    /// Clear all appended system prompt instructions.
+    Clear,
+}
+
 /// Result of a slash command dispatch.
 pub enum SlashResult {
     /// Reply with a text message.
@@ -14,7 +23,7 @@ pub enum SlashResult {
     /// Compact context with optional instruction.
     Compact { instruction: Option<String> },
     /// Append to system prompt (future).
-    SystemAppend { content: String },
+    SystemAppend { action: SystemAppendAction },
     /// Execute a sub-command (future).
     Exec { command: String },
     /// Set the reasoning level for the current session.

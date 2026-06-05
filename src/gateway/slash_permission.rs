@@ -11,6 +11,7 @@ use crate::permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use crate::slash::handler::SlashHandler;
+use crate::slash::handler::SystemAppendAction;
 use crate::slash::{parse_slash, SlashContext, SlashDispatcher, SlashResult};
 
 use super::{Gateway, HandleResult};
@@ -204,10 +205,47 @@ impl Gateway {
                     }
                 }
             }
-            SlashResult::SetMode(_)
-            | SlashResult::NewSession
-            | SlashResult::Stop
-            | SlashResult::SystemAppend { .. } => {
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(content),
+            } => {
+                if let Some(cs) = self
+                    .session_manager
+                    .get_conversation_session(session_id)
+                    .await
+                {
+                    let mut session = cs.write().await;
+                    let index = session.add_system_append(content);
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply(format!("已追加指令（序号 {index}）")).await;
+                    }
+                } else {
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply("当前会话未激活，无法追加指令".to_owned())
+                            .await;
+                    }
+                }
+            }
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Clear,
+            } => {
+                if let Some(cs) = self
+                    .session_manager
+                    .get_conversation_session(session_id)
+                    .await
+                {
+                    let mut session = cs.write().await;
+                    let count = session.clear_system_appends();
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply(format!("已清除 {count} 条追加指令")).await;
+                    }
+                } else {
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply("当前会话未激活，无法清除指令".to_owned())
+                            .await;
+                    }
+                }
+            }
+            SlashResult::SetMode(_) | SlashResult::NewSession | SlashResult::Stop => {
                 tracing::warn!(
                     cmd = cmd_name,
                     "SlashResult variant not yet routed through dispatch_slash"

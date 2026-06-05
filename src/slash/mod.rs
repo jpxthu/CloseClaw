@@ -13,4 +13,10 @@ pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 mod handlers_tests;
 
 #[cfg(test)]
+mod handlers_tests_legacy;
+
+#[cfg(test)]
+mod handlers_tests_system;
+
+#[cfg(test)]
 mod tests;
