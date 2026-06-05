@@ -7,16 +7,14 @@ use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
 use crate::llm::session::{ChatSession, ConversationSession};
-use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
+use crate::session::bootstrap::loader::BootstrapMode;
 use crate::session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
     SessionStatus,
 };
 use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
-use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
-use crate::system_prompt::workdir::build_workdir_context;
-use crate::tools::{ToolContext, ToolRegistry};
+use crate::tools::ToolRegistry;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,6 +24,7 @@ use tracing::warn;
 mod announce;
 mod channel;
 mod rebuild;
+mod session_helpers;
 mod spawn;
 pub use spawn::{ChildSessionInfo, SpawnMode};
 /// SessionManager holds all session state previously belonging to Gateway.
@@ -169,6 +168,7 @@ impl SessionManager {
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
                 metadata: std::collections::HashMap::new(),
+                thread_id: None,
             };
             if let Err(e) = adapter.send_message(&notification, None).await {
                 warn!(session_id = %session_id, error = %e,
@@ -227,72 +227,41 @@ impl SessionManager {
         if sessions.contains_key(&session_id) {
             return Ok(session_id);
         }
-        // Build system prompt
-        let bootstrap_files = if let Some(ref workspace) = self.workspace_dir {
-            load_bootstrap_files(workspace, self.bootstrap_mode)
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
-        } else {
-            vec![]
-        };
-        let tool_registry_guard = self.tool_registry.read().await;
-        let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
+        let tool_registry = self.tool_registry.read().await;
         let skill_registry = self.skill_registry.read().await.clone();
         let agent_id = message.to.clone();
-        let workdir_ctx = self
-            .workspace_dir
-            .as_ref()
-            .map(|p| build_workdir_context(&p.to_string_lossy()));
-        let tool_ctx = ToolContext {
-            agent_id: agent_id.clone(),
-            workdir: workdir_ctx,
-            session_id: None,
-            call_id: None,
-            session: None,
-        };
-        let workspace_root = self.workspace_dir.clone().unwrap_or_default();
-        let prompt = build_from_workspace(
-            &workspace_root,
-            WorkspaceBuildConfig {
-                bootstrap_files,
-                tool_registry: tool_registry_ref,
-                tool_ctx: &tool_ctx,
-                skill_registry,
-                agent_id: Some(&agent_id),
-                dynamic_sections: vec![],
-                append_section: None,
-            },
+        let prompt = session_helpers::build_session_system_prompt(
+            &self.workspace_dir,
+            self.bootstrap_mode,
+            &tool_registry,
+            skill_registry,
+            &agent_id,
         )
         .await;
 
         // Compute per-session workdir path
-        let workdir_path = if restored {
-            let checkpoint_agent_id = {
-                let storage_guard = self.storage.read().await;
-                match storage_guard.as_ref() {
-                    Some(storage) => storage
-                        .load_checkpoint(&session_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .and_then(|cp| cp.agent_id),
-                    None => None,
+        let workdir_path = {
+            if restored {
+                let storage = self.storage.read().await;
+                if let Some(storage) = storage.as_ref() {
+                    session_helpers::compute_session_workdir(
+                        true,
+                        &session_id,
+                        message,
+                        &self.workspace_dir,
+                        storage,
+                    )
+                    .await?
+                } else {
+                    PathBuf::from("/tmp")
                 }
-            };
-            let aid = checkpoint_agent_id.as_deref().unwrap_or(&message.to);
-            if let Some(ref wd) = self.workspace_dir {
-                workspace::ensure_workspace_dir(wd, aid, aid)
-                    .unwrap_or_else(|_| PathBuf::from("/tmp"))
+            } else if let Some(ref workspace_dir) = self.workspace_dir {
+                workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(
+                    |e| ProcessError::ProcessingFailed(format!("workspace creation failed: {}", e)),
+                )?
             } else {
                 PathBuf::from("/tmp")
             }
-        } else if let Some(ref workspace_dir) = self.workspace_dir {
-            workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(
-                |e| ProcessError::ProcessingFailed(format!("workspace creation failed: {}", e)),
-            )?
-        } else {
-            PathBuf::from("/tmp")
         };
 
         let conv_session =
@@ -305,45 +274,41 @@ impl SessionManager {
         }
 
         if restored {
-            // Reload checkpoint to obtain chat_id / agent_id and pending_messages
             let storage = self.storage.read().await;
             if let Some(storage) = storage.as_ref() {
-                if let Ok(Some(cp)) = storage.load_checkpoint(&session_id).await {
-                    // Restore pending_messages into ConversationSession
-                    let conv_sessions = self.conversation_sessions.read().await;
-                    if let Some(cs) = conv_sessions.get(&session_id) {
-                        let mut cs = cs.write().await;
-                        cs.restore_pending_messages(cp.pending_messages);
-                        // Restore per-session append-section list from checkpoint
-                        // (issue #860: archived session restore preserves append content).
-                        cs.restore_system_appends(cp.system_appends);
-                    }
-                    drop(conv_sessions);
-
-                    sessions.insert(
-                        session_id.clone(),
-                        Session {
-                            id: session_id.clone(),
-                            agent_id: cp.chat_id.unwrap_or_else(|| message.to.clone()),
-                            channel: channel.to_string(),
-                            created_at: chrono::Utc::now().timestamp(),
-                            depth: 0,
-                        },
-                    );
+                if let Some(session) = session_helpers::restore_checkpoint_session(
+                    storage,
+                    &session_id,
+                    channel,
+                    message,
+                    &self.conversation_sessions,
+                )
+                .await
+                {
+                    sessions.insert(session_id.clone(), session);
                 }
             }
         } else {
             // No archived session — create a brand-new Session
             sessions.insert(
                 session_id.clone(),
-                Session {
-                    id: session_id.clone(),
-                    agent_id: message.to.clone(),
-                    channel: channel.to_string(),
-                    created_at: chrono::Utc::now().timestamp(),
-                    depth: 0,
-                },
+                session_helpers::create_new_session(&session_id, message, channel),
             );
+            // Persist checkpoint with thread_id so outbound can find it
+            let mut cp = SessionCheckpoint::new(session_id.clone())
+                .with_status(SessionStatus::Active)
+                .with_channel(channel.to_string())
+                .with_chat_id(message.to.clone())
+                .with_agent_id(message.to.clone());
+            if let Some(ref thread_id) = message.thread_id {
+                cp = cp.with_thread_id(thread_id.clone());
+            }
+            if let Some(storage) = self.storage.read().await.as_ref() {
+                if let Err(e) = storage.save_checkpoint(&cp).await {
+                    warn!(session_id = %session_id, error = %e,
+                        "failed to save new session checkpoint");
+                }
+            }
         }
 
         Ok(session_id)
@@ -398,12 +363,27 @@ impl SessionManager {
         let mut saved = 0;
         for (session_id, session) in sessions.iter() {
             let pending = pending_map.get(session_id).cloned().unwrap_or_default();
-            let mut cp = SessionCheckpoint::new(session_id.clone())
-                .with_status(SessionStatus::Active)
-                .with_channel(session.channel.clone())
-                .with_chat_id(session.agent_id.clone())
-                .with_agent_id(session.agent_id.clone())
-                .with_pending_messages(pending);
+            // Load existing checkpoint to preserve fields like thread_id (Bug #904).
+            let mut cp = match storage.load_checkpoint(session_id).await {
+                Ok(Some(mut cp)) => {
+                    // Update fields from active session state
+                    cp.status = SessionStatus::Active;
+                    cp.channel = Some(session.channel.clone());
+                    cp.chat_id = Some(session.agent_id.clone());
+                    cp.agent_id = Some(session.agent_id.clone());
+                    cp.pending_messages = pending;
+                    cp
+                }
+                _ => {
+                    // No existing checkpoint — create a fresh one
+                    SessionCheckpoint::new(session_id.clone())
+                        .with_status(SessionStatus::Active)
+                        .with_channel(session.channel.clone())
+                        .with_chat_id(session.agent_id.clone())
+                        .with_agent_id(session.agent_id.clone())
+                        .with_pending_messages(pending)
+                }
+            };
             // Sync per-session append-section list from ConversationSession
             // (issue #860: archived session restore preserves append content).
             if let Some(cs) = conv_sessions.get(session_id) {
@@ -484,6 +464,8 @@ impl SessionManager {
 // Unit tests
 #[cfg(test)]
 mod announce_tests;
+#[cfg(test)]
+mod bug904_tests;
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]

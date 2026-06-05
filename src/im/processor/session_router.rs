@@ -67,6 +67,22 @@ impl SessionRouter {
             .and_then(|v| v.as_str())
             .map(String::from)
     }
+
+    /// Extract thread_id from the raw webhook with priority:
+    /// `message.thread_id` > `message.root_id` > `message.parent_id`.
+    fn extract_thread_id(raw: &Value) -> Option<String> {
+        raw.get("message").and_then(|m| {
+            m.get("thread_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| m.get("root_id").and_then(|v| v.as_str()).map(String::from))
+                .or_else(|| {
+                    m.get("parent_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
+        })
+    }
 }
 
 #[async_trait]
@@ -103,6 +119,9 @@ impl MessageProcessor for SessionRouter {
         let channel = Self::extract_channel(raw);
         let account_id = Self::extract_account_id(raw);
 
+        // Extract thread_id from the raw webhook.
+        let thread_id = Self::extract_thread_id(raw);
+
         // Reconstruct a minimal Message for SessionManager::find_or_create.
         let msg_content = raw
             .get("message")
@@ -129,6 +148,7 @@ impl MessageProcessor for SessionRouter {
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or_else(|| chrono::Utc::now().timestamp()),
             metadata: std::collections::HashMap::new(),
+            thread_id,
         };
 
         // Resolve session.

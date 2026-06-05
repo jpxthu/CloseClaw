@@ -42,6 +42,7 @@ fn make_msg() -> Message {
         channel: "ch".into(),
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
+        thread_id: None,
     }
 }
 

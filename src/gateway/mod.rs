@@ -88,6 +88,8 @@ pub struct Message {
     pub timestamp: i64,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
 }
 
 /// Gateway configuration

@@ -473,6 +473,7 @@ dependencies = [
  "tracing-subscriber",
  "tree-sitter",
  "tree-sitter-bash",
+ "url",
  "uuid",
 ]
 

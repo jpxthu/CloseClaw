@@ -33,6 +33,7 @@ fn make_message(to: &str, content: &str) -> Message {
         channel: "feishu".to_string(),
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
+        thread_id: None,
     }
 }
 
