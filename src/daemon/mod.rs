@@ -223,6 +223,7 @@ impl Daemon {
                     Arc::clone(&permission_engine),
                     spawn_controller,
                     Arc::clone(&session_manager),
+                    Arc::clone(&config_manager),
                 )
                 .await;
             }

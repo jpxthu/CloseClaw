@@ -311,6 +311,7 @@ async fn test_find_or_create_with_tool_registry() {
         perm_engine,
         spawn_controller,
         Arc::clone(&mgr),
+        Arc::clone(&cfg_mgr),
     )
     .await;
     mgr.set_tool_registry(tool_registry).await;
