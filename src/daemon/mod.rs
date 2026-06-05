@@ -2,6 +2,7 @@
 //!
 //! Orchestrates all components: Gateway, AgentRegistry, PermissionEngine.
 //! Handles graceful shutdown via ShutdownCoordinator.
+pub mod config_reload;
 pub mod shutdown;
 pub mod skill_reload;
 use crate::agent::spawn::SpawnController;
@@ -70,6 +71,8 @@ pub struct Daemon {
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Skill file watcher handle (RAII: stops on drop)
     _skill_watcher: Option<SkillWatcherHandle>,
+    /// Config file watcher handle (RAII: stops on drop)
+    _config_watcher: Option<config_reload::ConfigWatcherHandle>,
     /// Daemon-level approval orchestrator
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
 }
@@ -99,7 +102,10 @@ impl Daemon {
             }
             Err(e) => {
                 // Migration errors are non-fatal; log and continue
-                tracing::warn!(error = %e, "openclaw.json migration failed — continuing with existing config");
+                tracing::warn!(
+                    error = %e,
+                    "openclaw.json migration failed — continuing with existing config"
+                );
             }
         }
         // Initialize SQLite storage — fail hard if this fails (no MemoryStorage fallback)
@@ -126,7 +132,8 @@ impl Daemon {
                         path = %session_config_path.display(),
                         "failed to load session config, using hardcoded defaults"
                     );
-                    // Use a non-existent path so new() returns Ok with config=None (hardcoded defaults)
+                    // Use a non-existent path so new() returns Ok with
+                    // config=None (hardcoded defaults)
                     Arc::new(
                         JsonSessionConfigProvider::new(
                             "/dev/null/closeclaw_session_config_nonexistent",
@@ -204,6 +211,7 @@ impl Daemon {
 
         // Create ToolRegistry and register builtin tools
         let tool_registry = Arc::new(ToolRegistry::new());
+        let mut config_watcher = None;
         {
             let disk_reg_opt = {
                 let guard = skill_registry.read().unwrap();
@@ -216,8 +224,28 @@ impl Daemon {
                         .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
                 );
                 if let Err(e) = config_manager.load_agents(None) {
-                    tracing::warn!(error = %e, "failed to load agent configs from ConfigManager — spawn validation will use defaults");
+                    tracing::warn!(
+                        error = %e,
+                        "failed to load agent configs from ConfigManager — \
+                         spawn validation will use defaults"
+                    );
                 }
+
+                // Initialize config hot-reload: watch JSON files + agents/ dir
+                config_watcher = match config_reload::init_config_hot_reload(
+                    config_dir,
+                    Arc::clone(&config_manager),
+                ) {
+                    Ok(handle) => Some(handle),
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to initialize config hot-reload — \
+                             config changes will require restart"
+                        );
+                        None
+                    }
+                };
                 // Create SpawnController for session-based spawn validation.
                 let spawn_controller = Arc::new(SpawnController::new(
                     Arc::clone(&config_manager),
@@ -269,6 +297,7 @@ impl Daemon {
             sweeper_shutdown_tx: sweeper_tx,
             skill_registry,
             _skill_watcher: Some(skill_watcher),
+            _config_watcher: config_watcher,
             approval_flow,
         })
     }

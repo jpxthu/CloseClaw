@@ -254,11 +254,15 @@ fn test_config_manager_load_credentials_corrupted_file() {
 // ---------------------------------------------------------------------------
 
 fn setup_config_dir(tmp: &tempfile::TempDir) {
-    fs::write(tmp.path().join("models.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(tmp.path().join("channels.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(tmp.path().join("gateway.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(tmp.path().join("plugins.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(tmp.path().join("system.json"), r#"{"version": "1.0"}"#).unwrap();
+    setup_config_dir_at(tmp.path());
+}
+
+fn setup_config_dir_at(dir: &std::path::Path) {
+    fs::write(dir.join("models.json"), r#"{"version": "1.0"}"#).unwrap();
+    fs::write(dir.join("channels.json"), r#"{"version": "1.0"}"#).unwrap();
+    fs::write(dir.join("gateway.json"), r#"{"version": "1.0"}"#).unwrap();
+    fs::write(dir.join("plugins.json"), r#"{"version": "1.0"}"#).unwrap();
+    fs::write(dir.join("system.json"), r#"{"version": "1.0"}"#).unwrap();
 }
 
 #[test]

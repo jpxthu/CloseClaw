@@ -6,6 +6,7 @@ pub mod agent_loader;
 pub mod agents;
 pub mod backup;
 pub mod manager;
+pub mod manager_reload;
 pub mod migration;
 pub mod providers;
 pub mod reload;
