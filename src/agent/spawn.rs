@@ -19,6 +19,8 @@ pub enum SpawnError {
     AgentIdRequired,
     #[error("agent config not found: {0}")]
     ConfigNotFound(String),
+    #[error("spawn permission denied for agent '{agent_id}': {reason}")]
+    PermissionDenied { agent_id: String, reason: String },
 }
 
 /// Validates spawn requests and delegates child session creation.
@@ -140,6 +142,6 @@ impl SpawnController {
         }
 
         // 9. Return target config
-        target_config.ok_or_else(|| SpawnError::ConfigNotFound(target_id))
+        target_config.ok_or(SpawnError::ConfigNotFound(target_id))
     }
 }
