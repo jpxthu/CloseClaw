@@ -495,3 +495,5 @@ fn test_resolved_config_merge_name_fallback() {
     assert_eq!(resolved.name, "agent-z");
     assert_eq!(resolved.source, ConfigSource::Merged);
 }
+
+// =====================================================================

@@ -14,6 +14,7 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::providers::{ConfigProvider, CredentialsProvider};
+use crate::agent::config::AgentPermissions;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -217,6 +218,8 @@ pub struct ConfigManager {
     credentials_provider: RwLock<CredentialsProvider>,
     /// Resolved agent configurations (loaded from two-level directories).
     pub(crate) agents: RwLock<HashMap<String, super::agents::ResolvedAgentConfig>>,
+    /// Per-agent raw permissions (loaded from permissions.json).
+    pub(crate) agent_permissions: RwLock<HashMap<String, AgentPermissions>>,
 }
 
 impl ConfigManager {
@@ -233,6 +236,7 @@ impl ConfigManager {
             sections: RwLock::new(HashMap::new()),
             credentials_provider: RwLock::new(CredentialsProvider::default()),
             agents: RwLock::new(HashMap::new()),
+            agent_permissions: RwLock::new(HashMap::new()),
         })
     }
 
