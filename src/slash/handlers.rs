@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::gateway::SessionManager;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
-use crate::slash::handler::{SlashHandler, SlashResult};
+use crate::slash::handler::{SlashHandler, SlashResult, SystemAppendAction};
 use crate::slash::registry::HandlerRegistry;
 use crate::system_prompt::build_git_status_for;
 
@@ -224,6 +224,83 @@ impl SlashHandler for ExecHandler {
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Exec {
             command: args.to_owned(),
+        }
+    }
+}
+
+// ── SystemHandler ──────────────────────────────────────────────────────────
+
+/// `/system` — manage the system prompt append section.
+///
+/// - `/system add <content>` or `/system + <content>`: append an instruction.
+/// - `/system list` or `/system` (no args): list current appended instructions.
+/// - `/system clear`: clear all appended instructions.
+pub struct SystemHandler {
+    session_manager: Arc<SessionManager>,
+}
+
+impl SystemHandler {
+    /// Create a new SystemHandler operating on the given session manager.
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for SystemHandler {
+    fn commands(&self) -> &[&str] {
+        &["system"]
+    }
+
+    fn description(&self) -> &str {
+        "管理 system prompt 追加区"
+    }
+
+    fn immediate(&self) -> bool {
+        false
+    }
+
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        let parts: Vec<&str> = args.trim().splitn(2, |c: char| c.is_whitespace()).collect();
+        let sub = parts[0];
+        let remaining = if parts.len() > 1 { parts[1].trim() } else { "" };
+
+        match sub {
+            "add" | "+" => {
+                if remaining.is_empty() {
+                    SlashResult::Reply("用法：/system add <要追加的指令>".to_owned())
+                } else {
+                    SlashResult::SystemAppend {
+                        action: SystemAppendAction::Add(remaining.to_owned()),
+                    }
+                }
+            }
+            "list" | "" => {
+                let Some(conv) = self
+                    .session_manager
+                    .get_conversation_session(&ctx.session_id)
+                    .await
+                else {
+                    return SlashResult::Reply("当前会话未激活".to_owned());
+                };
+                let cs = conv.read().await;
+                let appends = cs.system_appends();
+                if appends.is_empty() {
+                    SlashResult::Reply("当前无追加指令".to_owned())
+                } else {
+                    let list: String = appends
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| format!("[{i}] {s}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    SlashResult::Reply(list)
+                }
+            }
+            "clear" => SlashResult::SystemAppend {
+                action: SystemAppendAction::Clear,
+            },
+            other => SlashResult::Reply(format!("未知子指令：{other}。支持 add / list / clear。")),
         }
     }
 }
