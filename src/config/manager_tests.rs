@@ -399,3 +399,56 @@ fn test_config_manager_update_backup_failure() {
         ConfigWriteError::BackupFailed { .. }
     ));
 }
+
+// =====================================================================
+// Step 1.5 — agent_permissions default baseline tests
+// =====================================================================
+
+/// Test: agent registered but missing permissions.json → full seven-dim Deny default.
+#[test]
+fn test_agent_permissions_missing_file_returns_default() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+
+    // Create agents.json with one registered agent
+    let agents_json = r#"{ "version": "1.0", "agents": ["test-agent"] }"#;
+    fs::write(tmp.path().join("agents.json"), agents_json).unwrap();
+
+    // Create agent directory with config.json but NO permissions.json
+    let agent_dir = tmp.path().join("agents").join("test-agent");
+    fs::create_dir_all(&agent_dir).unwrap();
+    let agent_config = r#"{ "id": "test-agent", "name": "Test Agent" }"#;
+    fs::write(agent_dir.join("config.json"), agent_config).unwrap();
+    // Deliberately NOT creating permissions.json
+
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    // load_agents() doesn't require load() first
+    manager.load_agents(None).unwrap();
+
+    let perms = manager.agent_permissions();
+    let agent_perms = perms
+        .get("test-agent")
+        .expect("test-agent should be in perms");
+
+    // Should be fully denied: empty permissions map (all seven dimensions absent)
+    assert!(agent_perms.is_fully_denied());
+    assert_eq!(agent_perms.agent_id, "test-agent");
+    assert!(agent_perms.inherited_from.is_none());
+
+    // Verify each of the seven dimensions is denied
+    for dim in &[
+        "exec",
+        "file_read",
+        "file_write",
+        "network",
+        "spawn",
+        "tool_call",
+        "config_write",
+    ] {
+        assert!(
+            !agent_perms.is_allowed(dim),
+            "dimension '{}' should be denied",
+            dim
+        );
+    }
+}

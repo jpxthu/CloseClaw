@@ -248,7 +248,125 @@ impl AgentPermissions {
             .map(|p| p.allowed)
             .unwrap_or(false)
     }
+
+    /// Compute the intersection of this agent's permissions with a parent's.
+    ///
+    /// Seven dimensions: exec, file_read, file_write, network, spawn,
+    /// tool_call, config_write.
+    ///
+    /// - Both Allow → Allow
+    /// - Either Deny or absent → Deny
+    /// - Result `agent_id` = self.agent_id, `inherited_from` = Some(parent.agent_id)
+    /// - Limits: commands/paths → set intersection; timeout_ms → min;
+    ///   Deny dimensions get default limits.
+    /// - None means no restriction: both None → None, one None → other's Some,
+    ///   both Some → min.
+    pub fn intersect(&self, parent: &AgentPermissions) -> Self {
+        let dimensions = [
+            "exec",
+            "file_read",
+            "file_write",
+            "network",
+            "spawn",
+            "tool_call",
+            "config_write",
+        ];
+
+        let mut permissions = HashMap::with_capacity(dimensions.len());
+
+        for &dim in &dimensions {
+            let self_perm = self.permissions.get(dim);
+            let parent_perm = parent.permissions.get(dim);
+
+            let self_allowed = self_perm.map(|p| p.allowed).unwrap_or(false);
+            let parent_allowed = parent_perm.map(|p| p.allowed).unwrap_or(false);
+
+            if self_allowed && parent_allowed {
+                // Both Allow → Allow; compute limits intersection/min
+                let self_limits = self_perm.map(|p| &p.limits);
+                let parent_limits = parent_perm.map(|p| &p.limits);
+                let limits = PermissionLimits {
+                    commands: intersect_vec(
+                        self_limits.map(|l| &l.commands),
+                        parent_limits.map(|l| &l.commands),
+                    ),
+                    paths: intersect_vec(
+                        self_limits.map(|l| &l.paths),
+                        parent_limits.map(|l| &l.paths),
+                    ),
+                    timeout_ms: intersect_option_min(
+                        self_limits.and_then(|l| l.timeout_ms),
+                        parent_limits.and_then(|l| l.timeout_ms),
+                    ),
+                };
+                permissions.insert(
+                    dim.to_string(),
+                    ActionPermission {
+                        allowed: true,
+                        limits,
+                    },
+                );
+            } else {
+                // Deny (or absent) → Deny with default limits
+                permissions.insert(
+                    dim.to_string(),
+                    ActionPermission {
+                        allowed: false,
+                        limits: PermissionLimits::default(),
+                    },
+                );
+            }
+        }
+
+        Self {
+            agent_id: self.agent_id.clone(),
+            permissions,
+            inherited_from: Some(parent.agent_id.clone()),
+        }
+    }
+
+    /// Returns true if all seven permission dimensions are denied or absent.
+    pub fn is_fully_denied(&self) -> bool {
+        ![
+            "exec",
+            "file_read",
+            "file_write",
+            "network",
+            "spawn",
+            "tool_call",
+            "config_write",
+        ]
+        .iter()
+        .any(|&dim| self.permissions.get(dim).map_or(false, |p| p.allowed))
+    }
+}
+
+/// Set intersection: if both have some, return common elements;
+/// if either is None (no restriction), take the other's value;
+/// if both None → None.
+fn intersect_vec<T: Eq + std::hash::Hash + Clone>(
+    a: Option<&Vec<T>>,
+    b: Option<&Vec<T>>,
+) -> Vec<T> {
+    match (a, b) {
+        (Some(a), Some(b)) => a.iter().filter(|item| b.contains(item)).cloned().collect(),
+        (Some(a), None) | (None, Some(a)) => a.clone(),
+        (None, None) => Vec::new(),
+    }
+}
+
+/// Minimum of two optional values; if either is None (no restriction),
+/// the result is the other's value.
+fn intersect_option_min(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) | (None, Some(a)) => Some(a),
+        (None, None) => None,
+    }
 }
 
 #[cfg(test)]
 mod config_tests;
+
+#[cfg(test)]
+mod config_intersect_tests;

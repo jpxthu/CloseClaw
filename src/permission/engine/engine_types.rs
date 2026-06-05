@@ -1,7 +1,6 @@
 //! Permission Engine - Core data structures
 //!
 //! Types, data structures, and Subject/Rule validation logic.
-
 use super::engine_matching::glob_match;
 use super::engine_risk::RiskLevel;
 use serde::{Deserialize, Serialize};
@@ -39,11 +38,9 @@ pub struct Defaults {
     #[serde(default = "default_deny")]
     pub tool_call: Effect,
 }
-
 fn default_deny() -> Effect {
     Effect::Deny
 }
-
 /// A single permission rule
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Rule {
@@ -135,7 +132,8 @@ pub struct TemplateRef {
 ///
 /// Supports two matching modes:
 /// - `AgentOnly` (match_mode = "agent_only" or absent): legacy mode, matches only by `agent` field
-/// - `UserAndAgent` (match_mode = "user_and_agent"): dual-key match, both `user_id` AND `agent` must match
+/// - `UserAndAgent` (match_mode = "user_and_agent"): dual-key match,
+///   both `user_id` AND `agent` must match
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "match_mode", rename_all = "snake_case", content = "fields")]
 pub enum Subject {
@@ -392,6 +390,25 @@ pub enum PermissionRequestBody {
 }
 
 impl PermissionRequestBody {
+    /// Returns the permission dimension name for this request,
+    /// or `None` if the request type does not map to a dimension
+    /// (e.g. `SlashCommand`) or the op field is unrecognized.
+    pub fn dimension_name(&self) -> Option<&str> {
+        match self {
+            PermissionRequestBody::FileOp { op, .. } => match op.as_str() {
+                "read" => Some("file_read"),
+                "write" => Some("file_write"),
+                _ => None,
+            },
+            PermissionRequestBody::CommandExec { .. } => Some("exec"),
+            PermissionRequestBody::NetOp { .. } => Some("network"),
+            PermissionRequestBody::InterAgentMsg { .. } => Some("spawn"),
+            PermissionRequestBody::ToolCall { .. } => Some("tool_call"),
+            PermissionRequestBody::ConfigWrite { .. } => Some("config_write"),
+            PermissionRequestBody::SlashCommand { .. } => None,
+        }
+    }
+
     /// Extract agent ID from the request body.
     pub fn agent_id(&self) -> &str {
         match self {
