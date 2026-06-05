@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+use tracing::info;
+
 use super::agents::{AgentDirectoryProvider, AgentsConfig, ResolvedAgentConfig};
 use super::manager::{ConfigLoadError, ConfigManager};
 
@@ -100,6 +102,14 @@ impl ConfigManager {
         }
         drop(perms_map);
 
+        Ok(())
+    }
+
+    /// Hot-reload: re-scan agents/ directory and update agents + agent_permissions caches.
+    /// Called when agents.json or any agents/<id>/*.json file changes on disk.
+    pub fn reload_agents(&self) -> Result<(), ConfigLoadError> {
+        self.load_agents(None)?;
+        info!("Agent configs reloaded");
         Ok(())
     }
 

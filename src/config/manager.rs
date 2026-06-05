@@ -163,7 +163,7 @@ impl ConfigSection {
     }
 
     /// Returns the absolute path to this section's file relative to config_dir.
-    fn path(&self, config_dir: &Path) -> PathBuf {
+    pub(crate) fn path(&self, config_dir: &Path) -> PathBuf {
         config_dir.join(self.filename())
     }
 }
@@ -213,7 +213,7 @@ pub struct ConfigManager {
     /// Thread-safe backup manager.
     backup_manager: SafeBackupManager,
     /// In-memory cache of all loaded config sections.
-    sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
+    pub(crate) sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
     /// Loaded credentials provider (from config/credentials/ directory).
     credentials_provider: RwLock<CredentialsProvider>,
     /// Resolved agent configurations (loaded from two-level directories).
