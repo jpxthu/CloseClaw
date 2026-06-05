@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::gateway::SessionManager;
+use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 use crate::slash::handler::{SlashHandler, SlashResult};
 use crate::slash::registry::HandlerRegistry;
@@ -117,6 +118,78 @@ impl SlashHandler for HelpHandler {
             lines.push(format!("  /{cmd}  - {desc}"));
         }
         SlashResult::Reply(lines.join("\n"))
+    }
+}
+
+// ── ReasoningHandler ───────────────────────────────────────────────────────
+
+/// `/reasoning` — query or set the reasoning depth for the current session.
+///
+/// - No arguments: reply with the current reasoning level.
+/// - With an argument (`low`, `medium`, `high`, `max`, `off`): update the
+///   session's reasoning level via `SlashResult::SetReasoning`.
+///
+/// The `off` alias maps to `Low` (the minimum reasoning depth).
+pub struct ReasoningHandler {
+    session_manager: Arc<SessionManager>,
+}
+
+impl ReasoningHandler {
+    /// Create a new ReasoningHandler operating on the given session manager.
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
+    }
+
+    /// Parse a reasoning level string. Returns `None` for invalid values.
+    fn parse_level(s: &str) -> Option<ReasoningLevel> {
+        match s.to_lowercase().as_str() {
+            "low" | "off" => Some(ReasoningLevel::Low),
+            "medium" => Some(ReasoningLevel::Medium),
+            "high" => Some(ReasoningLevel::High),
+            "max" => Some(ReasoningLevel::Max),
+            _ => None,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for ReasoningHandler {
+    fn commands(&self) -> &[&str] {
+        &["reasoning"]
+    }
+
+    fn description(&self) -> &str {
+        "查询或设置推理深度"
+    }
+
+    fn immediate(&self) -> bool {
+        true
+    }
+
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        let arg = args.trim();
+
+        // No arguments — return the current reasoning level.
+        if arg.is_empty() {
+            let Some(conv) = self
+                .session_manager
+                .get_conversation_session(&ctx.session_id)
+                .await
+            else {
+                return SlashResult::Reply("当前会话未激活".to_owned());
+            };
+            let cs = conv.read().await;
+            let level = cs.reasoning_level();
+            return SlashResult::Reply(format!("当前推理深度：{level}"));
+        }
+
+        // With argument — parse and return SetReasoning.
+        match Self::parse_level(arg) {
+            Some(level) => SlashResult::SetReasoning { level },
+            None => SlashResult::Reply(format!(
+                "无效的推理深度：{arg}。可选值：low, medium, high, max, off"
+            )),
+        }
     }
 }
 

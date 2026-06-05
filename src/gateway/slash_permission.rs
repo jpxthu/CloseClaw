@@ -187,6 +187,23 @@ impl Gateway {
                     sh.send_reply(format!("命令已提交审批：/{cmd_name}")).await;
                 }
             }
+            SlashResult::SetReasoning { level } => {
+                if let Some(cs) = self
+                    .session_manager
+                    .get_conversation_session(session_id)
+                    .await
+                {
+                    cs.write().await.set_reasoning_level(level.clone());
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply(format!("推理深度已设置为 {:?}", level)).await;
+                    }
+                } else {
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply("当前会话未激活，无法设置推理深度".to_owned())
+                            .await;
+                    }
+                }
+            }
             SlashResult::SetMode(_)
             | SlashResult::NewSession
             | SlashResult::Stop

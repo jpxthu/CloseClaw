@@ -1,3 +1,4 @@
+use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 
 /// Result of a slash command dispatch.
@@ -16,6 +17,8 @@ pub enum SlashResult {
     SystemAppend { content: String },
     /// Execute a sub-command (future).
     Exec { command: String },
+    /// Set the reasoning level for the current session.
+    SetReasoning { level: ReasoningLevel },
     /// Unknown command — no handler matched.
     Unknown(String),
 }

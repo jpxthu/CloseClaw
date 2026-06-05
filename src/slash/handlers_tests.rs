@@ -3,10 +3,13 @@
 use std::sync::Arc;
 
 use crate::gateway::session_manager::SessionManager;
+use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handler::{SlashHandler, SlashResult};
-use crate::slash::handlers::{ClearHandler, CompactHandler, HelpHandler, WorkdirHandler};
+use crate::slash::handlers::{
+    ClearHandler, CompactHandler, HelpHandler, ReasoningHandler, WorkdirHandler,
+};
 use crate::slash::registry::HandlerRegistry;
 
 // ── Mock handler ────────────────────────────────────────────────────────────
@@ -336,105 +339,149 @@ fn test_workdir_handler_commands_and_description() {
 #[tokio::test]
 async fn test_workdir_handler_cd_valid_path() {
     let sm = make_workdir_session_manager();
-    let session_id = create_test_session(&sm).await;
-    let handler = WorkdirHandler::new(Arc::clone(&sm));
-
+    let sid = create_test_session(&sm).await;
+    let h = WorkdirHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
-    ctx.session_id = session_id;
+    ctx.session_id = sid;
     ctx.command = "cd".to_owned();
-
-    // Use a portable temp-dir path instead of hardcoding "/tmp" so the test
-    // passes on every platform (e.g. Windows uses %TEMP%).
-    let target_path = std::env::temp_dir();
-    let result = handler.handle(&target_path.to_string_lossy(), &ctx).await;
-    match result {
-        SlashResult::Reply(text) => {
-            assert!(
-                text.contains("工作目录已变更为"),
-                "expected '工作目录已变更为' in reply, got: {text}"
-            );
-        }
-        _other => panic!("expected Reply, got non-Reply variant"),
+    let target = std::env::temp_dir();
+    match h.handle(&target.to_string_lossy(), &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("工作目录已变更为"), "got: {t}"),
+        _other => panic!("expected Reply"),
     }
 }
 
 #[tokio::test]
-async fn test_workdir_handler_cd_invalid_path() {
+async fn test_workdir_handler_cd_invalid_and_no_args() {
     let sm = make_workdir_session_manager();
-    let session_id = create_test_session(&sm).await;
-    let handler = WorkdirHandler::new(Arc::clone(&sm));
-
+    let sid = create_test_session(&sm).await;
+    let h = WorkdirHandler::new(Arc::clone(&sm));
+    // invalid path
     let mut ctx = dummy_ctx();
-    ctx.session_id = session_id;
+    ctx.session_id = sid.clone();
     ctx.command = "cd".to_owned();
-
-    let result = handler.handle("/nonexistent_xyz_path", &ctx).await;
-    match result {
-        SlashResult::Reply(text) => {
-            assert!(
-                text.contains("目录不存在"),
-                "expected '目录不存在' in reply, got: {text}"
-            );
-        }
-        _other => panic!("expected Reply, got non-Reply variant"),
+    match h.handle("/nonexistent_xyz_path", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("目录不存在"), "got: {t}"),
+        _other => panic!("expected Reply"),
+    }
+    // no args
+    let mut ctx2 = dummy_ctx();
+    ctx2.session_id = sid;
+    ctx2.command = "cd".to_owned();
+    match h.handle("", &ctx2).await {
+        SlashResult::Reply(t) => assert!(t.contains("用法"), "got: {t}"),
+        _other => panic!("expected Reply"),
     }
 }
 
 #[tokio::test]
-async fn test_workdir_handler_pwd() {
+async fn test_workdir_handler_pwd_and_git() {
     let sm = make_workdir_session_manager();
-    let session_id = create_test_session(&sm).await;
-    let handler = WorkdirHandler::new(Arc::clone(&sm));
-
+    let sid = create_test_session(&sm).await;
+    // pwd
+    let h = WorkdirHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
-    ctx.session_id = session_id;
+    ctx.session_id = sid.clone();
     ctx.command = "pwd".to_owned();
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => assert!(!t.is_empty()),
+        _other => panic!("expected Reply"),
+    }
+    // git placeholder
+    let mut ctx2 = dummy_ctx();
+    ctx2.session_id = sid;
+    ctx2.command = "git".to_owned();
+    match h.handle("status", &ctx2).await {
+        SlashResult::Reply(t) => assert!(t.contains("git 指令即将支持"), "got: {t}"),
+        _other => panic!("expected Reply"),
+    }
+}
 
-    let result = handler.handle("", &ctx).await;
-    match result {
-        SlashResult::Reply(text) => {
-            assert!(!text.is_empty(), "expected non-empty pwd reply");
-        }
-        _other => panic!("expected Reply, got non-Reply variant"),
+// ── ReasoningHandler tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_reasoning_handler_commands_and_description() {
+    let sm = make_workdir_session_manager();
+    let h = ReasoningHandler::new(sm);
+    assert_eq!(h.commands(), &["reasoning"]);
+    assert_eq!(h.description(), "查询或设置推理深度");
+    assert!(h.immediate());
+}
+
+#[tokio::test]
+async fn test_reasoning_handler_no_args_returns_current_level() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("high"), "got: {t}"),
+        _other => panic!("expected Reply"),
     }
 }
 
 #[tokio::test]
-async fn test_workdir_handler_git_placeholder() {
+async fn test_reasoning_handler_valid_levels() {
     let sm = make_workdir_session_manager();
-    let handler = WorkdirHandler::new(Arc::clone(&sm));
-
-    let mut ctx = dummy_ctx();
-    ctx.command = "git".to_owned();
-
-    let result = handler.handle("status", &ctx).await;
-    match result {
-        SlashResult::Reply(text) => {
-            assert!(
-                text.contains("git 指令即将支持"),
-                "expected 'git 指令即将支持' in reply, got: {text}"
-            );
+    let sid = create_test_session(&sm).await;
+    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let cases = &[
+        ("low", ReasoningLevel::Low),
+        ("medium", ReasoningLevel::Medium),
+        ("high", ReasoningLevel::High),
+        ("max", ReasoningLevel::Max),
+        ("off", ReasoningLevel::Low),
+    ];
+    for (arg, expected) in cases {
+        let mut ctx = dummy_ctx();
+        ctx.session_id = sid.clone();
+        match h.handle(arg, &ctx).await {
+            SlashResult::SetReasoning { level } => assert_eq!(level, *expected),
+            _other => panic!("expected SetReasoning"),
         }
-        _other => panic!("expected Reply, got non-Reply variant"),
     }
 }
 
 #[tokio::test]
-async fn test_workdir_handler_cd_no_args() {
+async fn test_reasoning_handler_invalid_level() {
     let sm = make_workdir_session_manager();
-    let handler = WorkdirHandler::new(Arc::clone(&sm));
-
+    let sid = create_test_session(&sm).await;
+    let h = ReasoningHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
-    ctx.command = "cd".to_owned();
-
-    let result = handler.handle("", &ctx).await;
-    match result {
-        SlashResult::Reply(text) => {
-            assert!(
-                text.contains("用法"),
-                "expected '用法' in reply, got: {text}"
-            );
-        }
-        _other => panic!("expected Reply, got non-Reply variant"),
+    ctx.session_id = sid;
+    match h.handle("banana", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("无效的推理深度"), "got: {t}"),
+        _other => panic!("expected Reply error"),
     }
+}
+
+#[test]
+fn test_reasoning_level_getter_setter_symmetry() {
+    let mut s = crate::llm::session::ConversationSession::new(
+        "test-sym".to_owned(),
+        "test-model".to_owned(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    assert_eq!(s.reasoning_level(), ReasoningLevel::High);
+    for &lv in &[
+        ReasoningLevel::Low,
+        ReasoningLevel::Medium,
+        ReasoningLevel::High,
+        ReasoningLevel::Max,
+    ] {
+        s.set_reasoning_level(lv);
+        assert_eq!(s.reasoning_level(), lv);
+    }
+}
+
+#[test]
+fn test_reasoning_level_with_builder() {
+    let s = crate::llm::session::ConversationSession::new(
+        "test-b".to_owned(),
+        "test-model".to_owned(),
+        std::path::PathBuf::from("/tmp"),
+    )
+    .with_reasoning_level(ReasoningLevel::High);
+    assert_eq!(s.reasoning_level(), ReasoningLevel::High);
 }
