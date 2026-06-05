@@ -5,6 +5,9 @@
 
 mod archive_support;
 
+#[cfg(test)]
+mod tests;
+
 use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -274,10 +277,13 @@ impl PersistenceService for SqliteStorage {
                 .map_err(PersistenceError::Serialization)?;
             let pending_json = serde_json::to_string(&checkpoint.pending_messages)
                 .map_err(PersistenceError::Serialization)?;
+            let system_appends_json = serde_json::to_string(&checkpoint.system_appends)
+                .map_err(PersistenceError::Serialization)?;
             let metadata_json = json!({
                 "mode": mode_to_db(&checkpoint.mode),
                 "mode_state": mode_state_json,
                 "pending_messages": pending_json,
+                "system_appends": system_appends_json,
             })
             .to_string();
 

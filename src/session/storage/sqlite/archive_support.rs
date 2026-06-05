@@ -212,6 +212,7 @@ pub fn load_checkpoint_inner(
     #[allow(unused_mut)]
     let mut mode_state_val: crate::session::persistence::ReasoningModeState;
     let mode_val: String;
+    let mut system_appends: Vec<String> = Vec::new();
     if let Some(ref meta) = metadata {
         let v: serde_json::Value =
             serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
@@ -223,6 +224,10 @@ pub fn load_checkpoint_inner(
             .get("mode")
             .and_then(|x| x.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "direct".to_string());
+        system_appends = v
+            .get("system_appends")
+            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+            .unwrap_or_default();
     } else {
         mode_state_val = crate::session::persistence::ReasoningModeState::default();
         mode_val = "direct".to_string();
@@ -272,7 +277,7 @@ pub fn load_checkpoint_inner(
             _ => None,
         },
         reasoning_level: crate::session::persistence::ReasoningLevel::default(),
-        system_appends: Vec::new(),
+        system_appends,
     }))
 }
 
