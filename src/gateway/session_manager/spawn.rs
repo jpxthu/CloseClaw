@@ -83,7 +83,20 @@ impl SessionManager {
         workspace: Option<&str>,
         mode: SpawnMode,
         fork: bool,
+        allowed_tools: Option<Vec<String>>,
     ) -> Result<String, String> {
+        // Apply tool whitelist override: when allowed_tools is provided,
+        // replace the config's tools list so the child session only has
+        // access to the specified tools.
+        let config = if let Some(ref tools) = allowed_tools {
+            let mut overridden = config.clone();
+            overridden.tools = tools.clone();
+            overridden
+        } else {
+            config.clone()
+        };
+        let config = &config;
+
         // 1. Generate child session_id
         let child_session_id = Uuid::new_v4().to_string();
 

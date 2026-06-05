@@ -31,6 +31,7 @@ struct SpawnArgs {
     mode: SpawnMode,
     mode_str: String,
     fork: bool,
+    allowed_tools: Option<Vec<String>>,
 }
 
 impl SessionsSpawnTool {
@@ -73,6 +74,15 @@ impl SessionsSpawnTool {
             _ => SpawnMode::Run,
         };
         let fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
+        let allowed_tools = args
+            .get("allowedTools")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<String>>()
+            })
+            .filter(|v| !v.is_empty());
         Ok(SpawnArgs {
             task: task.to_string(),
             agent_id,
@@ -81,6 +91,7 @@ impl SessionsSpawnTool {
             mode,
             mode_str: mode_str.to_string(),
             fork,
+            allowed_tools,
         })
     }
 
@@ -134,6 +145,7 @@ impl SessionsSpawnTool {
         workspace: Option<&str>,
         mode: SpawnMode,
         fork: bool,
+        allowed_tools: Option<Vec<String>>,
     ) -> Result<String, ToolCallError> {
         self.session_manager
             .create_child_session(
@@ -145,6 +157,7 @@ impl SessionsSpawnTool {
                 workspace,
                 mode,
                 fork,
+                allowed_tools,
             )
             .await
             .map_err(|e| {
@@ -176,6 +189,13 @@ impl Tool for SessionsSpawnTool {
     }
 
     fn input_schema(&self) -> Value {
+        let fork_desc = "是否 fork 父 agent 上下文：fork=true 时子 session ".to_owned()
+            + "在 task 之前注入父 agent 的完整对话历史"
+            + "（不含 system prompt），"
+            + "使子 agent 继承父 agent 的上下文认知";
+        let tools_desc = "Optional whitelist of tools the child session may ".to_owned()
+            + "use. When provided, only these tools are available"
+            + " to the child agent.";
         json!({
             "type": "object",
             "properties": {
@@ -212,8 +232,15 @@ impl Tool for SessionsSpawnTool {
                 },
                 "fork": {
                     "type": "boolean",
-                    "description": "是否 fork 父 agent 上下文：fork=true 时子 session 在 task 之前注入父 agent 的完整对话历史（不含 system prompt），使子 agent 继承父 agent 的上下文认知",
+                    "description": fork_desc,
                     "default": false
+                },
+                "allowedTools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": tools_desc
                 }
             },
             "required": ["task"]
@@ -256,6 +283,7 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.workspace.as_deref(),
                 spawn_args.mode,
                 spawn_args.fork,
+                spawn_args.allowed_tools,
             )
             .await?;
         Ok(ToolResult {

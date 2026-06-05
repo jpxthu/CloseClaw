@@ -103,7 +103,14 @@ pub async fn register_builtin_tools(
         .await
         .ok();
     // skills
-    registry.register(SkillTool::new(disk_registry)).await.ok();
+    registry
+        .register(SkillTool::new(
+            disk_registry,
+            spawn_controller.clone(),
+            session_manager.clone(),
+        ))
+        .await
+        .ok();
     // sessions
     registry
         .register(SessionsSpawnTool::new(
@@ -123,6 +130,9 @@ pub async fn register_builtin_tools(
         .await
         .ok();
 }
+
+#[cfg(test)]
+mod skill_tool_tests;
 
 #[cfg(test)]
 #[path = "sessions_spawn_tests.rs"]

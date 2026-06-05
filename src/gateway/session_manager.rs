@@ -32,7 +32,7 @@ pub use spawn::{ChildSessionInfo, SpawnMode};
 /// It provides find_or_create to lookup or create a session by channel + message.
 pub struct SessionManager {
     /// Active sessions: session_id -> Session
-    sessions: RwLock<HashMap<String, Session>>,
+    pub(crate) sessions: RwLock<HashMap<String, Session>>,
     /// Persistence backend (for archived session restoration)
     storage: RwLock<Option<Arc<dyn PersistenceService>>>,
     /// DM scope policy (determines how session keys are computed)
@@ -40,7 +40,7 @@ pub struct SessionManager {
     /// IM adapters for sending notifications during restoration
     adapters: RwLock<HashMap<String, Arc<dyn IMAdapter>>>,
     /// Per-session ConversationSession for llm_busy and pending_messages management
-    conversation_sessions: RwLock<HashMap<String, Arc<RwLock<ConversationSession>>>>,
+    pub(crate) conversation_sessions: RwLock<HashMap<String, Arc<RwLock<ConversationSession>>>>,
     /// Workspace directory for bootstrap file loading (None means no workspace)
     workspace_dir: Option<PathBuf>,
     /// Bootstrap mode determining which files to load

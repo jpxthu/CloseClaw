@@ -108,10 +108,13 @@ pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, ParseError> {
         && !frontmatter_trimmed.contains("paths:")
         && !frontmatter_trimmed.contains("user_invocable:");
 
+    let body = extract_skill_body(raw).to_string();
+
     Ok(ParsedSkill {
         manifest,
         description_only,
         frontmatter_raw: frontmatter_trimmed.to_string(),
+        body,
     })
 }
 
@@ -298,5 +301,78 @@ user_invocable: false
         let input = "---\ndescription: Skill\n---\n\n  # Title  \n\nContent.  \n  ";
         let body = extract_skill_body(input);
         assert_eq!(body, "# Title  \n\nContent.");
+    }
+
+    // --- parse_skill_md body extraction tests ---
+
+    #[test]
+    fn test_parse_skill_md_populates_body() {
+        let input = r#"---
+name: "test"
+description: "A test skill"
+---
+
+# Body
+
+Some instructions here."#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.body, "# Body\n\nSome instructions here.");
+    }
+
+    #[test]
+    fn test_parse_skill_md_body_no_frontmatter() {
+        // No frontmatter → body is empty (extract_skill_body returns "")
+        let input = "---\ndescription: test\n---";
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.body, "");
+    }
+
+    #[test]
+    fn test_parse_skill_md_body_with_bom() {
+        let input = concat!("\u{feff}", "---\ndescription: With BOM\n---\n\n# Body\n");
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.body, "# Body");
+    }
+
+    #[test]
+    fn test_parse_skill_md_body_no_body_text() {
+        let input = "---\ndescription: No body\n---\n";
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.body, "");
+    }
+
+    #[test]
+    fn test_parse_skill_md_body_preserves_multiline() {
+        let input = "---\ndescription: Multi\n---\n\n# Step 1\nDo something.\n\n# Step 2\nDo another thing.";
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(
+            result.body,
+            "# Step 1\nDo something.\n\n# Step 2\nDo another thing."
+        );
+    }
+
+    #[test]
+    fn test_parse_skill_md_body_bom_no_body() {
+        // BOM present, frontmatter present, but no body text after closing ---
+        let input = concat!("\u{feff}", "---\ndescription: BOM skill\n---\n");
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.body, "");
+    }
+
+    #[test]
+    fn test_parse_skill_md_body_whitespace_only_after_frontmatter() {
+        // Only whitespace after closing --- should trim to empty
+        let input = "---\ndescription: Whitespace body\n---\n   \n  \n";
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.body, "");
+    }
+
+    #[test]
+    fn test_extract_skill_body_bom_no_frontmatter() {
+        // BOM present but no frontmatter delimiters at all
+        let input = concat!("\u{feff}", "Just plain text with BOM.");
+        let body = extract_skill_body(input);
+        assert_eq!(body, "");
     }
 }

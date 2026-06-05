@@ -165,3 +165,50 @@ fn test_sessions_spawn_fork_schema() {
         "description should mention fork"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 4. test_sessions_spawn_allowed_tools_schema
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_sessions_spawn_allowed_tools_schema() {
+    let tool = make_tool();
+    let schema = tool.input_schema();
+
+    let at_prop = schema["properties"]["allowedTools"]
+        .as_object()
+        .expect("allowedTools should be an object in properties");
+
+    assert_eq!(at_prop["type"], "array");
+    let items = at_prop["items"]
+        .as_object()
+        .expect("items should be an object");
+    assert_eq!(items["type"], "string");
+    assert!(
+        at_prop["description"]
+            .as_str()
+            .unwrap()
+            .contains("whitelist"),
+        "description should mention whitelist"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 5. test_sessions_spawn_missing_task_error_with_allowed_tools
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_sessions_spawn_missing_task_error_with_allowed_tools() {
+    let tool = make_tool();
+    // allowedTools present but task is missing — should still fail
+    let result = tool
+        .call(json!({"allowedTools": ["ReadTool"]}), &ctx_with_session())
+        .await;
+    let err = result.expect_err("should fail without task");
+    match err {
+        ToolCallError::InvalidArgs(msg) => {
+            assert!(msg.contains("task"), "error should mention 'task'");
+        }
+        other => panic!("expected InvalidArgs, got {:?}", other),
+    }
+}
