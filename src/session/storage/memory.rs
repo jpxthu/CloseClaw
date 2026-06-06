@@ -147,6 +147,7 @@ mod tests {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            sender_id: None,
         }
     }
 

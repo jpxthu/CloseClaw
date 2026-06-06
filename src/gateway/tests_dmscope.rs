@@ -161,12 +161,20 @@ async fn test_feishu_dm_scope_isolation_variants() {
         add_session(&sm, "feishu", &mut m1, None).await;
         add_session(&sm, "feishu", &mut m2, None).await;
         assert_eq!(m1.metadata["session_id"], m2.metadata["session_id"],);
-        assert_eq!(m1.metadata["session_id"], "feishu:ag");
+        assert!(
+            m1.metadata["session_id"].starts_with("ag_"),
+            "session_id: {}",
+            m1.metadata["session_id"]
+        );
         gw.route_message("feishu", m1, None).await.unwrap();
         gw.route_message("feishu", m2, None).await.unwrap();
         let sessions = gw.get_agent_sessions("ag").await;
         assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].id, "feishu:ag");
+        assert!(
+            sessions[0].id.starts_with("ag_"),
+            "session id: {}",
+            sessions[0].id
+        );
     }
     // V3: PerAccountChannelPeer — different tenants → different sessions
     {
@@ -186,8 +194,16 @@ async fn test_feishu_dm_scope_isolation_variants() {
         let a2 = m2.metadata.get("account_id").cloned();
         add_session(&sm, "feishu", &mut m1, a1.as_deref()).await;
         add_session(&sm, "feishu", &mut m2, a2.as_deref()).await;
-        assert!(m1.metadata["session_id"].starts_with("ta:"));
-        assert!(m2.metadata["session_id"].starts_with("tb:"));
+        assert!(
+            m1.metadata["session_id"].starts_with("ag_"),
+            "session_id: {}",
+            m1.metadata["session_id"]
+        );
+        assert!(
+            m2.metadata["session_id"].starts_with("ag_"),
+            "session_id: {}",
+            m2.metadata["session_id"]
+        );
         gw.route_message("feishu", m1, None).await.unwrap();
         gw.route_message("feishu", m2, None).await.unwrap();
         let sessions = gw.get_agent_sessions("ag").await;

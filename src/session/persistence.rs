@@ -51,6 +51,15 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub thread_id: Option<String>,
+    /// 消息发送者 ID（用于 session_key 重建）
+    ///
+    /// 存储原始消息的 `from` 字段，使得 `rebuild_key_registry` 在重启后
+    /// 能用 `compute_session_key(PerChannelPeer)` 的格式
+    /// `"{channel}:{from}:{to}"` 正确重建 key → session_id 映射。
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub sender_id: Option<String>,
 }
 
 impl SessionCheckpoint {
@@ -76,6 +85,7 @@ impl SessionCheckpoint {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            sender_id: None,
         }
     }
 

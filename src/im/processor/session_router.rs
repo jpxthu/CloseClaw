@@ -251,9 +251,21 @@ mod tests {
             .await
             .unwrap();
         let session_id = result.metadata.get("session_id").unwrap();
-        assert!(session_id.contains("feishu"), "{}", session_id);
-        assert!(session_id.contains("ou_user_a"), "{}", session_id);
-        assert!(session_id.contains("oc_agent_b"), "{}", session_id);
+        // New format: {agent_id}_{timestamp_ms}_{8hex}
+        assert!(
+            session_id.starts_with("oc_agent_b_"),
+            "bad format: {}",
+            session_id
+        );
+        // Should end with _<8-hex-digits>
+        let parts: Vec<&str> = session_id.rsplitn(2, '_').collect();
+        assert_eq!(parts.len(), 2, "bad format: {}", session_id);
+        assert_eq!(parts[0].len(), 8, "hex part wrong: {}", parts[0]);
+        assert!(
+            parts[0].chars().all(|c| c.is_ascii_hexdigit()),
+            "hex part non-hex: {}",
+            parts[0]
+        );
     }
 
     #[tokio::test]
@@ -326,10 +338,20 @@ mod tests {
             .await
             .unwrap();
         let session_id = result.metadata.get("session_id").unwrap();
+        // New format: {agent_id}_{timestamp_ms}_{8hex}
         assert!(
-            session_id.starts_with("tenant_abc:"),
-            "session_id should include tenant_key prefix: {}",
+            session_id.starts_with("oc_agent_b_"),
+            "session_id should start with agent_id: {}",
             session_id
+        );
+        // Should end with _<8-hex-digits>
+        let parts: Vec<&str> = session_id.rsplitn(2, '_').collect();
+        assert_eq!(parts.len(), 2, "bad format: {}", session_id);
+        assert_eq!(parts[0].len(), 8, "hex part wrong: {}", parts[0]);
+        assert!(
+            parts[0].chars().all(|c| c.is_ascii_hexdigit()),
+            "hex part non-hex: {}",
+            parts[0]
         );
     }
 
