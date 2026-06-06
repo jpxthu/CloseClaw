@@ -302,7 +302,53 @@ fn test_deepseek_interpreter_name() {
 }
 
 #[test]
-fn test_deepseek_interpreter_response_identity() {
+fn test_deepseek_interpreter_empty_content_uses_reasoning() {
+    let response = InternalResponse {
+        content_blocks: vec![RawContentBlock::Thinking(
+            "Let me think step by step...".into(),
+        )],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Thinking(s) if s == "Let me think step by step..."),
+        "expected Thinking block, got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
+#[test]
+fn test_deepseek_interpreter_text_content_preferred() {
+    let response = InternalResponse {
+        content_blocks: vec![RawContentBlock::Text("Hello world".into())],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "Hello world"),
+        "expected Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
+#[test]
+fn test_deepseek_interpreter_text_and_reasoning_prefers_text() {
     let response = InternalResponse {
         content_blocks: vec![
             RawContentBlock::Text("hello".into()),
@@ -318,16 +364,11 @@ fn test_deepseek_interpreter_response_identity() {
         finish_reason: Some("stop".into()),
     };
     let unified = DeepSeekInterpreter.interpret_response(response);
-    assert_eq!(unified.content_blocks.len(), 2);
+    assert_eq!(unified.content_blocks.len(), 1);
     assert!(
         matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "hello"),
-        "expected Text block, got {:?}",
+        "expected Text block when text is non-empty, got {:?}",
         unified.content_blocks[0]
-    );
-    assert!(
-        matches!(&unified.content_blocks[1], ContentBlock::Thinking(s) if s == "thinking..."),
-        "expected Thinking block, got {:?}",
-        unified.content_blocks[1]
     );
 }
 

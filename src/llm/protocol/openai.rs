@@ -104,13 +104,21 @@ impl ChatProtocol for OpenAiProtocol {
     }
 
     fn parse_response(&self, body: serde_json::Value) -> Result<InternalResponse> {
-        let choices = body
+        let message = body
             .get("choices")
             .and_then(|v| v.as_array())
             .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
+            .and_then(|choice| choice.get("message"));
+
+        let content = message
             .and_then(|msg| msg.get("content"))
             .and_then(|c| c.as_str())
+            .map(|s| s.to_string());
+
+        let reasoning_content = message
+            .and_then(|msg| msg.get("reasoning_content"))
+            .and_then(|c| c.as_str())
+            .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
         let finish_reason = body
@@ -123,9 +131,10 @@ impl ChatProtocol for OpenAiProtocol {
 
         let usage = parse_usage(&body);
 
-        let content_blocks = choices
-            .map(|text| vec![RawContentBlock::Text(text)])
-            .unwrap_or_default();
+        let mut content_blocks = vec![RawContentBlock::Text(content.unwrap_or_default())];
+        if let Some(thinking) = reasoning_content {
+            content_blocks.push(RawContentBlock::Thinking(thinking));
+        }
 
         Ok(InternalResponse {
             content_blocks,
@@ -214,6 +223,47 @@ impl ChatProtocol for OpenAiProtocol {
                         }
                     };
                     yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::Text { text: text.to_string() } };
+                }
+
+                // reasoning_content delta
+                if let Some(thinking) = delta.get("reasoning_content").and_then(|v| v.as_str()) {
+                    if thinking.is_empty() {
+                        continue;
+                    }
+                    let idx = match block_index {
+                        Some(i) if active_block_type == Some(ContentBlockType::Thinking) => i,
+                        _ => {
+                            // End current block if any
+                            if let Some(prev_idx) = block_index {
+                                let prev_type = active_block_type.unwrap_or(
+                                    ContentBlockType::Text,
+                                );
+                                let event = StreamEvent::BlockEnd {
+                                    index: prev_idx,
+                                    block_type: prev_type,
+                                };
+                                yield event;
+                            }
+                            let idx = next_block_index;
+                            next_block_index += 1;
+                            block_index = Some(idx);
+                            active_block_type = Some(ContentBlockType::Thinking);
+                            let event = StreamEvent::BlockStart {
+                                index: idx,
+                                block_type: ContentBlockType::Thinking,
+                            };
+                            yield event;
+                            idx
+                        }
+                    };
+                    let delta = ContentDelta::Thinking {
+                        thinking: thinking.to_string(),
+                    };
+                    let event = StreamEvent::BlockDelta {
+                        index: idx,
+                        delta,
+                    };
+                    yield event;
                 }
 
                 // tool_calls delta

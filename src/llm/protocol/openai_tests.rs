@@ -3,7 +3,7 @@ use super::{
     ChatProtocol, ContentBlockType, ContentDelta, IncomingSseStream, InternalRequest,
     OpenAiProtocol, StreamEvent,
 };
-use crate::llm::types::RawSseChunk;
+use crate::llm::types::{RawContentBlock, RawSseChunk};
 use futures::StreamExt;
 
 use crate::session::persistence::ReasoningLevel;
@@ -215,6 +215,85 @@ async fn test_parse_sse_text_then_tool_calls() {
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
 
     assert!(stream.next().await.is_none());
+}
+
+#[test]
+fn test_parse_response_with_reasoning_content() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "Let me think about this..."
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // Empty content → Text(""), reasoning → Thinking block
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert!(
+        matches!(&resp.content_blocks[1], RawContentBlock::Thinking(s) if s == "Let me think about this...")
+    );
+}
+
+#[test]
+fn test_parse_response_with_both_content_and_reasoning() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "The answer is 42.",
+                "reasoning_content": "Let me think about this..."
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // Both content and reasoning → Text + Thinking
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "The answer is 42.")
+    );
+    assert!(
+        matches!(&resp.content_blocks[1], RawContentBlock::Thinking(s) if s == "Let me think about this...")
+    );
+}
+
+#[test]
+fn test_parse_response_no_reasoning_content() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "Hello!"
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // No reasoning_content → only Text block
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello!"));
 }
 
 // ── reasoning_level → reasoning_effort mapping tests ───────────────────────

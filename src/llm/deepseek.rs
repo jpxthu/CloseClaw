@@ -155,20 +155,6 @@ impl DeepSeekProvider {
         }
     }
 
-    /// Extract visible content from a DeepSeek message.
-    /// Prefer `content`; if it's empty or pure whitespace, fall back to `reasoning_content`.
-    fn extract_content(msg: &DeepSeekMessage) -> String {
-        if !msg.content.trim().is_empty() {
-            msg.content.trim().to_string()
-        } else {
-            msg.reasoning_content
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_default()
-        }
-    }
-
     fn models_static() -> Vec<&'static str> {
         vec!["deepseek-v4-flash", "deepseek-v4-pro"]
     }
@@ -234,7 +220,7 @@ impl LLMProvider for DeepSeekProvider {
             .map(|c| &c.message)
             .ok_or_else(|| LLMError::ApiError("no choices in DeepSeek response".to_string()))?;
 
-        let content = Self::extract_content(msg);
+        let content = msg.content.clone();
         let usage = api_resp.usage.as_ref();
 
         Ok(ChatResponse {
