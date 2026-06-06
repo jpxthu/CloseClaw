@@ -396,7 +396,12 @@ async fn test_main_scope_all_share_one_session() {
     gw.route_message("ch", m2, None).await.unwrap();
     let sessions = gw.get_agent_sessions("bob").await;
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].id, "ch:bob");
+    // New format: {agent_id}_{ts}_{hex}
+    assert!(
+        sessions[0].id.starts_with("bob_"),
+        "bad format: {}",
+        sessions[0].id
+    );
 }
 
 #[tokio::test]
@@ -423,7 +428,7 @@ async fn test_account_id_from_metadata() {
     let aid = msg.metadata.get("account_id").cloned();
     add_session(&sm, "feishu", &mut msg, aid.as_deref()).await;
     let sid = msg.metadata.get("session_id").unwrap();
-    assert!(sid.starts_with("t_abc:"), "sid: {}", sid);
+    assert!(sid.starts_with("agent-1_"), "sid: {}", sid);
     gw.route_message("feishu", msg, None).await.unwrap();
     assert_eq!(gw.get_agent_sessions("agent-1").await.len(), 1);
 }
@@ -437,7 +442,7 @@ async fn test_explicit_account_id_overrides_metadata() {
     msg.metadata.insert("account_id".into(), "meta_t".into());
     add_session(&sm, "feishu", &mut msg, Some("explicit_t")).await;
     let sid = msg.metadata.get("session_id").unwrap();
-    assert!(sid.starts_with("explicit_t:"), "sid: {}", sid);
+    assert!(sid.starts_with("agent-1_"), "sid: {}", sid);
     gw.route_message("feishu", msg, Some("explicit_t"))
         .await
         .unwrap();
@@ -460,6 +465,13 @@ async fn test_feishu_session_isolation() {
     let sessions = gw.get_agent_sessions("agent-1").await;
     assert_eq!(sessions.len(), 2);
     let ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
-    assert!(ids.iter().any(|k| k.contains("ou_alice")));
-    assert!(ids.iter().any(|k| k.contains("ou_carol")));
+    // Two different senders → two different sessions
+    assert_eq!(ids.len(), 2);
+    assert_ne!(
+        ids[0], ids[1],
+        "sessions should differ for different senders"
+    );
+    // Both should follow the new format: {agent_id}_{ts}_{hex}
+    assert!(ids[0].starts_with("agent-1_"), "bad format: {}", ids[0]);
+    assert!(ids[1].starts_with("agent-1_"), "bad format: {}", ids[1]);
 }

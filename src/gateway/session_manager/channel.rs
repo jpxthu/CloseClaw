@@ -7,6 +7,7 @@
 use super::SessionManager;
 use crate::gateway::Session;
 use crate::llm::session::ConversationSession;
+use crate::session::persistence::{SessionCheckpoint, SessionStatus};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -24,13 +25,10 @@ impl SessionManager {
     ///
     /// Returns the new session_id.
     pub async fn force_new_for_channel(&self, channel: &str, agent_id: &str) -> String {
-        // Generate a unique session id using timestamp + channel
-        let session_id = format!(
-            "{}-{}-{}",
-            channel,
-            agent_id,
-            chrono::Utc::now().timestamp_millis()
-        );
+        // Generate a unique session id using the standard format
+        let session_id = super::session_helpers::generate_session_id(agent_id);
+        // Compute session_key for key_registry
+        let session_key = format!("{}:{}:{}", channel, agent_id, agent_id);
 
         // Compute workdir
         let workdir_path = if let Some(ref workspace_dir) = self.workspace_dir {
@@ -68,6 +66,31 @@ impl SessionManager {
         {
             let mut channel_map = self.channel_active_sessions.write().await;
             channel_map.insert(channel.to_string(), session_id.clone());
+        }
+
+        // Update key_registry so resolve() routes to the new session
+        {
+            let mut registry = self.key_registry.write().await;
+            registry.insert(session_key, session_id.clone());
+        }
+
+        // Persist checkpoint so rebuild_key_registry can reconstruct the
+        // session_key after restart.  The /new command has no real
+        // message.from, so we use agent_id as a placeholder.
+        let mut cp = SessionCheckpoint::new(session_id.clone())
+            .with_status(SessionStatus::Active)
+            .with_channel(channel.to_string())
+            .with_chat_id(agent_id.to_string())
+            .with_agent_id(agent_id.to_string());
+        cp.sender_id = Some(agent_id.to_string());
+        if let Some(storage) = self.storage.read().await.as_ref() {
+            if let Err(e) = storage.save_checkpoint(&cp).await {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to save checkpoint for force_new_for_channel"
+                );
+            }
         }
 
         session_id

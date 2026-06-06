@@ -31,6 +31,7 @@ mod tests {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            sender_id: None,
         }
     }
 
@@ -387,6 +388,7 @@ mod tests {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            sender_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -425,6 +427,7 @@ mod tests {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            sender_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -463,6 +466,7 @@ mod tests {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            sender_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
