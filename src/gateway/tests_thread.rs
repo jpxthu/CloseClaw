@@ -179,8 +179,8 @@ async fn setup_with_thread_id(
     let plugin = Arc::new(CapturingPlugin::new("mock"));
     let checkpoint = {
         let mut cp = SessionCheckpoint::new("mock:ou_sender:agent-1".to_string());
-        cp.chat_id = Some("agent-1".to_string());
-        cp.channel = Some("mock".to_string());
+        cp.peer_id = Some("agent-1".to_string());
+        cp.platform = Some("mock".to_string());
         if let Some(tid) = thread_id {
             cp.thread_id = Some(tid.to_string());
         }
@@ -241,8 +241,8 @@ async fn test_route_message_forwards_thread_id() {
     let plugin = Arc::new(CapturingPlugin::new("mock"));
     let checkpoint = {
         let mut cp = SessionCheckpoint::new("mock:ou_sender:agent-1".to_string());
-        cp.chat_id = Some("agent-1".to_string());
-        cp.channel = Some("mock".to_string());
+        cp.peer_id = Some("agent-1".to_string());
+        cp.platform = Some("mock".to_string());
         cp.thread_id = Some("omt_route_tid".to_string());
         cp
     };
@@ -277,8 +277,8 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
     let plugin_for_stream: Arc<CapturingPlugin> = Arc::new(CapturingPlugin::new("mock"));
     let checkpoint = {
         let mut cp = SessionCheckpoint::new("mock:ou_sender:agent-1".to_string());
-        cp.chat_id = Some("agent-1".to_string());
-        cp.channel = Some("mock".to_string());
+        cp.peer_id = Some("agent-1".to_string());
+        cp.platform = Some("mock".to_string());
         cp.thread_id = Some("omt_stream_tid".to_string());
         cp
     };

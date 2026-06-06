@@ -293,8 +293,8 @@ impl SessionManager {
                 Ok(Some(mut cp)) => {
                     // Update fields from active session state
                     cp.status = SessionStatus::Active;
-                    cp.channel = Some(session.channel.clone());
-                    cp.chat_id = Some(session.agent_id.clone());
+                    cp.platform = Some(session.channel.clone());
+                    cp.peer_id = Some(session.agent_id.clone());
                     cp.agent_id = Some(session.agent_id.clone());
                     cp.pending_messages = pending;
                     cp
@@ -303,8 +303,8 @@ impl SessionManager {
                     // No existing checkpoint — create a fresh one
                     SessionCheckpoint::new(session_id.clone())
                         .with_status(SessionStatus::Active)
-                        .with_channel(session.channel.clone())
-                        .with_chat_id(session.agent_id.clone())
+                        .with_platform(session.channel.clone())
+                        .with_peer_id(session.agent_id.clone())
                         .with_agent_id(session.agent_id.clone())
                         .with_pending_messages(pending)
                 }

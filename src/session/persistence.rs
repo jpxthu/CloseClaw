@@ -33,10 +33,12 @@ pub struct SessionCheckpoint {
     pub last_message_at: Option<DateTime<Utc>>,
     /// 消息计数
     pub message_count: u64,
-    /// 渠道标识
-    pub channel: Option<String>,
-    /// 聊天 ID
-    pub chat_id: Option<String>,
+    /// 来源平台标识（原 channel）
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// 会话对端标识（原 chat_id）
+    #[serde(default)]
+    pub peer_id: Option<String>,
     pub agent_id: Option<String>,
     pub role: Option<AgentRole>,
     /// 推理深度等级
@@ -51,6 +53,11 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub thread_id: Option<String>,
+    /// 租户标识（可选）
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub account_id: Option<String>,
     /// 消息发送者 ID（用于 session_key 重建）
     ///
     /// 存储原始消息的 `from` 字段，使得 `rebuild_key_registry` 在重启后
@@ -78,8 +85,9 @@ impl SessionCheckpoint {
             status: SessionStatus::default(),
             last_message_at: None,
             message_count: 0,
-            channel: None,
-            chat_id: None,
+            platform: None,
+            peer_id: None,
+            account_id: None,
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
@@ -94,91 +102,89 @@ impl SessionCheckpoint {
         self.agent_id = Some(agent_id);
         self
     }
-
     /// Update the role
     pub fn with_role(mut self, role: AgentRole) -> Self {
         self.role = Some(role);
         self
     }
-
     /// Update the last message ID
     pub fn with_last_message_id(mut self, message_id: Option<String>) -> Self {
         self.last_message_id = message_id;
         self
     }
-
     /// Update the mode
     pub fn with_mode(mut self, mode: ReasoningMode) -> Self {
         self.mode = mode;
         self
     }
-
     /// Update the mode state
     pub fn with_mode_state(mut self, state: ReasoningModeState) -> Self {
         self.mode_state = state;
         self
     }
-
     /// Add a pending message
     pub fn add_pending_message(mut self, msg: PendingMessage) -> Self {
         self.pending_messages.push(msg);
         self
     }
-
-    /// Set the pending messages list, replacing any existing messages
+    /// Set the pending messages list
     pub fn with_pending_messages(mut self, msgs: Vec<PendingMessage>) -> Self {
         self.pending_messages = msgs;
         self
     }
-
     /// Set TTL in seconds
     pub fn with_ttl(mut self, ttl: u64) -> Self {
         self.ttl_seconds = ttl;
         self
     }
-
     /// Update the session status
     pub fn with_status(mut self, status: SessionStatus) -> Self {
         self.status = status;
         self
     }
-
     /// Update the last message timestamp
     pub fn with_last_message_at(mut self, at: DateTime<Utc>) -> Self {
         self.last_message_at = Some(at);
         self
     }
+}
 
+impl SessionCheckpoint {
     /// Update the message count
     pub fn with_message_count(mut self, count: u64) -> Self {
         self.message_count = count;
         self
     }
-
-    /// Update the channel
-    pub fn with_channel(mut self, channel: String) -> Self {
-        self.channel = Some(channel);
+    /// Update the platform
+    pub fn with_platform(mut self, platform: String) -> Self {
+        self.platform = Some(platform);
         self
     }
-
-    /// Update the chat ID
-    pub fn with_chat_id(mut self, chat_id: String) -> Self {
-        self.chat_id = Some(chat_id);
+    /// Update the peer ID
+    pub fn with_peer_id(mut self, peer_id: String) -> Self {
+        self.peer_id = Some(peer_id);
         self
     }
-
+    /// Update the sender ID
+    pub fn with_sender_id(mut self, sender_id: String) -> Self {
+        self.sender_id = Some(sender_id);
+        self
+    }
+    /// Update the account ID
+    pub fn with_account_id(mut self, account_id: String) -> Self {
+        self.account_id = Some(account_id);
+        self
+    }
     /// Update the reasoning level
     pub fn with_reasoning_level(mut self, level: ReasoningLevel) -> Self {
         self.reasoning_level = level;
         self
     }
-
     /// Update the thread ID
     pub fn with_thread_id(mut self, thread_id: String) -> Self {
         self.thread_id = Some(thread_id);
         self
     }
-
     /// Touch the updated_at timestamp
     pub fn touch(&mut self) {
         self.updated_at = Utc::now();

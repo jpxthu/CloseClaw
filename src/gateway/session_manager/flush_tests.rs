@@ -189,8 +189,8 @@ async fn test_flush_all_saves_checkpoints() {
     }
     for cp in saved.iter() {
         assert_eq!(cp.status, SessionStatus::Active);
-        assert_eq!(cp.channel.as_ref(), Some(&"feishu".to_string()));
-        assert!(cp.chat_id.is_some());
+        assert_eq!(cp.platform.as_ref(), Some(&"feishu".to_string()));
+        assert!(cp.peer_id.is_some());
     }
 }
 

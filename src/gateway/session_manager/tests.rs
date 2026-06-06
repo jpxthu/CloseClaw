@@ -65,7 +65,7 @@ async fn test_archived_session_restoration() {
         archived_checkpoint: Mutex::new(Some(
             SessionCheckpoint::new("test_sid".to_string())
                 .with_status(SessionStatus::Archived)
-                .with_chat_id("agent-b".to_string()),
+                .with_peer_id("agent-b".to_string()),
         )),
         restore_called: Mutex::new(false),
     });
