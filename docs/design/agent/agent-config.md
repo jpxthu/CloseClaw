@@ -29,7 +29,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `subagents` | spawn 控制参数 | 否 | 见子字段 |
 
 `bootstrapMode` 取值：
-- `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、MEMORY.md 等）
+- `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、BOOTSTRAP.md、MEMORY.md）
 - `"minimal"`：仅加载核心文件，减少上下文占用
 
 `subagents` 子字段：

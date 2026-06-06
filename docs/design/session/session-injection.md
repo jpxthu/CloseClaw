@@ -20,7 +20,7 @@
 
 System Prompt 的 Section 类型定义见 [system_prompt/README.md](../system_prompt/README.md)。注入链路中 build_from_workspace 对四个 Section 的组装行为：
 
-- **RoleSection**：调用 load_bootstrap_files 加载 bootstrap 文件，按文件名格式化渲染。Minimal 模式加载 AGENTS/SOUL/IDENTITY/USER/TOOLS，Full 模式额外加载 BOOTSTRAP 和 MEMORY。HEARTBEAT.md 不在注入范围。RoleSection 在此基础上额外整合 IDENTITY.md + SOUL.md 的内容，详见 [system_prompt/README.md](../system_prompt/README.md)。
+- **RoleSection**：调用 load_bootstrap_files 加载 bootstrap 文件，按文件名格式化渲染。Minimal 模式加载 AGENTS/SOUL/IDENTITY/USER/TOOLS，Full 模式额外加载 BOOTSTRAP 和 MEMORY。HEARTBEAT.md 不在注入范围。MEMORY.md 不进入 RoleSection——它进入独立的 MemorySection（见下文）。RoleSection 在此基础上额外整合 IDENTITY.md + SOUL.md 的内容，详见 [system_prompt/README.md](../system_prompt/README.md)。
 - **ToolsSection**：通过 ToolRegistry 生成工具分组索引（常用工具含行为描述，延迟工具仅含名称和危险度标记）。
 - **SkillListingSection**：通过 DiskSkillRegistry.generate_listing(agent_id) 生成 skill 摘要清单，按 agent 过滤并按优先级排序。若 skill 列表为空，不添加此 Section。
 - **MemorySection**：读取 MEMORY.md，走 session 级文件缓存，命中缓存则跳过读取。
