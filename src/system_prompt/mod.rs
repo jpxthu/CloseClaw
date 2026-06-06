@@ -14,8 +14,7 @@ pub mod tools_section;
 pub mod workdir;
 
 pub use builder::{
-    build_from_workspace, build_system_prompt, set_agent_prompt, set_custom_prompt,
-    set_override_prompt, WorkspaceBuildConfig,
+    build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
 };
 pub use sections::{get_cached_section, invalidate_all_sections, invalidate_section, Section};
 pub use tools_section::build_tools_section;
