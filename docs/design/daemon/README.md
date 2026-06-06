@@ -28,7 +28,7 @@ Daemon 启动
   ├── 2. Storage 初始化（SqliteStorage）
   ├── 3. SessionConfigProvider 初始化（读取 session_config.json，提供 per-agent 的 idle/purge 阈值）
   ├── 4. Permission Engine 初始化（加载规则 + 默认策略）
-  ├── 5. Agent Config 扫描（三级扫描 + 字段合并 → 注册表）
+  ├── 5. Agent Config 扫描（两级优先级扫描 + 字段合并 → 注册表）
   ├── 6. Tools Registry + Skills Registry（注册所有工具和 skill）
   ├── 7. Session Manager 创建（注入 storage、agent config、tool/skill registry）
   ├── 8. System Prompt Builder 创建（由 Session Manager 持有引用）
