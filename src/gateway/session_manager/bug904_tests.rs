@@ -197,3 +197,198 @@ async fn test_flush_all_preserves_existing_thread_id() {
         "flush_all must preserve the existing thread_id"
     );
 }
+
+// ===================================================================
+// Bug #920: fast path updates thread_id in checkpoint
+// ===================================================================
+
+#[tokio::test]
+async fn test_active_session_fast_path_updates_thread_id() {
+    // Bug #920: When a session already exists (active session fast path),
+    // find_or_create should update the checkpoint's thread_id.
+    let storage = Arc::new(Bug904MockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    // Step 1: Create session via slow path (first find_or_create)
+    let mut msg1 = test_message();
+    msg1.thread_id = Some("omt_initial".to_string());
+    let session_id = mgr
+        .find_or_create("feishu", &msg1, None)
+        .await
+        .expect("first find_or_create should succeed");
+
+    // Verify slow path created checkpoint with initial thread_id
+    let saved = storage.saved_checkpoints.lock().await;
+    let cp_initial = saved
+        .iter()
+        .find(|c| c.session_id == session_id)
+        .expect("should have saved checkpoint on slow path");
+    assert_eq!(
+        cp_initial.thread_id.as_deref(),
+        Some("omt_initial"),
+        "slow path should set thread_id"
+    );
+    drop(saved);
+
+    // Step 2: Seed checkpoint for fast path update (mock removes on load)
+    let reseed = SessionCheckpoint::new(session_id.clone())
+        .with_status(SessionStatus::Active)
+        .with_channel("feishu".to_string())
+        .with_chat_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string())
+        .with_thread_id("omt_initial".to_string());
+    {
+        storage
+            .loaded_checkpoints
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), reseed);
+    }
+
+    // Step 3: Second find_or_create hits active session fast path
+    let mut msg2 = test_message();
+    msg2.thread_id = Some("omt_updated".to_string());
+    let session_id2 = mgr
+        .find_or_create("feishu", &msg2, None)
+        .await
+        .expect("second find_or_create should succeed");
+    assert_eq!(session_id, session_id2, "session_id should be the same");
+
+    // Verify fast path updated checkpoint thread_id
+    let saved = storage.saved_checkpoints.lock().await;
+    let cp_updated = saved
+        .iter()
+        .rfind(|c| c.session_id == session_id)
+        .expect("should have saved checkpoint on fast path");
+    assert_eq!(
+        cp_updated.thread_id.as_deref(),
+        Some("omt_updated"),
+        "active session fast path should update thread_id"
+    );
+}
+
+#[tokio::test]
+async fn test_channel_override_fast_path_updates_thread_id() {
+    // Bug #920: When a channel override is active (channel-level fast path),
+    // find_or_create should update the checkpoint's thread_id.
+    let storage = Arc::new(Bug904MockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    // Step 1: Create session via slow path
+    let mut msg1 = test_message();
+    msg1.thread_id = None;
+    let session_id = mgr
+        .find_or_create("feishu", &msg1, None)
+        .await
+        .expect("first find_or_create should succeed");
+
+    // Step 2: Register channel override so subsequent calls take fast path
+    {
+        let mut channel_map = mgr.channel_active_sessions.write().await;
+        channel_map.insert("feishu".to_string(), session_id.clone());
+    }
+
+    // Step 3: Seed checkpoint for fast path update
+    let reseed = SessionCheckpoint::new(session_id.clone())
+        .with_status(SessionStatus::Active)
+        .with_channel("feishu".to_string())
+        .with_chat_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string());
+    {
+        storage
+            .loaded_checkpoints
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), reseed);
+    }
+
+    // Step 4: find_or_create hits channel override fast path
+    let mut msg2 = test_message();
+    msg2.thread_id = Some("omt_channel".to_string());
+    let session_id2 = mgr
+        .find_or_create("feishu", &msg2, None)
+        .await
+        .expect("second find_or_create should succeed");
+    assert_eq!(session_id, session_id2, "session_id should be the same");
+
+    // Verify channel override fast path updated checkpoint thread_id
+    let saved = storage.saved_checkpoints.lock().await;
+    let cp_updated = saved
+        .iter()
+        .rfind(|c| c.session_id == session_id)
+        .expect("should have saved checkpoint on fast path");
+    assert_eq!(
+        cp_updated.thread_id.as_deref(),
+        Some("omt_channel"),
+        "channel override fast path should update thread_id"
+    );
+}
+
+#[tokio::test]
+async fn test_fast_path_thread_id_none_overwrites_old_value() {
+    // Bug #920: When thread_id is None, the fast path should overwrite
+    // the existing thread_id value in the checkpoint.
+    let storage = Arc::new(Bug904MockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    // Step 1: Create session with a thread_id via slow path
+    let mut msg1 = test_message();
+    msg1.thread_id = Some("omt_old".to_string());
+    let session_id = mgr
+        .find_or_create("feishu", &msg1, None)
+        .await
+        .expect("first find_or_create should succeed");
+
+    // Step 2: Seed checkpoint with old thread_id for fast path update
+    let reseed = SessionCheckpoint::new(session_id.clone())
+        .with_status(SessionStatus::Active)
+        .with_channel("feishu".to_string())
+        .with_chat_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string())
+        .with_thread_id("omt_old".to_string());
+    {
+        storage
+            .loaded_checkpoints
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), reseed);
+    }
+
+    // Step 3: Second find_or_create with thread_id = None (fast path)
+    let mut msg2 = test_message();
+    msg2.thread_id = None;
+    let session_id2 = mgr
+        .find_or_create("feishu", &msg2, None)
+        .await
+        .expect("second find_or_create should succeed");
+    assert_eq!(session_id, session_id2, "session_id should be the same");
+
+    // Verify thread_id was overwritten to None
+    let saved = storage.saved_checkpoints.lock().await;
+    let cp_updated = saved
+        .iter()
+        .rfind(|c| c.session_id == session_id)
+        .expect("should have saved checkpoint on fast path");
+    assert_eq!(
+        cp_updated.thread_id, None,
+        "fast path should overwrite thread_id with None"
+    );
+}
