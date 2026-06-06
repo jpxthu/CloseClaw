@@ -256,7 +256,7 @@ fn test_build_dynamic_sections_append_section() {
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
     let sections = build_dynamic_sections(3, &meta, None, &[]);
-    let full = build_full_system_prompt(Some("You are helpful."), &sections);
+    let full = build_full_system_prompt(Some("You are helpful."), &sections, None);
 
     // Contains static layer
     assert!(full.contains("You are helpful."));
@@ -273,7 +273,7 @@ fn test_build_full_system_prompt_composition() {
 fn test_build_full_system_prompt_no_static() {
     let meta = make_meta("bob", "ch", 0);
     let sections = build_dynamic_sections(0, &meta, None, &[]);
-    let full = build_full_system_prompt(None, &sections);
+    let full = build_full_system_prompt(None, &sections, None);
 
     // No boundary marker when no static prompt
     assert!(!full.contains("<!-- STATIC_LAYER_END -->"));
@@ -291,7 +291,7 @@ fn test_build_full_system_prompt_empty_dynamic() {
     let sections = build_dynamic_sections(0, &meta, None, &[]);
     // These two sections always render to non-empty strings, so dynamic is never truly empty.
     // But we verify the composition still works.
-    let full = build_full_system_prompt(Some("static"), &sections);
+    let full = build_full_system_prompt(Some("static"), &sections, None);
     assert!(full.contains("static"));
     assert!(full.contains("<!-- STATIC_LAYER_END -->"));
 }
@@ -410,3 +410,7 @@ fn test_workdir_path_no_config_dir_exposure() {
     assert!(!sanitized.contains(".closeclaw"));
     assert!(!sanitized.contains("/home/alice"));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Priority Prompt Override Tests (build_full_system_prompt)
+// ═══════════════════════════════════════════════════════════════════════════

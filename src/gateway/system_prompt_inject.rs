@@ -4,6 +4,7 @@
 //! system prompt.
 
 use crate::gateway::session_handler::MessageMetadata;
+use crate::system_prompt::builder::PromptOverrides;
 use crate::system_prompt::sections::Section;
 use crate::system_prompt::workdir;
 
@@ -64,10 +65,48 @@ pub(crate) fn build_dynamic_sections(
 /// Compose a full system prompt from static layer + dynamic sections.
 ///
 /// Inserts `<!-- STATIC_LAYER_END -->` between static and dynamic layers.
+///
+/// When `overrides` is provided and contains a non-None priority prompt,
+/// the resolution order is:
+///   1. `override_prompt` — highest priority
+///   2. `agent_prompt`    — agent-level prompt
+///   3. `custom_prompt`   — user-defined custom prompt
+///
+/// On a priority hit the matched prompt **replaces** the static layer and
+/// dynamic layers (ChannelContext / SessionState / GitStatus) are **not**
+/// injected — only `AppendSection` entries are appended.
 pub(crate) fn build_full_system_prompt(
     static_prompt: Option<&str>,
     dynamic_sections: &[Section],
+    overrides: Option<&PromptOverrides>,
 ) -> String {
+    // Check priority prompt overrides (override > agent > custom)
+    if let Some(ov) = overrides {
+        let priority = ov
+            .override_prompt
+            .as_deref()
+            .or(ov.agent_prompt.as_deref())
+            .or(ov.custom_prompt.as_deref());
+
+        if let Some(base) = priority {
+            // Filter AppendSection from dynamic sections to append separately
+            let append_parts: Vec<&str> = dynamic_sections
+                .iter()
+                .filter_map(|s| match s {
+                    Section::AppendSection(body) => Some(body.as_str()),
+                    _ => None,
+                })
+                .collect();
+
+            if append_parts.is_empty() {
+                return base.to_string();
+            }
+            let append_body = append_parts.join("\n");
+            return format!("{}\n\n## Append\n{}\n", base, append_body);
+        }
+    }
+
+    // Normal path: static + all dynamic sections
     let dynamic_rendered: String = dynamic_sections.iter().map(|s| s.render()).collect();
     if let Some(static_prompt) = static_prompt {
         if dynamic_rendered.is_empty() {

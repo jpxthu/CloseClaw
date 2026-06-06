@@ -2,17 +2,11 @@ use super::flush_tests::{test_config, test_message};
 use super::*;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
-use crate::system_prompt::{
-    invalidate_all_sections, set_agent_prompt, set_custom_prompt, set_override_prompt,
-};
-use serial_test::serial;
+use crate::system_prompt::invalidate_all_sections;
 use std::io::Write;
 use tempfile::TempDir;
 
 fn clear_global_prompt_state() {
-    set_override_prompt(None);
-    set_agent_prompt(None);
-    set_custom_prompt(None);
     invalidate_all_sections();
 }
 
@@ -41,7 +35,6 @@ fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
-#[serial]
 async fn test_rebuild_system_prompt_normal() {
     clear_global_prompt_state();
     let tmp = make_temp_workspace(&[
@@ -66,7 +59,6 @@ async fn test_rebuild_system_prompt_normal() {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_rebuild_system_prompt_edge_cases() {
     // nonexistent session — should not panic
     let mgr = make_test_mgr(None);

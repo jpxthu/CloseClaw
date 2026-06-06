@@ -79,7 +79,12 @@ impl SessionMessageHandler {
             Some(workdir_path.as_str()),
             &system_appends,
         );
-        let full_prompt = build_full_system_prompt(static_prompt_opt.as_deref(), &dynamic_sections);
+        let overrides = session_manager.get_prompt_overrides().await;
+        let full_prompt = build_full_system_prompt(
+            static_prompt_opt.as_deref(),
+            &dynamic_sections,
+            overrides.as_ref(),
+        );
 
         let mut messages = vec![];
         if !full_prompt.is_empty() {

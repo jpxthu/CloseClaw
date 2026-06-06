@@ -386,6 +386,9 @@ impl From<super::im::AdapterError> for GatewayError {
 }
 
 #[cfg(test)]
+#[path = "priority_prompt_tests.rs"]
+mod priority_prompt_tests;
+#[cfg(test)]
 mod session_handler_dynamic_tests;
 #[cfg(test)]
 mod session_handler_tests;
