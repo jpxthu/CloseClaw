@@ -9,7 +9,9 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use crate::llm::ReqwestHttpClient;
-use crate::llm::{ChatRequest, ChatResponse, HttpClient, LLMError, LLMProvider, ModelInfo, Usage};
+use crate::llm::{
+    ChatRequest, ChatResponse, HttpClient, LLMError, LLMProvider, ModelInfo, ModelLister, Usage,
+};
 
 #[path = "minimax_stream.rs"]
 pub(crate) mod minimax_stream;
@@ -351,6 +353,81 @@ impl LLMProvider for MiniMaxProvider {
         request: ChatRequest,
     ) -> Result<crate::llm::StreamingResponse, LLMError> {
         minimax_stream::send_streaming_request(self, request).await
+    }
+}
+
+#[async_trait]
+impl ModelLister for MiniMaxProvider {
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        let base = self
+            .base_url
+            .trim_end_matches("/chat/completions")
+            .trim_end_matches("/v1");
+        let url = format!("{}/v1/models", base);
+
+        let req = reqwest::Request::new(
+            reqwest::Method::GET,
+            reqwest::Url::parse(&url).expect("invalid URL"),
+        );
+        let mut req = req;
+        req.headers_mut().insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", bearer_token).parse().unwrap(),
+        );
+
+        let response = match timeout(Duration::from_secs(10), self.http_client.execute(req)).await {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(e)) => return Err(LLMError::NetworkError(e.to_string())),
+            Err(_) => {
+                return Err(LLMError::NetworkError(
+                    "fetch_model_list timed out after 10s".to_string(),
+                ))
+            }
+        };
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
+        }
+
+        let api_resp: MiniMaxModelsResponse = response
+            .json()
+            .await
+            .map_err(|e| LLMError::ApiError(e.to_string()))?;
+
+        let models: Vec<ModelInfo> = api_resp
+            .data
+            .into_iter()
+            .map(|m| {
+                use crate::llm::InputType;
+                let model_id = m.id.clone();
+                let kb = crate::llm::ProviderModelKnowledge::new();
+                let params = kb.find("minimax", &model_id);
+                let (context_window, max_tokens, default_temperature, reasoning, input_types) =
+                    match params {
+                        Some(p) => (
+                            p.context_window,
+                            p.max_tokens,
+                            Some(p.default_temperature),
+                            p.reasoning,
+                            p.input_types,
+                        ),
+                        None => (32_768, 8_192, Some(0.7), false, vec![InputType::Text]),
+                    };
+                ModelInfo {
+                    id: model_id.clone(),
+                    name: format!("MiniMax {}", model_id.trim_start_matches("MiniMax-")),
+                    context_window,
+                    max_tokens,
+                    default_temperature,
+                    reasoning,
+                    input_types,
+                }
+            })
+            .collect();
+
+        Ok(models)
     }
 }
 

@@ -76,6 +76,14 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Model discovery — query provider for available model list.
+/// Independent from Provider trait (HTTP transport) and LLMProvider (legacy).
+#[async_trait]
+pub trait ModelLister: Send + Sync {
+    /// Fetch available models from provider API.
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError>;
+}
+
 /// LLM message
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Message {

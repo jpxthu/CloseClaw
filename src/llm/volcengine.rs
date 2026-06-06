@@ -10,7 +10,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, Usage};
+use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, ModelLister, Usage};
 
 /// VolcEngine API endpoint
 const VOLCENGINE_API_URL: &str = "https://ARK.cn-beijing.volces.com/api/v3/chat/completions";
@@ -261,6 +261,75 @@ impl LLMProvider for VolcEngineProvider {
         "VolcEngine"
     }
 
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", bearer_token))
+            .send()
+            .await
+            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_http_error(status, &body));
+        }
+
+        let api_resp: VolcEngineModelsResponse = response.json().await.map_err(|e| {
+            LLMError::ApiError(format!(
+                "failed to parse VolcEngine /models response: {}",
+                e
+            ))
+        })?;
+
+        let models: Vec<ModelInfo> = api_resp
+            .data
+            .into_iter()
+            // Filter: domain must be "LLM"; status must NOT be Shutdown or Retiring
+            .filter(|m| {
+                m.domain.eq_ignore_ascii_case("LLM")
+                    && !m.status.eq_ignore_ascii_case("Shutdown")
+                    && !m.status.eq_ignore_ascii_case("Retiring")
+            })
+            .map(|m| {
+                let model_id = m.model_id.clone();
+                let props = &m.properties;
+                let input_types: Vec<crate::llm::InputType> = props
+                    .input_modalities
+                    .iter()
+                    .filter_map(|m| match m.to_lowercase().as_str() {
+                        "image" => Some(crate::llm::InputType::Image),
+                        _ => Some(crate::llm::InputType::Text),
+                    })
+                    .collect();
+                let input_types = if input_types.is_empty() {
+                    vec![crate::llm::InputType::Text]
+                } else {
+                    input_types
+                };
+
+                ModelInfo {
+                    id: model_id.clone(),
+                    name: m.model_name.unwrap_or_else(|| model_id.clone()),
+                    context_window: props.context_window.unwrap_or(32_768),
+                    max_tokens: props.max_tokens.unwrap_or(4_096),
+                    default_temperature: props.temperature,
+                    // VolcEngine does not expose a reasoning flag directly;
+                    // we conservatively set reasoning=false here.
+                    reasoning: false,
+                    input_types,
+                }
+            })
+            .collect();
+
+        Ok(models)
+    }
+}
+
+#[async_trait]
+impl ModelLister for VolcEngineProvider {
     async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
         let url = format!("{}/models", self.base_url.trim_end_matches('/'));
         let response = self

@@ -10,7 +10,8 @@ use tokio::time::timeout;
 
 use crate::llm::http_client::{HttpClient, ReqwestHttpClient};
 use crate::llm::{
-    ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, StreamingResponse, Usage,
+    ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, ModelLister, StreamingResponse,
+    Usage,
 };
 
 /// GLM API endpoint
@@ -308,28 +309,9 @@ impl GlmProvider {
             },
         })
     }
-}
 
-#[async_trait]
-impl LLMProvider for GlmProvider {
-    fn name(&self) -> &str {
-        "glm"
-    }
-
-    fn models(&self) -> Vec<&str> {
-        vec![
-            "glm-5.1",
-            "glm-4.7",
-            "glm-4.5-air",
-            "GLM-4.5-Air",
-            "GLM-4.7",
-            "glm-5-turbo",
-        ]
-    }
-    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
-        // GLM /models endpoint is at /api/paas/v4/models (not /coding/paas/v4!)
-        // base_url is the chat endpoint (e.g. https://open.bigmodel.cn/api/coding/paas/v4/chat/completions);
-        // Replace /coding/paas/v4/chat/completions with /paas/v4/models
+    /// Shared model-listing logic used by both `LLMProvider` and `ModelLister`.
+    async fn fetch_model_list_impl(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
         let models_url = self
             .base_url
             .replace("/coding/paas/v4/chat/completions", "/paas/v4/models")
@@ -370,7 +352,6 @@ impl LLMProvider for GlmProvider {
             .map(|m| {
                 use crate::llm::InputType;
                 let model_id = m.id.clone();
-                // Look up knowledge base for metadata; safe defaults if not found.
                 let kb = crate::llm::ProviderModelKnowledge::new();
                 let params = kb.find("glm", &model_id);
                 let (context_window, max_tokens, default_temperature, reasoning, input_types) =
@@ -403,6 +384,27 @@ impl LLMProvider for GlmProvider {
             .collect();
 
         Ok(models)
+    }
+}
+
+#[async_trait]
+impl LLMProvider for GlmProvider {
+    fn name(&self) -> &str {
+        "glm"
+    }
+
+    fn models(&self) -> Vec<&str> {
+        vec![
+            "glm-5.1",
+            "glm-4.7",
+            "glm-4.5-air",
+            "GLM-4.5-Air",
+            "GLM-4.7",
+            "glm-5-turbo",
+        ]
+    }
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        self.fetch_model_list_impl(bearer_token).await
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
@@ -453,6 +455,13 @@ impl LLMProvider for GlmProvider {
 
     async fn chat_streaming(&self, request: ChatRequest) -> Result<StreamingResponse, LLMError> {
         crate::llm::glm_stream::send_streaming_request(self, request).await
+    }
+}
+
+#[async_trait]
+impl ModelLister for GlmProvider {
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        self.fetch_model_list_impl(bearer_token).await
     }
 }
 

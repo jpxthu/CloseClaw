@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::llm::http_client::MockTimeoutHttpClient;
+use crate::llm::LLMProvider;
 use mockito::Server;
 
 // ---------------------------------------------------------------------------//
@@ -232,7 +233,9 @@ async fn test_fetch_model_list_success_mock() {
         "fake-key".into(),
         format!("{}/api/coding/paas/v4/chat/completions", server.url()),
     );
-    let models = provider.fetch_model_list("fake-key").await.unwrap();
+    let models = LLMProvider::fetch_model_list(&provider, "fake-key")
+        .await
+        .unwrap();
 
     m.assert_async().await;
     assert!(!models.is_empty(), "expected at least one model");
@@ -258,7 +261,9 @@ async fn test_glm_fetch_model_list_timeout_mock() {
         http_client,
     );
 
-    let err = provider.fetch_model_list("fake-key").await.unwrap_err();
+    let err = LLMProvider::fetch_model_list(&provider, "fake-key")
+        .await
+        .unwrap_err();
     assert!(matches!(err, LLMError::NetworkError(_)));
 }
 
@@ -281,7 +286,9 @@ async fn test_fetch_model_list_http_auth_failure_mock() {
         "fake-key".into(),
         format!("{}/api/coding/paas/v4/chat/completions", server.url()),
     );
-    let err = provider.fetch_model_list("fake-key").await.unwrap_err();
+    let err = LLMProvider::fetch_model_list(&provider, "fake-key")
+        .await
+        .unwrap_err();
 
     m.assert_async().await;
     matches!(err, LLMError::AuthFailed(_));

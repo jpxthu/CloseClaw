@@ -13,7 +13,7 @@ use crate::config::providers::{
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
 use crate::llm::{
-    DeepSeekProvider, GlmProvider, LLMProvider, MiniMaxProvider, ModelDiscovery,
+    DeepSeekProvider, GlmProvider, LLMProvider, MiniMaxProvider, ModelDiscovery, ModelLister,
     ProviderModelKnowledge, VolcEngineProvider,
 };
 use dialoguer::{Input, Select};
@@ -223,6 +223,17 @@ fn build_provider(info: &ProviderInfo, credential: &str) -> Arc<dyn LLMProvider>
     }
 }
 
+/// Build an `Arc<dyn ModelLister>` from the selected `ProviderInfo`.
+/// Same provider instances as `build_provider`, but typed for model discovery.
+fn build_model_lister(info: &ProviderInfo, credential: &str) -> Arc<dyn ModelLister> {
+    match info.provider_type {
+        ProviderType::Minimax => Arc::new(MiniMaxProvider::new(credential.to_string())),
+        ProviderType::Glm => Arc::new(GlmProvider::new(credential.to_string())),
+        ProviderType::Volcengine => Arc::new(VolcEngineProvider::new(credential.to_string())),
+        ProviderType::Deepseek => Arc::new(DeepSeekProvider::new(credential.to_string())),
+    }
+}
+
 /// Run the interactive config wizard.
 ///
 /// Returns `Ok(Some(output))` on success, `Ok(None)` on clean Ctrl+C exit,
@@ -286,17 +297,17 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         let info = ctx.selected_provider.as_ref().unwrap();
         let cred = ctx.credential.as_ref().unwrap();
         ctx.provider = Some(build_provider(info, cred));
-        let provider = ctx.provider.as_ref().unwrap();
+        let model_lister = build_model_lister(info, cred);
 
         print!("Fetching models from provider...");
         std::io::Write::flush(&mut std::io::stdout()).ok();
         let discovery = ModelDiscovery::new();
-        let p = Arc::clone(provider);
+        let ml = Arc::clone(&model_lister);
         let models = discovery
             .discover(info.id, cred, move |cred: &str| {
-                let p = Arc::clone(&p);
+                let ml = Arc::clone(&ml);
                 let cred = cred.to_string();
-                async move { p.fetch_model_list(&cred).await }
+                async move { ml.fetch_model_list(&cred).await }
             })
             .await;
         println!(" done");

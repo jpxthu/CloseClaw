@@ -10,7 +10,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, Usage};
+use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, ModelLister, Usage};
 
 /// DeepSeek API endpoint
 const DEEPSEEK_API_URL: &str = "https://api.deepseek.com";
@@ -308,6 +308,74 @@ impl LLMProvider for DeepSeekProvider {
                 // DeepSeek does not expose a reasoning flag in /models response.
                 // The reasoning_content field in chat responses indicates a reasoning model,
                 // but we cannot determine this from /models alone. Conservatively set reasoning=false.
+                ModelInfo {
+                    id: m.id.clone(),
+                    name: m.display_name.clone().unwrap_or_else(|| m.id.clone()),
+                    context_window: m.context_window.unwrap_or(64_000),
+                    max_tokens: m.max_output_tokens.unwrap_or(8_192),
+                    default_temperature: None,
+                    reasoning: false,
+                    input_types,
+                }
+            })
+            .collect();
+
+        Ok(models)
+    }
+}
+
+#[async_trait]
+impl ModelLister for DeepSeekProvider {
+    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", bearer_token))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_http_error(status, &body));
+        }
+
+        let api_resp: DeepSeekModelsResponse = response.json().await.map_err(|e| {
+            LLMError::ApiError(format!("failed to parse DeepSeek /models response: {}", e))
+        })?;
+
+        let models: Vec<ModelInfo> = api_resp
+            .data
+            .into_iter()
+            // Filter: only models that are not deprecated/shutdown
+            .filter(|m| {
+                m.status
+                    .as_ref()
+                    .map(|s| {
+                        !s.eq_ignore_ascii_case("deprecated") && !s.eq_ignore_ascii_case("shutdown")
+                    })
+                    .unwrap_or(true)
+            })
+            .map(|m| {
+                let input_types: Vec<crate::llm::InputType> = m
+                    .input_modalities
+                    .iter()
+                    .filter_map(|m| match m.to_lowercase().as_str() {
+                        "image" => Some(crate::llm::InputType::Image),
+                        _ => Some(crate::llm::InputType::Text),
+                    })
+                    .collect();
+                let input_types = if input_types.is_empty() {
+                    vec![crate::llm::InputType::Text]
+                } else {
+                    input_types
+                };
+
+                // DeepSeek does not expose reasoning flag in /models.
+                // Conservatively set reasoning=false.
                 ModelInfo {
                     id: m.id.clone(),
                     name: m.display_name.clone().unwrap_or_else(|| m.id.clone()),

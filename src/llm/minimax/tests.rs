@@ -3,7 +3,7 @@
 #![allow(deprecated)]
 
 use super::*;
-use crate::llm::{Message, ReqwestHttpClient};
+use crate::llm::{LLMProvider, Message, ReqwestHttpClient};
 
 // --- Fixture-based deserialization and content extraction tests ---
 
@@ -145,7 +145,9 @@ async fn test_fetch_model_list_success_mock() {
         .await;
 
     let provider = mock_provider(&server);
-    let models = provider.fetch_model_list("test-key").await.unwrap();
+    let models = LLMProvider::fetch_model_list(&provider, "test-key")
+        .await
+        .unwrap();
 
     m.assert_async().await;
     assert!(!models.is_empty());
@@ -171,7 +173,9 @@ async fn test_fetch_model_list_auth_failure_mock() {
         .await;
 
     let provider = mock_provider(&server);
-    let err = provider.fetch_model_list("test-key").await.unwrap_err();
+    let err = LLMProvider::fetch_model_list(&provider, "test-key")
+        .await
+        .unwrap_err();
 
     m.assert_async().await;
     assert!(matches!(err, LLMError::AuthFailed(_)));
@@ -187,7 +191,9 @@ async fn test_minimax_fetch_model_list_timeout_mock() {
         Arc::new(MockTimeoutHttpClient::new()),
     );
 
-    let err = provider.fetch_model_list("test-key").await.unwrap_err();
+    let err = LLMProvider::fetch_model_list(&provider, "test-key")
+        .await
+        .unwrap_err();
 
     assert!(matches!(err, LLMError::NetworkError(_)));
 }
