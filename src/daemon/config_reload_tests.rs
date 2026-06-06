@@ -28,3 +28,31 @@ fn test_filename_to_section() {
     assert_eq!(filename_to_section("agents.json"), None);
     assert_eq!(filename_to_section("unknown.json"), None);
 }
+
+/// Replicate the agents_dir path construction used by both
+/// `setup_watcher()` and `init_config_hot_reload()` so the logic
+/// can be tested without filesystem side-effects.
+fn agents_dir_for_config(config_dir: &str) -> std::path::PathBuf {
+    let config_path = std::path::Path::new(config_dir);
+    config_path.parent().unwrap_or(config_path).join("agents")
+}
+
+#[test]
+fn test_agents_dir_normal_config() {
+    let result = agents_dir_for_config("~/.closeclaw/config");
+    assert_eq!(result, std::path::PathBuf::from("~/.closeclaw/agents"));
+}
+
+#[test]
+fn test_agents_dir_root_config() {
+    let result = agents_dir_for_config("/config");
+    assert_eq!(result, std::path::PathBuf::from("/agents"));
+}
+
+#[test]
+fn test_agents_dir_fallback_no_parent() {
+    // When config_dir is "/" (root), parent() returns None,
+    // so unwrap_or falls back to the path itself.
+    let result = agents_dir_for_config("/");
+    assert_eq!(result, std::path::PathBuf::from("/agents"));
+}
