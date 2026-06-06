@@ -24,14 +24,15 @@ mod tests {
             status,
             last_message_at: Some(Utc::now()),
             message_count: 5,
-            channel: Some("test-channel".to_string()),
-            chat_id: Some("test-chat".to_string()),
+            platform: Some("test-channel".to_string()),
+            peer_id: Some("test-chat".to_string()),
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
             sender_id: None,
+            account_id: None,
         }
     }
 
@@ -51,8 +52,8 @@ mod tests {
 
         assert_eq!(loaded.session_id, checkpoint.session_id);
         assert_eq!(loaded.message_count, checkpoint.message_count);
-        assert_eq!(loaded.channel, checkpoint.channel);
-        assert_eq!(loaded.chat_id, checkpoint.chat_id);
+        assert_eq!(loaded.platform, checkpoint.platform);
+        assert_eq!(loaded.peer_id, checkpoint.peer_id);
 
         Ok(())
     }
@@ -381,14 +382,15 @@ mod tests {
             status: SessionStatus::Active,
             last_message_at: Some(chrono::Utc::now()),
             message_count: 1,
-            channel: Some("test-channel".to_string()),
-            chat_id: Some("test-chat".to_string()),
+            platform: Some("test-channel".to_string()),
+            peer_id: Some("test-chat".to_string()),
             agent_id: Some("agent-eda".to_string()),
             role: Some(AgentRole::SubAgent),
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
             sender_id: None,
+            account_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -420,14 +422,15 @@ mod tests {
             status: SessionStatus::Active,
             last_message_at: Some(chrono::Utc::now()),
             message_count: 1,
-            channel: None,
-            chat_id: None,
+            platform: None,
+            peer_id: None,
             agent_id: None,
             role: Some(AgentRole::SubAgent),
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
             sender_id: None,
+            account_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -459,14 +462,15 @@ mod tests {
             status: SessionStatus::Active,
             last_message_at: Some(chrono::Utc::now()),
             message_count: 10,
-            channel: Some("feishu".to_string()),
-            chat_id: Some("oc_123456".to_string()),
+            platform: Some("feishu".to_string()),
+            peer_id: Some("oc_123456".to_string()),
             agent_id: Some("my-agent".to_string()),
             role: Some(AgentRole::MainAgent),
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
             sender_id: None,
+            account_id: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 

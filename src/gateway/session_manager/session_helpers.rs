@@ -179,7 +179,7 @@ pub(super) async fn try_restore_archived_session_inner(
             id: format!("restore-{}", session_id),
             from: "system".to_string(),
             to: checkpoint
-                .chat_id
+                .peer_id
                 .as_deref()
                 .unwrap_or(session_id)
                 .to_string(),

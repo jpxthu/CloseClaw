@@ -176,7 +176,7 @@ pub fn load_checkpoint_inner(
         .prepare(
             "SELECT agent_id, role, channel, chat_id, status, title,
              last_message_at, created_at, archived_at, message_count, metadata, thread_id,
-             sender_id
+             sender_id, platform, peer_id, account_id
              FROM sessions WHERE id = ?1",
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -196,6 +196,9 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<String>>(10)?,
             row.get::<_, Option<String>>(11)?,
             row.get::<_, Option<String>>(12)?,
+            row.get::<_, Option<String>>(13)?,
+            row.get::<_, Option<String>>(14)?,
+            row.get::<_, Option<String>>(15)?,
         ))
     }) {
         Ok(r) => r,
@@ -217,6 +220,9 @@ pub fn load_checkpoint_inner(
         metadata,
         thread_id,
         sender_id,
+        platform_new,
+        peer_id_new,
+        account_id_new,
     ) = row;
 
     let status = match status_db.as_str() {
@@ -287,15 +293,25 @@ pub fn load_checkpoint_inner(
         status,
         last_message_at,
         message_count: msg_count as u64,
-        channel: if channel.is_empty() {
-            None
-        } else {
-            Some(channel)
+        platform: {
+            let has_new = platform_new.as_deref().map_or(false, |s| !s.is_empty());
+            if has_new {
+                platform_new
+            } else if channel.is_empty() {
+                None
+            } else {
+                Some(channel)
+            }
         },
-        chat_id: if chat_id.is_empty() {
-            None
-        } else {
-            Some(chat_id)
+        peer_id: {
+            let has_new = peer_id_new.as_deref().map_or(false, |s| !s.is_empty());
+            if has_new {
+                peer_id_new
+            } else if chat_id.is_empty() {
+                None
+            } else {
+                Some(chat_id)
+            }
         },
         agent_id: if agent_id_str.is_empty() {
             None
@@ -309,6 +325,7 @@ pub fn load_checkpoint_inner(
         },
         reasoning_level: crate::session::persistence::ReasoningLevel::default(),
         system_appends,
+        account_id: account_id_new,
         thread_id,
         sender_id,
     }))

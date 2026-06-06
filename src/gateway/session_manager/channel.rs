@@ -79,8 +79,8 @@ impl SessionManager {
         // message.from, so we use agent_id as a placeholder.
         let mut cp = SessionCheckpoint::new(session_id.clone())
             .with_status(SessionStatus::Active)
-            .with_channel(channel.to_string())
-            .with_chat_id(agent_id.to_string())
+            .with_platform(channel.to_string())
+            .with_peer_id(agent_id.to_string())
             .with_agent_id(agent_id.to_string());
         cp.sender_id = Some(agent_id.to_string());
         if let Some(storage) = self.storage.read().await.as_ref() {

@@ -32,7 +32,7 @@ impl MockPersistenceService {
     fn with_archived(session_id: &str, chat_id: &str) -> Arc<Self> {
         let cp = SessionCheckpoint::new(session_id.to_string())
             .with_status(SessionStatus::Archived)
-            .with_chat_id(chat_id.to_string());
+            .with_peer_id(chat_id.to_string());
         let archived = RwLock::new(std::collections::HashMap::from([(
             session_id.to_string(),
             cp,
@@ -46,7 +46,7 @@ impl MockPersistenceService {
     fn with_active(session_id: &str, chat_id: &str) -> Arc<Self> {
         let cp = SessionCheckpoint::new(session_id.to_string())
             .with_status(SessionStatus::Active)
-            .with_chat_id(chat_id.to_string());
+            .with_peer_id(chat_id.to_string());
         let checkpoints = RwLock::new(std::collections::HashMap::from([(
             session_id.to_string(),
             cp,

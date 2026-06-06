@@ -95,7 +95,7 @@ async fn test_resolve_path2_archived_hit_restore() {
         archived_checkpoint: Mutex::new(Some(
             SessionCheckpoint::new(session_id.to_string())
                 .with_status(SessionStatus::Archived)
-                .with_chat_id("agent-b".to_string()),
+                .with_peer_id("agent-b".to_string()),
         )),
         restore_called: Mutex::new(false),
     });
@@ -148,13 +148,13 @@ async fn test_rebuild_key_registry() {
     use crate::session::persistence::SessionCheckpoint;
 
     let mut cp1 = SessionCheckpoint::new("sid_old".to_string())
-        .with_channel("feishu".to_string())
-        .with_chat_id("agent-a".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-a".to_string())
         .with_agent_id("agent-a".to_string());
     cp1.created_at = chrono::Utc::now() - chrono::Duration::hours(2);
     let mut cp2 = SessionCheckpoint::new("sid_new".to_string())
-        .with_channel("feishu".to_string())
-        .with_chat_id("agent-a".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-a".to_string())
         .with_agent_id("agent-a".to_string());
     cp2.created_at = chrono::Utc::now();
 

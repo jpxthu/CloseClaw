@@ -141,14 +141,14 @@ mod tests {
             .with_status(SessionStatus::Archived)
             .with_last_message_at(now)
             .with_message_count(42)
-            .with_channel("feishu".to_string())
-            .with_chat_id("oc_123".to_string());
+            .with_platform("feishu".to_string())
+            .with_peer_id("oc_123".to_string());
 
         assert_eq!(cp.status, SessionStatus::Archived);
         assert_eq!(cp.last_message_at, Some(now));
         assert_eq!(cp.message_count, 42);
-        assert_eq!(cp.channel, Some("feishu".to_string()));
-        assert_eq!(cp.chat_id, Some("oc_123".to_string()));
+        assert_eq!(cp.platform, Some("feishu".to_string()));
+        assert_eq!(cp.peer_id, Some("oc_123".to_string()));
     }
 
     // ===================================================================
@@ -401,5 +401,51 @@ mod tests {
         let json = serde_json::to_string(&cp).unwrap();
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         assert!(parsed.thread_id.is_none());
+    }
+
+    // ── account_id tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_checkpoint_account_id_default_none() {
+        let cp = SessionCheckpoint::new("s5".into());
+        assert!(cp.account_id.is_none(), "account_id should default to None");
+    }
+
+    #[test]
+    fn test_checkpoint_with_account_id_builder() {
+        let cp = SessionCheckpoint::new("s6".into()).with_account_id("tenant-42".to_string());
+        assert_eq!(cp.account_id.as_deref(), Some("tenant-42"));
+    }
+
+    #[test]
+    fn test_checkpoint_account_id_roundtrip() {
+        let cp = SessionCheckpoint::new("s7".into()).with_account_id("tenant-99".to_string());
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.account_id.as_deref(), Some("tenant-99"));
+    }
+
+    #[test]
+    fn test_checkpoint_account_id_missing_json_defaults_none() {
+        // Simulate old JSON without account_id field — should deserialize to None
+        let cp = SessionCheckpoint::new("s8".into());
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        json_value.as_object_mut().unwrap().remove("account_id");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            parsed.account_id.is_none(),
+            "old data without account_id should default to None"
+        );
+    }
+
+    #[test]
+    fn test_checkpoint_platform_peer_id_account_id_none_roundtrip() {
+        let cp = SessionCheckpoint::new("s9".into());
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert!(parsed.platform.is_none());
+        assert!(parsed.peer_id.is_none());
+        assert!(parsed.account_id.is_none());
     }
 }

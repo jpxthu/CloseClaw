@@ -71,30 +71,30 @@ impl SessionManager {
             };
 
             // Extract routing fields.
-            let channel = match cp.channel.as_deref() {
-                Some(ch) => ch,
+            let platform = match cp.platform.as_deref() {
+                Some(p) => p,
                 None => {
-                    // No channel in checkpoint — can't reconstruct key.
+                    // No platform in checkpoint — can't reconstruct key.
                     continue;
                 }
             };
-            let chat_id = match cp.chat_id.as_deref() {
+            let peer_id = match cp.peer_id.as_deref() {
                 Some(id) => id,
                 None => {
-                    // No chat_id in checkpoint — can't reconstruct key.
+                    // No peer_id in checkpoint — can't reconstruct key.
                     continue;
                 }
             };
 
             // Reconstruct the session_key matching `compute_session_key(PerChannelPeer)`
-            // format: "{channel}:{from}:{to}".
+            // format: "{platform}:{from}:{peer_id}".
             // Prefer the persisted `sender_id` (message.from); fall back to
             // `agent_id` for checkpoints created before this field existed.
             let from = cp
                 .sender_id
                 .as_deref()
-                .unwrap_or_else(|| cp.agent_id.as_deref().unwrap_or(chat_id));
-            let session_key = format!("{}:{}:{}", channel, from, chat_id);
+                .unwrap_or_else(|| cp.agent_id.as_deref().unwrap_or(peer_id));
+            let session_key = format!("{}:{}:{}", platform, from, peer_id);
 
             let created = cp.created_at;
             match key_best.get(&session_key) {
