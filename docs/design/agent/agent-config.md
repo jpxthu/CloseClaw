@@ -142,22 +142,7 @@ spawn 子 agent 时，模型的最终选择按以下顺序确定：
 
 ### 配置生效路径
 
-```
-ResolvedAgentConfig 各字段分发到对应模块
-  ↓
-  model          → Session：设置默认 LLM 模型
-  workspace      → Session：工作目录路径（目标 agent 未指定时 fallback 到父 workspace 子目录）
-  bootstrapMode  → System Prompt：决定 bootstrap 文件加载集
-  agentDir       → System Prompt：bootstrap 文件读取路径
-  skills         → Skill Registry：过滤可见 skill 列表
-  tools          → Tool Registry：过滤可见工具白名单
-  disallowedTools → Tool Registry：排除禁用工具
-  subagents      → Agent：注入 session 的 spawn 控制上下文
-
-permissions.json 独立加载
-  ↓
-  permissions  → Permission：Agent 维度权限基线
-```
+详见 [agent/README.md](README.md) → 数据流 → Session 创建时读取 Agent 配置。
 
 ## 模块关系
 
@@ -165,20 +150,14 @@ permissions.json 独立加载
 
 | 模块 | 调用关系 |
 |------|---------|
-| 初始化阶段 | 由 Agent 模块在启动时加载配置文件，生成 ResolvedAgentConfig |
+| Config | 启动时通过 AgentDirectoryProvider 加载配置文件，生成 ResolvedAgentConfig |
 | Session | 创建 session 时读取 agent 配置，分发各字段 |
 | Gateway/Daemon | 外部消息到达时确定目标 agent ID |
 | CLI config wizard | 首次运行时创建初始 Agent（默认 ID `master`），写入注册清单和配置文件 |
 
 ### 下游（Agent 配置被谁消费）
 
-| 模块 | 消费方式 |
-|------|---------|
-| Session | 读取 model、workspace、subagents 控制参数 |
-| System Prompt | 读取 bootstrapMode、agentDir |
-| Permission | 读取 permissions.json 的权限基线规则 |
-| Skill Registry | 读取 skills 白名单 |
-| Tool Registry | 读取 tools 白名单、disallowedTools 黑名单 |
+详见 [agent/README.md](README.md) → 模块关系 → 下游。
 
 ### 无关
 
