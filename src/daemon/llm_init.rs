@@ -1,7 +1,5 @@
 //! LLM provider registration helpers
 
-#![allow(deprecated)]
-
 use super::*;
 use crate::config::providers::CredentialsProvider;
 use crate::llm::anthropic::AnthropicProvider;
@@ -61,15 +59,9 @@ impl Daemon {
             .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = anthropic_key {
-            let bridge = Arc::new(LegacyProviderBridge::new(
-                AnthropicProvider::new(api_key.clone()),
-                "https://api.anthropic.com".to_string(),
-                api_key,
-                vec![],
-                client.clone(),
-                empty_headers.clone(),
-            ));
-            registry.register("anthropic".to_string(), bridge).await;
+            let provider: Arc<dyn crate::llm::provider::Provider> =
+                Arc::new(AnthropicProvider::new(api_key.clone()));
+            registry.register("anthropic".to_string(), provider).await;
             info!("Anthropic provider registered");
         }
 
