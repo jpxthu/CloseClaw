@@ -3,27 +3,23 @@
 //! Uses the DeepSeek API. Chat endpoint is OpenAI-compatible at
 //! `base_url/chat/completions`. Model list is fetched from `base_url/models`.
 
-#![allow(deprecated)]
-
 use async_trait::async_trait;
+use futures::StreamExt;
+use reqwest::header::HeaderMap;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::sync::mpsc;
 
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider, ModelInfo, ModelLister, Usage};
+use crate::llm::provider::{Provider, ProviderError, SseStream};
+use crate::llm::types::{
+    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
+};
+use crate::llm::{LLMError, ModelInfo, ModelLister};
 
 /// DeepSeek API endpoint
 const DEEPSEEK_API_URL: &str = "https://api.deepseek.com";
-
-/// DeepSeek chat request body (OpenAI-compatible)
-#[derive(Debug, Serialize)]
-struct DeepSeekRequest<'a> {
-    model: &'a str,
-    messages: &'a [crate::llm::Message],
-    temperature: f32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_tokens: Option<u32>,
-}
 
 /// DeepSeek chat response body (OpenAI-compatible)
 #[allow(dead_code)]
@@ -126,6 +122,7 @@ pub struct DeepSeekProvider {
     api_key: String,
     base_url: String,
     http_client: Client,
+    supported_protocols: Vec<ProtocolId>,
 }
 
 impl DeepSeekProvider {
@@ -142,185 +139,200 @@ impl DeepSeekProvider {
             api_key,
             base_url,
             http_client,
+            supported_protocols: vec![ProtocolId::new("openai")],
         }
     }
 
-    fn map_http_error(status: reqwest::StatusCode, body: &str) -> LLMError {
-        match status.as_u16() {
-            401 | 403 => LLMError::AuthFailed(body.to_string()),
-            404 => LLMError::ModelNotFound(body.to_string()),
-            422 => LLMError::InvalidRequest(body.to_string()),
-            429 => LLMError::RateLimitExceeded,
-            _ => LLMError::ApiError(format!("unexpected status {}: {}", status, body)),
-        }
+    fn chat_url(&self) -> String {
+        format!("{}/chat/completions", self.base_url)
     }
 
-    fn models_static() -> Vec<&'static str> {
-        vec!["deepseek-v4-flash", "deepseek-v4-pro"]
+    /// Map HTTP status code to the appropriate provider error.
+    fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
+        ProviderError::Legacy(format!("DeepSeek API error {}: {}", status, body))
     }
 }
 
+// ── Provider trait implementation ─────────────────────────────────────────────
+
 #[async_trait]
-impl LLMProvider for DeepSeekProvider {
-    fn name(&self) -> &str {
+impl Provider for DeepSeekProvider {
+    fn id(&self) -> &str {
         "deepseek"
     }
 
-    fn models(&self) -> Vec<&str> {
-        Self::models_static()
+    fn base_url(&self) -> &str {
+        &self.base_url
     }
 
-    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
-        let req_body = DeepSeekRequest {
-            model: &request.model,
-            messages: &request.messages,
-            temperature: request.temperature,
-            max_tokens: request.max_tokens,
-        };
+    fn api_key(&self) -> &str {
+        &self.api_key
+    }
 
-        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+    fn supported_protocols(&self) -> &[ProtocolId] {
+        &self.supported_protocols
+    }
+
+    fn http_client(&self) -> &Client {
+        &self.http_client
+    }
+
+    fn default_headers(&self) -> &HeaderMap {
+        static EMPTY: OnceLock<HeaderMap> = OnceLock::new();
+        EMPTY.get_or_init(HeaderMap::new)
+    }
+
+    async fn send(
+        &self,
+        _request: InternalRequest,
+        body: serde_json::Value,
+    ) -> crate::llm::provider::Result<InternalResponse> {
+        let url = self.chat_url();
+
         let response = self
             .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&req_body)
+            .json(&body)
             .send()
-            .await
-            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+            .await?;
 
-        let status = response.status();
-
-        if !status.is_success() {
+        if !response.status().is_success() {
+            let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_http_error(status, &body));
+            return Err(Self::map_status_error(status, body));
         }
 
-        let api_resp: DeepSeekResponse = response
-            .json()
-            .await
-            .map_err(|e| LLMError::ApiError(format!("failed to parse DeepSeek response: {}", e)))?;
+        let ds_resp: DeepSeekResponse = response.json().await.map_err(ProviderError::Reqwest)?;
 
         // Check for business-level error in response body
-        if let Some(ref err) = api_resp.error {
+        if let Some(ref err) = ds_resp.error {
             let code = err.code.as_deref().unwrap_or("");
             let msg = err.message.as_deref().unwrap_or("unknown error");
-            return Err(match code {
-                "invalid_api_key" | "forbidden" => LLMError::AuthFailed(msg.to_string()),
-                "model_not_found" | "1301" => LLMError::ModelNotFound(msg.to_string()),
-                "invalid_request" | "1302" => LLMError::InvalidRequest(msg.to_string()),
-                "rate_limit_exceeded" | "1401" => LLMError::RateLimitExceeded,
-                _ => LLMError::ApiError(format!("DeepSeek API error {}: {}", code, msg)),
-            });
+            return Err(ProviderError::Legacy(format!(
+                "DeepSeek API error {}: {}",
+                code, msg
+            )));
         }
 
-        let msg = api_resp
-            .choices
-            .first()
-            .map(|c| &c.message)
-            .ok_or_else(|| LLMError::ApiError("no choices in DeepSeek response".to_string()))?;
+        let choice =
+            ds_resp.choices.into_iter().next().ok_or_else(|| {
+                ProviderError::Legacy("no choices in DeepSeek response".to_string())
+            })?;
 
-        let content = msg.content.clone();
-        let usage = api_resp.usage.as_ref();
+        let mut content_blocks = Vec::new();
 
-        Ok(ChatResponse {
-            content,
-            model: api_resp.model,
-            usage: Usage {
-                prompt_tokens: usage.and_then(|u| u.prompt_tokens).unwrap_or(0),
-                completion_tokens: usage.and_then(|u| u.completion_tokens).unwrap_or(0),
-                total_tokens: usage.and_then(|u| u.total_tokens).unwrap_or(0),
+        // reasoning_content → Thinking block (DeepSeek reasoning models)
+        if let Some(reasoning) = choice.message.reasoning_content {
+            if !reasoning.is_empty() {
+                content_blocks.push(RawContentBlock::Thinking(reasoning));
+            }
+        }
+
+        // content → Text block
+        if !choice.message.content.is_empty() {
+            content_blocks.push(RawContentBlock::Text(choice.message.content));
+        }
+
+        // Ensure at least one content block (fallback to empty text)
+        if content_blocks.is_empty() {
+            content_blocks.push(RawContentBlock::Text(String::new()));
+        }
+
+        let usage = ds_resp.usage.unwrap_or_default();
+
+        Ok(InternalResponse {
+            content_blocks,
+            usage: RawUsage {
+                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
+                completion_tokens: usage.completion_tokens.unwrap_or(0),
+                total_tokens: usage.total_tokens,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
+            finish_reason: choice.finish_reason,
         })
     }
 
-    async fn chat_streaming(
+    async fn send_streaming(
         &self,
-        request: ChatRequest,
-    ) -> Result<crate::llm::StreamingResponse, LLMError> {
-        // Default implementation: call chat() and wrap as single-chunk stream.
-        let (tx, rx) = tokio::sync::mpsc::channel(32);
-        let response = self.chat(request).await?;
-        let _ = tx
-            .send(crate::llm::ChatStreamChunk::Text(response.content))
-            .await;
-        let _ = tx
-            .send(crate::llm::ChatStreamChunk::Done {
-                model: response.model,
-                usage: response.usage,
-            })
-            .await;
-        Ok(rx)
-    }
+        _request: InternalRequest,
+        body: serde_json::Value,
+    ) -> crate::llm::provider::Result<SseStream> {
+        let url = self.chat_url();
 
-    fn provider_display_name(&self) -> &str {
-        "DeepSeek"
-    }
-
-    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
-        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
         let response = self
             .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", bearer_token))
-            .timeout(Duration::from_secs(10))
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
             .send()
-            .await
-            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
+            .await?;
 
-        let status = response.status();
-        if !status.is_success() {
+        if !response.status().is_success() {
+            let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_http_error(status, &body));
+            return Err(Self::map_status_error(status, body));
         }
 
-        let api_resp: DeepSeekModelsResponse = response.json().await.map_err(|e| {
-            LLMError::ApiError(format!("failed to parse DeepSeek /models response: {}", e))
-        })?;
+        let (tx, rx) = mpsc::channel(64);
 
-        let models: Vec<ModelInfo> = api_resp
-            .data
-            .into_iter()
-            // Filter: only models that are not deprecated/shutdown
-            .filter(|m| {
-                m.status
-                    .as_ref()
-                    .map(|s| {
-                        !s.eq_ignore_ascii_case("deprecated") && !s.eq_ignore_ascii_case("shutdown")
-                    })
-                    .unwrap_or(true)
-            })
-            .map(|m| {
-                let input_types: Vec<crate::llm::InputType> = m
-                    .input_modalities
-                    .iter()
-                    .filter_map(|m| match m.to_lowercase().as_str() {
-                        "image" => Some(crate::llm::InputType::Image),
-                        _ => Some(crate::llm::InputType::Text),
-                    })
-                    .collect();
-                let input_types = if input_types.is_empty() {
-                    vec![crate::llm::InputType::Text]
-                } else {
-                    input_types
+        tokio::spawn(async move {
+            let mut stream = response.bytes_stream();
+            let mut buffer = String::new();
+
+            while let Some(chunk_result) = stream.next().await {
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(_) => break,
                 };
 
-                // DeepSeek does not expose a reasoning flag in /models response.
-                // The reasoning_content field in chat responses indicates a reasoning model,
-                // but we cannot determine this from /models alone. Conservatively set reasoning=false.
-                ModelInfo {
-                    id: m.id.clone(),
-                    name: m.display_name.clone().unwrap_or_else(|| m.id.clone()),
-                    context_window: m.context_window.unwrap_or(64_000),
-                    max_tokens: m.max_output_tokens.unwrap_or(8_192),
-                    default_temperature: None,
-                    reasoning: false,
-                    input_types,
-                }
-            })
-            .collect();
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-        Ok(models)
+                // Process complete SSE events (separated by \n\n)
+                while let Some(pos) = buffer.find("\n\n") {
+                    let event_block = buffer[..pos].to_string();
+                    buffer = buffer[pos + 2..].to_string();
+
+                    for line in event_block.lines() {
+                        if let Some(data) = line.strip_prefix("data: ") {
+                            let data = data.trim().to_string();
+                            if data == "[DONE]" {
+                                return;
+                            }
+                            let _ = tx
+                                .send(RawSseChunk {
+                                    event_type: "message".into(),
+                                    data,
+                                })
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            // Process any remaining data in buffer
+            if !buffer.is_empty() {
+                for line in buffer.lines() {
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        let data = data.trim().to_string();
+                        if data == "[DONE]" {
+                            return;
+                        }
+                        let _ = tx
+                            .send(RawSseChunk {
+                                event_type: "message".into(),
+                                data,
+                            })
+                            .await;
+                    }
+                }
+            }
+        });
+
+        Ok(rx)
     }
 }
 
@@ -340,7 +352,13 @@ impl ModelLister for DeepSeekProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_http_error(status, &body));
+            return Err(match status.as_u16() {
+                401 | 403 => LLMError::AuthFailed(body),
+                404 => LLMError::ModelNotFound(body),
+                422 => LLMError::InvalidRequest(body),
+                429 => LLMError::RateLimitExceeded,
+                _ => LLMError::ApiError(format!("unexpected status {}: {}", status, body)),
+            });
         }
 
         let api_resp: DeepSeekModelsResponse = response.json().await.map_err(|e| {
@@ -393,5 +411,5 @@ impl ModelLister for DeepSeekProvider {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "deepseek/tests.rs"]
 mod tests;

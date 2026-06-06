@@ -144,7 +144,7 @@ pub enum StreamEvent {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Raw content block used internally by Protocol implementations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "content", rename_all = "snake_case")]
 pub enum RawContentBlock {
     /// Text content block with a string payload.

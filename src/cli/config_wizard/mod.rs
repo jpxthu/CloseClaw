@@ -219,7 +219,10 @@ fn build_provider(info: &ProviderInfo, credential: &str) -> Arc<dyn LLMProvider>
         ProviderType::Minimax => Arc::new(MiniMaxProvider::new(credential.to_string())),
         ProviderType::Glm => Arc::new(GlmProvider::new(credential.to_string())),
         ProviderType::Volcengine => Arc::new(VolcEngineProvider::new(credential.to_string())),
-        ProviderType::Deepseek => Arc::new(DeepSeekProvider::new(credential.to_string())),
+        // DeepSeek migrated to Provider trait; ctx.provider is dead code
+        ProviderType::Deepseek => {
+            panic!("DeepSeek no longer implements LLMProvider; use build_model_lister")
+        }
     }
 }
 
