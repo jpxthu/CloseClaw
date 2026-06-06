@@ -4,22 +4,14 @@
 mod tests {
     use crate::llm::fake::FakeProvider;
     use crate::llm::fallback::FallbackClient;
-    use crate::llm::legacy::legacy_provider::LegacyProviderBridge;
     use crate::llm::LLMRegistry;
     use crate::llm::Message;
     use crate::session::compaction::{execute_compact, CompactionError};
     use std::sync::Arc;
 
-    /// Wrap a FakeProvider into an `Arc<dyn Provider>` via LegacyProviderBridge.
+    /// Wrap a FakeProvider into an `Arc<dyn Provider>`.
     fn fake_as_dyn(provider: FakeProvider) -> Arc<dyn crate::llm::provider::Provider> {
-        Arc::new(LegacyProviderBridge::new(
-            provider,
-            String::new(),
-            String::new(),
-            vec![],
-            reqwest::Client::new(),
-            reqwest::header::HeaderMap::new(),
-        ))
+        Arc::new(provider)
     }
 
     /// Build a FallbackClient from a FakeProvider for use with `execute_compact`.
@@ -60,9 +52,9 @@ mod tests {
         assert!(r.message.contains("2 messages"));
 
         // Verify mock received the correct messages
-        let captured = provider.captured_requests();
+        let captured = provider.captured_internal_requests();
         assert_eq!(captured.len(), 1);
-        let req = &captured[0];
+        let req = &captured[0].request;
         // First message is the compaction system prompt
         assert_eq!(req.messages[0].role, "system");
         assert!(req.messages[0].content.contains("session summarizer"));
@@ -93,7 +85,9 @@ mod tests {
     #[tokio::test]
     async fn test_execute_compact_llm_failure() {
         let provider = FakeProvider::builder()
-            .then_err(crate::llm::LLMError::RateLimitExceeded)
+            .then_err(crate::llm::provider::ProviderError::Legacy(
+                "rate limit exceeded".to_string(),
+            ))
             .build();
 
         let client = build_fallback_client(provider).await;
@@ -204,9 +198,9 @@ mod tests {
         assert!(r.performed);
 
         // Verify the ChatRequest does NOT contain system role messages (except compaction prompt)
-        let captured = provider.captured_requests();
+        let captured = provider.captured_internal_requests();
         assert_eq!(captured.len(), 1);
-        let req = &captured[0];
+        let req = &captured[0].request;
 
         // Total messages: 1 compaction system prompt + 2 filtered conversation messages = 3
         assert_eq!(req.messages.len(), 3);
