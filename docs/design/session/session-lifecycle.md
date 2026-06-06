@@ -9,8 +9,8 @@
 ### 数据模型
 
 **SessionCheckpoint** 是 session 持久化的核心数据结构，包含：
-- 标识：session_id、agent_id、role（主 agent / 子 agent）、last_message_id
-- 路由信息：channel（如 feishu）、chat_id
+- 标识：session_id（格式 `{agent_id}_{timestamp}_{random_suffix}`）、agent_id、role（主 agent / 子 agent）、last_message_id
+- 路由信息：platform（如 feishu）、sender_id（发送者平台内 ID）、peer_id（会话对端：群聊 chat_id 或私聊对方 ID）、account_id（租户标识，可选）、thread_id（话题 ID，可选）
 - 生命周期状态：status（active / archived）、created_at
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：direct/plan/stream）、mode_state（推理步骤状态）
 - 统计：last_message_at（最后消息时间，Sweeper 用来判断 idle）、message_count
@@ -94,7 +94,7 @@ Sweeper 定时触发 run_once
 
 ```
 用户再次访问已归档 session
-  → SessionManager 或 Gateway 检测到 status=archived
+  → SessionManager.resolve(session_key) 命中 archived session → 触发 restore 流程
   → Gateway 发送 "正在恢复会话..." 通知
   → SqliteStorage.restore_session(session_id)
     → 文件 move：archived_sessions/<id>.jsonl → sessions/<id>.jsonl
