@@ -7,8 +7,8 @@
 use super::*;
 
 // Re-export types used in tests that aren't brought in by the parent's glob.
+use crate::llm::provider::ProviderError;
 use crate::llm::types::InternalMessage;
-use crate::llm::LLMError;
 use crate::session::persistence::ReasoningLevel;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ async fn test_send_converts_request_and_returns_response() {
 #[tokio::test]
 async fn test_send_error_propagates() {
     let fake = crate::llm::FakeProvider::builder()
-        .then_err(LLMError::RateLimitExceeded)
+        .then_err(ProviderError::Legacy("Rate limit exceeded".to_string()))
         .build();
     let a = adapter(fake);
 
@@ -183,7 +183,7 @@ async fn test_send_streaming_returns_chunks() {
 #[tokio::test]
 async fn test_send_streaming_error_closes_channel() {
     let fake = crate::llm::FakeProvider::builder()
-        .then_err(LLMError::ApiError("stream error".into()))
+        .then_err(ProviderError::Legacy("stream error".to_string()))
         .build();
     let a = adapter(fake);
 
