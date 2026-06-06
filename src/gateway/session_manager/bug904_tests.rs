@@ -162,8 +162,8 @@ async fn test_flush_all_preserves_existing_thread_id() {
     // Bug #904: flush_all should not discard an existing thread_id.
     let existing_cp = SessionCheckpoint::new("sess-flush-tid".to_string())
         .with_status(SessionStatus::Active)
-        .with_channel("feishu".to_string())
-        .with_chat_id("agent-b".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
         .with_agent_id("agent-b".to_string())
         .with_thread_id("omt_existing_thread".to_string());
 
@@ -239,8 +239,8 @@ async fn test_active_session_fast_path_updates_thread_id() {
     // Step 2: Seed checkpoint for fast path update (mock removes on load)
     let reseed = SessionCheckpoint::new(session_id.clone())
         .with_status(SessionStatus::Active)
-        .with_channel("feishu".to_string())
-        .with_chat_id("agent-b".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
         .with_agent_id("agent-b".to_string())
         .with_thread_id("omt_initial".to_string());
     {
@@ -303,8 +303,8 @@ async fn test_channel_override_fast_path_updates_thread_id() {
     // Step 3: Seed checkpoint for fast path update
     let reseed = SessionCheckpoint::new(session_id.clone())
         .with_status(SessionStatus::Active)
-        .with_channel("feishu".to_string())
-        .with_chat_id("agent-b".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
         .with_agent_id("agent-b".to_string());
     {
         storage
@@ -360,8 +360,8 @@ async fn test_fast_path_thread_id_none_overwrites_old_value() {
     // Step 2: Seed checkpoint with old thread_id for fast path update
     let reseed = SessionCheckpoint::new(session_id.clone())
         .with_status(SessionStatus::Active)
-        .with_channel("feishu".to_string())
-        .with_chat_id("agent-b".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
         .with_agent_id("agent-b".to_string())
         .with_thread_id("omt_old".to_string());
     {

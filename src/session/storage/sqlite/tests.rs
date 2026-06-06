@@ -22,14 +22,15 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         status: SessionStatus::Active,
         last_message_at: None,
         message_count: 0,
-        channel: None,
-        chat_id: None,
+        platform: None,
+        peer_id: None,
         agent_id: None,
         role: None,
         reasoning_level: ReasoningLevel::default(),
         system_appends: Vec::new(),
         thread_id: None,
         sender_id: None,
+        account_id: None,
     }
 }
 
@@ -90,4 +91,143 @@ async fn test_load_system_appends_backward_compat() {
         loaded.system_appends.is_empty(),
         "missing system_appends key in metadata should yield empty Vec"
     );
+}
+
+// ===================================================================
+// Fallback loading: new columns (platform/peer_id/account_id) NULL
+// should fall back to old channel/chat_id columns
+// ===================================================================
+
+#[tokio::test]
+async fn test_load_fallback_channel_chat_id_to_platform_peer_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // 1. Save a checkpoint with platform/peer_id set (new code path)
+    let mut checkpoint = create_test_checkpoint("fallback-1");
+    checkpoint.platform = Some("feishu".to_string());
+    checkpoint.peer_id = Some("oc_abc".to_string());
+    checkpoint.account_id = Some("tenant-1".to_string());
+    storage.save_checkpoint(&checkpoint).await.unwrap();
+
+    // 2. Simulate old data: set platform/peer_id/account_id to NULL in DB
+    //    but keep channel/chat_id with values (as old code would have written)
+    {
+        let db_path = tmp.path().join("sessions.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE sessions SET channel = 'feishu', chat_id = 'oc_old_chat', platform = NULL, peer_id = NULL, account_id = NULL WHERE id = ?1",
+            params!["fallback-1"],
+        )
+        .unwrap();
+    }
+
+    // 3. Load — should fallback to channel/chat_id
+    let loaded = storage.load_checkpoint("fallback-1").await.unwrap();
+    assert!(loaded.is_some(), "loaded checkpoint should exist");
+    let loaded = loaded.unwrap();
+    assert_eq!(
+        loaded.platform.as_deref(),
+        Some("feishu"),
+        "platform should fallback to old channel column"
+    );
+    assert_eq!(
+        loaded.peer_id.as_deref(),
+        Some("oc_old_chat"),
+        "peer_id should fallback to old chat_id column"
+    );
+    assert!(
+        loaded.account_id.is_none(),
+        "account_id should be None when new column is NULL"
+    );
+}
+
+#[tokio::test]
+async fn test_load_new_columns_take_precedence_over_old() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // 1. Save a checkpoint
+    let mut checkpoint = create_test_checkpoint("fallback-2");
+    checkpoint.platform = Some("telegram".to_string());
+    checkpoint.peer_id = Some("tg_new_peer".to_string());
+    checkpoint.account_id = Some("tenant-2".to_string());
+    storage.save_checkpoint(&checkpoint).await.unwrap();
+
+    // 2. Manually set old columns to different values, keep new columns populated
+    {
+        let db_path = tmp.path().join("sessions.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE sessions SET channel = 'old_feishu', chat_id = 'oc_old_value' WHERE id = ?1",
+            params!["fallback-2"],
+        )
+        .unwrap();
+    }
+
+    // 3. Load — new columns should take precedence
+    let loaded = storage.load_checkpoint("fallback-2").await.unwrap();
+    assert!(loaded.is_some());
+    let loaded = loaded.unwrap();
+    assert_eq!(
+        loaded.platform.as_deref(),
+        Some("telegram"),
+        "new platform column should take precedence over old channel"
+    );
+    assert_eq!(
+        loaded.peer_id.as_deref(),
+        Some("tg_new_peer"),
+        "new peer_id column should take precedence over old chat_id"
+    );
+    assert_eq!(
+        loaded.account_id.as_deref(),
+        Some("tenant-2"),
+        "account_id should be loaded from new column"
+    );
+}
+
+#[tokio::test]
+async fn test_load_both_new_and_old_null_yields_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // 1. Save a checkpoint with no platform/peer_id/account_id
+    let checkpoint = create_test_checkpoint("fallback-3");
+    storage.save_checkpoint(&checkpoint).await.unwrap();
+
+    // 2. Verify channel/chat_id are empty strings (default), new columns NULL
+    {
+        let db_path = tmp.path().join("sessions.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        let channel: String = conn
+            .query_row(
+                "SELECT channel FROM sessions WHERE id = ?1",
+                params!["fallback-3"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let chat_id: String = conn
+            .query_row(
+                "SELECT chat_id FROM sessions WHERE id = ?1",
+                params!["fallback-3"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(channel.is_empty(), "channel should be empty string");
+        assert!(chat_id.is_empty(), "chat_id should be empty string");
+    }
+
+    // 3. Load — both platform and peer_id should be None
+    let loaded = storage.load_checkpoint("fallback-3").await.unwrap();
+    assert!(loaded.is_some());
+    let loaded = loaded.unwrap();
+    assert!(
+        loaded.platform.is_none(),
+        "platform should be None when both new and old columns are empty"
+    );
+    assert!(
+        loaded.peer_id.is_none(),
+        "peer_id should be None when both new and old columns are empty"
+    );
+    assert!(loaded.account_id.is_none());
 }

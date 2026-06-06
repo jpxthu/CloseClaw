@@ -197,8 +197,8 @@ impl SessionManager {
         // Save checkpoint
         let mut cp = SessionCheckpoint::new(session_id.clone())
             .with_status(SessionStatus::Active)
-            .with_channel(channel.to_string())
-            .with_chat_id(message.to.clone())
+            .with_platform(channel.to_string())
+            .with_peer_id(message.to.clone())
             .with_agent_id(message.to.clone());
         if let Some(ref thread_id) = message.thread_id {
             cp = cp.with_thread_id(thread_id.clone());
