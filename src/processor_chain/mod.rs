@@ -10,6 +10,7 @@
 //! - [`RawMessageLog`] — snapshot of raw message at each processing step
 //! - [`ProcessError`] — error types
 
+pub mod content_normalizer;
 pub mod context;
 #[cfg(test)]
 mod context_tests;
@@ -18,8 +19,6 @@ pub mod dsl_parser;
 mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
-pub mod markdown_normalizer;
-pub mod message_cleaner;
 pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
