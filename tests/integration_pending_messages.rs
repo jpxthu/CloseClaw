@@ -17,6 +17,7 @@ use std::sync::Arc;
 use closeclaw::gateway::session_manager::SessionManager;
 use closeclaw::gateway::{DmScope, GatewayConfig, Message};
 use closeclaw::llm::fake::FakeProvider;
+use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
 use closeclaw::llm::LLMRegistry;
 use closeclaw::session::bootstrap::BootstrapMode;
 use closeclaw::session::persistence::ReasoningLevel;
@@ -61,9 +62,15 @@ async fn setup_session_manager() -> Arc<SessionManager> {
     let provider = FakeProvider::builder()
         .then_ok("fake response", "fake-model")
         .build();
-    registry
-        .register("fake".to_string(), Arc::new(provider))
-        .await;
+    let wrapped: Arc<dyn closeclaw::llm::provider::Provider> = Arc::new(LegacyProviderBridge::new(
+        provider,
+        String::new(),
+        String::new(),
+        vec![],
+        reqwest::Client::new(),
+        reqwest::header::HeaderMap::new(),
+    ));
+    registry.register("fake".to_string(), wrapped).await;
 
     sm
 }

@@ -5,6 +5,8 @@
 pub mod anthropic;
 pub mod cache_adapter;
 pub mod fallback;
+#[cfg(test)]
+mod fallback_tests;
 pub mod glm;
 pub mod glm_stream;
 pub mod http_client;
@@ -276,7 +278,7 @@ impl LLMError {
 
 /// LLM Registry - manages multiple providers
 pub struct LLMRegistry {
-    providers: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn LLMProvider>>>,
+    providers: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn Provider>>>,
 }
 
 impl Default for LLMRegistry {
@@ -292,12 +294,12 @@ impl LLMRegistry {
         }
     }
 
-    pub async fn register(&self, name: String, provider: Arc<dyn LLMProvider>) {
+    pub async fn register(&self, name: String, provider: Arc<dyn Provider>) {
         let mut providers = self.providers.write().await;
         providers.insert(name, provider);
     }
 
-    pub async fn get(&self, name: &str) -> Option<Arc<dyn LLMProvider>> {
+    pub async fn get(&self, name: &str) -> Option<Arc<dyn Provider>> {
         let providers = self.providers.read().await;
         providers.get(name).cloned()
     }
@@ -311,7 +313,19 @@ impl LLMRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::legacy::legacy_provider::LegacyProviderBridge;
     use crate::llm::stub::StubProvider;
+
+    fn stub_bridge() -> LegacyProviderBridge<StubProvider> {
+        LegacyProviderBridge::new(
+            StubProvider::new(),
+            String::new(),
+            String::new(),
+            vec![],
+            reqwest::Client::new(),
+            reqwest::header::HeaderMap::new(),
+        )
+    }
 
     #[test]
     fn test_message_serde() {
@@ -330,6 +344,36 @@ mod tests {
         // Registry should start empty
         let providers = registry.list().await;
         assert!(providers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_registry_register_and_retrieve() {
+        let registry = LLMRegistry::new();
+        let bridge = Arc::new(stub_bridge());
+
+        registry
+            .register("test-stub".to_string(), bridge.clone())
+            .await;
+
+        let retrieved = registry.get("test-stub").await;
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().id(), "stub");
+    }
+
+    #[tokio::test]
+    async fn test_registry_list() {
+        let registry = LLMRegistry::new();
+        registry
+            .register("a".to_string(), Arc::new(stub_bridge()))
+            .await;
+        registry
+            .register("b".to_string(), Arc::new(stub_bridge()))
+            .await;
+
+        let providers = registry.list().await;
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains(&"a".to_string()));
+        assert!(providers.contains(&"b".to_string()));
     }
 
     // Test default implementations for new trait methods added in issue #525.

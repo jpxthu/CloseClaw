@@ -1,8 +1,11 @@
 //! LLM provider registration helpers
 
+#![allow(deprecated)]
+
 use super::*;
 use crate::config::providers::CredentialsProvider;
 use crate::llm::anthropic::AnthropicProvider;
+use crate::llm::legacy::legacy_provider::LegacyProviderBridge;
 use crate::llm::minimax::MiniMaxProvider;
 use crate::llm::openai::OpenAIProvider;
 use crate::llm::LLMRegistry;
@@ -31,14 +34,24 @@ impl Daemon {
             }
         };
 
+        let client = reqwest::Client::new();
+        let empty_headers = reqwest::header::HeaderMap::new();
+
         // Register OpenAI provider: credentials file first, then env var fallback
         let openai_key = creds_provider
             .get_api_key("openai")
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = openai_key {
-            let provider = Arc::new(OpenAIProvider::new(api_key));
-            registry.register("openai".to_string(), provider).await;
+            let bridge = Arc::new(LegacyProviderBridge::new(
+                OpenAIProvider::new(api_key.clone()),
+                "https://api.openai.com/v1".to_string(),
+                api_key,
+                vec![],
+                client.clone(),
+                empty_headers.clone(),
+            ));
+            registry.register("openai".to_string(), bridge).await;
             info!("OpenAI provider registered");
         }
 
@@ -48,8 +61,15 @@ impl Daemon {
             .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = anthropic_key {
-            let provider = Arc::new(AnthropicProvider::new(api_key));
-            registry.register("anthropic".to_string(), provider).await;
+            let bridge = Arc::new(LegacyProviderBridge::new(
+                AnthropicProvider::new(api_key.clone()),
+                "https://api.anthropic.com".to_string(),
+                api_key,
+                vec![],
+                client.clone(),
+                empty_headers.clone(),
+            ));
+            registry.register("anthropic".to_string(), bridge).await;
             info!("Anthropic provider registered");
         }
 
@@ -59,8 +79,15 @@ impl Daemon {
             .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = minimax_key {
-            let provider = Arc::new(MiniMaxProvider::new(api_key));
-            registry.register("minimax".to_string(), provider).await;
+            let bridge = Arc::new(LegacyProviderBridge::new(
+                MiniMaxProvider::new(api_key.clone()),
+                "https://api.minimax.chat".to_string(),
+                api_key,
+                vec![],
+                client.clone(),
+                empty_headers.clone(),
+            ));
+            registry.register("minimax".to_string(), bridge).await;
             info!("MiniMax provider registered");
         }
 

@@ -12,6 +12,8 @@ mod tests {
     use closeclaw::chat::protocol::ServerMessage;
     use closeclaw::chat::session::LegacyChatSession;
     use closeclaw::llm::fake::{FakeProvider, Scenario};
+    use closeclaw::llm::fallback::FallbackClient;
+    use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
     use closeclaw::llm::LLMRegistry;
     use closeclaw::llm::Message;
     use closeclaw::session::compaction::execute_compact;
@@ -40,9 +42,16 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(2);
 
         let registry = Arc::new(LLMRegistry::new());
-        registry
-            .register("fake".to_string(), Arc::new(fake_provider))
-            .await;
+        let wrapped: Arc<dyn closeclaw::llm::provider::Provider> =
+            Arc::new(LegacyProviderBridge::new(
+                fake_provider,
+                String::new(),
+                String::new(),
+                vec![],
+                reqwest::Client::new(),
+                reqwest::header::HeaderMap::new(),
+            ));
+        registry.register("fake".to_string(), wrapped).await;
 
         let session = LegacyChatSession::new(
             "test-session".to_string(),
@@ -113,9 +122,16 @@ mod tests {
         let (_shutdown_tx, shutdown_rx) = broadcast::channel::<()>(2);
 
         let registry = Arc::new(LLMRegistry::new());
-        registry
-            .register("fake".to_string(), Arc::new(fake_provider))
-            .await;
+        let wrapped: Arc<dyn closeclaw::llm::provider::Provider> =
+            Arc::new(LegacyProviderBridge::new(
+                fake_provider,
+                String::new(),
+                String::new(),
+                vec![],
+                reqwest::Client::new(),
+                reqwest::header::HeaderMap::new(),
+            ));
+        registry.register("fake".to_string(), wrapped).await;
 
         // Create session but do NOT call run() — keep it alive via Arc.
         // Hold a mutable reference to inspect chat_history directly.
@@ -189,11 +205,19 @@ mod tests {
         std::env::set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
 
         let registry = Arc::new(LLMRegistry::new());
-        registry
-            .register("fake".to_string(), Arc::new(fake_provider))
-            .await;
+        let wrapped: Arc<dyn closeclaw::llm::provider::Provider> =
+            Arc::new(LegacyProviderBridge::new(
+                fake_provider,
+                String::new(),
+                String::new(),
+                vec![],
+                reqwest::Client::new(),
+                reqwest::header::HeaderMap::new(),
+            ));
+        registry.register("fake".to_string(), wrapped).await;
 
-        let llm = registry.get("fake").await.unwrap();
+        let fallback_client =
+            FallbackClient::from_strings(registry, vec!["fake/glm-5".to_string()]);
 
         let messages = vec![
             Message {
@@ -222,7 +246,7 @@ mod tests {
             },
         ];
 
-        let result = execute_compact(&messages, llm.as_ref(), "glm-5", None, false)
+        let result = execute_compact(&messages, &fallback_client, "glm-5", None, false)
             .await
             .expect("execute_compact should succeed");
 
