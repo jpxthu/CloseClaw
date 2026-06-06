@@ -3,14 +3,41 @@
 #[cfg(all(test, feature = "fake-llm"))]
 mod tests {
     use crate::llm::fake::FakeProvider;
+    use crate::llm::fallback::FallbackClient;
+    use crate::llm::legacy::legacy_provider::LegacyProviderBridge;
+    use crate::llm::LLMRegistry;
     use crate::llm::Message;
     use crate::session::compaction::{execute_compact, CompactionError};
+    use std::sync::Arc;
+
+    /// Wrap a FakeProvider into an `Arc<dyn Provider>` via LegacyProviderBridge.
+    fn fake_as_dyn(provider: FakeProvider) -> Arc<dyn crate::llm::provider::Provider> {
+        Arc::new(LegacyProviderBridge::new(
+            provider,
+            String::new(),
+            String::new(),
+            vec![],
+            reqwest::Client::new(),
+            reqwest::header::HeaderMap::new(),
+        ))
+    }
+
+    /// Build a FallbackClient from a FakeProvider for use with `execute_compact`.
+    async fn build_fallback_client(provider: FakeProvider) -> FallbackClient {
+        let registry = Arc::new(LLMRegistry::new());
+        registry
+            .register("fake".to_string(), fake_as_dyn(provider))
+            .await;
+        FallbackClient::from_strings(registry, vec!["fake/fake-model".to_string()])
+    }
 
     #[tokio::test]
     async fn test_execute_compact_success() {
         let provider = FakeProvider::builder()
             .then_ok("<summary>Compacted summary content</summary>", "glm-5.1")
             .build();
+
+        let client = build_fallback_client(provider.clone()).await;
 
         let messages = vec![
             Message {
@@ -23,7 +50,7 @@ mod tests {
             },
         ];
 
-        let result = execute_compact(&messages, &provider, "glm-5.1", None, false).await;
+        let result = execute_compact(&messages, &client, "glm-5.1", None, false).await;
 
         assert!(result.is_ok());
         let r = result.unwrap();
@@ -53,9 +80,11 @@ mod tests {
             .then_ok("<summary>content</summary>", "glm-5.1")
             .build();
 
+        let client = build_fallback_client(provider).await;
+
         let messages: Vec<Message> = vec![];
 
-        let result = execute_compact(&messages, &provider, "glm-5.1", None, true).await;
+        let result = execute_compact(&messages, &client, "glm-5.1", None, true).await;
 
         assert!(result.is_err());
         assert!(matches!(result, Err(CompactionError::EmptyMessages)));
@@ -67,12 +96,14 @@ mod tests {
             .then_err(crate::llm::LLMError::RateLimitExceeded)
             .build();
 
+        let client = build_fallback_client(provider).await;
+
         let messages = vec![Message {
             role: "user".to_string(),
             content: "test".to_string(),
         }];
 
-        let result = execute_compact(&messages, &provider, "glm-5.1", None, false).await;
+        let result = execute_compact(&messages, &client, "glm-5.1", None, false).await;
 
         assert!(result.is_err());
         assert!(matches!(result, Err(CompactionError::LLMCallFailed(_))));
@@ -84,12 +115,14 @@ mod tests {
             .then_ok("No summary tag in response", "glm-5.1")
             .build();
 
+        let client = build_fallback_client(provider).await;
+
         let messages = vec![Message {
             role: "user".to_string(),
             content: "test".to_string(),
         }];
 
-        let result = execute_compact(&messages, &provider, "glm-5.1", None, true).await;
+        let result = execute_compact(&messages, &client, "glm-5.1", None, true).await;
 
         assert!(result.is_err());
         assert!(matches!(result, Err(CompactionError::SummaryParseFailed)));
@@ -101,19 +134,15 @@ mod tests {
             .then_ok("<summary>Test summary</summary>", "glm-5.1")
             .build();
 
+        let client = build_fallback_client(provider).await;
+
         let messages = vec![Message {
             role: "user".to_string(),
             content: "Test".to_string(),
         }];
 
-        let result = execute_compact(
-            &messages,
-            &provider,
-            "glm-5.1",
-            Some("重点保留用户名"),
-            true,
-        )
-        .await;
+        let result =
+            execute_compact(&messages, &client, "glm-5.1", Some("重点保留用户名"), true).await;
 
         assert!(result.is_ok());
         let r = result.unwrap();
@@ -127,12 +156,14 @@ mod tests {
             .then_ok("<summary>Auto summary</summary>", "glm-5.1")
             .build();
 
+        let client = build_fallback_client(provider).await;
+
         let messages = vec![Message {
             role: "user".to_string(),
             content: "test".to_string(),
         }];
 
-        let result = execute_compact(&messages, &provider, "glm-5.1", None, true).await;
+        let result = execute_compact(&messages, &client, "glm-5.1", None, true).await;
 
         assert!(result.is_ok());
         let r = result.unwrap();
@@ -144,6 +175,8 @@ mod tests {
         let provider = FakeProvider::builder()
             .then_ok("<summary>Filtered summary</summary>", "glm-5.1")
             .build();
+
+        let client = build_fallback_client(provider.clone()).await;
 
         let messages = vec![
             Message {
@@ -164,7 +197,7 @@ mod tests {
             },
         ];
 
-        let result = execute_compact(&messages, &provider, "glm-5.1", None, false).await;
+        let result = execute_compact(&messages, &client, "glm-5.1", None, false).await;
 
         assert!(result.is_ok());
         let r = result.unwrap();

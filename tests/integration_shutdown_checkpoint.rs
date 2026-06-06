@@ -17,10 +17,12 @@ use std::sync::Arc;
 use closeclaw::gateway::session_manager::SessionManager;
 use closeclaw::gateway::{DmScope, GatewayConfig, Message};
 use closeclaw::llm::fake::FakeProvider;
+use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
 use closeclaw::llm::session::ConversationSession;
 use closeclaw::llm::LLMRegistry;
 use closeclaw::session::bootstrap::BootstrapMode;
 use closeclaw::session::persistence::PersistenceService;
+use closeclaw::session::persistence::ReasoningLevel;
 use closeclaw::session::storage::sqlite::SqliteStorage;
 use tempfile::TempDir;
 
@@ -78,9 +80,15 @@ async fn setup_session_manager_with_storage() -> (Arc<SessionManager>, FakeProvi
     let provider_clone = provider.clone();
 
     let registry = Arc::new(LLMRegistry::new());
-    registry
-        .register("fake".to_string(), Arc::new(provider_clone))
-        .await;
+    let wrapped: Arc<dyn closeclaw::llm::provider::Provider> = Arc::new(LegacyProviderBridge::new(
+        provider_clone,
+        String::new(),
+        String::new(),
+        vec![],
+        reqwest::Client::new(),
+        reqwest::header::HeaderMap::new(),
+    ));
+    registry.register("fake".to_string(), wrapped).await;
 
     (sm, provider, test_root)
 }

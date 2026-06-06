@@ -7,8 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::llm::ChatRequest;
 use crate::llm::Message;
-use crate::llm::{ChatRequest, LLMProvider};
 
 /// Configuration for compaction behavior.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,7 +128,7 @@ pub fn format_boundary_message(summary: &str, is_auto: bool) -> String {
 /// * `SummaryParseFailed` - LLM response contains no `<summary>` tag
 pub async fn execute_compact(
     messages: &[Message],
-    llm: &dyn LLMProvider,
+    llm: &crate::llm::fallback::FallbackClient,
     model_name: &str,
     custom_instructions: Option<&str>,
     is_auto: bool,
