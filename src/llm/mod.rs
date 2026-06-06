@@ -313,18 +313,10 @@ impl LLMRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::legacy::legacy_provider::LegacyProviderBridge;
     use crate::llm::stub::StubProvider;
 
-    fn stub_bridge() -> LegacyProviderBridge<StubProvider> {
-        LegacyProviderBridge::new(
-            StubProvider::new(),
-            String::new(),
-            String::new(),
-            vec![],
-            reqwest::Client::new(),
-            reqwest::header::HeaderMap::new(),
-        )
+    fn stub_provider() -> Arc<dyn Provider> {
+        Arc::new(StubProvider::new())
     }
 
     #[test]
@@ -349,10 +341,10 @@ mod tests {
     #[tokio::test]
     async fn test_registry_register_and_retrieve() {
         let registry = LLMRegistry::new();
-        let bridge = Arc::new(stub_bridge());
+        let provider = stub_provider();
 
         registry
-            .register("test-stub".to_string(), bridge.clone())
+            .register("test-stub".to_string(), provider.clone())
             .await;
 
         let retrieved = registry.get("test-stub").await;
@@ -363,38 +355,12 @@ mod tests {
     #[tokio::test]
     async fn test_registry_list() {
         let registry = LLMRegistry::new();
-        registry
-            .register("a".to_string(), Arc::new(stub_bridge()))
-            .await;
-        registry
-            .register("b".to_string(), Arc::new(stub_bridge()))
-            .await;
+        registry.register("a".to_string(), stub_provider()).await;
+        registry.register("b".to_string(), stub_provider()).await;
 
         let providers = registry.list().await;
         assert_eq!(providers.len(), 2);
         assert!(providers.contains(&"a".to_string()));
         assert!(providers.contains(&"b".to_string()));
-    }
-
-    // Test default implementations for new trait methods added in issue #525.
-    // provider_display_name defaults to name(); fetch_model_list defaults to ModelNotFound.
-    // All concrete providers (MiniMax, GLM, OpenAI, Anthropic, Stub, Fake) use these
-    // defaults, so we verify the defaults via StubProvider.
-
-    #[tokio::test]
-    async fn test_provider_display_name_default() {
-        let provider = StubProvider::new();
-        // Default impl of provider_display_name returns self.name()
-        assert_eq!(provider.provider_display_name(), provider.name());
-    }
-
-    #[tokio::test]
-    async fn test_fetch_model_list_default_returns_model_not_found() {
-        let provider = StubProvider::new();
-        let result: Result<Vec<crate::llm::ModelInfo>, LLMError> =
-            provider.fetch_model_list("fake-token").await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, LLMError::ModelNotFound(_)));
     }
 }

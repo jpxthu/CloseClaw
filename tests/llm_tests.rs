@@ -3,76 +3,94 @@
 //! Tests the StubProvider and LLMRegistry integration.
 //! These tests verify that the agent+LLM call chain works in CI.
 
-#![allow(deprecated)]
-
 use std::sync::Arc;
 
-use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
-use closeclaw::llm::{ChatRequest, LLMProvider, LLMRegistry, Message, StubProvider};
+use closeclaw::llm::provider::Provider;
+use closeclaw::llm::types::{InternalMessage, InternalRequest, RawContentBlock};
+use closeclaw::llm::{LLMRegistry, StubProvider};
+use closeclaw::session::ReasoningLevel;
 
-fn stub_bridge() -> LegacyProviderBridge<StubProvider> {
-    LegacyProviderBridge::new(
-        StubProvider::new(),
-        String::new(),
-        String::new(),
-        vec![],
-        reqwest::Client::new(),
-        reqwest::header::HeaderMap::new(),
-    )
+fn stub_provider() -> Arc<dyn Provider> {
+    Arc::new(StubProvider::new())
 }
 
 #[tokio::test]
 async fn test_stub_provider_is_stub() {
     let provider = StubProvider::new();
-    assert!(
-        provider.is_stub(),
-        "StubProvider should return true for is_stub()"
-    );
+    assert_eq!(provider.id(), "stub", "StubProvider id should be 'stub'");
 }
 
 #[tokio::test]
 async fn test_stub_provider_chat_returns_fixed_response() {
     let provider = StubProvider::new();
-    let request = ChatRequest {
+    let request = InternalRequest {
         model: "gpt-4".to_string(),
-        messages: vec![Message {
+        messages: vec![InternalMessage {
             role: "user".to_string(),
             content: "Hello, world!".to_string(),
         }],
         temperature: 0.7,
         max_tokens: None,
+        stream: false,
+        extra_body: serde_json::Map::new(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        session_id: None,
+        reasoning_level: ReasoningLevel::default(),
     };
+    let body = serde_json::to_value(&request).unwrap();
 
-    let response = provider.chat(request).await.unwrap();
-    assert_eq!(response.content, "stub response");
-    assert_eq!(response.model, "stub-model");
-    assert!(response.usage.total_tokens > 0);
+    let response = provider.send(request, body).await.unwrap();
+    assert_eq!(response.content_blocks.len(), 1);
+    match &response.content_blocks[0] {
+        RawContentBlock::Text(s) => {
+            assert_eq!(s, "stub response");
+        }
+        _ => panic!("Expected Text content block"),
+    }
+    assert!(response.usage.total_tokens.is_some());
+    assert!(response.usage.total_tokens.unwrap() > 0);
 }
 
 #[tokio::test]
 async fn test_stub_provider_custom_response() {
     let provider = StubProvider::with_response("custom test response");
-    let request = ChatRequest {
+    let request = InternalRequest {
         model: "claude-3".to_string(),
-        messages: vec![Message {
+        messages: vec![InternalMessage {
             role: "user".to_string(),
             content: "test input".to_string(),
         }],
         temperature: 0.0,
         max_tokens: Some(100),
+        stream: false,
+        extra_body: serde_json::Map::new(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        session_id: None,
+        reasoning_level: ReasoningLevel::default(),
     };
+    let body = serde_json::to_value(&request).unwrap();
 
-    let response = provider.chat(request).await.unwrap();
-    assert_eq!(response.content, "custom test response");
+    let response = provider.send(request, body).await.unwrap();
+    assert_eq!(response.content_blocks.len(), 1);
+    match &response.content_blocks[0] {
+        RawContentBlock::Text(s) => {
+            assert_eq!(s, "custom test response");
+        }
+        _ => panic!("Expected Text content block"),
+    }
 }
 
 #[tokio::test]
 async fn test_llm_registry_register_and_retrieve_stub_provider() {
     let registry = LLMRegistry::new();
-    let bridge = Arc::new(stub_bridge());
+    let provider = stub_provider();
 
     registry
-        .register("test-stub".to_string(), bridge.clone())
+        .register("test-stub".to_string(), provider.clone())
         .await;
 
     let retrieved = registry.get("test-stub").await;
@@ -90,19 +108,12 @@ async fn test_llm_registry_list_includes_stub() {
     let registry = LLMRegistry::new();
 
     registry
-        .register("stub-1".to_string(), Arc::new(stub_bridge()))
+        .register("stub-1".to_string(), stub_provider())
         .await;
     registry
         .register(
             "stub-2".to_string(),
-            Arc::new(LegacyProviderBridge::new(
-                StubProvider::with_response("other"),
-                String::new(),
-                String::new(),
-                vec![],
-                reqwest::Client::new(),
-                reqwest::header::HeaderMap::new(),
-            )),
+            Arc::new(StubProvider::with_response("other")),
         )
         .await;
 
@@ -114,20 +125,11 @@ async fn test_llm_registry_list_includes_stub() {
 
 #[tokio::test]
 async fn test_stub_provider_through_registry_chat() {
-    use closeclaw::llm::types::{InternalMessage, InternalRequest};
-
     let registry = LLMRegistry::new();
-    let bridge = Arc::new(LegacyProviderBridge::new(
-        StubProvider::with_response("agent response from stub"),
-        String::new(),
-        String::new(),
-        vec![],
-        reqwest::Client::new(),
-        reqwest::header::HeaderMap::new(),
-    ));
+    let provider = Arc::new(StubProvider::with_response("agent response from stub"));
 
     registry
-        .register("test-agent".to_string(), bridge.clone())
+        .register("test-agent".to_string(), provider.clone())
         .await;
 
     let agent_provider = registry.get("test-agent").await.unwrap();
@@ -145,7 +147,7 @@ async fn test_stub_provider_through_registry_chat() {
         system_dynamic: None,
         system_blocks: None,
         session_id: None,
-        reasoning_level: closeclaw::session::persistence::ReasoningLevel::default(),
+        reasoning_level: ReasoningLevel::default(),
     };
     let body = serde_json::to_value(&internal_req).unwrap();
 
