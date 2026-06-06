@@ -12,10 +12,9 @@ use serde::Deserialize;
 use crate::renderer::feishu::FeishuRenderer;
 use crate::renderer::Renderer;
 
+use super::content_normalizer::ContentNormalizer;
 use super::dsl_parser::DslParser;
 use super::error::ProcessError;
-use super::markdown_normalizer::MarkdownNormalizer;
-use super::message_cleaner::MessageCleaner;
 use super::processor::MessageProcessor;
 use super::raw_log_processor::{RawLogConfig, RawLogProcessor};
 use super::registry::ProcessorRegistry;
@@ -69,12 +68,9 @@ pub enum ProcessorConfig {
         #[serde(default = "default_retention_days")]
         retention_days: u32,
     },
-    /// [`MessageCleaner`](super::message_cleaner::MessageCleaner) — strips feishu
-    /// platform fields and extracts clean text content.
-    MessageCleaner,
-    /// [`MarkdownNormalizer`](super::markdown_normalizer::MarkdownNormalizer) —
-    /// standardises markdown formatting before LLM input.
-    MarkdownNormalizer,
+    /// [`ContentNormalizer`](super::content_normalizer::ContentNormalizer) — strips
+    /// feishu platform fields, extracts clean text, and normalises markdown.
+    ContentNormalizer,
     /// [`DslParser`](super::dsl_parser::DslParser) — outbound processor that
     /// parses `::button[...]` DSL instructions and stores them in metadata.
     DslParser,
@@ -147,8 +143,7 @@ impl ProcessorChainLoader {
                 })?;
                 Ok(Arc::new(processor))
             }
-            ProcessorConfig::MessageCleaner => Ok(Arc::new(MessageCleaner::new())),
-            ProcessorConfig::MarkdownNormalizer => Ok(Arc::new(MarkdownNormalizer::new())),
+            ProcessorConfig::ContentNormalizer => Ok(Arc::new(ContentNormalizer::new())),
             ProcessorConfig::DslParser => Ok(Arc::new(DslParser::default())),
         }
     }
@@ -189,9 +184,9 @@ mod tests {
     }
 
     #[test]
-    fn test_load_message_cleaner() {
+    fn test_load_content_normalizer() {
         let config = ProcessorChainConfig {
-            inbound: vec![ProcessorConfig::MessageCleaner],
+            inbound: vec![ProcessorConfig::ContentNormalizer],
             outbound: vec![],
             renderer: None,
         };
@@ -201,19 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_markdown_normalizer() {
-        let config = ProcessorChainConfig {
-            inbound: vec![ProcessorConfig::MarkdownNormalizer],
-            outbound: vec![],
-            renderer: None,
-        };
-        let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
-        assert_eq!(registry.inbound_len(), 1);
-        assert!(renderer.is_none());
-    }
-
-    #[test]
-    fn test_load_all_three_processors() {
+    fn test_load_all_processors() {
         let tmp = tempfile::tempdir().unwrap();
         let config = ProcessorChainConfig {
             inbound: vec![
@@ -222,14 +205,13 @@ mod tests {
                     dir: tmp.path().to_path_buf(),
                     retention_days: 7,
                 },
-                ProcessorConfig::MessageCleaner,
-                ProcessorConfig::MarkdownNormalizer,
+                ProcessorConfig::ContentNormalizer,
             ],
             outbound: vec![],
             renderer: None,
         };
         let (registry, renderer) = ProcessorChainLoader::load(&config).unwrap();
-        assert_eq!(registry.inbound_len(), 3);
+        assert_eq!(registry.inbound_len(), 2);
         assert!(renderer.is_none());
     }
 
@@ -248,7 +230,7 @@ mod tests {
     #[test]
     fn test_load_both_inbound_and_outbound() {
         let config = ProcessorChainConfig {
-            inbound: vec![ProcessorConfig::MessageCleaner],
+            inbound: vec![ProcessorConfig::ContentNormalizer],
             outbound: vec![ProcessorConfig::DslParser],
             renderer: None,
         };
@@ -277,22 +259,12 @@ mod tests {
     }
 
     #[test]
-    fn test_message_cleaner_deserialization() {
-        let json = r#"{"type":"message_cleaner"}"#;
+    fn test_content_normalizer_deserialization() {
+        let json = r#"{"type":"content_normalizer"}"#;
         let config: ProcessorConfig = serde_json::from_str(json).unwrap();
         match config {
-            ProcessorConfig::MessageCleaner => {}
-            _ => panic!("expected MessageCleaner variant"),
-        }
-    }
-
-    #[test]
-    fn test_markdown_normalizer_deserialization() {
-        let json = r#"{"type":"markdown_normalizer"}"#;
-        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
-        match config {
-            ProcessorConfig::MarkdownNormalizer => {}
-            _ => panic!("expected MarkdownNormalizer variant"),
+            ProcessorConfig::ContentNormalizer => {}
+            _ => panic!("expected ContentNormalizer variant"),
         }
     }
 
