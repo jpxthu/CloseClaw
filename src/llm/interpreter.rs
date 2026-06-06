@@ -310,9 +310,9 @@ impl ModelInterpreter for GlmInterpreter {
 /// Interpreter for DeepSeek provider.
 ///
 /// DeepSeek uses an OpenAI-compatible wire format with `reasoning_content`
-/// support for reasoning models. Since the protocol layer already normalises
-/// the response into `RawContentBlock` variants, this interpreter applies the
-/// same identity transformation as [`DefaultInterpreter`].
+/// support for reasoning models. When the text content is empty, the
+/// `reasoning_content` is mapped to a [`ContentBlock::Thinking`] block.
+/// This mirrors the merging rule used by [`MinimaxInterpreter`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DeepSeekInterpreter;
 
@@ -320,9 +320,46 @@ impl ModelInterpreter for DeepSeekInterpreter {
     fn name(&self) -> &str {
         "deepseek"
     }
+
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
-        DefaultInterpreter.interpret_response(response)
+        let mut text_parts: Vec<String> = vec![];
+        let mut thinking_parts: Vec<String> = vec![];
+        for block in response.content_blocks {
+            match block {
+                RawContentBlock::Text(s) => text_parts.push(s),
+                RawContentBlock::Thinking(s) => thinking_parts.push(s),
+                RawContentBlock::ToolUse { id, name, input } => {
+                    text_parts.push(format!("id:{id} name:{name} input:{input}"))
+                }
+                RawContentBlock::ToolResult {
+                    tool_call_id,
+                    content,
+                } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
+            }
+        }
+        let content_blocks: Vec<ContentBlock> = if text_parts.iter().all(|s| s.is_empty()) {
+            if !thinking_parts.is_empty() {
+                vec![ContentBlock::Thinking(thinking_parts.join(""))]
+            } else {
+                vec![]
+            }
+        } else {
+            vec![ContentBlock::Text(text_parts.join(""))]
+        };
+        UnifiedResponse {
+            content_blocks,
+            usage: UnifiedUsage {
+                prompt_tokens: response.usage.prompt_tokens,
+                completion_tokens: response.usage.completion_tokens,
+                total_tokens: response.usage.total_tokens,
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: response.finish_reason,
+        }
     }
+
     fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent> {
         Some(event)
     }

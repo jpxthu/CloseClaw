@@ -294,66 +294,6 @@ impl DeepSeekProviderWithCustomClient {
 }
 
 // -------------------------------------------------------------------------
-// extract_content() unit tests
-// -------------------------------------------------------------------------
-
-#[test]
-fn test_extract_content_with_content() {
-    let msg = DeepSeekMessage {
-        role: "assistant".to_string(),
-        content: "Hello, world!".to_string(),
-        reasoning_content: Some("Let me think...".to_string()),
-    };
-    // content takes priority
-    assert_eq!(DeepSeekProvider::extract_content(&msg), "Hello, world!");
-}
-
-#[test]
-fn test_extract_content_fallback_to_reasoning() {
-    let msg = DeepSeekMessage {
-        role: "assistant".to_string(),
-        content: "".to_string(),
-        reasoning_content: Some("I should help with that.".to_string()),
-    };
-    // empty content falls back to reasoning_content
-    assert_eq!(
-        DeepSeekProvider::extract_content(&msg),
-        "I should help with that."
-    );
-}
-
-#[test]
-fn test_extract_content_whitespace_trimmed() {
-    let msg = DeepSeekMessage {
-        role: "assistant".to_string(),
-        content: "  Hello, world!  ".to_string(),
-        reasoning_content: None,
-    };
-    assert_eq!(DeepSeekProvider::extract_content(&msg), "Hello, world!");
-}
-
-#[test]
-fn test_extract_content_both_empty() {
-    let msg = DeepSeekMessage {
-        role: "assistant".to_string(),
-        content: "".to_string(),
-        reasoning_content: None,
-    };
-    assert_eq!(DeepSeekProvider::extract_content(&msg), "");
-}
-
-#[test]
-fn test_extract_content_whitespace_only_content() {
-    let msg = DeepSeekMessage {
-        role: "assistant".to_string(),
-        content: "  \n\t  ".to_string(),
-        reasoning_content: Some("reasoning".to_string()),
-    };
-    // whitespace-only content should fall back to reasoning_content
-    assert_eq!(DeepSeekProvider::extract_content(&msg), "reasoning");
-}
-
-// -------------------------------------------------------------------------
 // name / provider_display_name / models unit tests
 // -------------------------------------------------------------------------
 
