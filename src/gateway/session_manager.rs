@@ -156,46 +156,40 @@ impl SessionManager {
     /// Attempt to restore an archived session.
     /// Returns true iff restoration was attempted and succeeded.
     async fn try_restore_archived_session(&self, session_id: &str, channel: &str) -> bool {
-        let storage = self.storage.read().await;
-        let Some(storage) = storage.as_ref() else {
-            return false;
-        };
-        let checkpoint = match storage.load_checkpoint(session_id).await {
-            Ok(Some(cp)) => cp,
-            Ok(None) | Err(_) => return false,
-        };
-        if checkpoint.status != SessionStatus::Archived {
-            return false;
-        }
-        // Send restore notification
-        let adapters = self.adapters.read().await;
-        if let Some(adapter) = adapters.get(channel) {
-            let notification = Message {
-                id: format!("restore-{}", session_id),
-                from: "system".to_string(),
-                to: checkpoint
-                    .chat_id
-                    .as_deref()
-                    .unwrap_or(session_id)
-                    .to_string(),
-                content: "正在恢复会话...".to_string(),
-                channel: channel.to_string(),
-                timestamp: chrono::Utc::now().timestamp(),
-                metadata: std::collections::HashMap::new(),
-                thread_id: None,
-            };
-            if let Err(e) = adapter.send_message(&notification, None).await {
-                warn!(session_id = %session_id, error = %e,
-                    "failed to send restore notification");
+        let storage_arc = {
+            let storage_guard = self.storage.read().await;
+            match storage_guard.as_ref() {
+                Some(s) => Arc::clone(s),
+                None => return false,
             }
-        }
+        };
+        let adapters = self.adapters.read().await;
+        session_helpers::try_restore_archived_session_inner(
+            &storage_arc,
+            &adapters,
+            session_id,
+            channel,
+        )
+        .await
+    }
 
-        if let Err(e) = storage.restore_checkpoint(session_id).await {
-            warn!(session_id = %session_id, error = %e,
-                "failed to restore archived session");
-            return false;
-        }
-        true
+    /// Update the thread_id in a session's checkpoint.
+    /// Delegates to `session_helpers::update_checkpoint_thread_id`.
+    async fn update_checkpoint_thread_id(&self, session_id: &str, thread_id: &Option<String>) {
+        let storage_arc = {
+            let storage_guard = self.storage.read().await;
+            match storage_guard.as_ref() {
+                Some(s) => Arc::clone(s),
+                None => {
+                    warn!(
+                        session_id = %session_id,
+                        "storage not available, skipping thread_id update"
+                    );
+                    return;
+                }
+            }
+        };
+        session_helpers::update_checkpoint_thread_id(&storage_arc, session_id, thread_id).await;
     }
 
     /// Find or create a session for the given channel and message.
@@ -215,23 +209,35 @@ impl SessionManager {
     ) -> Result<String, ProcessError> {
         // Channel-level override: if a channel has an active session
         // (e.g. from /new), route directly to it.
-        {
+        let channel_override = {
             let channel_map = self.channel_active_sessions.read().await;
             if let Some(active_id) = channel_map.get(channel) {
                 let sessions = self.sessions.read().await;
                 if sessions.contains_key(active_id) {
-                    return Ok(active_id.clone());
+                    Some(active_id.clone())
+                } else {
+                    None
                 }
+            } else {
+                None
             }
+        };
+        if let Some(active_id) = &channel_override {
+            self.update_checkpoint_thread_id(active_id, &message.thread_id)
+                .await;
+            return Ok(active_id.clone());
         }
 
         let session_id = self.compute_session_key(channel, message, account_id);
         // Fast path: session already exists
-        {
+        let session_exists = {
             let sessions = self.sessions.read().await;
-            if sessions.contains_key(&session_id) {
-                return Ok(session_id);
-            }
+            sessions.contains_key(&session_id)
+        };
+        if session_exists {
+            self.update_checkpoint_thread_id(&session_id, &message.thread_id)
+                .await;
+            return Ok(session_id);
         }
         // Slow path: try archived session restoration
         let restored = self

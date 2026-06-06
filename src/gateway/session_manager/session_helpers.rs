@@ -2,13 +2,16 @@
 //! to keep the main file under the 500-line limit.
 
 use crate::gateway::Message;
+use crate::im::IMAdapter;
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
+use crate::session::persistence::{PersistenceService, SessionStatus};
 use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::{ToolContext, ToolRegistry};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -148,4 +151,83 @@ pub(super) fn create_new_session(
         created_at: chrono::Utc::now().timestamp(),
         depth: 0,
     }
+}
+
+/// Update the thread_id in a session's checkpoint.
+///
+/// Loads the checkpoint from storage, overwrites `thread_id` with the
+/// provided value, and saves it back. This mirrors the pattern used in
+/// `restore_checkpoint_session`.
+///
+/// Silently skips (with warn!) when:
+/// - storage is not available
+/// - checkpoint does not exist
+pub(super) async fn update_checkpoint_thread_id(
+    storage: &Arc<dyn PersistenceService>,
+    session_id: &str,
+    thread_id: &Option<String>,
+) {
+    let mut cp = match storage.load_checkpoint(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) | Err(_) => {
+            warn!(
+                session_id = %session_id,
+                "checkpoint not found, skipping thread_id update"
+            );
+            return;
+        }
+    };
+    cp.thread_id = thread_id.clone();
+    if let Err(e) = storage.save_checkpoint(&cp).await {
+        warn!(
+            session_id = %session_id,
+            error = %e,
+            "failed to save checkpoint with updated thread_id"
+        );
+    }
+}
+
+/// Attempt to restore an archived session.
+///
+/// Returns `true` if restoration was attempted and succeeded.
+pub(super) async fn try_restore_archived_session_inner(
+    storage: &Arc<dyn PersistenceService>,
+    adapters: &HashMap<String, Arc<dyn IMAdapter>>,
+    session_id: &str,
+    channel: &str,
+) -> bool {
+    let checkpoint = match storage.load_checkpoint(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) | Err(_) => return false,
+    };
+    if checkpoint.status != SessionStatus::Archived {
+        return false;
+    }
+    // Send restore notification
+    if let Some(adapter) = adapters.get(channel) {
+        let notification = Message {
+            id: format!("restore-{}", session_id),
+            from: "system".to_string(),
+            to: checkpoint
+                .chat_id
+                .as_deref()
+                .unwrap_or(session_id)
+                .to_string(),
+            content: "正在恢复会话...".to_string(),
+            channel: channel.to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            metadata: std::collections::HashMap::new(),
+            thread_id: None,
+        };
+        if let Err(e) = adapter.send_message(&notification, None).await {
+            warn!(session_id = %session_id, error = %e,
+                "failed to send restore notification");
+        }
+    }
+    if let Err(e) = storage.restore_checkpoint(session_id).await {
+        warn!(session_id = %session_id, error = %e,
+            "failed to restore archived session");
+        return false;
+    }
+    true
 }
