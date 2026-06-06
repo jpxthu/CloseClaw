@@ -1,4 +1,7 @@
 {
+  "id": "chatcmpl-volc-biz-err-001",
+  "model": "doubao-1.5-pro",
+  "choices": [],
   "error": {
     "code": "1103",
     "message": "Model not found: unknown-model"
