@@ -12,7 +12,6 @@ use crate::session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
     SessionStatus,
 };
-use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
 use crate::system_prompt::builder::PromptOverrides;
 use crate::tools::ToolRegistry;
@@ -24,7 +23,9 @@ use tracing::warn;
 
 mod announce;
 mod channel;
+mod key_registry;
 mod rebuild;
+mod resolve;
 mod session_helpers;
 mod spawn;
 pub use spawn::{ChildSessionInfo, SpawnMode};
@@ -59,6 +60,10 @@ pub struct SessionManager {
     /// Updated by `force_new_for_channel` so subsequent `find_or_create`
     /// calls route to the latest session for a channel.
     channel_active_sessions: RwLock<HashMap<String, String>>,
+    /// session_key → session_id mapping, rebuilt from persistence at startup.
+    /// Updated by `resolve()` on new session creation and by
+    /// `force_new_for_channel`.
+    key_registry: RwLock<HashMap<String, String>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -93,6 +98,7 @@ impl SessionManager {
             prompt_overrides: RwLock::new(None),
             children: RwLock::new(HashMap::new()),
             channel_active_sessions: RwLock::new(HashMap::new()),
+            key_registry: RwLock::new(HashMap::new()),
         }
     }
 
@@ -228,110 +234,9 @@ impl SessionManager {
             return Ok(active_id.clone());
         }
 
-        let session_id = self.compute_session_key(channel, message, account_id);
-        // Fast path: session already exists
-        let session_exists = {
-            let sessions = self.sessions.read().await;
-            sessions.contains_key(&session_id)
-        };
-        if session_exists {
-            self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                .await;
-            return Ok(session_id);
-        }
-        // Slow path: try archived session restoration
-        let restored = self
-            .try_restore_archived_session(&session_id, channel)
-            .await;
-        let mut sessions = self.sessions.write().await;
-        if sessions.contains_key(&session_id) {
-            return Ok(session_id);
-        }
-        let tool_registry = self.tool_registry.read().await;
-        let skill_registry = self.skill_registry.read().await.clone();
-        let agent_id = message.to.clone();
-        let prompt = session_helpers::build_session_system_prompt(
-            &self.workspace_dir,
-            self.bootstrap_mode,
-            &tool_registry,
-            skill_registry,
-            &agent_id,
-        )
-        .await;
-
-        // Compute per-session workdir path
-        let workdir_path = {
-            if restored {
-                let storage = self.storage.read().await;
-                if let Some(storage) = storage.as_ref() {
-                    session_helpers::compute_session_workdir(
-                        true,
-                        &session_id,
-                        message,
-                        &self.workspace_dir,
-                        storage,
-                    )
-                    .await?
-                } else {
-                    PathBuf::from("/tmp")
-                }
-            } else if let Some(ref workspace_dir) = self.workspace_dir {
-                workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(
-                    |e| ProcessError::ProcessingFailed(format!("workspace creation failed: {}", e)),
-                )?
-            } else {
-                PathBuf::from("/tmp")
-            }
-        };
-
-        let conv_session =
-            ConversationSession::new(session_id.clone(), "default".to_string(), workdir_path)
-                .with_system_prompt(prompt)
-                .with_reasoning_level(self.default_reasoning_level);
-        {
-            let mut conv_sessions = self.conversation_sessions.write().await;
-            conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
-        }
-
-        if restored {
-            let storage = self.storage.read().await;
-            if let Some(storage) = storage.as_ref() {
-                if let Some(session) = session_helpers::restore_checkpoint_session(
-                    storage,
-                    &session_id,
-                    channel,
-                    message,
-                    &self.conversation_sessions,
-                )
-                .await
-                {
-                    sessions.insert(session_id.clone(), session);
-                }
-            }
-        } else {
-            // No archived session — create a brand-new Session
-            sessions.insert(
-                session_id.clone(),
-                session_helpers::create_new_session(&session_id, message, channel),
-            );
-            // Persist checkpoint with thread_id so outbound can find it
-            let mut cp = SessionCheckpoint::new(session_id.clone())
-                .with_status(SessionStatus::Active)
-                .with_channel(channel.to_string())
-                .with_chat_id(message.to.clone())
-                .with_agent_id(message.to.clone());
-            if let Some(ref thread_id) = message.thread_id {
-                cp = cp.with_thread_id(thread_id.clone());
-            }
-            if let Some(storage) = self.storage.read().await.as_ref() {
-                if let Err(e) = storage.save_checkpoint(&cp).await {
-                    warn!(session_id = %session_id, error = %e,
-                        "failed to save new session checkpoint");
-                }
-            }
-        }
-
-        Ok(session_id)
+        let session_key = self.compute_session_key(channel, message, account_id);
+        self.resolve(&session_key, channel, message, account_id)
+            .await
     }
 
     /// Get active sessions for an agent.
@@ -490,6 +395,8 @@ mod bug904_tests;
 mod flush_tests;
 #[cfg(test)]
 mod rebuild_tests;
+#[cfg(test)]
+mod resolve_tests;
 #[cfg(test)]
 mod spawn_tests;
 #[cfg(test)]

@@ -3,7 +3,6 @@
 
 use crate::gateway::Message;
 use crate::im::IMAdapter;
-use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use crate::session::persistence::{PersistenceService, SessionStatus};
 use crate::session::workspace;
@@ -14,8 +13,18 @@ use crate::tools::{ToolContext, ToolRegistry};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::warn;
+use uuid::Uuid;
+
+/// Generate a unique session ID.
+///
+/// Format: `{agent_id}_{timestamp_ms}_{8-hex}`
+pub(super) fn generate_session_id(agent_id: &str) -> String {
+    let ts = chrono::Utc::now().timestamp_millis();
+    let uuid = Uuid::new_v4();
+    let hex_part = format!("{:08x}", uuid.as_fields().0);
+    format!("{}_{}_{}", agent_id, ts, hex_part)
+}
 
 /// Build the system prompt for a new session.
 pub(super) async fn build_session_system_prompt(
@@ -100,44 +109,6 @@ pub(super) async fn compute_session_workdir(
     }
 }
 
-/// Restore a session from an archived checkpoint.
-pub(super) async fn restore_checkpoint_session(
-    storage: &Arc<dyn crate::session::persistence::PersistenceService>,
-    session_id: &str,
-    channel: &str,
-    message: &Message,
-    conv_sessions: &RwLock<std::collections::HashMap<String, Arc<RwLock<ConversationSession>>>>,
-) -> Option<crate::gateway::Session> {
-    let mut cp = storage.load_checkpoint(session_id).await.ok().flatten()?;
-
-    // Restore pending_messages and system_appends into ConversationSession
-    {
-        let sessions = conv_sessions.read().await;
-        if let Some(cs) = sessions.get(session_id) {
-            let mut cs = cs.write().await;
-            cs.restore_pending_messages(cp.pending_messages.clone());
-            cs.restore_system_appends(cp.system_appends.clone());
-        }
-    }
-
-    let session = crate::gateway::Session {
-        id: session_id.to_string(),
-        agent_id: cp.chat_id.clone().unwrap_or_else(|| message.to.clone()),
-        channel: channel.to_string(),
-        created_at: chrono::Utc::now().timestamp(),
-        depth: 0,
-    };
-
-    // 覆盖式写入: 每次入站都用 message.thread_id 覆盖 checkpoint.thread_id
-    cp.thread_id = message.thread_id.clone();
-    if let Err(e) = storage.save_checkpoint(&cp).await {
-        warn!(session_id = %session_id, error = %e,
-            "failed to save checkpoint with updated thread_id");
-    }
-
-    Some(session)
-}
-
 /// Create and persist a brand-new session.
 pub(super) fn create_new_session(
     session_id: &str,
@@ -156,8 +127,7 @@ pub(super) fn create_new_session(
 /// Update the thread_id in a session's checkpoint.
 ///
 /// Loads the checkpoint from storage, overwrites `thread_id` with the
-/// provided value, and saves it back. This mirrors the pattern used in
-/// `restore_checkpoint_session`.
+/// provided value, and saves it back.
 ///
 /// Silently skips (with warn!) when:
 /// - storage is not available

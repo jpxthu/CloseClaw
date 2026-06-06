@@ -112,6 +112,23 @@ impl SqliteStorage {
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
         }
 
+        // Idempotent migration: only add sender_id column if it doesn't already exist.
+        let sender_id_exists: bool = {
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(sessions)")
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            let has_column = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .any(|name| name == "sender_id");
+            has_column
+        };
+        if !sender_id_exists {
+            conn.execute("ALTER TABLE sessions ADD COLUMN sender_id TEXT", [])
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        }
+
         Ok(())
     }
     /// Returns the data directory path
@@ -280,8 +297,9 @@ impl PersistenceService for SqliteStorage {
             conn.execute(
                 "INSERT OR REPLACE INTO sessions
                  (id, agent_id, role, channel, chat_id, status, title,
-                  last_message_at, created_at, archived_at, message_count, metadata, thread_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                  last_message_at, created_at, archived_at, message_count, metadata, thread_id,
+                  sender_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     checkpoint.session_id,
                     checkpoint.agent_id.as_deref().unwrap_or("unknown"),
@@ -302,6 +320,7 @@ impl PersistenceService for SqliteStorage {
                     checkpoint.message_count as i64,
                     metadata_json,
                     checkpoint.thread_id.as_deref(),
+                    checkpoint.sender_id.as_deref(),
                 ],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;

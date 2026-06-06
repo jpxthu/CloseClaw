@@ -40,22 +40,12 @@ fn test_message() -> Message {
 async fn test_find_or_create_existing_session() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    let session_id = mgr.compute_session_key("feishu", &msg, None);
-    {
-        let mut sessions = mgr.sessions.write().await;
-        sessions.insert(
-            session_id.clone(),
-            Session {
-                id: session_id.clone(),
-                agent_id: "agent-b".to_string(),
-                channel: "feishu".to_string(),
-                created_at: chrono::Utc::now().timestamp(),
-                depth: 0,
-            },
-        );
-    }
-    let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    assert_eq!(result, session_id);
+    // First call: creates a new session via resolve Path 3
+    let id1 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert!(!id1.is_empty());
+    // Second call: resolve finds the key in registry, returns same session
+    let id2 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert_eq!(id1, id2, "same key should resolve to same session");
 }
 
 #[tokio::test]
@@ -73,7 +63,7 @@ async fn test_find_or_create_new_user_creates_session() {
 async fn test_archived_session_restoration() {
     let mock_storage = Arc::new(MockPersistService {
         archived_checkpoint: Mutex::new(Some(
-            SessionCheckpoint::new("feishu:user-a:agent-b".to_string())
+            SessionCheckpoint::new("test_sid".to_string())
                 .with_status(SessionStatus::Archived)
                 .with_chat_id("agent-b".to_string()),
         )),
@@ -87,8 +77,14 @@ async fn test_archived_session_restoration() {
         ReasoningLevel::default(),
     );
     let msg = test_message();
+    // Populate key_registry so resolve can look up the session
+    let session_key = mgr.compute_session_key("feishu", &msg, None);
+    {
+        let mut reg = mgr.key_registry.write().await;
+        reg.insert(session_key, "test_sid".to_string());
+    }
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    assert_eq!(result, "feishu:user-a:agent-b");
+    assert_eq!(result, "test_sid");
     let called = *mock_storage.restore_called.lock().await;
     assert!(called, "restore_checkpoint should have been called");
 }
@@ -334,7 +330,11 @@ async fn test_find_or_create_no_storage() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    assert_eq!(result, "feishu:user-a:agent-b");
+    // Session ID should match the new format: {agent_id}_{ts}_{hex}
+    assert!(result.starts_with("agent-b_"), "bad format: {}", result);
+    let parts: Vec<&str> = result.rsplitn(2, '_').collect();
+    assert_eq!(parts.len(), 2, "bad format: {}", result);
+    assert_eq!(parts[0].len(), 8, "hex part wrong: {}", parts[0]);
 }
 
 use super::test_helpers::MockPersistService;
@@ -404,7 +404,11 @@ async fn test_force_new_for_channel_creates_valid_session() {
     let new_id = mgr.force_new_for_channel("feishu", "agent-test").await;
     // Should be non-empty and contain the channel
     assert!(!new_id.is_empty());
-    assert!(new_id.starts_with("feishu"));
+    // New format: {agent_id}_{ts}_{hex}
+    assert!(new_id.starts_with("agent-test_"), "bad format: {}", new_id);
+    let parts: Vec<&str> = new_id.rsplitn(2, '_').collect();
+    assert_eq!(parts.len(), 2, "bad format: {}", new_id);
+    assert_eq!(parts[0].len(), 8, "hex part wrong: {}", parts[0]);
     // Session should exist in the sessions map
     assert!(mgr.has_session(&new_id).await);
     // Channel mapping should be correct

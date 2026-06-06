@@ -172,6 +172,13 @@ impl Daemon {
         gateway
             .set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>)
             .await;
+        // Rebuild key_registry from persisted checkpoints at startup.
+        if let Err(e) = session_manager.rebuild_key_registry().await {
+            tracing::warn!(
+                error = %e,
+                "failed to rebuild key_registry at startup — continuing"
+            );
+        }
         let gateway = Arc::new(gateway);
         // Wire the self-ref so `handle_inbound_message` can pass
         // a strong `Arc<Gateway>` into the streaming LLM path.
