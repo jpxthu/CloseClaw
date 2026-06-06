@@ -200,6 +200,48 @@ pub struct InternalResponse {
     pub finish_reason: Option<String>,
 }
 
+impl From<InternalResponse> for UnifiedResponse {
+    fn from(resp: InternalResponse) -> Self {
+        Self {
+            content_blocks: resp.content_blocks.into_iter().map(Into::into).collect(),
+            usage: resp.usage.into(),
+            finish_reason: resp.finish_reason,
+        }
+    }
+}
+
+impl From<RawContentBlock> for ContentBlock {
+    fn from(block: RawContentBlock) -> Self {
+        match block {
+            RawContentBlock::Text(s) => ContentBlock::Text(s),
+            RawContentBlock::Thinking(s) => ContentBlock::Thinking(s),
+            RawContentBlock::ToolUse { id, name, input } => {
+                ContentBlock::ToolUse { id, name, input }
+            }
+            RawContentBlock::ToolResult {
+                tool_call_id,
+                content,
+            } => ContentBlock::ToolResult {
+                tool_call_id,
+                content,
+            },
+        }
+    }
+}
+
+impl From<RawUsage> for UnifiedUsage {
+    fn from(raw: RawUsage) -> Self {
+        Self {
+            prompt_tokens: raw.prompt_tokens,
+            completion_tokens: raw.completion_tokens,
+            total_tokens: raw.total_tokens,
+            reasoning_tokens: None,
+            cache_read_tokens: raw.cache_read_tokens,
+            cache_write_tokens: raw.cache_write_tokens,
+        }
+    }
+}
+
 /// Raw SSE chunk parsed by a Protocol from an SSE event stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

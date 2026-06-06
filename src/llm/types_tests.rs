@@ -1,8 +1,8 @@
 //! Tests for LLM types (serde, roundtrip, etc.).
 
 use crate::llm::types::{
-    ContentBlock, ContentBlockType, ContentDelta, SseStateMachine, StreamEvent, SystemBlock,
-    UnifiedUsage,
+    ContentBlock, ContentBlockType, ContentDelta, InternalResponse, RawContentBlock, RawUsage,
+    SseStateMachine, StreamEvent, SystemBlock, UnifiedResponse, UnifiedUsage,
 };
 
 // ── ContentBlock serde symmetry tests ──────────────────────────────────────
@@ -186,4 +186,151 @@ fn test_unified_usage_cache_fields_some() {
     assert_eq!(usage, parsed);
     assert!(json.contains("cache_read_tokens"));
     assert!(json.contains("cache_write_tokens"));
+}
+
+// ── RawContentBlock → ContentBlock conversion tests ──────────────────────
+
+#[test]
+fn test_raw_content_block_text_conversion() {
+    let raw = RawContentBlock::Text("hello".to_string());
+    let block: ContentBlock = raw.into();
+    assert_eq!(block, ContentBlock::Text("hello".to_string()));
+}
+
+#[test]
+fn test_raw_content_block_thinking_conversion() {
+    let raw = RawContentBlock::Thinking("let me think".to_string());
+    let block: ContentBlock = raw.into();
+    assert_eq!(block, ContentBlock::Thinking("let me think".to_string()));
+}
+
+#[test]
+fn test_raw_content_block_tool_use_conversion() {
+    let raw = RawContentBlock::ToolUse {
+        id: "call_1".to_string(),
+        name: "search".to_string(),
+        input: "{\"q\": \"test\"}".to_string(),
+    };
+    let block: ContentBlock = raw.into();
+    assert_eq!(
+        block,
+        ContentBlock::ToolUse {
+            id: "call_1".to_string(),
+            name: "search".to_string(),
+            input: "{\"q\": \"test\"}".to_string(),
+        }
+    );
+}
+
+#[test]
+fn test_raw_content_block_tool_result_conversion() {
+    let raw = RawContentBlock::ToolResult {
+        tool_call_id: "call_1".to_string(),
+        content: "result data".to_string(),
+    };
+    let block: ContentBlock = raw.into();
+    assert_eq!(
+        block,
+        ContentBlock::ToolResult {
+            tool_call_id: "call_1".to_string(),
+            content: "result data".to_string(),
+        }
+    );
+}
+
+// ── RawUsage → UnifiedUsage conversion tests ─────────────────────────────
+
+#[test]
+fn test_raw_usage_conversion() {
+    let raw = RawUsage {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: Some(150),
+        cache_read_tokens: Some(20),
+        cache_write_tokens: Some(10),
+    };
+    let usage: UnifiedUsage = raw.into();
+    assert_eq!(usage.prompt_tokens, 100);
+    assert_eq!(usage.completion_tokens, 50);
+    assert_eq!(usage.total_tokens, Some(150));
+    assert_eq!(usage.reasoning_tokens, None);
+    assert_eq!(usage.cache_read_tokens, Some(20));
+    assert_eq!(usage.cache_write_tokens, Some(10));
+}
+
+#[test]
+fn test_raw_usage_conversion_no_optional_fields() {
+    let raw = RawUsage {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        total_tokens: None,
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+    };
+    let usage: UnifiedUsage = raw.into();
+    assert_eq!(usage.prompt_tokens, 10);
+    assert_eq!(usage.completion_tokens, 5);
+    assert_eq!(usage.total_tokens, None);
+    assert_eq!(usage.reasoning_tokens, None);
+    assert_eq!(usage.cache_read_tokens, None);
+    assert_eq!(usage.cache_write_tokens, None);
+}
+
+// ── InternalResponse → UnifiedResponse conversion test ────────────────────
+
+#[test]
+fn test_internal_response_conversion() {
+    let resp = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Text("hi".to_string()),
+            RawContentBlock::Thinking("hmm".to_string()),
+            RawContentBlock::ToolUse {
+                id: "c1".to_string(),
+                name: "do".to_string(),
+                input: "{}".to_string(),
+            },
+            RawContentBlock::ToolResult {
+                tool_call_id: "c1".to_string(),
+                content: "ok".to_string(),
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            total_tokens: Some(30),
+            cache_read_tokens: Some(5),
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".to_string()),
+    };
+    let unified: UnifiedResponse = resp.into();
+    assert_eq!(unified.content_blocks.len(), 4);
+    assert_eq!(
+        unified.content_blocks[0],
+        ContentBlock::Text("hi".to_string())
+    );
+    assert_eq!(
+        unified.content_blocks[1],
+        ContentBlock::Thinking("hmm".to_string())
+    );
+    assert_eq!(
+        unified.content_blocks[2],
+        ContentBlock::ToolUse {
+            id: "c1".to_string(),
+            name: "do".to_string(),
+            input: "{}".to_string(),
+        }
+    );
+    assert_eq!(
+        unified.content_blocks[3],
+        ContentBlock::ToolResult {
+            tool_call_id: "c1".to_string(),
+            content: "ok".to_string(),
+        }
+    );
+    assert_eq!(unified.usage.prompt_tokens, 10);
+    assert_eq!(unified.usage.completion_tokens, 20);
+    assert_eq!(unified.usage.total_tokens, Some(30));
+    assert_eq!(unified.usage.reasoning_tokens, None);
+    assert_eq!(unified.finish_reason, Some("stop".to_string()));
 }

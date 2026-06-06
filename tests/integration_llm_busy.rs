@@ -12,14 +12,89 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use closeclaw::gateway::session_handler::{HandleResult, SessionMessageHandler};
 use closeclaw::gateway::session_manager::SessionManager;
 use closeclaw::gateway::{DmScope, GatewayConfig, Message};
+use closeclaw::llm::client::UnifiedChatClient;
 use closeclaw::llm::fake::{FakeProvider, Scenario};
 use closeclaw::llm::fallback::{FallbackClient, ModelEntry};
+use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
+use closeclaw::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
+use closeclaw::llm::provider::Provider;
+use closeclaw::llm::types::{InternalRequest, InternalResponse, ProtocolId, SseStateMachine};
 use closeclaw::llm::LLMRegistry;
 use closeclaw::session::bootstrap::BootstrapMode;
 use closeclaw::session::persistence::ReasoningLevel;
+use reqwest::header::HeaderMap;
+
+// ---------------------------------------------------------------------------
+// Minimal stub types for UnifiedChatClient construction
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+struct StubProtocol {
+    id: ProtocolId,
+}
+
+#[async_trait]
+impl ChatProtocol for StubProtocol {
+    fn protocol_id(&self) -> &ProtocolId {
+        &self.id
+    }
+    fn path(&self) -> &str {
+        "/chat"
+    }
+    fn build_request(
+        &self,
+        _req: &InternalRequest,
+    ) -> closeclaw::llm::protocol::Result<serde_json::Value> {
+        Ok(serde_json::json!({}))
+    }
+    fn parse_response(
+        &self,
+        _body: serde_json::Value,
+    ) -> closeclaw::llm::protocol::Result<InternalResponse> {
+        unimplemented!("stub protocol")
+    }
+    fn decorate_headers(&self, _headers: &mut HeaderMap) -> closeclaw::llm::protocol::Result<()> {
+        Ok(())
+    }
+    fn create_sse_machine(&self) -> SseStateMachine {
+        unimplemented!("stub protocol")
+    }
+    async fn parse_sse_stream(
+        &self,
+        _incoming: IncomingSseStream,
+        _machine: SseStateMachine,
+    ) -> OutgoingEventStream {
+        unimplemented!("stub protocol")
+    }
+}
+
+/// Wrap a FakeProvider into `Arc<dyn Provider>` via LegacyProviderBridge.
+fn wrap_provider(provider: FakeProvider) -> Arc<dyn Provider> {
+    Arc::new(LegacyProviderBridge::new(
+        provider,
+        String::new(),
+        String::new(),
+        vec![],
+        reqwest::Client::new(),
+        HeaderMap::new(),
+    ))
+}
+
+/// Build a `UnifiedChatClient` from a wrapped provider.
+fn make_unified_client(provider: Arc<dyn Provider>) -> Arc<UnifiedChatClient> {
+    Arc::new(UnifiedChatClient::with_noop_cache_adapter(
+        provider,
+        Arc::new(StubProtocol {
+            id: ProtocolId::from("stub"),
+        }),
+        Default::default(),
+        Default::default(),
+    ))
+}
 
 /// Create a minimal GatewayConfig for testing.
 fn test_config() -> GatewayConfig {
@@ -77,7 +152,7 @@ async fn test_idle_message_returns_llm_started() {
 
     let registry = Arc::new(LLMRegistry::new());
     registry
-        .register("fake".to_string(), Arc::new(provider))
+        .register("fake".to_string(), wrap_provider(provider))
         .await;
 
     let fallback = Arc::new(FallbackClient::new(
@@ -87,7 +162,15 @@ async fn test_idle_message_returns_llm_started() {
             model: "fake-model".to_string(),
         }],
     ));
-    let handler = SessionMessageHandler::new_no_output(sm.clone(), fallback);
+    let handler = SessionMessageHandler::new_no_output(
+        sm.clone(),
+        fallback,
+        make_unified_client(wrap_provider(
+            FakeProvider::builder()
+                .then_ok("dummy", "fake-model")
+                .build(),
+        )),
+    );
 
     let result = handler.handle_message(&sid, "first".to_string()).await;
     assert!(matches!(result, HandleResult::LlmStarted));
@@ -120,7 +203,7 @@ async fn test_busy_message_returns_queued() {
         .build();
     let registry = Arc::new(LLMRegistry::new());
     registry
-        .register("fake".to_string(), Arc::new(provider))
+        .register("fake".to_string(), wrap_provider(provider))
         .await;
 
     let fallback = Arc::new(FallbackClient::new(
@@ -130,7 +213,15 @@ async fn test_busy_message_returns_queued() {
             model: "fake-model".to_string(),
         }],
     ));
-    let handler = SessionMessageHandler::new_no_output(sm.clone(), fallback);
+    let handler = SessionMessageHandler::new_no_output(
+        sm.clone(),
+        fallback,
+        make_unified_client(wrap_provider(
+            FakeProvider::builder()
+                .then_ok("dummy", "fake-model")
+                .build(),
+        )),
+    );
 
     let result = handler.handle_message(&sid, "hello".to_string()).await;
     assert!(matches!(result, HandleResult::MessageQueued));
@@ -167,7 +258,7 @@ async fn test_fake_provider_call_count_while_busy() {
 
     let registry = Arc::new(LLMRegistry::new());
     registry
-        .register("fake".to_string(), Arc::new(provider))
+        .register("fake".to_string(), wrap_provider(provider))
         .await;
 
     let fallback = Arc::new(FallbackClient::new(
@@ -177,7 +268,15 @@ async fn test_fake_provider_call_count_while_busy() {
             model: "fake-model".to_string(),
         }],
     ));
-    let handler = SessionMessageHandler::new_no_output(sm.clone(), fallback);
+    let handler = SessionMessageHandler::new_no_output(
+        sm.clone(),
+        fallback,
+        make_unified_client(wrap_provider(
+            FakeProvider::builder()
+                .then_ok("dummy", "fake-model")
+                .build(),
+        )),
+    );
 
     // First message — starts LLM call, busy = true
     let result1 = handler.handle_message(&sid, "first".to_string()).await;
@@ -239,7 +338,7 @@ async fn test_pending_fifo_after_delay() {
 
     let registry = Arc::new(LLMRegistry::new());
     registry
-        .register("fake".to_string(), Arc::new(provider))
+        .register("fake".to_string(), wrap_provider(provider))
         .await;
 
     let fallback = Arc::new(FallbackClient::new(
@@ -249,7 +348,15 @@ async fn test_pending_fifo_after_delay() {
             model: "fake-model".to_string(),
         }],
     ));
-    let handler = SessionMessageHandler::new_no_output(sm.clone(), fallback);
+    let handler = SessionMessageHandler::new_no_output(
+        sm.clone(),
+        fallback,
+        make_unified_client(wrap_provider(
+            FakeProvider::builder()
+                .then_ok("dummy", "fake-model")
+                .build(),
+        )),
+    );
 
     // First message → LlmStarted (busy)
     handler.handle_message(&sid, "first".to_string()).await;
@@ -304,7 +411,7 @@ async fn test_idle_after_delay_drain() {
 
     let registry = Arc::new(LLMRegistry::new());
     registry
-        .register("fake".to_string(), Arc::new(provider))
+        .register("fake".to_string(), wrap_provider(provider))
         .await;
 
     let fallback = Arc::new(FallbackClient::new(
@@ -314,7 +421,15 @@ async fn test_idle_after_delay_drain() {
             model: "fake-model".to_string(),
         }],
     ));
-    let handler = SessionMessageHandler::new_no_output(sm.clone(), fallback);
+    let handler = SessionMessageHandler::new_no_output(
+        sm.clone(),
+        fallback,
+        make_unified_client(wrap_provider(
+            FakeProvider::builder()
+                .then_ok("dummy", "fake-model")
+                .build(),
+        )),
+    );
 
     // Start first call
     handler.handle_message(&sid, "first".to_string()).await;
