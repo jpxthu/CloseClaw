@@ -1,11 +1,18 @@
-//! MessageCleaner — inbound processor that strips feishu platform fields
-//! and extracts clean text content.
+//! ContentNormalizer — inbound processor that merges feishu message
+//! extraction and markdown normalization into a single step.
 
 use crate::processor_chain::context::{MessageContext, ProcessedMessage};
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use async_trait::async_trait;
 use serde::Deserialize;
+use std::sync::LazyLock;
+
+use regex::Regex;
+
+// ---------------------------------------------------------------------------
+// Feishu webhook JSON structures
+// ---------------------------------------------------------------------------
 
 /// Feishu webhook text message content.
 #[derive(Debug, Deserialize)]
@@ -29,10 +36,6 @@ struct FeishuMessage {
     #[serde(rename = "parent_id", default)]
     parent_id: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Feishu post JSON structures
-// ---------------------------------------------------------------------------
 
 /// A Feishu post message content field.
 #[derive(Debug, Deserialize)]
@@ -77,9 +80,6 @@ struct PostSegment {
 /// Handles all Feishu rich-text tags: text, at, link, email, phone,
 /// channel_at, media/img, bold, italic, strike/lineThrough, underline, code,
 /// blockquote.
-///
-/// Also processes the title, paragraph separation, headings (## prefix),
-/// ordered/unordered list nesting, and combined inline styles.
 pub fn post_to_markdown(post_json: &str) -> String {
     let post: PostContent = match serde_json::from_str(post_json) {
         Ok(p) => p,
@@ -88,12 +88,10 @@ pub fn post_to_markdown(post_json: &str) -> String {
 
     let mut out = String::new();
 
-    // Title
     if !post.title.is_empty() {
         out.push_str(&format!("## {}\n", post.title));
     }
 
-    // Paragraphs
     for (pi, paragraph) in post.content.iter().enumerate() {
         if paragraph.is_empty() {
             if !out.is_empty() && !out.ends_with('\n') {
@@ -114,7 +112,6 @@ pub fn post_to_markdown(post_json: &str) -> String {
     out.trim_end().to_string()
 }
 
-/// Converts a single paragraph (list of segments) to a markdown string.
 fn paragraph_to_markdown(paragraph: &[PostSegment]) -> String {
     paragraph
         .iter()
@@ -122,7 +119,6 @@ fn paragraph_to_markdown(paragraph: &[PostSegment]) -> String {
         .collect::<String>()
 }
 
-/// Converts a single segment to a markdown string with inline styles applied.
 fn segment_to_markdown(seg: &PostSegment) -> String {
     let raw = match seg.tag.as_str() {
         "text" => seg.text.clone(),
@@ -169,7 +165,6 @@ fn segment_to_markdown(seg: &PostSegment) -> String {
     apply_inline_styles(&raw, &seg.style)
 }
 
-/// Applies a list of Feishu style tags as markdown inline markup.
 fn apply_inline_styles(text: &str, styles: &[String]) -> String {
     if text.is_empty() || styles.is_empty() {
         return text.to_string();
@@ -177,7 +172,6 @@ fn apply_inline_styles(text: &str, styles: &[String]) -> String {
 
     let mut result = text.to_string();
 
-    // Check which styles are present
     let has_bold = styles.contains(&"bold".to_string());
     let has_underline = styles.contains(&"underline".to_string());
     let has_line_through =
@@ -189,22 +183,17 @@ fn apply_inline_styles(text: &str, styles: &[String]) -> String {
         result = format!("`{}`", result);
     }
 
-    // Special handling for the combinations in the fixtures
     if has_line_through && has_underline && has_bold {
-        // Case 6: bold outside underline outside strikethrough
         result = format!("~~{}~~", result);
         result = format!("<u>{}</u>", result);
         result = format!("**{}**", result);
     } else if has_line_through && has_underline && !has_bold {
-        // Case 5: strikethrough outside underline
         result = format!("<u>{}</u>", result);
         result = format!("~~{}~~", result);
     } else if has_underline && has_bold {
-        // Case 4: bold outside underline
         result = format!("<u>{}</u>", result);
         result = format!("**{}**", result);
     } else {
-        // Single styles or other combinations
         if has_line_through {
             result = format!("~~{}~~", result);
         }
@@ -223,30 +212,160 @@ fn apply_inline_styles(text: &str, styles: &[String]) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// MessageCleaner
+// Normalization functions (from MarkdownNormalizer)
 // ---------------------------------------------------------------------------
 
-/// MessageCleaner removes feishu platform-specific raw fields
-/// and extracts the actual text content from incoming messages.
-#[derive(Debug)]
-pub struct MessageCleaner;
+/// Compresses two or more consecutive empty lines into a single empty line.
+pub fn normalize_empty_lines(text: &str) -> String {
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n{2,}").unwrap());
+    RE.replace_all(text, "\n\n").to_string()
+}
 
-impl MessageCleaner {
+/// Removes trailing whitespace from every line.
+pub fn trim_trailing_whitespace(text: &str) -> String {
+    text.lines()
+        .map(|line| line.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Adds `https://` prefix to bare URLs that lack an http/https scheme.
+///
+/// Skips URLs already inside markdown link syntax `[text](url)`.
+pub fn normalize_urls(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let len = text.len();
+    let mut i = 0;
+
+    while i < len {
+        // Skip non-ASCII bytes (multi-byte UTF-8) — just copy them as a string slice
+        if !bytes[i].is_ascii() {
+            let start = i;
+            i += 1;
+            while i < len && !bytes[i].is_ascii() {
+                i += 1;
+            }
+            out.push_str(&text[start..i]);
+            continue;
+        }
+
+        // Skip markdown links [text](url)
+        if bytes[i] == b'[' {
+            let mut j = i + 1;
+            while j < len && bytes[j] != b']' {
+                j += 1;
+            }
+            if j < len && j + 1 < len && bytes[j + 1] == b'(' {
+                let mut k = j + 1;
+                while k < len && bytes[k] != b')' {
+                    k += 1;
+                }
+                out.push_str(&text[i..=k]);
+                i = k + 1;
+                continue;
+            }
+            out.push('[');
+            i += 1;
+            continue;
+        }
+
+        if i + 4 <= len && &text[i..i + 4] == "www." {
+            out.push_str("https://www.");
+            i += 4;
+            while i < len
+                && !bytes[i].is_ascii_whitespace()
+                && bytes[i] != b'"'
+                && bytes[i] != b'\''
+                && bytes[i] != b')'
+                && bytes[i] != b']'
+            {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+            continue;
+        }
+
+        let preceded_by_scheme =
+            i >= 3 && bytes[i - 3] == b':' && bytes[i - 2] == b'/' && bytes[i - 1] == b'/';
+        if !preceded_by_scheme
+            && i > 0
+            && !bytes[i - 1].is_ascii_alphanumeric()
+            && i < len
+            && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'.')
+        {
+            let start = i;
+            let mut j = i;
+            while j < len
+                && !bytes[j].is_ascii_whitespace()
+                && bytes[j] != b'"'
+                && bytes[j] != b'\''
+                && bytes[j] != b'<'
+                && bytes[j] != b')'
+                && bytes[j] != b']'
+            {
+                j += 1;
+            }
+            let token = &text[start..j];
+
+            if token.contains('.')
+                && !token.starts_with("http://")
+                && !token.starts_with("https://")
+                && !token.starts_with("ftp://")
+                && !token.starts_with("file://")
+            {
+                out.push_str("https://");
+                out.push_str(token);
+                i = j;
+                continue;
+            }
+        }
+
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+
+    out
+}
+
+/// Adds ` ```text` language hint to code blocks that lack a language tag.
+pub fn add_code_block_language_hint(text: &str) -> String {
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^(```)([^\w\n]|$)").unwrap());
+    RE.replace_all(text, "```text$1").to_string()
+}
+
+// ---------------------------------------------------------------------------
+// ContentNormalizer
+// ---------------------------------------------------------------------------
+
+/// ContentNormalizer combines feishu message extraction and markdown
+/// normalization into a single inbound processor.
+///
+/// Processing order:
+/// 1. Parse feishu webhook JSON → extract text content
+/// 2. `normalize_empty_lines` — compress consecutive blank lines
+/// 3. `trim_trailing_whitespace` — strip trailing spaces per line
+/// 4. `normalize_urls` — ensure all bare URLs have https:// prefix
+/// 5. `add_code_block_language_hint` — annotate code fences without language
+#[derive(Debug)]
+pub struct ContentNormalizer;
+
+impl ContentNormalizer {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl Default for MessageCleaner {
+impl Default for ContentNormalizer {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl MessageProcessor for MessageCleaner {
+impl MessageProcessor for ContentNormalizer {
     fn name(&self) -> &str {
-        "message_cleaner"
+        "content_normalizer"
     }
 
     fn phase(&self) -> ProcessPhase {
@@ -261,7 +380,7 @@ impl MessageProcessor for MessageCleaner {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        // Parse the raw feishu webhook content.
+        // Step 1: Parse feishu webhook content.
         let raw: FeishuMessage = serde_json::from_str(&ctx.content).map_err(|e| {
             ProcessError::invalid_message(format!("failed to parse feishu message: {e}"))
         })?;
@@ -291,11 +410,26 @@ impl MessageProcessor for MessageCleaner {
             metadata.insert("feishu_thread_id".to_string(), serde_json::json!(tid));
         }
 
+        // Step 2–5: Markdown normalization
+        let mut normalized = content;
+        normalized = normalize_empty_lines(&normalized);
+        normalized = trim_trailing_whitespace(&normalized);
+        normalized = normalize_urls(&normalized);
+        normalized = add_code_block_language_hint(&normalized);
+
         Ok(Some(ProcessedMessage {
-            content,
+            content: normalized,
             metadata,
             suppress: false,
             content_blocks: vec![],
         }))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[path = "content_normalizer_tests.rs"]
+mod tests;

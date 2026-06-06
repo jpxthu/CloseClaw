@@ -17,7 +17,7 @@ use crate::processor_chain::{MessageContext, MessageProcessor, ProcessPhase, Pro
 
 /// A test processor that appends its name and phase to a metadata key,
 /// proving execution order. Runs at priority 20 (between RawLog=10 and
-/// MessageCleaner=30) so that including it in a chain changes the
+/// ContentNormalizer=30) so that including it in a chain changes the
 /// execution sequence visibly.
 #[derive(Debug)]
 struct TraceProcessor {
@@ -214,7 +214,7 @@ async fn test_processor_chain_execution_order_by_priority() {
         tag: "T20".into(),
     }));
     registry.register(Arc::new(
-        crate::processor_chain::message_cleaner::MessageCleaner::new(),
+        crate::processor_chain::content_normalizer::ContentNormalizer::new(),
     ));
 
     let gw = crate::gateway::Gateway::with_processor_registry(
