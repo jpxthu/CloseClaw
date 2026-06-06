@@ -13,7 +13,7 @@ use crate::config::providers::{
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
 use crate::llm::{
-    DeepSeekProvider, GlmProvider, LLMProvider, MiniMaxProvider, ModelDiscovery, ModelLister,
+    DeepSeekProvider, GlmProvider, MiniMaxProvider, ModelDiscovery, ModelLister,
     ProviderModelKnowledge, VolcEngineProvider,
 };
 use dialoguer::{Input, Select};
@@ -213,21 +213,8 @@ fn find_models_config() -> Option<std::path::PathBuf> {
         .find(|p| p.exists())
 }
 
-/// Build an `Arc<dyn LLMProvider>` from the selected `ProviderInfo`.
-fn build_provider(info: &ProviderInfo, credential: &str) -> Arc<dyn LLMProvider> {
-    match info.provider_type {
-        ProviderType::Minimax => Arc::new(MiniMaxProvider::new(credential.to_string())),
-        ProviderType::Glm => Arc::new(GlmProvider::new(credential.to_string())),
-        ProviderType::Volcengine => Arc::new(VolcEngineProvider::new(credential.to_string())),
-        // DeepSeek migrated to Provider trait; ctx.provider is dead code
-        ProviderType::Deepseek => {
-            panic!("DeepSeek no longer implements LLMProvider; use build_model_lister")
-        }
-    }
-}
-
 /// Build an `Arc<dyn ModelLister>` from the selected `ProviderInfo`.
-/// Same provider instances as `build_provider`, but typed for model discovery.
+/// Build provider instances and return as a `ModelLister`.
 fn build_model_lister(info: &ProviderInfo, credential: &str) -> Arc<dyn ModelLister> {
     match info.provider_type {
         ProviderType::Minimax => Arc::new(MiniMaxProvider::new(credential.to_string())),
@@ -299,7 +286,6 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
     {
         let info = ctx.selected_provider.as_ref().unwrap();
         let cred = ctx.credential.as_ref().unwrap();
-        ctx.provider = Some(build_provider(info, cred));
         let model_lister = build_model_lister(info, cred);
 
         print!("Fetching models from provider...");

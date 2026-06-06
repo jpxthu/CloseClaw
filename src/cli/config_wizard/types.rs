@@ -4,8 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::llm::{model_info::ModelInfo, LLMProvider};
-use std::sync::Arc;
+use crate::llm::model_info::ModelInfo;
 
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +69,6 @@ pub struct WizardContext {
     pub fetched_models: Vec<ModelInfo>,
     pub selected_models: Vec<ModelInfo>,
     pub existing_config: HashMap<String, serde_json::Value>,
-    pub provider: Option<Arc<dyn LLMProvider>>,
 }
 
 impl Default for WizardContext {
@@ -82,7 +80,6 @@ impl Default for WizardContext {
             fetched_models: Vec::new(),
             selected_models: Vec::new(),
             existing_config: HashMap::new(),
-            provider: None,
         }
     }
 }
