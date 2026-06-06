@@ -14,6 +14,7 @@ use crate::session::persistence::{
 };
 use crate::session::workspace;
 use crate::skills::DiskSkillRegistry;
+use crate::system_prompt::builder::PromptOverrides;
 use crate::tools::ToolRegistry;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -50,6 +51,8 @@ pub struct SessionManager {
     skill_registry: RwLock<Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>>,
     /// Default reasoning level for new sessions
     default_reasoning_level: ReasoningLevel,
+    /// Priority prompt overrides (checked at request time, not session creation).
+    prompt_overrides: RwLock<Option<PromptOverrides>>,
     /// Children tracking table: parent_session_id → list of child sessions.
     children: RwLock<HashMap<String, Vec<ChildSessionInfo>>>,
     /// Channel → active session_id mapping.
@@ -87,9 +90,20 @@ impl SessionManager {
             tool_registry: RwLock::new(None),
             skill_registry: RwLock::new(None),
             default_reasoning_level,
+            prompt_overrides: RwLock::new(None),
             children: RwLock::new(HashMap::new()),
             channel_active_sessions: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Set priority prompt overrides.
+    pub async fn set_prompt_overrides(&self, overrides: Option<PromptOverrides>) {
+        *self.prompt_overrides.write().await = overrides;
+    }
+
+    /// Get the current priority prompt overrides, if set.
+    pub async fn get_prompt_overrides(&self) -> Option<PromptOverrides> {
+        self.prompt_overrides.read().await.clone()
     }
 
     /// Set the tool registry for building system prompt ToolsSection.

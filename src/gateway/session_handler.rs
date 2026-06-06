@@ -240,7 +240,12 @@ impl SessionMessageHandler {
         );
 
         // ── Compose full prompt ─────────────────────────────────────────
-        let full_prompt = build_full_system_prompt(static_prompt_opt.as_deref(), &dynamic_sections);
+        let overrides = session_manager.get_prompt_overrides().await;
+        let full_prompt = build_full_system_prompt(
+            static_prompt_opt.as_deref(),
+            &dynamic_sections,
+            overrides.as_ref(),
+        );
 
         // ── Build ChatRequest with system + user messages ───────────────
         let mut messages = vec![];

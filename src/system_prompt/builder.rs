@@ -8,45 +8,24 @@ use crate::skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-#[cfg(test)]
-use crate::system_prompt::sections::invalidate_all_sections;
-
-/// Static override: if set, replaces the entire prompt
-static OVERRIDE_PROMPT: RwLock<Option<String>> = RwLock::new(None);
-
-/// Agent system prompt: loaded from agent config / workspace
-static AGENT_PROMPT: RwLock<Option<String>> = RwLock::new(None);
-
-/// Custom system prompt: from user config
-static CUSTOM_PROMPT: RwLock<Option<String>> = RwLock::new(None);
+/// Overrides for the three-tier priority prompt system.
+///
+/// When resolving the final system prompt, the caller (typically
+/// `build_full_system_prompt`) checks these in order:
+///   1. `override_prompt` — highest priority, replaces the entire static layer
+///   2. `agent_prompt`    — agent-level prompt
+///   3. `custom_prompt`   — user-defined custom prompt
+///
+/// If none is set, the normal section-based rendering is used.
+#[derive(Debug, Clone, Default)]
+pub struct PromptOverrides {
+    pub override_prompt: Option<String>,
+    pub agent_prompt: Option<String>,
+    pub custom_prompt: Option<String>,
+}
 
 /// Default system prompt fallback
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
-
-// ---------------------------------------------------------------------------
-// Override / agent / custom prompt management
-// ---------------------------------------------------------------------------
-
-/// Set an override system prompt (takes precedence over everything)
-pub fn set_override_prompt(prompt: Option<String>) {
-    if let Ok(mut guard) = OVERRIDE_PROMPT.write() {
-        *guard = prompt;
-    }
-}
-
-/// Set the agent-level system prompt
-pub fn set_agent_prompt(prompt: Option<String>) {
-    if let Ok(mut guard) = AGENT_PROMPT.write() {
-        *guard = prompt;
-    }
-}
-
-/// Set the custom system prompt
-pub fn set_custom_prompt(prompt: Option<String>) {
-    if let Ok(mut guard) = CUSTOM_PROMPT.write() {
-        *guard = prompt;
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Build
@@ -54,18 +33,14 @@ pub fn set_custom_prompt(prompt: Option<String>) {
 
 /// Build the complete system prompt from the given sections.
 ///
-/// Priority (highest to lowest):
-///  1. overrideSystemPrompt (if set)
-///  2. agentSystemPrompt (if set)
-///  3. CustomSystemPrompt (if set)
-///  4. defaultSystemPrompt
-///  5. appendSection (always appended last)
+/// This function only renders sections and appends the optional `append_section`.
+/// Priority-prompt resolution (override > agent > custom) is handled at the
+/// request stage by `build_full_system_prompt` in `gateway::system_prompt_inject`.
+///
+///  1. Renders all provided sections
+///  2. Falls back to DEFAULT_PROMPT when no sections produce output
+///  3. Appends `append_section` if provided
 pub fn build_system_prompt(sections: Vec<Section>, append_section: Option<String>) -> String {
-    // Check priority prompts first (early return)
-    if let Some(prompt) = get_priority_prompt() {
-        return append_append_section(prompt, append_section);
-    }
-
     // Render sections
     let rendered = render_sections(sections);
     let base = if rendered.is_empty() {
@@ -75,29 +50,6 @@ pub fn build_system_prompt(sections: Vec<Section>, append_section: Option<String
     };
 
     append_append_section(base, append_section)
-}
-
-/// Get the highest-priority prompt that is set
-fn get_priority_prompt() -> Option<String> {
-    // Check override
-    if let Ok(guard) = OVERRIDE_PROMPT.read() {
-        if let Some(ref prompt) = *guard {
-            return Some(prompt.clone());
-        }
-    }
-    // Check agent
-    if let Ok(guard) = AGENT_PROMPT.read() {
-        if let Some(ref prompt) = *guard {
-            return Some(prompt.clone());
-        }
-    }
-    // Check custom
-    if let Ok(guard) = CUSTOM_PROMPT.read() {
-        if let Some(ref prompt) = *guard {
-            return Some(prompt.clone());
-        }
-    }
-    None
 }
 
 /// Render all sections into a vector of strings
@@ -235,98 +187,41 @@ mod tests {
     use super::super::sections::Section;
     use super::*;
 
-    /// Clear all global prompt state to prevent cross-test pollution.
-    fn clear_all_prompts() {
-        set_override_prompt(None);
-        set_agent_prompt(None);
-        set_custom_prompt(None);
+    /// Clear cached sections to prevent cross-test pollution.
+    #[cfg(test)]
+    use crate::system_prompt::sections::invalidate_all_sections;
+
+    fn reset_sections() {
         invalidate_all_sections();
     }
 
     #[test]
-    fn test_build_system_prompt_with_override() {
-        set_override_prompt(Some("override prompt".to_string()));
-        let sections = vec![Section::RoleSection("should not appear".to_string())];
-        let result = build_system_prompt(sections, None);
-        assert!(result.contains("override prompt"));
-        set_override_prompt(None);
+    fn test_prompt_overrides_default() {
+        let overrides = PromptOverrides::default();
+        assert!(overrides.override_prompt.is_none());
+        assert!(overrides.agent_prompt.is_none());
+        assert!(overrides.custom_prompt.is_none());
     }
 
     #[test]
-    fn test_build_system_prompt_with_agent_prompt() {
-        clear_all_prompts();
-        set_agent_prompt(Some("agent prompt".to_string()));
-        let sections = vec![];
-        let result = build_system_prompt(sections, None);
-        assert!(result.contains("agent prompt"));
-        clear_all_prompts();
-    }
-
-    #[test]
-    fn test_build_system_prompt_with_custom_prompt() {
-        clear_all_prompts();
-        set_custom_prompt(Some("custom prompt".to_string()));
-        let sections = vec![];
-        let result = build_system_prompt(sections, None);
-        assert!(result.contains("custom prompt"));
-        clear_all_prompts();
-    }
-
-    #[test]
-    fn test_build_system_prompt_default() {
-        // Clear global state that could affect this test
-        set_override_prompt(None);
-        set_agent_prompt(None);
-        set_custom_prompt(None);
-        invalidate_all_sections();
-
+    fn test_build_system_prompt_renders_sections() {
+        reset_sections();
         let sections = vec![Section::RoleSection("role content".to_string())];
         let result = build_system_prompt(sections, None);
         assert!(result.contains("role content"));
     }
 
     #[test]
-    fn test_build_system_prompt_with_override_and_append() {
-        set_override_prompt(Some("override prompt".to_string()));
-        let sections = vec![Section::RoleSection("should not appear".to_string())];
-        let result = build_system_prompt(sections, Some("extra notes".to_string()));
-        assert!(result.contains("override prompt"));
-        assert!(result.contains("extra notes"));
-        assert!(result.contains("## Append"));
-        set_override_prompt(None);
-    }
-
-    #[test]
-    fn test_build_system_prompt_with_agent_prompt_and_append() {
-        clear_all_prompts();
-        set_agent_prompt(Some("agent prompt".to_string()));
+    fn test_build_system_prompt_fallback_default() {
+        reset_sections();
         let sections = vec![];
-        let result = build_system_prompt(sections, Some("append content".to_string()));
-        assert!(result.contains("agent prompt"));
-        assert!(result.contains("append content"));
-        assert!(result.contains("## Append"));
-        clear_all_prompts();
+        let result = build_system_prompt(sections, None);
+        assert!(result.contains(DEFAULT_PROMPT));
     }
 
     #[test]
-    fn test_build_system_prompt_with_custom_prompt_and_append() {
-        clear_all_prompts();
-        set_custom_prompt(Some("custom prompt".to_string()));
-        let sections = vec![];
-        let result = build_system_prompt(sections, Some("append notes".to_string()));
-        assert!(result.contains("custom prompt"));
-        assert!(result.contains("append notes"));
-        assert!(result.contains("## Append"));
-        clear_all_prompts();
-    }
-
-    #[test]
-    fn test_build_system_prompt_default_with_append() {
-        set_override_prompt(None);
-        set_agent_prompt(None);
-        set_custom_prompt(None);
-        invalidate_all_sections();
-
+    fn test_build_system_prompt_with_append() {
+        reset_sections();
         let sections = vec![Section::RoleSection("role content".to_string())];
         let result = build_system_prompt(sections, Some("additional info".to_string()));
         assert!(result.contains("role content"));
@@ -336,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_build_append_section_appended() {
-        clear_all_prompts();
+        reset_sections();
         let sections = vec![Section::RoleSection("base".to_string())];
         let result = build_system_prompt(sections, Some("extra notes".to_string()));
         assert!(result.contains("base"));
@@ -345,16 +240,15 @@ mod tests {
 
     #[test]
     fn test_append_section_not_shown_when_empty() {
-        clear_all_prompts();
+        reset_sections();
         let sections = vec![Section::RoleSection("base".to_string())];
         let result = build_system_prompt(sections, None);
-        // append section should not appear at all
         assert!(!result.contains("## Append"));
     }
 
     #[test]
     fn test_dynamic_sections_not_cached() {
-        clear_all_prompts();
+        reset_sections();
         let sections = vec![Section::SessionState {
             turn_count: 1,
             pending_tasks: vec![],

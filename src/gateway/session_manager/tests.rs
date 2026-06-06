@@ -2,20 +2,15 @@ use super::*;
 use crate::gateway::{GatewayConfig, Message};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::SessionCheckpoint;
-use crate::system_prompt::{
-    invalidate_all_sections, set_agent_prompt, set_custom_prompt, set_override_prompt,
-};
+use crate::system_prompt::invalidate_all_sections;
 use serial_test::serial;
 use std::io::Write;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
-/// Clear global prompt state and section cache. Must be called before tests
-/// that exercise system prompt generation (global SECTION_CACHE is shared).
+/// Clear section cache. Must be called before tests that exercise system prompt
+/// generation (global SECTION_CACHE is shared).
 pub(super) fn clear_global_prompt_state() {
-    set_override_prompt(None);
-    set_agent_prompt(None);
-    set_custom_prompt(None);
     invalidate_all_sections();
 }
 
