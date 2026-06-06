@@ -41,15 +41,9 @@ impl Daemon {
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = openai_key {
-            let bridge = Arc::new(LegacyProviderBridge::new(
-                OpenAIProvider::new(api_key.clone()),
-                "https://api.openai.com/v1".to_string(),
-                api_key,
-                vec![],
-                client.clone(),
-                empty_headers.clone(),
-            ));
-            registry.register("openai".to_string(), bridge).await;
+            let provider: Arc<dyn crate::llm::provider::Provider> =
+                Arc::new(OpenAIProvider::new(api_key));
+            registry.register("openai".to_string(), provider).await;
             info!("OpenAI provider registered");
         }
 
