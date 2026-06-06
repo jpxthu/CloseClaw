@@ -61,7 +61,7 @@ mod tests {
         // with non-Transient error → immediate fallback, no retry scenario consumed)
         let primary = FakeProvider::builder()
             .then_ok("primary-first", "fake-a")
-            .then_err(closeclaw::llm::LLMError::AuthFailed(
+            .then_err(closeclaw::llm::provider::ProviderError::Legacy(
                 "credentials rejected".to_string(),
             ))
             .build();
@@ -215,6 +215,10 @@ mod tests {
             fallback_model: String::new(),
             stub_flag: true,
             captured: vec![],
+            captured_internal: Vec::new(),
+            default_headers: reqwest::header::HeaderMap::new(),
+            http_client: reqwest::Client::new(),
+            supported_protocols: vec![closeclaw::llm::types::ProtocolId::new("openai")],
         };
 
         let slow_provider = FakeProvider {
@@ -292,7 +296,7 @@ mod tests {
         // Primary: always fails with AuthFailed (non-Transient → immediate fallback,
         // no retry, triggers cooldown recording)
         let primary = FakeProvider::builder()
-            .then_err(closeclaw::llm::LLMError::AuthFailed(
+            .then_err(closeclaw::llm::provider::ProviderError::Legacy(
                 "credentials rejected".to_string(),
             ))
             .build();
@@ -379,14 +383,14 @@ mod tests {
 
         // Provider A: always fails with AuthFailed
         let provider_a = FakeProvider::builder()
-            .then_err(closeclaw::llm::LLMError::AuthFailed(
+            .then_err(closeclaw::llm::provider::ProviderError::Legacy(
                 "key rejected".to_string(),
             ))
             .build();
 
         // Provider B: always fails with AuthFailed
         let provider_b = FakeProvider::builder()
-            .then_err(closeclaw::llm::LLMError::AuthFailed(
+            .then_err(closeclaw::llm::provider::ProviderError::Legacy(
                 "key rejected".to_string(),
             ))
             .build();
