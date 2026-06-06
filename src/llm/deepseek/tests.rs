@@ -1,45 +1,74 @@
-//! Unit tests for the DeepSeek provider.
+//! Unit tests for the DeepSeek Provider implementation.
 
 use super::*;
-use mockito::Server;
+use crate::llm::provider::Provider;
+use crate::llm::types::{InternalMessage, InternalRequest, RawContentBlock};
+use serde_json::json;
 
 // ---------------------------------------------------------------------------
 // Helper utilities
 // ---------------------------------------------------------------------------
 
 fn provider_url(server: &mockito::Server) -> String {
-    format!("http://{}", server.address())
+    server.url()
 }
 
-fn chat_request(model: &str) -> LLMRequest {
-    LLMRequest {
+fn make_request(model: &str) -> InternalRequest {
+    InternalRequest {
         model: model.to_string(),
-        messages: vec![LLMMessage::user("Hello")],
-        temperature: None,
-        top_p: None,
-        max_tokens: None,
+        messages: vec![InternalMessage {
+            role: "user".into(),
+            content: "Hello".into(),
+        }],
+        temperature: 0.7,
+        max_tokens: Some(100),
         stream: false,
-        stop: None,
+        extra_body: serde_json::Map::new(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        session_id: None,
+        reasoning_level: crate::session::persistence::ReasoningLevel::default(),
     }
 }
 
 // ---------------------------------------------------------------------------
-// Chat integration tests via mockito
+// Provider accessor tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_provider_accessors() {
+    let provider = DeepSeekProvider::new("sk-secret-key".into());
+    assert_eq!(provider.id(), "deepseek");
+    assert_eq!(provider.base_url(), DEEPSEEK_API_URL);
+    assert_eq!(provider.api_key(), "sk-secret-key");
+    let protocols = provider.supported_protocols();
+    assert_eq!(protocols.len(), 1);
+    assert_eq!(protocols[0].as_str(), "openai");
+    let _ = provider.http_client();
+    assert!(provider.default_headers().is_empty());
+
+    // Test custom base URL with a separate instance
+    let custom = DeepSeekProvider::with_base_url("sk-test".into(), "https://custom.api.com".into());
+    assert_eq!(custom.base_url(), "https://custom.api.com");
+}
+
+// ---------------------------------------------------------------------------
+// send() success tests
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_chat_success_mock() {
+async fn test_send_success_text_only() {
     let mut server = mockito::Server::new_async().await;
-    let fixture = include_str!("../../tests/fixtures/llm/deepseek/chat-success.json");
+    let fixture = include_str!("../../../tests/fixtures/llm/deepseek/chat-success.json");
 
     let m = server
         .mock("POST", "/chat/completions")
         .match_header(
             "authorization",
-            mockito::Matcher::Regex(r"Bearer sk-.*".to_string()),
+            mockito::Matcher::Regex(r"Bearer sk-.*".into()),
         )
         .match_header("content-type", "application/json")
-        .match_header("accept", "application/json")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(fixture)
@@ -47,272 +76,399 @@ async fn test_chat_success_mock() {
         .await;
 
     let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
-    let result = provider.chat(chat_request("deepseek-v4-flash")).await;
+    let req = make_request("deepseek-v4-flash");
+    let body = json!({
+        "model": "deepseek-v4-flash",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "temperature": 0.7,
+        "max_tokens": 100
+    });
+
+    let result = provider.send(req, body).await;
 
     m.assert_async().await;
-    assert!(result.is_ok(), "expected ok, got {:?}", result);
+    let resp = result.expect("send should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello! How can I help you today?".into())
+    );
+    assert_eq!(resp.usage.prompt_tokens, 12);
+    assert_eq!(resp.usage.completion_tokens, 8);
+    assert_eq!(resp.usage.total_tokens, Some(20));
+    assert_eq!(resp.finish_reason.as_deref(), Some("stop"));
 }
 
 #[tokio::test]
-async fn test_chat_error_not_found_mock() {
+async fn test_send_success_with_reasoning_content() {
     let mut server = mockito::Server::new_async().await;
-    let fixture = include_str!("../../tests/fixtures/llm/deepseek/error-not-found.json");
+
+    let response_body = json!({
+        "id": "ds-reason-001",
+        "model": "deepseek-v4-pro",
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "The answer is 42.",
+                "reasoning_content": "Let me think step by step..."
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 15,
+            "total_tokens": 25
+        }
+    });
 
     let m = server
         .mock("POST", "/chat/completions")
-        .match_header(
-            "authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
-        .match_header("content-type", "application/json")
-        .with_status(404)
+        .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(fixture)
+        .with_body(response_body.to_string())
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("fake-key".into(), provider_url(&server));
-    let err = provider
-        .chat(chat_request("unknown-model"))
-        .await
-        .unwrap_err();
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-pro");
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "messages": [{"role": "user", "content": "What is the answer?"}]
+    });
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
 
     m.assert_async().await;
-    matches!(err, LLMError::ModelNotFound(_));
+    // Should have Thinking block first, then Text block
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Thinking("Let me think step by step...".into())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text("The answer is 42.".into())
+    );
 }
 
 #[tokio::test]
-async fn test_chat_error_auth_mock() {
+async fn test_send_success_empty_content_fallback() {
     let mut server = mockito::Server::new_async().await;
-    let fixture = include_str!("../../tests/fixtures/llm/deepseek/error-auth.json");
+
+    // Response with empty content and no reasoning_content
+    let response_body = json!({
+        "id": "ds-empty-001",
+        "model": "deepseek-v4-flash",
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": ""
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 5,
+            "completion_tokens": 0,
+            "total_tokens": 5
+        }
+    });
 
     let m = server
         .mock("POST", "/chat/completions")
-        .match_header(
-            "authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
-        .match_header("content-type", "application/json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-flash");
+    let body = json!({"model": "deepseek-v4-flash", "messages": []});
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
+
+    m.assert_async().await;
+    // Empty content should produce a single Text block with empty string
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(resp.content_blocks[0], RawContentBlock::Text(String::new()));
+}
+
+#[tokio::test]
+async fn test_send_success_no_choices_error() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "id": "ds-no-choices-001",
+        "model": "deepseek-v4-flash",
+        "choices": [],
+        "usage": null
+    });
+
+    let m = server
+        .mock("POST", "/chat/completions")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-flash");
+    let body = json!({"model": "deepseek-v4-flash", "messages": []});
+
+    let err = provider.send(req, body).await.unwrap_err();
+
+    m.assert_async().await;
+    match err {
+        crate::llm::provider::ProviderError::Legacy(msg) => {
+            assert!(
+                msg.contains("no choices"),
+                "expected 'no choices' error, got: {}",
+                msg
+            );
+        }
+        other => panic!("expected Legacy error, got: {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// send() error tests (HTTP status code mapping)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_send_error_401_auth() {
+    let mut server = mockito::Server::new_async().await;
+
+    let m = server
+        .mock("POST", "/chat/completions")
         .with_status(401)
         .with_header("content-type", "application/json")
-        .with_body(fixture)
+        .with_body(r#"{"error":{"code":"invalid_api_key","message":"Invalid API key"}}"#)
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("fake-key".into(), provider_url(&server));
-    let err = provider
-        .chat(chat_request("deepseek-v4-flash"))
-        .await
-        .unwrap_err();
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-flash");
+    let body = json!({"model": "deepseek-v4-flash", "messages": []});
+
+    let err = provider.send(req, body).await.unwrap_err();
 
     m.assert_async().await;
-    matches!(err, LLMError::AuthFailed(_));
+    match err {
+        crate::llm::provider::ProviderError::Legacy(msg) => {
+            assert!(
+                msg.contains("401"),
+                "expected 401 in error message, got: {}",
+                msg
+            );
+        }
+        other => panic!("expected Legacy error for 401, got: {:?}", other),
+    }
 }
 
 #[tokio::test]
-async fn test_chat_rate_limit_mock() {
+async fn test_send_error_429_rate_limit() {
     let mut server = mockito::Server::new_async().await;
+
     let m = server
         .mock("POST", "/chat/completions")
-        .match_body(mockito::Matcher::Any)
         .with_status(429)
         .with_header("content-type", "application/json")
         .with_body(r#"{"error":{"code":"rate_limit_exceeded","message":"rate limit exceeded"}}"#)
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("fake-key".into(), provider_url(&server));
-    let err = provider
-        .chat(chat_request("deepseek-v4-flash"))
-        .await
-        .unwrap_err();
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-flash");
+    let body = json!({"model": "deepseek-v4-flash", "messages": []});
+
+    let err = provider.send(req, body).await.unwrap_err();
 
     m.assert_async().await;
-    matches!(err, LLMError::RateLimitExceeded);
-}
-
-// ---------------------------------------------------------------------------
-// fetch_model_list() tests via mockito
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_fetch_model_list_success_mock() {
-    let mut server = mockito::Server::new_async().await;
-    let fixture = include_str!("../../tests/fixtures/llm/deepseek/models-list.json");
-
-    let m = server
-        .mock("GET", "/models")
-        .match_header(
-            "authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(fixture)
-        .create_async()
-        .await;
-
-    let provider = DeepSeekProvider::with_base_url("fake-key".into(), server.url());
-    let models = provider.fetch_model_list("fake-key").await.unwrap();
-
-    m.assert_async().await;
-    assert!(!models.is_empty(), "expected at least one model");
-    // Verify deprecated models are filtered out
-    for model in &models {
-        assert!(
-            !model.name.to_lowercase().contains("deprecated"),
-            "Deprecated model {} should be filtered",
-            model.name
-        );
+    match err {
+        crate::llm::provider::ProviderError::Legacy(msg) => {
+            assert!(
+                msg.contains("429"),
+                "expected 429 in error message, got: {}",
+                msg
+            );
+        }
+        other => panic!("expected Legacy error for 429, got: {:?}", other),
     }
 }
 
 #[tokio::test]
-async fn test_fetch_model_list_http_error_mock() {
+async fn test_send_error_404_not_found() {
     let mut server = mockito::Server::new_async().await;
 
     let m = server
-        .mock("GET", "/models")
+        .mock("POST", "/chat/completions")
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":{"code":"model_not_found","message":"Model not found"}}"#)
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("unknown-model");
+    let body = json!({"model": "unknown-model", "messages": []});
+
+    let err = provider.send(req, body).await.unwrap_err();
+
+    m.assert_async().await;
+    match err {
+        crate::llm::provider::ProviderError::Legacy(msg) => {
+            assert!(
+                msg.contains("404"),
+                "expected 404 in error message, got: {}",
+                msg
+            );
+        }
+        other => panic!("expected Legacy error for 404, got: {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_send_business_error_in_body() {
+    let mut server = mockito::Server::new_async().await;
+
+    // HTTP 200 but with error in body
+    let response_body = json!({
+        "id": "ds-biz-err-001",
+        "model": "deepseek-v4-flash",
+        "choices": [{
+            "message": {"role": "assistant", "content": ""},
+            "finish_reason": null
+        }],
+        "error": {
+            "code": "context_length_exceeded",
+            "message": "Maximum context length exceeded"
+        }
+    });
+
+    let m = server
+        .mock("POST", "/chat/completions")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-flash");
+    let body = json!({"model": "deepseek-v4-flash", "messages": []});
+
+    let err = provider.send(req, body).await.unwrap_err();
+
+    m.assert_async().await;
+    match err {
+        crate::llm::provider::ProviderError::Legacy(msg) => {
+            assert!(
+                msg.contains("context_length_exceeded"),
+                "expected business error, got: {}",
+                msg
+            );
+        }
+        other => panic!("expected Legacy error for business error, got: {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// send_streaming() tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_send_streaming_success() {
+    let mut server = mockito::Server::new_async().await;
+
+    // Build SSE response body with multiple chunks and [DONE]
+    let sse_body = "\
+data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}
+
+data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}
+
+data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}
+
+data: [DONE]
+
+";
+
+    let m = server
+        .mock("POST", "/chat/completions")
         .match_header(
             "authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+            mockito::Matcher::Regex(r"Bearer sk-.*".into()),
         )
+        .with_status(200)
+        .with_header("content-type", "text/event-stream")
+        .with_body(sse_body)
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-flash");
+    let mut req = req;
+    req.stream = true;
+    let body = json!({
+        "model": "deepseek-v4-flash",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "stream": true
+    });
+
+    let mut rx = provider
+        .send_streaming(req, body)
+        .await
+        .expect("send_streaming should succeed");
+
+    m.assert_async().await;
+
+    let mut chunks = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+        chunks.push(chunk);
+    }
+
+    // Should receive 3 chunks (the [DONE] frame does not produce a chunk)
+    assert_eq!(
+        chunks.len(),
+        3,
+        "expected 3 SSE chunks, got {}",
+        chunks.len()
+    );
+
+    // Each chunk should be a RawSseChunk with the data payload
+    assert!(chunks[0].data.contains("Hello"));
+    assert!(chunks[0].event_type == "message");
+
+    assert!(chunks[1].data.contains(" world"));
+    assert!(chunks[2].data.contains("finish_reason"));
+}
+
+#[tokio::test]
+async fn test_send_streaming_error_401() {
+    let mut server = mockito::Server::new_async().await;
+
+    let m = server
+        .mock("POST", "/chat/completions")
         .with_status(401)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"error":{"code":"invalid_api_key","message":"invalid api key"}}"#)
+        .with_body(r#"{"error":{"code":"invalid_api_key","message":"Invalid"}}"#)
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("fake-key".into(), server.url());
-    let err = provider.fetch_model_list("fake-key").await.unwrap_err();
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let mut req = make_request("deepseek-v4-flash");
+    req.stream = true;
+    let body = json!({"model": "deepseek-v4-flash", "messages": [], "stream": true});
+
+    let err = provider.send_streaming(req, body).await.unwrap_err();
 
     m.assert_async().await;
-    matches!(err, LLMError::AuthFailed(_));
-}
-
-#[tokio::test]
-async fn test_fetch_model_list_timeout_mock() {
-    let mut server = mockito::Server::new_async().await;
-
-    // Delay response by 500ms — client timeout is 1ms, so request will timeout reliably
-    let m = server
-        .mock("GET", "/models")
-        .match_header(
-            "authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"data":[]}"#)
-        .with_delay(500)
-        .create_async()
-        .await;
-
-    // Use a client with 1ms timeout to trigger NetworkError
-    let short_timeout_client = Client::builder()
-        .timeout(Duration::from_millis(1))
-        .build()
-        .unwrap();
-    let provider = DeepSeekProvider::with_base_url("fake-key".into(), server.url());
-    // Replace http_client with short-timeout client
-    let provider = DeepSeekProviderWithCustomClient {
-        provider,
-        client: short_timeout_client,
-    };
-    let err = provider.fetch_model_list("fake-key").await.unwrap_err();
-
-    m.assert_async().await;
-    matches!(err, LLMError::NetworkError(_));
-}
-
-// Helper to inject a custom client for timeout testing
-struct DeepSeekProviderWithCustomClient {
-    provider: DeepSeekProvider,
-    client: Client,
-}
-
-impl DeepSeekProviderWithCustomClient {
-    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
-        let url = format!("{}/models", self.provider.base_url.trim_end_matches('/'));
-        let response = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", bearer_token))
-            .send()
-            .await
-            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(DeepSeekProvider::map_http_error(status, &body));
+    match err {
+        crate::llm::provider::ProviderError::Legacy(msg) => {
+            assert!(msg.contains("401"));
         }
-
-        let api_resp: DeepSeekModelsResponse = response.json().await.map_err(|e| {
-            LLMError::ApiError(format!("failed to parse DeepSeek /models response: {}", e))
-        })?;
-
-        let models: Vec<ModelInfo> = api_resp
-            .data
-            .into_iter()
-            .filter(|m| {
-                m.status
-                    .as_ref()
-                    .map(|s| {
-                        !s.eq_ignore_ascii_case("deprecated") && !s.eq_ignore_ascii_case("shutdown")
-                    })
-                    .unwrap_or(true)
-            })
-            .map(|m| {
-                let input_types: Vec<crate::llm::InputType> = m
-                    .input_modalities
-                    .iter()
-                    .filter_map(|m| match m.to_lowercase().as_str() {
-                        "image" => Some(crate::llm::InputType::Image),
-                        _ => Some(crate::llm::InputType::Text),
-                    })
-                    .collect();
-                let input_types = if input_types.is_empty() {
-                    vec![crate::llm::InputType::Text]
-                } else {
-                    input_types
-                };
-                ModelInfo {
-                    id: m.id.clone(),
-                    name: m.display_name.clone().unwrap_or_else(|| m.id.clone()),
-                    context_window: m.context_window.unwrap_or(64_000),
-                    max_tokens: m.max_output_tokens.unwrap_or(8_192),
-                    default_temperature: None,
-                    reasoning: false,
-                    input_types,
-                }
-            })
-            .collect();
-
-        Ok(models)
+        other => panic!("expected Legacy error for 401, got: {:?}", other),
     }
 }
 
-// -------------------------------------------------------------------------
-// name / provider_display_name / models unit tests
-// -------------------------------------------------------------------------
-
-#[test]
-fn test_name() {
-    let provider = DeepSeekProvider::new("fake-key".into());
-    assert_eq!(provider.name(), "deepseek");
-}
-
-#[test]
-fn test_provider_display_name() {
-    let provider = DeepSeekProvider::new("fake-key".into());
-    assert_eq!(provider.provider_display_name(), "DeepSeek");
-}
-
-#[test]
-fn test_models() {
-    let provider = DeepSeekProvider::new("fake-key".into());
-    let models = provider.models();
-    assert!(!models.is_empty());
-    assert!(models.contains(&"deepseek-v4-flash"));
-}
+mod tests_model_lister;
