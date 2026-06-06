@@ -4,7 +4,7 @@
 
 Session Compaction 在会话上下文接近 LLM 上下文窗口上限时，将对话历史压缩为结构化摘要，释放 token 空间以继续对话。
 
-Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md）中包含的角色定义和行为规则通过架构隔离保护：system prompt 独立于对话消息流，不参与 compaction，因此压缩不会导致角色定义丢失或扭曲。
+Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md 等）中包含的角色定义、行为规则和工具清单通过架构隔离保护：system prompt 独立于对话消息流，不参与 compaction，因此压缩不会导致角色定义丢失或扭曲。
 
 ### 设计原则
 
@@ -24,7 +24,7 @@ Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md）中包含的角
   ↓
 组装压缩后 transcript：system prompt + boundary message
   ↓
-持久化 SessionCheckpoint
+持久化 SessionCheckpoint（仅 transcript 的 message 列表，不含 system prompt）
 ```
 
 ### 触发方式
@@ -54,7 +54,7 @@ Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md）中包含的角
 
 system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创建时由 Session Injection 模块组装。session 内部将 system prompt 与对话消息分开管理：
 
-- **存储**：system prompt 作为独立字段持久化，不混入对话消息列表。
+- **存储**：system prompt 作为独立字段保存在 ConversationSession 运行时对象中，与对话消息列表分开管理。
 - **API 调用**：每次调用 LLM 时，system prompt 前置到消息列表最前端，与对话消息组合为完整请求。
 - **Compaction**：system prompt 不进入压缩消息流。压缩后的 transcript 由 system prompt + boundary message 组成。
 - **恢复**：会话从 checkpoint 恢复时，重新走注入流程（build_from_workspace），从最新 bootstrap 文件重建 system prompt，确保 prompt 内容最新。
@@ -104,7 +104,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
   [Session Compaction | 手动压缩] 摘要内容
 ```
 
-压缩不修改 system prompt 内容，但 compaction 完成后可能触发 session injection 重建 system prompt（以刷新 skill 列表等动态内容），详见 session-injection.md。
+压缩不修改 system prompt 内容，但 compaction 成功后确定性调用 `rebuild_system_prompt` 重建 system prompt 整段静态层（RoleSection + ToolsSection + SkillListingSection + MemorySection），确保下次请求时角色定义、工具列表、skill 清单和长期记忆均为最新版本。详见 [session-injection.md](session-injection.md)。
 
 ## 模块关系
 
@@ -117,7 +117,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 ### 下游
 
 - **LLM Provider**：被调用来执行实际的对话摘要生成。
-- **Checkpoint Manager**：压缩完成后触发 checkpoint 保存，持久化 system prompt 和压缩后的 transcript。
+- **Checkpoint Manager**：压缩完成后触发 checkpoint 保存，持久化压缩后的 transcript（system prompt 为运行时字段，不进入 SessionCheckpoint）。
 
 ### 无关
 
