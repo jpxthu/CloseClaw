@@ -1,7 +1,7 @@
 //! Model lister tests for DeepSeek Provider.
 
-use super::super::{DeepSeekProvider, LLMError, DEEPSEEK_API_URL};
-use crate::llm::provider::ModelLister;
+use super::*;
+use crate::llm::ModelLister;
 
 #[tokio::test]
 async fn test_fetch_model_list_success() {
