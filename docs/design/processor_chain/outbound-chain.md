@@ -69,7 +69,7 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
 
 ## 模块关系
 
-- **上游**：Session（提供 ContentBlock[] 消息数据）
+- **上游**：Session（LLM 对话的 ContentBlock[]）、SlashDispatcher（斜杠指令回复的 ContentBlock[]）
 - **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费 ContentBlock[] + DslParseResult，渲染为平台格式并发送）
 - **链内**：
   - DslParser — 解析 DSL 指令，为渲染提供交互数据

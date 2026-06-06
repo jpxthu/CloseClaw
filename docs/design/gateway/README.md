@@ -25,7 +25,7 @@ Gateway 维护以下运行时注册表：
 ```
 入站：
   webhook → [IM 插件: 平台格式解析] → NormalizedMessage
-          → [Processor Chain 入站: RawLog→SessionRouter→MessageCleaner→MarkdownNormalizer]
+          → [Processor Chain 入站: RawLog→SessionRouter→ContentNormalizer]
           → ProcessedMessage
           → [Gateway: 路由决策]
               ├─ / 开头 → SlashDispatcher

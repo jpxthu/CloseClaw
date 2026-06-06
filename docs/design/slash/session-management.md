@@ -8,7 +8,7 @@
 
 两个指令由同一个 SessionHandler 处理，但行为独立：
 
-- **`/new`**：创建新会话，分配新会话标识，绑定当前 channel。旧会话保留（后续由会话生命周期策略处理 archive）。后续消息自动路由到新会话。
+- **`/new`**：创建新会话，分配新会话标识（`{agent_id}_{timestamp}_{random_suffix}`），覆盖 SessionManager 的 key_registry 映射（同一 session_key 指向新 session_id）。旧会话保留，后续由 Sweeper 自然归档。新消息自动路由到新会话。
 - **`/stop`**：标记为 Immediate 指令，可在 LLM 运行时立即响应。终止当前 LLM 调用和所有子 agent，清除运行队列。
 
 ```
@@ -16,7 +16,9 @@
   ↓
 SessionHandler 返回 NewSession
   ↓
-Gateway 创建新 session（新 ID，绑定 channel）
+Gateway → SessionManager.create_new(session_key)
+  → 创建新 session（新 ID）
+  → key_registry[session_key] = new_session_id  // 覆盖映射
   ↓
 回复"已创建新 session：{id}"
 
