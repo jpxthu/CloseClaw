@@ -37,7 +37,7 @@ anyhow = "1.0"
 libc = "0.2"
 
 # HTTP client (rustls for TLS, no OpenSSL required)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
 # Async channels
 flume = "=0.11"
