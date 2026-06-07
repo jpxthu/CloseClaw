@@ -108,6 +108,7 @@ impl FallbackClient {
             system_blocks: None,
             session_id: None,
             reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+            turn_count: None,
         }
     }
 

@@ -168,6 +168,7 @@ impl ChatSession for LegacySessionAdapter {
             system_blocks: None,
             session_id: None,
             reasoning_level: self.reasoning_level,
+            turn_count: None,
         }
     }
 

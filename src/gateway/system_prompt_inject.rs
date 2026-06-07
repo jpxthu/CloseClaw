@@ -21,23 +21,24 @@ use crate::system_prompt::workdir;
 /// the end of the section list, formatted as a `[N] 内容` numbered
 /// list in insertion order.
 pub(crate) fn build_dynamic_sections(
-    turn_count: u32,
     meta: &MessageMetadata,
     workdir_path: Option<&str>,
     system_appends: &[String],
+    session_timestamp: Option<i64>,
 ) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
     sections.push(Section::ChannelContext {
         chat_name: meta.channel.clone(),
         sender_id: meta.sender_id.clone(),
-        timestamp: chrono::DateTime::from_timestamp(meta.timestamp, 0)
+        timestamp: session_timestamp
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+            .or_else(|| chrono::DateTime::from_timestamp(meta.timestamp, 0))
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default(),
     });
 
     sections.push(Section::SessionState {
-        turn_count,
         pending_tasks: vec![],
     });
 
