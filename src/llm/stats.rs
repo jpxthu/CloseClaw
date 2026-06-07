@@ -106,6 +106,15 @@ impl RunningStats {
     ) -> Option<CacheBreakInfo> {
         let info = detect_cache_break(self.last_cache_read_tokens, current_cache_read);
         self.last_cache_read_tokens = current_cache_read;
+        if let Some(ref break_info) = info {
+            tracing::warn!(
+                previous = break_info.previous_cache_read,
+                current = break_info.current_cache_read,
+                drop_tokens = break_info.drop_tokens,
+                drop_ratio = break_info.drop_ratio,
+                "KV cache break: prefix invalidated between consecutive calls"
+            );
+        }
         info
     }
 
