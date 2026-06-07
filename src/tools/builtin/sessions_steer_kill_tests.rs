@@ -26,6 +26,7 @@ fn test_gateway_config() -> GatewayConfig {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: DmScope::default(),
+        ..Default::default()
     }
 }
 

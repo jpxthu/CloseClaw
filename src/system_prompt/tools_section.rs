@@ -70,6 +70,7 @@ mod tests {
             rate_limit_per_minute: 100,
             max_message_size: 65536,
             dm_scope: crate::gateway::DmScope::PerChannelPeer,
+            ..Default::default()
         };
         let session_manager = Arc::new(SessionManager::new(
             &cfg,

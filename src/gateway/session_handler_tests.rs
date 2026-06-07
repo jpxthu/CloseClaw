@@ -164,6 +164,7 @@ async fn test_idle_message_returns_llm_started() {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: crate::gateway::DmScope::default(),
+        ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -185,6 +186,7 @@ async fn test_busy_message_returns_queued() {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: crate::gateway::DmScope::default(),
+        ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -220,6 +222,7 @@ async fn test_no_pending_no_recursion() {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: crate::gateway::DmScope::default(),
+        ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -249,6 +252,7 @@ async fn test_llm_failure_resets_busy() {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: crate::gateway::DmScope::default(),
+        ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -287,6 +291,7 @@ async fn test_pending_consumed_after_llm_done() {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: crate::gateway::DmScope::default(),
+        ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -324,6 +329,7 @@ async fn test_multiple_pending_fifo_order() {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: crate::gateway::DmScope::default(),
+        ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
         &config,
