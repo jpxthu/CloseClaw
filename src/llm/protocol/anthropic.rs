@@ -57,6 +57,48 @@ fn build_message(msg: &InternalMessage) -> serde_json::Value {
     })
 }
 
+/// Mark the last message with `cache_control` for Anthropic prefix caching.
+///
+/// The API allows mixing string and content-blocks content formats within
+/// the messages array, so only the final message is converted.
+fn mark_last_message_cache_control(messages: &mut [serde_json::Value]) {
+    if let Some(last_msg) = messages.last_mut() {
+        if let Some(content) = last_msg.get("content").and_then(|c| c.as_str()) {
+            let text = content.to_string();
+            last_msg.as_object_mut().unwrap().insert(
+                "content".to_string(),
+                serde_json::json!([{
+                    "type": "text",
+                    "text": text,
+                    "cache_control": { "type": "ephemeral" }
+                }]),
+            );
+        }
+    }
+}
+
+/// Build the Anthropic `system` array from system blocks.
+///
+/// Each block with `cache=true` gets a `cache_control` marker.
+fn build_system_array(blocks: &[crate::llm::types::SystemBlock]) -> Vec<serde_json::Value> {
+    blocks
+        .iter()
+        .map(|b| {
+            let mut obj = serde_json::json!({
+                "type": "text",
+                "text": b.text,
+            });
+            if b.cache {
+                obj.as_object_mut().unwrap().insert(
+                    "cache_control".to_string(),
+                    serde_json::json!({ "type": "ephemeral" }),
+                );
+            }
+            obj
+        })
+        .collect()
+}
+
 #[async_trait]
 impl ChatProtocol for AnthropicProtocol {
     fn protocol_id(&self) -> &ProtocolId {
@@ -75,9 +117,14 @@ impl ChatProtocol for AnthropicProtocol {
             );
         }
 
+        let mut messages: Vec<serde_json::Value> =
+            request.messages.iter().map(build_message).collect();
+
+        mark_last_message_cache_control(&mut messages);
+
         let mut body = serde_json::json!({
             "model": request.model,
-            "messages": request.messages.iter().map(build_message).collect::<Vec<_>>(),
+            "messages": messages,
         });
 
         if let Some(max_tokens) = request.max_tokens {
@@ -94,26 +141,9 @@ impl ChatProtocol for AnthropicProtocol {
             );
         }
 
-        // System blocks: if present, serialize as Anthropic's system array format.
-        // Each block with cache=true gets a cache_control marker.
         if let Some(ref blocks) = request.system_blocks {
             if !blocks.is_empty() {
-                let system_array: Vec<serde_json::Value> = blocks
-                    .iter()
-                    .map(|b| {
-                        let mut obj = serde_json::json!({
-                            "type": "text",
-                            "text": b.text,
-                        });
-                        if b.cache {
-                            obj.as_object_mut().unwrap().insert(
-                                "cache_control".to_string(),
-                                serde_json::json!({ "type": "ephemeral" }),
-                            );
-                        }
-                        obj
-                    })
-                    .collect();
+                let system_array = build_system_array(blocks);
                 body.as_object_mut()
                     .unwrap()
                     .insert("system".to_string(), serde_json::json!(system_array));
