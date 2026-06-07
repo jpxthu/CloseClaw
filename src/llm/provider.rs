@@ -189,6 +189,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: InternalRequest = serde_json::from_str(&json).unwrap();
@@ -226,6 +227,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: InternalRequest = serde_json::from_str(&json).unwrap();
@@ -250,6 +252,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("extra_body"));

@@ -250,7 +250,6 @@ mod tests {
     fn test_dynamic_sections_not_cached() {
         reset_sections();
         let sections = vec![Section::SessionState {
-            turn_count: 1,
             pending_tasks: vec![],
         }];
         let result1 = build_system_prompt(sections.clone(), None);

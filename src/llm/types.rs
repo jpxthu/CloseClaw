@@ -356,6 +356,10 @@ pub struct InternalRequest {
     /// Skipped during serialization to avoid leaking to API payloads.
     #[serde(skip)]
     pub reasoning_level: ReasoningLevel,
+    /// Current turn count within the session, used for API metadata.
+    /// Skipped during serialization when `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_count: Option<u32>,
 }
 
 fn default_temperature() -> f32 {

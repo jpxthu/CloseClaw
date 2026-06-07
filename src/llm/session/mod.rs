@@ -99,6 +99,10 @@ pub struct ConversationSession {
     pub(crate) tool_states: Arc<RwLock<HashMap<String, ToolExecState>>>,
     /// Per-child session states. See [`super::session_state`].
     pub(crate) child_states: Arc<RwLock<HashMap<String, ChildSessionState>>>,
+    /// When this session was created (Unix timestamp, seconds).
+    /// Used by `build_dynamic_sections` as the ChannelContext timestamp
+    /// so that system-prompt KV-cache prefix stays stable across turns.
+    created_at: i64,
     /// Tool process kill handles. See [`super::session_handles`].
     pub(crate) tool_handles: Arc<RwLock<HashMap<String, Arc<dyn KillHandle>>>>,
     /// Spawned child sessions. See [`super::session_handles`].
@@ -131,6 +135,7 @@ impl ConversationSession {
             reasoning_level: ReasoningLevel::default(),
             workdir,
             stats: RunningStats::new(),
+            created_at: Utc::now().timestamp(),
             streaming_sink: None,
             stream_enabled: false,
             announce_queue: Vec::new(),
@@ -172,6 +177,11 @@ impl ConversationSession {
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
         self
+    }
+
+    /// Returns the Unix timestamp (seconds) when this session was created.
+    pub fn session_created_at(&self) -> i64 {
+        self.created_at
     }
 
     /// Sets the reasoning level.
@@ -364,6 +374,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("pending_messages", &self.pending_messages)
             .field("reasoning_level", &self.reasoning_level)
             .field("workdir", &self.workdir)
+            .field("created_at", &self.created_at)
             .field("stats", &self.stats)
             .field(
                 "streaming_sink",

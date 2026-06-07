@@ -324,6 +324,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
         };
 
         let response = provider
@@ -368,6 +369,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
         };
 
         let result = provider.send(request, serde_json::json!({})).await;
@@ -404,6 +406,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
         };
 
         let result = provider.send(request, serde_json::json!({})).await;
@@ -444,6 +447,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
         };
 
         let mut stream = provider

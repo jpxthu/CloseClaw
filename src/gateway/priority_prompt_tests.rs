@@ -24,7 +24,7 @@ fn test_priority_override_wins_over_agent_and_custom() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(0, &meta, None, &[]);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("override prompt"));
@@ -41,7 +41,7 @@ fn test_priority_agent_wins_over_custom() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(0, &meta, None, &[]);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("agent prompt"));
@@ -57,7 +57,7 @@ fn test_priority_custom_fallback() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(0, &meta, None, &[]);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("custom prompt"));
@@ -72,7 +72,7 @@ fn test_priority_override_mutual_exclusivity() {
         custom_prompt: Some("custom ignored".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(0, &meta, None, &[]);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     // Only override prompt appears
@@ -93,7 +93,7 @@ fn test_priority_hit_only_appends_append_section() {
         custom_prompt: None,
     };
     let meta = make_meta("alice", "telegram", 1700000000);
-    let dynamic = build_dynamic_sections(5, &meta, None, &["extra instruction".into()]);
+    let dynamic = build_dynamic_sections(&meta, None, &["extra instruction".into()], None);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     // Override prompt is the base
@@ -107,7 +107,7 @@ fn test_priority_hit_only_appends_append_section() {
         "ChannelContext should not appear on priority hit"
     );
     assert!(
-        !full.contains("turn_count: 5"),
+        !full.contains("pending_tasks:"),
         "SessionState should not appear on priority hit"
     );
     assert!(
@@ -124,14 +124,14 @@ fn test_priority_hit_multiple_appends() {
         ..Default::default()
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(0, &meta, None, &["first".into(), "second".into()]);
+    let dynamic = build_dynamic_sections(&meta, None, &["first".into(), "second".into()], None);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("agent prompt"));
     assert!(full.contains("first"));
     assert!(full.contains("second"));
     assert!(!full.contains("sender_id"));
-    assert!(!full.contains("turn_count"));
+    assert!(!full.contains("pending_tasks:"));
 }
 
 /// Test (d): When no override matches, normal behavior is preserved.
@@ -139,7 +139,7 @@ fn test_priority_hit_multiple_appends() {
 fn test_priority_no_hit_normal_behavior() {
     let overrides = PromptOverrides::default(); // all None
     let meta = make_meta("bob", "feishu", 1700000000);
-    let dynamic = build_dynamic_sections(3, &meta, None, &[]);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None);
     let full = build_full_system_prompt(Some("static prompt"), &dynamic, Some(&overrides));
 
     // Static prompt is preserved
@@ -148,14 +148,14 @@ fn test_priority_no_hit_normal_behavior() {
     assert!(full.contains("<!-- STATIC_LAYER_END -->"));
     // Dynamic layers injected
     assert!(full.contains("sender_id: bob"));
-    assert!(full.contains("turn_count: 3"));
+    assert!(full.contains("pending_tasks:"));
 }
 
 /// Test (e): None overrides behaves identically to normal path.
 #[test]
 fn test_priority_none_overrides_normal_behavior() {
     let meta = make_meta("carol", "ch", 1700000000);
-    let dynamic = build_dynamic_sections(2, &meta, None, &["appendix".into()]);
+    let dynamic = build_dynamic_sections(&meta, None, &["appendix".into()], None);
     let full_none = build_full_system_prompt(Some("static"), &dynamic, None);
     let full_default =
         build_full_system_prompt(Some("static"), &dynamic, Some(&PromptOverrides::default()));
@@ -165,6 +165,6 @@ fn test_priority_none_overrides_normal_behavior() {
     // Both contain static + dynamic
     assert!(full_none.contains("static"));
     assert!(full_none.contains("sender_id: carol"));
-    assert!(full_none.contains("turn_count: 2"));
+    assert!(full_none.contains("pending_tasks:"));
     assert!(full_none.contains("appendix"));
 }
