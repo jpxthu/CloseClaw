@@ -2,123 +2,88 @@
 
 ## 概述
 
-描述新 session 创建时，系统如何将 bootstrap 文件、工具列表、skill 列表和 memory 文件组装成 system prompt 并注入会话。注入链路是 session 生命周期中"创建"阶段的核心环节。
+描述 session 生命周期中，系统何时触发 system prompt 的构建和注入。注入是 session 生命周期事件——它决定**何时调用** System Prompt Builder，但不定义 system prompt 的结构、Section 类型和组装规则。那些定义在 [system_prompt/README](docs/design/system_prompt/README.md)。
 
 ## 架构
 
-### 注入入口
+### 注入触发点
 
-注入流程由 SessionManager 在 find_or_create 中触发，分为三个决策分支：
+注入由 SessionManager 在以下时机触发，调用 System Prompt Builder：
 
-- **命中 active session**：直接返回，不重新注入。
-- **命中 archived session**：从存储恢复后重新走完整注入流程，确保 system prompt 内容与最新 bootstrap 文件一致。
-- **新 session**：走完整注入链路。
+- **新 session 创建**：会话查找与创建中检测到无匹配 session 时触发
+- **archived session 恢复**：从存储恢复后触发重建（checkpoint 不存 system prompt，恢复时从最新文件重新构建）
+- **compaction 完成**：压缩对话历史后触发重建，确保 system prompt 内容与最新 bootstrap 文件一致
 
-注入链路的核心是 system prompt builder 的 build_from_workspace，它接收已加载的 bootstrap 文件、ToolRegistry 引用和 SkillRegistry 引用，组装生成最终 system prompt。
+构建逻辑、Section 类型定义、组装规则和容错策略全部在 [system_prompt/README](docs/design/system_prompt/README.md) 定义。注入链路只负责在正确的时机触发调用、传递参数、接收结果并存入 ConversationSession。
 
-### 注入的四个 Section
+### 三分支决策
 
-System Prompt 的 Section 类型定义见 [system_prompt/README.md](../system_prompt/README.md)。注入链路中 build_from_workspace 对四个 Section 的组装行为：
+SessionManager 在会话查找与创建中对注入的处理分为三个分支：
 
-- **RoleSection**：调用 load_bootstrap_files 加载 bootstrap 文件，按文件名格式化渲染。Minimal 模式加载 AGENTS/SOUL/IDENTITY/USER/TOOLS，Full 模式额外加载 BOOTSTRAP 和 MEMORY。HEARTBEAT.md 不在注入范围。MEMORY.md 不进入 RoleSection——它进入独立的 MemorySection（见下文）。RoleSection 在此基础上额外整合 IDENTITY.md + SOUL.md 的内容，详见 [system_prompt/README.md](../system_prompt/README.md)。
-- **ToolsSection**：通过 ToolRegistry 生成工具分组索引（常用工具含行为描述，延迟工具仅含名称和危险度标记）。
-- **SkillListingSection**：通过 DiskSkillRegistry.generate_listing(agent_id) 生成 skill 摘要清单，按 agent 过滤并按优先级排序。若 skill 列表为空，不添加此 Section。
-- **MemorySection**：读取 MEMORY.md，走 session 级文件缓存，命中缓存则跳过读取。
+- **命中 active session**：直接返回已有 session，不触发注入。已有 session 的 system prompt 保持不变。
+- **命中 archived session**：从 SessionCheckpoint 恢复 ConversationSession 后，触发完整注入流程——与"新 session"分支相同的 builder 调用，用新构建的 system prompt 替换空值。
+- **新 session**：触发完整注入流程。builder 内部通过 Bootstrap Loader 加载 bootstrap 文件，注入完成后 system prompt 存入 ConversationSession。
 
-Bootstrap 文件不存在时跳过，不报错，其余 Section 正常组装。单个 Section 组装失败时跳过该 Section，其余继续，不阻断整条注入链路。
+注入链路的参数契约：
+- 入参：agent_id、ToolRegistry 引用、DiskSkillRegistry 引用
+- bootstrap 文件由 builder 内部通过 Bootstrap Loader 加载，不经过注入链路传递
+- 出参：组装完成的 system prompt 文本
+- 结果存储：ConversationSession 的 system prompt 字段（运行时字段，不进 SessionCheckpoint）
 
-### 静态层、动态层、追加区的注入行为
+### 每次 API 请求的动态层注入
 
-静态层、动态层和追加区的边界定义见 [system_prompt/README.md](../system_prompt/README.md)。注入链路的行为：
+动态层的注入时机和机制与 session 创建时的注入不同——它不经过 System Prompt Builder，而是每次 API 请求时由请求链路直接构建。
 
-- **静态层**（RoleSection + ToolsSection + SkillListingSection + MemorySection）：session 创建时注入，写入 ConversationSession 的 system_prompt 字段（运行时字段，不进 SessionCheckpoint）。恢复和 compaction 时强制重建，详见 [system_prompt/README.md](../system_prompt/README.md)。
-- **动态层**（ChannelContext + SessionState + GitStatus）：每次 API 请求时注入，不持久化，不改变 session 的 system_prompt 字段。
-- **追加区（AppendSection）**：system prompt 末尾的独立分区，位于动态层之后、对话历史之前。持久化在会话状态中，不受上下文压缩影响。由 `/system` 子指令增删。详细设计见 [slash/system-append.md](../slash/system-append.md)。
+动态层的 Section 类型和拼接规则在 [system_prompt/README 动态层](docs/design/system_prompt/README.md#动态层) 定义。
 
-### 无 Workspace 的 Session
+### Session 恢复时的注入
 
-当 session 没有对应 workspace 目录时，不加载 bootstrap 文件，但仍可通过 ToolRegistry 和 DiskSkillRegistry 生成工具列表和 skill 列表。SkillListingSection 不依赖 workspace 目录，直接从注册中心获取。system prompt 仅包含 ToolsSection 和 SkillListingSection。
+Archived session 被重新访问时触发完整重建，流程与"新 session"分支相同。恢复时 builder 的行为详见 [system_prompt/README 恢复](docs/design/system_prompt/README.md#恢复)。
 
-### Section 失败处理
+### Skill 热更新与注入时序
 
-单个 Section 组装失败时，该 Section 不参与拼接（跳过），其余 Section 继续。不阻断整条注入链路。
+skill 文件变更时，DiskSkillRegistry 通过文件监听器自动更新内部缓存。下次注入触发时（新 session、archive 恢复、compaction），builder 从 registry 获取最新 listing。热更新机制的完整设计见 [skills/README](docs/design/skills/README.md)。
 
-### Skill 热更新
-
-skill 文件变更时，watcher 回调更新 DiskSkillRegistry 并失效缓存，不下发信号、不通知 SessionManager。下次 session 创建、archive 恢复或 compaction 发生时，重新调用 build_from_workspace，从 registry 获取最新 listing，生成新的 system prompt 替换旧的。不依赖消息 ID 定位（skill listing 直接拼接在 system prompt 中，不是独立消息）。
+skill listing 直接拼接在 system prompt 中（非独立消息），因此不依赖消息 ID 定位。
 
 ## 数据流
 
-### 新 Session 创建
+### 注入完整流程
 
 ```
-用户消息到达
+触发条件（新 session / archive 恢复 / compaction）
   →
-  SessionManager.find_or_create
-    ├─ active session 命中 → 直接返回（不重新注入）
-    ├─ archived session 命中 → 恢复 → 重新注入（保证 prompt 最新）
-    └─ 新 session
-        ├─ workspace 存在？
-        │   ├─ 是 → 初始化 workdir = {config_dir}/workspaces/{agent_id}/{user_id}/
-        │   │      → load_bootstrap_files（按 Minimal/Full 模式加载）
-        │   │      → build_from_workspace
-        │   │         ├─ 组装 RoleSection（bootstrap 文件内容）
-        │   │         ├─ 组装 ToolsSection（ToolRegistry 生成工具描述）
-        │   │         ├─ 组装 SkillListingSection（DiskSkillRegistry 生成 skill 列表）
-        │   │         ├─ 组装 MemorySection（MEMORY.md，走缓存）
-        │   │         └─ 拼接生成 system prompt
-        │   │      → ConversationSession.with_system_prompt
-        │   │
-        │   └─ 否 → 组装 ToolsSection + SkillListingSection（跳过 bootstrap）
-        │          → ConversationSession.with_system_prompt
-        │
-        └─ 写入 SessionManager 的运行时映射
-           → 返回 session_id
+  SessionManager 调用 System Prompt Builder
+    ├─ 传参：agent_id
+    ├─ 传参：ToolRegistry 引用
+    ├─ 传参：DiskSkillRegistry 引用
+    └─ 返回：组装完成的 system prompt 文本
+  →
+  写入 ConversationSession 的 system prompt 字段
+  →
+  返回 session 给调用方
 ```
 
-### 每次 API 请求时的动态层注入
-
-```
-API 请求到达
-  →
-  build_channel_context（当前消息的 channel/sender 信息）
-  build_session_state（turnCount 等运行时状态）
-  build_git_status（如 workdir 为 git 仓库）
-  →
-  动态层追加到静态 system_prompt 后
-  →
-  发送 LLM 请求
+builder 内部通过 Bootstrap Loader 加载文件、按需组装各 Section。
 ```
 
-动态层不进 checkpoint，不改变 session 的 system_prompt 字段。追加区持久化在会话状态中，每次 API 请求时读取并拼入。
+注入链路不关心 builder 内部的 Section 组装细节——哪些 Section 参与、如何渲染、缺失文件如何容错、失败时如何处理——这些由 System Prompt Builder 在 [system_prompt/README 架构](docs/design/system_prompt/README.md#架构) 中定义的规则决定。注入链路只关心：触发条件、传什么参数、拿回什么结果、结果存哪里。
 
-### Session 恢复时的重新注入
+### 无 Workspace 时
 
-从 SessionCheckpoint 重建 ConversationSession 后，checkpoint 不存储 system_prompt，恢复时从最新文件重新走完整注入流程，确保内容与最新 bootstrap 文件一致。
-
-```
-archived session 被访问
-  →
-  从 SessionCheckpoint 重建 ConversationSession
-  →
-  SessionManager 重新走 build_from_workspace（不恢复旧的 system_prompt）
-  →
-  新的 system_prompt 替换旧的
-```
+session 无对应 workspace 目录时，builder 检测到 workspace 不存在后自行跳过 bootstrap 文件加载，仅生成 ToolsSection 和 SkillListingSection（详见 [system_prompt/README 无 Workspace 的 Session](docs/design/system_prompt/README.md#无-workspace-的-session)）。注入链路不参与此决策。
 
 ## 模块关系
 
 ### 上游
 
-- **SessionManager**：session 生命周期协调者，在 find_or_create 中调用 system prompt builder 完成注入，同时初始化 session 工作目录字段。持有 ToolRegistry 和 DiskSkillRegistry 引用，作为注入的数据来源。
+- **SessionManager**：session 生命周期协调者，在合适的时机触发注入。持有 ToolRegistry 和 DiskSkillRegistry 引用，作为注入参数传递给 builder。
 
 ### 下游
 
-- **ToolRegistry**：提供 build_tools_section，生成工具的分组索引（常用工具含完整行为描述，延迟工具仅含名称和危险度标记）。
-- **DiskSkillRegistry**：提供 generate_listing(agent_id)，生成按 agent 过滤并按优先级排序的可用 skill 列表。
-- **Bootstrap Loader**：提供 load_bootstrap_files，按 Minimal/Full 模式加载 bootstrap 文件集合。
+- **System Prompt Builder**：接收 bootstrap 文件、registry 引用和 agent_id，返回组装完成的 system prompt。builder 的内部逻辑在 [system_prompt/README](docs/design/system_prompt/README.md) 定义。
 
 ### 无关
 
-- **LLM Provider**（无调用关系）：注入完成后的 system prompt 通过 ConversationSession 传递给 LLM provider，注入链路本身不调用 provider。
-- **Compaction 模块**（间接关联）：compaction 后通过 `rebuild_system_prompt` 触发重建，注入链路不直接参与压缩逻辑。
+- **LLM Provider**（无调用关系）：注入只负责把 system prompt 存入 ConversationSession，由后续的 API 请求链路取出并传递给 LLM provider。
+- **Compaction 模块**（间接关联）：compaction 完成后触发注入重建，但注入链路不参与压缩逻辑。
