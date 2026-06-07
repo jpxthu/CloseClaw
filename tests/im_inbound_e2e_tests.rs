@@ -25,6 +25,7 @@ fn test_session_manager() -> Arc<SessionManager> {
             rate_limit_per_minute: 100,
             max_message_size: 65536,
             dm_scope: DmScope::PerChannelPeer,
+            ..Default::default()
         },
         None,
         None,
@@ -52,7 +53,7 @@ fn load_raw_fixture(filename: &str) -> serde_json::Value {
 #[tokio::test]
 async fn test_p2p_dm_full_chain() {
     let mgr = test_session_manager();
-    let registry = ProcessorRegistry::new(mgr);
+    let registry = ProcessorRegistry::new(mgr, None);
     let raw = load_raw_fixture("im-message-receive_v1-no-event-id-2026-04-26T18-53-09-967Z.json");
 
     let result = registry
@@ -85,7 +86,7 @@ async fn test_p2p_dm_full_chain() {
 #[tokio::test]
 async fn test_group_chat_rejected() {
     let mgr = test_session_manager();
-    let registry = ProcessorRegistry::new(mgr);
+    let registry = ProcessorRegistry::new(mgr, None);
     let raw = load_raw_fixture("im-group-chat-message.json");
 
     let result = registry.process_inbound(&raw).await;

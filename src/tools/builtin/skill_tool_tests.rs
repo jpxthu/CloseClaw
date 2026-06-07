@@ -34,6 +34,7 @@ mod tests {
                 rate_limit_per_minute: 100,
                 max_message_size: 1024,
                 dm_scope: crate::gateway::DmScope::default(),
+                ..Default::default()
             },
             None,
             None,
@@ -124,6 +125,7 @@ mod tests {
                 rate_limit_per_minute: 100,
                 max_message_size: 1024,
                 dm_scope: crate::gateway::DmScope::default(),
+                ..Default::default()
             },
             None,
             Some(tmp.path().to_path_buf()),

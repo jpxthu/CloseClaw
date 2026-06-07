@@ -102,6 +102,23 @@ pub struct GatewayConfig {
     pub max_message_size: usize,
     #[serde(default)]
     pub dm_scope: DmScope,
+    /// Directory for raw inbound log files.
+    /// When `None` (default), raw logging is disabled.
+    #[serde(default)]
+    pub raw_log_dir: Option<std::path::PathBuf>,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            rate_limit_per_minute: 0,
+            max_message_size: 0,
+            dm_scope: DmScope::default(),
+            raw_log_dir: None,
+        }
+    }
 }
 
 /// Session - represents an active conversation

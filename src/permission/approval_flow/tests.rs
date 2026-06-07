@@ -15,6 +15,7 @@ fn test_session_manager() -> Arc<SessionManager> {
         rate_limit_per_minute: 0,
         max_message_size: 0,
         dm_scope: DmScope::PerChannelPeer,
+        ..Default::default()
     };
     Arc::new(SessionManager::new(
         &config,

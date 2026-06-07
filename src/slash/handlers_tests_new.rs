@@ -29,6 +29,7 @@ fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
         rate_limit_per_minute: 0,
         max_message_size: 0,
         dm_scope: DmScope::default(),
+        ..Default::default()
     };
     Arc::new(SessionManager::new(
         &gc,

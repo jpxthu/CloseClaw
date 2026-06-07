@@ -160,6 +160,7 @@ impl Daemon {
             rate_limit_per_minute: 60,
             max_message_size: 16_384,
             dm_scope: DmScope::default(),
+            ..Default::default()
         };
         let session_manager = Arc::new(SessionManager::new(
             &gateway_config,

@@ -83,6 +83,77 @@ impl SessionRouter {
                 })
         })
     }
+
+    /// Resolve the original webhook JSON.
+    ///
+    /// When a RawLogProcessor runs upstream, `raw` becomes a serialized
+    /// `ProcessedMessage` (only `content` + `metadata`). This method
+    /// recovers the original webhook so routing fields can be read.
+    fn get_webhook_raw(raw: &Value, ctx: &MessageContext) -> Value {
+        // If raw already looks like an original webhook, use it.
+        if raw.get("sender").is_some() || raw.get("message").is_some() {
+            return raw.clone();
+        }
+        // Otherwise try ctx metadata (set by process_inbound).
+        if let Some(wh) = ctx.metadata.get("_raw_webhook") {
+            if let Ok(parsed) = serde_json::from_str::<Value>(wh) {
+                return parsed;
+            }
+        }
+        raw.clone()
+    }
+
+    /// Extract message content, supporting both webhook and
+    /// ProcessedMessage layouts.
+    fn extract_msg_content(webhook: &Value, raw: &Value) -> String {
+        // Webhook layout: raw.message.content
+        webhook
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            // ProcessedMessage layout: raw.content
+            .or_else(|| {
+                raw.get("content")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
+            .unwrap_or_default()
+    }
+
+    /// Build a [`Message`] from webhook + extracted routing fields.
+    fn build_message(
+        webhook: &Value,
+        raw: &Value,
+        from: &str,
+        to: &str,
+        channel: &str,
+        thread_id: Option<String>,
+    ) -> Message {
+        let content = Self::extract_msg_content(webhook, raw);
+        let id = webhook
+            .get("message")
+            .and_then(|m| m.get("message_id"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| "unknown".to_string());
+        let timestamp = webhook
+            .get("message")
+            .and_then(|m| m.get("create_time"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or_else(|| chrono::Utc::now().timestamp());
+        Message {
+            id,
+            from: from.to_string(),
+            to: to.to_string(),
+            content,
+            channel: channel.to_string(),
+            timestamp,
+            metadata: std::collections::HashMap::new(),
+            thread_id,
+        }
+    }
 }
 
 #[async_trait]
@@ -100,8 +171,10 @@ impl MessageProcessor for SessionRouter {
         ctx: &MessageContext,
         raw: &Value,
     ) -> Result<ProcessedMessage, ProcessError> {
+        let webhook = Self::get_webhook_raw(raw, ctx);
+
         // Group chats are not supported.
-        let is_group = raw
+        let is_group = webhook
             .get("message")
             .and_then(|m| m.get("chat_type"))
             .and_then(|v| v.as_str())
@@ -109,56 +182,24 @@ impl MessageProcessor for SessionRouter {
             .unwrap_or(false);
 
         if is_group {
-            let channel = Self::extract_channel(raw);
+            let channel = Self::extract_channel(&webhook);
             return Err(ProcessError::SessionNotSupportedForChannel(channel));
         }
 
-        // Extract feishu routing fields directly from the raw webhook.
-        let from = Self::extract_from(raw)?;
-        let to = Self::extract_to(raw)?;
-        let channel = Self::extract_channel(raw);
-        let account_id = Self::extract_account_id(raw);
+        let from = Self::extract_from(&webhook)?;
+        let to = Self::extract_to(&webhook)?;
+        let channel = Self::extract_channel(&webhook);
+        let account_id = Self::extract_account_id(&webhook);
+        let thread_id = Self::extract_thread_id(&webhook);
 
-        // Extract thread_id from the raw webhook.
-        let thread_id = Self::extract_thread_id(raw);
+        let msg = Self::build_message(&webhook, raw, &from, &to, &channel, thread_id);
 
-        // Reconstruct a minimal Message for SessionManager::find_or_create.
-        let msg_content = raw
-            .get("message")
-            .and_then(|m| m.get("content"))
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .unwrap_or_default();
-
-        let msg = Message {
-            id: raw
-                .get("message")
-                .and_then(|m| m.get("message_id"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .unwrap_or_else(|| "unknown".to_string()),
-            from: from.clone(),
-            to: to.clone(),
-            content: msg_content.clone(),
-            channel: channel.clone(),
-            timestamp: raw
-                .get("message")
-                .and_then(|m| m.get("create_time"))
-                .and_then(|v| v.as_str())
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or_else(|| chrono::Utc::now().timestamp()),
-            metadata: std::collections::HashMap::new(),
-            thread_id,
-        };
-
-        // Resolve session.
         let session_id = self
             .manager
             .find_or_create(&channel, &msg, account_id.as_deref())
             .await
             .map_err(|e| ProcessError::ProcessingFailed(e.to_string()))?;
 
-        // Preserve all upstream metadata (from ctx) and add our own fields.
         let mut metadata = ctx.metadata.clone();
         let acc_id = account_id.unwrap_or_else(|| "default".to_string());
         metadata.insert("account_id".to_string(), acc_id);
@@ -167,10 +208,8 @@ impl MessageProcessor for SessionRouter {
         metadata.insert("channel".to_string(), channel);
         metadata.insert("session_id".to_string(), session_id);
 
-        // Pass the original raw webhook through so downstream FeishuMessageCleaner
-        // (priority 30) can extract and clean the content.
         Ok(ProcessedMessage {
-            content: msg_content,
+            content: msg.content,
             metadata,
         })
     }
@@ -194,7 +233,32 @@ mod tests {
             rate_limit_per_minute: 100,
             max_message_size: 65536,
             dm_scope: DmScope::PerAccountChannelPeer,
+            ..Default::default()
         }
+    }
+
+    fn make_router() -> SessionRouter {
+        let mgr = Arc::new(SessionManager::new(
+            &test_config(),
+            None,
+            None,
+            BootstrapMode::Full,
+            ReasoningLevel::default(),
+        ));
+        SessionRouter::new(mgr)
+    }
+
+    fn assert_session_id_format(sid: &str, agent_id: &str) {
+        assert!(
+            sid.starts_with(&format!("{agent_id}_")),
+            "bad format: {sid}"
+        );
+        let hex = sid.rsplitn(2, '_').next().unwrap();
+        assert_eq!(hex.len(), 8, "hex part wrong: {hex}");
+        assert!(
+            hex.chars().all(|c| c.is_ascii_hexdigit()),
+            "hex part non-hex: {hex}"
+        );
     }
 
     /// Minimal feishu DM webhook fixture.
@@ -236,77 +300,37 @@ mod tests {
 
     #[tokio::test]
     async fn test_private_chat_creates_session() {
-        let mgr = Arc::new(SessionManager::new(
-            &test_config(),
-            None,
-            None,
-            BootstrapMode::Full,
-            ReasoningLevel::default(),
-        ));
-        let router = SessionRouter::new(mgr.clone());
+        let router = make_router();
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
-
         let result = router
             .process(&MessageContext::default(), &raw)
             .await
             .unwrap();
-        let session_id = result.metadata.get("session_id").unwrap();
-        // New format: {agent_id}_{timestamp_ms}_{8hex}
-        assert!(
-            session_id.starts_with("oc_agent_b_"),
-            "bad format: {}",
-            session_id
-        );
-        // Should end with _<8-hex-digits>
-        let parts: Vec<&str> = session_id.rsplitn(2, '_').collect();
-        assert_eq!(parts.len(), 2, "bad format: {}", session_id);
-        assert_eq!(parts[0].len(), 8, "hex part wrong: {}", parts[0]);
-        assert!(
-            parts[0].chars().all(|c| c.is_ascii_hexdigit()),
-            "hex part non-hex: {}",
-            parts[0]
-        );
+        let sid = result.metadata.get("session_id").unwrap();
+        assert_session_id_format(sid, "oc_agent_b");
     }
 
     #[tokio::test]
     async fn test_existing_session_not_duplicated() {
-        let mgr = Arc::new(SessionManager::new(
-            &test_config(),
-            None,
-            None,
-            BootstrapMode::Full,
-            ReasoningLevel::default(),
-        ));
-        let router = SessionRouter::new(mgr.clone());
+        let router = make_router();
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
-
         let r1 = router
             .process(&MessageContext::default(), &raw)
             .await
             .unwrap();
         let id1 = r1.metadata.get("session_id").unwrap().clone();
-
         let r2 = router
             .process(&MessageContext::default(), &raw)
             .await
             .unwrap();
         let id2 = r2.metadata.get("session_id").unwrap().clone();
-
         assert_eq!(id1, id2, "session should not be duplicated");
     }
 
     #[tokio::test]
     async fn test_group_chat_returns_error() {
-        let mgr = Arc::new(SessionManager::new(
-            &test_config(),
-            None,
-            None,
-            BootstrapMode::Full,
-            ReasoningLevel::default(),
-        ));
-        let router = SessionRouter::new(mgr.clone());
+        let router = make_router();
         let raw = feishu_group_webhook("ou_user_a", "oc_chat");
-
         let result = router.process(&MessageContext::default(), &raw).await;
         assert!(matches!(
             result,
@@ -314,7 +338,7 @@ mod tests {
         ));
         let err = result.unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("feishu") || msg.contains("oc_chat"), "{}", msg);
+        assert!(msg.contains("feishu") || msg.contains("oc_chat"), "{msg}");
     }
 
     #[tokio::test]
@@ -330,58 +354,104 @@ mod tests {
             BootstrapMode::Full,
             ReasoningLevel::default(),
         ));
-        let router = SessionRouter::new(mgr.clone());
+        let router = SessionRouter::new(mgr);
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
-
         let result = router
             .process(&MessageContext::default(), &raw)
             .await
             .unwrap();
-        let session_id = result.metadata.get("session_id").unwrap();
-        // New format: {agent_id}_{timestamp_ms}_{8hex}
-        assert!(
-            session_id.starts_with("oc_agent_b_"),
-            "session_id should start with agent_id: {}",
-            session_id
-        );
-        // Should end with _<8-hex-digits>
-        let parts: Vec<&str> = session_id.rsplitn(2, '_').collect();
-        assert_eq!(parts.len(), 2, "bad format: {}", session_id);
-        assert_eq!(parts[0].len(), 8, "hex part wrong: {}", parts[0]);
-        assert!(
-            parts[0].chars().all(|c| c.is_ascii_hexdigit()),
-            "hex part non-hex: {}",
-            parts[0]
-        );
+        let sid = result.metadata.get("session_id").unwrap();
+        assert_session_id_format(sid, "oc_agent_b");
     }
 
     #[tokio::test]
     async fn test_metadata_preserves_upstream_fields() {
-        let mgr = Arc::new(SessionManager::new(
-            &test_config(),
-            None,
-            None,
-            BootstrapMode::Full,
-            ReasoningLevel::default(),
-        ));
-        let router = SessionRouter::new(mgr.clone());
+        let router = make_router();
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
-
         let mut ctx = MessageContext::default();
         ctx.metadata
             .insert("existing_key".to_string(), "existing_value".to_string());
-
         let result = router.process(&ctx, &raw).await.unwrap();
-        // Upstream metadata should be preserved.
         assert_eq!(
             result.metadata.get("existing_key").unwrap(),
             "existing_value"
         );
-        // SessionRouter-added fields should be present.
         assert!(result.metadata.contains_key("session_id"));
         assert!(result.metadata.contains_key("from"));
         assert!(result.metadata.contains_key("to"));
         assert!(result.metadata.contains_key("channel"));
         assert!(result.metadata.contains_key("account_id"));
+    }
+
+    #[tokio::test]
+    async fn test_processed_msg_fallback_from_ctx_raw_webhook() {
+        let router = make_router();
+        let webhook = feishu_dm_webhook("ou_user_a", "oc_agent_b");
+        let mut ctx = MessageContext::default();
+        ctx.metadata
+            .insert("_raw_webhook".to_string(), webhook.to_string());
+        let processed = serde_json::json!({
+            "content": "{\"text\":\"hello\"}",
+            "metadata": {}
+        });
+        let result = router.process(&ctx, &processed).await.unwrap();
+        assert_eq!(result.metadata.get("from").unwrap(), "ou_user_a");
+        assert_eq!(result.metadata.get("to").unwrap(), "oc_agent_b");
+        assert_eq!(result.metadata.get("channel").unwrap(), "feishu");
+        assert_eq!(result.metadata.get("account_id").unwrap(), "tenant_abc");
+        assert_session_id_format(result.metadata.get("session_id").unwrap(), "oc_agent_b");
+        assert_eq!(result.content, "{\"text\":\"hello\"}");
+    }
+
+    /// ProcessedMessage input: routing fields from ctx.metadata["_raw_webhook"].
+    #[tokio::test]
+    async fn test_processed_msg_extracts_thread_id_from_raw_webhook() {
+        let router = make_router();
+        let webhook = serde_json::json!({
+            "sender": {
+                "sender_id": { "open_id": "ou_thread_user" }
+            },
+            "message": {
+                "chat_id": "oc_thread_chat",
+                "chat_type": "p2p",
+                "message_id": "om_thread_001",
+                "message_type": "text",
+                "content": "{\"text\":\"original\"}",
+                "create_time": "1777229589621",
+                "thread_id": "ot_thread_xyz"
+            },
+            "channel": "feishu",
+            "tenant_key": "tenant_thread"
+        });
+        let mut ctx = MessageContext::default();
+        ctx.metadata
+            .insert("_raw_webhook".to_string(), webhook.to_string());
+        let processed = serde_json::json!({
+            "content": "{\"text\":\"rewritten\"}",
+            "metadata": {}
+        });
+        let result = router.process(&ctx, &processed).await.unwrap();
+        assert_eq!(result.metadata.get("from").unwrap(), "ou_thread_user");
+        assert_eq!(result.metadata.get("to").unwrap(), "oc_thread_chat");
+        assert_eq!(result.metadata.get("channel").unwrap(), "feishu");
+        assert_eq!(result.metadata.get("account_id").unwrap(), "tenant_thread");
+        assert!(result
+            .metadata
+            .get("session_id")
+            .unwrap()
+            .starts_with("oc_thread_chat_"));
+        assert_eq!(result.content, "{\"text\":\"original\"}");
+    }
+
+    #[tokio::test]
+    async fn test_processed_msg_without_raw_webhook_errors() {
+        let router = make_router();
+        let processed = serde_json::json!({
+            "content": "{\"text\":\"hi\"}",
+            "metadata": {}
+        });
+        let ctx = MessageContext::default();
+        let err = router.process(&ctx, &processed).await;
+        assert!(err.is_err(), "should fail without raw webhook");
     }
 }
