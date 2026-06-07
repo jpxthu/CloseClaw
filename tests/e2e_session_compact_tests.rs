@@ -11,7 +11,7 @@
 
 use closeclaw::chat::protocol::ServerMessage;
 use closeclaw::chat::session::LegacyChatSession;
-use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
+use closeclaw::llm::provider::Provider;
 use closeclaw::llm::LLMRegistry;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -47,14 +47,7 @@ async fn setup_session_with_fake(
     let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(2);
 
     let registry = Arc::new(LLMRegistry::new());
-    let wrapped: Arc<dyn closeclaw::llm::provider::Provider> = Arc::new(LegacyProviderBridge::new(
-        fake_provider,
-        String::new(),
-        String::new(),
-        vec![],
-        reqwest::Client::new(),
-        reqwest::header::HeaderMap::new(),
-    ));
+    let wrapped: Arc<dyn Provider> = Arc::new(fake_provider);
     registry.register("fake".to_string(), wrapped).await;
 
     let session = LegacyChatSession::new(

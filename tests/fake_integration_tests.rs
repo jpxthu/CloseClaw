@@ -10,21 +10,14 @@ mod tests {
 
     use closeclaw::llm::fake::{FakeProvider, Scenario, SharedState};
     use closeclaw::llm::fallback::{FallbackClient, ModelEntry};
-    use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
-    #[allow(deprecated)]
-    use closeclaw::llm::LLMProvider;
+    use closeclaw::llm::provider::Provider;
+    use closeclaw::llm::types::{InternalMessage, InternalRequest, RawContentBlock};
     use closeclaw::llm::{ChatRequest, LLMRegistry, Message};
+    use closeclaw::session::persistence::ReasoningLevel;
 
-    /// Wrap a FakeProvider into an `Arc<dyn Provider>` via LegacyProviderBridge.
-    fn wrap_provider(provider: FakeProvider) -> Arc<dyn closeclaw::llm::provider::Provider> {
-        Arc::new(LegacyProviderBridge::new(
-            provider,
-            String::new(),
-            String::new(),
-            vec![],
-            reqwest::Client::new(),
-            reqwest::header::HeaderMap::new(),
-        ))
+    /// Wrap a FakeProvider into an `Arc<dyn Provider>`.
+    fn wrap_provider(provider: FakeProvider) -> Arc<dyn Provider> {
+        Arc::new(provider)
     }
 
     /// Helper: make a minimal chat request.
@@ -201,7 +194,6 @@ mod tests {
     /// Verifies that Scenario::Delay correctly suspends execution for the
     /// configured duration before returning the inner response.
     #[tokio::test]
-    #[allow(deprecated)]
     async fn test_delay_triggers_timeout() {
         use std::time::Instant;
 
@@ -225,15 +217,36 @@ mod tests {
             inner: Arc::new(std::sync::Mutex::new(state)),
         };
 
+        let request = InternalRequest {
+            model: "fake-model".to_string(),
+            messages: vec![InternalMessage {
+                role: "user".to_string(),
+                content: "hello".to_string(),
+            }],
+            temperature: 0.7,
+            max_tokens: Some(100),
+            stream: false,
+            extra_body: serde_json::Map::new(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
+            reasoning_level: ReasoningLevel::default(),
+            turn_count: None,
+        };
+
         let start = Instant::now();
         let resp = slow_provider
-            .chat(make_request())
+            .send(request, serde_json::Value::Null)
             .await
             .expect("delay scenario should succeed");
         let elapsed = start.elapsed();
 
-        assert_eq!(resp.content, "delayed-ok");
-        assert_eq!(resp.model, "slow");
+        let content = match &resp.content_blocks[0] {
+            RawContentBlock::Text(s) => s.clone(),
+            other => panic!("Expected Text block, got: {:?}", other),
+        };
+        assert_eq!(content, "delayed-ok");
         // Delay is 2 seconds; allow some tolerance (at least 1.8s)
         assert!(
             elapsed.as_secs() >= 1,

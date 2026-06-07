@@ -11,7 +11,7 @@ use std::sync::Arc;
 #[cfg(feature = "fake-llm")]
 use closeclaw::llm::fake::FakeProvider;
 #[cfg(feature = "fake-llm")]
-use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
+use closeclaw::llm::provider::Provider;
 #[cfg(feature = "fake-llm")]
 use closeclaw::llm::session::ConversationSession;
 #[cfg(feature = "fake-llm")]
@@ -66,14 +66,7 @@ pub fn setup_session_with_storage() -> (
     let fake_provider = FakeProvider::builder()
         .then_ok("fake response", "fake-model")
         .build();
-    let wrapped: Arc<dyn closeclaw::llm::provider::Provider> = Arc::new(LegacyProviderBridge::new(
-        fake_provider.clone(),
-        String::new(),
-        String::new(),
-        vec![],
-        reqwest::Client::new(),
-        reqwest::header::HeaderMap::new(),
-    ));
+    let wrapped: Arc<dyn Provider> = Arc::new(fake_provider.clone());
     let runtime = tokio::runtime::Runtime::new()
         .expect("setup_session_with_storage: failed to create tokio runtime");
     runtime.block_on(async {
