@@ -7,32 +7,13 @@
 //! Run with: `cargo test --test im_inbound_e2e_tests`
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use closeclaw::gateway::{DmScope, GatewayConfig, SessionManager};
+use closeclaw::gateway::DmScope;
 use closeclaw::im::processor::{ProcessError, ProcessorRegistry};
-use closeclaw::session::bootstrap::BootstrapMode;
-use closeclaw::session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn test_session_manager() -> Arc<SessionManager> {
-    Arc::new(SessionManager::new(
-        &GatewayConfig {
-            name: "test".to_string(),
-            rate_limit_per_minute: 100,
-            max_message_size: 65536,
-            dm_scope: DmScope::PerChannelPeer,
-            ..Default::default()
-        },
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    ))
-}
 
 fn feishu_fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/feishu")
@@ -52,8 +33,7 @@ fn load_raw_fixture(filename: &str) -> serde_json::Value {
 /// produces plain-text content and populates session metadata.
 #[tokio::test]
 async fn test_p2p_dm_full_chain() {
-    let mgr = test_session_manager();
-    let registry = ProcessorRegistry::new(mgr, None);
+    let registry = ProcessorRegistry::new(DmScope::PerChannelPeer, None);
     let raw = load_raw_fixture("im-message-receive_v1-no-event-id-2026-04-26T18-53-09-967Z.json");
 
     let result = registry
@@ -70,7 +50,7 @@ async fn test_p2p_dm_full_chain() {
 
     // SessionRouter populates these fields from the feishu webhook.
     let metadata = &result.metadata;
-    assert!(metadata.contains_key("session_id"), "missing session_id");
+    assert!(metadata.contains_key("session_key"), "missing session_key");
     assert!(metadata.contains_key("from"), "missing from");
     assert!(metadata.contains_key("to"), "missing to");
     assert!(metadata.contains_key("channel"), "missing channel");
@@ -85,8 +65,7 @@ async fn test_p2p_dm_full_chain() {
 /// (priority 20) with `ProcessError::SessionNotSupportedForChannel`.
 #[tokio::test]
 async fn test_group_chat_rejected() {
-    let mgr = test_session_manager();
-    let registry = ProcessorRegistry::new(mgr, None);
+    let registry = ProcessorRegistry::new(DmScope::PerChannelPeer, None);
     let raw = load_raw_fixture("im-group-chat-message.json");
 
     let result = registry.process_inbound(&raw).await;
