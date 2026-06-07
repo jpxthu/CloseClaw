@@ -4,6 +4,8 @@
 
 Agent 模块是 CloseClaw 的配置定义层——定义每个 agent 的身份和能力边界。Agent struct 是纯配置档案，不持有运行时可变状态、不持有进程、不持有生命周期。对话运行时和进程执行状态由 Session 模块管理。
 
+> **设计基调**：生命周期完全由 session 驱动，agent 就是一组 config。这条基调只有 owner 明确批准才能修改。
+
 Agent 模块负责两件事：Agent 配置档案的定义、权限基线的提供。配置加载由 Config 模块负责（详见 [agent-config.md](agent-config.md)）。Agent 的身份人格由 Bootstrap 文件定义，加载由 System Prompt 模块处理。
 
 ## 架构
