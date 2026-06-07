@@ -72,6 +72,20 @@ impl SessionMessageHandler {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                     let mut cs_write = cs.write().await;
                     cs_write.append_response(unified);
+                    // Cache break detection (must run before accumulate_usage
+                    // so that last_cache_read_tokens still holds the previous value).
+                    if let Some(info) =
+                        cs_write.detect_cache_break_for_usage(stream_result.usage.cache_read_tokens)
+                    {
+                        tracing::warn!(
+                            session_id,
+                            previous = info.previous_cache_read,
+                            current = info.current_cache_read,
+                            drop = info.drop_tokens,
+                            ratio = info.drop_ratio,
+                            "Cache break detected"
+                        );
+                    }
                     cs_write.accumulate_usage(&stream_result.usage);
                 }
                 let text = stream_result

@@ -249,6 +249,17 @@ impl ConversationSession {
         self.streaming_sink.as_ref()
     }
 
+    /// Detects a cache break between the previous and current
+    /// `cache_read_tokens`, then updates the tracked last value.
+    ///
+    /// Delegates to [`RunningStats::detect_cache_break_and_update`].
+    pub fn detect_cache_break_for_usage(
+        &mut self,
+        current_cache_read: Option<u32>,
+    ) -> Option<crate::llm::stats::CacheBreakInfo> {
+        self.stats.detect_cache_break_and_update(current_cache_read)
+    }
+
     /// Accumulates a single API call's usage into the session stats.
     pub fn accumulate_usage(&mut self, usage: &UnifiedUsage) {
         self.stats.accumulate(usage);
