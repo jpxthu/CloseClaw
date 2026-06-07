@@ -62,6 +62,15 @@ Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时
 
 不同 provider 的缓存字段路径不同——有的在 `usage.prompt_tokens_details.cached_tokens`，有的在 `usage.cache_read_input_tokens`。各 provider builder 负责从各自响应格式中提取并统一填入 Usage 结构。
 
+**Cache Break 检测**：
+
+除累加统计外，增强层在每次请求前后执行两阶段缓存断点检测：
+
+- **Pre-call**：记录当前 prompt 的指纹（system prompt 中静态层的 token 序列哈希、tools 列表哈希、headers 哈希），与上一轮比对，标记 pending 变更。
+- **Post-call**：比对本轮 `cache_read_tokens` 与上轮的差值。若降幅超过阈值（如 5% 且超过 2000 tokens），判定为 cache break。
+- **断点归因**：用 pre-call 记录的 pending 变更解释原因——system prompt 重建、tools 变更、TTL 过期（距上次请求超过缓存有效期）、session 恢复等。
+- **事件上报**：cache break 事件携带断点原因和维度信息，上报到 metrics 系统。
+
 ### Thinking 内容管理
 
 LLM 响应中的 Thinking 内容以独立 block 形式保留在消息历史中，作为上下文的一部分参与后续对话。流式过程中 Thinking 内容不通过 StreamingSink 发送给用户。
