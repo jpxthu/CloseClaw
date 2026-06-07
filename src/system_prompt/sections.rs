@@ -39,7 +39,6 @@ impl Section {
         matches!(
             self,
             Section::RoleSection(_)
-                | Section::ToolsSection(_)
                 | Section::MemorySection(_)
                 | Section::HeartbeatSection(_)
                 | Section::SkillListingSection(_)
@@ -418,7 +417,7 @@ mod tests {
     #[test]
     fn test_tools_section() {
         let s = Section::ToolsSection("tool_a\ntool_b".to_string());
-        assert!(s.is_cacheable());
+        assert!(!s.is_cacheable());
         assert_eq!(s.name(), "tools");
         let rendered = s.render();
         assert!(rendered.starts_with("## Tools\n"));
