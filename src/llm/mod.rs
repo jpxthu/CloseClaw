@@ -1,6 +1,4 @@
-//! LLM Interface - Abstract trait for multiple LLM providers
-
-#![allow(deprecated)]
+//! LLM Interface — provider abstraction and chat types
 
 pub mod anthropic;
 pub mod cache_adapter;
@@ -11,7 +9,6 @@ pub mod glm;
 pub mod glm_stream;
 pub mod http_client;
 pub mod knowledge;
-pub mod legacy;
 pub mod minimax;
 pub mod model_cache;
 pub mod model_discovery;
@@ -78,7 +75,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Model discovery — query provider for available model list.
-/// Independent from Provider trait (HTTP transport) and LLMProvider (legacy).
+/// Independent from Provider trait (HTTP transport).
 #[async_trait]
 pub trait ModelLister: Send + Sync {
     /// Fetch available models from provider API.
@@ -134,79 +131,6 @@ pub enum ChatStreamChunk {
 /// Streamed chat response receiver.
 /// Callers consume chunks with `receiver.recv().await` until `None`.
 pub type StreamingResponse = tokio::sync::mpsc::Receiver<ChatStreamChunk>;
-
-/// LLM provider trait - implemented by each LLM provider
-#[deprecated(
-    note = "LLMProvider is superseded by the `Provider` trait in `crate::llm::Provider`. \
-          Use LegacyProviderBridge to bridge old providers to the new trait."
-)]
-#[async_trait]
-pub trait LLMProvider: Send + Sync {
-    /// Get provider name
-    fn name(&self) -> &str;
-
-    /// Send a chat request
-    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError>;
-
-    /// Send a streaming chat request. Default implementation wraps chat() as a single chunk.
-    async fn chat_streaming(&self, request: ChatRequest) -> Result<StreamingResponse, LLMError> {
-        let (tx, rx) = tokio::sync::mpsc::channel(32);
-        let response = self.chat(request).await?;
-        let _ = tx.send(ChatStreamChunk::Text(response.content)).await;
-        let _ = tx
-            .send(ChatStreamChunk::Done {
-                model: response.model,
-                usage: response.usage,
-            })
-            .await;
-        Ok(rx)
-    }
-
-    /// List available models
-    fn models(&self) -> Vec<&str>;
-
-    /// Send a chat request and return a unified response with structured content blocks.
-    /// Default implementation wraps `chat()` response as a single Text block.
-    async fn chat_unified(
-        &self,
-        request: ChatRequest,
-    ) -> Result<crate::llm::types::UnifiedResponse, LLMError> {
-        let response = self.chat(request).await?;
-        Ok(crate::llm::types::UnifiedResponse {
-            content_blocks: vec![crate::llm::types::ContentBlock::Text(response.content)],
-            usage: crate::llm::types::UnifiedUsage {
-                prompt_tokens: response.usage.prompt_tokens,
-                completion_tokens: response.usage.completion_tokens,
-                total_tokens: Some(response.usage.total_tokens),
-                reasoning_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
-            finish_reason: None,
-        })
-    }
-
-    /// Returns true if this is a stub provider that returns fake responses.
-    /// When true, callers should treat this as a configuration error.
-    fn is_stub(&self) -> bool {
-        false
-    }
-
-    /// Human-readable display name for this provider.
-    /// Defaults to `self.name()`.
-    fn provider_display_name(&self) -> &str {
-        self.name()
-    }
-
-    /// Fetch the list of available models from this provider via the API.
-    /// Returns `ModelNotFound` by default, indicating the provider does not support
-    /// dynamic model discovery.
-    async fn fetch_model_list(&self, _bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
-        Err(LLMError::ModelNotFound(
-            "fetch_model_list not supported by this provider".to_string(),
-        ))
-    }
-}
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum LLMError {

@@ -6,7 +6,5 @@
 //!
 //! Run with: `cargo test --features fake-llm --test e2e_thinking -- --test-threads=1`
 
-#![allow(deprecated)]
-
 #[path = "e2e_thinking/mod.rs"]
 mod e2e_thinking;

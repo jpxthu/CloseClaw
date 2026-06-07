@@ -24,21 +24,12 @@ use super::provider::{Provider, ProviderError, SseStream};
 use super::types::{
     InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
 };
-use super::{ChatRequest, ChatResponse, LLMError, LLMProvider, Message, Usage};
+use super::{ChatRequest, Message};
 
 pub mod fake_builder;
 pub mod fake_scenario;
 pub use fake_builder::Builder;
 pub use fake_scenario::Scenario;
-
-impl From<ProviderError> for LLMError {
-    fn from(err: ProviderError) -> Self {
-        match err {
-            ProviderError::Reqwest(e) => LLMError::ApiError(e.to_string()),
-            ProviderError::Legacy(msg) => LLMError::ApiError(msg),
-        }
-    }
-}
 
 /// Captures an incoming [`InternalRequest`] for test inspection.
 #[derive(Debug, Clone)]
@@ -162,12 +153,13 @@ impl FakeProvider {
         state.captured_internal.clear();
     }
 
-    fn next_scenario(&self) -> Option<Scenario> {
-        self.inner.lock().unwrap().scenarios.pop_front()
+    /// Returns whether this provider is a stub.
+    pub fn is_stub(&self) -> bool {
+        self.inner.lock().unwrap().stub_flag
     }
 
-    fn capture_chat(&self, req: ChatRequest) {
-        self.inner.lock().unwrap().captured.push(req.into());
+    fn next_scenario(&self) -> Option<Scenario> {
+        self.inner.lock().unwrap().scenarios.pop_front()
     }
 
     fn capture_internal(&self, req: &InternalRequest) {
@@ -357,70 +349,5 @@ impl Provider for FakeProvider {
         }
 
         Ok(rx)
-    }
-}
-
-// ── Legacy LLMProvider impl (kept temporarily for Step 1.4 compat) ──────────
-
-#[async_trait]
-impl LLMProvider for FakeProvider {
-    fn name(&self) -> &str {
-        "fake"
-    }
-
-    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
-        self.capture_chat(request.clone());
-
-        let mut current = match self.next_scenario() {
-            Some(s) => s,
-            None => {
-                let state = self.inner.lock().unwrap();
-                if state.panic_on_exhaust {
-                    drop(state);
-                    panic!("{}", self.exhausted_message());
-                }
-                return Ok(ChatResponse {
-                    content: state.fallback.clone().unwrap_or_default(),
-                    model: state.fallback_model.clone(),
-                    usage: Usage {
-                        prompt_tokens: 0,
-                        completion_tokens: 0,
-                        total_tokens: 0,
-                    },
-                });
-            }
-        };
-
-        loop {
-            match current {
-                Scenario::Delay { duration, inner } => {
-                    tokio::time::sleep(duration).await;
-                    current = *inner;
-                }
-                Scenario::Ok { .. } => {
-                    let usage = current.usage();
-                    let content = current.content();
-                    let model = current.model();
-                    return Ok(ChatResponse {
-                        content,
-                        model,
-                        usage,
-                    });
-                }
-                Scenario::Err { .. } => {
-                    return Err(current
-                        .as_llm_error()
-                        .unwrap_or_else(|| LLMError::ApiError("unknown provider error".into())));
-                }
-            }
-        }
-    }
-
-    fn models(&self) -> Vec<&'static str> {
-        vec!["fake-model"]
-    }
-
-    fn is_stub(&self) -> bool {
-        self.inner.lock().unwrap().stub_flag
     }
 }

@@ -19,7 +19,6 @@ use closeclaw::gateway::{DmScope, GatewayConfig, Message};
 use closeclaw::llm::client::UnifiedChatClient;
 use closeclaw::llm::fake::{FakeProvider, Scenario};
 use closeclaw::llm::fallback::{FallbackClient, ModelEntry};
-use closeclaw::llm::legacy::legacy_provider::LegacyProviderBridge;
 use closeclaw::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
 use closeclaw::llm::provider::Provider;
 use closeclaw::llm::types::{InternalRequest, InternalResponse, ProtocolId, SseStateMachine};
@@ -72,16 +71,9 @@ impl ChatProtocol for StubProtocol {
     }
 }
 
-/// Wrap a FakeProvider into `Arc<dyn Provider>` via LegacyProviderBridge.
+/// Wrap a FakeProvider into `Arc<dyn Provider>`.
 fn wrap_provider(provider: FakeProvider) -> Arc<dyn Provider> {
-    Arc::new(LegacyProviderBridge::new(
-        provider,
-        String::new(),
-        String::new(),
-        vec![],
-        reqwest::Client::new(),
-        HeaderMap::new(),
-    ))
+    Arc::new(provider)
 }
 
 /// Build a `UnifiedChatClient` from a wrapped provider.

@@ -2,8 +2,6 @@
 //!
 //! Provides `HttpClient` trait to allow mock injection in tests.
 
-#![allow(deprecated)]
-
 use async_trait::async_trait;
 use reqwest::Client;
 

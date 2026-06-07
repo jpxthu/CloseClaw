@@ -390,5 +390,3 @@ async fn test_provider_send_streaming_rate_limit_mock() {
     m.assert_async().await;
     assert!(matches!(err, ProviderError::Legacy(_)));
 }
-
-// Legacy LLMProvider/ModelLister tests removed in Step 1.3
