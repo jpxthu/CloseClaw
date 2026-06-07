@@ -1,5 +1,7 @@
 use super::session_handler::MessageMetadata;
-use super::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
+use super::system_prompt_inject::{
+    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
+};
 use super::*;
 use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
@@ -410,6 +412,69 @@ fn test_workdir_path_no_config_dir_exposure() {
     assert_eq!(sanitized, "~/my-agent/u123/");
     assert!(!sanitized.contains(".closeclaw"));
     assert!(!sanitized.contains("/home/alice"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// split_static_dynamic Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// split_static_dynamic: content before marker → static, after → dynamic.
+#[test]
+fn test_split_static_dynamic_with_marker() {
+    let input = "Be helpful.
+<!-- STATIC_LAYER_END -->
+You are a coding assistant.";
+    let (s, d) = split_static_dynamic(input);
+    assert_eq!(s.as_deref(), Some("Be helpful."));
+    assert_eq!(d.as_deref(), Some("You are a coding assistant."));
+}
+
+/// split_static_dynamic: no marker → entire prompt goes to static.
+#[test]
+fn test_split_static_dynamic_no_marker() {
+    let input = "You are a helpful assistant.";
+    let (s, d) = split_static_dynamic(input);
+    assert_eq!(s.as_deref(), Some("You are a helpful assistant."));
+    assert_eq!(d, None);
+}
+
+/// split_static_dynamic: empty string → (None, None).
+#[test]
+fn test_split_static_dynamic_empty() {
+    let (s, d) = split_static_dynamic("");
+    assert_eq!(s, None);
+    assert_eq!(d, None);
+}
+
+/// split_static_dynamic: marker at the very start → static is None, dynamic is the rest.
+#[test]
+fn test_split_static_dynamic_marker_at_start() {
+    let input = "<!-- STATIC_LAYER_END -->\nSome dynamic content.";
+    let (s, d) = split_static_dynamic(input);
+    assert_eq!(s, None, "static should be None when marker is at the start");
+    assert_eq!(d.as_deref(), Some("Some dynamic content."));
+}
+
+/// split_static_dynamic: marker at the very end → dynamic is None, static is the rest.
+#[test]
+fn test_split_static_dynamic_marker_at_end() {
+    let input = "Static content.\n<!-- STATIC_LAYER_END -->";
+    let (s, d) = split_static_dynamic(input);
+    assert_eq!(s.as_deref(), Some("Static content."));
+    assert_eq!(d, None, "dynamic should be None when marker is at the end");
+}
+
+/// split_static_dynamic: multiple markers → only the first one is used as the split point.
+#[test]
+fn test_split_static_dynamic_multiple_markers() {
+    let input = "First part.\n<!-- STATIC_LAYER_END -->\nMiddle.\n<!-- STATIC_LAYER_END -->\nLast.";
+    let (s, d) = split_static_dynamic(input);
+    assert_eq!(s.as_deref(), Some("First part."));
+    // Dynamic should contain everything after the first marker, including the second marker
+    assert_eq!(
+        d.as_deref(),
+        Some("Middle.\n<!-- STATIC_LAYER_END -->\nLast.")
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
