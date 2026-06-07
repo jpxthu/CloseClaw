@@ -426,3 +426,43 @@ fn test_add_code_block_normal_text_unchanged() {
     let out = add_code_block_language_hint(input);
     assert_eq!(out, "just some plain text");
 }
+
+// --- Plain text / invalid JSON inputs (non-Feishu format) ---
+
+#[tokio::test]
+async fn test_process_plain_text_normalized() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_123".to_string(),
+        content: "hello\n\n\n\nworld  ".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "om_plain_1".to_string(),
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap();
+    assert!(result.is_some());
+    let out = result.unwrap();
+    // Empty lines compressed (4 consecutive → 1 gap), trailing whitespace trimmed
+    assert_eq!(out.content, "hello\n\nworld");
+    // No feishu_thread_id for plain text
+    assert!(out.metadata.get("feishu_thread_id").is_none());
+}
+
+#[tokio::test]
+async fn test_process_invalid_json_normalized() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_123".to_string(),
+        content: "{invalid json".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "om_invalid_1".to_string(),
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap();
+    assert!(result.is_some());
+    let out = result.unwrap();
+    assert_eq!(out.content, "{invalid json");
+    assert!(out.metadata.get("feishu_thread_id").is_none());
+}

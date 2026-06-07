@@ -381,34 +381,40 @@ impl MessageProcessor for ContentNormalizer {
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
         // Step 1: Parse feishu webhook content.
-        let raw: FeishuMessage = serde_json::from_str(&ctx.content).map_err(|e| {
-            ProcessError::invalid_message(format!("failed to parse feishu message: {e}"))
-        })?;
+        let (content, metadata) = match serde_json::from_str::<FeishuMessage>(&ctx.content) {
+            Ok(raw) => {
+                let content = match raw.msg_type.as_str() {
+                    "text" => {
+                        let text = raw.text.as_ref().ok_or_else(|| {
+                            ProcessError::invalid_message("text message missing text field")
+                        })?;
+                        text.text.clone()
+                    }
+                    "post" => {
+                        let content_json = raw.content.as_ref().ok_or_else(|| {
+                            ProcessError::invalid_message("post message missing content field")
+                        })?;
+                        let content_str = content_json.to_string();
+                        post_to_markdown(&content_str)
+                    }
+                    _ => return Ok(None),
+                };
 
-        let content = match raw.msg_type.as_str() {
-            "text" => {
-                let text = raw.text.as_ref().ok_or_else(|| {
-                    ProcessError::invalid_message("text message missing text field")
-                })?;
-                text.text.clone()
+                // Extract feishu_thread_id: prefer thread_id > root_id > parent_id
+                let feishu_thread_id = raw.thread_id.or(raw.root_id).or(raw.parent_id);
+
+                let mut metadata = serde_json::Map::new();
+                if let Some(tid) = feishu_thread_id {
+                    metadata.insert("feishu_thread_id".to_string(), serde_json::json!(tid));
+                }
+
+                (content, metadata)
             }
-            "post" => {
-                let content_json = raw.content.as_ref().ok_or_else(|| {
-                    ProcessError::invalid_message("post message missing content field")
-                })?;
-                let content_str = content_json.to_string();
-                post_to_markdown(&content_str)
+            Err(_) => {
+                // Not valid Feishu JSON — treat ctx.content as plain text
+                (ctx.content.clone(), serde_json::Map::new())
             }
-            _ => return Ok(None),
         };
-
-        // Extract feishu_thread_id: prefer thread_id > root_id > parent_id
-        let feishu_thread_id = raw.thread_id.or(raw.root_id).or(raw.parent_id);
-
-        let mut metadata = serde_json::Map::new();
-        if let Some(tid) = feishu_thread_id {
-            metadata.insert("feishu_thread_id".to_string(), serde_json::json!(tid));
-        }
 
         // Step 2–5: Markdown normalization
         let mut normalized = content;
