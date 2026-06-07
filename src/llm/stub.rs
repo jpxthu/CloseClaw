@@ -161,6 +161,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+            turn_count: None,
         };
 
         let response = provider
@@ -193,6 +194,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+            turn_count: None,
         };
 
         let response = provider

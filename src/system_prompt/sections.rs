@@ -26,7 +26,6 @@ pub enum Section {
         timestamp: String,
     },
     SessionState {
-        turn_count: u32,
         pending_tasks: Vec<String>,
     },
     AppendSection(String),
@@ -62,7 +61,7 @@ impl Section {
             Section::WorkingDirectory(_) => "working_directory",
         }
     }
-    fn format_session_state(&self, turn_count: u32, pending_tasks: &[String]) -> String {
+    fn format_session_state(&self, pending_tasks: &[String]) -> String {
         let tasks_str = if pending_tasks.is_empty() {
             "  (none)".to_string()
         } else {
@@ -74,8 +73,8 @@ impl Section {
                 .join("\n")
         };
         format!(
-            "## Session State\n- turn_count: {}\n- pending_tasks:\n{}\n",
-            turn_count, tasks_str
+            "## Session State\n- pending_tasks:\n{}\n",
+            tasks_str
         )
     }
 
@@ -112,9 +111,8 @@ impl Section {
                 )
             }
             Section::SessionState {
-                turn_count,
                 pending_tasks,
-            } => self.format_session_state(*turn_count, pending_tasks),
+            } => self.format_session_state(pending_tasks),
             Section::AppendSection(content) => {
                 format!("## Append\n{}\n", content)
             }
@@ -275,11 +273,9 @@ mod tests {
     #[test]
     fn test_section_render_session_state() {
         let s = Section::SessionState {
-            turn_count: 5,
             pending_tasks: vec!["task1".to_string(), "task2".to_string()],
         };
         let rendered = s.render();
-        assert!(rendered.contains("turn_count: 5"));
         assert!(rendered.contains("task1"));
         assert!(!s.is_cacheable());
     }
@@ -467,7 +463,6 @@ mod tests {
     #[test]
     fn test_session_state_name() {
         let s = Section::SessionState {
-            turn_count: 1,
             pending_tasks: vec![],
         };
         assert_eq!(s.name(), "session_state");

@@ -112,6 +112,7 @@ mod tests {
             system_blocks: None,
             session_id: None,
             reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+            turn_count: None,
         };
         let result = provider.send(request, serde_json::Value::Null).await;
         assert!(result.is_err());

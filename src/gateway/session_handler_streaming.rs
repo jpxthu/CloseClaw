@@ -55,31 +55,39 @@ impl SessionMessageHandler {
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
-        let (static_prompt_opt, turn_count, workdir_path, system_appends, reasoning_level) =
-            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                let cs_read = cs.read().await;
-                (
-                    cs_read.system_prompt().map(|s| s.to_string()),
-                    cs_read.turn_count(),
-                    cs_read.workdir().to_string_lossy().into_owned(),
-                    cs_read.system_appends().to_vec(),
-                    cs_read.reasoning_level().clone(),
-                )
-            } else {
-                (
-                    None,
-                    0,
-                    String::new(),
-                    Vec::new(),
-                    ReasoningLevel::default(),
-                )
-            };
+        let (
+            static_prompt_opt,
+            session_timestamp,
+            turn_count,
+            workdir_path,
+            system_appends,
+            reasoning_level,
+        ) = if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            let cs_read = cs.read().await;
+            (
+                cs_read.system_prompt().map(|s| s.to_string()),
+                Some(cs_read.session_created_at()),
+                cs_read.turn_count(),
+                cs_read.workdir().to_string_lossy().into_owned(),
+                cs_read.system_appends().to_vec(),
+                cs_read.reasoning_level().clone(),
+            )
+        } else {
+            (
+                None,
+                None,
+                0,
+                String::new(),
+                Vec::new(),
+                ReasoningLevel::default(),
+            )
+        };
 
         let dynamic_sections = build_dynamic_sections(
-            turn_count,
             meta,
             Some(workdir_path.as_str()),
             &system_appends,
+            session_timestamp,
         );
         let overrides = session_manager.get_prompt_overrides().await;
         let full_prompt = build_full_system_prompt(
@@ -120,6 +128,7 @@ impl SessionMessageHandler {
             system_blocks: None,
             session_id: Some(session_id.to_string()),
             reasoning_level,
+            turn_count: Some(turn_count),
         };
 
         // Get streaming sink from session (CLI/websocket consumers).

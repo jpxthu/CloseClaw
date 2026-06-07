@@ -220,25 +220,26 @@ impl SessionMessageHandler {
         session_id: &str,
     ) -> Result<UnifiedResponse, crate::llm::LLMError> {
         // ── Static layer ───────────────────────────────────────────────
-        let (static_prompt_opt, turn_count, workdir_path, system_appends) =
+        let (static_prompt_opt, session_timestamp, _turn_count, workdir_path, system_appends) =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 let cs_read = cs.read().await;
                 (
                     cs_read.system_prompt().map(|s| s.to_string()),
+                    Some(cs_read.session_created_at()),
                     cs_read.turn_count(),
                     cs_read.workdir().to_string_lossy().into_owned(),
                     cs_read.system_appends().to_vec(),
                 )
             } else {
-                (None, 0, String::new(), Vec::new())
+                (None, None, 0, String::new(), Vec::new())
             };
 
         // ── Dynamic sections ───────────────────────────────────────────
         let dynamic_sections = build_dynamic_sections(
-            turn_count,
             meta,
             Some(workdir_path.as_str()),
             &system_appends,
+            session_timestamp,
         );
 
         // ── Compose full prompt ─────────────────────────────────────────

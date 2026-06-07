@@ -98,6 +98,7 @@ fn create_internal_request(model: &str) -> InternalRequest {
         system_blocks: None,
         session_id: None,
         reasoning_level: Default::default(),
+        turn_count: None,
     }
 }
 
@@ -255,6 +256,7 @@ fn create_streaming_request(model: &str) -> InternalRequest {
         system_blocks: None,
         session_id: None,
         reasoning_level: Default::default(),
+        turn_count: None,
     }
 }
 
