@@ -1,44 +1,37 @@
-//! MiniMax LLM Provider
+//! MiniMax LLM Provider — pure HTTP transport for the
+//! MiniMax Chat Completions API.
 
-#![allow(deprecated)]
-
+use crate::llm::provider::{Provider, ProviderError, Result, SseStream};
+use crate::llm::types::{InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawUsage};
+use crate::llm::{LLMError, ModelInfo, ModelLister};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::timeout;
-
-use crate::llm::ReqwestHttpClient;
-use crate::llm::{
-    ChatRequest, ChatResponse, HttpClient, LLMError, LLMProvider, ModelInfo, ModelLister, Usage,
-};
+use reqwest::header::HeaderMap;
+use reqwest::Client;
+use serde::Deserialize;
+use std::sync::OnceLock;
 
 #[path = "minimax_stream.rs"]
 pub(crate) mod minimax_stream;
 
 // ---------------------------------------------------------------------------//
-// MiniMax /models API types                                                 //
+// Constants                                                                  //
 // ---------------------------------------------------------------------------//
 
 const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/chat/completions";
 
-/// MiniMax API request body
-#[derive(Debug, Serialize)]
-struct MiniMaxRequest<'a> {
-    model: &'a str,
-    messages: &'a [crate::llm::Message],
-    temperature: f32,
-    max_tokens: Option<u32>,
-}
+// ---------------------------------------------------------------------------//
+// Request / Response types                                                    //
+// ---------------------------------------------------------------------------//
 
 /// MiniMax API response body
 #[derive(Debug, Deserialize)]
-struct MiniMaxResponse {
+pub(crate) struct MiniMaxResponse {
     #[serde(default)]
     choices: Option<Vec<MiniMaxChoice>>,
     #[serde(default)]
     usage: Option<MiniMaxUsage>,
     #[serde(default)]
+    #[allow(dead_code)]
     model: String,
     #[serde(default)]
     base_resp: Option<MiniMaxBaseResp>,
@@ -88,36 +81,15 @@ struct MiniMaxBaseResp {
     status_msg: String,
 }
 
-/// Response from GET /v1/models (MiniMax model list API, OpenAI-compatible)
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct MiniMaxModelsResponse {
-    data: Vec<MiniMaxModel>,
-    #[serde(default)]
-    object: String,
-}
-
-/// A single model entry from the /models API
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct MiniMaxModel {
-    id: String,
-    #[serde(default)]
-    object: String,
-    #[serde(default)]
-    created: u64,
-    #[serde(default)]
-    owned_by: String,
-}
-
 // ---------------------------------------------------------------------------//
-// Provider                                                                   //
+// Provider struct                                                             //
 // ---------------------------------------------------------------------------//
 
 pub struct MiniMaxProvider {
     pub(crate) api_key: String,
     pub(crate) base_url: String,
-    pub(crate) http_client: Arc<dyn HttpClient>,
+    pub(crate) client: Client,
+    supported_protocols: Vec<ProtocolId>,
 }
 
 impl MiniMaxProvider {
@@ -130,55 +102,45 @@ impl MiniMaxProvider {
     }
 
     pub fn with_base_url(api_key: String, base_url: String) -> Self {
-        let http_client = Arc::new(ReqwestHttpClient::new().expect("Failed to create HTTP client"));
         Self {
             api_key,
             base_url,
-            http_client,
+            client: Client::new(),
+            supported_protocols: vec![ProtocolId::new("anthropic")],
         }
     }
 
-    /// Create a provider with a custom `HttpClient` implementation.
+    /// Create a provider with a custom `reqwest::Client`.
     #[cfg(test)]
-    pub(crate) fn with_http_client(
-        api_key: String,
-        base_url: String,
-        http_client: Arc<dyn HttpClient>,
-    ) -> Self {
+    pub(crate) fn with_http_client(api_key: String, base_url: String, client: Client) -> Self {
         Self {
             api_key,
             base_url,
-            http_client,
+            client,
+            supported_protocols: vec![ProtocolId::new("anthropic")],
         }
     }
 
-    pub(crate) fn map_status_error(status: reqwest::StatusCode, body: String) -> LLMError {
-        match status.as_u16() {
-            401 | 403 => LLMError::AuthFailed(body),
-            404 => LLMError::ModelNotFound(body),
-            422 => LLMError::InvalidRequest(body),
-            429 => LLMError::RateLimitExceeded,
-            _ => LLMError::ApiError(format!("unexpected status {}: {}", status, body)),
-        }
+    // ── Error mapping (Provider) ────────────────────────────────────────
+
+    /// Map HTTP status error to ProviderError.
+    pub(crate) fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
+        ProviderError::Legacy(format!("MiniMax API error {}: {}", status, body))
     }
 
-    /// Map MiniMax internal status_code to LLMError
-    pub(crate) fn map_base_resp_error(status_code: i32, status_msg: &str) -> LLMError {
-        match status_code {
-            1004 => LLMError::AuthFailed(status_msg.to_string()),
-            2013 => {
-                if status_msg.contains("unknown model") {
-                    LLMError::ModelNotFound(status_msg.to_string())
-                } else {
-                    LLMError::InvalidRequest(status_msg.to_string())
-                }
-            }
-            _ => LLMError::ApiError(format!("MiniMax API error {}: {}", status_code, status_msg)),
-        }
+    /// Map MiniMax internal base_resp status_code to ProviderError.
+    pub(crate) fn map_base_resp_error(status_code: i32, status_msg: &str) -> ProviderError {
+        ProviderError::Legacy(format!(
+            "MiniMax business error {}: {}",
+            status_code, status_msg
+        ))
     }
+
+    // ── Content extraction ──────────────────────────────────────────────
 
     /// Extract visible content from a MiniMax message.
-    /// Prefer `content`; if it's empty or pure whitespace, fall back to `reasoning_content`.
+    /// Prefer `content`; if empty/whitespace, fall back to
+    /// `reasoning_content`.
     fn extract_content(msg: &MiniMaxMessage) -> String {
         if !msg.content.trim().is_empty() {
             msg.content.trim().to_string()
@@ -190,133 +152,12 @@ impl MiniMaxProvider {
                 .unwrap_or_default()
         }
     }
-}
 
-#[async_trait]
-impl LLMProvider for MiniMaxProvider {
-    fn name(&self) -> &str {
-        "minimax"
-    }
+    // ── Response parsing (Provider) ─────────────────────────────────────
 
-    fn models(&self) -> Vec<&str> {
-        vec!["MiniMax-M2", "MiniMax-M2.1", "MiniMax-M2.5", "MiniMax-M2.7"]
-    }
-
-    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
-        let base = self
-            .base_url
-            .trim_end_matches("/chat/completions")
-            .trim_end_matches("/v1");
-        let url = format!("{}/v1/models", base);
-
-        let req = reqwest::Request::new(
-            reqwest::Method::GET,
-            reqwest::Url::parse(&url).expect("invalid URL"),
-        );
-        let mut req = req;
-        req.headers_mut().insert(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {}", bearer_token).parse().unwrap(),
-        );
-
-        let response = match timeout(Duration::from_secs(10), self.http_client.execute(req)).await {
-            Ok(Ok(resp)) => resp,
-            Ok(Err(e)) => return Err(LLMError::NetworkError(e.to_string())),
-            Err(_) => {
-                return Err(LLMError::NetworkError(
-                    "fetch_model_list timed out after 10s".to_string(),
-                ))
-            }
-        };
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
-        }
-
-        let api_resp: MiniMaxModelsResponse = response
-            .json()
-            .await
-            .map_err(|e| LLMError::ApiError(e.to_string()))?;
-
-        let models: Vec<ModelInfo> = api_resp
-            .data
-            .into_iter()
-            .map(|m| {
-                use crate::llm::InputType;
-                let model_id = m.id.clone();
-                let kb = crate::llm::ProviderModelKnowledge::new();
-                let params = kb.find("minimax", &model_id);
-                let (context_window, max_tokens, default_temperature, reasoning, input_types) =
-                    match params {
-                        Some(p) => (
-                            p.context_window,
-                            p.max_tokens,
-                            Some(p.default_temperature),
-                            p.reasoning,
-                            p.input_types,
-                        ),
-                        None => (32_768, 8_192, Some(0.7), false, vec![InputType::Text]),
-                    };
-                ModelInfo {
-                    id: model_id.clone(),
-                    name: format!("MiniMax {}", model_id.trim_start_matches("MiniMax-")),
-                    context_window,
-                    max_tokens,
-                    default_temperature,
-                    reasoning,
-                    input_types,
-                }
-            })
-            .collect();
-
-        Ok(models)
-    }
-
-    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
-        let req_body = MiniMaxRequest {
-            model: &request.model,
-            messages: &request.messages,
-            temperature: request.temperature,
-            max_tokens: request.max_tokens,
-        };
-
-        let mut req = reqwest::Request::new(
-            reqwest::Method::POST,
-            reqwest::Url::parse(&self.base_url).expect("invalid URL"),
-        );
-        {
-            let headers = req.headers_mut();
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", self.api_key).parse().unwrap(),
-            );
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                "application/json".parse().unwrap(),
-            );
-            *req.body_mut() = Some(serde_json::to_string(&req_body).unwrap().into());
-        }
-
-        let response = self
-            .http_client
-            .execute(req)
-            .await
-            .map_err(|e| LLMError::NetworkError(e.to_string()))?;
-
-        let status = response.status();
-
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
-        }
-
-        let api_resp: MiniMaxResponse = response
-            .json()
-            .await
-            .map_err(|e| LLMError::ApiError(e.to_string()))?;
-
+    /// Parse a MiniMax chat response into InternalResponse.
+    pub(crate) fn parse_chat_response(api_resp: MiniMaxResponse) -> Result<InternalResponse> {
+        // Check base_resp business errors
         if let Some(ref base_resp) = api_resp.base_resp {
             if base_resp.status_code != 0 {
                 return Err(Self::map_base_resp_error(
@@ -331,51 +172,130 @@ impl LLMProvider for MiniMaxProvider {
             .as_ref()
             .and_then(|c| c.first())
             .map(|c| &c.message)
-            .ok_or_else(|| LLMError::ApiError("no choices in MiniMax response".to_string()))?;
+            .ok_or_else(|| ProviderError::Legacy("no choices in MiniMax response".to_string()))?;
 
         let content = Self::extract_content(msg);
 
-        let usage = api_resp.usage.as_ref();
+        // Build content blocks: Thinking from
+        // reasoning_content, Text from content
+        let mut content_blocks = Vec::new();
+        if let Some(ref rc) = msg.reasoning_content {
+            if !rc.trim().is_empty() {
+                content_blocks.push(RawContentBlock::Thinking(rc.trim().to_string()));
+            }
+        }
+        if !content.is_empty() {
+            content_blocks.push(RawContentBlock::Text(content));
+        }
 
-        Ok(ChatResponse {
-            content,
-            model: api_resp.model,
-            usage: Usage {
+        let usage = api_resp.usage.as_ref();
+        Ok(InternalResponse {
+            content_blocks,
+            usage: RawUsage {
                 prompt_tokens: usage.map(|u| u.prompt_tokens).unwrap_or(0),
                 completion_tokens: usage.map(|u| u.completion_tokens).unwrap_or(0),
-                total_tokens: usage.map(|u| u.total_tokens).unwrap_or(0),
+                total_tokens: usage.map(|u| u.total_tokens),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             },
+            finish_reason: None,
         })
-    }
-
-    async fn chat_streaming(
-        &self,
-        request: ChatRequest,
-    ) -> Result<crate::llm::StreamingResponse, LLMError> {
-        minimax_stream::send_streaming_request(self, request).await
     }
 }
 
+// ---------------------------------------------------------------------------//
+// Provider trait implementation                                               //
+// ---------------------------------------------------------------------------//
+
+#[async_trait]
+impl Provider for MiniMaxProvider {
+    fn id(&self) -> &str {
+        "minimax"
+    }
+
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    fn api_key(&self) -> &str {
+        &self.api_key
+    }
+
+    fn supported_protocols(&self) -> &[ProtocolId] {
+        &self.supported_protocols
+    }
+
+    fn http_client(&self) -> &Client {
+        &self.client
+    }
+
+    fn default_headers(&self) -> &HeaderMap {
+        static EMPTY: OnceLock<HeaderMap> = OnceLock::new();
+        EMPTY.get_or_init(HeaderMap::new)
+    }
+
+    async fn send(
+        &self,
+        _request: InternalRequest,
+        body: serde_json::Value,
+    ) -> Result<InternalResponse> {
+        let response = self
+            .client
+            .post(&self.base_url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
+        }
+
+        let api_resp: MiniMaxResponse = response.json().await.map_err(ProviderError::Reqwest)?;
+
+        Self::parse_chat_response(api_resp)
+    }
+
+    async fn send_streaming(
+        &self,
+        _request: InternalRequest,
+        body: serde_json::Value,
+    ) -> Result<SseStream> {
+        minimax_stream::send_streaming_request(self, body).await
+    }
+}
+
+// ---------------------------------------------------------------------------//
+// ModelLister (kept for config_wizard; to be removed when migrated)           //
+// ---------------------------------------------------------------------------//
+
 #[async_trait]
 impl ModelLister for MiniMaxProvider {
-    async fn fetch_model_list(&self, bearer_token: &str) -> Result<Vec<ModelInfo>, LLMError> {
+    async fn fetch_model_list(
+        &self,
+        bearer_token: &str,
+    ) -> std::result::Result<Vec<ModelInfo>, LLMError> {
         let base = self
             .base_url
             .trim_end_matches("/chat/completions")
             .trim_end_matches("/v1");
         let url = format!("{}/v1/models", base);
 
-        let req = reqwest::Request::new(
-            reqwest::Method::GET,
-            reqwest::Url::parse(&url).expect("invalid URL"),
-        );
-        let mut req = req;
-        req.headers_mut().insert(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {}", bearer_token).parse().unwrap(),
-        );
-
-        let response = match timeout(Duration::from_secs(10), self.http_client.execute(req)).await {
+        let response = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.client
+                .get(&url)
+                .header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Bearer {}", bearer_token),
+                )
+                .send(),
+        )
+        .await
+        {
             Ok(Ok(resp)) => resp,
             Ok(Err(e)) => return Err(LLMError::NetworkError(e.to_string())),
             Err(_) => {
@@ -388,42 +308,32 @@ impl ModelLister for MiniMaxProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(LLMError::ApiError(format!(
+                "MiniMax API error {}: {}",
+                status, body
+            )));
         }
 
-        let api_resp: MiniMaxModelsResponse = response
+        let api_resp: serde_json::Value = response
             .json()
             .await
             .map_err(|e| LLMError::ApiError(e.to_string()))?;
 
-        let models: Vec<ModelInfo> = api_resp
-            .data
+        let data = api_resp["data"].as_array().cloned().unwrap_or_default();
+
+        let models: Vec<ModelInfo> = data
             .into_iter()
-            .map(|m| {
-                use crate::llm::InputType;
-                let model_id = m.id.clone();
-                let kb = crate::llm::ProviderModelKnowledge::new();
-                let params = kb.find("minimax", &model_id);
-                let (context_window, max_tokens, default_temperature, reasoning, input_types) =
-                    match params {
-                        Some(p) => (
-                            p.context_window,
-                            p.max_tokens,
-                            Some(p.default_temperature),
-                            p.reasoning,
-                            p.input_types,
-                        ),
-                        None => (32_768, 8_192, Some(0.7), false, vec![InputType::Text]),
-                    };
-                ModelInfo {
+            .filter_map(|m| {
+                let model_id = m["id"].as_str()?.to_string();
+                Some(ModelInfo {
                     id: model_id.clone(),
                     name: format!("MiniMax {}", model_id.trim_start_matches("MiniMax-")),
-                    context_window,
-                    max_tokens,
-                    default_temperature,
-                    reasoning,
-                    input_types,
-                }
+                    context_window: 32_768,
+                    max_tokens: 8_192,
+                    default_temperature: Some(0.7),
+                    reasoning: false,
+                    input_types: vec![crate::llm::InputType::Text],
+                })
             })
             .collect();
 

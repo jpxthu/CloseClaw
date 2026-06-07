@@ -3,7 +3,6 @@
 use super::*;
 use crate::config::providers::CredentialsProvider;
 use crate::llm::anthropic::AnthropicProvider;
-use crate::llm::legacy::legacy_provider::LegacyProviderBridge;
 use crate::llm::minimax::MiniMaxProvider;
 use crate::llm::openai::OpenAIProvider;
 use crate::llm::LLMRegistry;
@@ -31,9 +30,6 @@ impl Daemon {
                 CredentialsProvider::default()
             }
         };
-
-        let client = reqwest::Client::new();
-        let empty_headers = reqwest::header::HeaderMap::new();
 
         // Register OpenAI provider: credentials file first, then env var fallback
         let openai_key = creds_provider
@@ -65,15 +61,9 @@ impl Daemon {
             .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = minimax_key {
-            let bridge = Arc::new(LegacyProviderBridge::new(
-                MiniMaxProvider::new(api_key.clone()),
-                "https://api.minimax.chat".to_string(),
-                api_key,
-                vec![],
-                client.clone(),
-                empty_headers.clone(),
-            ));
-            registry.register("minimax".to_string(), bridge).await;
+            let provider: Arc<dyn crate::llm::provider::Provider> =
+                Arc::new(MiniMaxProvider::new(api_key));
+            registry.register("minimax".to_string(), provider).await;
             info!("MiniMax provider registered");
         }
 

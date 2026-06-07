@@ -15,38 +15,23 @@ impl GlmProvider {
     pub async fn fetch_usage(
         &self,
         base_url: &str,
-    ) -> std::result::Result<
-        GlmQuotaResponse,
-        ProviderError,
-    > {
-        let url = format!(
-            "{}/paas/quota",
-            base_url.trim_end_matches('/')
-        );
+    ) -> std::result::Result<GlmQuotaResponse, ProviderError> {
+        let url = format!("{}/paas/quota", base_url.trim_end_matches('/'));
 
         let response = self
             .client
             .get(&url)
-            .header(
-                "Authorization",
-                format!("Bearer {}", self.api_key),
-            )
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
             .await?;
 
         let status = response.status();
         if !status.is_success() {
-            let body =
-                response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(
-                status, body,
-            ));
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
         }
 
-        let quota: GlmQuotaResponse = response
-            .json()
-            .await
-            .map_err(ProviderError::Reqwest)?;
+        let quota: GlmQuotaResponse = response.json().await.map_err(ProviderError::Reqwest)?;
 
         if !quota.success {
             return Err(ProviderError::Legacy(format!(

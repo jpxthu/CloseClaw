@@ -51,11 +51,9 @@ pub(crate) struct GlmUsage {
     #[serde(default)]
     pub(crate) total_tokens: u32,
     #[serde(default)]
-    pub(crate) completion_tokens_details:
-        Option<GlmCompletionTokensDetails>,
+    pub(crate) completion_tokens_details: Option<GlmCompletionTokensDetails>,
     #[serde(default)]
-    pub(crate) prompt_tokens_details:
-        Option<GlmPromptTokensDetails>,
+    pub(crate) prompt_tokens_details: Option<GlmPromptTokensDetails>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,37 +150,23 @@ pub struct GlmUsageDetail {
 
 impl GlmProvider {
     /// Map GLM HTTP status error to ProviderError.
-    pub(crate) fn map_status_error(
-        status: reqwest::StatusCode,
-        body: String,
-    ) -> ProviderError {
-        ProviderError::Legacy(format!(
-            "GLM API error {}: {}",
-            status, body
-        ))
+    pub(crate) fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
+        ProviderError::Legacy(format!("GLM API error {}: {}", status, body))
     }
 
     /// Map GLM error code to ProviderError.
     ///
     /// All GLM error codes map to `ProviderError::Legacy`
     /// with a descriptive message.
-    pub(crate) fn map_glm_error(
-        code: &str,
-        message: &str,
-    ) -> ProviderError {
-        ProviderError::Legacy(format!(
-            "GLM API error {}: {}",
-            code, message
-        ))
+    pub(crate) fn map_glm_error(code: &str, message: &str) -> ProviderError {
+        ProviderError::Legacy(format!("GLM API error {}: {}", code, message))
     }
 
     /// Extract visible content from a GLM message.
     ///
     /// Prefer `content`; if it's empty or pure whitespace,
     /// fall back to `reasoning_content`.
-    pub(crate) fn extract_content(
-        msg: &GlmMessage,
-    ) -> String {
+    pub(crate) fn extract_content(msg: &GlmMessage) -> String {
         if !msg.content.trim().is_empty() {
             msg.content.trim().to_string()
         } else {
@@ -199,14 +183,9 @@ impl GlmProvider {
 
 impl GlmProvider {
     /// Parse a GLM chat response into InternalResponse.
-    pub(crate) fn parse_chat_response(
-        api_resp: GlmResponse,
-    ) -> Result<InternalResponse> {
+    pub(crate) fn parse_chat_response(api_resp: GlmResponse) -> Result<InternalResponse> {
         if let Some(ref err) = api_resp.error {
-            return Err(Self::map_glm_error(
-                &err.code,
-                &err.message,
-            ));
+            return Err(Self::map_glm_error(&err.code, &err.message));
         }
 
         let msg = api_resp
@@ -214,12 +193,7 @@ impl GlmProvider {
             .as_ref()
             .and_then(|c| c.first())
             .map(|c| &c.message)
-            .ok_or_else(|| {
-                ProviderError::Legacy(
-                    "no choices in GLM response"
-                        .to_string(),
-                )
-            })?;
+            .ok_or_else(|| ProviderError::Legacy("no choices in GLM response".to_string()))?;
 
         let content = Self::extract_content(msg);
 
@@ -229,36 +203,22 @@ impl GlmProvider {
         let mut content_blocks = Vec::new();
         if let Some(ref rc) = msg.reasoning_content {
             if !rc.trim().is_empty() {
-                content_blocks.push(
-                    RawContentBlock::Thinking(
-                        rc.trim().to_string(),
-                    ),
-                );
+                content_blocks.push(RawContentBlock::Thinking(rc.trim().to_string()));
             }
         }
         if !content.is_empty() {
-            content_blocks.push(
-                RawContentBlock::Text(content),
-            );
+            content_blocks.push(RawContentBlock::Text(content));
         }
 
         let usage = api_resp.usage.as_ref();
         Ok(InternalResponse {
             content_blocks,
             usage: RawUsage {
-                prompt_tokens: usage
-                    .map(|u| u.prompt_tokens)
-                    .unwrap_or(0),
-                completion_tokens: usage
-                    .map(|u| u.completion_tokens)
-                    .unwrap_or(0),
-                total_tokens: usage
-                    .map(|u| u.total_tokens),
+                prompt_tokens: usage.map(|u| u.prompt_tokens).unwrap_or(0),
+                completion_tokens: usage.map(|u| u.completion_tokens).unwrap_or(0),
+                total_tokens: usage.map(|u| u.total_tokens),
                 cache_read_tokens: usage
-                    .and_then(|u| {
-                        u.prompt_tokens_details
-                            .as_ref()
-                    })
+                    .and_then(|u| u.prompt_tokens_details.as_ref())
                     .and_then(|d| d.cached_tokens),
                 cache_write_tokens: None,
             },

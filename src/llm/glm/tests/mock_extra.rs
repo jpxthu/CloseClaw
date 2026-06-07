@@ -21,8 +21,7 @@ fn internal_request(model: &str) -> InternalRequest {
         system_dynamic: None,
         system_blocks: None,
         session_id: None,
-        reasoning_level:
-            crate::session::persistence::ReasoningLevel::default(),
+        reasoning_level: crate::session::persistence::ReasoningLevel::default(),
     }
 }
 
@@ -37,18 +36,12 @@ fn chat_body(model: &str) -> serde_json::Value {
 fn assert_first_text(resp: &InternalResponse, expected: &str) {
     assert!(!resp.content_blocks.is_empty());
     match &resp.content_blocks[0] {
-        RawContentBlock::Text(s) => assert!(
-            s.contains(expected),
-            "expected '{}', got: {}",
-            expected,
-            s
-        ),
-        RawContentBlock::Thinking(s) => assert!(
-            s.contains(expected),
-            "expected '{}', got: {}",
-            expected,
-            s
-        ),
+        RawContentBlock::Text(s) => {
+            assert!(s.contains(expected), "expected '{}', got: {}", expected, s)
+        }
+        RawContentBlock::Thinking(s) => {
+            assert!(s.contains(expected), "expected '{}', got: {}", expected, s)
+        }
         other => panic!("Expected Text/Thinking, got: {:?}", other),
     }
 }
@@ -56,9 +49,7 @@ fn assert_first_text(resp: &InternalResponse, expected: &str) {
 #[tokio::test]
 async fn test_glm_4_7_multi_turn_mock() {
     let mut server = Server::new_async().await;
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-4.7-multi-turn.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-4.7-multi-turn.json");
     let m = server
         .mock("POST", "/chat/completions")
         .match_body(mockito::Matcher::PartialJson(chat_body("GLM-4.7")))
@@ -68,8 +59,7 @@ async fn test_glm_4_7_multi_turn_mock() {
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
     let resp = provider
         .send(internal_request("GLM-4.7"), chat_body("GLM-4.7"))
         .await
@@ -85,22 +75,17 @@ async fn test_glm_4_7_multi_turn_mock() {
 #[tokio::test]
 async fn test_glm_error_invalid_model_mock() {
     let mut server = Server::new_async().await;
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-error-invalid-model.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-error-invalid-model.json");
     let m = server
         .mock("POST", "/chat/completions")
-        .match_body(mockito::Matcher::PartialJson(
-            chat_body("glm-nonexistent"),
-        ))
+        .match_body(mockito::Matcher::PartialJson(chat_body("glm-nonexistent")))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(fixture)
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
     let err = provider
         .send(
             internal_request("glm-nonexistent"),
@@ -125,9 +110,7 @@ async fn test_glm_error_invalid_model_mock() {
 #[tokio::test]
 async fn test_glm_error_empty_messages_mock() {
     let mut server = Server::new_async().await;
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-error-empty-messages.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-error-empty-messages.json");
     let m = server
         .mock("POST", "/chat/completions")
         .match_body(mockito::Matcher::PartialJson(chat_body("glm-5.1")))
@@ -137,8 +120,7 @@ async fn test_glm_error_empty_messages_mock() {
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
     let err = provider
         .send(internal_request("glm-5.1"), chat_body("glm-5.1"))
         .await
