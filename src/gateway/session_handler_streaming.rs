@@ -13,7 +13,9 @@ use tokio_util::sync::CancellationToken;
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use crate::gateway::outbound::StreamResult;
 use crate::gateway::session_manager::SessionManager;
-use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
+use crate::gateway::system_prompt_inject::{
+    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
+};
 use crate::gateway::Gateway;
 use crate::im::IMPlugin;
 use crate::llm::client::UnifiedChatClient;
@@ -86,6 +88,8 @@ impl SessionMessageHandler {
             overrides.as_ref(),
         );
 
+        let (system_static, system_dynamic) = split_static_dynamic(&full_prompt);
+
         let mut messages = vec![];
         if !full_prompt.is_empty() {
             messages.push(ChatMessage {
@@ -111,10 +115,10 @@ impl SessionMessageHandler {
             max_tokens: None,
             stream: true,
             extra_body: Default::default(),
-            system_static: None,
-            system_dynamic: None,
+            system_static,
+            system_dynamic,
             system_blocks: None,
-            session_id: None,
+            session_id: Some(session_id.to_string()),
             reasoning_level,
         };
 

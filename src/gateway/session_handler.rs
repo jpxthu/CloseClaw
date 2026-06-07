@@ -9,7 +9,9 @@
 
 use super::Gateway;
 use crate::gateway::session_manager::SessionManager;
-use crate::gateway::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
+use crate::gateway::system_prompt_inject::{
+    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
+};
 use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
@@ -246,6 +248,11 @@ impl SessionMessageHandler {
             &dynamic_sections,
             overrides.as_ref(),
         );
+
+        // ── Split static/dynamic for cache adapter (reserved) ──────────
+        // Issue #965: pre-split the prompt here; #967 will wire the
+        // results into InternalRequest for the non-streaming path.
+        let (_system_static, _system_dynamic) = split_static_dynamic(&full_prompt);
 
         // ── Build ChatRequest with system + user messages ───────────────
         let mut messages = vec![];
