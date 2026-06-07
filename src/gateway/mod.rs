@@ -323,50 +323,85 @@ impl Gateway {
 
     /// Route an incoming message to the appropriate agent.
     ///
-    /// Reads `session_id` from `message.metadata`. Returns `MissingSessionId`
-    /// if absent. Validates the session exists in the active sessions table
-    /// before forwarding to the registered IM plugin.
-    pub async fn route_message(
+    /// Supports two metadata formats for session resolution:
+    /// 1. New path: `session_key` → call `SessionManager::resolve()` to get session_id
+    /// 2. Old path: `session_id` → validate directly in active sessions table
+    ///
+    /// If both are missing, sends a user-visible error via the plugin and
+    /// returns `NoRoutingKey`.
+    /// Forward a resolved message to the IM plugin for the given channel.
+    async fn forward_to_plugin(
         &self,
         channel: &str,
-        message: Message,
-        _account_id: Option<&str>,
+        message: &Message,
+        session_id: &str,
     ) -> Result<(), GatewayError> {
-        // Read session_id from metadata (written there by SessionRouter).
-        let session_id = message
-            .metadata
-            .get("session_id")
-            .ok_or(GatewayError::MissingSessionId)?;
-
-        // Verify session exists in the active sessions table.
         if !self.session_manager.has_session(session_id).await {
             return Err(GatewayError::MissingSessionId);
         }
-
-        // Find the IM plugin registered for this channel.
         let plugin = self
             .get_plugin(channel)
             .await
             .ok_or(GatewayError::UnknownChannel(channel.to_string()))?;
-
-        // Validate message size.
         if message.content.len() > self.config.max_message_size {
             return Err(GatewayError::MessageTooLarge);
         }
-
-        // Resolve thread_id from the session checkpoint.
         let thread_id = self.session_manager.get_thread_id(session_id).await;
-
-        // Build a text RenderedOutput and forward to the plugin.
         let output = RenderedOutput {
             msg_type: "text".into(),
-            payload: json!({"content": {"text": message.content}}),
+            payload: json!({"content": {"text": &message.content}}),
         };
         plugin
             .send(&output, &message.to, thread_id.as_deref())
-            .await?;
+            .await
+            .map_err(|e| GatewayError::AdapterError(e.to_string()))
+    }
 
-        Ok(())
+    /// Send a best-effort user-visible error via the plugin.
+    async fn send_user_error(&self, channel: &str, message: &Message) {
+        if let Some(plugin) = self.get_plugin(channel).await {
+            let err_output = RenderedOutput {
+                msg_type: "text".into(),
+                payload: json!({
+                    "content": {
+                        "text":
+                            "\u{26A0}\u{FE0F} \u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\
+                            \u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}"
+                    }
+                }),
+            };
+            let _ = plugin.send(&err_output, &message.to, None).await;
+        }
+    }
+
+    pub async fn route_message(
+        &self,
+        channel: &str,
+        message: Message,
+        account_id: Option<&str>,
+    ) -> Result<(), GatewayError> {
+        // --- New path: session_key → SessionManager::resolve() ---
+        if let Some(session_key) = message.metadata.get("session_key") {
+            if !session_key.is_empty() {
+                let session_id = self
+                    .session_manager
+                    .resolve(session_key, channel, &message, account_id)
+                    .await
+                    .map_err(|e| GatewayError::AdapterError(e.to_string()))?;
+                return self.forward_to_plugin(channel, &message, &session_id).await;
+            }
+        }
+
+        // --- Fallback: session_id (old path, backward compatible) ---
+        if let Some(session_id) = message.metadata.get("session_id") {
+            if !session_id.is_empty() {
+                return self.forward_to_plugin(channel, &message, session_id).await;
+            }
+        }
+
+        // --- No key fallback: both missing/empty ---
+        self.send_user_error(channel, &message).await;
+        Err(GatewayError::NoRoutingKey)
     }
 
     /// Get active sessions for an agent (proxied to SessionManager).
@@ -391,6 +426,9 @@ pub enum GatewayError {
 
     #[error("Missing session ID in message metadata")]
     MissingSessionId,
+
+    #[error("No routing key: both session_key and session_id missing from metadata")]
+    NoRoutingKey,
 
     #[error("Outbound error: {0}")]
     OutboundError(String),
