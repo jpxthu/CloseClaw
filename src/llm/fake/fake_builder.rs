@@ -31,6 +31,28 @@ impl Builder {
             model: model.into(),
             prompt_tokens,
             completion_tokens,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        });
+        self
+    }
+
+    /// Add a successful scenario with custom usage and cache metrics — consumes the next call.
+    pub fn then_ok_with_cache(
+        mut self,
+        content: impl Into<String>,
+        model: impl Into<String>,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        cache: (Option<u32>, Option<u32>),
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Ok {
+            content: content.into(),
+            model: model.into(),
+            prompt_tokens,
+            completion_tokens,
+            cache_read_tokens: cache.0,
+            cache_write_tokens: cache.1,
         });
         self
     }

@@ -328,3 +328,77 @@ fn test_provider_default_headers() {
         headers
     );
 }
+
+// ── Cache fields in Scenario::Ok / Scenario::Err ──────────────────────────
+
+#[tokio::test]
+async fn test_ok_with_cache_raw_usage() {
+    let scenario = Scenario::Ok {
+        content: "cached response".into(),
+        model: "gpt-4".into(),
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        cache_read_tokens: Some(80),
+        cache_write_tokens: Some(20),
+    };
+    let usage = scenario.raw_usage();
+    assert_eq!(usage.prompt_tokens, 100);
+    assert_eq!(usage.completion_tokens, 50);
+    assert_eq!(usage.total_tokens, Some(150));
+    assert_eq!(usage.cache_read_tokens, Some(80));
+    assert_eq!(usage.cache_write_tokens, Some(20));
+
+    // Also verify through the full Provider::send path
+    let provider = FakeProvider::builder()
+        .then_ok_with_cache("cached", "gpt-4", 200, 80, (Some(150), Some(30)))
+        .build();
+    let resp = provider
+        .send(make_request(), serde_json::Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(resp.usage.prompt_tokens, 200);
+    assert_eq!(resp.usage.completion_tokens, 80);
+    assert_eq!(resp.usage.cache_read_tokens, Some(150));
+    assert_eq!(resp.usage.cache_write_tokens, Some(30));
+}
+
+#[tokio::test]
+async fn test_ok_backward_compat_cache_none() {
+    // Scenario::ok() should produce cache fields as None
+    let scenario = Scenario::ok("hello", "model");
+    let usage = scenario.raw_usage();
+    assert_eq!(usage.cache_read_tokens, None);
+    assert_eq!(usage.cache_write_tokens, None);
+    assert_eq!(usage.prompt_tokens, 10);
+    assert_eq!(usage.completion_tokens, 10);
+    assert_eq!(usage.total_tokens, Some(20));
+
+    // Verify through the full Provider::send path
+    let provider = FakeProvider::builder().then_ok("hello", "model").build();
+    let resp = provider
+        .send(make_request(), serde_json::Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(resp.usage.cache_read_tokens, None);
+    assert_eq!(resp.usage.cache_write_tokens, None);
+}
+
+#[tokio::test]
+async fn test_err_scenario_cache_fields_none() {
+    // Scenario::Err raw_usage() should always have cache fields as None
+    let scenario = Scenario::err(ProviderError::Legacy("test error".into()));
+    let usage = scenario.raw_usage();
+    assert_eq!(usage.cache_read_tokens, None);
+    assert_eq!(usage.cache_write_tokens, None);
+    assert_eq!(usage.prompt_tokens, 0);
+    assert_eq!(usage.completion_tokens, 0);
+
+    // Also test with custom usage via err_with
+    let scenario_with_usage =
+        Scenario::err_with(ProviderError::Legacy("rate limit".into()), 50, 25);
+    let usage2 = scenario_with_usage.raw_usage();
+    assert_eq!(usage2.cache_read_tokens, None);
+    assert_eq!(usage2.cache_write_tokens, None);
+    assert_eq!(usage2.prompt_tokens, 50);
+    assert_eq!(usage2.completion_tokens, 25);
+}

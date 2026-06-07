@@ -14,6 +14,8 @@ pub enum Scenario {
         model: String,
         prompt_tokens: u32,
         completion_tokens: u32,
+        cache_read_tokens: Option<u32>,
+        cache_write_tokens: Option<u32>,
     },
     /// Respond with an error, optionally with usage metrics.
     Err {
@@ -36,6 +38,8 @@ impl Scenario {
             model: model.into(),
             prompt_tokens: 10,
             completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         }
     }
 
@@ -71,13 +75,15 @@ impl Scenario {
             Self::Ok {
                 prompt_tokens,
                 completion_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
                 ..
             } => RawUsage {
                 prompt_tokens: *prompt_tokens,
                 completion_tokens: *completion_tokens,
                 total_tokens: Some(*prompt_tokens + *completion_tokens),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
+                cache_read_tokens: *cache_read_tokens,
+                cache_write_tokens: *cache_write_tokens,
             },
             Self::Err {
                 prompt_tokens,
@@ -111,11 +117,15 @@ impl Clone for Scenario {
                 model,
                 prompt_tokens,
                 completion_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
             } => Self::Ok {
                 content: content.clone(),
                 model: model.clone(),
                 prompt_tokens: *prompt_tokens,
                 completion_tokens: *completion_tokens,
+                cache_read_tokens: *cache_read_tokens,
+                cache_write_tokens: *cache_write_tokens,
             },
             Self::Err {
                 error,
