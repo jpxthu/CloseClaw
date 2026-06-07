@@ -66,7 +66,7 @@ AppendSection 是 system prompt 末尾的独立分区，持久化在会话状态
 - `/system clear`：清空追加内容
 - `/system list`：查看当前追加列表
 
-详细设计见 [slash/system-append.md](../slash/system-append.md)。
+详细设计见 [docs/design/slash/system-append.md](../slash/system-append.md)。
 
 ### 边界标记
 
@@ -148,7 +148,7 @@ Archived session 被访问
 - **Bootstrap Loader**：提供 bootstrap 文件内容，按 Minimal/Full 模式加载。
 - **ToolRegistry**：提供 ToolsSection 的分组索引。
 - **DiskSkillRegistry**：按 agent 过滤并提供 skill 列表数据，读取磁盘 skill 并合并内置 SkillRegistry 的 skill，按优先级排序。
-- **Slash 模块**：`/system` 指令操作 AppendSection，详细设计见 [slash/system-append.md](../slash/system-append.md)。
+- **Slash 模块**：`/system` 指令操作 AppendSection，详细设计见 [docs/design/slash/system-append.md](../slash/system-append.md)。
 
 ### 无关
 
