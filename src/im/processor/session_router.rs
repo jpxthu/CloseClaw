@@ -1,27 +1,27 @@
-//! SessionRouter — inbound MessageProcessor that resolves session IDs.
+//! SessionRouter — inbound MessageProcessor that computes session keys.
 //!
-//! Extracts feishu routing fields (`account_id`, `from`, `to`, `channel`)
-//! directly from the raw feishu webhook JSON, then calls
-//! [`SessionManager::find_or_create`][crate::gateway::SessionManager::find_or_create]
-//! and attaches the resulting `session_id` to the message metadata.
+//! Extracts routing fields (`account_id`, `from`, `to`, `channel`)
+//! directly from the raw webhook JSON, then computes a deterministic
+//! `session_key` via [`DmScope::compute_session_key`] and writes it
+//! to the message metadata.
 //!
 //! Runs at priority 20, before [`FeishuMessageCleaner`] (priority 30).
 
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase, ProcessedMessage};
-use crate::gateway::{Message, SessionManager};
+use crate::gateway::{DmScope, Message};
 use async_trait::async_trait;
 use serde_json::Value;
 
-/// SessionRouter — resolves and attaches a session_id to the message pipeline.
+/// SessionRouter — computes and attaches a session_key to the message pipeline.
 #[derive(Debug, Clone)]
 pub struct SessionRouter {
-    manager: std::sync::Arc<SessionManager>,
+    dm_scope: DmScope,
 }
 
 impl SessionRouter {
-    /// Create a new SessionRouter backed by the given SessionManager.
-    pub fn new(manager: std::sync::Arc<SessionManager>) -> Self {
-        Self { manager }
+    /// Create a new SessionRouter with the given [`DmScope`].
+    pub fn new(dm_scope: DmScope) -> Self {
+        Self { dm_scope }
     }
 
     /// Extract feishu sender open_id from the raw webhook.
@@ -120,39 +120,33 @@ impl SessionRouter {
             })
             .unwrap_or_default()
     }
+}
 
-    /// Build a [`Message`] from webhook + extracted routing fields.
-    fn build_message(
-        webhook: &Value,
-        raw: &Value,
+impl SessionRouter {
+    /// Compute a deterministic session key from routing fields,
+    /// returning an empty string on missing fields.
+    fn compute_key(
+        &self,
         from: &str,
         to: &str,
         channel: &str,
+        account_id: Option<&str>,
         thread_id: Option<String>,
-    ) -> Message {
-        let content = Self::extract_msg_content(webhook, raw);
-        let id = webhook
-            .get("message")
-            .and_then(|m| m.get("message_id"))
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .unwrap_or_else(|| "unknown".to_string());
-        let timestamp = webhook
-            .get("message")
-            .and_then(|m| m.get("create_time"))
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp());
-        Message {
-            id,
+    ) -> String {
+        if from.is_empty() || to.is_empty() {
+            return String::new();
+        }
+        let msg = Message {
+            id: String::new(),
             from: from.to_string(),
             to: to.to_string(),
-            content,
+            content: String::new(),
             channel: channel.to_string(),
-            timestamp,
+            timestamp: 0,
             metadata: std::collections::HashMap::new(),
             thread_id,
-        }
+        };
+        self.dm_scope.compute_session_key(channel, &msg, account_id)
     }
 }
 
@@ -186,19 +180,13 @@ impl MessageProcessor for SessionRouter {
             return Err(ProcessError::SessionNotSupportedForChannel(channel));
         }
 
-        let from = Self::extract_from(&webhook)?;
-        let to = Self::extract_to(&webhook)?;
+        let from = Self::extract_from(&webhook).unwrap_or_default();
+        let to = Self::extract_to(&webhook).unwrap_or_default();
         let channel = Self::extract_channel(&webhook);
         let account_id = Self::extract_account_id(&webhook);
         let thread_id = Self::extract_thread_id(&webhook);
 
-        let msg = Self::build_message(&webhook, raw, &from, &to, &channel, thread_id);
-
-        let session_id = self
-            .manager
-            .find_or_create(&channel, &msg, account_id.as_deref())
-            .await
-            .map_err(|e| ProcessError::ProcessingFailed(e.to_string()))?;
+        let session_key = self.compute_key(&from, &to, &channel, account_id.as_deref(), thread_id);
 
         let mut metadata = ctx.metadata.clone();
         let acc_id = account_id.unwrap_or_else(|| "default".to_string());
@@ -206,12 +194,11 @@ impl MessageProcessor for SessionRouter {
         metadata.insert("from".to_string(), from);
         metadata.insert("to".to_string(), to);
         metadata.insert("channel".to_string(), channel);
-        metadata.insert("session_id".to_string(), session_id);
+        metadata.insert("session_key".to_string(), session_key);
 
-        Ok(ProcessedMessage {
-            content: msg.content,
-            metadata,
-        })
+        let content = Self::extract_msg_content(&webhook, raw);
+
+        Ok(ProcessedMessage { content, metadata })
     }
 }
 
@@ -222,43 +209,10 @@ impl MessageProcessor for SessionRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gateway::{DmScope, GatewayConfig};
-    use crate::session::bootstrap::BootstrapMode;
-    use crate::session::persistence::ReasoningLevel;
-    use std::sync::Arc;
-
-    fn test_config() -> GatewayConfig {
-        GatewayConfig {
-            name: "test".to_string(),
-            rate_limit_per_minute: 100,
-            max_message_size: 65536,
-            dm_scope: DmScope::PerAccountChannelPeer,
-            ..Default::default()
-        }
-    }
+    use crate::gateway::DmScope;
 
     fn make_router() -> SessionRouter {
-        let mgr = Arc::new(SessionManager::new(
-            &test_config(),
-            None,
-            None,
-            BootstrapMode::Full,
-            ReasoningLevel::default(),
-        ));
-        SessionRouter::new(mgr)
-    }
-
-    fn assert_session_id_format(sid: &str, agent_id: &str) {
-        assert!(
-            sid.starts_with(&format!("{agent_id}_")),
-            "bad format: {sid}"
-        );
-        let hex = sid.rsplitn(2, '_').next().unwrap();
-        assert_eq!(hex.len(), 8, "hex part wrong: {hex}");
-        assert!(
-            hex.chars().all(|c| c.is_ascii_hexdigit()),
-            "hex part non-hex: {hex}"
-        );
+        SessionRouter::new(DmScope::PerAccountChannelPeer)
     }
 
     /// Minimal feishu DM webhook fixture.
@@ -299,32 +253,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_private_chat_creates_session() {
+    async fn test_private_chat_computes_session_key() {
         let router = make_router();
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
         let result = router
             .process(&MessageContext::default(), &raw)
             .await
             .unwrap();
-        let sid = result.metadata.get("session_id").unwrap();
-        assert_session_id_format(sid, "oc_agent_b");
+        let key = result.metadata.get("session_key").unwrap();
+        assert!(!key.is_empty(), "session_key should not be empty");
+        // PerAccountChannelPeer: acc:channel:from:to
+        assert!(key.contains("ou_user_a"), "key should contain from: {key}");
+        assert!(key.contains("oc_agent_b"), "key should contain to: {key}");
     }
 
     #[tokio::test]
-    async fn test_existing_session_not_duplicated() {
+    async fn test_deterministic_session_key() {
         let router = make_router();
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
         let r1 = router
             .process(&MessageContext::default(), &raw)
             .await
             .unwrap();
-        let id1 = r1.metadata.get("session_id").unwrap().clone();
+        let key1 = r1.metadata.get("session_key").unwrap().clone();
         let r2 = router
             .process(&MessageContext::default(), &raw)
             .await
             .unwrap();
-        let id2 = r2.metadata.get("session_id").unwrap().clone();
-        assert_eq!(id1, id2, "session should not be duplicated");
+        let key2 = r2.metadata.get("session_key").unwrap().clone();
+        assert_eq!(key1, key2, "same input must produce same session_key");
     }
 
     #[tokio::test]
@@ -342,26 +299,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_account_id_passed_to_find_or_create() {
-        let cfg = GatewayConfig {
-            dm_scope: DmScope::PerAccountChannelPeer,
-            ..test_config()
-        };
-        let mgr = Arc::new(SessionManager::new(
-            &cfg,
-            None,
-            None,
-            BootstrapMode::Full,
-            ReasoningLevel::default(),
-        ));
-        let router = SessionRouter::new(mgr);
+    async fn test_dm_scope_affects_session_key() {
+        let r1 = SessionRouter::new(DmScope::PerChannelPeer);
+        let r2 = SessionRouter::new(DmScope::PerAccountChannelPeer);
         let raw = feishu_dm_webhook("ou_user_a", "oc_agent_b");
-        let result = router
+        let k1 = r1
             .process(&MessageContext::default(), &raw)
             .await
-            .unwrap();
-        let sid = result.metadata.get("session_id").unwrap();
-        assert_session_id_format(sid, "oc_agent_b");
+            .unwrap()
+            .metadata
+            .get("session_key")
+            .unwrap()
+            .clone();
+        let k2 = r2
+            .process(&MessageContext::default(), &raw)
+            .await
+            .unwrap()
+            .metadata
+            .get("session_key")
+            .unwrap()
+            .clone();
+        assert_ne!(k1, k2, "different DmScope should produce different keys");
     }
 
     #[tokio::test]
@@ -376,7 +334,7 @@ mod tests {
             result.metadata.get("existing_key").unwrap(),
             "existing_value"
         );
-        assert!(result.metadata.contains_key("session_id"));
+        assert!(result.metadata.contains_key("session_key"));
         assert!(result.metadata.contains_key("from"));
         assert!(result.metadata.contains_key("to"));
         assert!(result.metadata.contains_key("channel"));
@@ -399,7 +357,10 @@ mod tests {
         assert_eq!(result.metadata.get("to").unwrap(), "oc_agent_b");
         assert_eq!(result.metadata.get("channel").unwrap(), "feishu");
         assert_eq!(result.metadata.get("account_id").unwrap(), "tenant_abc");
-        assert_session_id_format(result.metadata.get("session_id").unwrap(), "oc_agent_b");
+        let key = result.metadata.get("session_key").unwrap();
+        assert!(!key.is_empty());
+        assert!(key.contains("ou_user_a"));
+        assert!(key.contains("oc_agent_b"));
         assert_eq!(result.content, "{\"text\":\"hello\"}");
     }
 
@@ -435,23 +396,26 @@ mod tests {
         assert_eq!(result.metadata.get("to").unwrap(), "oc_thread_chat");
         assert_eq!(result.metadata.get("channel").unwrap(), "feishu");
         assert_eq!(result.metadata.get("account_id").unwrap(), "tenant_thread");
-        assert!(result
-            .metadata
-            .get("session_id")
-            .unwrap()
-            .starts_with("oc_thread_chat_"));
+        let key = result.metadata.get("session_key").unwrap();
+        assert!(!key.is_empty());
+        assert!(key.contains("ou_thread_user"));
+        assert!(key.contains("oc_thread_chat"));
         assert_eq!(result.content, "{\"text\":\"original\"}");
     }
 
     #[tokio::test]
-    async fn test_processed_msg_without_raw_webhook_errors() {
+    async fn test_missing_fields_yields_empty_session_key() {
         let router = make_router();
-        let processed = serde_json::json!({
-            "content": "{\"text\":\"hi\"}",
-            "metadata": {}
-        });
-        let ctx = MessageContext::default();
-        let err = router.process(&ctx, &processed).await;
-        assert!(err.is_err(), "should fail without raw webhook");
+        // A minimal payload with no sender/message fields.
+        let raw = serde_json::json!({});
+        let result = router
+            .process(&MessageContext::default(), &raw)
+            .await
+            .unwrap();
+        assert_eq!(
+            result.metadata.get("session_key").unwrap(),
+            "",
+            "missing fields should yield empty session_key"
+        );
     }
 }

@@ -15,7 +15,6 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use crate::gateway::SessionManager;
 pub use cleaner::FeishuMessageCleaner;
 pub use raw_log_processor::{RawLogConfig, RawLogProcessor};
 use serde_json::Value;
@@ -123,7 +122,7 @@ impl ProcessorRegistry {
     /// - [`SessionRouter`] (inbound, priority 20) — resolves session IDs
     /// - [`FeishuMessageCleaner`] (inbound, priority 30)
     /// - [`FeishuMessageCleaner`] (inbound, priority 30)
-    pub fn new(session_manager: Arc<SessionManager>, raw_log_config: Option<RawLogConfig>) -> Self {
+    pub fn new(dm_scope: crate::gateway::DmScope, raw_log_config: Option<RawLogConfig>) -> Self {
         let mut registry = Self::default();
         match raw_log_config {
             Some(config) => {
@@ -140,7 +139,7 @@ impl ProcessorRegistry {
                 registry.register(p);
             }
         }
-        registry.register(SessionRouter::new(session_manager));
+        registry.register(SessionRouter::new(dm_scope));
         registry.register(FeishuMessageCleaner);
         registry
     }
@@ -251,25 +250,6 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    use crate::session::bootstrap::BootstrapMode;
-    use crate::session::persistence::ReasoningLevel;
-
-    fn test_session_manager() -> Arc<SessionManager> {
-        Arc::new(SessionManager::new(
-            &crate::gateway::GatewayConfig {
-                name: "test".to_string(),
-                rate_limit_per_minute: 100,
-                max_message_size: 65536,
-                dm_scope: crate::gateway::DmScope::PerChannelPeer,
-                ..Default::default()
-            },
-            None,
-            None,
-            BootstrapMode::Full,
-            ReasoningLevel::default(),
-        ))
-    }
-
     /// A no-op inbound processor that records how many times it was called
     /// and at what priority.
     struct SpyProcessor {
@@ -357,8 +337,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_registry_default_has_all_processors() {
-        let mgr = test_session_manager();
-        let registry = ProcessorRegistry::new(mgr, None);
+        let registry = ProcessorRegistry::new(crate::gateway::DmScope::PerChannelPeer, None);
         // FeishuMessageCleaner (inbound, prio 30)
         assert!(!registry.inbound.is_empty());
     }
@@ -414,8 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_inbound_chain_simple_text() {
-        let mgr = test_session_manager();
-        let registry = ProcessorRegistry::new(mgr, None);
+        let registry = ProcessorRegistry::new(crate::gateway::DmScope::PerChannelPeer, None);
         let raw =
             load_raw_fixture("im-message-receive_v1-no-event-id-2026-04-26T18-53-09-967Z.json");
         let expected = load_expected_fixture("expected/01_text_simple.json");
@@ -426,8 +404,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_inbound_chain_post_lists() {
-        let mgr = test_session_manager();
-        let registry = ProcessorRegistry::new(mgr, None);
+        let registry = ProcessorRegistry::new(crate::gateway::DmScope::PerChannelPeer, None);
         let raw =
             load_raw_fixture("im-message-receive_v1-no-event-id-2026-04-27T02-58-21-195Z.json");
         let expected = load_expected_fixture("expected/03_post_lists.json");
