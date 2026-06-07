@@ -172,13 +172,13 @@ impl PersistenceService for MockPersistence {
 }
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
-
 fn make_config() -> GatewayConfig {
     GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 10000,
         dm_scope: DmScope::PerChannelPeer,
+        ..Default::default()
     }
 }
 
@@ -211,7 +211,6 @@ async fn add_session(msg: &mut Message, sm: &SessionManager) {
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
-
 /// Test: `with_checkpoint_manager` stores the CheckpointManager.
 #[tokio::test]
 async fn test_with_checkpoint_manager_stores_cm() {
@@ -384,7 +383,9 @@ async fn test_send_failure_does_not_trigger_checkpoint() {
     add_session(&mut msg, &sm).await;
     let session_id = msg.metadata["session_id"].clone();
 
-    let result = gw.send_outbound("test_channel", &session_id, "hello", vec![]).await;
+    let result = gw
+        .send_outbound("test_channel", &session_id, "hello", vec![])
+        .await;
     assert!(result.is_err(), "send should fail");
 
     // Verify: no checkpoint was saved
@@ -413,7 +414,6 @@ async fn test_send_outbound_interactive_triggers_checkpoint() {
     ));
     let persistence = Arc::new(MockPersistence::default());
     let gw = make_gw_with_cm(config.clone(), Arc::clone(&sm), persistence.clone());
-
     let adapter = Arc::new(MockAdapter::new());
     gw.register_adapter(
         "test_channel".into(),

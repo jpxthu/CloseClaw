@@ -21,6 +21,7 @@ fn make_config() -> GatewayConfig {
         rate_limit_per_minute: 100,
         max_message_size: 65536,
         dm_scope: super::DmScope::PerAccountChannelPeer,
+        ..Default::default()
     }
 }
 
