@@ -72,10 +72,7 @@ impl Section {
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        format!(
-            "## Session State\n- pending_tasks:\n{}\n",
-            tasks_str
-        )
+        format!("## Session State\n- pending_tasks:\n{}\n", tasks_str)
     }
 
     /// Render the section as a string for the system prompt
@@ -110,9 +107,7 @@ impl Section {
                     chat_name, sender_id, timestamp
                 )
             }
-            Section::SessionState {
-                pending_tasks,
-            } => self.format_session_state(pending_tasks),
+            Section::SessionState { pending_tasks } => self.format_session_state(pending_tasks),
             Section::AppendSection(content) => {
                 format!("## Append\n{}\n", content)
             }

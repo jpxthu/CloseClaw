@@ -23,10 +23,10 @@ use tokio::sync::{mpsc, RwLock};
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use crate::gateway::outbound::StreamResult;
 use crate::gateway::session_manager::SessionManager;
-use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
 use crate::llm::session_state::LlmState;
 use crate::llm::types::ContentBlock;
+use crate::llm::unified_fallback::UnifiedFallbackClient;
 
 impl SessionMessageHandler {
     /// Clear busy flag, send output, and drain pending messages.
@@ -39,11 +39,17 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, crate::llm::LLMError>,
-        fallback_client: &Arc<FallbackClient>,
+        unified_fallback_client: &Arc<UnifiedFallbackClient>,
         output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     ) {
         Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
-        Self::drain_pending_loop(session_manager, session_id, fallback_client, output_tx).await;
+        Self::drain_pending_loop(
+            session_manager,
+            session_id,
+            unified_fallback_client,
+            output_tx,
+        )
+        .await;
     }
 
     async fn clear_busy_and_send(
@@ -86,16 +92,18 @@ impl SessionMessageHandler {
                 tracing::warn!(session_id, error = %err, "LLM call failed");
             }
         }
-        Self::maybe_push_announce(session_manager, session_id).await; // Step 1.5: best-effort announce to parent (run-mode child).
+        // Step 1.5: best-effort announce to parent (run-mode child).
+        Self::maybe_push_announce(session_manager, session_id).await;
     }
 
     async fn drain_pending_loop(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        fallback_client: &Arc<FallbackClient>,
+        unified_fallback_client: &Arc<UnifiedFallbackClient>,
         output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     ) {
-        Self::drain_announce_events(session_manager, session_id).await; // Step 1.5: drain queued announces.
+        // Step 1.5: drain queued announces.
+        Self::drain_announce_events(session_manager, session_id).await;
         loop {
             // Get next pending message
             let Some(pending) = session_manager.pop_pending_message(session_id).await else {
@@ -113,7 +121,7 @@ impl SessionMessageHandler {
             // Non-streaming path: `call_llm` returns `UnifiedResponse`.
             // Convert to `StreamResult` for the unified `finish_llm` entry point.
             let result: Result<StreamResult, crate::llm::LLMError> = Self::call_llm(
-                fallback_client,
+                unified_fallback_client,
                 &pending.content,
                 &meta,
                 session_manager,
