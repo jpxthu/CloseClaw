@@ -7,30 +7,23 @@ use reqwest::Client;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
 
-use crate::llm::provider::{
-    Provider, ProviderError, Result, SseStream,
-};
-use crate::llm::types::{
-    InternalRequest, InternalResponse, ProtocolId,
-};
+use crate::llm::provider::{Provider, ProviderError, Result, SseStream};
+use crate::llm::types::{InternalRequest, InternalResponse, ProtocolId};
 
 mod models;
 mod quota;
 mod streaming;
 mod types;
 
-pub(crate) use types::*;
 #[allow(unused_imports)]
-pub(crate) use crate::llm::types::{
-    RawContentBlock, RawSseChunk, RawUsage,
-};
+pub(crate) use crate::llm::types::{RawContentBlock, RawSseChunk, RawUsage};
 #[allow(unused_imports)]
 pub(crate) use crate::llm::{ModelInfo, ModelLister};
 use streaming::run_sse_stream;
+pub(crate) use types::*;
 
 /// GLM API endpoint (chat completions)
-const GLM_CHAT_URL: &str =
-    "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions";
+const GLM_CHAT_URL: &str = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions";
 
 // ── Provider struct ───────────────────────────────────────────────────────────
 
@@ -43,29 +36,19 @@ pub struct GlmProvider {
 
 impl GlmProvider {
     pub fn new(api_key: String) -> Self {
-        Self::with_base_url(
-            api_key,
-            GLM_CHAT_URL.to_string(),
-        )
+        Self::with_base_url(api_key, GLM_CHAT_URL.to_string())
     }
 
     pub fn from_env() -> Option<Self> {
-        Some(Self::new(
-            std::env::var("GLM_API_KEY").ok()?,
-        ))
+        Some(Self::new(std::env::var("GLM_API_KEY").ok()?))
     }
 
-    pub fn with_base_url(
-        api_key: String,
-        base_url: String,
-    ) -> Self {
+    pub fn with_base_url(api_key: String, base_url: String) -> Self {
         Self {
             api_key,
             base_url,
             client: Client::new(),
-            supported_protocols: vec![
-                ProtocolId::new("openai"),
-            ],
+            supported_protocols: vec![ProtocolId::new("openai")],
         }
     }
 }
@@ -95,8 +78,7 @@ impl Provider for GlmProvider {
     }
 
     fn default_headers(&self) -> &HeaderMap {
-        static EMPTY: OnceLock<HeaderMap> =
-            OnceLock::new();
+        static EMPTY: OnceLock<HeaderMap> = OnceLock::new();
         EMPTY.get_or_init(HeaderMap::new)
     }
 
@@ -108,10 +90,7 @@ impl Provider for GlmProvider {
         let response = self
             .client
             .post(&self.base_url)
-            .header(
-                "Authorization",
-                format!("Bearer {}", self.api_key),
-            )
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -119,17 +98,11 @@ impl Provider for GlmProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body =
-                response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(
-                status, body,
-            ));
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
         }
 
-        let api_resp: GlmResponse = response
-            .json()
-            .await
-            .map_err(ProviderError::Reqwest)?;
+        let api_resp: GlmResponse = response.json().await.map_err(ProviderError::Reqwest)?;
 
         Self::parse_chat_response(api_resp)
     }
@@ -142,10 +115,7 @@ impl Provider for GlmProvider {
         let response = self
             .client
             .post(&self.base_url)
-            .header(
-                "Authorization",
-                format!("Bearer {}", self.api_key),
-            )
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
             .json(&body)
@@ -154,11 +124,8 @@ impl Provider for GlmProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body =
-                response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(
-                status, body,
-            ));
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
         }
 
         let (tx, rx) = mpsc::channel(64);
