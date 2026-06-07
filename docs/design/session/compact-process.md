@@ -18,6 +18,8 @@ Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md 等）
 ```
 触发 /compact 或自动阈值
   ↓
+[创建运行快照] 压缩前由 Run Health 模块创建可回滚的 transcript 快照（详见 run-health.md）
+  ↓
 从消息历史中分离对话消息（排除 system prompt）
   ↓
 [执行压缩] LLM 对对话消息做结构化摘要
@@ -57,7 +59,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 - **存储**：system prompt 作为独立字段保存在 ConversationSession 运行时对象中，与对话消息列表分开管理。
 - **API 调用**：每次调用 LLM 时，system prompt 前置到消息列表最前端，与对话消息组合为完整请求。
 - **Compaction**：system prompt 不进入压缩消息流。压缩后的 transcript 由 system prompt + boundary message 组成。
-- **恢复**：会话从 checkpoint 恢复时，重新走注入流程（build_from_workspace），从最新 bootstrap 文件重建 system prompt，确保 prompt 内容最新。
+- **恢复**：会话从 checkpoint 恢复时，重新走注入流程，从工作目录加载最新 bootstrap 文件重建 system prompt，确保 prompt 内容最新。
 
 此设计确保角色定义在任意次压缩后依然完整，无需哈希校验或重新注入。
 
@@ -73,6 +75,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
   → 从响应中提取摘要 → 组装 boundary message
   → 统计 before/after 字符和 token 数
   → 用 system prompt + boundary message 替换 chat_history
+  → 重建 system prompt 静态层（基于最新 bootstrap 文件）
   → 返回压缩统计给用户
 ```
 
@@ -86,6 +89,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
   → 按消息上限截断历史
   → 估算 token 数 + 熔断器检查 + 阈值判断
   → 若触发：执行压缩，用 system prompt + boundary message 替换 chat_history
+  → 重建 system prompt 静态层（基于最新 bootstrap 文件）
   → 继续调用 LLM 处理用户消息
 ```
 
@@ -100,11 +104,11 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
   user: 第二条消息
   ...
 
-压缩后（1 条消息 + system prompt 保持不变）：
+压缩后（1 条 boundary 消息。system prompt 在摘要过程中不受影响，压缩结束后根据最新 bootstrap 文件重建静态层）：
   [Session Compaction | 手动压缩] 摘要内容
 ```
 
-压缩不修改 system prompt 内容，但 compaction 成功后确定性调用 `rebuild_system_prompt` 重建 system prompt 整段静态层（RoleSection + ToolsSection + SkillListingSection + MemorySection），确保下次请求时角色定义、工具列表、skill 清单和长期记忆均为最新版本。详见 [session-injection.md](session-injection.md)。
+LLM 摘要步骤本身不修改 system prompt 内容（system prompt 在摘要过程中保持不变）。Compaction 流程结束后，系统基于最新 bootstrap 文件重建 system prompt 的静态层（角色定义段、工具列表段、Skill 清单段、长期记忆段），确保下次请求时所有静态内容反映最新配置。详见 [session-injection.md](session-injection.md)。
 
 ## 模块关系
 
