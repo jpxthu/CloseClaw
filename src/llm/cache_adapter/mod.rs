@@ -41,6 +41,11 @@ impl CacheAdapter for NoopCacheAdapter {
 /// Generates structured [`SystemBlock`] entries from `system_static` and
 /// `system_dynamic`, marking static blocks with `cache: true` so that the
 /// Anthropic protocol layer can emit `cache_control: {"type": "ephemeral"}`.
+///
+/// Tool definitions (ToolsSection) are part of `system_static` and
+/// therefore automatically covered by prefix caching through this adapter.
+/// When tools are embedded in the system prompt text, no separate
+/// `cache_control` annotation on the `tools` API parameter is needed.
 pub struct AnthropicCacheAdapter;
 
 impl CacheAdapter for AnthropicCacheAdapter {
@@ -211,5 +216,30 @@ mod tests {
     #[test]
     fn kimi_adapter_name() {
         assert_eq!(KimiCacheAdapter.name(), "kimi");
+    }
+
+    #[test]
+    fn anthropic_adapter_tools_section_in_static() {
+        let mut req = make_request();
+        req.system_static = Some(
+            "## RoleSection\n\n\
+                You are a helpful assistant.\n\n\
+                ## ToolsSection\n\n\
+                ### file_system\n\
+                - `read` (dangerous: low)\n\
+                - `write` (dangerous: medium)\n\n\
+                ### code\n\
+                - `edit` (dangerous: medium)\n"
+                .to_owned(),
+        );
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        // Split by "\n\n" produces 3 non-empty blocks: RoleSection,
+        // ToolsSection header, and ToolsSection content.
+        assert!(blocks.len() >= 2);
+        for block in blocks {
+            assert!(block.cache, "block should be cached: {:?}", block.text);
+        }
     }
 }
