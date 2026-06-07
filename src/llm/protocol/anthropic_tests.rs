@@ -301,3 +301,115 @@ fn test_build_request_high_reasoning_level_no_injection() {
     assert!(body.get("reasoning_effort").is_none());
     assert!(body.get("reasoning_level").is_none());
 }
+
+// ── messages cache_control tests ──────────────────────────────────────────
+
+#[test]
+fn test_messages_cache_control_single_message() {
+    let proto = AnthropicProtocol::new();
+    let request = make_request(); // single "Hello" message
+    let body = proto.build_request(&request).unwrap();
+
+    let messages = body.get("messages").unwrap().as_array().unwrap();
+    assert_eq!(messages.len(), 1);
+
+    // Content should be a content blocks array with cache_control
+    let content = messages[0].get("content").unwrap().as_array().unwrap();
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0].get("type").unwrap(), "text");
+    assert_eq!(content[0].get("text").unwrap(), "Hello");
+    assert_eq!(
+        content[0].get("cache_control").unwrap(),
+        &serde_json::json!({ "type": "ephemeral" })
+    );
+}
+
+#[test]
+fn test_messages_cache_control_multiple_messages() {
+    let proto = AnthropicProtocol::new();
+    let mut request = make_request();
+    request.messages = vec![
+        InternalMessage {
+            role: "user".to_string(),
+            content: "Hi".to_string(),
+        },
+        InternalMessage {
+            role: "assistant".to_string(),
+            content: "Hey!".to_string(),
+        },
+        InternalMessage {
+            role: "user".to_string(),
+            content: "What's up?".to_string(),
+        },
+    ];
+    let body = proto.build_request(&request).unwrap();
+
+    let messages = body.get("messages").unwrap().as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+
+    // First two messages should keep string content
+    assert!(messages[0].get("content").unwrap().is_string());
+    assert_eq!(messages[0].get("content").unwrap().as_str().unwrap(), "Hi");
+    assert!(messages[1].get("content").unwrap().is_string());
+    assert_eq!(
+        messages[1].get("content").unwrap().as_str().unwrap(),
+        "Hey!"
+    );
+
+    // Last message should be content blocks with cache_control
+    let last_content = messages[2].get("content").unwrap().as_array().unwrap();
+    assert_eq!(last_content.len(), 1);
+    assert_eq!(last_content[0].get("type").unwrap(), "text");
+    assert_eq!(last_content[0].get("text").unwrap(), "What's up?");
+    assert_eq!(
+        last_content[0].get("cache_control").unwrap(),
+        &serde_json::json!({ "type": "ephemeral" })
+    );
+}
+
+#[test]
+fn test_messages_cache_control_empty_messages() {
+    let proto = AnthropicProtocol::new();
+    let mut request = make_request();
+    request.messages = vec![];
+    let body = proto.build_request(&request).unwrap();
+
+    // Empty messages should produce an empty array with no cache_control added
+    let messages = body.get("messages").unwrap().as_array().unwrap();
+    assert!(messages.is_empty());
+}
+
+#[test]
+fn test_messages_cache_control_with_system_blocks() {
+    use crate::llm::types::SystemBlock;
+
+    let proto = AnthropicProtocol::new();
+    let mut request = make_request();
+    request.messages = vec![InternalMessage {
+        role: "user".to_string(),
+        content: "Hello".to_string(),
+    }];
+    request.system_blocks = Some(vec![SystemBlock {
+        text: "System prompt".to_string(),
+        cache: true,
+    }]);
+    let body = proto.build_request(&request).unwrap();
+
+    // System should have cache_control
+    let system = body.get("system").unwrap().as_array().unwrap();
+    assert_eq!(system.len(), 1);
+    assert_eq!(
+        system[0].get("cache_control").unwrap(),
+        &serde_json::json!({ "type": "ephemeral" })
+    );
+
+    // Messages should also have cache_control on the last message
+    let messages = body.get("messages").unwrap().as_array().unwrap();
+    assert_eq!(messages.len(), 1);
+    let content = messages[0].get("content").unwrap().as_array().unwrap();
+    assert_eq!(content.len(), 1);
+    assert_eq!(
+        content[0].get("cache_control").unwrap(),
+        &serde_json::json!({ "type": "ephemeral" })
+    );
+}
