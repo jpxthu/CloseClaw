@@ -379,6 +379,45 @@ fn test_messages_cache_control_empty_messages() {
     assert!(messages.is_empty());
 }
 
+/// Verify that ToolsSection content in `system_blocks` produces `cache_control`
+/// in the Anthropic request body, confirming the prefix-cache path covers tool
+/// definitions embedded in the static layer.
+#[test]
+fn test_build_request_tools_section_cache_control() {
+    use crate::llm::types::SystemBlock;
+
+    let proto = AnthropicProtocol::new();
+    let mut request = make_request();
+    // Simulate a system prompt with role section followed by ToolsSection content
+    let system_static = "Role: You are a helpful assistant.";
+    let tools_section = "\n\n## Tools\n\n- web_search: search the web\n- read: read files";
+    let full_static = format!("{system_static}{tools_section}");
+    request.system_blocks = Some(vec![SystemBlock {
+        text: full_static,
+        cache: true,
+    }]);
+    let body = proto.build_request(&request).unwrap();
+
+    let system = body.get("system").unwrap().as_array().unwrap();
+    assert_eq!(system.len(), 1);
+    let block = &system[0];
+    assert_eq!(block.get("type").unwrap(), "text");
+    assert!(
+        block
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("web_search"),
+        "system block should contain ToolsSection content"
+    );
+    assert_eq!(
+        block.get("cache_control").unwrap(),
+        &serde_json::json!({ "type": "ephemeral" }),
+        "ToolsSection block must have cache_control when cache=true"
+    );
+}
+
 #[test]
 fn test_messages_cache_control_with_system_blocks() {
     use crate::llm::types::SystemBlock;
