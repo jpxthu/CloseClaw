@@ -61,8 +61,7 @@ impl SessionMessageHandler {
         let session_id = session_id.to_string();
         let content_for_task = content;
         let sm = Arc::clone(&self.session_manager);
-        let fc = Arc::clone(&self.fallback_client);
-        let uc = Arc::clone(&self.unified_client);
+        let ufc = Arc::clone(&self.unified_fallback_client);
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();
         // Clone the gateway/plugin into the spawn (optional). If streaming
@@ -82,7 +81,7 @@ impl SessionMessageHandler {
             let result = if stream_enabled {
                 if let (Some(gw), Some(pl)) = (gw_for_task.as_ref(), plugin_for_task.as_ref()) {
                     Self::call_llm_streaming(
-                        &uc,
+                        ufc.primary(),
                         &content_for_task,
                         &meta,
                         &sm,
@@ -97,16 +96,16 @@ impl SessionMessageHandler {
                         session_id = %session_id,
                         "streaming enabled but no gateway/plugin available; falling back to non-streaming"
                     );
-                    Self::call_llm(&fc, &content_for_task, &meta, &sm, &session_id)
+                    Self::call_llm(&ufc, &content_for_task, &meta, &sm, &session_id)
                         .await
                         .map(Into::into)
                 }
             } else {
-                Self::call_llm(&fc, &content_for_task, &meta, &sm, &session_id)
+                Self::call_llm(&ufc, &content_for_task, &meta, &sm, &session_id)
                     .await
                     .map(Into::into)
             };
-            Self::finish_llm(&sm, &session_id, result, &fc, &output_tx).await;
+            Self::finish_llm(&sm, &session_id, result, &ufc, &output_tx).await;
         });
 
         HandleResult::LlmStarted

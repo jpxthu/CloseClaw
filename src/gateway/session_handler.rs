@@ -4,7 +4,9 @@
 //! - idle message  → set busy → LLM call → clear busy → drain pending
 //! - busy message  → enqueue pending
 //!
-//! `FallbackClient::chat()` (non-streaming) is used for all LLM calls.
+//! `UnifiedFallbackClient::chat()` (non-streaming) is used for non-streaming LLM calls,
+//! going through the full five-layer architecture (CacheAdapter → PluginPipeline →
+//! Interpreter → Protocol → Provider).
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
@@ -12,16 +14,17 @@ use crate::gateway::session_manager::SessionManager;
 use crate::gateway::system_prompt_inject::{
     build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
 };
-use crate::llm::client::UnifiedChatClient;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
 use crate::llm::session_state::LlmState;
 use crate::llm::types::ContentBlock;
 use crate::llm::types::UnifiedResponse;
-use crate::llm::{ChatRequest, LLMError, Message as ChatMessage};
+use crate::llm::unified_fallback::UnifiedFallbackClient;
+use crate::llm::{LLMError, Message as ChatMessage};
 use crate::session::compaction::{
     execute_compact, CompactConfig, CompactionResult, CompactionService,
 };
+use crate::session::persistence::ReasoningLevel;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -63,7 +66,7 @@ pub struct SessionMessageHandler {
     pub(super) fallback_client: Arc<FallbackClient>,
     pub(super) output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
     pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
-    pub(super) unified_client: Arc<UnifiedChatClient>,
+    pub(super) unified_fallback_client: Arc<UnifiedFallbackClient>,
     /// Optional back-reference to the owning [`Gateway`] (weak).
     ///
     /// When set, `handle_message_with_gateway` can route streaming LLM
@@ -81,7 +84,7 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
-        unified_client: Arc<UnifiedChatClient>,
+        unified_fallback_client: Arc<UnifiedFallbackClient>,
     ) -> Self {
         Self {
             session_manager,
@@ -90,7 +93,7 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            unified_client,
+            unified_fallback_client,
             gateway: None,
         }
     }
@@ -98,7 +101,7 @@ impl SessionMessageHandler {
     pub fn new_no_output(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
-        unified_client: Arc<UnifiedChatClient>,
+        unified_fallback_client: Arc<UnifiedFallbackClient>,
     ) -> Self {
         Self {
             session_manager,
@@ -107,7 +110,7 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            unified_client,
+            unified_fallback_client,
             gateway: None,
         }
     }
@@ -213,26 +216,40 @@ impl SessionMessageHandler {
 impl SessionMessageHandler {
     /// Make a non-streaming LLM call with full system prompt injection.
     pub(super) async fn call_llm(
-        fallback_client: &Arc<FallbackClient>,
+        unified_fallback_client: &Arc<UnifiedFallbackClient>,
         content: &str,
         meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) -> Result<UnifiedResponse, crate::llm::LLMError> {
         // ── Static layer ───────────────────────────────────────────────
-        let (static_prompt_opt, session_timestamp, _turn_count, workdir_path, system_appends) =
-            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                let cs_read = cs.read().await;
-                (
-                    cs_read.system_prompt().map(|s| s.to_string()),
-                    Some(cs_read.session_created_at()),
-                    cs_read.turn_count(),
-                    cs_read.workdir().to_string_lossy().into_owned(),
-                    cs_read.system_appends().to_vec(),
-                )
-            } else {
-                (None, None, 0, String::new(), Vec::new())
-            };
+        let (
+            static_prompt_opt,
+            session_timestamp,
+            turn_count,
+            workdir_path,
+            system_appends,
+            reasoning_level,
+        ) = if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            let cs_read = cs.read().await;
+            (
+                cs_read.system_prompt().map(|s| s.to_string()),
+                Some(cs_read.session_created_at()),
+                cs_read.turn_count(),
+                cs_read.workdir().to_string_lossy().into_owned(),
+                cs_read.system_appends().to_vec(),
+                cs_read.reasoning_level().clone(),
+            )
+        } else {
+            (
+                None,
+                None,
+                0,
+                String::new(),
+                Vec::new(),
+                ReasoningLevel::default(),
+            )
+        };
 
         // ── Dynamic sections ───────────────────────────────────────────
         let dynamic_sections = build_dynamic_sections(
@@ -250,12 +267,10 @@ impl SessionMessageHandler {
             overrides.as_ref(),
         );
 
-        // ── Split static/dynamic for cache adapter (reserved) ──────────
-        // Issue #965: pre-split the prompt here; #967 will wire the
-        // results into InternalRequest for the non-streaming path.
-        let (_system_static, _system_dynamic) = split_static_dynamic(&full_prompt);
+        // ── Split static/dynamic for cache adapter ─────────────────────
+        let (system_static, system_dynamic) = split_static_dynamic(&full_prompt);
 
-        // ── Build ChatRequest with system + user messages ───────────────
+        // ── Build InternalRequest with system + user messages ───────────
         let mut messages = vec![];
         if !full_prompt.is_empty() {
             messages.push(ChatMessage {
@@ -268,11 +283,25 @@ impl SessionMessageHandler {
             content: content.to_string(),
         });
 
-        let request = ChatRequest {
+        let internal_request = crate::llm::types::InternalRequest {
             model: String::new(),
-            messages,
+            messages: messages
+                .iter()
+                .map(|m| crate::llm::types::InternalMessage {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect(),
             temperature: 0.7,
             max_tokens: None,
+            stream: false,
+            extra_body: Default::default(),
+            system_static,
+            system_dynamic,
+            system_blocks: None,
+            session_id: Some(session_id.to_string()),
+            reasoning_level,
+            turn_count: Some(turn_count),
         };
 
         // Acquire this session's cancellation token so an in-flight
@@ -286,11 +315,9 @@ impl SessionMessageHandler {
                 CancellationToken::new()
             };
 
-        // Race the LLM call against the cancel signal. `biased;` is not
-        // required here (both branches are first-class), but using a
-        // plain `tokio::select!` keeps the polling order natural.
-        let response = tokio::select! {
-            res = fallback_client.chat_unified(request) => res?,
+        // Race the LLM call against the cancel signal.
+        tokio::select! {
+            res = unified_fallback_client.chat(internal_request) => res,
             _ = cancel_token.cancelled() => {
                 // Restore idle state so the session can accept the next
                 // request. The actual cascade-cleanup (tool/child
@@ -299,10 +326,9 @@ impl SessionMessageHandler {
                     cs.read().await.set_llm_state(LlmState::Idle);
                 }
                 tracing::info!(session_id = %session_id, "LLM request cancelled");
-                return Err(LLMError::Cancelled);
+                Err(LLMError::Cancelled)
             }
-        };
-        Ok(response)
+        }
     }
 }
 // ── Compaction helpers ──

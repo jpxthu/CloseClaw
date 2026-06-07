@@ -42,6 +42,7 @@ pub mod interpreter;
 #[cfg(test)]
 mod interpreter_test;
 pub mod plugin;
+pub mod unified_fallback;
 
 #[cfg(feature = "fake-llm")]
 pub mod fake;
