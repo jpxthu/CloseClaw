@@ -313,13 +313,13 @@ async fn test_session_not_duplicated() {
 }
 
 #[tokio::test]
-async fn test_route_message_no_session_id_returns_missing_session_id() {
-    // When a message arrives WITHOUT session_id in metadata,
-    // Gateway::route_message should return MissingSessionId.
+async fn test_route_message_no_session_id_returns_no_routing_key() {
+    // When a message arrives WITHOUT session_key or session_id in metadata,
+    // Gateway::route_message should return NoRoutingKey.
     let (gw, _sm) = setup(make_config(), "mock").await;
     let msg_without_session = make_message("agent-1", "hello");
     let result = gw.route_message("mock", msg_without_session, None).await;
-    assert!(matches!(result, Err(GatewayError::MissingSessionId)));
+    assert!(matches!(result, Err(GatewayError::NoRoutingKey)));
 }
 
 #[tokio::test]
@@ -348,6 +348,9 @@ fn test_gateway_error_display() {
         .to_string()
         .contains("e"));
     assert!(GatewayError::RateLimitExceeded.to_string().contains("Rate"));
+    assert!(GatewayError::NoRoutingKey
+        .to_string()
+        .contains("No routing key"));
 }
 
 // ── Session isolation tests ─────────────────────────────────────────────────
