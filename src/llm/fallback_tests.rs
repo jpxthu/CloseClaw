@@ -1,9 +1,9 @@
 //! Tests for LLM fallback chain client.
 
 use crate::llm::fallback::{FallbackClient, ModelEntry};
-use crate::llm::legacy::legacy_provider::LegacyProviderBridge;
 use crate::llm::provider::Provider;
-use crate::llm::{ChatRequest, ChatResponse, LLMError, LLMProvider};
+use crate::llm::types::{InternalResponse, ProtocolId, RawContentBlock, RawUsage};
+use crate::llm::{ChatRequest, LLMError};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,13 +33,34 @@ async fn test_fallback_client_requires_registry() {
 
 // --- Mock provider for fallback chain tests ---
 
+/// Convert a chat-style response/error pair into the internal response type
+/// that the Provider trait expects.
+fn chat_to_internal(
+    response: Result<crate::llm::ChatResponse, LLMError>,
+) -> crate::llm::provider::Result<InternalResponse> {
+    match response {
+        Ok(resp) => Ok(InternalResponse {
+            content_blocks: vec![RawContentBlock::Text(resp.content)],
+            usage: RawUsage {
+                prompt_tokens: resp.usage.prompt_tokens,
+                completion_tokens: resp.usage.completion_tokens,
+                total_tokens: Some(resp.usage.total_tokens),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        }),
+        Err(e) => Err(crate::llm::provider::ProviderError::Legacy(format!("{e}"))),
+    }
+}
+
 struct MockProvider {
     name: String,
-    response_fn: Box<dyn Fn() -> Result<ChatResponse, LLMError> + Send + Sync>,
+    response_fn: Box<dyn Fn() -> Result<crate::llm::ChatResponse, LLMError> + Send + Sync>,
 }
 
 impl MockProvider {
-    fn new(name: &str, response: Result<ChatResponse, LLMError>) -> Self {
+    fn new(name: &str, response: Result<crate::llm::ChatResponse, LLMError>) -> Self {
         let r = Arc::new(response);
         Self {
             name: name.to_string(),
@@ -63,33 +84,61 @@ impl MockProvider {
 }
 
 #[async_trait::async_trait]
-impl LLMProvider for MockProvider {
-    fn name(&self) -> &str {
+impl Provider for MockProvider {
+    fn id(&self) -> &str {
         &self.name
     }
-    fn models(&self) -> Vec<&str> {
-        vec!["test-model"]
+
+    fn base_url(&self) -> &str {
+        ""
     }
-    async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, LLMError> {
-        (self.response_fn)()
+
+    fn api_key(&self) -> &str {
+        ""
+    }
+
+    fn supported_protocols(&self) -> &[ProtocolId] {
+        &[]
+    }
+
+    fn http_client(&self) -> &reqwest::Client {
+        static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+        CLIENT.get_or_init(reqwest::Client::new)
+    }
+
+    fn default_headers(&self) -> &reqwest::header::HeaderMap {
+        static HEADERS: std::sync::OnceLock<reqwest::header::HeaderMap> =
+            std::sync::OnceLock::new();
+        HEADERS.get_or_init(reqwest::header::HeaderMap::new)
+    }
+
+    async fn send(
+        &self,
+        _request: crate::llm::types::InternalRequest,
+        _body: serde_json::Value,
+    ) -> crate::llm::provider::Result<InternalResponse> {
+        chat_to_internal((self.response_fn)())
+    }
+
+    async fn send_streaming(
+        &self,
+        _request: crate::llm::types::InternalRequest,
+        _body: serde_json::Value,
+    ) -> crate::llm::provider::Result<crate::llm::provider::SseStream> {
+        unimplemented!("streaming not needed in fallback tests")
     }
 }
 
-/// Wrap a MockProvider into an Arc<dyn Provider> via LegacyProviderBridge.
-fn mock_provider_as_dyn(name: &str, response: Result<ChatResponse, LLMError>) -> Arc<dyn Provider> {
-    let mock = MockProvider::new(name, response);
-    Arc::new(LegacyProviderBridge::new(
-        mock,
-        String::new(),
-        String::new(),
-        vec![],
-        reqwest::Client::new(),
-        reqwest::header::HeaderMap::new(),
-    ))
+/// Wrap a MockProvider into an Arc<dyn Provider>.
+fn mock_provider_as_dyn(
+    name: &str,
+    response: Result<crate::llm::ChatResponse, LLMError>,
+) -> Arc<dyn Provider> {
+    Arc::new(MockProvider::new(name, response))
 }
 
-fn ok_response() -> ChatResponse {
-    ChatResponse {
+fn ok_response() -> crate::llm::ChatResponse {
+    crate::llm::ChatResponse {
         model: "test-model".to_string(),
         content: "hello".to_string(),
         usage: crate::llm::Usage {

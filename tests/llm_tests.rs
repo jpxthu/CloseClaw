@@ -38,6 +38,7 @@ async fn test_stub_provider_chat_returns_fixed_response() {
         system_blocks: None,
         session_id: None,
         reasoning_level: ReasoningLevel::default(),
+        turn_count: None,
     };
     let body = serde_json::to_value(&request).unwrap();
 
@@ -71,6 +72,7 @@ async fn test_stub_provider_custom_response() {
         system_blocks: None,
         session_id: None,
         reasoning_level: ReasoningLevel::default(),
+        turn_count: None,
     };
     let body = serde_json::to_value(&request).unwrap();
 
@@ -148,6 +150,7 @@ async fn test_stub_provider_through_registry_chat() {
         system_blocks: None,
         session_id: None,
         reasoning_level: ReasoningLevel::default(),
+        turn_count: None,
     };
     let body = serde_json::to_value(&internal_req).unwrap();
 

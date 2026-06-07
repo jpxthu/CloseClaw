@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use crate::llm::provider::ProviderError;
 use crate::llm::types::RawUsage;
-use crate::llm::{LLMError, Usage};
 
 /// A scenario defines what the next `chat()` / `send()` call should return.
 #[derive(Debug)]
@@ -95,56 +94,11 @@ impl Scenario {
         }
     }
 
-    /// Returns usage as legacy [`Usage`] (for LLMProvider compat).
-    pub(crate) fn usage(&self) -> Usage {
-        match self {
-            Self::Ok {
-                prompt_tokens,
-                completion_tokens,
-                ..
-            } => Usage {
-                prompt_tokens: *prompt_tokens,
-                completion_tokens: *completion_tokens,
-                total_tokens: *prompt_tokens + *completion_tokens,
-            },
-            Self::Err {
-                prompt_tokens,
-                completion_tokens,
-                ..
-            } => Usage {
-                prompt_tokens: *prompt_tokens,
-                completion_tokens: *completion_tokens,
-                total_tokens: *prompt_tokens + *completion_tokens,
-            },
-            Self::Delay { inner, .. } => inner.usage(),
-        }
-    }
-
     pub(crate) fn content(&self) -> String {
         match self {
             Self::Ok { content, .. } => content.clone(),
             Self::Err { .. } => String::new(),
             Self::Delay { inner, .. } => inner.content(),
-        }
-    }
-
-    pub(crate) fn model(&self) -> String {
-        match self {
-            Self::Ok { model, .. } => model.clone(),
-            Self::Err { .. } => String::new(),
-            Self::Delay { inner, .. } => inner.model(),
-        }
-    }
-
-    /// Convert Scenario error to legacy LLMError for LLMProvider compat.
-    pub(crate) fn as_llm_error(&self) -> Option<LLMError> {
-        match self {
-            Self::Err { error, .. } => {
-                // Convert ProviderError to LLMError without requiring Clone on ProviderError
-                let err_str = format!("{}", error);
-                Some(LLMError::ApiError(err_str))
-            }
-            _ => None,
         }
     }
 }
