@@ -86,12 +86,6 @@ AppendSection 是 system prompt 末尾的独立分区，持久化在会话状态
 - Session 恢复 → 强制重建全部静态层，确保内容与最新文件一致
 - Compaction → 触发 system prompt 重建回调，强制重建全部静态层，确保继续对话时角色定义、工具列表、skill 清单和长期记忆均为最新版本
 
-### Session 级 Prompt 定制
-
-System prompt 的配置级定制通过切换 Agent 实现——不同 Agent 有独立的 bootstrap 文件，对应不同的身份和能力群组。
-
-Session 运行期定制通过 AppendSection 实现，详见 [追加区](#追加区)。
-
 ### 默认 Prompt
 
 当所有 Section 渲染结果为空时，使用默认 prompt："You are CloseClaw, a helpful AI assistant."。
