@@ -21,8 +21,7 @@ fn internal_request(model: &str) -> InternalRequest {
         system_dynamic: None,
         system_blocks: None,
         session_id: None,
-        reasoning_level:
-            crate::session::persistence::ReasoningLevel::default(),
+        reasoning_level: crate::session::persistence::ReasoningLevel::default(),
     }
 }
 
@@ -37,27 +36,18 @@ fn chat_body(model: &str) -> serde_json::Value {
 fn assert_first_text(resp: &InternalResponse, expected: &str) {
     assert!(!resp.content_blocks.is_empty());
     match &resp.content_blocks[0] {
-        RawContentBlock::Text(s) => assert!(
-            s.contains(expected),
-            "expected '{}', got: {}",
-            expected,
-            s
-        ),
-        RawContentBlock::Thinking(s) => assert!(
-            s.contains(expected),
-            "expected '{}', got: {}",
-            expected,
-            s
-        ),
+        RawContentBlock::Text(s) => {
+            assert!(s.contains(expected), "expected '{}', got: {}", expected, s)
+        }
+        RawContentBlock::Thinking(s) => {
+            assert!(s.contains(expected), "expected '{}', got: {}", expected, s)
+        }
         other => panic!("Expected Text/Thinking, got: {:?}", other),
     }
 }
 
 /// Helper: set up mockito server, mock POST, create provider, call send.
-async fn send_with_mock(
-    model: &str,
-    fixture: &str,
-) -> InternalResponse {
+async fn send_with_mock(model: &str, fixture: &str) -> InternalResponse {
     let mut server = Server::new_async().await;
     let m = server
         .mock("POST", "/chat/completions")
@@ -68,8 +58,7 @@ async fn send_with_mock(
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
     let resp = provider
         .send(internal_request(model), chat_body(model))
         .await
@@ -79,10 +68,7 @@ async fn send_with_mock(
 }
 
 /// Helper: send and expect an error.
-async fn send_error_with_mock(
-    model: &str,
-    fixture: &str,
-) -> ProviderError {
+async fn send_error_with_mock(model: &str, fixture: &str) -> ProviderError {
     let mut server = Server::new_async().await;
     let m = server
         .mock("POST", "/chat/completions")
@@ -93,8 +79,7 @@ async fn send_error_with_mock(
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
     let err = provider
         .send(internal_request(model), chat_body(model))
         .await
@@ -107,8 +92,7 @@ async fn send_error_with_mock(
 
 #[tokio::test]
 async fn test_glm_5_1_chat_mock() {
-    let fixture =
-        include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-chat.json");
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-chat.json");
     let resp = send_with_mock("glm-5.1", fixture).await;
     assert_first_text(&resp, "Analyze the Request");
     assert_eq!(resp.usage.prompt_tokens, 11);
@@ -117,9 +101,7 @@ async fn test_glm_5_1_chat_mock() {
 
 #[tokio::test]
 async fn test_glm_4_7_simple_chat_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-4.7-simple-chat.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-4.7-simple-chat.json");
     let resp = send_with_mock("GLM-4.7", fixture).await;
     assert_first_text(&resp, "three words");
     let json: GlmResponse = serde_json::from_str(fixture).unwrap();
@@ -133,18 +115,14 @@ async fn test_glm_4_7_simple_chat_mock() {
 
 #[tokio::test]
 async fn test_glm_4_5_air_chat_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-4.5-air-chat.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-4.5-air-chat.json");
     let resp = send_with_mock("GLM-4.5-Air", fixture).await;
     assert_first_text(&resp, "three words");
 }
 
 #[tokio::test]
 async fn test_glm_5_turbo_chat_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-5-turbo-chat.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5-turbo-chat.json");
     let resp = send_with_mock("glm-5-turbo", fixture).await;
     assert_first_text(&resp, "Analyze the Request");
     assert_eq!(resp.usage.prompt_tokens, 11);
@@ -153,9 +131,7 @@ async fn test_glm_5_turbo_chat_mock() {
 
 #[tokio::test]
 async fn test_glm_5_1_reasoning_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-5.1-reasoning.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-reasoning.json");
     let resp = send_with_mock("glm-5.1", fixture).await;
     assert_first_text(&resp, "Understand the Goal");
     assert_eq!(resp.usage.completion_tokens, 200);
@@ -163,9 +139,7 @@ async fn test_glm_5_1_reasoning_mock() {
 
 #[tokio::test]
 async fn test_glm_5_1_code_generation_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-5.1-code-generation.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-code-generation.json");
     let resp = send_with_mock("glm-5.1", fixture).await;
     assert_first_text(&resp, "Hello, World");
     assert_eq!(resp.usage.completion_tokens, 100);
@@ -173,18 +147,14 @@ async fn test_glm_5_1_code_generation_mock() {
 
 #[tokio::test]
 async fn test_glm_4_7_math_temp0_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-4.7-math-temp0.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-4.7-math-temp0.json");
     let resp = send_with_mock("GLM-4.7", fixture).await;
     assert_first_text(&resp, "arithmetic");
 }
 
 #[tokio::test]
 async fn test_glm_5_1_unicode_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-5.1-unicode-chat.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-unicode-chat.json");
     let resp = send_with_mock("glm-5.1", fixture).await;
     assert_first_text(&resp, "Spring");
     let json: GlmResponse = serde_json::from_str(fixture).unwrap();
@@ -193,17 +163,12 @@ async fn test_glm_5_1_unicode_mock() {
         .as_ref()
         .and_then(|c| c.first())
         .and_then(|ch| ch.message.reasoning_content.as_ref());
-    assert!(
-        reasoning.unwrap().contains("分析请求")
-            || reasoning.unwrap().contains("分析")
-    );
+    assert!(reasoning.unwrap().contains("分析请求") || reasoning.unwrap().contains("分析"));
 }
 
 #[tokio::test]
 async fn test_glm_5_1_temp_1_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-5.1-temp-1.0.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-temp-1.0.json");
     let resp = send_with_mock("glm-5.1", fixture).await;
     assert_first_text(&resp, "Analyze");
     assert_eq!(resp.usage.prompt_tokens, 10);
@@ -212,9 +177,7 @@ async fn test_glm_5_1_temp_1_mock() {
 
 #[tokio::test]
 async fn test_glm_5_1_system_prompt_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-5.1-system-prompt.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-system-prompt.json");
     let resp = send_with_mock("glm-5.1", fixture).await;
     assert_first_text(&resp, "Analyze");
     let json: GlmResponse = serde_json::from_str(fixture).unwrap();
@@ -223,9 +186,7 @@ async fn test_glm_5_1_system_prompt_mock() {
 
 #[tokio::test]
 async fn test_glm_5_1_multi_turn_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-5.1-multi-turn.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-5.1-multi-turn.json");
     let resp = send_with_mock("glm-5.1", fixture).await;
     assert_first_text(&resp, "Analyze");
     let json: GlmResponse = serde_json::from_str(fixture).unwrap();
@@ -235,9 +196,7 @@ async fn test_glm_5_1_multi_turn_mock() {
 
 #[tokio::test]
 async fn test_glm_4_7_long_response_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-4.7-long-response.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-4.7-long-response.json");
     let resp = send_with_mock("GLM-4.7", fixture).await;
     assert_first_text(&resp, "狗");
     assert_eq!(resp.usage.completion_tokens, 300);
@@ -245,9 +204,7 @@ async fn test_glm_4_7_long_response_mock() {
 
 #[tokio::test]
 async fn test_glm_4_7_short_max_tokens_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-4.7-short-max-tokens.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-4.7-short-max-tokens.json");
     let resp = send_with_mock("GLM-4.7", fixture).await;
     assert_first_text(&resp, "joke");
     assert!(resp.usage.completion_tokens <= 10);
@@ -257,9 +214,7 @@ async fn test_glm_4_7_short_max_tokens_mock() {
 
 #[tokio::test]
 async fn test_glm_error_invalid_model_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-error-invalid-model.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-error-invalid-model.json");
     let err = send_error_with_mock("glm-nonexistent", fixture).await;
     match err {
         ProviderError::Legacy(msg) => {
@@ -271,9 +226,7 @@ async fn test_glm_error_invalid_model_mock() {
 
 #[tokio::test]
 async fn test_glm_error_empty_messages_mock() {
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/glm-error-empty-messages.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/glm-error-empty-messages.json");
     let err = send_error_with_mock("glm-5.1", fixture).await;
     match err {
         ProviderError::Legacy(msg) => {
@@ -295,8 +248,7 @@ async fn test_glm_http_500_error_mock() {
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
     let err = provider
         .send(internal_request("glm-5.1"), chat_body("glm-5.1"))
         .await

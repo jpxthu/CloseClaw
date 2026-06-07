@@ -16,9 +16,7 @@ fn assert_quota_limits(
         expected_limit_types.len(),
         "limit count mismatch"
     );
-    for (limit, expected_type) in
-        quota.data.limits.iter().zip(expected_limit_types.iter())
-    {
+    for (limit, expected_type) in quota.data.limits.iter().zip(expected_limit_types.iter()) {
         assert_eq!(limit.limit_type, *expected_type);
     }
 }
@@ -26,9 +24,7 @@ fn assert_quota_limits(
 #[tokio::test]
 async fn test_glm_usage_coding_plan_mock() {
     let mut server = Server::new_async().await;
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/usage-glm-coding-plan.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/usage-glm-coding-plan.json");
     let m = server
         .mock("GET", "/paas/quota")
         .match_header(
@@ -41,8 +37,7 @@ async fn test_glm_usage_coding_plan_mock() {
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), server.url());
+    let provider = GlmProvider::with_base_url("fake-key".into(), server.url());
     let quota = provider.fetch_usage(&server.url()).await.unwrap();
 
     m.assert_async().await;
@@ -78,9 +73,7 @@ async fn test_glm_usage_coding_plan_mock() {
 #[tokio::test]
 async fn test_glm_usage_global_mock() {
     let mut server = Server::new_async().await;
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/usage-glm-global.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/usage-glm-global.json");
     let m = server
         .mock("GET", "/paas/quota")
         .match_header(
@@ -93,8 +86,7 @@ async fn test_glm_usage_global_mock() {
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), server.url());
+    let provider = GlmProvider::with_base_url("fake-key".into(), server.url());
     let quota = provider.fetch_usage(&server.url()).await.unwrap();
 
     m.assert_async().await;
@@ -114,9 +106,7 @@ async fn test_glm_usage_global_mock() {
 #[tokio::test]
 async fn test_glm_usage_trailing_slash_handled() {
     let mut server = Server::new_async().await;
-    let fixture = include_str!(
-        "../../../../tests/fixtures/llm/glm/usage-glm-coding-plan.json"
-    );
+    let fixture = include_str!("../../../../tests/fixtures/llm/glm/usage-glm-coding-plan.json");
     let m = server
         .mock("GET", "/paas/quota")
         .with_status(200)
@@ -125,8 +115,7 @@ async fn test_glm_usage_trailing_slash_handled() {
         .create_async()
         .await;
 
-    let provider =
-        GlmProvider::with_base_url("fake-key".into(), server.url());
+    let provider = GlmProvider::with_base_url("fake-key".into(), server.url());
     let trailing_url = format!("{}/", server.url());
     let quota = provider.fetch_usage(&trailing_url).await.unwrap();
 

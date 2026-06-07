@@ -6,10 +6,7 @@ use crate::llm::types::RawSseChunk;
 
 /// Process an SSE byte stream from a GLM streaming response,
 /// forwarding parsed chunks to the channel.
-pub(crate) async fn run_sse_stream(
-    response: reqwest::Response,
-    tx: mpsc::Sender<RawSseChunk>,
-) {
+pub(crate) async fn run_sse_stream(response: reqwest::Response, tx: mpsc::Sender<RawSseChunk>) {
     use futures::StreamExt;
 
     let mut stream = response.bytes_stream();
@@ -21,20 +18,15 @@ pub(crate) async fn run_sse_stream(
             Err(_) => break,
         };
 
-        buffer.push_str(
-            &String::from_utf8_lossy(&chunk),
-        );
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
 
         // Process complete SSE events (separated by \n\n)
         while let Some(pos) = buffer.find("\n\n") {
-            let event_block =
-                buffer[..pos].to_string();
+            let event_block = buffer[..pos].to_string();
             buffer = buffer[pos + 2..].to_string();
 
             for line in event_block.lines() {
-                if let Some(data) =
-                    line.strip_prefix("data: ")
-                {
+                if let Some(data) = line.strip_prefix("data: ") {
                     let data = data.trim().to_string();
                     if data == "[DONE]" {
                         return;
@@ -53,9 +45,7 @@ pub(crate) async fn run_sse_stream(
     // Process any remaining data in buffer
     if !buffer.is_empty() {
         for line in buffer.lines() {
-            if let Some(data) =
-                line.strip_prefix("data: ")
-            {
+            if let Some(data) = line.strip_prefix("data: ") {
                 let data = data.trim().to_string();
                 if data == "[DONE]" {
                     return;
