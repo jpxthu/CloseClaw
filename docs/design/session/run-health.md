@@ -1,0 +1,179 @@
+# Run Health & Checkpoint
+
+## 概述
+
+Run Health 和 Checkpoint 构成 Session 执行层的运行时安全网——确保 session 的每一次 compact、LLM request、tool 调用、spawn 都不会静默失败。
+
+- **Run Health**：每次 turn 结束后，系统用硬规则和可选的质量门禁判定 session 当前是否健康。
+- **运行快照（Runtime Snapshot）**：对 transcript 的毁坏性操作前，创建可回滚的快照。检测到异常后，系统可回滚到上一个安全状态。与持久化层的 SessionCheckpoint（元数据 + transcript 持久化）是不同概念。
+
+二者互补：Health 负责检测异常，运行快照负责保全现场。合在一起，session 在任何时刻都能回答两个问题——"我还健康吗"和"出事了能回去吗"。
+
+## 架构
+
+Run Health 和 Checkpoint 嵌入 session 执行循环，在 turn 边界工作：
+
+```
+Session turn 执行
+  ↓
+[硬规则检测]  ← 超时、空响应、结构异常、重试耗尽
+  ↓
+[可选 Hook 审查]  ← 按 agent 配置挂载的轻量 LLM 质量门禁
+  ↓
+判决：healthy / unhealthy
+  ↓
+unhealthy → 按失败类别处理（退避重试 / 通知用户 / 回滚快照）
+```
+
+核心组件：
+
+- **硬规则检测器**：纯代码逻辑，不依赖 LLM。检测超时、响应结构不合法、重试计数器耗尽。检测到即判 unhealthy。
+- **Hook 审查器**：可选组件，按 agent 配置决定挂载 0 到 N 个。每个 hook 是固定 prompt 的轻量 LLM 调用，审查当前 turn 的输出质量（如是否只计划未执行、是否陷入工具调用循环）。Hook 调用与主对话隔离，不进入 transcript。
+- **运行快照管理器**：在毁坏性操作前自动创建 transcript 快照，提供回滚能力。每个 session 最多保留 25 个快照，旧的自动淘汰。与持久化层的 CheckpointManager（管理 SessionCheckpoint 的读写缓存和持久化）职责不同。
+- **转录修改分类器**：所有修改 transcript 的代码路径必须声明操作类型。Session 层根据类型决定是否触发运行快照。
+
+### 转录修改归类
+
+所有修改 transcript 的操作归为三类，由 session 层统一管理：
+
+| 操作 | 类型 | 触发快照 |
+|------|------|----------------|
+| 新增 user/assistant 消息 | 增量追加 | 否 |
+| 新增 tool result 消息 | 增量追加 | 否 |
+| Compaction（压缩对话历史） | 全量改写 | 是 |
+| `/system` 指令修改 system prompt | 局部改写 | 是 |
+| 从快照回滚 | 全量改写 | 是（回滚前自动打一个） |
+
+Session 层暴露一个携带操作类型声明的 transcript 修改通道，强制所有调用方声明本次修改属于增量追加、全量改写还是局部改写。未来新增操作类型也逃不掉这个约束。
+
+### 运行快照回滚方式
+
+- **增量场景**：transcript 为 append-only JSONL。快照记录当时的 leaf entry id。回滚时截断该 id 之后的全部行。
+- **改写场景**：compaction 或 `/system` 重写了 transcript 文件。快照保留改写前的完整文件副本。回滚时用副本覆盖当前文件。
+
+### Hook 审查
+
+Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
+
+- **挂载点**：session turn 结束、硬规则通过后
+- **执行方式**：低温度、固定 prompt、1 turn 上限、0 工具
+- **隔离**：不进入 transcript，不影响主对话的 system prompt
+- **配置粒度**：agent 级别。agent 配置中定义启用的 hook 列表及其参数
+
+| Hook 类型 | 检测目标 | 触发条件 |
+|----------|---------|---------|
+| `plan-check` | LLM 只输出了计划/承诺，没有执行 | turn 中无 tool call 且文本包含 promise 模式 |
+| `loop-check` | 连续多 turn 调用同一工具且参数相似、无实质进展 | 工具调用历史模式匹配 |
+| `progress-check` | 当前 turn 是否有可验证的推进 | 文件变化、tool result 差异 |
+
+任何一个 hook 判定为异常 → session 判 unhealthy。
+
+### 失败类别与处理
+
+unhealthy 不细分状态名，处理方式由失败类别决定：
+
+| 失败类别 | 判定条件 | 处理方式 |
+|---------|---------|---------|
+| 可重试 | LLM API 瞬时错误、超时 | 退避重试，耗尽后升级为不可重试 |
+| 响应无效 | 空响应、纯推理无文本、纯计划不执行 | 给 LLM retry instruction（有限次），耗尽后通知用户 |
+| 不可重试 | auth 失效、模型不存在、上下文彻底耗尽 | 立即通知用户，保留 session 状态 |
+| 副作用已发生 | 工具已执行/消息已外发，但 LLM 响应中断 | 通知用户验证当前状态，不回滚 |
+
+## 数据流
+
+### Turn 边界健康检测
+
+```
+用户输入 → LLM 调用 → 解析响应 → 执行工具 → 更新 transcript
+                                                      ↓
+                                             [turn 结束]
+                                                      ↓
+                                          硬规则检测 ──→ 命中？ → unhealthy → 按类别处理
+                                              │
+                                              ↓ 通过
+                                          有 hook 配置？
+                                              │
+                                       ┌──────┴──────┐
+                                       │ 无           │ 有
+                                       ↓              ↓
+                                    healthy      [并行调用 hook]
+                                                    ↓
+                                         任一 hook flag？
+                                          │         │
+                                         是         否
+                                          ↓         ↓
+                                      unhealthy  healthy
+```
+
+不健康时的处理分流：
+
+```
+unhealthy
+  ├─ 可重试 → 退避计数器递增 → 重试
+  │   ├─ 重试成功 → healthy → 继续
+  │   └─ 耗尽 → 通知用户 → 停止
+  │
+  ├─ 响应无效 → retry instruction 注入 → 重试
+  │   └─ 耗尽 → 通知用户 → 停止
+  │
+  ├─ 不可重试 → 通知用户（含原因）→ 停止
+  │
+  └─ 副作用已发生 → 通知用户验证 → 停止（不回滚）
+```
+
+### 运行快照创建与回滚
+
+```
+毁坏性操作触发（compact、/system、回滚本身）
+  ↓
+[创建快照]：copy transcript / 记录 leaf id → 标记触发原因和时间
+  ↓
+执行操作
+  ↓
+操作成功 → 快照标记为 complete
+操作失败 → 系统检测到 unhealthy
+  ↓
+可选操作：load 快照 → 原子性替换 transcript → 记录回滚 audit
+```
+
+### 回滚流程
+
+```
+用户选择回滚（或系统自动触发）
+  ↓
+[创建 pre-rollback 快照]：保留回滚前的现场（可 undo 回滚）
+  ↓
+加载目标快照
+  ├─ 增量快照 → 截断 transcript 到快照 leaf id
+  └─ 改写快照 → 用备份文件替换 transcript
+  ↓
+transcript 恢复完成 → session 回到 healthy
+```
+
+## 模块关系
+
+### 上游
+
+| 模块 | 调用关系 |
+|------|---------|
+| Session 执行循环 | 每次 turn 结束后触发 hard rule 检测和 hook 审查 |
+| Compaction 流程 | 压缩前触发运行快照创建；压缩异常触发 unhealthy |
+| Slash Command | `/system` 指令触发运行快照创建 |
+| Gateway | 外部用户中断（`/stop`）可能触发运行快照保存 |
+
+### 下游
+
+| 模块 | 调用关系 |
+|------|---------|
+| Transcript 存储 | 运行快照创建和回滚直接操作 transcript 文件 |
+| Persistence Service | 运行快照元信息（id、原因、时间）存入 session store |
+| LLM Provider | Hook 审查调用轻量 LLM（独立于主对话） |
+
+### 无关
+
+| 模块 | 说明 |
+|------|------|
+| Agent 配置 | Agent 是纯配置档案，不持有运行时健康状态。Hook 列表由 agent 配置决定，但健康状态本身由 session 运行时维护 |
+| Permission 模块 | 健康检测和回滚不涉及权限判断 |
+| Processor Chain / Renderer | 健康状态判定在出站渲染之前完成 |
+| IM Adapter | 健康状态不通过消息路由传递 |
