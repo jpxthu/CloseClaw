@@ -88,10 +88,9 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
 ## 模块关系
 
 - **上游**：IM Adapter（各平台提供适配器，产 NormalizedMessage）
-- **下游**：Gateway（接收 ProcessedMessage，消费 metadata.session_key 做路由决策）
+- **下游**：Gateway（接收 ProcessedMessage，消费 metadata.session_key 做路由决策）、Session 模块（SessionRouter 计算的 session_key 经 Gateway 传递给 SessionManager 做 session 路由查找，属数据流下游依赖）
 - **链内**：
   - RawLogProcessor — 审计日志（副作用），不改内容
   - SessionRouter — 计算 session_key（纯哈希计算），写 metadata
   - ContentNormalizer — 内容清洗 + 格式标准化（纯文本变换）
-- **通过 Gateway 间接关联**：Session 模块（Gateway 用 session_key 调 SessionManager 查表获取 session_id）
 - **无关**：出站 Processor 链（独立链路，与入站互不干扰）
