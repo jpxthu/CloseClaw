@@ -194,98 +194,198 @@ mod provider_config_protocol_tests {
 #[cfg(test)]
 mod write_wizard_config_tests {
     use super::*;
-    use std::sync::Once;
-
-    // Ensure HOME is set for tests that call config_dir()
-    static SETUP: Once = Once::new();
-    fn setup() {
-        SETUP.call_once(|| {
-            std::env::set_var("HOME", "/tmp");
-        });
-    }
-
-    /// Helper: create a temporary directory and return its path.
-    fn with_temp_dir(f: impl FnOnce(std::path::PathBuf)) {
-        let tmp = std::env::temp_dir();
-        let dir = tmp.join(format!("closeclaw_test_{:?}", std::thread::current().id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        f(dir.clone());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+    use tempfile::TempDir;
 
     /// Test: write_wizard_config outputs protocol field in ProviderConfig
-    ///
-    /// We intercept the config_dir() by patching HOME to a temp dir so
-    /// write_wizard_config writes to a controlled location.
     #[test]
     fn test_write_wizard_config_includes_protocol() {
-        setup();
-        with_temp_dir(|dir| {
-            // Set HOME so config_dir() resolves to our temp dir
-            std::env::set_var("HOME", dir.to_str().unwrap());
+        let tmp = TempDir::new().unwrap();
+        let output = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "MiniMax M2.7".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
 
-            let output = WizardOutput {
-                provider_id: "minimax".to_string(),
-                credential: "test-api-key".to_string(),
-                selected_models: vec![ModelInfo {
-                    id: "MiniMax-M2.7".to_string(),
-                    name: "MiniMax M2.7".to_string(),
-                    context_window: 1000,
-                    max_tokens: 1000,
+        write_wizard_config_to(&output, tmp.path()).expect("write_wizard_config_to should succeed");
+
+        let models_path = tmp.path().join("models.json");
+        let content = std::fs::read_to_string(&models_path).expect("models.json should be written");
+
+        let parsed: ModelsConfigData =
+            serde_json::from_str(&content).expect("models.json should be valid JSON");
+
+        let provider = parsed
+            .providers
+            .get("minimax")
+            .expect("minimax provider should exist");
+        // MiniMax-M2.7 -> recommended_protocol should be "anthropic"
+        assert!(
+            provider.protocol.is_some(),
+            "protocol field should be present, got: {:?}",
+            provider.protocol
+        );
+        assert_eq!(
+            provider.protocol.as_deref(),
+            Some("anthropic"),
+            "MiniMax-M2.7 should have protocol 'anthropic', got: {:?}",
+            provider.protocol
+        );
+    }
+
+    /// Test: write_wizard_config_to creates correct file structure in specified path
+    #[test]
+    fn test_write_wizard_config_to_creates_files() {
+        let tmp = TempDir::new().unwrap();
+        let output = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "MiniMax M2.7".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        // models.json exists and is valid
+        let models_path = tmp.path().join("models.json");
+        assert!(models_path.exists(), "models.json should exist");
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        assert!(parsed.providers.contains_key("minimax"));
+
+        // credentials file exists
+        let cred_path = tmp.path().join("credentials").join("minimax.json");
+        assert!(cred_path.exists(), "credentials file should exist");
+    }
+
+    /// Test: write_wizard_config_to auto-creates nested directories
+    #[test]
+    fn test_write_wizard_config_to_creates_nested_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let nested_path = tmp.path().join("deep").join("nested");
+        let output = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "MiniMax M2.7".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+
+        write_wizard_config_to(&output, &nested_path).unwrap();
+
+        let models_path = nested_path.join("models.json");
+        assert!(
+            models_path.exists(),
+            "models.json should exist in nested path"
+        );
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        assert!(parsed.providers.contains_key("minimax"));
+
+        let cred_path = nested_path.join("credentials").join("minimax.json");
+        assert!(
+            cred_path.exists(),
+            "credentials file should exist in nested path"
+        );
+    }
+
+    /// Test: write_wizard_config_to overwrites existing config (not appends)
+    #[test]
+    fn test_write_wizard_config_to_overwrites_existing() {
+        let tmp = TempDir::new().unwrap();
+
+        // First write: 1 model
+        let output1 = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "MiniMax M2.7".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+        write_wizard_config_to(&output1, tmp.path()).unwrap();
+
+        // Second write: 2 different models
+        let output2 = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key-2".to_string(),
+            selected_models: vec![
+                ModelInfo {
+                    id: "abab6.5-chat".to_string(),
+                    name: "ABAB6.5 Chat".to_string(),
+                    context_window: 2000,
+                    max_tokens: 2000,
                     default_temperature: None,
                     reasoning: false,
                     input_types: vec![],
-                }],
-            };
+                },
+                ModelInfo {
+                    id: "abab6.5-chat-pro".to_string(),
+                    name: "ABAB6.5 Chat Pro".to_string(),
+                    context_window: 4000,
+                    max_tokens: 4000,
+                    default_temperature: None,
+                    reasoning: false,
+                    input_types: vec![],
+                },
+            ],
+        };
+        write_wizard_config_to(&output2, tmp.path()).unwrap();
 
-            write_wizard_config(&output).expect("write_wizard_config should succeed");
-
-            let models_path = dir.join(".closeclaw").join("config").join("models.json");
-            let content =
-                std::fs::read_to_string(&models_path).expect("models.json should be written");
-
-            let parsed: ModelsConfigData =
-                serde_json::from_str(&content).expect("models.json should be valid JSON");
-
-            let provider = parsed
-                .providers
-                .get("minimax")
-                .expect("minimax provider should exist");
-            // MiniMax-M2.7 -> recommended_protocol should be "anthropic"
-            assert!(
-                provider.protocol.is_some(),
-                "protocol field should be present, got: {:?}",
-                provider.protocol
-            );
-            assert_eq!(
-                provider.protocol.as_deref(),
-                Some("anthropic"),
-                "MiniMax-M2.7 should have protocol 'anthropic', got: {:?}",
-                provider.protocol
-            );
-        });
+        // Verify: minimax provider should have exactly 2 models (overwrite, not append)
+        let models_path = tmp.path().join("models.json");
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let provider = parsed.providers.get("minimax").unwrap();
+        assert_eq!(
+            provider.models.len(),
+            2,
+            "should have exactly 2 models after overwrite, got: {}",
+            provider.models.len()
+        );
     }
 
     /// Test: write_wizard_config handles empty selected_models gracefully
     #[test]
     fn test_write_wizard_config_with_no_selected_models() {
-        setup();
-        with_temp_dir(|dir| {
-            std::env::set_var("HOME", dir.to_str().unwrap());
+        let tmp = TempDir::new().unwrap();
+        let output = WizardOutput {
+            provider_id: "glm".to_string(),
+            credential: "test-key".to_string(),
+            selected_models: vec![],
+        };
 
-            let output = WizardOutput {
-                provider_id: "glm".to_string(),
-                credential: "test-key".to_string(),
-                selected_models: vec![],
-            };
-
-            // Should not panic — empty models is valid
-            let result = write_wizard_config(&output);
-            assert!(
-                result.is_ok(),
-                "empty selected_models should not cause error: {:?}",
-                result
-            );
-        });
+        // Should not panic — empty models is valid
+        let result = write_wizard_config_to(&output, tmp.path());
+        assert!(
+            result.is_ok(),
+            "empty selected_models should not cause error: {:?}",
+            result
+        );
     }
 }
