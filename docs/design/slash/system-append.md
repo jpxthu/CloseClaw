@@ -2,11 +2,11 @@
 
 ## 概述
 
-`/system` 指令用于动态管理 system prompt 中的追加区（AppendSection）。追加区是 system prompt 末尾的独立分区，位于动态层之后、对话历史之前，与 AGENTS.md 等静态内容互不干扰。用户可通过此指令在运行时增删追加指令，无需修改配置文件。
+`/system` 指令用于动态管理 system prompt 中的追加区（AppendSection）。追加区是 system prompt 末尾的独立分区，位于动态层之后、对话历史之前，与 AGENTS.md 等静态内容互不干扰。用户可通过此指令在运行时追加或批量清除追加指令，无需修改配置文件。
 
 ## 架构
 
-追加区是 system prompt 末尾的独立分区，位于动态层之后、对话历史之前。以标题行开头，内容为 `[N] 内容` 格式的编号列表。由 `/system` 子指令增删，由 system prompt builder 在每次构建 prompt 时读取并拼入。
+追加区是 system prompt 末尾的独立分区，位于动态层之后、对话历史之前。以标题行开头，内容为 `[N] 内容` 格式的编号列表。由 `/system` 子指令追加或批量清除，由 system prompt builder 在每次构建 prompt 时读取并拼入。
 
 关键属性：
 - 多次 `/system add` 叠加（accumulate），不覆盖
@@ -35,15 +35,15 @@ SystemHandler 从 SlashContext 读取 system_append
   ↓
 SystemHandler 返回 SystemAppend::Clear
   ↓
-Gateway 调用 session.clear_system_append()
+Gateway 调用 session.clear_system_appends()
   ↓
 回复"已清除 N 条追加指令"
 ```
 
-`/system add` 无内容时，回复用法提示。
+`/system add` 无内容时，回复用法提示。追加内容超过 500 字符时，向用户返回错误提示，不截断。
 
 ## 模块关系
 
 - **上游**：Gateway → Dispatcher → SystemHandler
-- **下游**：Session 模块（`add_system_append()`、`clear_system_append()` 方法）；system prompt builder（构建时读取追加列表并拼入 system prompt 末尾）
+- **下游**：Session 模块（[session-lifecycle.md](../session/session-lifecycle.md) 定义了 system_appends 的持久化模型，接口方法 `add_system_append()`、`clear_system_appends()`）；system prompt builder（构建时读取追加列表并拼入 system prompt 末尾）
 - **无关**：AGENTS.md 加载（追加区与 AGENTS.md 是独立分区，无优先级冲突）；静态层 Section（追加区位于 system prompt 末尾，动态层之后）
