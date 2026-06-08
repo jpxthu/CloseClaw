@@ -154,7 +154,7 @@ for i in "${!LABELS[@]}"; do
   pattern="${PATTERNS[$i]}"
 
   # 构建 find 命令参数
-  FIND_ARGS=("$SRC_DIR" "$TEST_DIR" -name '*.rs' -type f)
+  FIND_ARGS=("$SRC_DIR" "$TEST_DIR" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
   if [[ -n "$TARGET_FILTER" ]]; then
     FIND_ARGS+=(-path "*${TARGET_FILTER}*")
   fi
