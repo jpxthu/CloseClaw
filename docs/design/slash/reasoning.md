@@ -19,7 +19,7 @@ Gateway 写入 session reasoning_level = Medium
   ↓
 回复"推理深度已设为 Medium"
   ↓
-下次 LLM 调用 → Plugin Pipeline 将 Medium 映射为原生参数
+下次 LLM 调用 → LLM 模块将 Medium 映射为各模型的原生参数
 ```
 
 `/reasoning` 无参数时查询当前值，不改变设置。
@@ -32,5 +32,5 @@ Gateway 写入 session reasoning_level = Medium
 ## 模块关系
 
 - **上游**：Gateway → Dispatcher → ReasoningHandler
-- **下游**：Session 模块（`reasoning_level` 字段读写）；LLM Plugin Pipeline（读取 reasoning_level 映射为原生参数）
+- **下游**：Session 模块（`reasoning_level` 字段读写）；LLM 模块（读取 reasoning_level 映射为原生参数）
 - **无关**：Processor 链（指令在 Gateway 层处理完毕，不进入 LLM）
