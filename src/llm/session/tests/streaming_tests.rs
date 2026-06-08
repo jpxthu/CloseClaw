@@ -1,18 +1,17 @@
 // ── Streaming integration tests ─────────────────────────────────────────────
 
 use super::*;
-use std::path::PathBuf;
 
 #[test]
 fn test_conversation_session_stream_defaults() {
-    let session = ConversationSession::new("s1".into(), "m".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s1".into(), "m".into(), tmp_path());
     assert!(!session.stream_enabled());
     assert!(session.streaming_sink().is_none());
 }
 
 #[test]
 fn test_set_stream_enabled() {
-    let mut session = ConversationSession::new("s1".into(), "m".into(), PathBuf::from("/tmp"));
+    let mut session = ConversationSession::new("s1".into(), "m".into(), tmp_path());
     assert!(!session.stream_enabled());
     session.set_stream_enabled(true);
     assert!(session.stream_enabled());
@@ -22,7 +21,7 @@ fn test_set_stream_enabled() {
 
 #[test]
 fn test_build_api_request_stream_flag_reflects_state() {
-    let mut session = ConversationSession::new("s1".into(), "m".into(), PathBuf::from("/tmp"));
+    let mut session = ConversationSession::new("s1".into(), "m".into(), tmp_path());
     // Default: stream = false
     let req = session.build_api_request();
     assert!(!req.stream);
@@ -62,7 +61,7 @@ fn test_set_streaming_sink() {
         fn send_error(&self, _error: String) {}
     }
 
-    let mut session = ConversationSession::new("s1".into(), "m".into(), PathBuf::from("/tmp"));
+    let mut session = ConversationSession::new("s1".into(), "m".into(), tmp_path());
     assert!(session.streaming_sink().is_none());
 
     let sink: Arc<dyn StreamingSink> = Arc::new(MockSink::new());

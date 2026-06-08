@@ -18,6 +18,7 @@ use crate::system_prompt::WorkdirContext;
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::builtin::BashTool;
 use crate::tools::{PromptGenerationContext, Tool};
+use tempfile::TempDir;
 
 // --- Helpers (mirror the helpers in src/tools/builtin/bash_tests.rs) ---
 
@@ -41,11 +42,17 @@ fn test_bash_tool() -> BashTool {
 /// returned prompt when one is present in the context.
 #[test]
 fn test_generate_prompt_with_workdir() {
+    let tmp = TempDir::new().unwrap();
+    let workdir_path = tmp
+        .path()
+        .join("example-workdir")
+        .to_string_lossy()
+        .to_string();
     let tool = test_bash_tool();
     let ctx = PromptGenerationContext {
         agent_id: "agent-1".to_string(),
         workdir: Some(WorkdirContext {
-            path: "/tmp/example-workdir".to_string(),
+            path: workdir_path.clone(),
             has_git: false,
             branch: None,
             recent_changes: 0,
@@ -57,7 +64,7 @@ fn test_generate_prompt_with_workdir() {
 
     // Primary assertion: the workdir path is in the rendered prompt.
     assert!(
-        prompt.contains("/tmp/example-workdir"),
+        prompt.contains(&workdir_path),
         "expected prompt to contain workdir path, got: {}",
         prompt
     );
@@ -65,7 +72,7 @@ fn test_generate_prompt_with_workdir() {
     // Sanity check: the static `detail()` body is preserved as a prefix.
     assert_eq!(
         prompt,
-        format!("{} Working directory: /tmp/example-workdir.", tool.detail())
+        format!("{} Working directory: {}.", tool.detail(), workdir_path)
     );
 }
 
@@ -92,11 +99,13 @@ fn test_generate_prompt_without_workdir() {
 /// git repository.
 #[test]
 fn test_bash_prompt_includes_git_info() {
+    let tmp = TempDir::new().unwrap();
+    let workdir_path = tmp.path().join("git-repo").to_string_lossy().to_string();
     let tool = test_bash_tool();
     let ctx = PromptGenerationContext {
         agent_id: "agent-1".to_string(),
         workdir: Some(WorkdirContext {
-            path: "/tmp/git-repo".to_string(),
+            path: workdir_path.clone(),
             has_git: true,
             branch: Some("feat/dynamic-prompt-generation".to_string()),
             recent_changes: 3,
@@ -122,7 +131,7 @@ fn test_bash_prompt_includes_git_info() {
 
     // And the workdir path itself must still be present.
     assert!(
-        prompt.contains("/tmp/git-repo"),
+        prompt.contains(&workdir_path),
         "expected prompt to contain workdir path, got: {}",
         prompt
     );

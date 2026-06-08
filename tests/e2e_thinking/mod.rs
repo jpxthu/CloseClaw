@@ -17,6 +17,7 @@ mod tests {
     use closeclaw::llm::LLMRegistry;
     use closeclaw::llm::Message;
     use closeclaw::session::compaction::execute_compact;
+    use std::env::{remove_var, set_var, var};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::sync::broadcast;
@@ -33,7 +34,8 @@ mod tests {
         broadcast::Sender<()>,
     ) {
         let fake_provider = build_fake_provider(scenarios);
-        std::env::set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
+        let old_val = var("LLM_FALLBACK_CHAIN").ok();
+        set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -54,7 +56,10 @@ mod tests {
             None,
         );
 
-        std::env::remove_var("LLM_FALLBACK_CHAIN");
+        match old_val {
+            Some(v) => set_var("LLM_FALLBACK_CHAIN", v),
+            None => remove_var("LLM_FALLBACK_CHAIN"),
+        }
         (session, client, shutdown_tx)
     }
 
@@ -105,7 +110,8 @@ mod tests {
             Scenario::ok("<thinking>verifying...</thinking> Turn 3 answer", "glm-5"),
         ]);
 
-        std::env::set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
+        let old_val = var("LLM_FALLBACK_CHAIN").ok();
+        set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -128,7 +134,10 @@ mod tests {
             None,
         );
 
-        std::env::remove_var("LLM_FALLBACK_CHAIN");
+        match old_val {
+            Some(v) => set_var("LLM_FALLBACK_CHAIN", v),
+            None => remove_var("LLM_FALLBACK_CHAIN"),
+        }
 
         // Simulate 3 turns by directly pushing to chat_history (no spawn/run)
         for (user_content, assistant_content) in [
@@ -186,7 +195,8 @@ mod tests {
             "glm-5",
         )]);
 
-        std::env::set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
+        let old_val = var("LLM_FALLBACK_CHAIN").ok();
+        set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
 
         let registry = Arc::new(LLMRegistry::new());
         let wrapped: Arc<dyn Provider> = Arc::new(fake_provider);
@@ -240,7 +250,10 @@ mod tests {
         assert!(!result.boundary_message.contains("formulating"));
         assert!(!result.boundary_message.contains("verifying"));
 
-        std::env::remove_var("LLM_FALLBACK_CHAIN");
+        match old_val {
+            Some(v) => set_var("LLM_FALLBACK_CHAIN", v),
+            None => remove_var("LLM_FALLBACK_CHAIN"),
+        }
     }
 
     // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ use closeclaw::llm::session::ConversationSession;
 use closeclaw::llm::types::UnifiedUsage;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use tempfile::TempDir;
 use tracing::Subscriber;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::layer::SubscriberExt;
@@ -129,10 +130,11 @@ async fn test_cache_hit_accumulation() {
     }
 
     let _fake_provider = builder.or_else("fallback").build();
+    let test_root = TempDir::new().unwrap();
     let mut session = ConversationSession::new(
         "test-cache-accum".into(),
         "glm-5".into(),
-        PathBuf::from("/tmp"),
+        test_root.path().to_path_buf(),
     );
 
     // Simulate N rounds by extracting usage from FakeProvider scenarios.
@@ -189,10 +191,11 @@ async fn test_cache_break_detection() {
     // on this thread. This captures warn+ logs while the guard is alive.
     let _guard = tracing::subscriber::set_default(subscriber);
 
+    let test_root = TempDir::new().unwrap();
     let mut session = ConversationSession::new(
         "test-cache-break".into(),
         "glm-5".into(),
-        PathBuf::from("/tmp"),
+        test_root.path().to_path_buf(),
     );
 
     // Rounds 1–3: stable cache at 50 000
@@ -246,10 +249,11 @@ async fn test_cache_break_detection() {
 /// Assert `cache_hit_rate()` = `total_cache_read_tokens / total_prompt_tokens`.
 #[tokio::test]
 async fn test_cache_hit_rate_calculation() {
+    let test_root = TempDir::new().unwrap();
     let mut session = ConversationSession::new(
         "test-cache-rate".into(),
         "glm-5".into(),
-        PathBuf::from("/tmp"),
+        test_root.path().to_path_buf(),
     );
 
     // 5 rounds: each with prompt=1000, cache_read=300

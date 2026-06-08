@@ -136,7 +136,7 @@ fn test_intersect_limits_paths_intersection() {
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
-                    paths: vec!["/data/**".to_string(), "/tmp/**".to_string()],
+                    paths: vec!["/data/**".to_string(), "/home/**".to_string()],
                     ..Default::default()
                 },
             },

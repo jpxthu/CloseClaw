@@ -1,5 +1,7 @@
 //! Sandbox module tests
 
+use tempfile::TempDir;
+
 use super::*;
 use crate::permission::{Defaults, PermissionRequest, PermissionRequestBody, RuleSet};
 
@@ -77,9 +79,10 @@ async fn test_sandbox_state_unstarted() {
 // -------------------------------------------------------------------------
 
 fn dummy_request() -> PermissionRequest {
+    let tmp = TempDir::new().unwrap();
     PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "test-agent".to_string(),
-        path: "/tmp/test".to_string(),
+        path: tmp.path().to_string_lossy().into_owned(),
         op: "read".to_string(),
     })
 }
