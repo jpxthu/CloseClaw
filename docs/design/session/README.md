@@ -202,9 +202,9 @@ session.stop(cascade)
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
 - **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。
+- **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析和日志记录。非直接调用，属数据流下游依赖。
 
 ### 无关
 
-- **Permission 模块**（无调用关系）：权限检查发生在 Gateway 层（入站门控），工具调用权限评估由 tools 模块触发，Session 自身不直接调用 Permission。
+- **Permission 模块**：权限检查发生在 Gateway 层（入站门控），工具调用权限评估由 tools 模块触发，Session 自身不直接调用 Permission。
 - **Agent 进程生命周期**：Agent 无独立进程；执行状态由 Session 的 session-execution 机制管理。SessionStatus（Active / Archived）描述持久化状态，与 agent 是否在运行无关。
-- **Processor Chain / Renderer**：消息出站处理不经过 Session 模块。

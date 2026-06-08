@@ -167,4 +167,3 @@ Session resume（从 archived 恢复）
 
 - **持久化层**（无调用关系）：执行状态不进 CheckpointManager 持久化，resume 时重置。SessionStatus（Active / Archived）与执行状态独立——archived session 恢复后执行状态为 Idle
 - **Permission 模块**（无调用关系）：停止操作不涉及权限检查
-- **Processor Chain / Renderer**（无调用关系）：后台结果注入走消息队列，不走出站处理链
