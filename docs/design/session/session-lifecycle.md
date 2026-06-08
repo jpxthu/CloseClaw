@@ -140,7 +140,7 @@ SessionManager 需要持久化
 
 - **Daemon**：启动时初始化 SqliteStorage、SessionConfigProvider、Sweeper。
 - **SessionManager**：session 创建/切换时通过 CheckpointManager 触发持久化。
-- **Gateway**：访问 session 时检查 status，若为 archived 则触发 restore 流程并发送通知。
+- **Gateway**：通过 SessionManager 的返回结果获知 session 是否由归档恢复，如是则向用户发送「正在恢复会话...」通知。
 
 ### 下游
 
