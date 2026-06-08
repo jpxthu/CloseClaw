@@ -10,12 +10,12 @@
 webhook
   ↓
 [IM 插件]
-  平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id?, content, timestamp }
+  平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, timestamp }
   ↓
 [Processor Chain 入站]
   RawLog(10)        → 日志记录 → 透传
     ↓
-  SessionRouter(20) → session_key = hash(platform, sender_id, peer_id[, account_id])
+  SessionRouter(20) → session_key = hash(platform, sender_id, peer_id, account_id)
                     → 写入 metadata，不创建 session
     ↓
   ContentNormalizer(30) → 清洗平台残留 → 标准化 markdown 格式
@@ -48,7 +48,7 @@ ProcessedMessage { content, metadata { session_key } }
 | `sender_id` | webhook payload | 发送者的平台内 ID |
 | `peer_id` | webhook payload | 会话对端（群聊 chat_id 或私聊对方 ID） |
 | `thread_id` | webhook payload | 话题 ID，可选。不参与 session key 计算，仅用于出站定向回复 |
-| `account_id` | webhook context | 租户标识，可选。用于多租户 session 隔离 |
+| `account_id` | 身份映射 | CloseClaw 本地账号标识，由 sender_id 通过身份映射得到 |
 | `content` | webhook payload | 消息文本内容 |
 | `timestamp` | webhook payload | 消息发送时间 |
 
@@ -64,9 +64,10 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 **SessionRouter（priority 20）**：计算 session 路由键。
 
-- 输入：NormalizedMessage 的 `platform`、`sender_id`、`peer_id`，以及可选 `account_id`（由 DmScope 配置决定是否参与计算）
-- 计算：`session_key = hash(platform, sender_id, peer_id[, account_id])`。相同输入产相同 key
-- `thread_id` 不参与 session key 计算——话题回复与主会话共享同一 session。`thread_id` 仅用于出站时定向回复
+- 输入：NormalizedMessage 的 `platform`、`sender_id`、`peer_id`、`account_id`
+- 计算：`session_key = hash(platform, sender_id, peer_id, account_id)`。相同输入产相同 key
+- `account_id` 由 `sender_id` 通过身份映射得到，是 CloseClaw 本地的账号标识
+- `thread_id` 不参与 session key 计算——仅用于出站时定向回复
 - 输出：将 `session_key` 写入 metadata
 - SessionRouter 不创建 session、不查 SessionManager——仅做哈希计算
 
