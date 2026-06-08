@@ -165,6 +165,7 @@ fn test_missing_config_json_is_skipped() {
     let user = TempDir::new().unwrap();
     // Create the agent directory but leave it empty (no config.json).
     std::fs::create_dir_all(user.path().join("zeta")).unwrap();
+    std::fs::write(user.path().join("zeta/.placeholder"), b"").unwrap();
     // Another agent that DOES have a config file.
     write_config(user.path(), "eta", "Eta");
 
@@ -295,9 +296,12 @@ fn test_action_permission_round_trip() {
 fn test_directory_provider_id_from_dirname() {
     let user = TempDir::new().unwrap();
     // Directory name is `foo`; the config.json omits `id` entirely.
-    let agent_dir = user.path().join("foo");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    std::fs::write(agent_dir.join("config.json"), r#"{ "name": "Foo Agent" }"#).unwrap();
+    std::fs::create_dir_all(user.path().join("foo")).unwrap();
+    std::fs::write(
+        user.path().join("foo/config.json"),
+        r#"{ "name": "Foo Agent" }"#,
+    )
+    .unwrap();
 
     let provider =
         AgentDirectoryProvider::new(vec!["foo".to_string()], user.path().to_path_buf(), None)
@@ -353,10 +357,9 @@ fn test_directory_provider_id_mismatch_warn() {
 
     let user = TempDir::new().unwrap();
     // Directory name is `foo`, but the config.json declares id `other`.
-    let agent_dir = user.path().join("foo");
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::create_dir_all(user.path().join("foo")).unwrap();
     std::fs::write(
-        agent_dir.join("config.json"),
+        user.path().join("foo/config.json"),
         r#"{ "id": "other", "name": "Other Agent" }"#,
     )
     .unwrap();

@@ -431,4 +431,11 @@ impl std::fmt::Debug for ConversationSession {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
+/// Helper: create a temporary directory path for tests.
+pub(crate) fn tmp_path() -> std::path::PathBuf {
+    tempfile::tempdir().unwrap().into_path()
+}
+
+#[cfg(test)]
 mod tests;

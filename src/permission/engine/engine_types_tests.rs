@@ -1,10 +1,13 @@
+use tempfile::TempDir;
+
 use super::PermissionRequestBody;
 
 #[test]
 fn test_dimension_name_file_op_read() {
+    let tmp = TempDir::new().unwrap();
     let body = PermissionRequestBody::FileOp {
         agent: "a".to_string(),
-        path: "/tmp/test".to_string(),
+        path: tmp.path().to_string_lossy().into_owned(),
         op: "read".to_string(),
     };
     assert_eq!(body.dimension_name(), Some("file_read"));
@@ -12,9 +15,10 @@ fn test_dimension_name_file_op_read() {
 
 #[test]
 fn test_dimension_name_file_op_write() {
+    let tmp = TempDir::new().unwrap();
     let body = PermissionRequestBody::FileOp {
         agent: "a".to_string(),
-        path: "/tmp/test".to_string(),
+        path: tmp.path().to_string_lossy().into_owned(),
         op: "write".to_string(),
     };
     assert_eq!(body.dimension_name(), Some("file_write"));
@@ -22,9 +26,10 @@ fn test_dimension_name_file_op_write() {
 
 #[test]
 fn test_dimension_name_file_op_unknown() {
+    let tmp = TempDir::new().unwrap();
     let body = PermissionRequestBody::FileOp {
         agent: "a".to_string(),
-        path: "/tmp/test".to_string(),
+        path: tmp.path().to_string_lossy().into_owned(),
         op: "delete".to_string(),
     };
     assert_eq!(body.dimension_name(), None);

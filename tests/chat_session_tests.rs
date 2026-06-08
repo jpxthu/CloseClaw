@@ -8,6 +8,7 @@
 use closeclaw::chat::protocol::ServerMessage;
 use closeclaw::chat::session::LegacyChatSession;
 use closeclaw::llm::{LLMRegistry, Message, StubProvider};
+use std::env::{remove_var, set_var, var};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -27,7 +28,8 @@ use tokio::sync::broadcast;
 /// causing the session to receive a shutdown signal. For tests that need
 /// to keep the session alive, use `setup_session_with_shutdown_tx` instead.
 async fn setup_session() -> (LegacyChatSession, tokio::net::TcpStream) {
-    std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
+    let old_val = var("LLM_FALLBACK_CHAIN").ok();
+    set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -45,7 +47,10 @@ async fn setup_session() -> (LegacyChatSession, tokio::net::TcpStream) {
         registry,
         None, // config_dir
     );
-    std::env::remove_var("LLM_FALLBACK_CHAIN");
+    match old_val {
+        Some(v) => set_var("LLM_FALLBACK_CHAIN", v),
+        None => remove_var("LLM_FALLBACK_CHAIN"),
+    }
     (session, client)
 }
 
@@ -57,7 +62,8 @@ async fn setup_session_with_shutdown_tx() -> (
     tokio::net::TcpStream,
     broadcast::Sender<()>,
 ) {
-    std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
+    let old_val = var("LLM_FALLBACK_CHAIN").ok();
+    set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -75,7 +81,10 @@ async fn setup_session_with_shutdown_tx() -> (
         registry,
         None, // config_dir
     );
-    std::env::remove_var("LLM_FALLBACK_CHAIN");
+    match old_val {
+        Some(v) => set_var("LLM_FALLBACK_CHAIN", v),
+        None => remove_var("LLM_FALLBACK_CHAIN"),
+    }
     (session, client, shutdown_tx)
 }
 
@@ -236,7 +245,8 @@ async fn test_full_session_lifecycle() {
 #[ignore = "chat module removed in #725; rewrite against new interface (see new issue)"]
 #[tokio::test]
 async fn test_session_shutdown_signal() {
-    std::env::set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
+    let old_val = var("LLM_FALLBACK_CHAIN").ok();
+    set_var("LLM_FALLBACK_CHAIN", "stub/stub-model");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -254,7 +264,6 @@ async fn test_session_shutdown_signal() {
         registry,
         None, // config_dir
     );
-    std::env::remove_var("LLM_FALLBACK_CHAIN");
 
     // Spawn session and immediately send the shutdown signal by dropping the tx.
     let session_handle = tokio::spawn(session.run());
@@ -278,4 +287,9 @@ async fn test_session_shutdown_signal() {
     }
 
     let _ = session_handle.await;
+
+    match old_val {
+        Some(v) => set_var("LLM_FALLBACK_CHAIN", v),
+        None => remove_var("LLM_FALLBACK_CHAIN"),
+    }
 }

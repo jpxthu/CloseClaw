@@ -312,8 +312,10 @@ async fn test_file_ops_permission_denied() {
 async fn test_file_ops_permission_missing_agent_id() {
     let engine = make_allowed_engine();
     let skill = FileOpsSkill::with_engine(engine);
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("x.txt");
     let result = skill
-        .execute("read", serde_json::json!({"path": "/tmp/x.txt"}))
+        .execute("read", serde_json::json!({"path": path.to_str().unwrap()}))
         .await;
     assert!(result.is_err());
     match result.unwrap_err() {

@@ -5,7 +5,6 @@ use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::session::persistence::{AgentRole, PendingMessage, PersistenceError, SessionCheckpoint};
 use async_trait::async_trait;
-use std::path::PathBuf;
 use tokio::sync::Mutex;
 
 pub(super) fn test_config() -> GatewayConfig {
@@ -269,10 +268,11 @@ async fn test_flush_all_with_pending_messages() {
         sessions.insert(session_id.to_string(), make_test_session(session_id));
     }
 
+    let tmp = tempfile::TempDir::new().unwrap();
     let conv_session = Arc::new(RwLock::new(ConversationSession::new(
         session_id.to_string(),
         "gpt-4o".to_string(),
-        PathBuf::from("/tmp"),
+        tmp.path().to_path_buf(),
     )));
     {
         let mut cs = conv_session.write().await;
@@ -320,10 +320,11 @@ async fn test_flush_all_without_pending_messages() {
         sessions.insert(session_id.to_string(), make_test_session(session_id));
     }
 
+    let tmp = tempfile::TempDir::new().unwrap();
     let conv_session = Arc::new(RwLock::new(ConversationSession::new(
         session_id.to_string(),
         "gpt-4o".to_string(),
-        PathBuf::from("/tmp"),
+        tmp.path().to_path_buf(),
     )));
     {
         let mut conv_sessions = mgr.conversation_sessions.write().await;

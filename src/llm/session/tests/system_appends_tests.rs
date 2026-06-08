@@ -5,19 +5,13 @@
 //! These tests cover Step 1.5 of issue #860. Each test is a 1:1
 //! mapping to a bullet in the plan's "Step 1.5：单元测试" section.
 
-use std::path::PathBuf;
-
 use super::super::*;
 use crate::session::persistence::SessionCheckpoint;
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
 fn new_session() -> ConversationSession {
-    ConversationSession::new(
-        "sess_appends".into(),
-        "gpt-4o".into(),
-        PathBuf::from("/tmp"),
-    )
+    ConversationSession::new("sess_appends".into(), "gpt-4o".into(), tmp_path())
 }
 
 // ── test_system_appends_add_and_get ──────────────────────────────────────

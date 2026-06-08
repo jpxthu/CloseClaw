@@ -316,7 +316,7 @@ async fn test_find_or_create_with_tool_registry() {
     let prompt = conv.system_prompt().expect("expected system prompt");
 
     // ToolsSection should contain actual tool names
-    std::fs::write("/tmp/tool_registry_prompt.txt", &prompt).unwrap();
+    // (debug write removed — use tempfile if needed)
     assert!(prompt.contains("Read"), "missing Read tool");
     assert!(prompt.contains("Write"), "missing Write tool");
     // Bootstrap content should also be present

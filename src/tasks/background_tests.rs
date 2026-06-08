@@ -36,10 +36,7 @@ async fn wait_for_completion(mgr: &BackgroundTaskManager, task_id: &str) -> Back
 #[tokio::test]
 async fn test_spawn_returns_running() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("echo hello", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("echo hello", _tmp.path()).await.unwrap();
     assert_eq!(task.state, TaskState::Running);
 }
 
@@ -50,10 +47,7 @@ async fn test_spawn_returns_running() {
 #[tokio::test]
 async fn test_spawn_completes() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("true", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("true", _tmp.path()).await.unwrap();
     let snapshot = wait_for_completion(&mgr, &task.id).await;
     assert_eq!(snapshot.state, TaskState::Completed { exit_code: 0 });
 }
@@ -65,10 +59,7 @@ async fn test_spawn_completes() {
 #[tokio::test]
 async fn test_spawn_fails() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("false", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("false", _tmp.path()).await.unwrap();
     let snapshot = wait_for_completion(&mgr, &task.id).await;
     assert_eq!(snapshot.state, TaskState::Failed { exit_code: 1 });
 }
@@ -77,7 +68,7 @@ async fn test_spawn_fails() {
 async fn test_spawn_nonexistent_command() {
     let (mgr, _tmp) = test_manager();
     let task = mgr
-        .spawn("nonexistent_cmd_xyz_12345", std::path::Path::new("/tmp"))
+        .spawn("nonexistent_cmd_xyz_12345", _tmp.path())
         .await
         .unwrap();
     let snapshot = wait_for_completion(&mgr, &task.id).await;
@@ -94,10 +85,7 @@ async fn test_spawn_nonexistent_command() {
 #[tokio::test]
 async fn test_kill() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("sleep 60", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("sleep 60", _tmp.path()).await.unwrap();
     // Give the spawned process time to set its handle
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(mgr.is_running(&task.id).await);
@@ -109,10 +97,7 @@ async fn test_kill() {
 #[tokio::test]
 async fn test_kill_non_running_returns_error() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("true", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("true", _tmp.path()).await.unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     let result = mgr.kill(&task.id).await;
     assert!(result.is_err());
@@ -132,10 +117,7 @@ async fn test_kill_nonexistent_task() {
 #[tokio::test]
 async fn test_is_running() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("true", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("true", _tmp.path()).await.unwrap();
     assert!(mgr.is_running(&task.id).await);
     let _ = wait_for_completion(&mgr, &task.id).await;
     assert!(!mgr.is_running(&task.id).await);
@@ -154,10 +136,7 @@ async fn test_is_running_nonexistent() {
 #[tokio::test]
 async fn test_get_task() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("echo hello", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("echo hello", _tmp.path()).await.unwrap();
     let snapshot = mgr.get_task(&task.id).await;
     assert!(snapshot.is_some());
     let s = snapshot.unwrap();
@@ -179,10 +158,7 @@ async fn test_get_task_nonexistent() {
 #[tokio::test]
 async fn test_output_file_captures_stdout() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("echo hello_output", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("echo hello_output", _tmp.path()).await.unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     let content = tokio::fs::read_to_string(&task.output_path).await.unwrap();
     assert!(content.contains("hello_output"));
@@ -192,7 +168,7 @@ async fn test_output_file_captures_stdout() {
 async fn test_output_file_captures_stderr() {
     let (mgr, _tmp) = test_manager();
     let task = mgr
-        .spawn("echo hello_stderr >&2", std::path::Path::new("/tmp"))
+        .spawn("echo hello_stderr >&2", _tmp.path())
         .await
         .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
@@ -207,10 +183,7 @@ async fn test_output_file_captures_stderr() {
 #[tokio::test]
 async fn test_pending_notifications_on_complete() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("true", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("true", _tmp.path()).await.unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     let notifs = mgr.pending_notifications().await;
@@ -222,10 +195,7 @@ async fn test_pending_notifications_on_complete() {
 #[tokio::test]
 async fn test_pending_notifications_on_failure() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("false", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("false", _tmp.path()).await.unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     let notifs = mgr.pending_notifications().await;
@@ -243,10 +213,7 @@ async fn test_pending_notifications_on_failure() {
 #[tokio::test]
 async fn test_notification_dedup() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("true", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("true", _tmp.path()).await.unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -264,10 +231,7 @@ async fn test_notification_dedup() {
 #[tokio::test]
 async fn test_mark_notified() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("true", std::path::Path::new("/tmp"))
-        .await
-        .unwrap();
+    let task = mgr.spawn("true", _tmp.path()).await.unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 

@@ -15,6 +15,7 @@ use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_spawn::SpawnPermissionError;
 use crate::permission::engine::engine_types::PermissionRequestBody;
 use crate::permission::rules::RuleSetBuilder;
+use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -319,9 +320,10 @@ async fn test_runtime_permission_enforcement() {
     }
 
     // Simulate a file_read operation for child-rt.
+    let tmp = TempDir::new().unwrap();
     let read_body = PermissionRequestBody::FileOp {
         agent: "child-rt".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: tmp.path().join("test.txt").to_string_lossy().to_string(),
         op: "read".to_string(),
     };
     let result = engine.check_agent_effective_permissions("child-rt", &read_body);
@@ -410,10 +412,14 @@ async fn test_multi_generation_spawn_chain() {
     );
 
     // Verify runtime enforcement on grandchild.
+    let tmp = TempDir::new().unwrap();
     let exec_body = PermissionRequestBody::CommandExec {
         agent: "grandchild-agent".to_string(),
         cmd: "rm".to_string(),
-        args: vec!["-rf".to_string(), "/tmp/test".to_string()],
+        args: vec![
+            "-rf".to_string(),
+            tmp.path().join("test").to_string_lossy().to_string(),
+        ],
     };
     let result = engine.check_agent_effective_permissions("grandchild-agent", &exec_body);
     assert!(
@@ -435,9 +441,10 @@ async fn test_multi_generation_spawn_chain() {
     }
 
     // Verify file_read is still allowed at runtime for grandchild.
+    let tmp2 = TempDir::new().unwrap();
     let read_body = PermissionRequestBody::FileOp {
         agent: "grandchild-agent".to_string(),
-        path: "/tmp/data.txt".to_string(),
+        path: tmp2.path().join("data.txt").to_string_lossy().to_string(),
         op: "read".to_string(),
     };
     let result = engine.check_agent_effective_permissions("grandchild-agent", &read_body);

@@ -3,12 +3,14 @@
 //!
 
 use crate::permission::engine::{Caller, PermissionRequest, PermissionRequestBody};
+use tempfile::TempDir;
 
 #[test]
 fn test_bare_request_caller_defaults() {
+    let tmp = TempDir::new().unwrap();
     let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "test-agent".to_string(),
-        path: "/tmp".to_string(),
+        path: tmp.path().to_string_lossy().into_owned(),
         op: "read".to_string(),
     });
     let caller = request.caller();
@@ -38,8 +40,12 @@ fn test_with_caller_request() {
 
 #[test]
 fn test_bare_deserialize_old_format() {
-    let json = r#"{"type": "file_op", "agent": "test-agent", "path": "/tmp", "op": "read"}"#;
-    let request: PermissionRequest = serde_json::from_str(json).unwrap();
+    let tmp = TempDir::new().unwrap();
+    let json = format!(
+        r#"{{"type": "file_op", "agent": "test-agent", "path": "{}", "op": "read"}}"#,
+        tmp.path().display()
+    );
+    let request: PermissionRequest = serde_json::from_str(&json).unwrap();
     assert!(matches!(request, PermissionRequest::Bare(_)));
     let caller = request.caller();
     assert_eq!(caller.user_id, "");
@@ -48,14 +54,18 @@ fn test_bare_deserialize_old_format() {
 
 #[test]
 fn test_with_caller_deserialize_new_format() {
-    let json = r#"{
-        "caller": {"user_id": "ou_alice", "agent": "dev-agent-01", "creator_id": ""},
+    let tmp = TempDir::new().unwrap();
+    let json = format!(
+        r#"{{
+        "caller": {{"user_id": "ou_alice", "agent": "dev-agent-01", "creator_id": ""}},
         "type": "file_op",
         "agent": "dev-agent-01",
-        "path": "/tmp",
+        "path": "{}",
         "op": "read"
-    }"#;
-    let request: PermissionRequest = serde_json::from_str(json).unwrap();
+    }}"#,
+        tmp.path().display()
+    );
+    let request: PermissionRequest = serde_json::from_str(&json).unwrap();
     assert!(matches!(request, PermissionRequest::WithCaller { .. }));
     let caller = request.caller();
     assert_eq!(caller.user_id, "ou_alice");
@@ -79,9 +89,10 @@ fn test_with_caller_deserialize_creator_id() {
 
 #[test]
 fn test_with_caller_converts_bare() {
+    let tmp = TempDir::new().unwrap();
     let bare = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "test-agent".to_string(),
-        path: "/tmp".to_string(),
+        path: tmp.path().to_string_lossy().into_owned(),
         op: "read".to_string(),
     });
     let caller = Caller {
