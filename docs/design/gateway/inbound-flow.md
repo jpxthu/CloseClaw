@@ -90,7 +90,7 @@ key_registry 在 daemon 启动时由 SessionManager 遍历 SQLite 中所有 sess
 
 获得 session_id 后，Gateway 检查 content 第一个字符：
 
-**以 `/` 开头 → 斜杠指令**：消息不进入 LLM。Gateway 交给 SlashDispatcher。Immediate 指令（`/stop`、`/status`、`/help`）可绕过消息队列立即执行；非 Immediate 指令走 Handler → SlashResult → Gateway 执行副作用。
+**以 `/` 开头 → 斜杠指令**：消息不进入 LLM。Gateway 交给 SlashDispatcher。Immediate 指令（如 `/stop`、`/status`、`/help` 等）可绕过消息队列立即执行；非 Immediate 指令走 Handler → SlashResult → Gateway 执行副作用。
 
 **不以 `/` 开头 → 普通对话消息**：Gateway 通过 `session_id` 找到 Session（状态已在 `resolve()` 中处理完毕），消息追加到对话历史。Session 构建完整 LLM 请求（system prompt + 消息历史 + 工具列表 + skill 列表）。LLM 返回 `ContentBlock[]`，进入出站链路。
 
