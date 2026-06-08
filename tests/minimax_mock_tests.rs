@@ -28,6 +28,7 @@ fn internal_request(model: &str) -> InternalRequest {
         system_blocks: None,
         session_id: None,
         reasoning_level: closeclaw::session::persistence::ReasoningLevel::default(),
+        turn_count: None,
     }
 }
 
