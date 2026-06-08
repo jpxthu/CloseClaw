@@ -35,9 +35,11 @@ Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Ga
 | Handler | 负责指令 | 结果类型 | Immediate |
 |---------|---------|---------|-----------|
 | ModeSwitchHandler | plan, mode | SetMode / Reply | ❌ |
-| SessionHandler | new, stop | NewSession / Stop | stop ✅ |
+| NewSessionHandler | new | NewSession | ❌ |
+| StopHandler | stop | Stop | ✅ |
 | StatusHandler | status | Reply | ✅ |
 | CompactHandler | compact | Compact | ❌ |
+| ReasoningHandler | reasoning | SetReasoning / Reply | ✅ |
 | SystemHandler | system | SystemAppend / Reply | ❌ |
 | WorkdirHandler | cd, pwd, git | Reply / Exec | ❌ |
 | ExecHandler | exec | Exec / Reply | ❌ |
@@ -51,6 +53,7 @@ Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Ga
 - [帮助](help.md) — `/help` 动态生成帮助文本
 - [模式切换](mode-switching.md) — `/plan` 和 `/mode`，切换 Normal/Plan 模式
 - [会话管理](session-management.md) — `/new` 创建新会话，`/stop` 终止当前运行
+- [推理深度控制](reasoning.md) — `/reasoning` 查询或设置推理深度
 - [状态查询](status.md) — `/status` 查看会话状态
 - [System Prompt 追加](system-append.md) — `/system` 动态管理 system prompt 追加区
 - [工作目录操作](workdir.md) — `/cd`、`/pwd`、`/git` 工作目录操作
@@ -76,6 +79,7 @@ Gateway.handle_inbound()
             │         Gateway.handle_slash_result()
             │           ├── Reply(text)        → 直接回复用户
             │           ├── SetMode(mode)      → session.set_mode() + 回复
+            │           ├── SetReasoning{level} → 写入 session reasoning_level + 回复
             │           ├── NewSession         → 创建新 session + 回复
             │           ├── Stop               → 终止 run + 子 agent + 回复
             │           ├── Compact{...}       → 执行压缩 + 回复
@@ -94,8 +98,8 @@ Gateway.handle_inbound()
 
 - **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。
 - **下游**：
-  - Session 模块 — 模式切换、会话创建/停止、上下文压缩、system prompt 追加区管理、工作目录设置
-  - Agent 模块 — `/stop` 终止子 agent
+  - Session 模块 — 模式切换、会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置
 - **间接下游**（通过 Gateway 调用）：
   - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（由 Gateway 读取 Exec 结果后调用）
+  - LLM Plugin Pipeline — `/reasoning` 写入的推理深度在下一次 LLM 调用时由 Plugin Pipeline 映射为原生参数
 - **间接相关**：Processor 链（斜杠指令消息经入站 Processor 链处理后由 Gateway 路由到 SlashDispatcher；SlashDispatcher 的输出经出站 Processor 链 + Renderer 回复）
