@@ -6,7 +6,7 @@
 
 ## 架构
 
-两个指令由同一个 SessionHandler 处理，但行为独立：
+两个指令由各自独立的 Handler 处理——NewSessionHandler 负责 `/new`，StopHandler 负责 `/stop`。两者行为独立：
 
 - **`/new`**：创建新会话，分配新会话标识（`{agent_id}_{timestamp}_{random_suffix}`），覆盖 SessionManager 的 key_registry 映射（同一 session_key 指向新 session_id）。旧会话保留，后续由 Sweeper 自然归档。新消息自动路由到新会话。
 - **`/stop`**：标记为 Immediate 指令，可在 LLM 运行时立即响应。终止当前 LLM 调用和所有子 agent，清除运行队列。
@@ -14,7 +14,7 @@
 ```
 /new
   ↓
-SessionHandler 返回 NewSession
+NewSessionHandler 返回 NewSession
   ↓
 Gateway → SessionManager.create_new(session_key)
   → 创建新 session（新 ID）
@@ -24,7 +24,7 @@ Gateway → SessionManager.create_new(session_key)
 
 /stop
   ↓
-SessionHandler 返回 Stop
+StopHandler 返回 Stop
   ↓
 Gateway 终止当前 LLM run + 所有子 agent
   ↓
@@ -42,6 +42,6 @@ Gateway 终止当前 LLM run + 所有子 agent
 
 ## 模块关系
 
-- **上游**：Gateway → Dispatcher → SessionHandler
-- **下游**：Session 模块（`new_session()`、`stop()` 方法）；Agent 模块（子 agent 终止）
+- **上游**：Gateway → Dispatcher → NewSessionHandler / StopHandler
+- **下游**：Session 模块（`new_session()`、`stop()` 方法，含级联终止子 session）
 - **无关**：Processor 链（指令在 Gateway 层处理完毕，不进入 LLM）
