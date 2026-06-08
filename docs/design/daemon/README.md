@@ -26,7 +26,7 @@ Daemon 持有 SessionManager 和 Gateway 的引用，作为二者的所有者管
 Daemon 启动
   ├── 1. Config 加载（多文件合并、凭据分离）
   ├── 2. Storage 初始化（SqliteStorage）
-  ├── 3. SessionConfigProvider 初始化（读取 session_config.json，提供 per-agent 的 idle/purge 阈值）
+  ├── 3. SessionConfigProvider 初始化（读取 config/session.json，提供 per-agent 的 idle/purge 阈值）
   ├── 4. Permission Engine 初始化（加载规则 + 默认策略）
   ├── 5. Agent Config 扫描（两级优先级扫描 + 字段合并 → 注册表）
   ├── 6. Tools Registry + Skills Registry（注册所有工具和 skill）
@@ -68,7 +68,7 @@ Daemon 关闭
 |------|------|
 | Config | 启动时加载，传入各组件 |
 | Storage | 启动时初始化 SqliteStorage |
-| SessionConfigProvider | 启动时加载 session_config.json，提供给 ArchiveSweeper 和 Session Manager |
+| SessionConfigProvider | 启动时加载 config/session.json，提供给 ArchiveSweeper 和 Session Manager |
 | Permission Engine | 启动时加载权限规则 |
 | Agent Config | 启动时扫描合并 agent 配置 |
 | Tools Registry | 启动时注册所有工具 |

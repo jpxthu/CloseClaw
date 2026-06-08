@@ -70,7 +70,7 @@ SessionConfigProvider
   └── 硬编码 fallback（idleMinutes=30, purgeAfterMinutes=0 表示永不过期）
 ```
 
-配置文件独立存储在 `session_config.json`，不混入 agents.json。关键参数：
+配置文件存储在 `config/session.json`，不混入 agents.json。关键参数：
 - `sweeperIntervalSeconds`：Sweeper 扫描间隔（默认 300 秒）。
 - `idleMinutes`：最后消息后多久标记为 idle、触发 archive。
 - `purgeAfterMinutes`：归档后多久彻底删除。设为 0 表示永不过期。
@@ -145,7 +145,7 @@ SessionManager 需要持久化
 ### 下游
 
 - **SqliteStorage**（PersistenceService trait 的实现）：SQLite + 文件系统读写。
-- **SessionConfigProvider**：读取 session_config.json，提供 per-agent 配置。
+- **SessionConfigProvider**：读取 `config/session.json`，提供 per-agent 配置。
 
 ### 无关
 

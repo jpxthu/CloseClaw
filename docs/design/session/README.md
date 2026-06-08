@@ -60,12 +60,12 @@ Gateway / SessionManager  ← session 生命周期协调者
   - 启动时：SessionManager 遍历 SQLite 中所有 session（active + archived），按会话路由键计算 session_key，分组后取最新 session_id 写入映射表
   - 运行时：`resolve()` 查映射；`create_new()` 新 session 后覆盖映射
   - 映射表为纯内存数据结构，不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段
-  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、system prompt 追加区（system_appends）、RunningStats（token/cache 统计）。同时持有执行状态句柄（LLM 状态、工具进程、子 session 引用）。
   - **CheckpointManager**：协调 SessionCheckpoint 的读写缓存和持久化。需要持久化时调用 PersistenceService。
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
   - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。
 
 - **执行层组件**：
+  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、system prompt 追加区（system_appends）、RunningStats（token/cache 统计）。同时持有执行状态句柄（LLM 状态、工具进程、子 session 引用）。
   - **三维执行状态**：LLM 状态、Tool 状态（per-invocation）、子 Session 状态三者独立跟踪，组合判定 session 当前是否空闲。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle。
   - **级联停止**：停止一个 session 时，递归停止其所有子 session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。
   - **后台结果注入**：后台工具完成或子 session 完成时，结果通过优先级消息队列（now > next > later）作为消息注入对话流，agent 在下一轮 turn 中消费。
@@ -73,7 +73,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 各子功能的关系：
 - **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Archived）描述持久化状态，与执行状态无关。
 - **执行状态**是运行时骨架：LLM、Tool、子 Session 三维状态跟踪贯穿每次会话交互，级联停止依赖执行状态做决策，后台结果注入依赖消息队列调度。
-- **注入**在 session 创建时发生：SessionManager 调用 system prompt builder 完成 bootstrap/tools/skills 的组装。
+- **注入**是 session 生命周期事件——决定何时构建 system prompt。触发时机（详见 session-injection.md）包括：session 创建、archive 恢复、compaction 完成。注入链路不关心 system prompt 的 Section 组装细节，只负责在正确时机调用 builder 并存储结果。
 - **压缩**在 session 运行时发生：对过长的对话历史做 summarization。支持手动触发（`/compact`）和自动触发（token 用量阈值），内含熔断保护和分级告警。system prompt 独立于对话消息流，不参与压缩，确保角色定义在任意次压缩后完整无损。
 - **LLM 增强**贯穿每次 API 调用：流式推送、reasoning level 控制、cache hit 统计在每次会话交互中生效。
 
@@ -195,7 +195,15 @@ session.stop(cascade)
 ### 上游
 
 - **Gateway**：用户消息入口，调用 SessionManager 获取/创建 session。
-- **Slash Command**：`/compact` 指令触发 compaction 流程，`/stop` 指令触发执行停止，`/system` 指令管理 system prompt 追加区（增删追加内容，由 Session 持久化并在构建 system prompt 时拼入）。
+- **Slash Command**：以下斜杠指令类别直接操作 Session 模块（完整指令清单见 slash/README.md Handler 清单）：
+
+  | 类别 | 涉及 Session 的操作 |
+  |------|-------------------|
+  | 会话生命周期 | `/new` 创建新 session、`/stop` 终止运行（含级联终止子 session） |
+  | 工作目录 | `/cd` `/pwd` `/git` 读写 working directory |
+  | 模式控制 | `/plan` `/mode` 切换对话模式 |
+  | 推理控制 | `/reasoning` 设置推理深度 |
+  | 上下文管理 | `/compact` 压缩对话历史、`/system` 管理 system prompt 追加区 |
 - **Daemon**：启动时初始化 SqliteStorage 和 SessionConfigProvider，spawn Sweeper 后台任务；优雅关闭时遍历 session 执行停止。
 
 ### 下游
