@@ -122,6 +122,8 @@ API 请求到达
   →
   拼接：静态层 + 边界标记 + 动态层 + AppendSection
   →
+  cache adapter 以边界标记为切分点注入缓存控制参数
+  →
   发送 LLM 请求
 ```
 
@@ -149,6 +151,7 @@ Archived session 被访问
 - **ToolRegistry**：提供 ToolsSection 的分组索引。
 - **DiskSkillRegistry**：按 agent 过滤并提供 skill 列表数据，读取磁盘 skill 并合并内置 SkillRegistry 的 skill，按优先级排序。
 - **Slash 模块**：`/system` 指令操作 AppendSection，详细设计见 [slash/system-append](docs/design/slash/system-append.md)。
+- **Cache Adapter**：以边界标记为切分点，对静态层注入缓存控制参数。system prompt 组装完成后经 cache adapter 处理再进入 LLM client。
 
 ### 无关
 
