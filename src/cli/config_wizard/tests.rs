@@ -207,7 +207,7 @@ mod write_wizard_config_tests {
     /// Helper: create a temporary directory and return its path.
     fn with_temp_dir(f: impl FnOnce(std::path::PathBuf)) {
         let tmp = std::env::temp_dir();
-        let dir = tmp.join(format!("closeclaw_test_{}", std::process::id()));
+        let dir = tmp.join(format!("closeclaw_test_{:?}", std::thread::current().id()));
         std::fs::create_dir_all(&dir).unwrap();
         f(dir.clone());
         let _ = std::fs::remove_dir_all(&dir);
