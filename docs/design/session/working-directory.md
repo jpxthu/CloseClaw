@@ -46,7 +46,7 @@ Session 创建
   → 回复当前路径
 
 每次 API 请求
-  → system prompt 构建器读取 session.workdir
+  → ConversationSession 从自身运行时字段读取 workdir
   → 动态层注入 "当前工作目录：{path}"
 ```
 
