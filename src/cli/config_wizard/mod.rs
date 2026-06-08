@@ -17,7 +17,7 @@ use crate::llm::{
 use dialoguer::{Input, Select};
 
 use std::panic;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -125,12 +125,11 @@ fn config_dir() -> PathBuf {
 //-
 //- NOTE: Any change to `write_wizard_config` or `run_wizard` must be verified
 //- against `tests/cli_config_wizard_test.py` (python3 E2E test using pexpect).
-pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
-    let dir = config_dir();
-    std::fs::create_dir_all(&dir)?;
+pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(config_path)?;
 
     // ── Load or create models.json ─────────────────────────────────────────────
-    let models_path = dir.join("models.json");
+    let models_path = config_path.join("models.json");
     let existing: ModelsConfigData = if models_path.exists() {
         let content = std::fs::read_to_string(&models_path)?;
         ModelsConfigData::from_json_str(&content).unwrap_or_else(|_| ModelsConfigData::default())
@@ -183,7 +182,7 @@ pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to write {}: {}", models_path.display(), e))?;
 
     // ── Write credentials ────────────────────────────────────────────────────
-    let creds_dir = dir.join("credentials");
+    let creds_dir = config_path.join("credentials");
     std::fs::create_dir_all(&creds_dir)?;
     let cred_file = creds_dir.join(format!("{}.json", output.provider_id));
     let creds = AnyProviderCredentials::ApiKey(ApiKeyCredentials {
@@ -200,6 +199,11 @@ pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
         cred_file.display()
     );
     Ok(())
+}
+
+/// Write wizard output to config files in the default config directory.
+pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
+    write_wizard_config_to(output, &config_dir())
 }
 
 /// Locate the models.json config file, if it exists.
