@@ -76,7 +76,7 @@ pub fn setup_session_with_storage() -> (
     let session = ConversationSession::new(
         "test-session".to_string(),
         "fake-model".to_string(),
-        PathBuf::from("/tmp"),
+        test_root.path().to_path_buf(),
     );
 
     (session, storage, fake_provider, test_root)
@@ -99,11 +99,10 @@ mod tests {
     fn test_new_test_root_path_prefix() {
         let root = new_test_root();
         let path = root.path();
+        let expected_prefix = std::env::temp_dir().join("closeclaw-test-");
         assert!(
-            path.to_str()
-                .unwrap_or("")
-                .starts_with("/tmp/closeclaw-test-"),
-            "path should start with /tmp/closeclaw-test-, got {}",
+            path.starts_with(&expected_prefix),
+            "path should start with <tempdir>/closeclaw-test-, got {}",
             path.display()
         );
     }

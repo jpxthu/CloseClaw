@@ -197,8 +197,9 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
     let cp = cp.unwrap();
 
     // Create a fresh ConversationSession and restore pending messages
-    let mut session =
-        ConversationSession::new(sid.clone(), "fake-model".to_string(), PathBuf::from("/tmp"));
+    let session_root = tempfile::TempDir::new().unwrap();
+    let root = session_root.path().to_path_buf();
+    let mut session = ConversationSession::new(sid.clone(), "fake-model".to_string(), root);
     session.restore_pending_messages(cp.pending_messages);
 
     // All checkpoint messages have sent=true (transcript format limitation),

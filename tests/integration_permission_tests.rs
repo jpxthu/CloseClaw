@@ -7,6 +7,7 @@
 //! - Template resolution
 
 use std::collections::HashMap;
+use tempfile::TempDir;
 
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
 use closeclaw::permission::engine::{
@@ -25,7 +26,7 @@ fn make_test_ruleset() -> RuleSet {
                 .allow()
                 .action(Action::File {
                     operation: "read".to_string(),
-                    paths: vec!["/home/**".to_string(), "/tmp/**".to_string()],
+                    paths: vec!["/home/**".to_string()],
                 })
                 .build()
                 .unwrap(),
@@ -252,6 +253,8 @@ async fn test_permission_user_and_agent_dual_key_matching() {
 
 #[tokio::test]
 async fn test_permission_engine_reload_updates_rules() {
+    let tmpdir = TempDir::new().unwrap();
+    let tmp_pattern = format!("{}/**", tmpdir.path().to_string_lossy());
     let initial_rules = RuleSetBuilder::new()
         .rule(
             RuleBuilder::new()
@@ -260,7 +263,7 @@ async fn test_permission_engine_reload_updates_rules() {
                 .allow()
                 .action(Action::File {
                     operation: "read".to_string(),
-                    paths: vec!["/tmp/**".to_string()],
+                    paths: vec![tmp_pattern],
                 })
                 .build()
                 .unwrap(),
@@ -272,10 +275,13 @@ async fn test_permission_engine_reload_updates_rules() {
     let mut engine = PermissionEngine::new_with_default_data_root(initial_rules);
 
     // Initial: should allow
+    let tmpdir = TempDir::new().unwrap();
+    let test_file = tmpdir.path().join("file.txt");
+    let test_file_str = test_file.to_str().unwrap().to_string();
     let response = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "any-agent".to_string(),
-            path: "/tmp/file.txt".to_string(),
+            path: test_file_str.clone(),
             op: "read".to_string(),
         }),
         None,
@@ -294,7 +300,7 @@ async fn test_permission_engine_reload_updates_rules() {
     let response = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "any-agent".to_string(),
-            path: "/tmp/file.txt".to_string(),
+            path: test_file_str,
             op: "read".to_string(),
         }),
         None,

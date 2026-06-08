@@ -6,7 +6,6 @@
 //! a bullet in that section of the plan.
 
 use std::io;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,7 +70,7 @@ fn make_session(id: &str) -> Arc<RwLock<ConversationSession>> {
     Arc::new(RwLock::new(ConversationSession::new(
         id.to_string(),
         "gpt-4o".to_string(),
-        PathBuf::from("/tmp"),
+        tmp_path(),
     )))
 }
 

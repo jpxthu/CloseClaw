@@ -1,6 +1,7 @@
 //! Unit tests for daemon private functions
 
 use super::*;
+use std::env::{remove_var, set_var};
 use std::io::Write;
 use tempfile::TempDir;
 
@@ -17,10 +18,13 @@ fn test_load_env_file_normal_parsing() {
     writeln!(file, "KEY2=value2").unwrap();
     writeln!(file, "KEY3=value with spaces").unwrap();
 
-    // Clear any existing env vars
-    std::env::remove_var("KEY1");
-    std::env::remove_var("KEY2");
-    std::env::remove_var("KEY3");
+    // Save and clear any existing env vars
+    let old_key1 = std::env::var("KEY1").ok();
+    let old_key2 = std::env::var("KEY2").ok();
+    let old_key3 = std::env::var("KEY3").ok();
+    remove_var("KEY1");
+    remove_var("KEY2");
+    remove_var("KEY3");
 
     // Load the env file
     load_env_file(&env_path).unwrap();
@@ -29,6 +33,20 @@ fn test_load_env_file_normal_parsing() {
     assert_eq!(std::env::var("KEY1").unwrap(), "value1");
     assert_eq!(std::env::var("KEY2").unwrap(), "value2");
     assert_eq!(std::env::var("KEY3").unwrap(), "value with spaces");
+
+    // Restore original env vars
+    match old_key1 {
+        Some(v) => set_var("KEY1", v),
+        None => remove_var("KEY1"),
+    }
+    match old_key2 {
+        Some(v) => set_var("KEY2", v),
+        None => remove_var("KEY2"),
+    }
+    match old_key3 {
+        Some(v) => set_var("KEY3", v),
+        None => remove_var("KEY3"),
+    }
 }
 
 #[test]
@@ -41,8 +59,10 @@ fn test_load_env_file_comment_lines() {
     writeln!(file, "  # Another comment with spaces").unwrap();
     writeln!(file, "KEY2=value2").unwrap();
 
-    std::env::remove_var("KEY1");
-    std::env::remove_var("KEY2");
+    let old_key1 = std::env::var("KEY1").ok();
+    let old_key2 = std::env::var("KEY2").ok();
+    remove_var("KEY1");
+    remove_var("KEY2");
 
     load_env_file(&env_path).unwrap();
 
@@ -51,6 +71,16 @@ fn test_load_env_file_comment_lines() {
     assert_eq!(std::env::var("KEY2").unwrap(), "value2");
     // Comments should not create env vars
     assert!(std::env::var("#").is_err());
+
+    // Restore original env vars
+    match old_key1 {
+        Some(v) => set_var("KEY1", v),
+        None => remove_var("KEY1"),
+    }
+    match old_key2 {
+        Some(v) => set_var("KEY2", v),
+        None => remove_var("KEY2"),
+    }
 }
 
 #[test]
@@ -65,14 +95,26 @@ fn test_load_env_file_empty_lines() {
     writeln!(file, "KEY2=value2").unwrap();
     writeln!(file, "").unwrap();
 
-    std::env::remove_var("KEY1");
-    std::env::remove_var("KEY2");
+    let old_key1 = std::env::var("KEY1").ok();
+    let old_key2 = std::env::var("KEY2").ok();
+    remove_var("KEY1");
+    remove_var("KEY2");
 
     load_env_file(&env_path).unwrap();
 
     // Empty lines should be skipped
     assert_eq!(std::env::var("KEY1").unwrap(), "value1");
     assert_eq!(std::env::var("KEY2").unwrap(), "value2");
+
+    // Restore original env vars
+    match old_key1 {
+        Some(v) => set_var("KEY1", v),
+        None => remove_var("KEY1"),
+    }
+    match old_key2 {
+        Some(v) => set_var("KEY2", v),
+        None => remove_var("KEY2"),
+    }
 }
 
 #[test]
@@ -81,12 +123,19 @@ fn test_load_env_file_empty_value() {
     let env_path = dir.path().join(".env");
     std::fs::write(&env_path, "EMPTYKEY=\n").unwrap();
 
-    std::env::remove_var("EMPTYKEY");
+    let old_emptykey = std::env::var("EMPTYKEY").ok();
+    remove_var("EMPTYKEY");
 
     load_env_file(&env_path).unwrap();
 
     // Empty value should be skipped (not set)
     assert!(std::env::var("EMPTYKEY").is_err());
+
+    // Restore original env var
+    match old_emptykey {
+        Some(v) => set_var("EMPTYKEY", v),
+        None => remove_var("EMPTYKEY"),
+    }
 }
 
 #[test]
@@ -106,12 +155,19 @@ fn test_load_env_file_no_equal_sign() {
     let env_path = dir.path().join(".env");
     std::fs::write(&env_path, "KEYVALUE\n").unwrap();
 
-    std::env::remove_var("KEYVALUE");
+    let old_keyvalue = std::env::var("KEYVALUE").ok();
+    remove_var("KEYVALUE");
 
     load_env_file(&env_path).unwrap();
 
     // Line without = should be skipped
     assert!(std::env::var("KEYVALUE").is_err());
+
+    // Restore original env var
+    match old_keyvalue {
+        Some(v) => set_var("KEYVALUE", v),
+        None => remove_var("KEYVALUE"),
+    }
 }
 
 #[test]
@@ -128,14 +184,26 @@ fn test_load_env_file_whitespace_trimming() {
     writeln!(file, "  KEY1  =  value1  ").unwrap();
     writeln!(file, "\tKEY2\t=\tvalue2\t").unwrap();
 
-    std::env::remove_var("KEY1");
-    std::env::remove_var("KEY2");
+    let old_key1 = std::env::var("KEY1").ok();
+    let old_key2 = std::env::var("KEY2").ok();
+    remove_var("KEY1");
+    remove_var("KEY2");
 
     load_env_file(&env_path).unwrap();
 
     // Whitespace should be trimmed
     assert_eq!(std::env::var("KEY1").unwrap(), "value1");
     assert_eq!(std::env::var("KEY2").unwrap(), "value2");
+
+    // Restore original env vars
+    match old_key1 {
+        Some(v) => set_var("KEY1", v),
+        None => remove_var("KEY1"),
+    }
+    match old_key2 {
+        Some(v) => set_var("KEY2", v),
+        None => remove_var("KEY2"),
+    }
 }
 
 // Daemon::build_permission_engine tests
@@ -192,15 +260,15 @@ fn test_build_permission_engine_with_templates_dir() {
 async fn test_init_llm_registry_credentials_file_priority() {
     // Arrange: temp dir with config/credentials/openai.json containing an api key
     let tmp = TempDir::new().unwrap();
-    let creds_dir = tmp.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = tempfile::TempDir::new_in(tmp.path()).unwrap();
     std::fs::write(
-        creds_dir.join("openai.json"),
+        creds_dir.path().join("openai.json"),
         r#"{"provider":"openai","apiKey":"file-key-123"}"#,
     )
     .unwrap();
     // Also write env var (should NOT be used since file has key)
-    std::env::set_var("OPENAI_API_KEY", "env-key-should-not-be-used");
+    let old_openai_key = std::env::var("OPENAI_API_KEY").ok();
+    set_var("OPENAI_API_KEY", "env-key-should-not-be-used");
 
     // Act
     let registry = Daemon::init_llm_registry(tmp.path()).await;
@@ -214,15 +282,22 @@ async fn test_init_llm_registry_credentials_file_priority() {
     let listed = registry.list().await;
     assert!(listed.contains(&"openai".to_string()));
 
-    std::env::remove_var("OPENAI_API_KEY");
+    // Restore original env var
+    if let Some(v) = old_openai_key {
+        set_var("OPENAI_API_KEY", v);
+    } else {
+        remove_var("OPENAI_API_KEY");
+    }
 }
 
 #[tokio::test]
 async fn test_init_llm_registry_env_fallback() {
     // Arrange: temp dir with NO credentials files, env vars set
     let tmp = TempDir::new().unwrap();
-    std::env::set_var("OPENAI_API_KEY", "env-key-456");
-    std::env::set_var("ANTHROPIC_API_KEY", "env-anthropic-key");
+    let old_openai_key = std::env::var("OPENAI_API_KEY").ok();
+    let old_anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
+    set_var("OPENAI_API_KEY", "env-key-456");
+    set_var("ANTHROPIC_API_KEY", "env-anthropic-key");
 
     // Act
     let registry = Daemon::init_llm_registry(tmp.path()).await;
@@ -238,17 +313,29 @@ async fn test_init_llm_registry_env_fallback() {
         "anthropic should be registered from env"
     );
 
-    std::env::remove_var("OPENAI_API_KEY");
-    std::env::remove_var("ANTHROPIC_API_KEY");
+    // Restore original env vars
+    if let Some(v) = old_openai_key {
+        set_var("OPENAI_API_KEY", v);
+    } else {
+        remove_var("OPENAI_API_KEY");
+    }
+    if let Some(v) = old_anthropic_key {
+        set_var("ANTHROPIC_API_KEY", v);
+    } else {
+        remove_var("ANTHROPIC_API_KEY");
+    }
 }
 
 #[tokio::test]
 async fn test_init_llm_registry_both_absent_no_registration() {
     // Arrange: temp dir with NO credentials files, no env vars set
     let tmp = TempDir::new().unwrap();
-    std::env::remove_var("OPENAI_API_KEY");
-    std::env::remove_var("ANTHROPIC_API_KEY");
-    std::env::remove_var("MINIMAX_API_KEY");
+    let old_openai_key = std::env::var("OPENAI_API_KEY").ok();
+    let old_anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
+    let old_minimax_key = std::env::var("MINIMAX_API_KEY").ok();
+    remove_var("OPENAI_API_KEY");
+    remove_var("ANTHROPIC_API_KEY");
+    remove_var("MINIMAX_API_KEY");
 
     // Act
     let registry = Daemon::init_llm_registry(tmp.path()).await;
@@ -259,4 +346,21 @@ async fn test_init_llm_registry_both_absent_no_registration() {
         listed.is_empty(),
         "no providers should be registered when no credentials"
     );
+
+    // Restore original env vars
+    if let Some(v) = old_openai_key {
+        set_var("OPENAI_API_KEY", v);
+    } else {
+        remove_var("OPENAI_API_KEY");
+    }
+    if let Some(v) = old_anthropic_key {
+        set_var("ANTHROPIC_API_KEY", v);
+    } else {
+        remove_var("ANTHROPIC_API_KEY");
+    }
+    if let Some(v) = old_minimax_key {
+        set_var("MINIMAX_API_KEY", v);
+    } else {
+        remove_var("MINIMAX_API_KEY");
+    }
 }

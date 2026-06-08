@@ -1,9 +1,27 @@
+use std::path::PathBuf;
+
+use tempfile::TempDir;
+
 use super::engine_eval::PermissionEngine;
 use super::engine_types::{
     Caller, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use crate::permission::actions::ActionBuilder;
 use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+
+fn make_engine() -> PermissionEngine {
+    let tmp = TempDir::new().unwrap();
+    make_engine_with_root(tmp.path().to_path_buf())
+}
+
+fn ws_path(root: &std::path::Path, agent: &str, user: &str, file: &str) -> String {
+    root.join("workspaces")
+        .join(agent)
+        .join(user)
+        .join(file)
+        .to_string_lossy()
+        .into_owned()
+}
 
 fn make_file_request(agent: &str, user_id: &str, path: &str, op: &str) -> PermissionRequest {
     PermissionRequest::WithCaller {
@@ -35,7 +53,7 @@ fn make_exec_request(agent: &str) -> PermissionRequest {
     }
 }
 
-fn make_engine() -> PermissionEngine {
+fn make_engine_with_root(data_root: PathBuf) -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file(Effect::Deny)
         .default_command(Effect::Deny)
@@ -70,16 +88,17 @@ fn make_engine() -> PermissionEngine {
         )
         .build()
         .unwrap();
-    PermissionEngine::new_with_default_data_root(ruleset)
+    PermissionEngine::new(ruleset, data_root)
 }
 
 #[test]
 fn test_workspace_read_allowed() {
-    let engine = make_engine();
+    let tmp = TempDir::new().unwrap();
+    let engine = make_engine_with_root(tmp.path().to_path_buf());
     let request = make_file_request(
         "test-agent",
         "test-user",
-        "/tmp/closeclaw_test/workspaces/test-agent/test-user/file.txt",
+        &ws_path(tmp.path(), "test-agent", "test-user", "file.txt"),
         "read",
     );
     let result = engine.evaluate(request, None);
@@ -88,11 +107,12 @@ fn test_workspace_read_allowed() {
 
 #[test]
 fn test_workspace_write_allowed() {
-    let engine = make_engine();
+    let tmp = TempDir::new().unwrap();
+    let engine = make_engine_with_root(tmp.path().to_path_buf());
     let request = make_file_request(
         "test-agent",
         "test-user",
-        "/tmp/closeclaw_test/workspaces/test-agent/test-user/file.txt",
+        &ws_path(tmp.path(), "test-agent", "test-user", "file.txt"),
         "write",
     );
     let result = engine.evaluate(request, None);
@@ -128,11 +148,12 @@ fn test_workspace_exec_not_auto_authorized() {
 
 #[test]
 fn test_workspace_path_traversal_blocked() {
-    let engine = make_engine();
+    let tmp = TempDir::new().unwrap();
+    let engine = make_engine_with_root(tmp.path().to_path_buf());
     let request = make_file_request(
         "test-agent",
         "test-user",
-        "/tmp/closeclaw_test/workspaces/test-agent/test-user/../../../etc/passwd",
+        &ws_path(tmp.path(), "test-agent", "test-user", "../../../etc/passwd"),
         "read",
     );
     let result = engine.evaluate(request, None);
@@ -142,11 +163,12 @@ fn test_workspace_path_traversal_blocked() {
 
 #[test]
 fn test_workspace_normalize_path_in_workspace() {
-    let engine = make_engine();
+    let tmp = TempDir::new().unwrap();
+    let engine = make_engine_with_root(tmp.path().to_path_buf());
     let request = make_file_request(
         "test-agent",
         "test-user",
-        "/tmp/closeclaw_test/workspaces/test-agent/test-user/foo/../bar/file.txt",
+        &ws_path(tmp.path(), "test-agent", "test-user", "foo/../bar/file.txt"),
         "read",
     );
     let result = engine.evaluate(request, None);
@@ -155,11 +177,12 @@ fn test_workspace_normalize_path_in_workspace() {
 
 #[test]
 fn test_workspace_normalize_path_outside_workspace() {
-    let engine = make_engine();
+    let tmp = TempDir::new().unwrap();
+    let engine = make_engine_with_root(tmp.path().to_path_buf());
     let request = make_file_request(
         "test-agent",
         "test-user",
-        "/tmp/closeclaw_test/workspaces/other-agent/test-user/file.txt",
+        &ws_path(tmp.path(), "other-agent", "test-user", "file.txt"),
         "read",
     );
     let result = engine.evaluate(request, None);
@@ -169,7 +192,8 @@ fn test_workspace_normalize_path_outside_workspace() {
 
 #[test]
 fn test_workspace_owner_allowed() {
-    let engine = make_engine();
+    let tmp = TempDir::new().unwrap();
+    let engine = make_engine_with_root(tmp.path().to_path_buf());
     let request = PermissionRequest::WithCaller {
         caller: Caller {
             user_id: "owner".to_string(),
@@ -178,7 +202,7 @@ fn test_workspace_owner_allowed() {
         },
         request: PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
-            path: "/tmp/closeclaw_test/workspaces/test-agent/owner/file.txt".to_string(),
+            path: ws_path(tmp.path(), "test-agent", "owner", "file.txt"),
             op: "read".to_string(),
         },
     };
@@ -189,11 +213,12 @@ fn test_workspace_owner_allowed() {
 #[test]
 fn test_workspace_user_prefix_boundary() {
     // Security fix: test-user must NOT match test-user2
-    let engine = make_engine();
+    let tmp = TempDir::new().unwrap();
+    let engine = make_engine_with_root(tmp.path().to_path_buf());
     let request = make_file_request(
         "test-agent",
         "test-user",
-        "/tmp/closeclaw_test/workspaces/test-agent/test-user2/file.txt",
+        &ws_path(tmp.path(), "test-agent", "test-user2", "file.txt"),
         "read",
     );
     let result = engine.evaluate(request, None);

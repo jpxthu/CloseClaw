@@ -1,6 +1,5 @@
 use super::*;
 use crate::llm::types::{UnifiedResponse, UnifiedUsage};
-use std::path::PathBuf;
 
 #[test]
 fn test_clean_thinking_mixed_text_and_thinking_unchanged() {
@@ -122,8 +121,7 @@ fn test_clean_thinking_isolation_original_unchanged() {
 #[test]
 fn test_build_api_request_does_not_modify_self_messages() {
     // build_api_request isolation: self.messages unchanged after call
-    let mut session =
-        ConversationSession::new("s_iso".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let mut session = ConversationSession::new("s_iso".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![
             ContentBlock::Text("hi".into()),

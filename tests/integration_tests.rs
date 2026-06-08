@@ -32,7 +32,7 @@ fn make_test_ruleset() -> RuleSet {
                 .allow()
                 .action(Action::File {
                     operation: "read".to_string(),
-                    paths: vec!["/home/**".to_string(), "/tmp/**".to_string()],
+                    paths: vec!["/home/**".to_string()],
                 })
                 .build()
                 .unwrap(),

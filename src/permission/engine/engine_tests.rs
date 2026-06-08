@@ -1,3 +1,5 @@
+use tempfile::TempDir;
+
 use super::engine_eval::PermissionEngine;
 use super::engine_matching::glob_match;
 use super::engine_types::{
@@ -345,10 +347,11 @@ fn test_tool_call_default_independent_from_file() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // file op should be allowed (default Allow)
+    let tmp = TempDir::new().unwrap();
     let file_resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "unknown-agent".to_string(),
-            path: "/tmp/test".to_string(),
+            path: tmp.path().to_string_lossy().into_owned(),
             op: "read".to_string(),
         }),
         None,

@@ -5,7 +5,6 @@
 
 use super::super::*;
 use crate::llm::session_state::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -13,31 +12,27 @@ use std::thread;
 
 #[test]
 fn test_llm_state_default_idle() {
-    let session =
-        ConversationSession::new("s_llm_1".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_llm_1".into(), "gpt-4o".into(), tmp_path());
     assert_eq!(session.llm_state(), LlmState::Idle);
 }
 
 #[test]
 fn test_set_llm_state_requesting() {
-    let session =
-        ConversationSession::new("s_llm_2".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_llm_2".into(), "gpt-4o".into(), tmp_path());
     session.set_llm_state(LlmState::Requesting);
     assert_eq!(session.llm_state(), LlmState::Requesting);
 }
 
 #[test]
 fn test_set_llm_state_receiving() {
-    let session =
-        ConversationSession::new("s_llm_3".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_llm_3".into(), "gpt-4o".into(), tmp_path());
     session.set_llm_state(LlmState::Receiving);
     assert_eq!(session.llm_state(), LlmState::Receiving);
 }
 
 #[test]
 fn test_set_llm_state_cycle() {
-    let session =
-        ConversationSession::new("s_llm_4".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_llm_4".into(), "gpt-4o".into(), tmp_path());
     assert_eq!(session.llm_state(), LlmState::Idle);
     session.set_llm_state(LlmState::Requesting);
     assert_eq!(session.llm_state(), LlmState::Requesting);
@@ -51,31 +46,27 @@ fn test_set_llm_state_cycle() {
 
 #[test]
 fn test_is_llm_busy_default_false() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into(), tmp_path());
     assert!(!session.is_llm_busy());
 }
 
 #[test]
 fn test_is_llm_busy_true_when_requesting() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into(), tmp_path());
     session.set_llm_state(LlmState::Requesting);
     assert!(session.is_llm_busy());
 }
 
 #[test]
 fn test_is_llm_busy_true_when_receiving() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into(), tmp_path());
     session.set_llm_state(LlmState::Receiving);
     assert!(session.is_llm_busy());
 }
 
 #[test]
 fn test_is_llm_busy_false_when_idle() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into(), tmp_path());
     session.set_llm_state(LlmState::Requesting);
     assert!(session.is_llm_busy());
     session.set_llm_state(LlmState::Idle);
@@ -84,8 +75,7 @@ fn test_is_llm_busy_false_when_idle() {
 
 #[test]
 fn test_is_llm_busy_false_with_background_tool_only() {
-    let session =
-        ConversationSession::new("sess_busy".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("sess_busy".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("bg_1");
     session.update_tool_state("bg_1", ToolExecState::RunningBackground);
     assert!(!session.is_llm_busy());
@@ -95,8 +85,7 @@ fn test_is_llm_busy_false_with_background_tool_only() {
 
 #[test]
 fn test_register_tool_call_new() {
-    let session =
-        ConversationSession::new("s_tool_1".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_1".into(), "gpt-4o".into(), tmp_path());
     assert!(session.register_tool_call("call_1"));
     assert!(!session.has_active_foreground_tool());
     assert!(!session.has_active_background_tool());
@@ -104,16 +93,14 @@ fn test_register_tool_call_new() {
 
 #[test]
 fn test_register_tool_call_duplicate() {
-    let session =
-        ConversationSession::new("s_tool_2".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_2".into(), "gpt-4o".into(), tmp_path());
     assert!(session.register_tool_call("call_1"));
     assert!(!session.register_tool_call("call_1"));
 }
 
 #[test]
 fn test_update_tool_state_foreground() {
-    let session =
-        ConversationSession::new("s_tool_3".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_3".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("call_1");
     session.update_tool_state("call_1", ToolExecState::RunningForeground);
     assert!(session.has_active_foreground_tool());
@@ -122,8 +109,7 @@ fn test_update_tool_state_foreground() {
 
 #[test]
 fn test_update_tool_state_background() {
-    let session =
-        ConversationSession::new("s_tool_4".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_4".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("call_1");
     session.update_tool_state("call_1", ToolExecState::RunningBackground);
     assert!(!session.has_active_foreground_tool());
@@ -132,15 +118,13 @@ fn test_update_tool_state_background() {
 
 #[test]
 fn test_update_tool_state_unknown_id_no_panic() {
-    let session =
-        ConversationSession::new("s_tool_5".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_5".into(), "gpt-4o".into(), tmp_path());
     session.update_tool_state("nonexistent", ToolExecState::Completed);
 }
 
 #[test]
 fn test_deregister_tool_call() {
-    let session =
-        ConversationSession::new("s_tool_6".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_6".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("call_1");
     session.update_tool_state("call_1", ToolExecState::RunningForeground);
     assert!(session.has_active_foreground_tool());
@@ -150,15 +134,13 @@ fn test_deregister_tool_call() {
 
 #[test]
 fn test_deregister_tool_call_unknown_id_no_panic() {
-    let session =
-        ConversationSession::new("s_tool_7".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_7".into(), "gpt-4o".into(), tmp_path());
     session.deregister_tool_call("nonexistent");
 }
 
 #[test]
 fn test_tool_lifecycle_full() {
-    let session =
-        ConversationSession::new("s_tool_8".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_tool_8".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("call_1");
     session.update_tool_state("call_1", ToolExecState::RunningForeground);
     assert!(session.has_active_foreground_tool());
@@ -171,24 +153,21 @@ fn test_tool_lifecycle_full() {
 
 #[test]
 fn test_register_child_new() {
-    let session =
-        ConversationSession::new("s_child_1".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_child_1".into(), "gpt-4o".into(), tmp_path());
     assert!(session.register_child("child_1"));
     assert!(session.has_running_child());
 }
 
 #[test]
 fn test_register_child_duplicate() {
-    let session =
-        ConversationSession::new("s_child_2".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_child_2".into(), "gpt-4o".into(), tmp_path());
     assert!(session.register_child("child_1"));
     assert!(!session.register_child("child_1"));
 }
 
 #[test]
 fn test_update_child_state() {
-    let session =
-        ConversationSession::new("s_child_3".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_child_3".into(), "gpt-4o".into(), tmp_path());
     session.register_child("child_1");
     session.update_child_state("child_1", ChildSessionState::Completed);
     assert!(!session.has_running_child());
@@ -196,15 +175,13 @@ fn test_update_child_state() {
 
 #[test]
 fn test_update_child_state_unknown_id_no_panic() {
-    let session =
-        ConversationSession::new("s_child_4".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_child_4".into(), "gpt-4o".into(), tmp_path());
     session.update_child_state("nonexistent", ChildSessionState::Completed);
 }
 
 #[test]
 fn test_deregister_child() {
-    let session =
-        ConversationSession::new("s_child_5".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_child_5".into(), "gpt-4o".into(), tmp_path());
     session.register_child("child_1");
     assert!(session.has_running_child());
     session.deregister_child("child_1");
@@ -213,8 +190,7 @@ fn test_deregister_child() {
 
 #[test]
 fn test_deregister_child_unknown_id_no_panic() {
-    let session =
-        ConversationSession::new("s_child_6".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_child_6".into(), "gpt-4o".into(), tmp_path());
     session.deregister_child("nonexistent");
 }
 
@@ -222,31 +198,27 @@ fn test_deregister_child_unknown_id_no_panic() {
 
 #[test]
 fn test_exec_status_idle() {
-    let session =
-        ConversationSession::new("s_exec_1".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_1".into(), "gpt-4o".into(), tmp_path());
     assert_eq!(session.exec_status(), SessionExecStatus::Idle);
 }
 
 #[test]
 fn test_exec_status_busy_llm_requesting() {
-    let session =
-        ConversationSession::new("s_exec_2".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_2".into(), "gpt-4o".into(), tmp_path());
     session.set_llm_state(LlmState::Requesting);
     assert_eq!(session.exec_status(), SessionExecStatus::Busy);
 }
 
 #[test]
 fn test_exec_status_busy_llm_receiving() {
-    let session =
-        ConversationSession::new("s_exec_3".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_3".into(), "gpt-4o".into(), tmp_path());
     session.set_llm_state(LlmState::Receiving);
     assert_eq!(session.exec_status(), SessionExecStatus::Busy);
 }
 
 #[test]
 fn test_exec_status_busy_foreground_tool() {
-    let session =
-        ConversationSession::new("s_exec_4".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_4".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("call_1");
     session.update_tool_state("call_1", ToolExecState::RunningForeground);
     assert_eq!(session.exec_status(), SessionExecStatus::Busy);
@@ -254,16 +226,14 @@ fn test_exec_status_busy_foreground_tool() {
 
 #[test]
 fn test_exec_status_waiting_child_running() {
-    let session =
-        ConversationSession::new("s_exec_5".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_5".into(), "gpt-4o".into(), tmp_path());
     session.register_child("child_1");
     assert_eq!(session.exec_status(), SessionExecStatus::Waiting);
 }
 
 #[test]
 fn test_exec_status_idle_with_background_tasks() {
-    let session =
-        ConversationSession::new("s_exec_6".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_6".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("bg_1");
     session.update_tool_state("bg_1", ToolExecState::RunningBackground);
     assert_eq!(
@@ -274,8 +244,7 @@ fn test_exec_status_idle_with_background_tasks() {
 
 #[test]
 fn test_exec_status_busy_llm_overrides_background_tool() {
-    let session =
-        ConversationSession::new("s_exec_7".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_7".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("bg_1");
     session.update_tool_state("bg_1", ToolExecState::RunningBackground);
     session.set_llm_state(LlmState::Requesting);
@@ -284,8 +253,7 @@ fn test_exec_status_busy_llm_overrides_background_tool() {
 
 #[test]
 fn test_exec_status_busy_foreground_overrides_waiting() {
-    let session =
-        ConversationSession::new("s_exec_8".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let session = ConversationSession::new("s_exec_8".into(), "gpt-4o".into(), tmp_path());
     session.register_child("child_1");
     session.register_tool_call("call_1");
     session.update_tool_state("call_1", ToolExecState::RunningForeground);
@@ -299,7 +267,7 @@ fn test_concurrent_tool_register_deregister_no_panic() {
     let session = Arc::new(ConversationSession::new(
         "s_conc_tool".into(),
         "gpt-4o".into(),
-        PathBuf::from("/tmp"),
+        tmp_path(),
     ));
     let handles: Vec<_> = (0..4)
         .map(|i| {
@@ -323,7 +291,7 @@ fn test_concurrent_child_register_deregister_no_panic() {
     let session = Arc::new(ConversationSession::new(
         "s_conc_child".into(),
         "gpt-4o".into(),
-        PathBuf::from("/tmp"),
+        tmp_path(),
     ));
     let handles: Vec<_> = (0..4)
         .map(|i| {

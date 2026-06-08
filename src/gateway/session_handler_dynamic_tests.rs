@@ -254,8 +254,9 @@ fn test_build_dynamic_sections_no_global_workdir() {
 /// When a workdir_path is provided, WorkingDirectory section is included.
 #[test]
 fn test_build_dynamic_sections_working_directory() {
+    let tmp = tempfile::TempDir::new().unwrap();
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&meta, Some("/tmp/test"), &[], None);
+    let sections = build_dynamic_sections(&meta, Some(tmp.path().to_str().unwrap()), &[], None);
     let wd = sections.iter().find(|s| s.name() == "working_directory");
     assert!(
         wd.is_some(),
@@ -281,8 +282,9 @@ fn test_build_dynamic_sections_git_status_with_path() {
 /// When a non-git path is provided, WorkingDirectory appears but GitStatus does not.
 #[test]
 fn test_build_dynamic_sections_no_git_for_non_repo() {
+    let tmp = tempfile::TempDir::new().unwrap();
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&meta, Some("/tmp"), &[], None);
+    let sections = build_dynamic_sections(&meta, Some(tmp.path().to_str().unwrap()), &[], None);
     let has_wd = sections.iter().any(|s| s.name() == "working_directory");
     let has_git = sections.iter().any(|s| s.name() == "git_status");
     assert!(has_wd, "WorkingDirectory should be present");

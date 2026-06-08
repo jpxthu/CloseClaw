@@ -7,6 +7,7 @@
 use super::*;
 use crate::tools::builtin::bash_kill::{persist_output, process_output, MAX_OUTPUT_CHARS};
 use serde_json::json;
+use tempfile::TempDir;
 
 fn test_permission_engine() -> Arc<PermissionEngine> {
     use crate::permission::rules::RuleSetBuilder;
@@ -120,9 +121,14 @@ fn test_resolve_cwd_no_cwd_no_workdir() {
 
 #[test]
 fn test_resolve_cwd_with_cwd_arg() {
-    let args = serde_json::json!({"cwd": "/tmp/test"});
+    let tmp = TempDir::new().unwrap();
+    let cwd = tmp.path().join("test").to_string_lossy().to_string();
+    let args = serde_json::json!({"cwd": cwd});
     let ctx = test_tool_context();
-    assert_eq!(resolve_cwd(&args, &ctx), "/tmp/test");
+    assert_eq!(
+        resolve_cwd(&args, &ctx),
+        tmp.path().join("test").to_string_lossy().to_string()
+    );
 }
 
 // --- BashTool metadata ---
@@ -181,12 +187,13 @@ fn test_input_schema_six_properties() {
 #[test]
 fn test_build_background_result_has_task_id_and_output_path() {
     use crate::tasks::{BackgroundTask, TaskState};
-    use std::path::PathBuf;
+    let tmp = TempDir::new().unwrap();
+    let output_path = tmp.path().join("x/output");
     let task = BackgroundTask {
         id: "task-abc-123".to_string(),
         command: "echo hi".to_string(),
         state: TaskState::Running,
-        output_path: PathBuf::from("/tmp/openclaw/x/output"),
+        output_path,
     };
     let result = build_background_result(&task);
     assert_eq!(
@@ -196,7 +203,7 @@ fn test_build_background_result_has_task_id_and_output_path() {
     );
     assert_eq!(
         result.data["outputPath"],
-        json!("/tmp/openclaw/x/output"),
+        json!(tmp.path().join("x/output")),
         "explicit-background result must expose outputPath"
     );
 }
@@ -204,12 +211,12 @@ fn test_build_background_result_has_task_id_and_output_path() {
 #[test]
 fn test_build_background_result_has_no_auto_backgrounded_flag() {
     use crate::tasks::{BackgroundTask, TaskState};
-    use std::path::PathBuf;
+    let tmp = TempDir::new().unwrap();
     let task = BackgroundTask {
         id: "task-no-auto".to_string(),
         command: "true".to_string(),
         state: TaskState::Running,
-        output_path: PathBuf::from("/tmp/openclaw/y/output"),
+        output_path: tmp.path().join("y/output"),
     };
     let result = build_background_result(&task);
     // Explicit `run_in_background: true` must NOT set the auto flag.
@@ -226,12 +233,13 @@ fn test_build_background_result_has_no_auto_backgrounded_flag() {
 #[test]
 fn test_build_auto_background_result_has_task_id_and_flag() {
     use crate::tasks::{BackgroundTask, TaskState};
-    use std::path::PathBuf;
+    let tmp = TempDir::new().unwrap();
+    let output_path = tmp.path().join("z/output");
     let task = BackgroundTask {
         id: "task-auto-bg".to_string(),
         command: "sleep 10".to_string(),
         state: TaskState::Running,
-        output_path: PathBuf::from("/tmp/openclaw/z/output"),
+        output_path,
     };
     let result = build_auto_background_result(&task);
     assert_eq!(
@@ -241,7 +249,7 @@ fn test_build_auto_background_result_has_task_id_and_flag() {
     );
     assert_eq!(
         result.data["outputPath"],
-        json!("/tmp/openclaw/z/output"),
+        json!(tmp.path().join("z/output")),
         "auto-background result must expose outputPath"
     );
     assert_eq!(
@@ -258,9 +266,10 @@ async fn test_execute_command_run_in_background_returns_background_task() {
     use crate::tasks::TaskState;
     let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
 
+    let tmp = TempDir::new().unwrap();
     let result = execute_command(
         "echo run_in_bg",
-        "/tmp",
+        tmp.path().to_str().unwrap(),
         5_000,
         true,
         &bg_manager,
@@ -319,9 +328,10 @@ async fn test_execute_command_run_in_background_with_long_command() {
     // like `nonexistent_xyz`). With the new `spawn()` path, the task is
     // registered immediately and the command runs in the background.
     let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
+    let tmp = TempDir::new().unwrap();
     let result = execute_command(
         "nonexistent_xyz_abcdef_12345",
-        "/tmp",
+        tmp.path().to_str().unwrap(),
         5_000,
         true,
         &bg_manager,
@@ -356,7 +366,8 @@ async fn test_execute_command_run_in_background_with_long_command() {
 async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
     let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
     // Spawn a child that will outlast the bg_timeout.
-    let child = spawn_sh_command("sleep 5", "/tmp").expect("spawn sleep");
+    let tmp = TempDir::new().unwrap();
+    let child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
     // Wrap the child in the shared `Arc<Mutex<Option<_>>>` slot that
     // `handle_foreground_result` now expects (Step 1.4 refactor:
     // the slot is the same one `BashKillHandle` would observe).
@@ -401,7 +412,8 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
     // Control test: when the child completes before bg_timeout, the
     // result must be a foreground result (no background fields).
     let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let child = spawn_sh_command("true", "/tmp").expect("spawn true");
+    let tmp = TempDir::new().unwrap();
+    let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     // Wrap the child in the shared slot — `handle_foreground_result`
     // extracts stdout/stderr and then takes the child for `wait()`.
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));

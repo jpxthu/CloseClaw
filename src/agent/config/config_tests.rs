@@ -1,9 +1,6 @@
 use super::*;
-
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-
 use tempfile::TempDir;
-
 #[test]
 fn test_agent_config_save_load() {
     let temp = TempDir::new().unwrap();
@@ -194,12 +191,15 @@ fn test_agent_config_new_fields_defaults() {
 
 #[test]
 fn test_agent_config_new_fields_roundtrip() {
+    let temp = TempDir::new().unwrap();
+    let workspace_path = temp.path().join("workspace");
+    let agent_dir_path = temp.path().join("agent_dir");
     let config = AgentConfig {
         id: "test-agent".to_string(),
         name: Some("Test".to_string()),
         model: Some("gpt-4o".to_string()),
-        workspace: Some("/tmp/workspace".to_string()),
-        agent_dir: Some("/tmp/agent_dir".to_string()),
+        workspace: Some(workspace_path.to_str().unwrap().to_string()),
+        agent_dir: Some(agent_dir_path.to_str().unwrap().to_string()),
         bootstrap_mode: BootstrapMode::Minimal,
         skills: vec!["skill-a".to_string(), "skill-b".to_string()],
         tools: vec!["read".to_string(), "write".to_string()],
@@ -219,8 +219,14 @@ fn test_agent_config_new_fields_roundtrip() {
     let deserialized: AgentConfig = serde_json::from_str(&json).unwrap();
 
     assert_eq!(deserialized.model, Some("gpt-4o".to_string()));
-    assert_eq!(deserialized.workspace, Some("/tmp/workspace".to_string()));
-    assert_eq!(deserialized.agent_dir, Some("/tmp/agent_dir".to_string()));
+    assert_eq!(
+        deserialized.workspace,
+        Some(workspace_path.to_str().unwrap().to_string())
+    );
+    assert_eq!(
+        deserialized.agent_dir,
+        Some(agent_dir_path.to_str().unwrap().to_string())
+    );
     assert_eq!(deserialized.bootstrap_mode, BootstrapMode::Minimal);
     assert_eq!(deserialized.skills, vec!["skill-a", "skill-b"]);
     assert_eq!(deserialized.tools, vec!["read", "write"]);
@@ -425,10 +431,7 @@ fn test_max_depth_exceeded() {
     }
 }
 
-// =====================================================================
-// Step 1.5 — Tests for `AgentConfig.name` becoming optional and
-// `ResolvedAgentConfig` falling back to `id` when name is missing/empty.
-// =====================================================================
+// Step 1.5 — Tests for optional name and id fallback
 
 #[test]
 fn test_agent_config_name_defaults_to_none() {
@@ -495,5 +498,3 @@ fn test_resolved_config_merge_name_fallback() {
     assert_eq!(resolved.name, "agent-z");
     assert_eq!(resolved.source, ConfigSource::Merged);
 }
-
-// =====================================================================

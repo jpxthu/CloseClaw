@@ -13,6 +13,7 @@ use closeclaw::chat::protocol::ServerMessage;
 use closeclaw::chat::session::LegacyChatSession;
 use closeclaw::llm::provider::Provider;
 use closeclaw::llm::LLMRegistry;
+use std::env::{remove_var, set_var, var};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -37,7 +38,8 @@ async fn setup_session_with_fake(
     for (content, model) in scenarios {
         builder = builder.then_ok(content, model);
     }
-    std::env::set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
+    let old_val = var("LLM_FALLBACK_CHAIN").ok();
+    set_var("LLM_FALLBACK_CHAIN", "fake/glm-5");
     let fake_provider = builder.or_else("fallback response").build();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -58,7 +60,10 @@ async fn setup_session_with_fake(
         registry,
         None, // config_dir
     );
-    std::env::remove_var("LLM_FALLBACK_CHAIN");
+    match old_val {
+        Some(v) => set_var("LLM_FALLBACK_CHAIN", v),
+        None => remove_var("LLM_FALLBACK_CHAIN"),
+    }
 
     (session, client, shutdown_tx)
 }
@@ -215,7 +220,8 @@ async fn test_session_compact_e2e() {
             (ServerMessage::ChatResponse { content, .. }, ServerMessage::ChatResponseDone { .. })
                 if content == "reply after compact"
         ),
-        "round 4 after compact: expected 'reply after compact', got resp4a={resp4a:?}, resp4b={resp4b:?}"
+        "round 4 after compact: expected 'reply after compact', \
+         got resp4a={resp4a:?}, resp4b={resp4b:?}"
     );
 
     // Step 5 — Second /compact

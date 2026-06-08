@@ -3,8 +3,7 @@ use crate::llm::types::UnifiedResponse;
 
 #[test]
 fn test_clone_messages_from() {
-    let mut source_session =
-        ConversationSession::new("src_1".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let mut source_session = ConversationSession::new("src_1".into(), "gpt-4o".into(), tmp_path());
     source_session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("hello from parent".into())],
         usage: UnifiedUsage {
@@ -30,8 +29,7 @@ fn test_clone_messages_from() {
         finish_reason: Some("stop".into()),
     });
 
-    let mut child_session =
-        ConversationSession::new("child_1".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+    let mut child_session = ConversationSession::new("child_1".into(), "gpt-4o".into(), tmp_path());
     assert_eq!(child_session.messages().len(), 0);
 
     child_session.clone_messages_from(&source_session.messages());
@@ -44,7 +42,7 @@ fn test_clone_messages_from() {
 #[test]
 fn test_clone_messages_from_empty() {
     let mut child_session =
-        ConversationSession::new("child_empty".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+        ConversationSession::new("child_empty".into(), "gpt-4o".into(), tmp_path());
     assert_eq!(child_session.messages().len(), 0);
 
     child_session.clone_messages_from(&[]);
@@ -71,7 +69,7 @@ fn test_clone_messages_from_preserves_timestamp() {
     ];
 
     let mut child_session =
-        ConversationSession::new("child_ts".into(), "gpt-4o".into(), PathBuf::from("/tmp"));
+        ConversationSession::new("child_ts".into(), "gpt-4o".into(), tmp_path());
     child_session.clone_messages_from(&source_msgs);
 
     assert_eq!(child_session.messages().len(), 2);

@@ -13,6 +13,7 @@
 
 use std::hash::Hash;
 use std::path::PathBuf;
+use tempfile::TempDir;
 
 use closeclaw::permission::engine::{
     Action, Caller, CommandArgs, Effect, PermissionRequest, PermissionRequestBody,
@@ -74,10 +75,13 @@ fn make_permissive_ruleset() -> RuleSet {
 }
 
 /// Creates a temporary socket path for IPC testing.
-fn temp_socket_path() -> PathBuf {
-    let tmpdir = std::env::temp_dir();
+fn temp_socket_path() -> (PathBuf, TempDir) {
+    let tmpdir = TempDir::new().expect("failed to create temp dir");
     let rand_suffix: u32 = rand_simple();
-    tmpdir.join(format!("closeclaw-test-{}.sock", rand_suffix))
+    let path = tmpdir
+        .path()
+        .join(format!("closeclaw-test-{}.sock", rand_suffix));
+    (path, tmpdir)
 }
 
 /// Simple pseudo-random number generator (no external deps needed for test).
@@ -130,10 +134,11 @@ async fn test_security_policy_apply_does_not_panic() {
 
 #[tokio::test]
 async fn test_security_policy_custom_allowed_paths() {
+    let tmpdir = TempDir::new().unwrap();
     let policy = SecurityPolicy {
         seccomp: false,
         landlock: true,
-        allowed_fs_paths: vec![PathBuf::from("/tmp"), PathBuf::from("/home/user")],
+        allowed_fs_paths: vec![tmpdir.path().to_path_buf(), PathBuf::from("/home/user")],
         blocked_syscalls: vec![],
     };
 
@@ -168,7 +173,7 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
             request: PermissionRequestBody::CommandExec {
                 agent: "test-agent".to_string(),
                 cmd: "ls".to_string(),
-                args: vec!["/tmp".to_string()],
+                args: vec![".".to_string()],
             },
         },
     };
@@ -226,7 +231,7 @@ async fn test_ipc_channel_protocol_permission_response_serde() {
 
 #[tokio::test]
 async fn test_sandbox_new_has_unstarted_state() {
-    let socket_path = temp_socket_path();
+    let (socket_path, _tmpdir) = temp_socket_path();
     let sandbox = Sandbox::new(&socket_path);
 
     // Initial state should be Unstarted
@@ -240,17 +245,16 @@ async fn test_sandbox_new_has_unstarted_state() {
         state
     );
 
-    // Clean up socket file if it exists
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
 
 #[tokio::test]
 async fn test_sandbox_new_with_custom_policy() {
-    let socket_path = temp_socket_path();
+    let (socket_path, tmpdir) = temp_socket_path();
     let policy = SecurityPolicy {
         seccomp: false,
         landlock: true,
-        allowed_fs_paths: vec![PathBuf::from("/tmp")],
+        allowed_fs_paths: vec![tmpdir.path().to_path_buf()],
         blocked_syscalls: vec![],
     };
 
@@ -259,13 +263,12 @@ async fn test_sandbox_new_with_custom_policy() {
     // apply() should work with the custom policy
     assert!(policy.apply().is_ok());
 
-    // Clean up
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
 
 #[tokio::test]
 async fn test_sandbox_cannot_spawn_twice() {
-    let socket_path = temp_socket_path();
+    let (socket_path, _tmpdir) = temp_socket_path();
     let mut sandbox = Sandbox::new(&socket_path);
 
     // Clean up any leftover socket
@@ -300,12 +303,12 @@ async fn test_sandbox_cannot_spawn_twice() {
     }
     // If spawn fails (e.g., binary not found in test context), that's OK for unit tests
 
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
 
 #[tokio::test]
 async fn test_sandbox_ping_after_spawn() {
-    let socket_path = temp_socket_path();
+    let (socket_path, _tmpdir) = temp_socket_path();
     let mut sandbox = Sandbox::new(&socket_path);
     let _ = std::fs::remove_file(&socket_path);
 
@@ -327,12 +330,12 @@ async fn test_sandbox_ping_after_spawn() {
         sandbox.shutdown().await;
     }
 
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
 
 #[tokio::test]
 async fn test_sandbox_evaluate_permission_request() {
-    let socket_path = temp_socket_path();
+    let (socket_path, tmpdir) = temp_socket_path();
     let mut sandbox = Sandbox::new(&socket_path);
     let _ = std::fs::remove_file(&socket_path);
 
@@ -347,6 +350,7 @@ async fn test_sandbox_evaluate_permission_request() {
             .expect("reload_rules should succeed");
 
         // Evaluate a file read permission request
+        let test_file = tmpdir.path().join("test.txt");
         let request = PermissionRequest::WithCaller {
             caller: Caller {
                 user_id: "test-user".to_string(),
@@ -356,7 +360,7 @@ async fn test_sandbox_evaluate_permission_request() {
             request: PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
                 op: "read".to_string(),
-                path: "/tmp/test.txt".to_string(),
+                path: test_file.to_str().unwrap().to_string(),
             },
         };
 
@@ -387,12 +391,12 @@ async fn test_sandbox_evaluate_permission_request() {
         sandbox.shutdown().await;
     }
 
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
 
 #[tokio::test]
 async fn test_sandbox_restart_after_shutdown() {
-    let socket_path = temp_socket_path();
+    let (socket_path, _tmpdir) = temp_socket_path();
     let mut sandbox = Sandbox::new(&socket_path);
     let _ = std::fs::remove_file(&socket_path);
 
@@ -437,12 +441,12 @@ async fn test_sandbox_restart_after_shutdown() {
         let _ = sandbox.shutdown().await;
     }
 
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
 
 #[tokio::test]
 async fn test_sandbox_cannot_operate_when_not_spawned() {
-    let socket_path = temp_socket_path();
+    let (socket_path, _tmpdir) = temp_socket_path();
     let sandbox = Sandbox::new(&socket_path);
 
     // Evaluate without spawn should fail with InvalidState error
@@ -454,12 +458,12 @@ async fn test_sandbox_cannot_operate_when_not_spawned() {
     let eval_result = sandbox.evaluate(dummy_request).await;
     assert!(eval_result.is_err(), "evaluate without spawn should fail");
 
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
 
 #[tokio::test]
 async fn test_sandbox_state_transitions() {
-    let socket_path = temp_socket_path();
+    let (socket_path, _tmpdir) = temp_socket_path();
     let mut sandbox = Sandbox::new(&socket_path);
     let _ = std::fs::remove_file(&socket_path);
 
@@ -487,5 +491,5 @@ async fn test_sandbox_state_transitions() {
         ));
     }
 
-    let _ = std::fs::remove_file(&socket_path);
+    // _tmpdir auto-cleans on drop
 }
