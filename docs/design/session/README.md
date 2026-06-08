@@ -52,10 +52,14 @@ Gateway / SessionManager  ← session 生命周期协调者
 - **持久化层组件**：
   - **SessionManager**：session 的创建、查找、恢复入口。维护 session_key → session_id 映射表，对外暴露 `resolve(session_key)` 方法：key 命中返回已有 session，未命中创建新 session 并写入映射。`/new` 指令创建新 session 后覆盖映射。协调各组件完成 session 初始化。session_id 格式为 `{agent_id}_{timestamp}_{random_suffix}`。
 
+  **session_key 与会话路由键**：
+  - session_key = hash(platform, sender_id, peer_id, account_id)。account_id 是 CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。thread_id 不参与 session_key 计算——仅用于出站时定向回复
+  - session_key 是路由查找键，不直接等于 session_id。同一 key 下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
+
   **key_registry 生命周期**：
-  - 启动时：SessionManager 遍历 SQLite 中所有 session（active + archived），按 platform/sender_id/peer_id/account_id 计算 session_key，分组后取最新 session_id 写入映射表
+  - 启动时：SessionManager 遍历 SQLite 中所有 session（active + archived），按会话路由键计算 session_key，分组后取最新 session_id 写入映射表
   - 运行时：`resolve()` 查映射；`create_new()` 新 session 后覆盖映射
-  - 映射表为纯内存数据结构，不单独持久化——重建依赖 SessionCheckpoint 中的路由字段
+  - 映射表为纯内存数据结构，不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段
   - **ConversationSession**：运行时对象，持有 system prompt、消息历史、system prompt 追加区（system_appends）、RunningStats（token/cache 统计）。同时持有执行状态句柄（LLM 状态、工具进程、子 session 引用）。
   - **CheckpointManager**：协调 SessionCheckpoint 的读写缓存和持久化。需要持久化时调用 PersistenceService。
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
