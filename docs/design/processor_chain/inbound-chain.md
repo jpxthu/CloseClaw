@@ -19,7 +19,7 @@ NormalizedMessage（统一中间结构）
   │ sender_id   — 发送者标识         │
   │ peer_id     — 会话对端标识       │
   │ thread_id   — 话题标识（可选）    │
-  │ account_id  — 租户标识（可选）    │
+  │ account_id  — CloseClaw 本地账号标识│
   │ content     — 消息文本内容        │
   │ timestamp   — 消息时间           │
   └─────────────────────────────────┘
@@ -29,10 +29,9 @@ Processor 链（按 priority 升序执行，纯变换）
   │     → 原始消息写入日志，透传
   │
   ├── SessionRouter（priority 20）
-  │     → 从 (platform, sender_id, peer_id, account_id?) 计算 session_key
+  │     → 从 (platform, sender_id, peer_id, account_id) 计算 session_key
   │     → session_key 写入 metadata
   │     → 不创建 session、不查 SessionManager
-  │     → thread_id 不参与 session_key 计算
   │
   └── ContentNormalizer（priority 30）
         → 清洗平台残留元数据（飞书 at 语法、Discord mention 等）
@@ -46,9 +45,9 @@ ProcessedMessage → Gateway 路由
 
 SessionRouter 计算 session_key 的方式：
 
-- `session_key = hash(platform, sender_id, peer_id, account_id?)`
-- `account_id` 在 DmScope 配置为 PerAccount 时参与计算，否则不参与
-- `thread_id` 不参与——话题回复与主会话共享同一 session，保持上下文连续。`thread_id` 仅用于出站时 Gateway 定向回复到正确的话题线
+- `session_key = hash(platform, sender_id, peer_id, account_id)`
+- `account_id` 由 `sender_id` 通过身份映射得到，是 CloseClaw 本地的账号标识。一个 CloseClaw 账号可绑定多个平台的 sender_id
+- `thread_id` 不参与——仅用于出站时 Gateway 定向回复到正确的话题线
 
 session_key 是一个确定性哈希值，相同的输入永远产相同的 key。但 session_key 不直接等于 session_id——它只是一个查找键。
 
@@ -70,9 +69,9 @@ SessionRouter 不区分私聊和群聊。会话粒度由 Adapter 通过 peer_id 
 ## 数据流
 
 ```
-IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id?, content }
+IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content }
   → RawLogProcessor：记录原始内容到日志 → 透传
-    → SessionRouter：计算 session_key = hash(platform, sender_id, peer_id, account_id?) → 写入 metadata.session_key
+    → SessionRouter：计算 session_key = hash(platform, sender_id, peer_id, account_id) → 写入 metadata.session_key
       → ContentNormalizer：清洗平台残留 → 标准化 markdown 格式
         → ProcessedMessage { content, metadata { session_key } }
           → Gateway
