@@ -56,9 +56,16 @@ Session 的整体状态由三维组合判定：
 
 ### 停止入口
 
-- **斜杠指令**（`/stop`）：用户在 session 内输入，停当前 session。可选 `--cascade` 标记决定是否同时停子 session
-- **父 session 停止**：父 session 被停（用户 `/stop --cascade` 或系统级停止）时，级联停止其所有子 session
-- **优雅关闭**：系统关闭时，遍历所有活跃 session 逐个执行停止，父 session 先于子 session（避免访问已释放的子 session 句柄）
+停止操作统一支持两种模式：
+
+- **Graceful（默认）**：等待 in-flight 操作完成后再停。等待中的工具调用允许自然完成，当前的 LLM turn 允许执行完毕。超时后不强制终止，而是向调用方报告进度和等待项。适用场景：Daemon 首次 SIGTERM、用户 `/stop`
+- **Forceful**：立即终止所有操作。工具进程直接 kill，LLM 请求直接 cancel。调用方接受数据不一致风险。适用场景：Daemon 重复 SIGTERM 或 SIGINT、用户 `/stop --force`
+
+三种停止入口：
+
+- **斜杠指令**（`/stop`）：用户在 session 内输入，停当前 session。支持 `--cascade`（级联子 session）和 `--force`（强制终止）标记，可组合使用
+- **父 session 停止**：父 session 被停时，对子 session 采用相同的停止模式（graceful 或 forceful）
+- **系统关闭**：由 Daemon 触发，调用 SessionManager 统一关闭所有活跃 session。SessionManager 内部负责 session 树遍历和停止顺序，Daemon 只传模式参数和超时。所有 session 关闭完毕后，未在超时内完成的 session 标记为 dirty——下次启动时检测并告警
 
 ### 后台结果注入
 
@@ -103,36 +110,44 @@ Session resume（从 archived 恢复）
 ### 停止流程
 
 ```
-触发停止（/stop 或级联或优雅关闭）
+触发停止（/stop 或级联或系统关闭）
   ↓
-  确定 cascade 参数
+  确定模式
+
+Graceful 模式：
+  →
+  1. 暂停外部输入：停止接受新消息，暂停触发新自主 turn
   ↓
-  ├── cascade = true：
-  │     ↓
-  │     遍历所有状态为执行中的子 session
-  │       → 对每个子 session 递归调用 stop(cascade=true)
-  │     ↓
-  │     等待所有子 session 停止完成
-  │
-  ├── 杀工具进程：
-       遍历所有活跃工具调用
-         → 前台执行 → 发送 kill 信号
-         → 后台执行 → 发送 kill 信号
-  │     ↓
-  │     等待所有进程终止（带超时）
-  │
-  ├── 取消 LLM 请求：
-  │     若 LLM 状态为 Requesting 或 Receiving
-  │       → 触发取消机制
-  │     ↓
-  │     LLM 状态 = Idle
-  │
-  └── 清理：
-       清空工具状态
-       清空子 Session 状态
-       ↓
-       如果是主动关闭：SessionManager 移除运行时引用
+  2. 若 cascade：遍历子 session，对每个递归 graceful 停止
+  ↓
+  3. 等待 in-flight 操作完成：
+      ├─ 当前 LLM stream → 收完
+      ├─ 当前工具调用 → 等完成
+      └─ 工具结果若触发新 turn → 执行最后这一轮（含工具→结果→LLM），限最多再触发一轮
+  ↓
+  4. 超时处理：
+      ├─ 超时前全部完成 → 正常结束
+      └─ 超时 → 不杀进程，向调用方报告进度
+          报告：等待项名称 + 已执行时长
+          调用方决定：继续等 / 升级为 force / 放弃
+  ↓
+  5. 清理：清空工具状态、清空子 session 状态、LLM 状态置 Idle
+     SessionManager 移除运行时引用 → 持久化最终状态
+
+Forceful 模式：
+  →
+  1. 若 cascade：遍历子 session，对每个递归 force 停止
+  ↓
+  2. 杀工具进程：遍历所有活跃工具调用 → 全部 kill
+  ↓
+  3. cancel LLM 请求
+  ↓
+  4. 清理：清空工具状态、清空子 session 状态、LLM 状态置 Idle
+  ↓
+  5. 持久化最终状态
 ```
+
+系统关闭时，SessionManager 遍历所有活跃 session 构建父子树，对根 session 并发执行停止，级联机制处理子 session，无需额外排序。
 
 ### 子 session 完成注入
 
@@ -154,13 +169,13 @@ Session resume（从 archived 恢复）
 ### 上游
 
 - **Gateway**：用户 `/stop` 指令触发 session 停止
-- **Daemon**：优雅关闭时遍历所有活跃 session 触发停止
+- **Daemon**：系统关闭时委托 SessionManager 统一关闭所有活跃 session（详见 daemon/README 关闭路径），Daemon 不直接操作单个 session
 - **父 session**：父 session 停止时级联触发子 session 停止
 
 ### 下游
 
 - **LLM Provider**：停止时通过取消机制终止进行中的请求
-- **Tools 模块**：kill 工具进程句柄
+- **工具进程管理**（Session 内部）：停止时遍历并终止当前 session 持有的所有工具进程（前台+后台），进程句柄由 Session 自行管理
 - **Spawn 协调**：子 session 完成时通过消息队列注入结果
 
 ### 无关

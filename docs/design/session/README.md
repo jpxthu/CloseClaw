@@ -92,7 +92,7 @@ Gateway / SessionManager  ← session 生命周期协调者
     → 未命中 → 创建新 session → 写入 key_registry → 返回 session_id
       → 读取 bootstrap 文件 → 组装 system prompt
           → ToolRegistry 生成工具描述
-          → SkillRegistry 生成 skill 列表
+          → DiskSkillRegistry 生成 skill 列表
       → 创建 ConversationSession（执行状态初始为 Idle）
       → CheckpointManager.save（首次持久化）
 ```
@@ -131,30 +131,18 @@ ConversationSession 更新内存中的追加条目列表
   ↓
 CheckpointManager.save() 将 system_appends 写入 SessionCheckpoint
   ↓
-下一次 API 调用时，system prompt builder 读取 system_appends 并拼入 AppendSection
+下一次 API 调用时，ConversationSession 读取自身追加条目并拼入 AppendSection
 ```
 
 ### Session 停止
 
+停止支持 Graceful 和 Forceful 两种模式。Graceful 等待 in-flight 操作完成后停止，超时后报告进度不强制 kill；Forceful 立即终止所有操作。详细设计见 [session-execution.md](session-execution.md) 停止入口。
+
 停止入口有三种：
 
-- **斜杠指令**（`/stop`）：用户在 session 内输入，停当前 session。可选级联（`/stop --cascade`）。
-- **父 session 停止**：父 session 被停时，级联停止其所有子 session。
-- **优雅关闭**：系统关闭时遍历所有活跃 session 逐个停止。
-
-停止流程：
-
-```
-session.stop(cascade)
-  ↓
-  取得该 session 的执行句柄
-  ├── 级联（若 cascade=true）：对所有 child session 递归调用 stop(true)
-  ├── 杀工具进程：遍历 tool_handles → 前台进程 kill、后台进程 kill
-  ├── cancel LLM：若 llm_state 为 Requesting 或 Receiving → cancel token
-  └── 注销句柄：清空 tool_handles、child_handles、llm_state 置 Idle
-  ↓
-  结束后：SessionManager 移除运行时引用 → CheckpointManager 最终保存
-```
+- **斜杠指令**（`/stop`）：用户在 session 内输入，停当前 session。支持 `--cascade`（级联子 session）和 `--force`（强制终止）标记
+- **父 session 停止**：父 session 被停时，对子 session 采用相同的停止模式
+- **系统关闭**：由 Daemon 触发，委托 SessionManager 统一关闭所有活跃 session。Daemon 不直接操作单个 session。首次信号为 graceful，重复信号为 forceful
 
 ### Session 结束路径
 
@@ -204,13 +192,13 @@ session.stop(cascade)
   | 模式控制 | `/plan` `/mode` 切换对话模式 |
   | 推理控制 | `/reasoning` 设置推理深度 |
   | 上下文管理 | `/compact` 压缩对话历史、`/system` 管理 system prompt 追加区 |
-- **Daemon**：启动时初始化 SqliteStorage 和 SessionConfigProvider，spawn Sweeper 后台任务；优雅关闭时遍历 session 执行停止。
+- **Daemon**：启动时初始化 SqliteStorage 和 SessionConfigProvider，spawn Sweeper 后台任务；系统关闭时委托 SessionManager 统一停止所有 session（详见 daemon/README 关闭路径）
 
 ### 下游
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap/tools/skills 的组装。
 - **LLM Provider**：ConversationSession 构建 API 请求发送给 provider；stop 时通过 cancel token 取消进行中的请求。
-- **Tool Registry / Skill Registry**：注入时获取工具列表和 skill 列表。
+- **Tool Registry / DiskSkillRegistry**：注入时获取工具列表和 skill 列表。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
 - **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。

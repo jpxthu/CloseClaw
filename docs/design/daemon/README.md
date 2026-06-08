@@ -29,7 +29,7 @@ Daemon 启动
   ├── 3. SessionConfigProvider 初始化（读取 config/session.json，提供 per-agent 的 idle/purge 阈值）
   ├── 4. Permission Engine 初始化（加载规则 + 默认策略）
   ├── 5. Agent Config 扫描（两级优先级扫描 + 字段合并 → 注册表）
-  ├── 6. Tools Registry + Skills Registry（注册所有工具和 skill）
+  ├── 6. Tools Registry + DiskSkillRegistry（注册所有工具和 skill）
   ├── 7. Session Manager 创建（注入 storage、agent config、tool/skill registry）
   ├── 8. System Prompt Builder 创建（由 Session Manager 持有引用）
   ├── 9. Processor Registry（注册入站/出站处理器，按 priority 排序）
@@ -43,16 +43,29 @@ Daemon 启动
 
 ### 关闭路径
 
+Daemon 收到关闭信号后分阶段执行。不做 session 粒度的停止操作——全部委托 SessionManager 统一处理。SessionManager 负责遍历 session 树、按正确顺序停止、处理超时和脏标记。
+
 ```
-SIGINT / SIGTERM
+SIGTERM（首次）
   →
-Daemon 关闭
+Daemon graceful 关闭
   ├── 1. 停止接收新消息（IM Adapters 关闭入站接收）
-  ├── 2. 等待进行中的 Session 完成（超时强制终止）
+  ├── 2. 关闭所有活跃 Session
+  │     委托 SessionManager 以 graceful 模式关闭，含超时参数
+  │     Daemon 不感知 session 树结构和停止顺序
   ├── 3. 停止后台任务（ArchiveSweeper、Skill Watcher）
-  ├── 4. 持久化所有活跃 Session
+  ├── 4. 持久化所有活跃 Session（CheckpointManager 最终 flush）
   ├── 5. 关闭消息通道出站（IM Adapters 停止发送、Gateway 清理注册表）
   ├── 6. 关闭 Storage 连接
+  └── 退出进程（如有 session 超时未完成则标记 dirty，下次启动告警）
+
+SIGTERM（重复）或 SIGINT
+  →
+Daemon forceful 关闭
+  ├── 1. 停止接收新消息
+  ├── 2. 委托 SessionManager 以 forceful 模式关闭所有 Session
+  ├── 3. 停止后台任务
+  ├── 4-6. 同 graceful 路径
   └── 退出进程
 ```
 
