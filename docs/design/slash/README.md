@@ -40,6 +40,7 @@ Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Ga
 | StatusHandler | status | Reply | ✅ |
 | CompactHandler | compact | Compact | ❌ |
 | ReasoningHandler | reasoning | SetReasoning / Reply | ✅ |
+| VerboseHandler | verbose | SetVerbosity / Reply | ✅ |
 | SystemHandler | system | SystemAppend / Reply | ❌ |
 | WorkdirHandler | cd, pwd, git | Reply / Exec | ❌ |
 | ExecHandler | exec | Exec / Reply | ❌ |
@@ -54,6 +55,7 @@ Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Ga
 - [模式切换](mode-switching.md) — `/plan` 和 `/mode`，切换 Normal/Plan 模式
 - [会话管理](session-management.md) — `/new` 创建新会话，`/stop` 终止当前运行
 - [推理深度控制](reasoning.md) — `/reasoning` 查询或设置推理深度
+- [信息展示等级](verbose.md) — `/verbose` 查询或设置信息展示等级
 - [状态查询](status.md) — `/status` 查看会话状态
 - [System Prompt 追加](system-append.md) — `/system` 动态管理 system prompt 追加区
 - [工作目录操作](workdir.md) — `/cd`、`/pwd`、`/git` 工作目录操作
