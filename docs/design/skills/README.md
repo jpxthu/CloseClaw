@@ -117,7 +117,7 @@ Session 启动时，按五层优先级从低到高依次扫描：先加载低优
 
 ### 对外工具
 
-Skills 模块在初始化时向 ToolRegistry 注册以下工具：
+Skills 模块暴露 `register_tools(registry)` 方法，由 tools 模块在启动编排时调用，向 ToolRegistry 注册以下工具：
 
 | 工具 | 分组 | 说明 | 加载策略 |
 |------|------|------|---------|
