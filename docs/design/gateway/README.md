@@ -33,9 +33,10 @@ Gateway 维护以下运行时注册表：
                                      ↓
                                 ContentBlock[]（LLM 响应，进入出站）
 
-出站（ContentBlock[] 来自 Session（Session 内部调用 LLM 返回）或 SlashHandler：
+出站（ContentBlock[] 来自 Session（Session 内部调用 LLM 返回）或 SlashHandler，经 verbosity 过滤后进入 Processor Chain）：
 
-  ContentBlock[] → [Processor Chain 出站: DslParser→RawLog]
+  ContentBlock[] → [Verbosity 过滤]（详见 [slash 模块 verbose 指令](../slash/verbose.md)）
+                 → [Processor Chain 出站: DslParser→RawLog]
                  → ProcessedMessage { content_blocks, metadata[dsl_result] }
                  → [Gateway: 选择 IM 插件 → 插件内部渲染]
                  → 插件直接发送到 IM 平台
