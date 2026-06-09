@@ -115,6 +115,15 @@ Session 启动时，按五层优先级从低到高依次扫描：先加载低优
 - 同名冲突：跳过低优先级版本，记录警告
 - 必填字段缺失（description）：视为严重错误，启动时报告但不阻止 session 继续
 
+### 对外工具
+
+Skills 模块在初始化时向 ToolRegistry 注册以下工具：
+
+| 工具 | 分组 | 说明 | 加载策略 |
+|------|------|------|---------|
+| SkillTool | skills | agent 通过此工具调用 skill，返回 skill 正文和指令 | 始终加载 |
+| SkillCreator | skill_creator | agent 通过此工具创建或修改 skill 文件 | 延迟加载 |
+
 ## 数据流
 
 ### 加载与注入
