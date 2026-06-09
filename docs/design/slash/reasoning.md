@@ -33,4 +33,4 @@ Gateway 写入 session reasoning_level = Medium
 
 - **上游**：Gateway → Dispatcher → ReasoningHandler
 - **下游**：Session 模块（`reasoning_level` 字段读写）；LLM 模块（读取 reasoning_level 映射为原生参数）
-- **无关**：Processor 链（指令在 Gateway 层处理完毕，不进入 LLM）
+- **无关**：Processor 链（指令在 Gateway 层处理完毕，不进入 LLM）、Verbosity（`/verbose` 控制展示多少信息给用户，`/reasoning` 控制 LLM 内部推理量，两轴独立）

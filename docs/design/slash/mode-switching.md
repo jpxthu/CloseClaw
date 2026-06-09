@@ -39,4 +39,4 @@ system prompt builder 检测 mode=Plan
 
 - **上游**：Gateway → Dispatcher → ModeSwitchHandler
 - **下游**：Session 模块（`set_mode()` 方法）；system prompt builder（读取 mode 决定 prompt 内容）
-- **无关**：LLM 对话流程（切换本身不触发 LLM 调用）
+- **无关**：LLM 对话流程（切换本身不触发 LLM 调用）、ReasoningLevel（`/reasoning` 控制推理深度，Plan 模式控制 Agent 行为，两轴独立）、Verbosity（`/verbose` 控制信息展示等级，Plan 模式控制 Agent 行为，两轴独立）
