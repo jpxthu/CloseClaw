@@ -199,7 +199,7 @@ CheckpointManager.save() 将 system_appends 写入 SessionCheckpoint
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap/tools/skills 的组装。
 - **LLM Provider**：ConversationSession 构建 API 请求发送给 provider；stop 时通过 cancel token 取消进行中的请求。
-- **ToolRegistry**：初始化时向 ToolRegistry 注册 session_ops 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表和 skill 列表。
+- **ToolRegistry**：初始化时向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表和 skill 列表。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：Session 在 spawn/steer/kill 流程中通过 Permission 模块完成权限继承计算和操作级权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。

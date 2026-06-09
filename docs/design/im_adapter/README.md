@@ -20,7 +20,7 @@ IM Adapter 模块不包含业务逻辑，由三层组成：
 
 ### 对外工具
 
-IM Adapter 模块中的平台插件在初始化时向 ToolRegistry 注册自身工具。当前飞书平台注册以下工具分组：feishu_im、feishu_calendar、feishu_task、feishu_bitable、feishu_doc、feishu_drive、feishu_sheet。全部飞书工具默认延迟加载。工具详情和参数见 [platforms/feishu.md](platforms/feishu.md)。
+IM Adapter 模块暴露 `register_tools(registry)` 方法，由 tools 模块在启动编排时调用，将平台插件工具注册到 ToolRegistry。当前飞书平台注册以下工具分组：feishu_im、feishu_calendar、feishu_task、feishu_bitable、feishu_doc、feishu_drive、feishu_sheet。全部飞书工具默认延迟加载。工具详情和参数见 [platforms/feishu.md](platforms/feishu.md)。
 
 ```
 im_adapter/

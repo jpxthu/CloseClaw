@@ -2,7 +2,7 @@
 
 ## 概述
 
-Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期内管理子 session。这三个工具统一归类到 `sessions` 分组，均在初始化时注册。
+Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期内管理子 session。这三个工具统一归类到 `sessions` 分组。Session 模块暴露 `register_tools(registry)` 方法，由 tools 模块在启动编排时调用
 
 ## 架构
 
