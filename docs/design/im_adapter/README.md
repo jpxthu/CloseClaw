@@ -18,6 +18,10 @@ IM Adapter 模块不包含业务逻辑，由三层组成：
 
 - **Plugin Registry**：platform → IMPlugin 的映射。Gateway 通过 platform 字段选择插件。
 
+### 对外工具
+
+IM Adapter 模块中的平台插件在初始化时向 ToolRegistry 注册自身工具。当前飞书平台注册以下工具分组：feishu_im、feishu_calendar、feishu_task、feishu_bitable、feishu_doc、feishu_drive、feishu_sheet。全部飞书工具默认延迟加载。工具详情和参数见 [platforms/feishu.md](platforms/feishu.md)。
+
 ```
 im_adapter/
 ├── README.md               ← 本文件（插件架构+通用能力索引）
