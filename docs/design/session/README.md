@@ -59,10 +59,14 @@ Gateway / SessionManager  ← session 生命周期协调者
   - session_key 是路由查找键，不直接等于 session_id。同一 key 下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
 
   **key_registry 生命周期**：
-  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键分组，取各 key 下最新 session_id 写入映射表。archived session 不加载
-  - 运行时：查映射表获取已有 session；命中则直接使用，未命中则通过会话路由字段查询 SQLite（联合索引保证性能）——查到 archived 则恢复并注册，查不到则创建新 session 并注册
+  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键分组，取各 key 下最新 session_id 写入映射表。archived session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
+  - 运行时：查映射表获取已有 session
+    - 命中 → 校验 session status 仍为 active。若 status 已变为 archived（如被 Sweeper 归档），从映射表移除该条目 → 走未命中回退路径
+    - 未命中 → 通过会话路由字段查询 SQLite → 查到 archived 则取 last_message_at 最新的一条恢复并注册 → 查不到则创建新 session 并注册
+    - 创建新 session 前，做一次 SQLite 双重确认：该 key 下是否已有 active session（防御性检查，正常不应发生）。若有 → 直接注册已有 session（自愈），不再创建新的
   - 创建新 session 后覆盖映射。`/new` 指令同理
   - 映射表为纯内存数据结构，不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段
+  - SessionManager 对每个 agent_id 串行处理请求，确保同一 key 的 lookup、恢复、创建操作不会并发竞态
   - **CheckpointManager**：协调 SessionCheckpoint 的读写缓存和持久化。需要持久化时调用 PersistenceService。
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
   - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。
@@ -87,11 +91,13 @@ Gateway / SessionManager  ← session 生命周期协调者
 ```
 用户消息到达 Gateway
   → Gateway 提取 metadata 中的会话路由信息
-  → SessionManager 查找或创建 session
+  → SessionManager 查找或创建 session（per agent_id 串行）
     → 查映射表
-    → 命中 active session → 返回已有 session
+    → 命中 → 校验 session status 仍为 active
+      → 是 active → 返回已有 session
+      → 非 active → 从映射表移除该条目 → 走未命中路径
     → 未命中 → 通过会话路由字段查询 SQLite
-      → 查到 archived session → 触发恢复
+      → 查到一条或多条 archived session → 取 last_message_at 最新的一条
         → transcript 移回活跃区
         → status 更新为 active
         → 返回 SessionCheckpoint
@@ -99,10 +105,12 @@ Gateway / SessionManager  ← session 生命周期协调者
         → 注册到映射表
         → 执行状态初始为 Idle
         → Gateway 通知用户 → 返回恢复后的 session
-      → 查不到 → 创建新 session → 注册到映射表
-        → 构建 system prompt（注入 bootstrap、工具列表、skill 列表）
-        → 初始化执行状态（Idle）
-        → 首次持久化（写入 checkpoint 和 transcript）
+      → 查不到 archived → 双重确认该 key 下无 active session
+        → 若有 → 注册已有 session 到映射表（自愈，不创建新 session）
+        → 若无 → 创建新 session → 注册到映射表
+          → 构建 system prompt（注入 bootstrap、工具列表、skill 列表）
+          → 初始化执行状态（Idle）
+          → 首次持久化（写入 checkpoint 和 transcript）
 ```
 
 ### Session 运行时
@@ -121,7 +129,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 
 工具调用：
   ConversationSession 注册工具进程句柄
-     → Tool 状态设为 Running(Foreground) 或 Running(Background)
+     → Tool 状态设为 Running(Foreground) 或 Running(Background)（创建后先进入 Pending 瞬态，进程 fork 后转为 Running）
      → 前台：session 阻塞等待完成 → 完成 → 注销句柄
      → 后台：session 不阻塞，进程句柄保留 → 完成时结果注入消息队列
 
@@ -156,7 +164,7 @@ ConversationSession 更新内存中的追加条目列表
 
 两种结束路径：
 - **主动结束**：用户关闭会话或 `/stop`，SessionManager 移除运行时引用，CheckpointManager 最终保存。
-- **自动归档**：Sweeper 检测 idle 超时 → 检查无未完成操作 → 标记为 archived（更新 SQLite status + 记录归档时间）→ transcript 移入 archived_sessions/ → 通知 SessionManager 从映射表移除此 session_key。
+- **自动归档**：Sweeper 检测 idle 超时 → 检查无未完成操作 → 标记为 archived（更新 SQLite status + 记录归档时间）→ transcript 移入 archived_sessions/。Sweeper 不通知 SessionManager——映射表在下次 lookup 命中时通过 status 校验感知到归档，自行移除已失效条目。
 - **自动清理**：Sweeper 检测 archived 超过 purge TTL → 删除元数据 + transcript 文件。
 
 ### 重启恢复
