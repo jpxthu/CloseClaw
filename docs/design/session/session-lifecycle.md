@@ -67,7 +67,9 @@ SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 
 **ArchiveSweeper** 是 daemon 启动时 spawn 的后台任务，负责两个定时操作：
 
-1. **Archive**：扫描 status=active 且 last_message_at 超过 idleMinutes 且 **pending_operations 为空** 的 session → 调用 archive，transcript 移入 archived_sessions/，**通知 SessionManager 从映射表移除此 session_key**。
+1. **Archive**：扫描 status=active 且 last_message_at 超过 idleMinutes 且 **pending_operations 为空** 的 session → 调用 archive，transcript 移入 archived_sessions/。
+
+归档后 Sweeper 不与 SessionManager 通信——映射表同步由 SessionManager 在下次 lookup 时通过 status 校验被动完成（详见 [README.md](README.md) key_registry 自愈逻辑）。
 2. **Purge**：扫描 status=archived 且 archived_at 超过 purgeAfterMinutes 的 session → 调用 purge，彻底删除。
 
 **调度策略**：启动后延迟一个完整 interval 再执行首次扫描；Unix 系统上将 Sweeper 进程优先级降低，减少对业务逻辑的 CPU 影响。
@@ -104,15 +106,16 @@ Sweeper 定时触发
         → 执行归档
           → 更新 session 状态为 archived，记录归档时间
           → transcript 从活跃区移至归档区
-          → 通知 SessionManager：从映射表移除此 session_key
 ```
+
+归档完成后不通知 SessionManager。SessionManager 在下次 lookup 命中该 key 时，通过 status 校验发现 session 已归档，自行从映射表移除并走未命中回退路径。
 
 ### Archived → Active 恢复
 
 ```
 入站消息到达，映射表未命中
   → SessionManager 通过会话路由字段查询 SQLite
-  → 查到 archived session → 触发恢复
+  → 查到一条或多条 archived session → 取 last_message_at 最新的一条
     → transcript 从归档区移回活跃区
     → session 状态更新为 active，清除归档时间
     → 返回 SessionCheckpoint
@@ -121,9 +124,14 @@ Sweeper 定时触发
   → 注册到映射表
 ```
 
+多条 archived session 匹配同一 key 时，取 last_message_at 最大的那条——最近活跃的 session 承载最新上下文，对用户最有价值。未命中最新的 session 不会被恢复，随 purgeAfterMinutes 到期后由 Sweeper 清理。
+
 ### 恢复时重建策略
 
-恢复时 SqliteStorage 只负责数据层（文件移回 + 数据库状态更新），返回 SessionCheckpoint。SessionManager 拿到 checkpoint 后用其数据重建 ConversationSession 运行时对象，并重新走注入流程以保证 system prompt 内容最新。同时向 Gateway 返回恢复标志，Gateway 向用户发送「正在恢复会话...」通知。
+上列流程中各组件的职责划分：
+- **SqliteStorage**：数据层（文件移回 + 数据库状态更新），输出 SessionCheckpoint
+- **SessionManager**：运行时层（重建 ConversationSession + 触发注入 + 注册映射表），向 Gateway 返回恢复标志
+- **Gateway**：用户通知（发送「正在恢复会话…」消息）
 
 ### Archived → Purge 清理
 
@@ -147,19 +155,29 @@ SessionManager 需要持久化
     → 写入完整 transcript 到文件
 ```
 
+### 数据一致性校验
+
+SessionManager 在启动时和定期维护中执行 SQLite 与文件系统的双向一致性校验：
+
+**SQLite → 文件系统**：SQLite 中有记录但 transcript 文件不存在 → 视为损坏。删除 SQLite 记录，不注册到映射表。不尝试恢复一个没有 transcript 的 session。
+
+**文件系统 → SQLite**：transcript 文件存在但 SQLite 无对应记录 → 视为孤儿文件。删除文件，不尝试从文件反推元数据（文件不包含 status、路由字段等关键信息）。
+
+**定期维护**：启动时执行一次完整扫描，之后以可配置的间隔（默认每小时）执行增量扫描。扫描优先级低于业务逻辑，不阻塞正常请求处理。
+
 ## 模块关系
 
 ### 上游
 
-- **Daemon**：启动时初始化 SqliteStorage、SessionConfigProvider、Sweeper。
-- **SessionManager**：session 创建/切换时通过 CheckpointManager 触发持久化；Sweeper 归档后通知 SessionManager 移除映射条目。
+- **Daemon**：启动时初始化 SqliteStorage、SessionConfigProvider、Sweeper。数据一致性校验由 SessionManager 在其初始化过程中自动执行。
+- **SessionManager**：session 创建/切换时通过 CheckpointManager 触发持久化。
 - **Gateway**：通过 SessionManager 的返回结果获知 session 是否由归档恢复，如是则向用户发送「正在恢复会话...」通知。
 
 ### 下游
 
 - **SqliteStorage**（PersistenceService trait 的实现）：SQLite + 文件系统读写。
 - **SessionConfigProvider**：读取 `config/session.json`，提供 per-agent 配置。
-- **SessionManager（映射表）**：Sweeper 归档后通知 SessionManager 从映射表移除条目。
+- **SessionManager（映射表）**：映射表不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段。Sweeper 归档后不通知映射表，SessionManager 在下次 lookup 时通过 status 校验自行移除已归档的映射条目。
 
 ### 无关
 

@@ -31,8 +31,13 @@ Daemon 启动
     → 扫描每个 active session 的 checkpoint
       → pending_operations 非空 → 标记为 dirty
       → pending_operations 为空 → 正常（无需处理）
+    → 防御性扫描：遍历 status=archived 的 session
+      → pending_operations 非空 → 先恢复为 active，再注入恢复通知
+      → pending_operations 为空 → 跳过
     → 对每个 dirty session 立即注入恢复通知
 ```
+
+防御性扫描极少命中（Sweeper 归档前检查 pending_operations 为空），但覆盖崩溃发生在归档过程中的极端窗口：status 已改为 archived 但 transcript 尚未完成迁移的状态下，残留的未完成操作仍能被发现和恢复。
 
 恢复通知在启动时立即注入，不等待入站消息。原因：自动化流程（定时任务、webhook 触发）没有 IM 入站消息来激活它们。
 
@@ -117,6 +122,8 @@ SessionManager 启动扫描
   → 扫描 checkpoint.pending_operations
     → 非空 → 标记 dirty，构造恢复通知
     → 为空 → 跳过
+  → 遍历 status=archived 的 session（防御性）
+    → pending_operations 非空 → 恢复为 active → 标记 dirty
   → 对 dirty session：
     → 注入 system 恢复通知（列出未完成操作摘要）
     → 对每个未完成的工具调用：注入 tool_result 失败反馈
