@@ -2,23 +2,37 @@
 
 ## 概述
 
-管理 session 从创建到销毁的完整生命周期：定义数据模型、提供持久化存储、运行后台 Sweeper 自动归档空闲会话和清理过期数据、支持已归档会话的恢复。
+管理 session 从创建到销毁的完整生命周期：定义数据模型（含未完成操作跟踪）、提供持久化存储、运行后台 Sweeper 自动归档空闲会话和清理过期数据、支持已归档会话的按需恢复。
 
 ## 架构
 
 ### 数据模型
 
 **SessionCheckpoint** 是 session 持久化的核心数据结构，包含：
-- 标识：session_id（格式 `{agent_id}_{timestamp}_{random_suffix}`）、agent_id、role（主 agent / 子 agent）、last_message_id
+- 标识：session_id（格式 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒、random_suffix 为 8 位小写 hex 随机字符串）、agent_id、role（主 agent / 子 agent）、last_message_id
 - 会话路由键：platform（如 feishu）、sender_id（发送者平台内 ID）、peer_id（会话对端：群聊 chat_id 或私聊对方 ID）、account_id（CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。一个 CloseClaw 账号可绑定多个平台的 sender_id）
 - 出站定向字段：thread_id（话题 ID，可选。不参与 session_key 计算，仅用于出站时定向回复到正确的话题线）
 - 生命周期状态：status（active / archived）、created_at
+- 未完成操作：pending_operations（操作发起前持久化、完成后清除。详见 [session-recovery.md](session-recovery.md)）
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：direct/plan/stream）、mode_state（推理步骤状态）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
 - 统计：last_message_at（最后消息时间，Sweeper 用来判断 idle）、message_count
 - 其他：ttl_seconds、updated_at（最后 checkpoint 更新时间）
 
 > `archived_at` 和扩展元数据（metadata JSON）作为 SQLite 表列存储，由 SqliteStorage 维护，不进入 Checkpoint struct。归档时间和自定义扩展字段通过 SQLite 层查询。
+
+**PendingOperation** 记录了尚未确认完成的操作。每条包含：
+- op_id：唯一标识
+- op_type：操作类型（ToolCall / SubSessionSpawn / OutboundMessage）
+- status：固定为 Running（完成即删除，不持久化完成态）
+- detail：类型相关的补充信息
+  - ToolCall：工具名 + 参数摘要（不存完整 JSON，transcript 中已有原始 tool_call）
+  - SubSessionSpawn：子 session_id + agent 标识 + 任务摘要
+  - OutboundMessage：投递目标渠道 + 消息标识 + 投递状态
+- created_at：发起时间
+
+写入时机：操作发起前，先追加到 pending_operations 并持久化，确认成功后再执行实际操作。
+清除时机：操作完成确认后，从 pending_operations 移除并持久化。
 
 **SessionStatus** 是两态枚举：
 - `Active`：正常运行中或待恢复
@@ -53,7 +67,7 @@ SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 
 **ArchiveSweeper** 是 daemon 启动时 spawn 的后台任务，负责两个定时操作：
 
-1. **Archive**：扫描 status=active 且 last_message_at 超过 idleMinutes 的 session → 调用 archive，transcript 移入 archived_sessions/。
+1. **Archive**：扫描 status=active 且 last_message_at 超过 idleMinutes 且 **pending_operations 为空** 的 session → 调用 archive，transcript 移入 archived_sessions/，**通知 SessionManager 从映射表移除此 session_key**。
 2. **Purge**：扫描 status=archived 且 archived_at 超过 purgeAfterMinutes 的 session → 调用 purge，彻底删除。
 
 **调度策略**：启动后延迟一个完整 interval 再执行首次扫描；Unix 系统上将 Sweeper 进程优先级降低，减少对业务逻辑的 CPU 影响。
@@ -85,30 +99,31 @@ SessionConfigProvider
 ```
 Sweeper 定时触发
   → 遍历各 agent 配置，获取 idle 阈值
-    → 查询持久化存储：状态为 active 且最后消息时间超过 idle 阈值的 session
+    → 查询持久化存储：状态为 active、最后消息时间超过 idle 阈值、且 pending_operations 为空的 session
     → 对每条结果：
         → 执行归档
           → 更新 session 状态为 archived，记录归档时间
           → transcript 从活跃区移至归档区
+          → 通知 SessionManager：从映射表移除此 session_key
 ```
 
 ### Archived → Active 恢复
 
 ```
-用户再次访问已归档 session
-  → SessionManager 根据 session_key 命中 archived session，触发恢复流程
-  → Gateway 发送 "正在恢复会话..." 通知
-  → 恢复 session 持久化数据
+入站消息到达，映射表未命中
+  → SessionManager 通过会话路由字段查询 SQLite
+  → 查到 archived session → 触发恢复
     → transcript 从归档区移回活跃区
     → session 状态更新为 active，清除归档时间
     → 返回 SessionCheckpoint
   → SessionManager 用 checkpoint 重建 ConversationSession
     → 重新走注入流程，保证 system prompt 内容最新
+  → 注册到映射表
 ```
 
 ### 恢复时重建策略
 
-恢复时 SqliteStorage 只负责数据层（文件移回 + 数据库状态更新），返回 SessionCheckpoint。SessionManager 拿到 checkpoint 后用其数据重建 ConversationSession 运行时对象，并重新走注入流程以保证 system prompt 内容最新。
+恢复时 SqliteStorage 只负责数据层（文件移回 + 数据库状态更新），返回 SessionCheckpoint。SessionManager 拿到 checkpoint 后用其数据重建 ConversationSession 运行时对象，并重新走注入流程以保证 system prompt 内容最新。同时向 Gateway 返回恢复标志，Gateway 向用户发送「正在恢复会话...」通知。
 
 ### Archived → Purge 清理
 
@@ -137,13 +152,14 @@ SessionManager 需要持久化
 ### 上游
 
 - **Daemon**：启动时初始化 SqliteStorage、SessionConfigProvider、Sweeper。
-- **SessionManager**：session 创建/切换时通过 CheckpointManager 触发持久化。
+- **SessionManager**：session 创建/切换时通过 CheckpointManager 触发持久化；Sweeper 归档后通知 SessionManager 移除映射条目。
 - **Gateway**：通过 SessionManager 的返回结果获知 session 是否由归档恢复，如是则向用户发送「正在恢复会话...」通知。
 
 ### 下游
 
 - **SqliteStorage**（PersistenceService trait 的实现）：SQLite + 文件系统读写。
 - **SessionConfigProvider**：读取 `config/session.json`，提供 per-agent 配置。
+- **SessionManager（映射表）**：Sweeper 归档后通知 SessionManager 从映射表移除条目。
 
 ### 无关
 
