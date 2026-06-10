@@ -1,21 +1,14 @@
 # LLM 模块
 
-> 子功能文档：
-> - [cache-adapter](cache-adapter.md) — 跨供应商统一缓存策略，最大化静态区 system prompt 的缓存折扣
-> - [model-discovery](model-discovery.md) — 从供应商 API 动态发现可用模型，结合知识库和缓存自动填充推荐参数
-> - [provider-config-wizard](provider-config-wizard.md) — CLI 交互式向导：选 provider、输入凭据、发现模型、写配置
-
----
-
 ## 概述
 
-LLM 模块为 CloseClaw 提供统一的多供应商、多协议、多模型 LLM 调用能力。它将不同 AI 供应商的 API 差异封装在多层抽象之后，对上层暴露一致的聊天交互接口，支持文本对话、推理过程、工具调用和流式输出。
-
-**前缀稳定性原则**：LLM 模块的核心设计约束之一是最大化 API 侧 KV cache 命中率。同一 session 内连续多次 API 调用之间，请求的前缀部分（静态 system prompt + 历史消息）必须完全相同，只有尾部新增内容变化——这是前缀缓存生效的前提。任何在请求前缀中注入可变内容的做法都会系统性破坏 KV cache，导致所有 token 按全价计费。此原则贯穿 system prompt 静态/动态分离、消息历史尾部缓存标记、以及 cache adapter 的缓存控制参数注入。
+LLM 模块为 CloseClaw 提供统一的多供应商、多协议、多模型 LLM 调用能力，将不同 AI 供应商的 API 差异封装在多层抽象之后，对上层暴露一致的聊天交互接口，支持文本对话、推理过程、工具调用和流式输出。
 
 ## 架构
 
 LLM 模块采用五层分离架构，每层只做一件事，层间通过标准类型传递。模块支持两种协议：OpenAI 协议（内容以纯文本字符串承载，推理过程嵌入 XML 标签）和 Anthropic 协议（内容以类型化结构数组承载，推理过程和工具调用为独立内容块）。Protocol 层负责屏蔽两种协议的序列化差异。
+
+**前缀稳定性原则**：同一 session 内连续多次 API 调用之间，请求的前缀部分（静态 system prompt + 历史消息）必须完全相同，只有尾部新增内容变化——这是前缀缓存生效的前提。任何在请求前缀中注入可变内容的做法都会系统性破坏 KV cache，导致所有 token 按全价计费。此原则贯穿 system prompt 静态/动态分离、消息历史尾部缓存标记、以及 cache adapter 的缓存控制参数注入。
 
 > **模块边界**：LLM 模块以 LLM Client 为对外边界。图上方的 Session 层属于上层应用模块，不在 LLM 模块范围内，此处画出是为了展示 LLM Client 的调用上下文。消息渲染（Rendering Layer / processor_chain）完全在 LLM 模块之外，通过 Session 层间接消费 LLM 的响应内容。
 
@@ -61,12 +54,19 @@ LLM Client（UnifiedChatClient）—— 统一入口
 
 LLM Client 除对话调用外还提供模型发现能力：通过各 Provider 的 `/models` 端点动态探测可用模型，结合本地缓存和内嵌知识库，自动填充模型的推荐参数（上下文窗口、最大输出、推理标记等）。此能力独立于对话调用链路，主要用于配置阶段的模型选择。详见 [model-discovery](model-discovery.md)。
 
+**子功能文档**：
+- [cache-adapter](cache-adapter.md) — 跨供应商统一缓存策略，最大化静态区 system prompt 的缓存折扣
+- [model-discovery](model-discovery.md) — 从供应商 API 动态发现可用模型，结合知识库和缓存自动填充推荐参数
+- [provider-config-wizard](provider-config-wizard.md) — CLI 交互式向导：选 provider、输入凭据、发现模型、写配置
+
 ## 数据流
 
 ```
 外部调用方（Session 层）构建请求
   → LLM Client 接收统一请求
+    → 缓存适配器 apply（标记静态区缓存控制参数）
     → Plugin Pipeline 调用 before_request（注入模型特定参数）
+    → ModelInterpreter 注入请求参数（模型特有字段）
       → Protocol 层序列化请求体
         → Provider 层发送 HTTP 请求
           ← 供应商返回原始响应
