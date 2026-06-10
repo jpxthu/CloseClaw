@@ -35,7 +35,7 @@
     └── <session_id>.jsonl
 ```
 
-**SqliteStorage** 是生产级持久化后端，实现 PersistenceService trait：
+**SqliteStorage** 是生产级持久化后端，实现 PersistenceService 接口：
 - 元数据存储在 SQLite 中：每个 session 一条记录，含状态、时间戳、统计等。
 - Transcript 以 JSONL 格式存储在 `sessions/<id>.jsonl`（active）或 `archived_sessions/<id>.jsonl`（archived）。
 - archive 操作：更新 SQLite status → 将 transcript 文件从 sessions/ move 到 archived_sessions/。
@@ -45,8 +45,8 @@
 SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 
 **CheckpointManager** 位于 SessionManager 和 SqliteStorage 之间：
-- 持有内存缓存（RwLock<HashMap>），减少读写磁盘频率。
-- 代理 save/load/delete 操作给 PersistenceService。
+- 持有内存缓存，减少读写磁盘频率。
+- 代理持久化操作给 PersistenceService。
 - 持有 agent_id 和 role，在保存时注入 SessionCheckpoint。
 
 ### Sweeper 机制
@@ -83,55 +83,53 @@ SessionConfigProvider
 ### Active → Archived 转换
 
 ```
-Sweeper 定时触发 run_once
-  → 遍历各 agent 配置
-    → 查询 SQLite：status=active AND last_message_at < now - idleMinutes
+Sweeper 定时触发
+  → 遍历各 agent 配置，获取 idle 阈值
+    → 查询持久化存储：状态为 active 且最后消息时间超过 idle 阈值的 session
     → 对每条结果：
-        → SqliteStorage.archive_session(session_id)
-          → 更新 SQLite：status='archived', archived_at=now
-          → 文件 move：sessions/<id>.jsonl → archived_sessions/<id>.jsonl
+        → 执行归档
+          → 更新 session 状态为 archived，记录归档时间
+          → transcript 从活跃区移至归档区
 ```
 
 ### Archived → Active 恢复
 
 ```
 用户再次访问已归档 session
-  → SessionManager.resolve(session_key) 命中 archived session → 触发 restore 流程
+  → SessionManager 根据 session_key 命中 archived session，触发恢复流程
   → Gateway 发送 "正在恢复会话..." 通知
-  → SqliteStorage.restore_session(session_id)
-    → 文件 move：archived_sessions/<id>.jsonl → sessions/<id>.jsonl
-    → 更新 SQLite：status='active', archived_at=NULL
+  → 恢复 session 持久化数据
+    → transcript 从归档区移回活跃区
+    → session 状态更新为 active，清除归档时间
     → 返回 SessionCheckpoint
   → SessionManager 用 checkpoint 重建 ConversationSession
-    → 重新走注入流程（build_from_workspace），保证 system prompt 内容最新
+    → 重新走注入流程，保证 system prompt 内容最新
 ```
 
 ### 恢复时重建策略
 
-恢复时 SqliteStorage 只负责数据层（文件移回 + DB 状态更新），返回 SessionCheckpoint。SessionManager 拿到 checkpoint 后用其数据重建 ConversationSession 运行时对象，并重新走注入流程以保证 system prompt 内容最新。
+恢复时 SqliteStorage 只负责数据层（文件移回 + 数据库状态更新），返回 SessionCheckpoint。SessionManager 拿到 checkpoint 后用其数据重建 ConversationSession 运行时对象，并重新走注入流程以保证 system prompt 内容最新。
 
 ### Archived → Purge 清理
 
 ```
-Sweeper 在 run_once 中（archive 扫描完成后）
-  → 遍历各 agent 配置
-    → 查询 SQLite：status=archived AND archived_at < now - purgeAfterMinutes
+Sweeper（archive 扫描完成后）
+  → 遍历各 agent 配置，获取清理阈值
+    → 查询持久化存储：状态为 archived 且归档时间超过清理阈值的 session
     → 对每条结果：
-        → SqliteStorage.purge_session(session_id)
-          → DELETE FROM sessions WHERE id=?
-          → 删除 archived_sessions/<id>.jsonl 文件
+        → 执行清理
+          → 删除该 session 的数据库记录
+          → 删除该 session 的 transcript 文件
 ```
 
 ### CheckpointManager 写入流程
 
 ```
 SessionManager 需要持久化
-  → CheckpointManager.save(checkpoint)
-    → 更新内存缓存（RwLock）
-    → 调用 PersistenceService.save_checkpoint(checkpoint)
-      → SqliteStorage：线程池执行
-        → INSERT OR REPLACE INTO sessions (...)
-        → 写入 sessions/<id>.jsonl（完整 transcript）
+  → CheckpointManager 更新内存缓存
+  → 委托 PersistenceService 执行持久化
+    → 写入或更新 session 元数据到数据库
+    → 写入完整 transcript 到文件
 ```
 
 ## 模块关系
@@ -149,5 +147,5 @@ SessionManager 需要持久化
 
 ### 无关
 
-- **Compaction 流程**（无调用关系）：压缩流程通过 Slash Command 触发，修改 ConversationSession 的消息历史并通过 CheckpointManager.save 持久化。压缩不影响生命周期状态机（不改变 status、不触发 archive/restore），但依赖生命周期管理的持久化能力完成 transcript 更新。
+- **Compaction 流程**（无调用关系）：压缩流程通过 Slash Command 触发，修改 ConversationSession 的消息历史并通过 CheckpointManager 触发持久化。压缩不影响生命周期状态机（不改变 status、不触发 archive/restore），但依赖生命周期管理的持久化能力完成 transcript 更新。
 - **LLM Session Enhancements**（无调用关系）：流式输出和 reasoning level 通过 ConversationSession 处理，不经过生命周期管理。
