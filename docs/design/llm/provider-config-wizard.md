@@ -22,11 +22,11 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 ### FetchModels
 
-调用供应商的模型列表 API 获取可用模型（超时 10 秒）。优先使用动态探测结果，探测失败时回退到内置知识库。展示的模型列表包含是否为推理模型、上下文窗口、最大输出 token 等信息。
+通过模型发现子系统获取可用模型列表。模型发现先查本地缓存（TTL 1 小时），缓存未命中时调用供应商 /models API（超时 10 秒），API 不可用时回退到内置知识库。展示的模型列表包含是否为推理模型、上下文窗口、最大输出 token 等信息。
 
 ### SelectModels
 
-多选模型列表。已在配置中的模型默认标记。支持范围选择（如连续编号）和全选。每个模型显示对应的推荐协议和参数。
+多选模型列表。已在配置中的模型默认预选（标记 `[*]` 且处于选中状态），用户可取消选择。支持范围选择（如连续编号）和全选。每个模型显示对应的推荐协议和参数。Confirm 步骤展示最终选中列表供用户确认。
 
 ### Confirm
 
@@ -52,9 +52,11 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 ```
 用户启动向导 → 选择供应商 → 输入凭据（不回显）
-  → 调用供应商 /models API（10s 超时）
-    → 成功：解析模型列表 → 展示
-    → 失败/超时：回退到内嵌知识库 → 展示（标注 fallback）
+  → 模型发现：查本地缓存
+    → 命中：直接展示模型列表
+    → 未命中：调用 /models API（10s 超时）
+      → 成功：解析并写入缓存 → 展示
+      → 失败/超时：回退内置知识库 → 展示（标注回退来源）
   → 用户选择模型 → 确认配置
   → 写入 models.json（合并已有配置）
   → 写入 credentials 文件（凭据独立存储）
@@ -63,5 +65,5 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 ## 模块关系
 
 - **上游**：CLI 配置命令（触发向导启动）
-- **下游**：LLM Client（调用 fetch_model_list 探测模型）、model-discovery（模型发现能力）、配置管理（写入 models.json 和凭据文件）
+- **下游**：model-discovery（通过模型发现获取模型列表）、配置管理（写入 models.json 和凭据文件）
 - **无关**：Session 层、Rendering Layer（向导运行在配置阶段，与运行时 LLM 调用路径无关）
