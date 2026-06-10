@@ -56,7 +56,7 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
     → 命中：直接展示模型列表
     → 未命中：调用 /models API（10s 超时）
       → 成功：解析并写入缓存 → 展示
-      → 失败/超时：回退内置知识库 → 展示（标注 fallback）
+      → 失败/超时：回退内置知识库 → 展示（标注回退来源）
   → 用户选择模型 → 确认配置
   → 写入 models.json（合并已有配置）
   → 写入 credentials 文件（凭据独立存储）
@@ -65,5 +65,5 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 ## 模块关系
 
 - **上游**：CLI 配置命令（触发向导启动）
-- **下游**：LLM Client（调用 fetch_model_list 探测模型）、model-discovery（模型发现能力）、配置管理（写入 models.json 和凭据文件）
+- **下游**：model-discovery（通过模型发现获取模型列表）、配置管理（写入 models.json 和凭据文件）
 - **无关**：Session 层、Rendering Layer（向导运行在配置阶段，与运行时 LLM 调用路径无关）

@@ -54,7 +54,7 @@ LLM Client（UnifiedChatClient）—— 统一入口
 
 ### 模型发现
 
-LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发现能力：消费各 Provider 的 ModelLister 实现，通过 `/models` 端点动态探测可用模型，结合本地缓存和内嵌知识库，自动填充模型的推荐参数（上下文窗口、最大输出、推理标记等）。此能力独立于对话调用链路，主要用于配置阶段的模型选择。详见 [model-discovery](model-discovery.md)。
+LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发现能力：消费各 Provider 的模型列表查询接口，通过 `/models` 端点动态探测可用模型，结合本地缓存和内嵌知识库，自动填充模型的推荐参数（上下文窗口、最大输出、推理标记等）。此能力独立于对话调用链路，主要用于配置阶段的模型选择。详见 [model-discovery](model-discovery.md)。
 
 **子功能文档**：
 - [cache-adapter](cache-adapter.md) — 跨供应商统一缓存策略，最大化静态区 system prompt 的缓存折扣
