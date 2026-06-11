@@ -45,7 +45,7 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 
 ### sessions_steer
 
-向存活中的 `mode="session"` 子 session 发送新任务，子 session 重新执行。系统在执行前检查目标 agent 的 `communication` 配置（详见 [agent-config.md](../agent/agent-config.md)）中的 `allowSteerFrom` 字段。发起方 agent ID 不在白名单中则拒绝。
+向存活中的 `mode="session"` 子 session 发送新任务，子 session 重新执行。系统在执行前通过 Permission 引擎的「跨 Agent 通信」维度校验发起方 agent 是否有权 steer 目标 agent。
 
 参数：
 
@@ -56,7 +56,7 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 
 ### sessions_kill
 
-终止存活中的 `mode="session"` 子 session，释放资源，session 对话历史保留。系统在执行前检查目标 agent 的 `communication` 配置中的 `allowKillFrom` 字段。发起方 agent ID 不在白名单中则拒绝。
+终止存活中的 `mode="session"` 子 session，释放资源，session 对话历史保留。系统在执行前通过 Permission 引擎的「跨 Agent 通信」维度校验发起方 agent 是否有权 kill 目标 agent。
 
 参数：
 
@@ -81,7 +81,7 @@ sessions_spawn：
 
 sessions_steer / sessions_kill：
   → 校验子 session 归属（parent session 一致）
-  → 读取目标 agent.communication 配置 → 操作级权限检查
+  → Permission 引擎 evaluate（跨 Agent 通信维度）→ 权限检查
   → steer → 注入新 task 到子 session 对话流
   → kill → 级联停止子 session 的执行状态
 ```
@@ -93,13 +93,13 @@ sessions_steer / sessions_kill：
 | 模块 | 调用关系 |
 |------|---------|
 | ToolRegistry | Session 模块在初始化时调用 `register()` 注册三个工具 |
-| Agent 模块 | spawn 时读取父 agent 的 subagents 和 communication 配置 |
+| Agent 模块 | spawn 时读取父 agent 的 subagents 配置 |
 
 ### 下游
 
 | 模块 | 调用关系 |
 |------|---------|
-| System Prompt 构建器 | 通过 ToolRegistry 获取 session_ops 分组的工具索引 |
+| System Prompt 构建器 | 通过 ToolRegistry 获取 sessions 分组的工具索引 |
 | Permission 模块 | spawn/steer/kill 时进行权限校验 |
 
 ### 无关

@@ -36,7 +36,11 @@
 
 ```
 <repo>/.closeclaw/
-└── agents.json              # 项目级 Agent 注册清单（仅包含项目特有 agent 的 ID）
+├── agents.json              # 项目级 Agent 注册清单（仅包含项目特有 agent 的 ID）
+└── agents/
+    └── <agent-id>/
+        ├── config.json      # 单个 Agent 的独立配置
+        └── permissions.json # Agent 权限配置
 ```
 
 ### 核心组件
@@ -98,7 +102,7 @@ Config 模块启动时
   ↓
 补齐所有字段默认值
   ↓
-注册到内存配置表
+生成 ResolvedAgentConfig，返回给调用方
 ```
 
 完整合并规则和字段语义详见 [agent-config.md](../agent/agent-config.md) 架构节。
@@ -138,6 +142,6 @@ Config 模块启动时
 
 ## 模块关系
 
-- **上游**：daemon（启动时加载配置）、CLI（配置变更命令，含 `config setup` 交互式配置向导）、session（读取会话配置）、agent（提供 Agent 配置文件，Config 启动时扫描加载并合并注册）
+- **上游**：daemon（启动时加载配置）、CLI（配置变更命令，含 `config setup` 交互式配置向导）、session（读取会话配置）、agent（提供 Agent 配置文件，Config 启动时扫描加载并合并为 ResolvedAgentConfig）
 - **下游**：无（配置模块不调用其他模块，仅读写文件系统和提供查询接口）
 - **无关**：processor_chain、tools、skills（无调用关系，这些模块通过上层模块间接使用配置）
