@@ -24,7 +24,7 @@ Session 创建 / 恢复 / Compaction
   ╠════════════════════════╣
   ║  __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__      ║  ← cache adapter 的切分点
   ╠════════════════════════╣
-  ║  动态层（每请求即时构建）  ║  ← 不参与前缀缓存
+  ║  动态层（每请求即时构建）  ║  ← 默认内容不变，不参与显式前缀缓存标记
   ╠════════════════════════╣
   ║  追加区（/system 管理）  ║  ← 独立分区，持久化
   ╚════════════════════════╝
@@ -38,7 +38,7 @@ Session 创建 / 恢复 / Compaction
 | 文档 | 内容 |
 |------|------|
 | [static-layer.md](static-layer.md) | 静态层：bootstrap 文件、系统生成的 Section、Section 级缓存与失效规则 |
-| [dynamic-layer.md](dynamic-layer.md) | 动态层：每请求即时注入的 ChannelContext / WorkingDirectory / GitStatus，KV Cache 稳定性约束 |
+| [dynamic-layer.md](dynamic-layer.md) | 动态层：每请求即时注入的 ChannelContext / WorkingDirectory / GitStatus（可配置关闭） |
 | [kv-cache.md](kv-cache.md) | 边界标记 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 的位置和语义，作为 cache adapter 的切分合约 |
 | [appends.md](appends.md) | 追加区：`/system` 指令管理的独立分区，持久化不受压缩影响 |
 
@@ -54,7 +54,7 @@ Session 创建 / 恢复 / Compaction
 API 请求到达
   →
   ConversationSession 取出静态层（构建时缓存的完整结果）
-  ConversationSession 即时构建动态层（ChannelContext + WorkingDirectory + GitStatus）
+  ConversationSession 即时构建动态层（ChannelContext + WorkingDirectory + [GitStatus，默认关闭]）
   ConversationSession 从运行时字段读取追加条目
   →
   拼接：静态层 + __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__ + 动态层 + 追加区

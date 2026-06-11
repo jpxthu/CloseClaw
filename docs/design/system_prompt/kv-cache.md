@@ -14,11 +14,7 @@
 
 ### 前缀缓存
 
-API 侧 KV Cache 通过 cache adapter 层实现。静态层和动态层通过边界标记分离后，cache adapter 在静态层上标记缓存控制参数，使支持前缀缓存的 provider 复用静态前缀的 KV cache，仅对动态层和新增消息计费。
-
-对于仅支持完全匹配缓存的 provider，通过精简静态层总 token 量来降低每次请求的成本。
-
-不同 provider 的缓存策略不同（显式前缀缓存 vs 服务端自动前缀缓存 vs 完全匹配缓存），具体适配逻辑由 llm/cache-adapter 定义，system prompt 模块只负责提供边界标记作为合约。
+API 侧 KV Cache 通过 cache adapter 层实现。静态层和动态层通过边界标记分离后，Anthropic 适配在静态层上标记显式缓存控制参数（cache_control），使 Provider 复用静态前缀的 KV cache，仅对动态层和新增消息计费。DeepSeek / OpenAI 等供应商使用服务端自动前缀缓存，无需客户端标记，命中率由前缀的字节稳定性保证。
 
 ## 数据流
 
@@ -26,7 +22,7 @@ API 侧 KV Cache 通过 cache adapter 层实现。静态层和动态层通过边
 System Prompt 组装完成（静态层 + 边界标记 + 动态层 + 追加区）
   →
   cache adapter 读取边界标记位置
-    → 标记之前：静态前缀（注入 cache_control 参数）
+    → 标记之前：静态前缀（Anthropic 注入 cache_control 参数，其他供应商透传）
     → 标记之后：动态后缀 + 追加区（透传）
   →
   发送 LLM 请求
@@ -40,7 +36,7 @@ System Prompt 组装完成（静态层 + 边界标记 + 动态层 + 追加区）
 
 ### 下游
 
-- **Cache Adapter**：以边界标记为切分点，对静态层注入缓存控制参数。详见 [llm/cache-adapter](docs/design/llm/cache-adapter.md)。
+- **Cache Adapter**：以边界标记为切分点，对静态层按供应商策略处理（Anthropic 注入 cache_control，DeepSeek/OpenAI 透传）。详见 [llm/cache-adapter](docs/design/llm/cache-adapter.md)。
 
 ### 无关
 

@@ -10,27 +10,28 @@
 
 | Section | 内容 | 来源 |
 |---------|------|------|
-| ChannelContext | 当前消息来源（chat_name、sender_id、timestamp） | 入站消息元数据 |
+| ChannelContext | 当前会话名称（chat_name） | 入站消息元数据 |
 | WorkingDirectory | 当前 session 的工作目录路径 | ConversationSession 运行时字段 |
-| GitStatus | 从 workdir 路径派生的 git 分支和变更状态（非 git 仓库时不注入） | session/working-directory 模块 |
+| GitStatus | 从 workdir 路径派生的 git 分支和变更状态（可通过 `session.git_status` 配置开关控制，默认关闭不注入；非 git 仓库时不注入） | session/working-directory 模块 |
 
 动态层位于静态层和追加区之间，通过边界标记与静态层分隔。
 
-ChannelContext 由 Gateway 以入站上下文结构体传入，不依赖原始 payload。WorkingDirectory 和 GitStatus 由 ConversationSession 从自身运行时字段读取。
+ChannelContext 由 Gateway 以入站上下文结构体传入，不依赖原始 payload。WorkingDirectory 由 ConversationSession 从自身运行时字段读取。GitStatus 由配置开关控制，默认关闭。
 
-### KV Cache 稳定性约束
+### KV Cache 稳定性
 
-同一 session 内多次 API 调用间，动态层内容应尽量不变——虽然 cache adapter 不对动态层标记显式缓存控制参数（边界标记之后的内容不参与显式前缀缓存），但支持服务端自动前缀缓存的 provider 仍可因稳定前缀获得更高命中率。每轮必然变化的信息不放在 system prompt 中，改用消息驱动推送——后台任务完成时注入 user 消息，LLM 下轮看到。每轮递增的计数器通过 API metadata 字段传递。
+动态层是 session 级别内容，默认情况下（GitStatus 关闭时）内容在 session 生命周期内不变——chat_name 和 workdir 在 session 存续期间保持恒定。GitStatus 开启时，内容随工作目录的 git 状态变化而变动。内容恒定时，DeepSeek 等服务端自动前缀缓存的 provider 在连续请求中能持续命中缓存前缀。
 
 ## 数据流
 
 ```
 API 请求到达
   →
-  ConversationSession 从自身运行时字段读取 WorkingDirectory + GitStatus
-  Gateway 提供入站上下文（platform、chat_name、sender_id、timestamp）
+  ConversationSession 从自身运行时字段读取 WorkingDirectory
+  检查 GitStatus 配置开关 → 开启时派生 git 分支和变更状态
+  Gateway 提供入站上下文（chat_name）
   →
-  即时组装动态层：ChannelContext + WorkingDirectory + GitStatus
+  即时组装动态层：ChannelContext + WorkingDirectory + [GitStatus]
   →
   拼接到 system prompt（静态层 + 边界标记 + 动态层）
 ```
@@ -39,7 +40,8 @@ API 请求到达
 
 ### 上游
 
-- **Gateway**：每次 API 请求时提供 ChannelContext 所需的入站消息元数据。
+- **Gateway**：每次 API 请求时提供 ChannelContext 所需的 chat_name。
+- **Session Config**：提供 `session.git_status` 开关的值，控制 GitStatus 是否注入。
 
 ### 下游
 
