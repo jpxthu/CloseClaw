@@ -2,11 +2,11 @@
 
 ## 概述
 
-流式渲染是 IM Adapter 模块的通用渲染子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量。用户无需等待完整响应即可看到输出内容。各平台插件复用此能力。
+流式渲染是 IM Adapter 模块的通用渲染子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量。用户无需等待完整响应即可看到输出内容。该能力作为 IMPlugin trait 的默认方法提供，各平台插件自动继承，按需覆盖平台差异化渲染逻辑。
 
 ## 架构
 
-流式渲染在各平台 Renderer 中增加增量处理能力，基于 LLM 流式事件逐块消费：
+流式渲染在各平台 Renderer 中增加增量处理能力，基于 LLM 流式事件逐块消费。平台通过覆盖 IMPlugin trait 的流式默认方法实现差异化：
 
 ```
 LLM 流式事件（StreamEvent）
@@ -50,8 +50,8 @@ Renderer 按事件类型处理：
   │     → 单独缓冲，不在流式阶段输出
   ├── BlockEnd
   │     → 刷新剩余缓冲内容
-  │     → Thinking 块 → 渲染为折叠区并输出
-  │     → Tool 块 → 渲染为工具卡片并输出
+  │     → Thinking/Tool 块 → 以原始 ContentBlock 传递，交由下游平台 Renderer 完成最终格式渲染（如飞书的折叠推理区、工具操作卡片）
+  │     → Text 块 → 输出完整块内容
   └── MessageEnd
         → 刷新所有缓冲
         → 释放流式渲染上下文
@@ -61,6 +61,6 @@ Renderer 按事件类型处理：
 
 ## 模块关系
 
-- **上游**：Gateway（接收 LLM StreamEvent 并转发给 Renderer）
+- **上游**：IMPlugin trait 默认方法（作为通用渲染能力供各平台继承）
 - **下游**：IMPlugin（接收增量渲染输出并发送）
 - **所属**：IM Adapter 模块的通用子功能

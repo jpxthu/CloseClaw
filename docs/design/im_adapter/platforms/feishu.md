@@ -10,7 +10,7 @@
 
 ### Adapter
 
-**Webhook 解析**：解析飞书 webhook 事件 payload，提取 `sender.open_id`、`message.chat_id`、`message.content` 等字段，产出 NormalizedMessage。
+**Webhook 解析**：解析飞书 webhook 事件 payload，提取发送者 ID、会话 ID、消息正文等字段，产出 NormalizedMessage。
 
 - text 类型消息：提取 `content.text` 字段作为消息正文
 - post 类型消息：展开 title 和 content blocks 为文本（含有序/无序列表、文本样式、图片占位符等）
@@ -97,9 +97,22 @@ Gateway 选择飞书插件
 发送到目标 (chat_id, thread_id?)
 ```
 
+## 对外工具
+
+飞书插件通过 IM Adapter 模块的工具注册入口注册以下工具分组到 ToolRegistry：
+
+- **feishu_im**：飞书 IM 消息操作（发送、撤回、编辑、表情回应等）
+- **feishu_calendar**：飞书日历管理
+- **feishu_task**：飞书任务管理
+- **feishu_bitable**：飞书多维表格操作
+- **feishu_doc**：飞书文档操作
+- **feishu_drive**：飞书云盘操作
+- **feishu_sheet**：飞书电子表格操作
+
+全部飞书工具默认延迟加载，首次调用时才初始化。各工具分组的详细参数见 tools 模块相关文档。
+
 ## 模块关系
 
-- **上游**：Gateway（调用插件进行入站解析和出站渲染发送）
-- **下游**：飞书 Open API（插件直接与外部平台通信）
+- **互相调用**：Gateway——入站方向插件解析 webhook 产出 NormalizedMessage 交给 Gateway；出站方向 Gateway 选择插件调用渲染和发送
 - **所属**：IM Adapter 模块的平台插件
 - **无关**：其他平台插件（各自独立实现 IMPlugin trait）
