@@ -22,6 +22,12 @@ Daemon 启动分为五个阶段，按依赖顺序依次初始化：
 
 Daemon 持有 SessionManager 和 Gateway 的引用，作为二者的所有者管理其生命周期。
 
+### 子功能
+
+| 文档 | 简述 |
+|------|------|
+| [shutdown.md](shutdown.md) | 关闭全流程：ShutdownHandle 协调器、graceful/forceful 双模、阶段化执行、recovery 衔接、用户可见进度通知 |
+
 ## 数据流
 
 ### 启动路径
@@ -55,31 +61,21 @@ Daemon 启动
 
 ### 关闭路径
 
-Daemon 收到关闭信号后分阶段执行。不做 session 粒度的停止操作——全部委托 SessionManager 统一处理。SessionManager 负责遍历 session 树、按正确顺序停止、处理超时和脏标记。
+Daemon 关闭由 ShutdownHandle 统一协调，分阶段执行。详见 [shutdown.md](shutdown.md)。
+
+高层概览：
 
 ```
-SIGTERM（首次）
-  →
-Daemon graceful 关闭
-  ├── 1. 停止接收新消息（IM Adapters 关闭入站接收）
-  ├── 2. 关闭所有活跃 Session
-  │     委托 SessionManager 以 graceful 模式关闭，含超时参数
-  │     Daemon 不感知 session 树结构和停止顺序
-  ├── 3. 停止后台任务（ArchiveSweeper、Skill Watcher）
-  ├── 4. 持久化所有活跃 Session（CheckpointManager 最终 flush）
-  ├── 5. 关闭消息通道出站（IM Adapters 停止发送、Gateway 清理注册表）
-  ├── 6. 关闭 Storage 连接
-  └── 退出进程（如有 session 超时未完成则标记 dirty，下次启动告警）
-
-SIGTERM（重复）或 SIGINT
-  →
-Daemon forceful 关闭
-  ├── 1. 停止接收新消息
-  ├── 2. 委托 SessionManager 以 forceful 模式关闭所有 Session
-  ├── 3. 停止后台任务
-  ├── 4-6. 同 graceful 路径
-  └── 退出进程
+信号到达
+  → ShutdownHandle 判定模式（Graceful / Forceful）
+  → 关闭入站接收 + Drain 已有消息
+  → Session 停止（委托 SessionManager，graceful 模式等工具完成、LLM 流结束再停；forceful 模式立即 kill）
+  → 停止后台任务
+  → 最终持久化 + 关闭出站 + 关闭存储
+  → 退出
 ```
+
+Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 forceful。Forceful 不做等待，依赖 recovery 在下次启动时恢复未完成操作。
 
 ## 模块关系
 
