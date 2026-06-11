@@ -7,7 +7,7 @@
 | [agent](agent/README.md) | Agent 配置档案（目录式、注册清单、permissions 独立）、spawn 协调与权限沿链路继承 |
 | [cli](cli/README.md) | 命令行接口模块：CLI Chat（terminal 渠道的 IMPlugin 实现）和 CLI Admin（daemon 管理命令） |
 | [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 注册清单与多级加载、热重载 |
-| [daemon](daemon/README.md) | 进程入口和组件胶水层：五阶段启动、后台管理、graceful/forceful 双模关闭 |
+| [daemon](daemon/README.md) | 进程入口和组件胶水层：依赖驱动启动、后台任务管理、graceful/forceful 双模关闭 |
 | [gateway](gateway/README.md) | 消息路由中枢：管理 IM 插件、调度 Processor Chain、路由决策（slash vs normal）、选择平台插件完成出站渲染与发送 |
 | [llm](llm/README.md) | 统一多供应商 LLM 调用与模型发现：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配、Provider 配置向导 |
 | [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径、审批栅栏）和 Auto Mode（连续自主执行），通过工具过滤和权限边界约束 agent 行为 |
