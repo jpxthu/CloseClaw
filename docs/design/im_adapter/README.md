@@ -10,14 +10,31 @@ IM Adapter 模块提供跨消息渠道的插件化适配框架。每个消息渠
 
 IM Adapter 模块不包含业务逻辑，由三层组成：
 
-- **插件接口层**：定义 IMPlugin trait，统一插件契约。每个消息渠道实现此 trait，提供入站解析、格式渲染、消息发送、生命周期管理四组方法。terminal 渠道的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
+- **插件接口层**：定义 IMPlugin trait，统一插件契约。每个消息渠道实现此 trait，提供入站解析、格式渲染、消息发送、生命周期管理、平台清洗五组方法。terminal 渠道的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
 - **通用渲染能力**：代码块语法高亮和流式增量渲染是跨平台通用机制，作为 IMPlugin trait 的默认实现提供。各平台插件自动继承，按需覆盖平台差异化部分。
-- **平台插件**：每个消息渠道的数据和渲染实现。IM 渠道（飞书、Discord 等）的插件放在 `platforms/` 子目录下。每个插件内部包含——Adapter（webhook 解析、token 管理、API 调用）和 Renderer（ContentBlock[] → 平台原生格式）。terminal 渠道的实现位于 CLI 模块。
+- **平台插件**：每个消息渠道的数据和渲染实现。IM 渠道（飞书、Discord 等）的插件放在 `platforms/` 子目录下。terminal 渠道的实现位于 CLI 模块。
 
 模块运行时注册表由 Gateway 维护：
 
 - **Plugin Registry**：platform → IMPlugin 的映射。Gateway 通过 platform 字段选择插件。
 - **插件注册机制**：Gateway 启动时自动扫描 `platforms/` 目录，发现所有实现了 IMPlugin trait 的插件并加载。不在 `platforms/` 下的插件（如 CLI 模块的 terminal）通过显式注册加入 Plugin Registry。用户可通过配置文件控制各平台的启用/禁用。新增 IM 平台 = 新增目录 + 实现 trait，Gateway 代码和配置均无需改动。
+
+平台插件为自包含模块，内部结构统一：
+
+```
+platforms/<平台名>/
+├── mod.rs         — 插件注册，impl IMPlugin trait
+├── adapter.rs     — 入站：webhook 解析 → NormalizedMessage
+│                  — 出站：API 调用发送消息
+│                  — token 管理与刷新
+├── renderer.rs    — ContentBlock[] + DSL → 平台原生格式
+├── cleaner.rs     — 平台消息清洗（@ 语法、mention 等），实现 clean_content() 回调
+└── tools/         — 平台工具注册
+    ├── mod.rs     — register_tools() 入口
+    └── ...        — 各工具分组文件
+```
+
+各文件职责单一、无循环依赖。新增平台时按此布局创建目录即可。
 
 ### 对外工具
 
@@ -37,6 +54,8 @@ im_adapter/
 每个消息渠道插件实现统一接口，包含以下方法分组：
 
 **入站**：解析 webhook payload 为 NormalizedMessage。消息过滤（空内容、非文本消息）在解析阶段完成——Adapter 对不支持的消息类型不产 NormalizedMessage。
+
+**清洗**：`clean_content(raw: &str) -> String`，接收平台原生文本，移除平台专属标记（飞书 @ 语法、Discord mention 等），产出清洗后的纯文本。由 Processor Chain 的 ContentNormalizer 调用。各平台按需实现，不需要的平台空实现透传。
 
 **渲染**：接收 ContentBlock[] 和 DSL 解析结果，按平台能力选择输出格式（纯文本或富格式）。渲染是纯数据转换，无副作用。
 
