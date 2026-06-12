@@ -4,12 +4,14 @@
 
 ## 用法
 
-### `python3 ddt.py finished <dir>`
+### `python3 ddt.py finished <path>`
 
-将 `<dir>` 下所有 `.md` 文件的当前 git commit 记录为已确认状态，并清空备注。
+将 `<path>` 指向的 `.md` 文件（或目录下所有 `.md` 文件）的当前 git commit 记录为已确认状态，并清空备注。
 
-- **必须在 `master` 分支上执行**
-- `<dir>` 必须存在且包含至少一个 `.md` 文件
+- `<path>` 可以是单个 `.md` 文件或目录
+  - **文件模式**：仅处理该文件
+  - **目录模式**：递归处理目录下所有 `.md` 文件（原有行为）
+- 在非 `master` 分支上执行时，自动使用 `master` 分支最近一次 commit 作为基准，并输出 warning
 
 ### `python3 ddt.py comment <path> <text>`
 
