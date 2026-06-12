@@ -4,10 +4,12 @@ Design Doc Tracker (ddt) – track which design docs have been implemented.
 
 Commands
 --------
-- ``finished <dir>``
+- ``finished <dir> [--comment TEXT]``
     Record that every ``.md`` file under *<dir>* matches current HEAD.
     Must be on the ``master`` branch.  *<dir>* must exist and contain at
-    least one ``.md`` file.
+    least one ``.md`` file.  ``--comment`` sets a comment for all files
+    under *<dir>* (default: empty string, preserves existing comment on
+    update when omitted).
 
 - ``check``
     Scan ``docs/design/`` for ``.md`` files and report any that have
@@ -128,11 +130,19 @@ def cmd_finished(args: argparse.Namespace) -> int:
 
     for rel_path in md_files:
         key = str(rel_path)
+        # Preserve existing comment when --comment is not provided
+        if args.comment is not None:
+            comment = args.comment
+        elif key in existing:
+            comment = records[existing[key]].get("comment", "")
+        else:
+            comment = ""
         entry: Dict[str, str] = {
             "path": key,
             "commit": commit,
             "commit_time": commit_time,
             "confirmed_time": confirmed_time,
+            "comment": comment,
         }
         if key in existing:
             records[existing[key]] = entry
@@ -168,7 +178,12 @@ def cmd_check(args: argparse.Namespace) -> int:
             changed.append(key)
 
     for p in changed:
-        print(p)
+        rec = record_map.get(p, {})
+        comment = rec.get("comment", "")
+        if comment:
+            print(f"{p}\t{comment}")
+        else:
+            print(p)
 
     return 0
 
@@ -184,6 +199,9 @@ def main() -> int:
 
     p_finished = sub.add_parser("finished", help="Mark design doc(s) as implemented")
     p_finished.add_argument("dir", help="Directory (relative to repo root) to record")
+    p_finished.add_argument(
+        "--comment", default=None, help="Comment to attach to all files under <dir>"
+    )
 
     sub.add_parser("check", help="Check for changed design docs since last confirmation")
 
