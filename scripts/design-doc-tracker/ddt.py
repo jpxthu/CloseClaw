@@ -4,12 +4,15 @@ Design Doc Tracker (ddt) – track which design docs have been implemented.
 
 Commands
 --------
-- ``finished <dir> [--comment TEXT]``
+- ``finished <dir>``
     Record that every ``.md`` file under *<dir>* matches current HEAD.
     Must be on the ``master`` branch.  *<dir>* must exist and contain at
-    least one ``.md`` file.  ``--comment`` sets a comment for all files
-    under *<dir>* (default: empty string, preserves existing comment on
-    update when omitted).
+    least one ``.md`` file.  Clears any existing comment for matched files.
+
+- ``comment <path> <text>``
+    Override the comment for a specific design doc file.  The file must
+    already have a record (use ``finished`` first).  ``<path>`` is relative
+    to the repo root.
 
 - ``check``
     Scan ``docs/design/`` for ``.md`` files and report any that have
@@ -20,13 +23,15 @@ records.json lives alongside this script.
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
+
+import click
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = Path(
@@ -81,7 +86,6 @@ def _save_records(records: List[Dict[str, str]]) -> None:
 
 def _collect_md_files(directory: Path) -> List[Path]:
     """Recursively collect .md files, return relative-to-REPO_ROOT paths."""
-    base = str(REPO_ROOT) + "/"
     result: List[Path] = []
     for p in sorted(directory.rglob("*.md")):
         if p.is_file():
@@ -97,7 +101,7 @@ def _now_iso() -> str:
 # ── sub-commands ─────────────────────────────────────────────────────────
 
 
-def cmd_finished(args: argparse.Namespace) -> int:
+def cmd_finished(args: SimpleNamespace) -> int:
     dir_path = REPO_ROOT / args.dir
 
     # 1. branch must be master
@@ -130,19 +134,12 @@ def cmd_finished(args: argparse.Namespace) -> int:
 
     for rel_path in md_files:
         key = str(rel_path)
-        # Preserve existing comment when --comment is not provided
-        if args.comment is not None:
-            comment = args.comment
-        elif key in existing:
-            comment = records[existing[key]].get("comment", "")
-        else:
-            comment = ""
         entry: Dict[str, str] = {
             "path": key,
             "commit": commit,
             "commit_time": commit_time,
             "confirmed_time": confirmed_time,
-            "comment": comment,
+            "comment": "",
         }
         if key in existing:
             records[existing[key]] = entry
@@ -154,7 +151,20 @@ def cmd_finished(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check(args: argparse.Namespace) -> int:
+def cmd_comment(args: SimpleNamespace) -> int:
+    """Override the comment for a single design doc file."""
+    records = _load_records()
+    for rec in records:
+        if rec["path"] == args.path:
+            rec["comment"] = args.text
+            _save_records(records)
+            print(f"Updated comment for '{args.path}'")
+            return 0
+    print(f"Error: no record for '{args.path}'. Run 'finished' first.", file=sys.stderr)
+    return 1
+
+
+def cmd_check(args: SimpleNamespace) -> int:
     records = _load_records()
     record_map: Dict[str, Dict[str, str]] = {r["path"]: r for r in records}
 
@@ -191,32 +201,31 @@ def cmd_check(args: argparse.Namespace) -> int:
 # ── main ─────────────────────────────────────────────────────────────────
 
 
+@click.group()
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Design Doc Tracker – track implementation status of design docs."
-    )
-    sub = parser.add_subparsers(dest="command")
+    """Design Doc Tracker – 跟踪设计文档的实现状态。"""
+    return 0
 
-    p_finished = sub.add_parser("finished", help="Mark design doc(s) as implemented")
-    p_finished.add_argument("dir", help="Directory (relative to repo root) to record")
-    p_finished.add_argument(
-        "--comment", default=None, help="Comment to attach to all files under <dir>"
-    )
 
-    sub.add_parser("check", help="Check for changed design docs since last confirmation")
+@main.command(name="finished")
+@click.argument("dir")
+def finished_cmd(dir: str) -> int:
+    """标记设计文档已实现。DIR 为仓库根目录下的目录路径。"""
+    return cmd_finished(SimpleNamespace(dir=dir))
 
-    args = parser.parse_args()
-    if args.command is None:
-        parser.print_help()
-        return 1
 
-    if args.command == "finished":
-        return cmd_finished(args)
-    elif args.command == "check":
-        return cmd_check(args)
-    else:
-        parser.print_help()
-        return 1
+@main.command(name="comment")
+@click.argument("path")
+@click.argument("text")
+def comment_cmd(path: str, text: str) -> int:
+    """为已记录的设计文档设置/覆盖评论。PATH 为文件路径，TEXT 为评论内容。"""
+    return cmd_comment(SimpleNamespace(path=path, text=text))
+
+
+@main.command(name="check")
+def check_cmd() -> int:
+    """扫描设计文档目录，报告有变更的文件。"""
+    return cmd_check(SimpleNamespace())
 
 
 if __name__ == "__main__":

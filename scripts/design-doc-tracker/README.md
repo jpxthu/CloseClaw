@@ -4,13 +4,18 @@
 
 ## 用法
 
-### `python3 ddt.py finished <dir> [--comment TEXT]`
+### `python3 ddt.py finished <dir>`
 
-将 `<dir>` 下所有 `.md` 文件的当前 git commit 记录为已确认状态。
+将 `<dir>` 下所有 `.md` 文件的当前 git commit 记录为已确认状态，并清空备注。
 
 - **必须在 `master` 分支上执行**
 - `<dir>` 必须存在且包含至少一个 `.md` 文件
-- `--comment TEXT` 为该目录下所有文件设置备注（省略时保留已有备注，新文件默认为空）
+
+### `python3 ddt.py comment <path> <text>`
+
+为已记录的 design doc 设置备注。`<path>` 为相对于项目根的文件路径。
+
+- 文件必须已有记录（先执行 `finished`）
 
 ### `python3 ddt.py check`
 
