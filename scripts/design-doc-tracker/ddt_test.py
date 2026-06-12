@@ -201,14 +201,168 @@ class TestCmdFinished(unittest.TestCase):
             rc = ddt.cmd_finished(args)
         self.assertEqual(rc, 1)
 
-    def test_directory_is_file(self):
-        """Should error when target is a file, not a directory."""
-        target = self._fake_repo / "not_a_dir.md"
+    def test_non_md_file_rejected(self):
+        """Should error when target is a non-.md file."""
+        target = self._fake_repo / "not_a_dir.txt"
         target.write_text("hi")
-        args = _make_args(dir="not_a_dir.md")
+        args = _make_args(dir="not_a_dir.txt")
         with self._patch_branch("master"):
             rc = ddt.cmd_finished(args)
         self.assertEqual(rc, 1)
+
+    # -- single file tests (Step 1.4) -----------------------------------
+
+    def test_single_md_file_happy_path(self):
+        """Passing a .md file path should record only that file."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+        (design_dir / "db.md").write_text("# DB")
+
+        args = _make_args(dir="docs/design/auth.md")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = buf = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("cafe0001"), \
+                 self._patch_commit_date("2025-03-01T00:00:00+00:00"), \
+                 self._patch_now("2025-06-12T00:00:00+08:00"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        output = buf.getvalue()
+        self.assertIn("1 file(s)", output)
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["path"], "docs/design/auth.md")
+        self.assertEqual(records[0]["commit"], "cafe0001")
+
+    def test_single_non_md_file_error(self):
+        """Passing a non-.md file should error."""
+        target = self._fake_repo / "readme.txt"
+        target.write_text("hello")
+        args = _make_args(dir="readme.txt")
+        import io, sys
+        old_stderr = sys.stderr
+        sys.stderr = buf = io.StringIO()
+        try:
+            with self._patch_branch("master"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("not a .md file", buf.getvalue())
+
+    def test_single_md_file_not_exist_error(self):
+        """Passing a non-existent .md path should error."""
+        args = _make_args(dir="docs/design/missing.md")
+        import io, sys
+        old_stderr = sys.stderr
+        sys.stderr = buf = io.StringIO()
+        try:
+            with self._patch_branch("master"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("does not exist", buf.getvalue())
+
+    def test_directory_behavior_unchanged(self):
+        """Directory path should still work as before (recursive)."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+        (design_dir / "db.md").write_text("# DB")
+
+        args = _make_args(dir="docs/design")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = buf = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("dir0001"), \
+                 self._patch_commit_date("2025-04-01T00:00:00+00:00"), \
+                 self._patch_now("2025-06-12T00:00:00+08:00"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        self.assertIn("2 file(s)", buf.getvalue())
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 2)
+        paths = {r["path"] for r in records}
+        self.assertIn("docs/design/auth.md", paths)
+        self.assertIn("docs/design/db.md", paths)
+
+    def test_master_fallback_non_master_branch(self):
+        """On non-master branch, should use fallback master commit + warning."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+
+        args = _make_args(dir="docs/design")
+        import io, sys
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = stdout_buf = io.StringIO()
+        sys.stderr = stderr_buf = io.StringIO()
+        try:
+            with self._patch_branch("feature/foo"), \
+                 mock.patch.object(ddt, "_master_commit", return_value="fallback1234"), \
+                 self._patch_commit_date("2025-05-01T00:00:00+00:00"), \
+                 self._patch_now("2025-06-12T00:00:00+08:00"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        self.assertEqual(rc, 0)
+        # Warning should mention the branch and fallback commit
+        warning = stderr_buf.getvalue()
+        self.assertIn("feature/foo", warning)
+        self.assertIn("fallback1234", warning)
+        self.assertIn("Warning", warning)
+
+        # Record should use fallback commit
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["commit"], "fallback1234")
+
+    def test_master_branch_normal(self):
+        """On master branch, behavior should be unchanged (no warning)."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+
+        args = _make_args(dir="docs/design")
+        import io, sys
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = stdout_buf = io.StringIO()
+        sys.stderr = stderr_buf = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("master001"), \
+                 self._patch_commit_date("2025-06-01T00:00:00+00:00"), \
+                 self._patch_now("2025-06-12T00:00:00+08:00"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        self.assertEqual(rc, 0)
+        # No warning on stderr
+        self.assertEqual(stderr_buf.getvalue(), "")
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["commit"], "master001")
 
     def test_empty_directory_no_md(self):
         """Directory exists but has no .md files → rc=0, prints hint."""

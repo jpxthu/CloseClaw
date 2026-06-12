@@ -4,10 +4,11 @@ Design Doc Tracker (ddt) – track which design docs have been implemented.
 
 Commands
 --------
-- ``finished <dir>``
-    Record that every ``.md`` file under *<dir>* matches current HEAD.
-    Must be on the ``master`` branch.  *<dir>* must exist and contain at
-    least one ``.md`` file.  Clears any existing comment for matched files.
+- ``finished <path>``
+    Record that every ``.md`` file under *<path>* matches current HEAD.
+    *<path>* can be a directory (recursively) or a single ``.md`` file.
+    On non-master branches, uses the latest master commit as fallback.
+    Clears any existing comment for matched files.
 
 - ``comment <path> <text>``
     Override the comment for a specific design doc file.  The file must
@@ -70,6 +71,14 @@ def _commit_committer_date(ref: str = "HEAD") -> str:
     return r.stdout.strip()
 
 
+def _master_commit() -> str | None:
+    """Return the latest commit on master, or None if master doesn't exist."""
+    r = _run(["git", "log", "master", "--format=%H", "-1"])
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return r.stdout.strip()
+
+
 def _load_records() -> List[Dict[str, str]]:
     if RECORDS_FILE.exists():
         with open(RECORDS_FILE, "r", encoding="utf-8") as f:
@@ -102,31 +111,47 @@ def _now_iso() -> str:
 
 
 def cmd_finished(args: SimpleNamespace) -> int:
-    dir_path = REPO_ROOT / args.dir
+    target = REPO_ROOT / args.dir
 
-    # 1. branch must be master
+    # 1. resolve target: file or directory
+    md_files: List[Path] = []
+    if target.is_file():
+        # single file: must be .md
+        if target.suffix != ".md":
+            print(f"Error: '{args.dir}' is not a .md file", file=sys.stderr)
+            return 1
+        rel = str(target.relative_to(REPO_ROOT))
+        md_files = [Path(rel)]
+    elif target.is_dir():
+        md_files = _collect_md_files(target)
+        if not md_files:
+            print("no .md files found")
+            return 0
+    else:
+        # path doesn't exist
+        if target.suffix == ".md":
+            print(f"Error: file '{args.dir}' does not exist", file=sys.stderr)
+        else:
+            print(f"Error: directory '{args.dir}' does not exist", file=sys.stderr)
+        return 1
+
+    # 2. branch handling: fallback on non-master
     branch = _current_branch()
-    if branch != "master":
-        print(f"Error: must be on master branch, currently on '{branch}'", file=sys.stderr)
-        return 1
-
-    # 2. directory must exist and be a directory
-    if not dir_path.exists():
-        print(f"Error: directory '{args.dir}' does not exist", file=sys.stderr)
-        return 1
-    if not dir_path.is_dir():
-        print(f"Error: '{args.dir}' is not a directory", file=sys.stderr)
-        return 1
-
-    # 3. collect .md files
-    md_files = _collect_md_files(dir_path)
-    if not md_files:
-        print("no .md files found")
-        return 0
-
-    # 4. build records
     commit = _head_commit()
-    commit_time = _commit_committer_date()
+    if branch != "master":
+        fallback = _master_commit()
+        if fallback is None:
+            print("Error: not on master and no master branch found", file=sys.stderr)
+            return 1
+        commit = fallback
+        print(
+            f"Warning: not on master branch (on '{branch}'), "
+            f"using fallback commit {commit}",
+            file=sys.stderr,
+        )
+
+    # 3. build records
+    commit_time = _commit_committer_date(commit)
     confirmed_time = _now_iso()
 
     records = _load_records()
@@ -208,10 +233,10 @@ def main() -> int:
 
 
 @main.command(name="finished")
-@click.argument("dir")
-def finished_cmd(dir: str) -> int:
-    """标记设计文档已实现。DIR 为仓库根目录下的目录路径。"""
-    return cmd_finished(SimpleNamespace(dir=dir))
+@click.argument("path")
+def finished_cmd(path: str) -> int:
+    """标记设计文档已实现。PATH 为仓库根目录下的文件或目录路径（支持单个 .md 文件或整个目录）。"""
+    return cmd_finished(SimpleNamespace(dir=path))
 
 
 @main.command(name="comment")
