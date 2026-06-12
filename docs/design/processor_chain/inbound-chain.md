@@ -29,12 +29,12 @@ Processor 链（按 priority 升序执行，纯变换）
   │     → 原始消息写入日志，透传
   │
   ├── SessionRouter（priority 20）
-  │     → 从 (platform, sender_id, peer_id, account_id) 计算 session_key
+  │     → 从 (platform, sender_id, peer_id, account_id, agent_id) 计算 session_key
   │     → session_key 写入 metadata
   │     → 不创建 session、不查 SessionManager
   │
   └── ContentNormalizer（priority 30）
-        → 清洗平台残留元数据（飞书 at 语法、Discord mention 等）
+        → 平台清洗：调用 IMPlugin.clean_content()，委托对应平台插件移除专属标记
         → 富文本展开为标准 markdown
         → 标准化格式：压缩连续空行、去行尾空格、裸 URL 补全 https:// 前缀
   ↓
@@ -45,8 +45,9 @@ ProcessedMessage → Gateway 路由
 
 SessionRouter 计算 session_key 的方式：
 
-- `session_key = hash(platform, sender_id, peer_id, account_id)`
+- `session_key = hash(platform, sender_id, peer_id, account_id, agent_id)`
 - `account_id` 由 `sender_id` 通过身份映射得到，是 CloseClaw 本地的账号标识。一个 CloseClaw 账号可绑定多个平台的 sender_id
+- `agent_id` 参与哈希，用于区分同一 CloseClaw 实例上运行的不同 agent 的 session
 - `thread_id` 不参与——仅用于出站时 Gateway 定向回复到正确的话题线
 
 session_key 是一个确定性哈希值，相同的输入永远产相同的 key。但 session_key 不直接等于 session_id——它只是一个查找键。
@@ -71,7 +72,7 @@ SessionRouter 不区分私聊和群聊。会话粒度由 Adapter 通过 peer_id 
 ```
 IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content }
   → RawLogProcessor：记录原始内容到日志 → 透传
-    → SessionRouter：计算 session_key = hash(platform, sender_id, peer_id, account_id) → 写入 metadata.session_key
+    → SessionRouter：计算 session_key = hash(platform, sender_id, peer_id, account_id, agent_id) → 写入 metadata.session_key
       → ContentNormalizer：清洗平台残留 → 标准化 markdown 格式
         → ProcessedMessage { content, metadata { session_key } }
           → Gateway
@@ -84,6 +85,8 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
 - ContentNormalizer 异常时内容不变（丢回原文），消息继续流转
 - 所有异常均记录日志，用于后续问题定位和改进
 
+**平台清洗委托**：ContentNormalizer 的"平台残留清洗"不包含任何平台专属逻辑。清洗行为委托给 IMPlugin trait 的 `clean_content()` 回调——ContentNormalizer 调用消息来源平台的插件方法，各平台插件实现自己的清洗逻辑（飞书处理 @ 语法，Discord 处理 mention，不支持的平台空实现透传）。ContentNormalizer 自身只执行平台无关的标准化（富文本展开、空行压缩、去尾空格、URL 补全）。
+
 ## 模块关系
 
 - **上游**：IM Adapter（各平台提供适配器，产 NormalizedMessage）
@@ -91,5 +94,5 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
 - **链内**：
   - RawLogProcessor — 审计日志（副作用），不改内容
   - SessionRouter — 计算 session_key（纯哈希计算），写 metadata
-  - ContentNormalizer — 内容清洗 + 格式标准化（纯文本变换）
+  - ContentNormalizer — 格式标准化（平台无关）+ 委托 IMPlugin 清洗平台残留
 - **无关**：出站 Processor 链（独立链路，与入站互不干扰）
