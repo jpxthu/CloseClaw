@@ -54,6 +54,7 @@ ddt.DESIGN_DOC_DIR = Path(_FAKE_REPO) / "docs" / "design"
 
 def _make_args(**kwargs) -> argparse.Namespace:
     """Build a minimal Namespace for cmd_finished / cmd_check."""
+    kwargs.setdefault("comment", None)
     return argparse.Namespace(**kwargs)
 
 
@@ -262,6 +263,7 @@ class TestCmdFinished(unittest.TestCase):
         # All records share the same commit
         for r in records:
             self.assertEqual(r["commit"], "deadbeef")
+            self.assertEqual(r["comment"], "")
 
     def test_idempotent_record_update(self):
         """Running finished twice updates (not duplicates) records."""
@@ -298,6 +300,129 @@ class TestCmdFinished(unittest.TestCase):
         # Should still be exactly 1 record (updated, not duplicated)
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["commit"], "v2")
+        self.assertEqual(records[0]["comment"], "")
+
+
+    def test_finished_with_comment(self):
+        """--comment sets comment on every record."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+        (design_dir / "db.md").write_text("# DB")
+
+        args = _make_args(dir="docs/design", comment="hello world")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("c1"), \
+                 self._patch_commit_date("2025-01-01T00:00:00+00:00"), \
+                 self._patch_now("2025-01-01T00:00:00+08:00"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 2)
+        for r in records:
+            self.assertEqual(r["comment"], "hello world")
+
+    def test_finished_without_comment_default_empty(self):
+        """Without --comment, new records have comment=''"""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+
+        args = _make_args(dir="docs/design")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("c1"), \
+                 self._patch_commit_date("2025-01-01T00:00:00+00:00"), \
+                 self._patch_now("2025-01-01T00:00:00+08:00"):
+                ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(records[0]["comment"], "")
+
+    def test_finished_preserves_existing_comment(self):
+        """Re-running finished without --comment preserves existing comment."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+
+        # First run with a comment
+        args1 = _make_args(dir="docs/design", comment="original")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("c1"), \
+                 self._patch_commit_date("2025-01-01T00:00:00+00:00"), \
+                 self._patch_now("2025-01-01T00:00:00+08:00"):
+                ddt.cmd_finished(args1)
+        finally:
+            sys.stdout = old_stdout
+
+        # Second run without --comment
+        args2 = _make_args(dir="docs/design")
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("c2"), \
+                 self._patch_commit_date("2025-02-01T00:00:00+00:00"), \
+                 self._patch_now("2025-02-01T00:00:00+08:00"):
+                ddt.cmd_finished(args2)
+        finally:
+            sys.stdout = old_stdout
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["comment"], "original")
+        self.assertEqual(records[0]["commit"], "c2")
+
+    def test_finished_overrides_comment(self):
+        """finished --comment "new" overrides existing comment."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+
+        # First run with a comment
+        args1 = _make_args(dir="docs/design", comment="old")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("c1"), \
+                 self._patch_commit_date("2025-01-01T00:00:00+00:00"), \
+                 self._patch_now("2025-01-01T00:00:00+08:00"):
+                ddt.cmd_finished(args1)
+        finally:
+            sys.stdout = old_stdout
+
+        # Second run with a different comment
+        args2 = _make_args(dir="docs/design", comment="new")
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_branch("master"), \
+                 self._patch_head("c2"), \
+                 self._patch_commit_date("2025-02-01T00:00:00+00:00"), \
+                 self._patch_now("2025-02-01T00:00:00+08:00"):
+                ddt.cmd_finished(args2)
+        finally:
+            sys.stdout = old_stdout
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["comment"], "new")
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +584,56 @@ class TestCmdCheck(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertIn("docs/design/new.md", lines)  # no record → changed
         self.assertIn("docs/design/old.md", lines)  # recorded but changed
+
+    def test_check_output_with_comment(self):
+        """Changed file with comment → output is 'path\tcomment'."""
+        self._create_design_docs(["auth.md"])
+        self._write_records(
+            [{"path": "docs/design/auth.md", "commit": "aaa111", "comment": "important doc"}]
+        )
+        args = _make_args()
+
+        with mock.patch.object(ddt, "_run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr=""
+            )
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        lines = [l for l in buf.getvalue().strip().splitlines()]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "docs/design/auth.md\timportant doc")
+
+    def test_check_output_no_comment(self):
+        """Changed file without comment → output is just path."""
+        self._create_design_docs(["auth.md"])
+        self._write_records(
+            [{"path": "docs/design/auth.md", "commit": "aaa111", "comment": ""}]
+        )
+        args = _make_args()
+
+        with mock.patch.object(ddt, "_run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr=""
+            )
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        lines = [l for l in buf.getvalue().strip().splitlines()]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "docs/design/auth.md")
 
 
 # ---------------------------------------------------------------------------
