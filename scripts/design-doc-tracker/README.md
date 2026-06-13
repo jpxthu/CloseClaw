@@ -11,18 +11,22 @@
 - `<path>` 可以是单个 `.md` 文件或目录
   - **文件模式**：仅处理该文件
   - **目录模式**：递归处理目录下所有 `.md` 文件（原有行为）
-- 在非 `master` 分支上执行时，自动使用 `master` 分支最近一次 commit 作为基准，并输出 warning
+- 始终使用 `git merge-base HEAD origin/master` 的分叉点 commit 作为记录值，与当前所在分支无关
+- 如果 `origin/master` 不存在或 merge-base 失败，报错返回 rc=1
 
 ### `python3 ddt.py comment <path> <text>`
 
-为已记录的 design doc 设置备注。`<path>` 为相对于项目根的文件路径。
+为 design doc 设置备注。`<path>` 为相对于项目根的文件路径。
 
-- 文件必须已有记录（先执行 `finished`）
+- 如果文件已有记录，仅覆盖 comment（行为不变）
+- 如果文件无记录，自动创建新记录，commit 留空，comment 设为指定文本
+- `<text>` 可以为空字符串
 
 ### `python3 ddt.py check`
 
 扫描项目中 `docs/design/` 目录下的 `.md` 文件，报告自上次确认以来发生变更的文档。
 
+- 记录中 commit 为空的文件视为 changed，直接输出
 - 输出格式：`path` 或 `path\tcomment`（有备注时）
 
 ## 记录文件

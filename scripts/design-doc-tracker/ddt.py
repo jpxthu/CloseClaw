@@ -5,15 +5,15 @@ Design Doc Tracker (ddt) – track which design docs have been implemented.
 Commands
 --------
 - ``finished <path>``
-    Record that every ``.md`` file under *<path>* matches current HEAD.
+    Record that every ``.md`` file under *<path>* matches the merge-base
+    of HEAD and origin/master.
     *<path>* can be a directory (recursively) or a single ``.md`` file.
-    On non-master branches, uses the latest master commit as fallback.
     Clears any existing comment for matched files.
 
 - ``comment <path> <text>``
-    Override the comment for a specific design doc file.  The file must
-    already have a record (use ``finished`` first).  ``<path>`` is relative
-    to the repo root.
+    Override the comment for a specific design doc file.  If the file already
+    has a record the comment is updated; otherwise a new record is created
+    with an empty commit.  ``<path>`` is relative to the repo root.
 
 - ``check``
     Scan ``docs/design/`` for ``.md`` files and report any that have
@@ -55,25 +55,15 @@ def _run(cmd: List[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _current_branch() -> str:
-    r = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    return r.stdout.strip()
-
-
-def _head_commit() -> str:
-    r = _run(["git", "rev-parse", "HEAD"])
-    return r.stdout.strip()
-
-
 def _commit_committer_date(ref: str = "HEAD") -> str:
     """Return ISO-8601 committer date for *ref*."""
     r = _run(["git", "log", "-1", "--format=%cI", ref])
     return r.stdout.strip()
 
 
-def _master_commit() -> str | None:
-    """Return the latest commit on master, or None if master doesn't exist."""
-    r = _run(["git", "log", "master", "--format=%H", "-1"])
+def _merge_base_commit() -> str | None:
+    """Return the merge-base of HEAD and origin/master, or None on failure."""
+    r = _run(["git", "merge-base", "HEAD", "origin/master"])
     if r.returncode != 0 or not r.stdout.strip():
         return None
     return r.stdout.strip()
@@ -135,20 +125,15 @@ def cmd_finished(args: SimpleNamespace) -> int:
             print(f"Error: directory '{args.dir}' does not exist", file=sys.stderr)
         return 1
 
-    # 2. branch handling: fallback on non-master
-    branch = _current_branch()
-    commit = _head_commit()
-    if branch != "master":
-        fallback = _master_commit()
-        if fallback is None:
-            print("Error: not on master and no master branch found", file=sys.stderr)
-            return 1
-        commit = fallback
+    # 2. get commit via merge-base
+    commit = _merge_base_commit()
+    if commit is None:
         print(
-            f"Warning: not on master branch (on '{branch}'), "
-            f"using fallback commit {commit}",
+            "Error: git merge-base HEAD origin/master failed. "
+            "Ensure origin/master exists.",
             file=sys.stderr,
         )
+        return 1
 
     # 3. build records
     commit_time = _commit_committer_date(commit)
@@ -177,7 +162,11 @@ def cmd_finished(args: SimpleNamespace) -> int:
 
 
 def cmd_comment(args: SimpleNamespace) -> int:
-    """Override the comment for a single design doc file."""
+    """Override the comment for a single design doc file.
+
+    If the file already has a record, only the comment is overwritten.
+    If no record exists yet, a new record is created with an empty commit.
+    """
     records = _load_records()
     for rec in records:
         if rec["path"] == args.path:
@@ -185,8 +174,19 @@ def cmd_comment(args: SimpleNamespace) -> int:
             _save_records(records)
             print(f"Updated comment for '{args.path}'")
             return 0
-    print(f"Error: no record for '{args.path}'. Run 'finished' first.", file=sys.stderr)
-    return 1
+    # No existing record — create a new one with empty commit fields
+    records.append(
+        {
+            "path": args.path,
+            "commit": "",
+            "commit_time": "",
+            "confirmed_time": _now_iso(),
+            "comment": args.text,
+        }
+    )
+    _save_records(records)
+    print(f"Created record for '{args.path}'")
+    return 0
 
 
 def cmd_check(args: SimpleNamespace) -> int:
@@ -205,6 +205,10 @@ def cmd_check(args: SimpleNamespace) -> int:
         rec = record_map.get(key)
         if rec is None:
             # no record → treat as changed
+            changed.append(key)
+            continue
+        if rec["commit"] == "":
+            # empty commit → treat as changed
             changed.append(key)
             continue
         # git diff --quiet exits 1 if there are changes
