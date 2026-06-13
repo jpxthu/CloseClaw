@@ -174,12 +174,9 @@ class TestCmdFinished(unittest.TestCase):
         ddt.RECORDS_FILE = self._orig_records
         shutil.rmtree(self._tmpdir)
 
-    def _patch_branch(self, branch: str):
-        """Return a patcher that makes _current_branch return *branch*."""
-        return mock.patch.object(ddt, "_current_branch", return_value=branch)
-
-    def _patch_head(self, commit: str = "aaaa1111"):
-        return mock.patch.object(ddt, "_head_commit", return_value=commit)
+    def _patch_merge_base(self, commit: str | None = "aaaa1111"):
+        """Return a patcher that makes _merge_base_commit return *commit* (or None)."""
+        return mock.patch.object(ddt, "_merge_base_commit", return_value=commit)
 
     def _patch_commit_date(self, dt: str = "2025-01-01T00:00:00+00:00"):
         return mock.patch.object(ddt, "_commit_committer_date", return_value=dt)
@@ -187,18 +184,10 @@ class TestCmdFinished(unittest.TestCase):
     def _patch_now(self, iso: str = "2025-06-12T00:00:00+08:00"):
         return mock.patch.object(ddt, "_now_iso", return_value=iso)
 
-    def test_not_on_master(self):
-        """Should error (rc=1) when not on master branch."""
-        args = _make_args(dir="docs/design")
-        with self._patch_branch("feature/foo"):
-            rc = ddt.cmd_finished(args)
-        self.assertEqual(rc, 1)
-
     def test_directory_not_exist(self):
         """Should error when target directory doesn't exist."""
         args = _make_args(dir="nonexistent")
-        with self._patch_branch("master"):
-            rc = ddt.cmd_finished(args)
+        rc = ddt.cmd_finished(args)
         self.assertEqual(rc, 1)
 
     def test_non_md_file_rejected(self):
@@ -206,11 +195,56 @@ class TestCmdFinished(unittest.TestCase):
         target = self._fake_repo / "not_a_dir.txt"
         target.write_text("hi")
         args = _make_args(dir="not_a_dir.txt")
-        with self._patch_branch("master"):
-            rc = ddt.cmd_finished(args)
+        rc = ddt.cmd_finished(args)
         self.assertEqual(rc, 1)
 
-    # -- single file tests (Step 1.4) -----------------------------------
+    # -- merge-base tests ---------------------------------------------------
+
+    def test_merge_base_success(self):
+        """Happy path: merge-base returns a commit, records it."""
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+
+        args = _make_args(dir="docs/design")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = buf = io.StringIO()
+        try:
+            with self._patch_merge_base("merge001"), \
+                 self._patch_commit_date("2025-03-01T00:00:00+00:00"), \
+                 self._patch_now("2025-06-12T00:00:00+08:00"):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        self.assertIn("1 file(s)", buf.getvalue())
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["commit"], "merge001")
+        self.assertEqual(records[0]["comment"], "")
+
+    def test_merge_base_failure(self):
+        """Should error (rc=1) when merge-base fails."""
+        # Create directory so it passes the existence check
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+        args = _make_args(dir="docs/design")
+        import io, sys
+        old_stderr = sys.stderr
+        sys.stderr = buf = io.StringIO()
+        try:
+            with self._patch_merge_base(None):
+                rc = ddt.cmd_finished(args)
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("merge-base", buf.getvalue())
+
+    # -- single file tests ---------------------------------------------------
 
     def test_single_md_file_happy_path(self):
         """Passing a .md file path should record only that file."""
@@ -224,8 +258,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = buf = io.StringIO()
         try:
-            with self._patch_branch("master"), \
-                 self._patch_head("cafe0001"), \
+            with self._patch_merge_base("cafe0001"), \
                  self._patch_commit_date("2025-03-01T00:00:00+00:00"), \
                  self._patch_now("2025-06-12T00:00:00+08:00"):
                 rc = ddt.cmd_finished(args)
@@ -250,8 +283,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stderr = sys.stderr
         sys.stderr = buf = io.StringIO()
         try:
-            with self._patch_branch("master"):
-                rc = ddt.cmd_finished(args)
+            rc = ddt.cmd_finished(args)
         finally:
             sys.stderr = old_stderr
         self.assertEqual(rc, 1)
@@ -264,8 +296,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stderr = sys.stderr
         sys.stderr = buf = io.StringIO()
         try:
-            with self._patch_branch("master"):
-                rc = ddt.cmd_finished(args)
+            rc = ddt.cmd_finished(args)
         finally:
             sys.stderr = old_stderr
         self.assertEqual(rc, 1)
@@ -283,8 +314,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = buf = io.StringIO()
         try:
-            with self._patch_branch("master"), \
-                 self._patch_head("dir0001"), \
+            with self._patch_merge_base("dir0001"), \
                  self._patch_commit_date("2025-04-01T00:00:00+00:00"), \
                  self._patch_now("2025-06-12T00:00:00+08:00"):
                 rc = ddt.cmd_finished(args)
@@ -300,70 +330,6 @@ class TestCmdFinished(unittest.TestCase):
         self.assertIn("docs/design/auth.md", paths)
         self.assertIn("docs/design/db.md", paths)
 
-    def test_master_fallback_non_master_branch(self):
-        """On non-master branch, should use fallback master commit + warning."""
-        design_dir = self._fake_repo / "docs" / "design"
-        design_dir.mkdir(parents=True)
-        (design_dir / "auth.md").write_text("# Auth")
-
-        args = _make_args(dir="docs/design")
-        import io, sys
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = stdout_buf = io.StringIO()
-        sys.stderr = stderr_buf = io.StringIO()
-        try:
-            with self._patch_branch("feature/foo"), \
-                 mock.patch.object(ddt, "_master_commit", return_value="fallback1234"), \
-                 self._patch_commit_date("2025-05-01T00:00:00+00:00"), \
-                 self._patch_now("2025-06-12T00:00:00+08:00"):
-                rc = ddt.cmd_finished(args)
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-
-        self.assertEqual(rc, 0)
-        # Warning should mention the branch and fallback commit
-        warning = stderr_buf.getvalue()
-        self.assertIn("feature/foo", warning)
-        self.assertIn("fallback1234", warning)
-        self.assertIn("Warning", warning)
-
-        # Record should use fallback commit
-        records = _read_json(ddt.RECORDS_FILE)
-        self.assertEqual(len(records), 1)
-        self.assertEqual(records[0]["commit"], "fallback1234")
-
-    def test_master_branch_normal(self):
-        """On master branch, behavior should be unchanged (no warning)."""
-        design_dir = self._fake_repo / "docs" / "design"
-        design_dir.mkdir(parents=True)
-        (design_dir / "auth.md").write_text("# Auth")
-
-        args = _make_args(dir="docs/design")
-        import io, sys
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = stdout_buf = io.StringIO()
-        sys.stderr = stderr_buf = io.StringIO()
-        try:
-            with self._patch_branch("master"), \
-                 self._patch_head("master001"), \
-                 self._patch_commit_date("2025-06-01T00:00:00+00:00"), \
-                 self._patch_now("2025-06-12T00:00:00+08:00"):
-                rc = ddt.cmd_finished(args)
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-
-        self.assertEqual(rc, 0)
-        # No warning on stderr
-        self.assertEqual(stderr_buf.getvalue(), "")
-
-        records = _read_json(ddt.RECORDS_FILE)
-        self.assertEqual(len(records), 1)
-        self.assertEqual(records[0]["commit"], "master001")
-
     def test_empty_directory_no_md(self):
         """Directory exists but has no .md files → rc=0, prints hint."""
         empty_dir = self._fake_repo / "empty_dir"
@@ -374,8 +340,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = buf = io.StringIO()
         try:
-            with self._patch_branch("master"):
-                rc = ddt.cmd_finished(args)
+            rc = ddt.cmd_finished(args)
         finally:
             sys.stdout = old_stdout
 
@@ -383,7 +348,7 @@ class TestCmdFinished(unittest.TestCase):
         self.assertIn("no .md files found", buf.getvalue())
 
     def test_normal_record_files(self):
-        """Happy path: master branch, dir has .md files, records created."""
+        """Happy path: dir has .md files, records created from merge-base."""
         design_dir = self._fake_repo / "docs" / "design"
         design_dir.mkdir(parents=True)
         (design_dir / "auth.md").write_text("# Auth")
@@ -395,8 +360,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = buf = io.StringIO()
         try:
-            with self._patch_branch("master"), \
-                 self._patch_head("deadbeef"), \
+            with self._patch_merge_base("deadbeef"), \
                  self._patch_commit_date("2025-01-01T12:00:00+00:00"), \
                  self._patch_now("2025-06-12T12:00:00+08:00"):
                 rc = ddt.cmd_finished(args)
@@ -430,8 +394,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            with self._patch_branch("master"), \
-                 self._patch_head("v1"), \
+            with self._patch_merge_base("v1"), \
                  self._patch_commit_date("2025-01-01T00:00:00+00:00"), \
                  self._patch_now("2025-01-01T00:00:00+08:00"):
                 ddt.cmd_finished(args)
@@ -441,8 +404,7 @@ class TestCmdFinished(unittest.TestCase):
         # Second run with different commit
         sys.stdout = io.StringIO()
         try:
-            with self._patch_branch("master"), \
-                 self._patch_head("v2"), \
+            with self._patch_merge_base("v2"), \
                  self._patch_commit_date("2025-02-01T00:00:00+00:00"), \
                  self._patch_now("2025-02-01T00:00:00+08:00"):
                 ddt.cmd_finished(args)
@@ -454,7 +416,6 @@ class TestCmdFinished(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["commit"], "v2")
         self.assertEqual(records[0]["comment"], "")
-
 
     def test_finished_clears_comment(self):
         """Re-running finished on a file with a comment clears it to ''."""
@@ -469,8 +430,7 @@ class TestCmdFinished(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            with self._patch_branch("master"), \
-                 self._patch_head("c1"), \
+            with self._patch_merge_base("c1"), \
                  self._patch_commit_date("2025-01-01T00:00:00+00:00"), \
                  self._patch_now("2025-01-01T00:00:00+08:00"):
                 ddt.cmd_finished(args_finished)
@@ -486,8 +446,7 @@ class TestCmdFinished(unittest.TestCase):
         args2 = _make_args(dir="docs/design")
         sys.stdout = io.StringIO()
         try:
-            with self._patch_branch("master"), \
-                 self._patch_head("c2"), \
+            with self._patch_merge_base("c2"), \
                  self._patch_commit_date("2025-02-01T00:00:00+00:00"), \
                  self._patch_now("2025-02-01T00:00:00+08:00"):
                 ddt.cmd_finished(args2)
@@ -534,19 +493,41 @@ class TestCmdComment(unittest.TestCase):
         records = _read_json(ddt.RECORDS_FILE)
         self.assertEqual(records[0]["comment"], "needs review")
 
-    def test_comment_no_record(self):
-        """No existing record → error (rc=1)."""
+    def test_comment_creates_record_for_unrecorded_file(self):
+        """No existing record → creates a new record with empty commit."""
         _write_json(ddt.RECORDS_FILE, [])
-        args = _make_args(path="docs/design/nonexistent.md", text="hello")
-        import io, sys
-        old_stderr = sys.stderr
-        sys.stderr = buf = io.StringIO()
-        try:
-            rc = ddt.cmd_comment(args)
-        finally:
-            sys.stderr = old_stderr
-        self.assertEqual(rc, 1)
-        self.assertIn("no record", buf.getvalue())
+        args = _make_args(path="docs/design/new.md", text="first comment")
+        rc = ddt.cmd_comment(args)
+        self.assertEqual(rc, 0)
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["path"], "docs/design/new.md")
+        self.assertEqual(records[0]["commit"], "")
+        self.assertEqual(records[0]["commit_time"], "")
+        self.assertEqual(records[0]["comment"], "first comment")
+        self.assertNotEqual(records[0]["confirmed_time"], "")
+
+    def test_comment_empty_string(self):
+        """Empty string comment should be written successfully."""
+        _write_json(
+            ddt.RECORDS_FILE,
+            [{"path": "docs/design/auth.md", "commit": "aaa111", "comment": "old"}],
+        )
+        args = _make_args(path="docs/design/auth.md", text="")
+        rc = ddt.cmd_comment(args)
+        self.assertEqual(rc, 0)
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(records[0]["comment"], "")
+
+    def test_comment_unrecorded_keeps_empty_commit(self):
+        """Creating a record via comment should have empty commit."""
+        _write_json(ddt.RECORDS_FILE, [])
+        args = _make_args(path="docs/design/brand_new.md", text="needs review")
+        rc = ddt.cmd_comment(args)
+        self.assertEqual(rc, 0)
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(records[0]["commit"], "")
+        self.assertEqual(records[0]["comment"], "needs review")
 
     def test_comment_overwrites_existing(self):
         """Existing comment → overwritten with new value."""
@@ -770,6 +751,88 @@ class TestCmdCheck(unittest.TestCase):
         lines = [l for l in buf.getvalue().strip().splitlines()]
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0], "docs/design/auth.md")
+
+    def test_empty_commit_treated_as_changed(self):
+        """Record with empty commit → treated as changed (no git diff run)."""
+        self._create_design_docs(["auth.md"])
+        self._write_records(
+            [{"path": "docs/design/auth.md", "commit": "", "comment": ""}]
+        )
+        args = _make_args()
+
+        # _run should NOT be called since empty commit skips git diff
+        with mock.patch.object(ddt, "_run") as mock_run:
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        mock_run.assert_not_called()
+        self.assertIn("docs/design/auth.md", buf.getvalue())
+
+    def test_empty_commit_with_comment_output(self):
+        """Record with empty commit + comment → output 'path\tcomment'."""
+        self._create_design_docs(["auth.md"])
+        self._write_records(
+            [{"path": "docs/design/auth.md", "commit": "", "comment": "needs implementation"}]
+        )
+        args = _make_args()
+
+        with mock.patch.object(ddt, "_run") as mock_run:
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        mock_run.assert_not_called()
+        lines = [l for l in buf.getvalue().strip().splitlines()]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "docs/design/auth.md\tneeds implementation")
+
+    def test_empty_commit_mixed_with_normal(self):
+        """Mix of empty-commit and normal-commit records."""
+        self._create_design_docs(["new.md", "ok.md", "old.md"])
+        self._write_records([
+            {"path": "docs/design/new.md", "commit": "", "comment": ""},
+            {"path": "docs/design/ok.md", "commit": "aaa111", "comment": ""},
+            {"path": "docs/design/old.md", "commit": "bbb222", "comment": "stale"},
+        ])
+        args = _make_args()
+
+        def fake_run(cmd, **kwargs):
+            if "ok.md" in str(cmd):
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr=""
+            )
+
+        with mock.patch.object(ddt, "_run", side_effect=fake_run):
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        output = buf.getvalue()
+        lines = [l.strip() for l in output.strip().splitlines()]
+        # new.md (empty commit) and old.md (changed) should be reported; ok.md should not
+        self.assertEqual(len(lines), 2)
+        self.assertIn("docs/design/new.md", lines)
+        self.assertIn("docs/design/old.md\tstale", lines)
+        self.assertNotIn("docs/design/ok.md", output)
 
 
 # ---------------------------------------------------------------------------
