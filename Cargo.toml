@@ -6,7 +6,7 @@ authors = ["CloseClaw Team"]
 description = "Lightweight, rule-driven multi-agent execution framework"
 license = "MIT"
 repository = "https://github.com/jpxthu/CloseClaw"
-rust-version = "1.75"
+rust-version = "1.80"
 
 [features]
 fake-llm = []
