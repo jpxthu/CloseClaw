@@ -84,6 +84,7 @@ impl SessionManager {
                                 &tool_registry,
                                 skill_registry,
                                 &agent_id,
+                                None,
                             )
                             .await;
 
@@ -163,6 +164,7 @@ impl SessionManager {
             &tool_registry,
             skill_registry,
             &agent_id,
+            None,
         )
         .await;
 

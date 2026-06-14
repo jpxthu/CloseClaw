@@ -62,6 +62,7 @@ impl SessionManager {
                 agent_id: Some(&agent_id),
                 agent_tools: None,
                 agent_disallowed_tools: None,
+                agent_skills: None,
                 dynamic_sections: vec![],
                 append_section: None,
             },

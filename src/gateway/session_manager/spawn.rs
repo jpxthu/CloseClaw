@@ -144,6 +144,12 @@ impl SessionManager {
         } else {
             Some(config.disallowed_tools.clone())
         };
+        // Pass agent-level skill filtering from the resolved config.
+        let agent_skills = if config.skills.is_empty() || config.skills == ["*"] {
+            None
+        } else {
+            Some(config.skills.clone())
+        };
         let prompt = build_from_workspace(
             &workspace_root,
             WorkspaceBuildConfig {
@@ -154,6 +160,7 @@ impl SessionManager {
                 agent_id: Some(&agent_id),
                 agent_tools,
                 agent_disallowed_tools,
+                agent_skills,
                 dynamic_sections: vec![],
                 append_section: None,
             },
