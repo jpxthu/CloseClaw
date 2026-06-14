@@ -26,12 +26,21 @@ const PATH: &str = "/api/paas/v4/chat/completions";
 #[derive(Debug, Clone)]
 pub struct GlmProtocol {
     id: ProtocolId,
+    api_key: Option<String>,
 }
 
 impl GlmProtocol {
     pub fn new() -> Self {
         Self {
             id: ProtocolId::new("glm"),
+            api_key: None,
+        }
+    }
+
+    pub fn with_api_key(key: String) -> Self {
+        Self {
+            id: ProtocolId::new("glm"),
+            api_key: Some(key),
         }
     }
 }
@@ -137,7 +146,10 @@ impl ChatProtocol for GlmProtocol {
 
     fn decorate_headers(&self, headers: &mut HeaderMap) -> Result<()> {
         // GLM uses the same Bearer token format as OpenAI.
-        let api_key = std::env::var("GLM_API_KEY").unwrap_or_default();
+        let api_key = self
+            .api_key
+            .clone()
+            .unwrap_or_else(|| std::env::var("GLM_API_KEY").unwrap_or_default());
         let bearer = format!("Bearer {api_key}");
         let auth_value = HeaderValue::from_str(&bearer)
             .map_err(|e| ProtocolError::HeaderDecorate(e.to_string()))?;
