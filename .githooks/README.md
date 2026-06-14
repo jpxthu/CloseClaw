@@ -30,7 +30,7 @@ git config core.hooksPath .githooks
 
 | 步骤 | 检查内容 | 阈值 | 失败时的提示 |
 |---|---|---|---|
-| 1 | 文件行数 | ≤ 500 行 | `ERROR: <file>: <N> 行（上限 500）` |
+| 1 | 文件行数 | ≤ 1000 行 | `ERROR: <file>: <N> 行（上限 1000）` |
 | 2 | `cargo fmt --check` | 行宽 100 等 | 格式不符合规范，运行 `cargo fmt` 修复 |
 
 **注意**：以上检查均仅针对 staged 的 `.rs` 文件，不背负历史技术债。

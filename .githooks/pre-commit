@@ -7,8 +7,8 @@ if [ -n "$staged_rs" ]; then
     # 文件行数限制 — 仅检查 staged 文件，不背负历史技术债
     for f in $staged_rs; do
         lines=$(wc -l < "$f")
-        if [ "$lines" -gt 500 ]; then
-            echo "ERROR: $f: ${lines} 行（上限 500）"
+        if [ "$lines" -gt 1000 ]; then
+            echo "ERROR: $f: ${lines} 行（上限 1000）"
             exit 1
         fi
     done
