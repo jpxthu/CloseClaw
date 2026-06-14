@@ -20,24 +20,18 @@ use crate::agent::config::AgentPermissions;
 // Error types
 // ---------------------------------------------------------------------------
 
-/// Error loading a configuration file.
 #[derive(Debug, Error)]
 pub enum ConfigLoadError {
     #[error("config directory not found: {0}")]
     ConfigDirNotFound(PathBuf),
-
     #[error("config file not found: {0}")]
     ConfigFileNotFound(PathBuf),
-
     #[error("failed to parse config file {path}: {error}")]
     ParseError { path: PathBuf, error: String },
-
     #[error("config validation failed for {path}: {message}")]
     ValidationError { path: PathBuf, message: String },
-
     #[error("backup not found for {0}")]
     BackupNotFound(PathBuf),
-
     #[error("I/O error loading {path}: {error}")]
     IoError { path: PathBuf, error: String },
 }
@@ -51,18 +45,14 @@ impl From<io::Error> for ConfigLoadError {
     }
 }
 
-/// Error writing a configuration file.
 #[derive(Debug, Error)]
 pub enum ConfigWriteError {
     #[error("validation failed for {0}: {1}")]
     ValidationFailed(String, String),
-
     #[error("backup failed for {path}: {error}")]
     BackupFailed { path: PathBuf, error: String },
-
     #[error("write failed for {path}: {error}")]
     WriteFailed { path: PathBuf, error: String },
-
     #[error("config file not found: {0}")]
     FileNotFound(PathBuf),
 }
@@ -76,7 +66,6 @@ impl From<io::Error> for ConfigWriteError {
     }
 }
 
-/// Validation error for a config file.
 #[derive(Debug)]
 pub struct ConfigValidationError {
     pub path: PathBuf,
@@ -150,7 +139,6 @@ pub enum ConfigSection {
 }
 
 impl ConfigSection {
-    /// Returns the filename associated with this section.
     pub fn filename(&self) -> &'static str {
         match self {
             ConfigSection::Models => "models.json",
@@ -158,11 +146,21 @@ impl ConfigSection {
             ConfigSection::Gateway => "gateway.json",
             ConfigSection::Plugins => "plugins.json",
             ConfigSection::System => "system.json",
-            ConfigSection::Credentials => "credentials.json",
+            ConfigSection::Credentials => "credentials/",
         }
     }
 
-    /// Returns the absolute path to this section's file relative to config_dir.
+    pub fn is_directory(&self) -> bool {
+        matches!(self, ConfigSection::Credentials)
+    }
+
+    pub fn dir_name(&self) -> &'static str {
+        match self {
+            ConfigSection::Credentials => "credentials",
+            _ => panic!("dir_name() called on non-directory section: {:?}", self),
+        }
+    }
+
     pub(crate) fn path(&self, config_dir: &Path) -> PathBuf {
         config_dir.join(self.filename())
     }
@@ -187,6 +185,60 @@ pub struct ConfigInfo {
     pub version: String,
     /// Last modified timestamp (None if the file hasn't been read yet).
     pub last_modified: Option<DateTime<Local>>,
+}
+
+// ---------------------------------------------------------------------------
+// Config helpers (module-level)
+// ---------------------------------------------------------------------------
+
+/// Read the "version" field from a JSON file.
+/// Returns an empty string if the file is missing or unparseable.
+fn read_json_version(path: &Path) -> String {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        .and_then(|v| v.get("version")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// Collect `ConfigInfo` entries from a directory of individual JSON files.
+fn list_directory_configs(dir_path: &Path) -> Vec<ConfigInfo> {
+    let mut infos = Vec::new();
+    let Ok(entries) = fs::read_dir(dir_path) else {
+        return infos;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let last_modified = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map(DateTime::<Local>::from);
+        infos.push(ConfigInfo {
+            path: path.to_string_lossy().to_string(),
+            version: read_json_version(&path),
+            last_modified,
+        });
+    }
+    infos
+}
+
+/// Collect `ConfigInfo` for a single-file config section.
+fn list_file_config(config_dir: &Path, section: &ConfigSection) -> Option<ConfigInfo> {
+    let path = section.path(config_dir);
+    let metadata = fs::metadata(&path).ok()?;
+    let last_modified = metadata.modified().ok().map(DateTime::<Local>::from);
+    Some(ConfigInfo {
+        path: path.to_string_lossy().to_string(),
+        version: read_json_version(&path),
+        last_modified,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +303,6 @@ impl ConfigManager {
             return Err(ConfigLoadError::ConfigDirNotFound(self.config_dir.clone()));
         }
 
-        // The 5 mandatory config files (Credentials is a directory, handled separately)
         let mandatory_sections = [
             ConfigSection::Models,
             ConfigSection::Channels,
@@ -270,52 +321,39 @@ impl ConfigManager {
             if !path.exists() {
                 return Err(ConfigLoadError::ConfigFileNotFound(path));
             }
-
             let content = fs::read_to_string(&path).map_err(|e| ConfigLoadError::IoError {
                 path: path.clone(),
                 error: e.to_string(),
             })?;
-
             let value: serde_json::Value = match serde_json::from_str(&content) {
                 Ok(v) => v,
-                Err(_parse_err) => {
-                    // Try rollback + retry before reporting the error
-                    match self.try_rollback_and_retry(&path, section, &mut sections) {
-                        Ok(()) => continue,
-                        Err(e) => return Err(e),
-                    }
-                }
+                Err(_) => match self.try_rollback_and_retry(&path, section, &mut sections) {
+                    Ok(()) => continue,
+                    Err(e) => return Err(e),
+                },
             };
-
             sections.insert(section, value);
         }
 
         // Load credentials from config/credentials/ directory.
         let creds_dir = self.config_dir.join(CredentialsProvider::config_path());
-        let creds_provider = match CredentialsProvider::load_from_dir(&creds_dir) {
-            Ok(cp) => cp,
-            Err(e) => {
-                warn!(
-                    "failed to load credentials from '{}': {}",
-                    creds_dir.display(),
-                    e
-                );
-                CredentialsProvider::default()
-            }
-        };
+        let creds_provider = CredentialsProvider::load_from_dir(&creds_dir).unwrap_or_else(|e| {
+            warn!(
+                "failed to load credentials from '{}': {}",
+                creds_dir.display(),
+                e
+            );
+            CredentialsProvider::default()
+        });
         *self.credentials_provider.write().expect("RwLock poisoned") = creds_provider.clone();
-        // Store as JSON value in sections (may be empty/default if dir is absent)
         if let Ok(json) = serde_json::to_value(&creds_provider) {
             sections.insert(ConfigSection::Credentials, json);
         }
 
         drop(sections);
-
-        // Load agent configurations (non-fatal if agents.json is absent)
         if let Err(e) = self.load_agents(None) {
             warn!("failed to load agent configs: {}", e);
         }
-
         Ok(())
     }
 
@@ -328,52 +366,46 @@ impl ConfigManager {
         section: ConfigSection,
         sections: &mut HashMap<ConfigSection, serde_json::Value>,
     ) -> Result<(), ConfigLoadError> {
-        // Try to find a backup
-        match self.backup_manager.find_latest_backup(path) {
-            Ok(backup_path) => {
-                if self.backup_manager.rollback(path).is_ok() {
-                    let retry_content = fs::read_to_string(path).ok();
-                    if let Some(retry_content) = retry_content {
-                        if let Ok(retry_value) =
-                            serde_json::from_str::<serde_json::Value>(&retry_content)
-                        {
-                            warn!("已用备份恢复 {}, 备份来源: {:?}", section, backup_path);
-                            sections.insert(section, retry_value);
-                            return Ok(());
-                        }
-                    }
-                }
-                // Retry failed
-                error!("配置文件 {} 恢复后仍无法解析，daemon 无法启动", section);
-                Err(ConfigLoadError::ParseError {
-                    path: path.to_path_buf(),
-                    error: "rollback succeeded but file still unparseable".to_string(),
-                })
+        let backup_path = self.backup_manager.find_latest_backup(path).map_err(|_| {
+            error!("配置文件 {} 损坏且无备份，daemon 无法启动", section);
+            ConfigLoadError::ParseError {
+                path: path.to_path_buf(),
+                error: "no backup available".to_string(),
             }
-            Err(_) => {
-                // No backup found
-                error!("配置文件 {} 损坏且无备份，daemon 无法启动", section);
-                Err(ConfigLoadError::ParseError {
-                    path: path.to_path_buf(),
-                    error: "no backup available".to_string(),
-                })
+        })?;
+
+        if self.backup_manager.rollback(path).is_err() {
+            error!("配置文件 {} 恢复后仍无法解析，daemon 无法启动", section);
+            return Err(ConfigLoadError::ParseError {
+                path: path.to_path_buf(),
+                error: "rollback failed".to_string(),
+            });
+        }
+
+        if let Ok(content) = fs::read_to_string(path) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                warn!("已用备份恢复 {}, 备份来源: {:?}", section, backup_path);
+                sections.insert(section, val);
+                return Ok(());
             }
         }
+
+        error!("配置文件 {} 恢复后仍无法解析，daemon 无法启动", section);
+        Err(ConfigLoadError::ParseError {
+            path: path.to_path_buf(),
+            error: "rollback succeeded but file still unparseable".to_string(),
+        })
     }
 
     /// Update a configuration section.
     ///
-    /// Flow: validate → backup current content → atomic write → update in-memory cache.
-    ///
-    /// If validation fails, no file is written.
-    /// If backup fails, no file is written (write_atomically is not called).
+    /// Flow: validate → backup → atomic write → update in-memory cache.
     pub fn update(
         &self,
         section: ConfigSection,
         new_value: serde_json::Value,
         validator: impl FnOnce(&serde_json::Value) -> Result<(), ConfigValidationError>,
     ) -> Result<(), ConfigWriteError> {
-        // Step 1: validate
         if let Err(e) = validator(&new_value) {
             return Err(ConfigWriteError::ValidationFailed(
                 section.to_string(),
@@ -382,40 +414,33 @@ impl ConfigManager {
         }
 
         let path = section.path(&self.config_dir);
-
-        // Step 2: backup current content (if file exists)
         if path.exists() {
-            let current_content = fs::read(&path).map_err(|e| ConfigWriteError::BackupFailed {
+            let content = fs::read(&path).map_err(|e| ConfigWriteError::BackupFailed {
                 path: path.clone(),
                 error: e.to_string(),
             })?;
             self.backup_manager
-                .backup_with_content(&path, &current_content)
+                .backup_with_content(&path, &content)
                 .map_err(|e: io::Error| ConfigWriteError::BackupFailed {
                     path: path.clone(),
                     error: e.to_string(),
                 })?;
         }
 
-        // Step 3: atomic write
-        let content =
+        let bytes =
             serde_json::to_vec_pretty(&new_value).map_err(|e| ConfigWriteError::WriteFailed {
                 path: path.clone(),
                 error: e.to_string(),
             })?;
-
-        write_atomically(&path, &content).map_err(|e| ConfigWriteError::WriteFailed {
+        write_atomically(&path, &bytes).map_err(|e| ConfigWriteError::WriteFailed {
             path,
             error: e.to_string(),
         })?;
 
-        // Step 4: update in-memory cache
-        let mut sections = self
-            .sections
+        self.sections
             .write()
-            .expect("RwLock for config sections was poisoned");
-        sections.insert(section, new_value);
-
+            .expect("RwLock for config sections was poisoned")
+            .insert(section, new_value);
         Ok(())
     }
 
@@ -441,11 +466,8 @@ impl ConfigManager {
     }
 
     /// List metadata about all configuration files.
-    ///
-    /// Returns a vector of `ConfigInfo` for each section, including path,
-    /// version (from JSON "version" field), and last modified timestamp.
     pub fn list_configs(&self) -> Vec<ConfigInfo> {
-        let sections_list = [
+        let sections = [
             ConfigSection::Models,
             ConfigSection::Channels,
             ConfigSection::Gateway,
@@ -453,39 +475,16 @@ impl ConfigManager {
             ConfigSection::System,
             ConfigSection::Credentials,
         ];
-
-        let mut infos = Vec::new();
-
-        for section in sections_list {
-            let path = section.path(&self.config_dir);
-
-            let metadata = match fs::metadata(&path) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-
-            let last_modified = metadata.modified().ok().map(DateTime::<Local>::from);
-
-            let version = if let Ok(content) = fs::read_to_string(&path) {
-                serde_json::from_str::<serde_json::Value>(&content)
-                    .ok()
-                    .and_then(|v| {
-                        v.get("version")
-                            .and_then(|vv| vv.as_str().map(str::to_string))
-                    })
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-
-            infos.push(ConfigInfo {
-                path: path.to_string_lossy().to_string(),
-                version,
-                last_modified,
-            });
-        }
-
-        infos
+        sections
+            .iter()
+            .flat_map(|s| {
+                if s.is_directory() {
+                    list_directory_configs(&self.config_dir.join(s.dir_name()))
+                } else {
+                    list_file_config(&self.config_dir, s).into_iter().collect()
+                }
+            })
+            .collect()
     }
 }
 

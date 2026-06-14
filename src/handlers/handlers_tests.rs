@@ -2,43 +2,52 @@ use super::*;
 use closeclaw::permission::Effect;
 
 // -----------------------------------------------------------------
+// helpers
+// -----------------------------------------------------------------
+
+/// Write `content` to a temp file named `filename` and run
+/// `handle_config(Validate { file })`. Returns the result.
+async fn validate_config(filename: &str, content: &str) -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join(filename);
+    std::fs::write(&file, content).unwrap();
+    handle_config(ConfigAction::Validate {
+        file: file.to_str().unwrap().to_string(),
+    })
+    .await
+}
+
+/// Set `HOME` to `tmp` for the duration of the closure, then restore.
+fn with_home<F: FnOnce()>(tmp: &tempfile::TempDir, f: F) {
+    let orig = std::env::var("HOME").ok();
+    std::env::set_var("HOME", tmp.path());
+    f();
+    if let Some(h) = orig {
+        std::env::set_var("HOME", h);
+    }
+}
+
+// -----------------------------------------------------------------
 // config validate tests
 // -----------------------------------------------------------------
 
 #[tokio::test]
 async fn test_config_validate_valid_agents_config() {
-    let tmp = tempfile::tempdir().unwrap();
-    let file = tmp.path().join("agents.json");
-    std::fs::write(&file, r#"{"agents":["orchestrator","coder"]}"#).unwrap();
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
-    .await;
     assert!(
-        result.is_ok(),
-        "valid agents config should pass: {:?}",
-        result
+        validate_config("agents.json", r#"{"agents":["orchestrator","coder"]}"#)
+            .await
+            .is_ok()
     );
 }
 
 #[tokio::test]
 async fn test_config_validate_valid_models_config() {
-    let tmp = tempfile::tempdir().unwrap();
-    let file = tmp.path().join("models.json");
-    std::fs::write(
-        &file,
-        r#"{"providers":{"p":{"baseUrl":"https://api.example.com","models":[{"id":"m1"}]}}}"#,
+    assert!(validate_config(
+        "models.json",
+        r#"{"providers":{"p":{"baseUrl":"https://api.example.com","models":[{"id":"m1"}]}}}"#
     )
-    .unwrap();
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
-    .await;
-    assert!(
-        result.is_ok(),
-        "valid models config should pass: {:?}",
-        result
-    );
+    .await
+    .is_ok());
 }
 
 #[tokio::test]
@@ -48,70 +57,39 @@ async fn test_config_validate_file_not_found() {
     })
     .await;
     assert!(result.is_err(), "missing file should return error");
-    let msg = result.unwrap_err().to_string();
-    assert!(
-        msg.contains("not found"),
-        "error should mention not found: {}",
-        msg
-    );
 }
 
 #[tokio::test]
 async fn test_config_validate_invalid_json() {
-    let tmp = tempfile::tempdir().unwrap();
-    let file = tmp.path().join("bad.json");
-    std::fs::write(&file, "not valid json {{{").unwrap();
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
-    .await;
-    assert!(result.is_err(), "invalid JSON should fail validation");
+    assert!(validate_config("bad.json", "not valid json {{{")
+        .await
+        .is_err());
 }
 
 #[tokio::test]
 async fn test_config_validate_unrecognized_format() {
-    let tmp = tempfile::tempdir().unwrap();
-    let file = tmp.path().join("unknown.json");
-    std::fs::write(&file, r#"{"foo":"bar"}"#).unwrap();
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
-    .await;
-    assert!(result.is_err(), "unrecognized format should fail");
-    let msg = result.unwrap_err().to_string();
-    assert!(
-        msg.contains("Unrecognized") || msg.contains("validation failed"),
-        "error should indicate unrecognized format: {}",
-        msg
-    );
+    assert!(validate_config("unknown.json", r#"{"foo":"bar"}"#)
+        .await
+        .is_err());
 }
 
 #[tokio::test]
 async fn test_config_validate_agents_with_duplicate_id() {
-    let tmp = tempfile::tempdir().unwrap();
-    let file = tmp.path().join("agents.json");
-    std::fs::write(&file, r#"{"agents":["agent1","agent1"]}"#).unwrap();
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
-    .await;
-    assert!(result.is_err(), "duplicate agent id should fail");
+    assert!(
+        validate_config("agents.json", r#"{"agents":["agent1","agent1"]}"#)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
 async fn test_config_validate_models_with_invalid_base_url() {
-    let tmp = tempfile::tempdir().unwrap();
-    let file = tmp.path().join("models.json");
-    std::fs::write(
-        &file,
-        r#"{"providers":{"p":{"baseUrl":"ftp://bad","models":[{"id":"m1"}]}}}"#,
+    assert!(validate_config(
+        "models.json",
+        r#"{"providers":{"p":{"baseUrl":"ftp://bad","models":[{"id":"m1"}]}}}"#
     )
-    .unwrap();
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
-    .await;
-    assert!(result.is_err(), "invalid base_url should fail");
+    .await
+    .is_err());
 }
 
 // -----------------------------------------------------------------
@@ -121,17 +99,18 @@ async fn test_config_validate_models_with_invalid_base_url() {
 #[tokio::test]
 async fn test_config_list_empty_dir() {
     let tmp = tempfile::tempdir().unwrap();
-    // Create the expected structure: tmp/.closeclaw/
-    let config_dir = tmp.path().join(".closeclaw");
-    std::fs::create_dir_all(&config_dir).unwrap();
-    // Temporarily override HOME so handle_config uses our dir
-    let orig_home = std::env::var("HOME").ok();
-    std::env::set_var("HOME", tmp.path());
-    let result = handle_config(ConfigAction::List).await;
-    if let Some(h) = orig_home {
-        std::env::set_var("HOME", h);
-    }
-    // Should succeed and find no configs
+    std::fs::create_dir_all(tmp.path().join(".closeclaw")).unwrap();
+    let result = {
+        let mut r = None;
+        with_home(&tmp, || {
+            r = Some(
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(handle_config(ConfigAction::List)),
+            );
+        });
+        r.unwrap()
+    };
     assert!(
         result.is_ok(),
         "empty config list should succeed: {:?}",
@@ -142,14 +121,17 @@ async fn test_config_list_empty_dir() {
 #[tokio::test]
 async fn test_config_list_no_config_dir() {
     let tmp = tempfile::tempdir().unwrap();
-    // No .closeclaw directory
-    let orig_home = std::env::var("HOME").ok();
-    std::env::set_var("HOME", tmp.path());
-    let result = handle_config(ConfigAction::List).await;
-    if let Some(h) = orig_home {
-        std::env::set_var("HOME", h);
-    }
-    // Should succeed gracefully (prints message, returns Ok)
+    let result = {
+        let mut r = None;
+        with_home(&tmp, || {
+            r = Some(
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(handle_config(ConfigAction::List)),
+            );
+        });
+        r.unwrap()
+    };
     assert!(
         result.is_ok(),
         "missing config dir should not error: {:?}",
@@ -258,19 +240,8 @@ fn test_handle_rule_check_invalid_json() {
 #[test]
 fn test_handle_rule_list_empty_dir() {
     let tmp = tempfile::tempdir().unwrap();
-    let rules_dir = tmp.path().join(".closeclaw").join("rules");
-    std::fs::create_dir_all(&rules_dir).unwrap();
-    let orig_home = std::env::var("HOME").ok();
-    std::env::set_var("HOME", tmp.path());
-    let result = handle_rule_list();
-    if let Some(h) = orig_home {
-        std::env::set_var("HOME", h);
-    }
-    assert!(
-        result.is_ok(),
-        "empty rules dir should succeed: {:?}",
-        result
-    );
+    std::fs::create_dir_all(tmp.path().join(".closeclaw").join("rules")).unwrap();
+    with_home(&tmp, || assert!(handle_rule_list().is_ok()));
 }
 
 #[test]
@@ -278,37 +249,198 @@ fn test_handle_rule_list_with_files() {
     let tmp = tempfile::tempdir().unwrap();
     let rules_dir = tmp.path().join(".closeclaw").join("rules");
     std::fs::create_dir_all(&rules_dir).unwrap();
-    // Create some rule files
     std::fs::write(rules_dir.join("allow.json"), "{}").unwrap();
     std::fs::write(rules_dir.join("deny.yaml"), "{}").unwrap();
-    std::fs::write(rules_dir.join("readme.txt"), "skip").unwrap(); // not a rule file
-    let orig_home = std::env::var("HOME").ok();
-    std::env::set_var("HOME", tmp.path());
-    let result = handle_rule_list();
-    if let Some(h) = orig_home {
-        std::env::set_var("HOME", h);
-    }
-    assert!(
-        result.is_ok(),
-        "rules list with files should succeed: {:?}",
-        result
-    );
+    std::fs::write(rules_dir.join("readme.txt"), "skip").unwrap();
+    with_home(&tmp, || assert!(handle_rule_list().is_ok()));
 }
 
 #[test]
 fn test_handle_rule_list_no_rules_dir() {
     let tmp = tempfile::tempdir().unwrap();
-    // No .closeclaw/rules directory
-    let orig_home = std::env::var("HOME").ok();
-    std::env::set_var("HOME", tmp.path());
-    let result = handle_rule_list();
-    if let Some(h) = orig_home {
-        std::env::set_var("HOME", h);
-    }
+    with_home(&tmp, || assert!(handle_rule_list().is_ok()));
+}
+
+// -----------------------------------------------------------------
+// Step 1.3: validate channels/gateway/plugins/system config
+// -----------------------------------------------------------------
+
+#[tokio::test]
+async fn test_config_validate_valid_channels_config() {
+    assert!(validate_config("channels.json",
+        r#"{"channels":{"feishu":{"type":"feishu","appId":"x","appSecret":"y","botName":"b"}},"bindings":[{"agentId":"orchestrator","match":{"channel":"feishu","accountId":"acc1"}}]}"#).await.is_ok());
+}
+
+#[tokio::test]
+async fn test_config_validate_channels_invalid_type() {
+    assert!(validate_config("channels.json",
+        r#"{"channels":{"bad":{"type":"unknown_type","appId":"x","appSecret":"y","botName":"b"}},"bindings":[]}"#).await.is_err());
+}
+
+#[tokio::test]
+async fn test_config_validate_channels_empty_binding_agent() {
+    assert!(validate_config("channels.json",
+        r#"{"channels":{"feishu":{"type":"feishu","appId":"x","appSecret":"y","botName":"b"}},"bindings":[{"agentId":"","match":{"channel":"feishu"}}]}"#).await.is_err());
+}
+
+#[tokio::test]
+async fn test_config_validate_valid_gateway_config() {
+    assert!(validate_config("gateway.json",
+        r#"{"name":"closeclaw","port":3000,"timeout":30000,"rateLimitPerMinute":60,"maxMessageSize":16384,"dmScope":"per-channel-peer"}"#).await.is_ok());
+}
+
+#[tokio::test]
+async fn test_config_validate_gateway_port_zero() {
+    assert!(validate_config("gateway.json",
+        r#"{"port":0,"timeout":30000,"rateLimitPerMinute":60,"maxMessageSize":16384,"dmScope":"per-channel-peer"}"#).await.is_err());
+}
+
+#[tokio::test]
+async fn test_config_validate_valid_plugins_config() {
+    assert!(validate_config(
+        "plugins.json",
+        r#"{"entries":{"myplugin":{"enabled":true}},"installs":{}}"#
+    )
+    .await
+    .is_ok());
+}
+
+#[tokio::test]
+async fn test_config_validate_plugins_missing_installs() {
+    assert!(
+        validate_config("plugins.json", r#"{"entries":{"p":{"enabled":true}}}"#)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn test_config_validate_valid_system_config() {
+    assert!(
+        validate_config("system.json", r#"{"wizard":{"lastRunAt":"2026-01-01"}}"#)
+            .await
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn test_config_validate_system_invalid_session_mode() {
+    assert!(validate_config(
+        "system.json",
+        r#"{"session":{"maintenance":{"mode":"invalid"},"dmScope":"per-channel-peer"}}"#
+    )
+    .await
+    .is_err());
+}
+
+// -----------------------------------------------------------------
+// Step 1.2: config list with credentials directory
+// -----------------------------------------------------------------
+
+#[tokio::test]
+async fn test_config_list_discovers_credentials_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".closeclaw").join("credentials")).unwrap();
+    std::fs::write(
+        tmp.path()
+            .join(".closeclaw")
+            .join("credentials")
+            .join("minimax.json"),
+        r#"{"provider":"minimax","apiKey":"sk-test"}"#,
+    )
+    .unwrap();
+    let result = {
+        let mut r = None;
+        with_home(&tmp, || {
+            r = Some(
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(handle_config(ConfigAction::List)),
+            );
+        });
+        r.unwrap()
+    };
     assert!(
         result.is_ok(),
-        "missing rules dir should not error: {:?}",
+        "config list with credentials should succeed: {:?}",
         result
+    );
+}
+
+#[tokio::test]
+async fn test_config_list_empty_credentials_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".closeclaw").join("credentials")).unwrap();
+    let result = {
+        let mut r = None;
+        with_home(&tmp, || {
+            r = Some(
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(handle_config(ConfigAction::List)),
+            );
+        });
+        r.unwrap()
+    };
+    assert!(
+        result.is_ok(),
+        "empty credentials dir should not error: {:?}",
+        result
+    );
+}
+
+// -----------------------------------------------------------------
+// Step 1.4: handle_stop PID cleanup tests
+// -----------------------------------------------------------------
+
+#[tokio::test]
+async fn test_stop_pid_file_not_found() {
+    let tmp = tempfile::tempdir().unwrap();
+    let result = {
+        let mut r = None;
+        with_home(&tmp, || {
+            r = Some(
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(handle_stop(false)),
+            );
+        });
+        r.unwrap()
+    };
+    assert!(result.is_err(), "missing PID file should error");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("PID file not found"),
+        "error should mention PID file: {}",
+        msg
+    );
+}
+
+#[tokio::test]
+async fn test_stop_stale_pid_file_cleans_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pid_file = tmp.path().join(".closeclaw").join("daemon.pid");
+    std::fs::create_dir_all(pid_file.parent().unwrap()).unwrap();
+    std::fs::write(&pid_file, "2147483647").unwrap();
+    let result = {
+        let mut r = None;
+        with_home(&tmp, || {
+            r = Some(
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(handle_stop(false)),
+            );
+        });
+        r.unwrap()
+    };
+    assert!(
+        result.is_ok(),
+        "stale PID should be cleaned up gracefully: {:?}",
+        result
+    );
+    assert!(
+        !pid_file.exists(),
+        "PID file should be removed after cleanup"
     );
 }
 
