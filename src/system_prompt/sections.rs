@@ -38,10 +38,7 @@ impl Section {
     pub fn is_cacheable(&self) -> bool {
         matches!(
             self,
-            Section::RoleSection(_)
-                | Section::MemorySection(_)
-                | Section::HeartbeatSection(_)
-                | Section::SkillListingSection(_)
+            Section::RoleSection(_) | Section::MemorySection(_) | Section::HeartbeatSection(_)
         )
     }
 
@@ -323,7 +320,7 @@ mod tests {
     #[test]
     fn test_skill_listing_section_is_cacheable() {
         let s = Section::SkillListingSection("some skills".to_string());
-        assert!(s.is_cacheable());
+        assert!(!s.is_cacheable());
     }
 
     #[test]
