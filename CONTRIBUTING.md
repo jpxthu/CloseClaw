@@ -75,6 +75,7 @@ cargo build && cargo test
 | enum 变体数 | **20** |
 | 嵌套 match/if | **3 层** |
 | unsafe 块 | **0（除非注释说明）** |
+| `std::env::set_var` / `remove_var` | **禁止**（`load_env_file` 除外） |
 
 ---
 
@@ -121,11 +122,22 @@ tests/
 |------|------|
 | **临时文件/目录** | 用 `tempfile::TempDir`，不可硬编码路径 |
 | **端口** | 不硬编码，用 port 0 系统分配 |
-| **环境变量** | 不泄漏到其他测试 |
+| **环境变量** | 禁止 `std::env::set_var` / `remove_var`，详见下方「环境变量禁令」 |
 | **网络** | 禁止外部网络访问，全部 mock |
 | **超时** | 单测 30s |
 | **LLM** | 禁止真实 LLM 调用 |
 | **并行安全** | 测试间不共享可变状态；涉及端口/文件锁加 `#[serial_test::serial]` |
+
+### 环境变量禁令
+
+`std::env::set_var` / `std::env::remove_var` 修改进程全局环境，在多线程和并行测试中会导致数据竞争。**全代码库禁止使用**，唯一例外是 `daemon/mod.rs` 中的 `load_env_file()`（启动阶段加载 `.env` 文件）。
+
+正确做法：
+- 配置值通过参数/config struct 传递，不写入全局 env
+- 测试需要隔离配置时，用依赖注入或临时文件路径，不用 `set_var`
+- 需要读取环境变量时用 `std::env::var`（只读，安全）
+
+违反此规则的 commit 会被 pre-commit hook 和 CI 拦截。
 
 ### 布局
 
