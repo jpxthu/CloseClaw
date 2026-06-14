@@ -57,7 +57,7 @@ fn test_config_section_display() {
     assert_eq!(ConfigSection::Gateway.to_string(), "gateway.json");
     assert_eq!(ConfigSection::Plugins.to_string(), "plugins.json");
     assert_eq!(ConfigSection::System.to_string(), "system.json");
-    assert_eq!(ConfigSection::Credentials.to_string(), "credentials.json");
+    assert_eq!(ConfigSection::Credentials.to_string(), "credentials/");
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +379,39 @@ fn test_config_manager_list_configs() {
         .unwrap();
     assert_eq!(models_info.version, "1.0");
     assert!(models_info.last_modified.is_some());
+}
+
+#[test]
+fn test_config_manager_list_configs_with_credentials_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+
+    // Create credentials directory with individual provider files
+    let creds_dir = tmp.path().join("credentials");
+    fs::create_dir_all(&creds_dir).unwrap();
+    fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":"sk-test"}"#,
+    )
+    .unwrap();
+    fs::write(
+        creds_dir.join("anthropic.json"),
+        r#"{"provider":"anthropic","apiKey":"sk-ant"}"#,
+    )
+    .unwrap();
+
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let infos = manager.list_configs();
+    // Should include individual credential files
+    let cred_infos: Vec<_> = infos
+        .iter()
+        .filter(|i| i.path.contains("credentials"))
+        .collect();
+    assert_eq!(cred_infos.len(), 2);
+    assert!(cred_infos.iter().any(|i| i.path.contains("openai.json")));
+    assert!(cred_infos.iter().any(|i| i.path.contains("anthropic.json")));
 }
 
 #[test]

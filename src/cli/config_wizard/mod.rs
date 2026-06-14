@@ -105,10 +105,10 @@ pub fn parse_model_selection(input: &str, total: usize) -> anyhow::Result<Vec<us
     Ok(indices)
 }
 
-/// Locate the project config directory (`~/.closeclaw/config/`).
+/// Locate the project config directory (`~/.closeclaw/`).
 fn config_dir() -> PathBuf {
     let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home).join(".closeclaw").join("config")
+    PathBuf::from(home).join(".closeclaw")
 }
 
 /// Write wizard output to config files.
@@ -120,8 +120,8 @@ fn config_dir() -> PathBuf {
 ///   (so running wizard multiple times does not lose manual overrides)
 ///
 /// Files written:
-/// - `~/.closeclaw/config/models.json`   — merged provider+model config
-/// - `~/.closeclaw/config/credentials/<provider_id>.json` — API key for the provider
+/// - `~/.closeclaw/models.json`   — merged provider+model config
+/// - `~/.closeclaw/credentials/<provider_id>.json` — API key for the provider
 //-
 //- NOTE: Any change to `write_wizard_config` or `run_wizard` must be verified
 //- against `tests/cli_config_wizard_test.py` (python3 E2E test using pexpect).

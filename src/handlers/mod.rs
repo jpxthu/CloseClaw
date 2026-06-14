@@ -3,7 +3,11 @@
 use anyhow::Result;
 use closeclaw::cli::args::*;
 use closeclaw::config::agents::{validate_agents_config, AgentsConfig};
+use closeclaw::config::providers::channels::ChannelsConfigData;
+use closeclaw::config::providers::gateway::GatewayConfigData;
 use closeclaw::config::providers::models::ModelsConfigData;
+use closeclaw::config::providers::plugins::PluginsConfigData;
+use closeclaw::config::providers::system::SystemConfigData;
 use closeclaw::config::{ConfigManager, ConfigProvider};
 use closeclaw::permission::rules::validation::validate_rule;
 use closeclaw::permission::{Defaults, PermissionEngine, Rule, RuleSet};
@@ -75,6 +79,84 @@ fn validate_models_config_content(val: &serde_json::Value) -> Result<bool> {
     }
 }
 
+/// Validate channels config content (JSON value with `channels` or `bindings` key).
+/// Returns `Ok(true)` if recognized, `Ok(false)` if not a channels config.
+fn validate_channels_config_content(val: &serde_json::Value) -> Result<bool> {
+    if val.get("channels").is_none() && val.get("bindings").is_none() {
+        return Ok(false);
+    }
+    match serde_json::from_value::<ChannelsConfigData>(val.clone()) {
+        Ok(config) => {
+            if let Err(e) = config.validate() {
+                anyhow::bail!("channels config: {}", e);
+            }
+            Ok(true)
+        }
+        Err(e) => anyhow::bail!("channels config parse error: {}", e),
+    }
+}
+
+/// Validate gateway config content (JSON value with `rateLimitPerMinute` or `maxMessageSize` key).
+/// Returns `Ok(true)` if recognized, `Ok(false)` if not a gateway config.
+fn validate_gateway_config_content(val: &serde_json::Value) -> Result<bool> {
+    if val.get("rateLimitPerMinute").is_none() && val.get("maxMessageSize").is_none() {
+        return Ok(false);
+    }
+    match serde_json::from_value::<GatewayConfigData>(val.clone()) {
+        Ok(config) => {
+            if let Err(e) = config.validate() {
+                anyhow::bail!("gateway config: {}", e);
+            }
+            Ok(true)
+        }
+        Err(e) => anyhow::bail!("gateway config parse error: {}", e),
+    }
+}
+
+/// Validate plugins config content (JSON value with `entries` and `installs` key).
+/// Returns `Ok(true)` if recognized, `Ok(false)` if not a plugins config.
+fn validate_plugins_config_content(val: &serde_json::Value) -> Result<bool> {
+    if val.get("entries").is_none() || val.get("installs").is_none() {
+        return Ok(false);
+    }
+    match serde_json::from_value::<PluginsConfigData>(val.clone()) {
+        Ok(config) => {
+            if let Err(e) = config.validate() {
+                anyhow::bail!("plugins config: {}", e);
+            }
+            Ok(true)
+        }
+        Err(e) => anyhow::bail!("plugins config parse error: {}", e),
+    }
+}
+
+/// Validate system config content (JSON value with any of the system-specific keys).
+/// Returns `Ok(true)` if recognized, `Ok(false)` if not a system config.
+fn validate_system_config_content(val: &serde_json::Value) -> Result<bool> {
+    let has_system_key = val.get("wizard").is_some()
+        || val.get("update").is_some()
+        || val.get("meta").is_some()
+        || val.get("messages").is_some()
+        || val.get("commands").is_some()
+        || val.get("session").is_some()
+        || val.get("cron").is_some()
+        || val.get("hooks").is_some()
+        || val.get("browser").is_some()
+        || val.get("auth").is_some();
+    if !has_system_key {
+        return Ok(false);
+    }
+    match serde_json::from_value::<SystemConfigData>(val.clone()) {
+        Ok(config) => {
+            if let Err(e) = config.validate() {
+                anyhow::bail!("system config: {}", e);
+            }
+            Ok(true)
+        }
+        Err(e) => anyhow::bail!("system config parse error: {}", e),
+    }
+}
+
 /// Validate config file content by detecting its type and running the appropriate validator.
 fn validate_config_content(content: &str) -> Result<()> {
     let val: serde_json::Value =
@@ -98,7 +180,43 @@ fn validate_config_content(content: &str) -> Result<()> {
         Err(e) => anyhow::bail!("{}", e),
     }
 
-    anyhow::bail!("Unrecognized config format: file is not a valid models.json or agents.json");
+    match validate_channels_config_content(&val) {
+        Ok(true) => {
+            println!("Config is valid");
+            return Ok(());
+        }
+        Ok(false) => {}
+        Err(e) => anyhow::bail!("{}", e),
+    }
+
+    match validate_gateway_config_content(&val) {
+        Ok(true) => {
+            println!("Config is valid");
+            return Ok(());
+        }
+        Ok(false) => {}
+        Err(e) => anyhow::bail!("{}", e),
+    }
+
+    match validate_plugins_config_content(&val) {
+        Ok(true) => {
+            println!("Config is valid");
+            return Ok(());
+        }
+        Ok(false) => {}
+        Err(e) => anyhow::bail!("{}", e),
+    }
+
+    match validate_system_config_content(&val) {
+        Ok(true) => {
+            println!("Config is valid");
+            return Ok(());
+        }
+        Ok(false) => {}
+        Err(e) => anyhow::bail!("{}", e),
+    }
+
+    anyhow::bail!("Unrecognized config format: file is not a recognized closeclaw config");
 }
 
 pub async fn handle_config(action: ConfigAction) -> Result<()> {
@@ -286,6 +404,19 @@ pub async fn handle_stop(force: bool) -> Result<()> {
             println!("Daemon (PID {}) stopped ({}).", pid, sig);
         }
         Ok(o) => {
+            // kill failed — check if the process is already gone
+            let is_alive = std::process::Command::new("kill")
+                .arg("-0")
+                .arg(pid.to_string())
+                .output()
+                .map(|r| r.status.success())
+                .unwrap_or(false);
+            if !is_alive {
+                // Process already exited; clean up stale PID file
+                let _ = std::fs::remove_file(&p);
+                println!("Daemon (PID {}) already stopped. PID file cleaned up.", pid);
+                return Ok(());
+            }
             anyhow::bail!("kill returned {}", o.status);
         }
         Err(e) => {

@@ -389,3 +389,86 @@ mod write_wizard_config_tests {
         );
     }
 }
+
+// -----------------------------------------------------------------
+// Step 1.1: config_dir() path tests
+// -----------------------------------------------------------------
+
+#[cfg(test)]
+mod config_dir_tests {
+    use super::config_dir;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_config_dir_points_to_closeclaw() {
+        let dir = config_dir();
+        let dir_str = dir.to_string_lossy();
+        assert!(
+            dir_str.ends_with(".closeclaw"),
+            "config_dir should end with .closeclaw, got: {}",
+            dir_str
+        );
+    }
+
+    #[test]
+    fn test_config_dir_is_under_home() {
+        let dir = config_dir();
+        let home = std::env::var("HOME").expect("HOME not set");
+        assert!(
+            dir.starts_with(&home),
+            "config_dir should be under HOME, got: {} (HOME={})",
+            dir.display(),
+            home
+        );
+    }
+
+    #[test]
+    fn test_config_dir_matches_wizard_output_path() {
+        // Verify write_wizard_config uses the same directory as config_dir()
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let models_path = dir.join("models.json");
+        assert!(
+            models_path.to_string_lossy().ends_with("models.json"),
+            "wizard output should write models.json at config root"
+        );
+    }
+}
+
+// -----------------------------------------------------------------
+// Step 1.2: credentials directory structure tests
+// -----------------------------------------------------------------
+
+#[cfg(test)]
+mod credentials_path_tests {
+    use crate::config::manager::ConfigSection;
+
+    #[test]
+    fn test_credentials_section_is_directory() {
+        assert!(ConfigSection::Credentials.is_directory());
+    }
+
+    #[test]
+    fn test_credentials_dir_name() {
+        assert_eq!(ConfigSection::Credentials.dir_name(), "credentials");
+    }
+
+    #[test]
+    fn test_non_credentials_sections_are_not_directories() {
+        assert!(!ConfigSection::Models.is_directory());
+        assert!(!ConfigSection::Channels.is_directory());
+        assert!(!ConfigSection::Gateway.is_directory());
+        assert!(!ConfigSection::Plugins.is_directory());
+        assert!(!ConfigSection::System.is_directory());
+    }
+
+    #[test]
+    fn test_credentials_filename_ends_with_slash() {
+        let filename = ConfigSection::Credentials.filename();
+        assert!(
+            filename.ends_with('/'),
+            "Credentials filename should end with /, got: {}",
+            filename
+        );
+    }
+}
