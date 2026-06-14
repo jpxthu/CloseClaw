@@ -249,6 +249,11 @@ impl Daemon {
                     );
                 }
 
+                // Pass config_manager to SessionManager for agent tool/skill filtering.
+                session_manager
+                    .set_config_manager(Arc::clone(&config_manager))
+                    .await;
+
                 // Initialize config hot-reload: watch JSON files + agents/ dir
                 config_watcher = match config_reload::init_config_hot_reload(
                     config_dir,

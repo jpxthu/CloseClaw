@@ -78,13 +78,46 @@ impl SessionManager {
 
                             let tool_registry = self.tool_registry.read().await;
                             let skill_registry = self.skill_registry.read().await.clone();
+                            let agent_cfg = self.get_agent_config(&agent_id).await;
+                            let agent_tools = agent_cfg
+                                .as_ref()
+                                .map(|c| {
+                                    if c.tools.is_empty() || c.tools == ["*"] {
+                                        None
+                                    } else {
+                                        Some(c.tools.clone())
+                                    }
+                                })
+                                .flatten();
+                            let agent_disallowed_tools = agent_cfg
+                                .as_ref()
+                                .map(|c| {
+                                    if c.disallowed_tools.is_empty() {
+                                        None
+                                    } else {
+                                        Some(c.disallowed_tools.clone())
+                                    }
+                                })
+                                .flatten();
+                            let agent_skills = agent_cfg
+                                .as_ref()
+                                .map(|c| {
+                                    if c.skills.is_empty() || c.skills == ["*"] {
+                                        None
+                                    } else {
+                                        Some(c.skills.clone())
+                                    }
+                                })
+                                .flatten();
                             let prompt = session_helpers::build_session_system_prompt(
                                 &self.workspace_dir,
                                 self.bootstrap_mode,
                                 &tool_registry,
                                 skill_registry,
                                 &agent_id,
-                                None,
+                                agent_tools,
+                                agent_disallowed_tools,
+                                agent_skills,
                             )
                             .await;
 
@@ -158,13 +191,46 @@ impl SessionManager {
         let tool_registry = self.tool_registry.read().await;
         let skill_registry = self.skill_registry.read().await.clone();
         let agent_id = message.to.clone();
+        let agent_cfg = self.get_agent_config(&agent_id).await;
+        let agent_tools = agent_cfg
+            .as_ref()
+            .map(|c| {
+                if c.tools.is_empty() || c.tools == ["*"] {
+                    None
+                } else {
+                    Some(c.tools.clone())
+                }
+            })
+            .flatten();
+        let agent_disallowed_tools = agent_cfg
+            .as_ref()
+            .map(|c| {
+                if c.disallowed_tools.is_empty() {
+                    None
+                } else {
+                    Some(c.disallowed_tools.clone())
+                }
+            })
+            .flatten();
+        let agent_skills = agent_cfg
+            .as_ref()
+            .map(|c| {
+                if c.skills.is_empty() || c.skills == ["*"] {
+                    None
+                } else {
+                    Some(c.skills.clone())
+                }
+            })
+            .flatten();
         let prompt = session_helpers::build_session_system_prompt(
             &self.workspace_dir,
             self.bootstrap_mode,
             &tool_registry,
             skill_registry,
             &agent_id,
-            None,
+            agent_tools,
+            agent_disallowed_tools,
+            agent_skills,
         )
         .await;
 

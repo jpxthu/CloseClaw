@@ -33,6 +33,8 @@ pub(super) async fn build_session_system_prompt(
     tool_registry: &Option<Arc<ToolRegistry>>,
     skill_registry: Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>,
     agent_id: &str,
+    agent_tools: Option<Vec<String>>,
+    agent_disallowed_tools: Option<Vec<String>>,
     agent_skills: Option<Vec<String>>,
 ) -> String {
     let bootstrap_files = if let Some(ref workspace) = workspace_dir {
@@ -63,8 +65,8 @@ pub(super) async fn build_session_system_prompt(
             tool_ctx: &tool_ctx,
             skill_registry,
             agent_id: Some(agent_id),
-            agent_tools: None,
-            agent_disallowed_tools: None,
+            agent_tools,
+            agent_disallowed_tools,
             agent_skills,
             dynamic_sections: vec![],
             append_section: None,
