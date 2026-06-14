@@ -52,7 +52,7 @@ Session 的整体状态由三维组合判定：
 
 停止完成后，LLM 状态置 Idle，工具状态和子 Session 状态清空。
 
-级联采用 AbortController 链：父 session 的 AbortController abort 时联动子 session，子 session 单独 abort 不影响父。
+级联采用取消信号链：父 session 的取消信号触发时联动子 session，子 session 单独取消不影响父。
 
 ### 停止入口
 
