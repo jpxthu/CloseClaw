@@ -68,6 +68,16 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 
 任何一个 hook 判定为异常 → session 判 unhealthy。
 
+### Spawn 静默失败防护
+
+子 agent spawn 场景有特殊的静默失败风险：子 agent 可能已完成但 announce 未成功投递、父 agent 可能未正确 yield 而继续空转。系统用三层防护应对：
+
+**第一层：即时检测**。父 agent spawn 子 agent 后如果下一个 turn 没有调用 sessions_yield 而是继续做其他操作，系统注入提醒：「你有 N 个子 agent 仍在运行，建议 yield 等待结果」。这一层在 turn 边界触发，几乎零延迟。
+
+**第二层：定时巡检**。后台 sweeper 每 60 秒扫描所有活跃子 agent session。如果子 agent 已完成但 announce 未成功投递到父 session，触发重投递。这一层兜底第一层遗漏的投递失败。
+
+**第三层：启动恢复**。系统重启后扫描 pending_operations 中未完成的 spawn 操作，重新注入 announce 或标记失败。这一层兜底进程崩溃导致的状态丢失。
+
 ### 失败类别与处理
 
 unhealthy 不细分状态名，处理方式由失败类别决定：
