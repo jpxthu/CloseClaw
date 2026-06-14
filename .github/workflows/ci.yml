@@ -77,6 +77,54 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      - name: Check env var prohibition
+        run: |
+          set -e
+          # 禁止 set_var / remove_var（load_env_file 除外）
+          # 详见 CONTRIBUTING.md「环境变量禁令」
+          #
+          # 白名单：已知存量违规文件，待逐步清理后移除
+          whitelist=(
+            src/daemon/mod.rs
+            src/handlers/handlers_tests.rs
+            src/llm/protocol/glm_test.rs
+            src/llm/model_discovery.rs
+            src/daemon/unit_tests.rs
+          )
+          matches=$(grep -rn '\bset_var\b\|\bremove_var\b' src/ --include='*.rs' | grep -v 'load_env_file' || true)
+          if [ -n "$matches" ]; then
+            violations=""
+            while IFS= read -r line; do
+              file=$(echo "$line" | cut -d: -f1)
+              is_whitelisted=false
+              for wl in "${whitelist[@]}"; do
+                if [ "$file" = "$wl" ]; then
+                  is_whitelisted=true
+                  break
+                fi
+              done
+              if [ "$is_whitelisted" = false ]; then
+                violations="$violations\n$line"
+              fi
+            done <<< "$matches"
+            if [ -n "$violations" ]; then
+              echo "ERROR: 检测到 std::env::set_var / remove_var 调用："
+              echo -e "$violations"
+              echo ""
+              echo "环境变量修改在多线程和并行测试中会导致数据竞争，全代码库禁止使用。"
+              echo "唯一例外：daemon/mod.rs 中的 load_env_file()（启动阶段加载 .env 文件）。"
+              echo ""
+              echo "正确做法："
+              echo "  - 配置值通过参数/config struct 传递，不写入全局 env"
+              echo "  - 测试中用依赖注入或临时文件路径代替 set_var"
+              echo "  - 只读取环境变量请用 std::env::var（安全）"
+              echo ""
+              echo "详见 CONTRIBUTING.md「环境变量禁令」"
+              exit 1
+            fi
+          fi
+          echo "env var check passed"
+
       - name: Strict warning check
         run: cargo check
 
