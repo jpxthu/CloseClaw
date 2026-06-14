@@ -28,49 +28,47 @@ fn strip_jsonc_comments(content: &str) -> String {
 }
 
 impl ConfigManager {
-    /// Load agent registration list and resolve agent configurations
-    /// from two-level directories (user + project).
-    pub fn load_agents(&self, repo_root: Option<&Path>) -> Result<(), ConfigLoadError> {
-        let agents_json_path = self.config_dir.join("agents.json");
-        if !agents_json_path.exists() {
-            return Ok(());
+    /// Load an agents.json file and return parsed agent IDs.
+    pub(crate) fn load_agents_json(&self, path: &Path) -> Result<Vec<String>, ConfigLoadError> {
+        if !path.exists() {
+            return Ok(Vec::new());
         }
-
-        let raw = fs::read_to_string(&agents_json_path).map_err(|e| ConfigLoadError::IoError {
-            path: agents_json_path.clone(),
+        let raw = fs::read_to_string(path).map_err(|e| ConfigLoadError::IoError {
+            path: path.to_path_buf(),
             error: e.to_string(),
         })?;
         let cleaned = strip_jsonc_comments(&raw);
-        let agents_cfg: AgentsConfig =
+        let cfg: AgentsConfig =
             serde_json::from_str(&cleaned).map_err(|e| ConfigLoadError::ParseError {
-                path: agents_json_path.clone(),
+                path: path.to_path_buf(),
                 error: e.to_string(),
             })?;
+        Ok(cfg.agents)
+    }
 
-        let user_agents_dir = self
-            .config_dir
-            .parent()
-            .unwrap_or(&self.config_dir)
-            .join("agents");
-        let project_agents_dir = repo_root.map(|r| r.join(".closeclaw").join("agents"));
+    /// Merge agent IDs from user and project lists (union).
+    pub(crate) fn merge_agent_ids(user: &[String], project: &[String]) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let mut merged = Vec::new();
+        for id in user.iter().chain(project.iter()) {
+            if seen.insert(id.clone()) {
+                merged.push(id.clone());
+            }
+        }
+        merged
+    }
 
-        let provider = AgentDirectoryProvider::new(
-            agents_cfg.agents.clone(),
-            user_agents_dir,
-            project_agents_dir,
-        )
-        .map_err(|e| ConfigLoadError::ValidationError {
-            path: agents_json_path.clone(),
-            message: e.to_string(),
-        })?;
-
-        // Validate parent_id references against registry
-        let registry_ids: HashSet<&str> = agents_cfg.agents.iter().map(String::as_str).collect();
+    /// Validate parent_id references against the merged registry.
+    fn validate_parent_ids(
+        provider: &AgentDirectoryProvider,
+        registry_ids: &HashSet<&str>,
+        json_path: &Path,
+    ) -> Result<(), ConfigLoadError> {
         for (id, entry) in provider.entries() {
             if let Some(ref parent_id) = entry.parent_id {
                 if !registry_ids.contains(parent_id.as_str()) {
                     return Err(ConfigLoadError::ValidationError {
-                        path: agents_json_path,
+                        path: json_path.to_path_buf(),
                         message: format!(
                             "Agent '{}' references unregistered parent '{}'",
                             id, parent_id
@@ -79,17 +77,20 @@ impl ConfigManager {
                 }
             }
         }
+        Ok(())
+    }
 
-        *self.agents.write().expect("RwLock for agents was poisoned") = provider.entries().clone();
-
-        // Sync agent permissions
+    /// Sync agent permissions from provider into ConfigManager cache.
+    fn sync_permissions(
+        &self,
+        ids: &[String],
+        provider_perms: &HashMap<String, crate::agent::config::AgentPermissions>,
+    ) {
         let mut perms_map = self.agent_permissions.write().expect("RwLock poisoned");
-        let provider_perms = provider.permissions();
-        for id in &agents_cfg.agents {
+        for id in ids {
             if let Some(p) = provider_perms.get(id) {
                 perms_map.insert(id.clone(), p.clone());
             } else {
-                // Registered agent missing permissions.json → synthesize full-deny baseline
                 perms_map.insert(
                     id.clone(),
                     crate::agent::config::AgentPermissions {
@@ -100,15 +101,58 @@ impl ConfigManager {
                 );
             }
         }
-        drop(perms_map);
+    }
+
+    /// Load agent registration list and resolve agent configurations
+    /// from two-level directories (user + project).
+    pub fn load_agents(&self, repo_root: Option<&Path>) -> Result<(), ConfigLoadError> {
+        // Persist repo_root so reload_agents() can load project-level config
+        if repo_root.is_some() {
+            *self.repo_root.write().expect("RwLock poisoned") = repo_root.map(Path::to_path_buf);
+        }
+
+        let agents_json_path = self.config_dir.join("agents.json");
+        let user_ids = self.load_agents_json(&agents_json_path)?;
+
+        let project_ids = if let Some(repo) = repo_root {
+            let path = repo.join(".closeclaw").join("agents.json");
+            self.load_agents_json(&path)?
+        } else {
+            Vec::new()
+        };
+
+        let merged_ids = Self::merge_agent_ids(&user_ids, &project_ids);
+        if merged_ids.is_empty() {
+            return Ok(());
+        }
+
+        let user_agents_dir = self
+            .config_dir
+            .parent()
+            .unwrap_or(&self.config_dir)
+            .join("agents");
+        let project_agents_dir = repo_root.map(|r| r.join(".closeclaw").join("agents"));
+
+        let provider =
+            AgentDirectoryProvider::new(merged_ids.clone(), user_agents_dir, project_agents_dir)
+                .map_err(|e| ConfigLoadError::ValidationError {
+                    path: agents_json_path.clone(),
+                    message: e.to_string(),
+                })?;
+
+        let registry_ids: HashSet<&str> = merged_ids.iter().map(String::as_str).collect();
+        Self::validate_parent_ids(&provider, &registry_ids, &agents_json_path)?;
+
+        *self.agents.write().expect("RwLock for agents was poisoned") = provider.entries().clone();
+        self.sync_permissions(&merged_ids, provider.permissions());
 
         Ok(())
     }
 
-    /// Hot-reload: re-scan agents/ directory and update agents + agent_permissions caches.
-    /// Called when agents.json or any agents/<id>/*.json file changes on disk.
+    /// Hot-reload: re-scan agents/ directory and update caches.
     pub fn reload_agents(&self) -> Result<(), ConfigLoadError> {
-        self.load_agents(None)?;
+        let repo_root = self.repo_root.read().expect("RwLock poisoned").clone();
+        self.load_agents(repo_root.as_deref())?;
         info!("Agent configs reloaded");
         Ok(())
     }

@@ -92,6 +92,8 @@ async fn test_try_push_announce_run_mode() {
             SpawnMode::Run,
             false,
             None,
+            None,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -136,6 +138,8 @@ async fn test_try_push_announce_session_mode_noop() {
             None,
             SpawnMode::Session,
             false,
+            None,
+            None,
             None,
         )
         .await
@@ -257,6 +261,8 @@ async fn test_thinking_blocks_excluded() {
             None,
             SpawnMode::Run,
             false,
+            None,
+            None,
             None,
         )
         .await

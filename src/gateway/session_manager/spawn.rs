@@ -84,6 +84,8 @@ impl SessionManager {
         mode: SpawnMode,
         fork: bool,
         allowed_tools: Option<Vec<String>>,
+        model_override: Option<&str>,
+        parent_subagents_model: Option<&str>,
     ) -> Result<String, String> {
         // Apply tool whitelist override: when allowed_tools is provided,
         // replace the config's tools list so the child session only has
@@ -149,9 +151,12 @@ impl SessionManager {
         drop(tool_registry_guard);
 
         // 5. Create ConversationSession
-        let model = config
-            .model
-            .clone()
+        // Model priority: explicit model param > parent agent.subagents.model
+        // > target agent.model > system default
+        let model = model_override
+            .map(String::from)
+            .or(parent_subagents_model.map(String::from))
+            .or(config.model.clone())
             .unwrap_or_else(|| "default".to_string());
 
         // 5a. Wire child into parent's cancel-token tree (Step 1.5).

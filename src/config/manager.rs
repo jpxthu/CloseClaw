@@ -194,12 +194,10 @@ pub struct ConfigInfo {
 // ---------------------------------------------------------------------------
 
 /// Unified configuration management entry point.
-///
 /// Provides atomic write, backup integration, and unified access to all
 /// JSON config files under the config/ directory.
 ///
 /// # Design
-///
 /// Each configuration section (models, channels, gateway, etc.) is stored
 /// as a separate JSON file. ConfigManager loads all sections into memory
 /// and provides:
@@ -220,6 +218,8 @@ pub struct ConfigManager {
     pub(crate) agents: RwLock<HashMap<String, super::agents::ResolvedAgentConfig>>,
     /// Per-agent raw permissions (loaded from permissions.json).
     pub(crate) agent_permissions: RwLock<HashMap<String, AgentPermissions>>,
+    /// Optional project root for loading project-level agents.json.
+    pub(crate) repo_root: RwLock<Option<PathBuf>>,
 }
 
 impl ConfigManager {
@@ -237,6 +237,7 @@ impl ConfigManager {
             credentials_provider: RwLock::new(CredentialsProvider::default()),
             agents: RwLock::new(HashMap::new()),
             agent_permissions: RwLock::new(HashMap::new()),
+            repo_root: RwLock::new(None),
         })
     }
 

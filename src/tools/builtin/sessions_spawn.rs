@@ -24,7 +24,7 @@ pub struct SessionsSpawnTool {
 }
 
 /// Parsed arguments for a `sessions_spawn` tool call.
-struct SpawnArgs {
+pub(crate) struct SpawnArgs {
     task: String,
     agent_id: Option<String>,
     light_context: bool,
@@ -34,6 +34,7 @@ struct SpawnArgs {
     fork: bool,
     allowed_tools: Option<Vec<String>>,
     prompt_template: Option<PromptTemplate>,
+    pub(crate) model: Option<String>,
 }
 
 impl SessionsSpawnTool {
@@ -53,7 +54,7 @@ impl SessionsSpawnTool {
     }
 
     /// Parse the raw JSON arguments into typed [`SpawnArgs`].
-    fn parse_args(args: &Value) -> Result<SpawnArgs, ToolCallError> {
+    pub(crate) fn parse_args(args: &Value) -> Result<SpawnArgs, ToolCallError> {
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
@@ -91,6 +92,7 @@ impl SessionsSpawnTool {
             .map(|s| s.parse::<PromptTemplate>())
             .transpose()
             .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
+        let model = args.get("model").and_then(|v| v.as_str()).map(String::from);
         Ok(SpawnArgs {
             task: task.to_string(),
             agent_id,
@@ -101,6 +103,7 @@ impl SessionsSpawnTool {
             fork,
             allowed_tools,
             prompt_template,
+            model,
         })
     }
 
@@ -155,6 +158,8 @@ impl SessionsSpawnTool {
         mode: SpawnMode,
         fork: bool,
         allowed_tools: Option<Vec<String>>,
+        model: Option<&str>,
+        parent_subagents_model: Option<&str>,
     ) -> Result<String, ToolCallError> {
         self.session_manager
             .create_child_session(
@@ -167,6 +172,8 @@ impl SessionsSpawnTool {
                 mode,
                 fork,
                 allowed_tools,
+                model,
+                parent_subagents_model,
             )
             .await
             .map_err(|e| {
@@ -282,6 +289,13 @@ impl Tool for SessionsSpawnTool {
             })?;
         self.validate_spawn_permissions(&config, parent_session_id)
             .await?;
+        // Look up the parent agent's subagents.model config
+        // (used as priority level 2 in the model priority chain).
+        let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
+        let parent_subagents_model = parent_agent_id
+            .as_ref()
+            .and_then(|id| self.config_manager.agent(id))
+            .and_then(|c| c.subagents.model.clone());
         let parent_depth = self
             .session_manager
             .get_session_depth(parent_session_id)
@@ -303,6 +317,8 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.mode,
                 spawn_args.fork,
                 spawn_args.allowed_tools,
+                spawn_args.model.as_deref(),
+                parent_subagents_model.as_deref(),
             )
             .await?;
         Ok(ToolResult {
