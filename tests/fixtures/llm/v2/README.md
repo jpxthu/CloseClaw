@@ -6,28 +6,22 @@
 
 ```
 tests/fixtures/llm/v2/
-├── README.md                    # 本文件：整体索引
+├── README.md                    # 本文件：整体索引 + 采集流程
+├── capture_fixtures.py          # 采集脚本（chat + 非 chat 场景）
+├── run_capture.sh               # 采集入口
+├── providers.py                 # Provider 配置（端点 URL + 模型列表）
 ├── minimax/                    # MiniMax fixtures
 │   ├── README.md               # MiniMax 专项说明
-│   ├── openai/                 # OpenAI 兼容协议响应
-│   │   ├── {model}-{scenario}.json
-│   │   └── {model}-{scenario}.txt          # 流式原始 SSE
-│   └── anthropic/              # Anthropic 兼容协议响应
-│       ├── {model}-{scenario}.json
-│       └── {model}-{scenario}.txt          # 流式原始 SSE
-├── glm/                        # GLM fixtures
-│   ├── README.md
-│   ├── openai/
-│   └── anthropic/
-├── deepseek/                   # DeepSeek fixtures
-│   ├── README.md
-│   ├── openai/
-│   └── anthropic/
+│   ├── {model}/                 # 按模型分组
+│   │   ├── openai/              #   OpenAI 协议响应
+│   │   └── anthropic/           #   Anthropic 协议响应
+│   └── provider/              # Provider 级别 fixture（不绑定具体模型）
+├── glm/                        # GLM fixtures（同上结构）
+├── deepseek/                   # DeepSeek fixtures（同上结构）
 ├── docs/                       # Phase 0 深挖文档
 │   ├── minimax-api-summary.md
 │   ├── glm-api-summary.md
 │   └── deepseek-api-summary.md
-└── providers.py                 # Provider 配置（供 capture 脚本使用）
 ```
 
 ## 顶层字段说明
@@ -84,7 +78,7 @@ tests/fixtures/llm/v2/
 | `simple` | 基础 single-turn 对话，协议响应格式 | 全部 |
 | `streaming` | SSE chunk 格式（`delta.role` / `finish_reason` / `[DONE]`） | 全部 |
 | `multi-turn` | 多轮对话上下文处理 | 全部 |
-| `cache` | `prompt_tokens_details.cached_tokens` / `prompt_cache_hit_tokens` | MiniMax / DeepSeek |
+| `cache` | KV Cache 增量命中：多轮对话中前缀缓存递增 | 全部 |
 | `minimax-reasoning-split` | `extra_body.reasoning_split: true` → `reasoning_details` 字段 | MiniMax |
 | `glm-thinking` / `glm-thinking-disabled` | `extra_body.thinking.type` → `reasoning_content` 字段 | GLM |
 | `deepseek-thinking-high` / `deepseek-thinking-disabled` | `reasoning_effort` → `reasoning_content` 字段 | DeepSeek |
@@ -96,7 +90,7 @@ tests/fixtures/llm/v2/
 | `anthropic-simple` / `anthropic-thinking` | Anthropic `content[].type` 格式 | 全部 |
 | `anthropic-streaming` | Anthropic SSE 事件序列 | 全部 |
 | `anthropic-tool-use` / `anthropic-tool-result` | Anthropic `content[].type=tool_use` 格式 | 全部 |
-| `anthropic-cache` | `cache_control:ephemeral` 主动缓存标记 | MiniMax |
+| `context-pressure` | 多轮递增长对话，prompt_tokens 随轮次增长 | 全部 |
 | `anthropic-tool-use-streaming` | Anthropic SSE 流式工具调用事件序列 | MiniMax |
 
 ## 快速查找
@@ -140,3 +134,35 @@ tests/fixtures/llm/v2/
 - `deepseek-api-summary.md` — DeepSeek 认证、请求参数、响应格式、thinking 模式、错误码
 
 每个结论均有具体文档 URL 来源，便于追溯。
+
+## 场景索引（新增）
+
+| 场景 | 验证内容 | 适用 provider |
+|------|---------|--------------|
+| `model-list` | GET /models 返回的模型列表结构 | 全部 |
+| `usage-quota` | 用量/配额/余额 API 响应 | DeepSeek / GLM |
+
+### 非 Chat 场景
+
+非 Chat 场景采集 Provider 级别的 API（不绑定具体模型），输出到 `{provider}/provider/` 目录。
+
+**model-list**：采集 `GET /models` 端点的真实返回。三家供应商的模型列表 API 只返回模型 ID 和所有者信息，不包含能力参数（context window、max output 等）——这些参数由知识库（`src/llm/assets/`）持有。
+
+**usage-quota**：采集各供应商的用量/配额 API 响应。
+
+| 供应商 | 端点 | 返回内容 |
+|--------|------|--------|
+| GLM | `GET /api/monitor/usage/quota/limit` | Coding Plan 套餐等级、多维限额 |
+| DeepSeek | `GET /user/balance` | 账户余额（赠金 + 充值） |
+| MiniMax | 无 | — |
+
+GLM 的用量数据与模型无关，按 provider 级别采集一次即可。
+
+## 新模型适配流程
+
+供应商发布新模型时的标准适配流程：
+
+1. **Fixture 采集**：运行 `run_capture.sh <provider> <model> <protocol> <api_key> all`，采集全套 chat + 非 chat 场景
+2. **参数查取**：从供应商官方文档查取模型能力参数（context window、max output、是否推理模型）
+3. **知识库更新**：将参数写入 `src/llm/assets/<provider>.json`
+4. **适配验证**：确认 fixture 数据完整（cache 命中 cached_tokens > 0、模型探测包含新模型 ID）
