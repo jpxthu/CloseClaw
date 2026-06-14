@@ -1,5 +1,7 @@
 //! LLM provider registration helpers
 
+use std::collections::HashMap;
+
 use super::*;
 use crate::config::providers::CredentialsProvider;
 use crate::llm::anthropic::AnthropicProvider;
@@ -15,6 +17,20 @@ impl Daemon {
     /// 2. Fall back to the corresponding env var if the file does not have it
     #[allow(dead_code)] // only invoked from `#[cfg(test)] mod unit_tests`
     pub(crate) async fn init_llm_registry(config_dir: &Path) -> Arc<LLMRegistry> {
+        Self::init_llm_registry_with_env(config_dir, &HashMap::new()).await
+    }
+
+    /// Same as [`init_llm_registry`] but accepts an override map for env-var fallback.
+    ///
+    /// For each provider the lookup order is:
+    /// 1. Credentials file
+    /// 2. `env_overrides` map
+    /// 3. Process environment variable
+    #[allow(dead_code)] // only invoked from `#[cfg(test)] mod unit_tests`
+    pub(crate) async fn init_llm_registry_with_env(
+        config_dir: &Path,
+        env_overrides: &HashMap<&str, &str>,
+    ) -> Arc<LLMRegistry> {
         let registry = Arc::new(LLMRegistry::new());
 
         // Load credentials from config/credentials/ directory
@@ -34,7 +50,12 @@ impl Daemon {
         // Register OpenAI provider: credentials file first, then env var fallback
         let openai_key = creds_provider
             .get_api_key("openai")
-            .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+            .or_else(|| {
+                env_overrides
+                    .get("OPENAI_API_KEY")
+                    .map(|s| s.to_string())
+                    .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+            })
             .filter(|k| !k.is_empty());
         if let Some(api_key) = openai_key {
             let provider: Arc<dyn crate::llm::provider::Provider> =
@@ -46,7 +67,12 @@ impl Daemon {
         // Register Anthropic provider: credentials file first, then env var fallback
         let anthropic_key = creds_provider
             .get_api_key("anthropic")
-            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+            .or_else(|| {
+                env_overrides
+                    .get("ANTHROPIC_API_KEY")
+                    .map(|s| s.to_string())
+                    .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+            })
             .filter(|k| !k.is_empty());
         if let Some(api_key) = anthropic_key {
             let provider: Arc<dyn crate::llm::provider::Provider> =
@@ -58,7 +84,12 @@ impl Daemon {
         // Register MiniMax provider: credentials file first, then env var fallback
         let minimax_key = creds_provider
             .get_api_key("minimax")
-            .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
+            .or_else(|| {
+                env_overrides
+                    .get("MINIMAX_API_KEY")
+                    .map(|s| s.to_string())
+                    .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
+            })
             .filter(|k| !k.is_empty());
         if let Some(api_key) = minimax_key {
             let provider: Arc<dyn crate::llm::provider::Provider> =

@@ -86,10 +86,6 @@ jobs:
           # 白名单：已知存量违规文件，待逐步清理后移除
           whitelist=(
             src/daemon/mod.rs
-            src/handlers/handlers_tests.rs
-            src/llm/protocol/glm_test.rs
-            src/llm/model_discovery.rs
-            src/daemon/unit_tests.rs
           )
           matches=$(grep -rn '\bset_var\b\|\bremove_var\b' src/ --include='*.rs' | grep -v 'load_env_file' || true)
           if [ -n "$matches" ]; then

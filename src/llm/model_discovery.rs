@@ -132,8 +132,7 @@ mod tests {
     /// Helper: create a ModelDiscovery with an isolated temp-dir cache.
     fn make_discovery(dir: &tempfile::TempDir) -> ModelDiscovery {
         let path = dir.path().join("cache.json");
-        std::env::set_var("MODEL_CACHE_FILE", &path);
-        let cache = ModelCache::new();
+        let cache = ModelCache::with_path(&path);
         ModelDiscovery {
             cache,
             knowledge: ProviderModelKnowledge::new(),
@@ -178,8 +177,6 @@ mod tests {
         assert_eq!(result[0].id, "test-model-1");
         // fetch closure must NOT have been called
         assert_eq!(fetch_count.load(Ordering::SeqCst), 0);
-
-        std::env::remove_var("MODEL_CACHE_FILE");
     }
 
     #[tokio::test]
@@ -209,8 +206,6 @@ mod tests {
 
         assert_eq!(result2.len(), 1);
         assert_eq!(fetch_count.load(Ordering::SeqCst), 0);
-
-        std::env::remove_var("MODEL_CACHE_FILE");
     }
 
     #[tokio::test]
@@ -230,8 +225,6 @@ mod tests {
             !result.is_empty(),
             "knowledge fallback should return models"
         );
-
-        std::env::remove_var("MODEL_CACHE_FILE");
     }
 
     #[tokio::test]
@@ -266,16 +259,12 @@ mod tests {
         // Should have re-fetched (not returned old-model)
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, "test-model-1");
-
-        std::env::remove_var("MODEL_CACHE_FILE");
     }
 
     #[test]
     fn test_knowledge_fallback_returns_known_models() {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("MODEL_CACHE_FILE", dir.path().join("cache.json"));
-        let discovery = ModelDiscovery::new();
-        std::env::remove_var("MODEL_CACHE_FILE");
+        let discovery = make_discovery(&dir);
 
         let models = discovery.knowledge_fallback("minimax");
         assert!(!models.is_empty(), "minimax should have known models");

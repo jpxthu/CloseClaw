@@ -17,16 +17,6 @@ async fn validate_config(filename: &str, content: &str) -> anyhow::Result<()> {
     .await
 }
 
-/// Set `HOME` to `tmp` for the duration of the closure, then restore.
-fn with_home<F: FnOnce()>(tmp: &tempfile::TempDir, f: F) {
-    let orig = std::env::var("HOME").ok();
-    std::env::set_var("HOME", tmp.path());
-    f();
-    if let Some(h) = orig {
-        std::env::set_var("HOME", h);
-    }
-}
-
 // -----------------------------------------------------------------
 // config validate tests
 // -----------------------------------------------------------------
@@ -100,17 +90,9 @@ async fn test_config_validate_models_with_invalid_base_url() {
 fn test_config_list_empty_dir() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".closeclaw")).unwrap();
-    let result = {
-        let mut r = None;
-        with_home(&tmp, || {
-            r = Some(
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(handle_config(ConfigAction::List)),
-            );
-        });
-        r.unwrap()
-    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(handle_config_at(ConfigAction::List, Some(tmp.path())));
     assert!(
         result.is_ok(),
         "empty config list should succeed: {:?}",
@@ -121,17 +103,9 @@ fn test_config_list_empty_dir() {
 #[test]
 fn test_config_list_no_config_dir() {
     let tmp = tempfile::tempdir().unwrap();
-    let result = {
-        let mut r = None;
-        with_home(&tmp, || {
-            r = Some(
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(handle_config(ConfigAction::List)),
-            );
-        });
-        r.unwrap()
-    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(handle_config_at(ConfigAction::List, Some(tmp.path())));
     assert!(
         result.is_ok(),
         "missing config dir should not error: {:?}",
@@ -241,7 +215,7 @@ fn test_handle_rule_check_invalid_json() {
 fn test_handle_rule_list_empty_dir() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".closeclaw").join("rules")).unwrap();
-    with_home(&tmp, || assert!(handle_rule_list().is_ok()));
+    assert!(handle_rule_list_at(Some(tmp.path())).is_ok());
 }
 
 #[test]
@@ -252,13 +226,13 @@ fn test_handle_rule_list_with_files() {
     std::fs::write(rules_dir.join("allow.json"), "{}").unwrap();
     std::fs::write(rules_dir.join("deny.yaml"), "{}").unwrap();
     std::fs::write(rules_dir.join("readme.txt"), "skip").unwrap();
-    with_home(&tmp, || assert!(handle_rule_list().is_ok()));
+    assert!(handle_rule_list_at(Some(tmp.path())).is_ok());
 }
 
 #[test]
 fn test_handle_rule_list_no_rules_dir() {
     let tmp = tempfile::tempdir().unwrap();
-    with_home(&tmp, || assert!(handle_rule_list().is_ok()));
+    assert!(handle_rule_list_at(Some(tmp.path())).is_ok());
 }
 
 // -----------------------------------------------------------------
@@ -349,17 +323,9 @@ fn test_config_list_discovers_credentials_files() {
         r#"{"provider":"minimax","apiKey":"sk-test"}"#,
     )
     .unwrap();
-    let result = {
-        let mut r = None;
-        with_home(&tmp, || {
-            r = Some(
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(handle_config(ConfigAction::List)),
-            );
-        });
-        r.unwrap()
-    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(handle_config_at(ConfigAction::List, Some(tmp.path())));
     assert!(
         result.is_ok(),
         "config list with credentials should succeed: {:?}",
@@ -371,17 +337,9 @@ fn test_config_list_discovers_credentials_files() {
 fn test_config_list_empty_credentials_dir() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".closeclaw").join("credentials")).unwrap();
-    let result = {
-        let mut r = None;
-        with_home(&tmp, || {
-            r = Some(
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(handle_config(ConfigAction::List)),
-            );
-        });
-        r.unwrap()
-    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(handle_config_at(ConfigAction::List, Some(tmp.path())));
     assert!(
         result.is_ok(),
         "empty credentials dir should not error: {:?}",
@@ -396,17 +354,9 @@ fn test_config_list_empty_credentials_dir() {
 #[test]
 fn test_stop_pid_file_not_found() {
     let tmp = tempfile::tempdir().unwrap();
-    let result = {
-        let mut r = None;
-        with_home(&tmp, || {
-            r = Some(
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(handle_stop(false)),
-            );
-        });
-        r.unwrap()
-    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(handle_stop_at(false, Some(tmp.path())));
     assert!(result.is_err(), "missing PID file should error");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -422,17 +372,9 @@ fn test_stop_stale_pid_file_cleans_up() {
     let pid_file = tmp.path().join(".closeclaw").join("daemon.pid");
     std::fs::create_dir_all(pid_file.parent().unwrap()).unwrap();
     std::fs::write(&pid_file, "2147483647").unwrap();
-    let result = {
-        let mut r = None;
-        with_home(&tmp, || {
-            r = Some(
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(handle_stop(false)),
-            );
-        });
-        r.unwrap()
-    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(handle_stop_at(false, Some(tmp.path())));
     assert!(
         result.is_ok(),
         "stale PID should be cleaned up gracefully: {:?}",

@@ -24,8 +24,12 @@ pub fn mask_key(key: &str) -> String {
 }
 
 pub fn pid_file_path() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home).join(".closeclaw").join("daemon.pid")
+    pid_file_path_at(&dirs::home_dir().expect("HOME not set"))
+}
+
+#[allow(dead_code)]
+pub fn pid_file_path_at(home: &std::path::Path) -> PathBuf {
+    home.join(".closeclaw").join("daemon.pid")
 }
 
 pub async fn handle_agent(action: AgentAction, user_id: &str) -> Result<()> {
@@ -220,6 +224,14 @@ fn validate_config_content(content: &str) -> Result<()> {
 }
 
 pub async fn handle_config(action: ConfigAction) -> Result<()> {
+    handle_config_at(action, None).await
+}
+
+#[allow(dead_code)]
+pub async fn handle_config_at(
+    action: ConfigAction,
+    home_dir: Option<&std::path::Path>,
+) -> Result<()> {
     match action {
         ConfigAction::Validate { file } => {
             let path = std::path::Path::new(&file);
@@ -230,9 +242,12 @@ pub async fn handle_config(action: ConfigAction) -> Result<()> {
             validate_config_content(&content)?;
         }
         ConfigAction::List => {
-            let config_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".closeclaw");
+            let config_dir = match home_dir {
+                Some(home) => home.join(".closeclaw"),
+                None => dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".closeclaw"),
+            };
             if !config_dir.exists() {
                 println!("Config directory not found at {}", config_dir.display());
                 return Ok(());
@@ -306,10 +321,19 @@ fn handle_rule_check(rule: &str) -> Result<()> {
 
 /// List rule files from ~/.closeclaw/rules/ directory.
 fn handle_rule_list() -> Result<()> {
-    let rules_dir = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-        .join(".closeclaw")
-        .join("rules");
+    handle_rule_list_at(None)
+}
+
+/// List rule files from ~/.closeclaw/rules/ directory, with optional home override.
+#[allow(dead_code)]
+fn handle_rule_list_at(home_dir: Option<&std::path::Path>) -> Result<()> {
+    let rules_dir = match home_dir {
+        Some(home) => home.join(".closeclaw").join("rules"),
+        None => dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+            .join(".closeclaw")
+            .join("rules"),
+    };
     if !rules_dir.exists() {
         println!("No rules directory found at {}", rules_dir.display());
         return Ok(());
@@ -381,7 +405,15 @@ pub async fn handle_skill(action: SkillAction, user_id: &str) -> Result<()> {
 }
 
 pub async fn handle_stop(force: bool) -> Result<()> {
-    let p = pid_file_path();
+    handle_stop_at(force, None).await
+}
+
+#[allow(dead_code)]
+pub async fn handle_stop_at(force: bool, home_dir: Option<&std::path::Path>) -> Result<()> {
+    let p = match home_dir {
+        Some(home) => pid_file_path_at(home),
+        None => pid_file_path(),
+    };
     let pid: u32 = if p.exists() {
         std::fs::read_to_string(&p)?
             .trim()

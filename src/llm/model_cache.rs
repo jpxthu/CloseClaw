@@ -73,6 +73,14 @@ impl ModelCache {
         Self { persist_path }
     }
 
+    /// Construct a ModelCache that persists to the given path,
+    /// without reading any environment variables.
+    pub fn with_path(path: &std::path::Path) -> Self {
+        Self {
+            persist_path: path.to_path_buf(),
+        }
+    }
+
     /// Retrieve cached models for the given provider + token.
     ///
     /// Returns `None` if:
