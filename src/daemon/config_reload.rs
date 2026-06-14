@@ -41,7 +41,7 @@ fn setup_watcher(
     config_dir: &str,
 ) -> anyhow::Result<(RecommendedWatcher, mpsc::Receiver<notify::Result<Event>>)> {
     let config_path = Path::new(config_dir);
-    let agents_dir = config_path.parent().unwrap_or(config_path).join("agents");
+    let agents_dir = config_path.join("agents");
 
     let config_files: Vec<PathBuf> = [
         "models.json",
@@ -185,7 +185,7 @@ pub(crate) fn init_config_hot_reload(
     spawn_event_consumer(rx, Arc::clone(&config_manager));
 
     let config_path = Path::new(config_dir);
-    let agents_dir = config_path.parent().unwrap_or(config_path).join("agents");
+    let agents_dir = config_path.join("agents");
     let watch_count = [
         "models.json",
         "channels.json",

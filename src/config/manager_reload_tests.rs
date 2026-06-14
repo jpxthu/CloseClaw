@@ -58,8 +58,8 @@ fn test_reload_section_invalid_json() {
 /// Test: reload_agents succeeds when agents/ directory has valid agent configs.
 ///
 /// Note: `load_agents` resolves the user agents directory as
-/// `config_dir.parent().join("agents")`, so the agent directory must
-/// be a sibling of the config directory, not inside it.
+/// `config_dir.join("agents")`, so the agent directory must
+/// be inside the config directory.
 #[test]
 fn test_reload_agents_success() {
     let tmp = tempfile::tempdir().unwrap();
@@ -70,7 +70,7 @@ fn test_reload_agents_success() {
     let agents_json = r#"{ "version": "1.0", "agents": ["alpha"] }"#;
     fs::write(config_dir.join("agents.json"), agents_json).unwrap();
 
-    let agent_dir = tmp.path().join("agents").join("alpha");
+    let agent_dir = config_dir.join("agents").join("alpha");
     fs::create_dir_all(&agent_dir).unwrap();
     fs::write(
         agent_dir.join("config.json"),

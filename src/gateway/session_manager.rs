@@ -3,6 +3,7 @@
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
+use crate::config::ConfigManager;
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
@@ -64,6 +65,8 @@ pub struct SessionManager {
     /// Updated by `resolve()` on new session creation and by
     /// `force_new_for_channel`.
     key_registry: RwLock<HashMap<String, String>>,
+    /// Config manager for looking up agent-level tool/skill filtering.
+    config_manager: RwLock<Option<Arc<ConfigManager>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -99,7 +102,22 @@ impl SessionManager {
             children: RwLock::new(HashMap::new()),
             channel_active_sessions: RwLock::new(HashMap::new()),
             key_registry: RwLock::new(HashMap::new()),
+            config_manager: RwLock::new(None),
         }
+    }
+
+    /// Set the config manager for agent-level tool/skill filtering.
+    pub async fn set_config_manager(&self, config_manager: Arc<ConfigManager>) {
+        *self.config_manager.write().await = Some(config_manager);
+    }
+
+    /// Look up agent config by ID from the config manager.
+    async fn get_agent_config(
+        &self,
+        agent_id: &str,
+    ) -> Option<crate::config::agents::ResolvedAgentConfig> {
+        let guard = self.config_manager.read().await;
+        guard.as_ref()?.agent(agent_id)
     }
 
     /// Set priority prompt overrides.
