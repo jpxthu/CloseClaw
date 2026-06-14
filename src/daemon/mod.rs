@@ -36,12 +36,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::info;
-/// Load key=value pairs from a .env file and set them as environment variables.
-/// Lines starting with # are treated as comments and ignored.
-mod llm_init;
-
-fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
+/// Parse an .env file into key-value pairs.
+/// Lines starting with # are comments. Whitespace around keys and values is trimmed.
+/// Returns only non-empty key-value pairs.
+fn parse_env_file(path: &std::path::Path) -> std::io::Result<Vec<(String, String)>> {
     let content = std::fs::read_to_string(path)?;
+    let mut pairs = Vec::new();
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -51,12 +51,22 @@ fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
             let key = line[..pos].trim().to_string();
             let value = line[pos + 1..].trim().to_string();
             if !key.is_empty() && !value.is_empty() {
-                std::env::set_var(&key, &value);
+                pairs.push((key, value));
             }
         }
     }
+    Ok(pairs)
+}
+
+/// Load key=value pairs from a .env file and set them as environment variables.
+/// Lines starting with # are treated as comments and ignored.
+fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
+    for (key, value) in parse_env_file(path)? {
+        std::env::set_var(&key, &value);
+    }
     Ok(())
 }
+mod llm_init;
 /// Global daemon state
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
