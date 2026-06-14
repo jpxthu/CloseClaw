@@ -75,6 +75,8 @@ async fn test_create_child_session_basic() {
             SpawnMode::Run,
             false,
             None,
+            None,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -129,6 +131,8 @@ async fn test_create_child_session_workspace_fallback() {
             SpawnMode::Session,
             false,
             None,
+            None,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -148,6 +152,8 @@ async fn test_create_child_session_workspace_fallback() {
             Some(other.path().to_str().unwrap()),
             SpawnMode::Run,
             false,
+            None,
+            None,
             None,
         )
         .await
@@ -184,6 +190,8 @@ async fn test_create_child_session_registers_child_info() {
             None,
             SpawnMode::Session,
             false,
+            None,
+            None,
             None,
         )
         .await
@@ -223,6 +231,8 @@ async fn test_steer_child_injects_pending_message() {
             None,
             SpawnMode::Session,
             false,
+            None,
+            None,
             None,
         )
         .await
@@ -274,6 +284,8 @@ async fn test_kill_child_removes_from_all_tables() {
             None,
             SpawnMode::Session,
             false,
+            None,
+            None,
             None,
         )
         .await
@@ -336,6 +348,8 @@ async fn test_validate_child_ownership_returns_none_for_run_mode() {
             SpawnMode::Run,
             false,
             None,
+            None,
+            None,
         )
         .await
         .expect("create_child_session should succeed");
@@ -371,6 +385,8 @@ async fn test_validate_child_ownership_returns_info_for_session_mode() {
             None,
             SpawnMode::Session,
             false,
+            None,
+            None,
             None,
         )
         .await
@@ -426,6 +442,8 @@ async fn test_create_child_session_allowed_tools_override() {
             SpawnMode::Run,
             false,
             Some(allowed),
+            None,
+            None,
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
@@ -458,6 +476,8 @@ async fn test_create_child_session_no_allowed_tools_preserves_config() {
             None,
             SpawnMode::Run,
             false,
+            None,
+            None,
             None,
         )
         .await

@@ -394,6 +394,8 @@ mod bug904_tests;
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]
+mod model_priority_tests;
+#[cfg(test)]
 mod rebuild_tests;
 #[cfg(test)]
 mod resolve_tests;

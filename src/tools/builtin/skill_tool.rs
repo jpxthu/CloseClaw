@@ -194,6 +194,8 @@ impl Tool for SkillTool {
                         SpawnMode::Run,
                         false, // fork (parent history inheritance)
                         allowed_tools,
+                        None, // model_override
+                        None, // parent_subagents_model
                     )
                     .await
                     .map_err(|e| {
