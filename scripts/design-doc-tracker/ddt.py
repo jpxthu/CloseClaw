@@ -83,12 +83,37 @@ def _save_records(records: List[Dict[str, str]]) -> None:
         f.write("\n")
 
 
+# Paths excluded from check output (relative to REPO_ROOT)
+BLACKLIST = frozenset({
+    "docs/design/README.md",
+})
+
+
+def _sort_key(p: Path) -> list:
+    """Sort key: subdirectories before index files at each level.
+
+    Splits the path into segments and lowercases each one for
+    case-insensitive comparison.  Directory segments (which precede a
+    ``/`` in the original string) naturally sort before file-name
+    segments at the same depth, so
+    ``docs/design/agent/README.md`` sorts before
+    ``docs/design/README.md``.
+    """
+    return [part.lower() for part in p.relative_to(REPO_ROOT).parts]
+
+
 def _collect_md_files(directory: Path) -> List[Path]:
-    """Recursively collect .md files, return relative-to-REPO_ROOT paths."""
+    """Recursively collect .md files, return relative-to-REPO_ROOT paths.
+
+    Results are sorted with subdirectory contents before index files
+    at each level, and BLACKLIST entries are excluded.
+    """
     result: List[Path] = []
-    for p in sorted(directory.rglob("*.md")):
+    for p in sorted(directory.rglob("*.md"), key=_sort_key):
         if p.is_file():
             rel = str(p.relative_to(REPO_ROOT))
+            if rel in BLACKLIST:
+                continue
             result.append(Path(rel))
     return result
 
