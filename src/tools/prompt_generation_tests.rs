@@ -58,6 +58,8 @@ fn test_generate_prompt_with_workdir() {
             recent_changes: 0,
         }),
         available_tool_names: vec!["Bash".to_string()],
+        tools: None,
+        disallowed_tools: None,
     };
 
     let prompt = tool.generate_prompt(&ctx);
@@ -85,6 +87,8 @@ fn test_generate_prompt_without_workdir() {
         agent_id: "agent-1".to_string(),
         workdir: None,
         available_tool_names: vec!["Bash".to_string()],
+        tools: None,
+        disallowed_tools: None,
     };
 
     let prompt = tool.generate_prompt(&ctx);
@@ -111,6 +115,8 @@ fn test_bash_prompt_includes_git_info() {
             recent_changes: 3,
         }),
         available_tool_names: vec!["Bash".to_string()],
+        tools: None,
+        disallowed_tools: None,
     };
 
     let prompt = tool.generate_prompt(&ctx);

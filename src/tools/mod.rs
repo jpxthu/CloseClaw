@@ -112,6 +112,18 @@ pub struct PromptGenerationContext {
     /// `PromptGenerationContext` back to [`ToolDescriptor`] and to
     /// keep the context cheap to construct.
     pub available_tool_names: Vec<String>,
+    /// Agent-level tool whitelist from config.
+    ///
+    /// When `Some(["*"])` or `Some([])` (or `None`), all tools are
+    /// allowed.  When `Some(vec!["Read", "Bash", ...])`, only the
+    /// listed tools are visible to the agent.
+    pub tools: Option<Vec<String>>,
+    /// Agent-level tool blacklist from config.
+    ///
+    /// Tools named here are excluded from the agent's tool set,
+    /// applied *after* the whitelist filter.  `None` means no
+    /// blacklist.
+    pub disallowed_tools: Option<Vec<String>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +332,8 @@ mod tests {
             agent_id: "agent-1".to_string(),
             workdir: None,
             available_tool_names: vec!["Read".to_string(), "Bash".to_string()],
+            tools: None,
+            disallowed_tools: None,
         };
         assert_eq!(ctx.agent_id, "agent-1");
         assert!(ctx.workdir.is_none());
@@ -358,6 +372,8 @@ mod tests {
             agent_id: "agent-1".to_string(),
             workdir: None,
             available_tool_names: vec![],
+            tools: None,
+            disallowed_tools: None,
         };
         // Default implementation should return exactly the value of `detail()`.
         assert_eq!(tool.generate_prompt(&ctx), tool.detail());

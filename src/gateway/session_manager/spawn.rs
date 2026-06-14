@@ -133,8 +133,8 @@ impl SessionManager {
             session: None,
         };
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
-        // Per-agent tool filtering is not yet supported by build_from_workspace;
-        // fall back to the same default logic as find_or_create.
+        // Pass agent-level tool filtering from the resolved config.
+        let filters = Self::extract_agent_filters(config);
         let prompt = build_from_workspace(
             &workspace_root,
             WorkspaceBuildConfig {
@@ -143,6 +143,9 @@ impl SessionManager {
                 tool_ctx: &tool_ctx,
                 skill_registry,
                 agent_id: Some(&agent_id),
+                agent_tools: filters.agent_tools,
+                agent_disallowed_tools: filters.agent_disallowed_tools,
+                agent_skills: filters.agent_skills,
                 dynamic_sections: vec![],
                 append_section: None,
             },

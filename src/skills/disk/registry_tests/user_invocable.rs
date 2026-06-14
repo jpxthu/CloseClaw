@@ -98,7 +98,7 @@ fn test_generate_listing_excludes_user_invocable_false() {
         SkillSource::Bundled,
         false,
     )]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(
         listing.is_empty(),
         "user_invocable: false skill must not appear in listing"
@@ -107,7 +107,7 @@ fn test_generate_listing_excludes_user_invocable_false() {
 #[test]
 fn test_generate_listing_includes_user_invocable_true() {
     let r = DiskSkillRegistry::new(vec![skill("visible", SkillSource::Bundled)]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains("**visible**"));
     assert!(listing.contains("desc of visible"));
 }
@@ -119,7 +119,7 @@ fn test_generate_listing_mixed_user_invocable() {
         skill("visible2", SkillSource::Global),
         skill_with_invocable("hidden2", SkillSource::Agent, false),
     ]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains("**visible1**"));
     assert!(listing.contains("**visible2**"));
     assert!(!listing.contains("**hidden1**"));
@@ -154,11 +154,11 @@ fn test_user_invocable_false_with_agent_id_cross_filter() {
         skill_with_agent_id("visible_agent", SkillSource::Agent, "agent1"),
         skill("always_visible", SkillSource::Bundled),
     ]);
-    let listing = r.generate_listing(Some("agent1"));
+    let listing = r.generate_listing(Some("agent1"), None);
     assert!(listing.contains("**visible_agent**"));
     assert!(listing.contains("**always_visible**"));
     assert!(!listing.contains("**hidden_agent**"));
-    let listing_all = r.generate_listing(None);
+    let listing_all = r.generate_listing(None, None);
     assert!(listing_all.contains("**visible_agent**"));
     assert!(listing_all.contains("**always_visible**"));
     assert!(!listing_all.contains("**hidden_agent**"));

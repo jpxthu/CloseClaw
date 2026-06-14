@@ -14,17 +14,24 @@ use crate::tools::{PromptGenerationContext, ToolContext, ToolRegistry};
 /// `list_descriptors`, release it, and then call the registry's
 /// `build_tools_section` with the freshly-built context. This keeps locks
 /// non-overlapping.
-pub async fn build_tools_section(registry: &ToolRegistry, ctx: &ToolContext) -> Section {
+pub async fn build_tools_section(
+    registry: &ToolRegistry,
+    ctx: &ToolContext,
+    agent_tools: Option<Vec<String>>,
+    agent_disallowed_tools: Option<Vec<String>>,
+) -> Section {
     // 1. Independent lock: get available tool names, then drop the lock.
     let descriptors = registry.list_descriptors(ctx).await;
     let available_tool_names: Vec<String> = descriptors.into_iter().map(|d| d.name).collect();
 
     // 2. Build the prompt-generation context from the names + the existing
-    //    execution context.
+    //    execution context, including agent-level tool filtering.
     let prompt_ctx = PromptGenerationContext {
         agent_id: ctx.agent_id.clone(),
         workdir: ctx.workdir.clone(),
         available_tool_names,
+        tools: agent_tools,
+        disallowed_tools: agent_disallowed_tools,
     };
 
     // 3. Acquire the registry lock again and render the section.
@@ -107,7 +114,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx).await;
+        let section = build_tools_section(&registry, &ctx, None, None).await;
         match section {
             Section::ToolsSection(_) => {}
             _ => panic!("expected ToolsSection, got {:?}", section),
@@ -135,7 +142,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx).await;
+        let section = build_tools_section(&registry, &ctx, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -169,7 +176,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx).await;
+        let section = build_tools_section(&registry, &ctx, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -213,7 +220,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx).await;
+        let section = build_tools_section(&registry, &ctx, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -235,7 +242,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx).await;
+        let section = build_tools_section(&registry, &ctx, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),

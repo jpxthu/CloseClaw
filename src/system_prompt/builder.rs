@@ -127,6 +127,19 @@ pub struct WorkspaceBuildConfig<'a> {
     pub skill_registry: Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
     /// Agent ID for skill listing filtering.
     pub agent_id: Option<&'a str>,
+    /// Agent-level tool whitelist from config (`tools` field).
+    ///
+    /// Passed through to [`PromptGenerationContext`] so the tool
+    /// section only lists tools the agent is allowed to use.
+    pub agent_tools: Option<Vec<String>>,
+    /// Agent-level tool blacklist from config (`disallowedTools` field).
+    pub agent_disallowed_tools: Option<Vec<String>>,
+    /// Agent-level skill whitelist from config (`skills` field).
+    ///
+    /// When set, only skills whose names appear in the list are included
+    /// in the system prompt skill listing. A value of `["*"]` means no
+    /// filtering (all skills are shown).
+    pub agent_skills: Option<Vec<String>>,
     /// Additional dynamic sections to include.
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
@@ -163,7 +176,15 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     }
     // ToolsSection — real content when registry available
     if let Some(reg) = config.tool_registry {
-        sections.push(build_tools_section(reg, config.tool_ctx).await);
+        sections.push(
+            build_tools_section(
+                reg,
+                config.tool_ctx,
+                config.agent_tools.clone(),
+                config.agent_disallowed_tools.clone(),
+            )
+            .await,
+        );
     } else {
         sections.push(Section::ToolsSection(String::new()));
     }
@@ -171,7 +192,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     if let Some(lock) = config.skill_registry {
         if let Ok(g) = lock.read() {
             if let Some(reg) = g.as_ref() {
-                let listing = reg.generate_listing(config.agent_id);
+                let listing = reg.generate_listing(config.agent_id, config.agent_skills.as_deref());
                 if !listing.is_empty() {
                     sections.push(Section::SkillListingSection(listing));
                 }

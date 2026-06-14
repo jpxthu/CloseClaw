@@ -121,13 +121,13 @@ fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) ->
 #[test]
 fn test_generate_listing_empty() {
     let r = DiskSkillRegistry::new(vec![]);
-    assert_eq!(r.generate_listing(None), "");
-    assert_eq!(r.generate_listing(Some("agent1")), "");
+    assert_eq!(r.generate_listing(None, None), "");
+    assert_eq!(r.generate_listing(Some("agent1"), None), "");
 }
 #[test]
 fn test_generate_listing_single() {
     let r = DiskSkillRegistry::new(vec![skill("foo", SkillSource::Bundled)]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains("**foo**"));
     assert!(listing.contains("desc of foo"));
 }
@@ -141,7 +141,7 @@ fn test_generate_listing_sorted_by_priority_and_name() {
         skill("z_agent", SkillSource::Agent),
         skill("a_agent", SkillSource::Agent),
     ]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     let lines: Vec<&str> = listing.lines().collect();
     assert_eq!(lines.len(), 6);
     // Agent before Global before Bundled (Project > Agent > Global > ExtraDirs > Bundled)
@@ -158,8 +158,8 @@ fn test_generate_listing_agent_id_filter() {
         skill_with_agent_id("skill_c", SkillSource::Agent, ""),
     ]);
     // None = no filter, all 3 returned
-    assert_eq!(r.generate_listing(None).lines().count(), 3);
-    let listing = r.generate_listing(Some("agent1"));
+    assert_eq!(r.generate_listing(None, None).lines().count(), 3);
+    let listing = r.generate_listing(Some("agent1"), None);
     assert!(listing.contains("**skill_a**"));
     assert!(listing.contains("**skill_c**"));
     assert!(!listing.contains("**skill_b**"));
@@ -170,7 +170,7 @@ fn test_generate_listing_when_to_use() {
         skill_with_when_to_use("foo", SkillSource::Bundled, "Use when you need foo"),
         skill("bar", SkillSource::Bundled),
     ]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains(" — Use when you need foo"));
     assert!(!listing
         .lines()
@@ -302,7 +302,7 @@ fn test_generate_listing_conditional_annotation_shown_for_paths() {
         SkillSource::Bundled,
         vec!["**/*.rs".into()],
     )]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains("⚡ auto-activates on: **/*.rs"));
 }
 #[test]
@@ -312,13 +312,13 @@ fn test_generate_listing_conditional_annotation_multi_patterns() {
         SkillSource::Bundled,
         vec!["**/*.rs".into(), "**/*.toml".into()],
     )]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains("⚡ auto-activates on: **/*.rs, **/*.toml"));
 }
 #[test]
 fn test_generate_listing_conditional_annotation_not_shown_without_paths() {
     let r = DiskSkillRegistry::new(vec![skill("plain", SkillSource::Bundled)]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     assert!(!listing.contains("⚡"));
     assert!(!listing.contains("auto-activates"));
 }
@@ -330,7 +330,7 @@ fn test_generate_listing_conditional_annotation_mixed() {
         skill_with_paths("cond2", SkillSource::Global, vec!["**/*.md".into()]),
         skill("plain2", SkillSource::Global),
     ]);
-    let listing = r.generate_listing(None);
+    let listing = r.generate_listing(None, None);
     let lines: Vec<&str> = listing.lines().collect();
     assert_eq!(lines.len(), 4, "all 4 skills should appear");
     let cond = lines.iter().find(|l| l.contains("**cond**")).unwrap();
@@ -352,7 +352,7 @@ fn test_generate_listing_conditional_with_agent_id_filter() {
     let mut s3 = skill_with_paths("agent2-cond", SkillSource::Agent, vec!["**/*.toml".into()]);
     s3.manifest.agent_id = "agent2".into();
     let r = DiskSkillRegistry::new(vec![s1, s2, s3, skill("plain", SkillSource::Agent)]);
-    let listing = r.generate_listing(Some("agent1"));
+    let listing = r.generate_listing(Some("agent1"), None);
     assert!(listing.contains("**agent1-cond**"));
     assert!(listing.contains("**any-cond**"));
     assert!(listing.contains("**plain**"));

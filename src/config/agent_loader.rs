@@ -126,11 +126,7 @@ impl ConfigManager {
             return Ok(());
         }
 
-        let user_agents_dir = self
-            .config_dir
-            .parent()
-            .unwrap_or(&self.config_dir)
-            .join("agents");
+        let user_agents_dir = self.config_dir.join("agents");
         let project_agents_dir = repo_root.map(|r| r.join(".closeclaw").join("agents"));
 
         let provider =

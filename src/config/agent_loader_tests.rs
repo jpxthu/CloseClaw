@@ -11,8 +11,7 @@
 //! `ConfigManager` is created with `config_dir = <tmp>/config/`.
 //! `load_agents_json` reads `<config_dir>/agents.json`, so
 //! agents.json goes into `<tmp>/config/agents.json`.
-//! `load_agents` derives `user_agents_dir = <config_dir>/../agents`,
-//! i.e. `<tmp>/agents/`.
+//! `load_agents` derives `user_agents_dir = <config_dir>/agents/`.
 
 use std::fs;
 use std::path::Path;
@@ -47,7 +46,7 @@ fn create_agent_config(agents_dir: &Path, id: &str) {
 }
 
 /// Build a `ConfigManager` with `config_dir = <base>/config/`.
-/// The agents directory is `<base>/agents/`.
+/// The agents directory is `<base>/config/agents/`.
 fn make_config_manager(base: &Path) -> ConfigManager {
     let config_dir = base.join("config");
     fs::create_dir_all(&config_dir).unwrap();
@@ -154,9 +153,9 @@ fn test_load_agents_merges_user_and_project() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
 
-    // agents.json goes into config_dir, agents go into sibling agents dir
+    // agents.json goes into config_dir, agents go into config_dir/agents
     let config_dir = tmp.path().join("config");
-    let agents_dir = tmp.path().join("agents");
+    let agents_dir = config_dir.join("agents");
 
     write_agents_json(&config_dir, &["agent-1", "agent-2"]);
     create_agent_config(&agents_dir, "agent-1");
@@ -195,7 +194,7 @@ fn test_load_agents_no_project_root() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
     let config_dir = tmp.path().join("config");
-    let agents_dir = tmp.path().join("agents");
+    let agents_dir = config_dir.join("agents");
 
     write_agents_json(&config_dir, &["user-agent"]);
     create_agent_config(&agents_dir, "user-agent");
@@ -214,7 +213,7 @@ fn test_load_agents_project_json_missing() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
     let config_dir = tmp.path().join("config");
-    let agents_dir = tmp.path().join("agents");
+    let agents_dir = config_dir.join("agents");
 
     write_agents_json(&config_dir, &["only-user"]);
     create_agent_config(&agents_dir, "only-user");
@@ -235,7 +234,7 @@ fn test_reload_agents_reloads() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
     let config_dir = tmp.path().join("config");
-    let agents_dir = tmp.path().join("agents");
+    let agents_dir = config_dir.join("agents");
 
     write_agents_json(&config_dir, &["a"]);
     create_agent_config(&agents_dir, "a");

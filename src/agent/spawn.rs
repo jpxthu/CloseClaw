@@ -83,12 +83,12 @@ impl SpawnController {
                         sc.allow_agents.clone(),
                     )
                 } else {
-                    // No parent config found — use defaults
+                    // No parent config found — use design-doc defaults
                     (
                         target_agent_id.map(|s| s.to_string()),
                         false,
-                        3u32,
-                        16u32,
+                        1u32,
+                        5u32,
                         vec!["*".to_string()],
                     )
                 };
