@@ -18,35 +18,17 @@ fn test_load_env_file_normal_parsing() {
     writeln!(file, "KEY2=value2").unwrap();
     writeln!(file, "KEY3=value with spaces").unwrap();
 
-    // Save and clear any existing env vars
-    let old_key1 = std::env::var("KEY1").ok();
-    let old_key2 = std::env::var("KEY2").ok();
-    let old_key3 = std::env::var("KEY3").ok();
-    remove_var("KEY1");
-    remove_var("KEY2");
-    remove_var("KEY3");
+    // Parse the env file
+    let pairs = parse_env_file(&env_path).unwrap();
 
-    // Load the env file
-    load_env_file(&env_path).unwrap();
-
-    // Check that environment variables were set
-    assert_eq!(std::env::var("KEY1").unwrap(), "value1");
-    assert_eq!(std::env::var("KEY2").unwrap(), "value2");
-    assert_eq!(std::env::var("KEY3").unwrap(), "value with spaces");
-
-    // Restore original env vars
-    match old_key1 {
-        Some(v) => set_var("KEY1", v),
-        None => remove_var("KEY1"),
-    }
-    match old_key2 {
-        Some(v) => set_var("KEY2", v),
-        None => remove_var("KEY2"),
-    }
-    match old_key3 {
-        Some(v) => set_var("KEY3", v),
-        None => remove_var("KEY3"),
-    }
+    // Check parsed key-value pairs
+    assert_eq!(pairs.len(), 3);
+    assert_eq!(pairs[0], ("KEY1".to_string(), "value1".to_string()));
+    assert_eq!(pairs[1], ("KEY2".to_string(), "value2".to_string()));
+    assert_eq!(
+        pairs[2],
+        ("KEY3".to_string(), "value with spaces".to_string())
+    );
 }
 
 #[test]
@@ -59,28 +41,12 @@ fn test_load_env_file_comment_lines() {
     writeln!(file, "  # Another comment with spaces").unwrap();
     writeln!(file, "KEY2=value2").unwrap();
 
-    let old_key1 = std::env::var("KEY1").ok();
-    let old_key2 = std::env::var("KEY2").ok();
-    remove_var("KEY1");
-    remove_var("KEY2");
+    let pairs = parse_env_file(&env_path).unwrap();
 
-    load_env_file(&env_path).unwrap();
-
-    // Only KEY1 and KEY2 should be set, not the comments
-    assert_eq!(std::env::var("KEY1").unwrap(), "value1");
-    assert_eq!(std::env::var("KEY2").unwrap(), "value2");
-    // Comments should not create env vars
-    assert!(std::env::var("#").is_err());
-
-    // Restore original env vars
-    match old_key1 {
-        Some(v) => set_var("KEY1", v),
-        None => remove_var("KEY1"),
-    }
-    match old_key2 {
-        Some(v) => set_var("KEY2", v),
-        None => remove_var("KEY2"),
-    }
+    // Only KEY1 and KEY2 should be parsed, not the comments
+    assert_eq!(pairs.len(), 2);
+    assert_eq!(pairs[0], ("KEY1".to_string(), "value1".to_string()));
+    assert_eq!(pairs[1], ("KEY2".to_string(), "value2".to_string()));
 }
 
 #[test]
@@ -95,26 +61,12 @@ fn test_load_env_file_empty_lines() {
     writeln!(file, "KEY2=value2").unwrap();
     writeln!(file, "").unwrap();
 
-    let old_key1 = std::env::var("KEY1").ok();
-    let old_key2 = std::env::var("KEY2").ok();
-    remove_var("KEY1");
-    remove_var("KEY2");
-
-    load_env_file(&env_path).unwrap();
+    let pairs = parse_env_file(&env_path).unwrap();
 
     // Empty lines should be skipped
-    assert_eq!(std::env::var("KEY1").unwrap(), "value1");
-    assert_eq!(std::env::var("KEY2").unwrap(), "value2");
-
-    // Restore original env vars
-    match old_key1 {
-        Some(v) => set_var("KEY1", v),
-        None => remove_var("KEY1"),
-    }
-    match old_key2 {
-        Some(v) => set_var("KEY2", v),
-        None => remove_var("KEY2"),
-    }
+    assert_eq!(pairs.len(), 2);
+    assert_eq!(pairs[0], ("KEY1".to_string(), "value1".to_string()));
+    assert_eq!(pairs[1], ("KEY2".to_string(), "value2".to_string()));
 }
 
 #[test]
@@ -123,19 +75,10 @@ fn test_load_env_file_empty_value() {
     let env_path = dir.path().join(".env");
     std::fs::write(&env_path, "EMPTYKEY=\n").unwrap();
 
-    let old_emptykey = std::env::var("EMPTYKEY").ok();
-    remove_var("EMPTYKEY");
+    let pairs = parse_env_file(&env_path).unwrap();
 
-    load_env_file(&env_path).unwrap();
-
-    // Empty value should be skipped (not set)
-    assert!(std::env::var("EMPTYKEY").is_err());
-
-    // Restore original env var
-    match old_emptykey {
-        Some(v) => set_var("EMPTYKEY", v),
-        None => remove_var("EMPTYKEY"),
-    }
+    // Empty value should be skipped (not included in results)
+    assert!(pairs.is_empty());
 }
 
 #[test]
@@ -144,9 +87,9 @@ fn test_load_env_file_empty_key() {
     let env_path = dir.path().join(".env");
     std::fs::write(&env_path, "=value\n").unwrap();
 
+    let pairs = parse_env_file(&env_path).unwrap();
     // Empty key should be skipped
-    load_env_file(&env_path).unwrap();
-    // No env var should be set
+    assert!(pairs.is_empty());
 }
 
 #[test]
@@ -155,24 +98,15 @@ fn test_load_env_file_no_equal_sign() {
     let env_path = dir.path().join(".env");
     std::fs::write(&env_path, "KEYVALUE\n").unwrap();
 
-    let old_keyvalue = std::env::var("KEYVALUE").ok();
-    remove_var("KEYVALUE");
-
-    load_env_file(&env_path).unwrap();
+    let pairs = parse_env_file(&env_path).unwrap();
 
     // Line without = should be skipped
-    assert!(std::env::var("KEYVALUE").is_err());
-
-    // Restore original env var
-    match old_keyvalue {
-        Some(v) => set_var("KEYVALUE", v),
-        None => remove_var("KEYVALUE"),
-    }
+    assert!(pairs.is_empty());
 }
 
 #[test]
 fn test_load_env_file_file_not_found() {
-    let result = load_env_file(std::path::Path::new("/nonexistent/.env"));
+    let result = parse_env_file(std::path::Path::new("/nonexistent/.env"));
     assert!(result.is_err());
 }
 
@@ -184,26 +118,12 @@ fn test_load_env_file_whitespace_trimming() {
     writeln!(file, "  KEY1  =  value1  ").unwrap();
     writeln!(file, "\tKEY2\t=\tvalue2\t").unwrap();
 
-    let old_key1 = std::env::var("KEY1").ok();
-    let old_key2 = std::env::var("KEY2").ok();
-    remove_var("KEY1");
-    remove_var("KEY2");
-
-    load_env_file(&env_path).unwrap();
+    let pairs = parse_env_file(&env_path).unwrap();
 
     // Whitespace should be trimmed
-    assert_eq!(std::env::var("KEY1").unwrap(), "value1");
-    assert_eq!(std::env::var("KEY2").unwrap(), "value2");
-
-    // Restore original env vars
-    match old_key1 {
-        Some(v) => set_var("KEY1", v),
-        None => remove_var("KEY1"),
-    }
-    match old_key2 {
-        Some(v) => set_var("KEY2", v),
-        None => remove_var("KEY2"),
-    }
+    assert_eq!(pairs.len(), 2);
+    assert_eq!(pairs[0], ("KEY1".to_string(), "value1".to_string()));
+    assert_eq!(pairs[1], ("KEY2".to_string(), "value2".to_string()));
 }
 
 // Daemon::build_permission_engine tests
