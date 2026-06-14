@@ -15,19 +15,19 @@
   },
   "response": {
     "round1": {
-      "id": "1c242745-4c56-414c-882b-ffe6b7536c9c",
+      "id": "75fb3020-6b90-45df-a1fc-1ad62e96ad22",
       "type": "message",
       "role": "assistant",
       "model": "deepseek-v4-pro",
       "content": [
         {
           "type": "thinking",
-          "thinking": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
-          "signature": "1c242745-4c56-414c-882b-ffe6b7536c9c"
+          "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function to get this information.",
+          "signature": "75fb3020-6b90-45df-a1fc-1ad62e96ad22"
         },
         {
           "type": "tool_use",
-          "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+          "id": "call_00_r2AgsFHHsxNhiUnJxnj25685",
           "name": "get_weather",
           "input": {
             "location": "San Francisco"
@@ -40,33 +40,33 @@
         "input_tokens": 39,
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 256,
-        "output_tokens": 73,
+        "output_tokens": 70,
         "service_tier": "standard"
       }
     },
     "round2": {
-      "id": "3c1bd96e-2b49-427e-9034-b017d31f520d",
+      "id": "37a0ce49-3c20-4445-862a-cd7a154f5c64",
       "type": "message",
       "role": "assistant",
       "model": "deepseek-v4-pro",
       "content": [
         {
           "type": "thinking",
-          "thinking": "The weather result is 24°C and sunny. I'll present this in a friendly way.",
-          "signature": "3c1bd96e-2b49-427e-9034-b017d31f520d"
+          "thinking": "The weather in San Francisco is 24°C and sunny.",
+          "signature": "37a0ce49-3c20-4445-862a-cd7a154f5c64"
         },
         {
           "type": "text",
-          "text": "The weather in **San Francisco** is looking great right now! ☀️ It's currently **24°C (75°F)** and **sunny**. Enjoy the beautiful day!"
+          "text": "The weather in San Francisco is currently sunny and 24°C (75°F). Enjoy the beautiful day! 🌞"
         }
       ],
       "stop_reason": "end_turn",
       "stop_sequence": null,
       "usage": {
-        "input_tokens": 128,
+        "input_tokens": 125,
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 256,
-        "output_tokens": 59,
+        "output_tokens": 39,
         "service_tier": "standard"
       }
     }
@@ -81,7 +81,7 @@
         }
       ],
       "tool_call": {
-        "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+        "id": "call_00_r2AgsFHHsxNhiUnJxnj25685",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"
@@ -89,19 +89,19 @@
       },
       "mock_tool_response": "24℃, sunny",
       "response": {
-        "id": "1c242745-4c56-414c-882b-ffe6b7536c9c",
+        "id": "75fb3020-6b90-45df-a1fc-1ad62e96ad22",
         "type": "message",
         "role": "assistant",
         "model": "deepseek-v4-pro",
         "content": [
           {
             "type": "thinking",
-            "thinking": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
-            "signature": "1c242745-4c56-414c-882b-ffe6b7536c9c"
+            "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function to get this information.",
+            "signature": "75fb3020-6b90-45df-a1fc-1ad62e96ad22"
           },
           {
             "type": "tool_use",
-            "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+            "id": "call_00_r2AgsFHHsxNhiUnJxnj25685",
             "name": "get_weather",
             "input": {
               "location": "San Francisco"
@@ -114,7 +114,7 @@
           "input_tokens": 39,
           "cache_creation_input_tokens": 0,
           "cache_read_input_tokens": 256,
-          "output_tokens": 73,
+          "output_tokens": 70,
           "service_tier": "standard"
         }
       }
@@ -131,12 +131,12 @@
           "content": [
             {
               "type": "thinking",
-              "thinking": "The user is asking about the weather in San Francisco. I need to use the get_weather function with the location \"San Francisco\".",
-              "signature": "1c242745-4c56-414c-882b-ffe6b7536c9c"
+              "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function to get this information.",
+              "signature": "75fb3020-6b90-45df-a1fc-1ad62e96ad22"
             },
             {
               "type": "tool_use",
-              "id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+              "id": "call_00_r2AgsFHHsxNhiUnJxnj25685",
               "name": "get_weather",
               "input": {
                 "location": "San Francisco"
@@ -149,35 +149,35 @@
           "content": [
             {
               "type": "tool_result",
-              "tool_use_id": "call_00_IPH1wg5AHQxOCg0W2MuH1762",
+              "tool_use_id": "call_00_r2AgsFHHsxNhiUnJxnj25685",
               "content": "24℃, sunny"
             }
           ]
         }
       ],
       "response": {
-        "id": "3c1bd96e-2b49-427e-9034-b017d31f520d",
+        "id": "37a0ce49-3c20-4445-862a-cd7a154f5c64",
         "type": "message",
         "role": "assistant",
         "model": "deepseek-v4-pro",
         "content": [
           {
             "type": "thinking",
-            "thinking": "The weather result is 24°C and sunny. I'll present this in a friendly way.",
-            "signature": "3c1bd96e-2b49-427e-9034-b017d31f520d"
+            "thinking": "The weather in San Francisco is 24°C and sunny.",
+            "signature": "37a0ce49-3c20-4445-862a-cd7a154f5c64"
           },
           {
             "type": "text",
-            "text": "The weather in **San Francisco** is looking great right now! ☀️ It's currently **24°C (75°F)** and **sunny**. Enjoy the beautiful day!"
+            "text": "The weather in San Francisco is currently sunny and 24°C (75°F). Enjoy the beautiful day! 🌞"
           }
         ],
         "stop_reason": "end_turn",
         "stop_sequence": null,
         "usage": {
-          "input_tokens": 128,
+          "input_tokens": 125,
           "cache_creation_input_tokens": 0,
           "cache_read_input_tokens": 256,
-          "output_tokens": 59,
+          "output_tokens": 39,
           "service_tier": "standard"
         }
       }

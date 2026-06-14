@@ -14,9 +14,9 @@
     ]
   },
   "response": {
-    "id": "a1e2d22b-2590-40e0-acd5-d76ce523f6ea",
+    "id": "7f430798-075e-45d7-a0da-c2b3858087ed",
     "object": "chat.completion",
-    "created": 1778102316,
+    "created": 1781470033,
     "model": "deepseek-v4-flash",
     "choices": [
       {
@@ -24,11 +24,11 @@
         "message": {
           "role": "assistant",
           "content": "",
-          "reasoning_content": "The user is asking about the weather in San Francisco. Let me call the get_weather function with that location.",
+          "reasoning_content": "The user wants to know the weather in San Francisco. Let me call the get_weather function with the location \"San Francisco\".",
           "tool_calls": [
             {
               "index": 0,
-              "id": "call_00_3Vh7lzJfXvZZIeTvk4NA1337",
+              "id": "call_00_UtjsfRISrE3RWRiYxpXQ0556",
               "type": "function",
               "function": {
                 "name": "get_weather",
@@ -43,18 +43,18 @@
     ],
     "usage": {
       "prompt_tokens": 295,
-      "completion_tokens": 69,
-      "total_tokens": 364,
+      "completion_tokens": 72,
+      "total_tokens": 367,
       "prompt_tokens_details": {
         "cached_tokens": 256
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 23
+        "reasoning_tokens": 26
       },
       "prompt_cache_hit_tokens": 256,
       "prompt_cache_miss_tokens": 39
     },
-    "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+    "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
   },
   "tools_sent": [
     {

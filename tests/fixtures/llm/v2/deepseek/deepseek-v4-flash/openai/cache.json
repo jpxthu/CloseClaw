@@ -3,116 +3,285 @@
   "streaming": false,
   "scenario": "cache",
   "model": "deepseek-v4-flash",
-  "expect": "cache",
-  "request": {
-    "model": "deepseek-v4-flash",
-    "messages": [
-      {
-        "role": "system",
-        "content": "You are a helpful assistant. Always remember: the sky is blue."
-      },
-      {
-        "role": "user",
-        "content": "What color is the sky?"
+  "expect": "cache_incremental",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        }
+      ],
+      "response": {
+        "id": "1bddbccd-3910-4407-8b6a-945f1f3594f0",
+        "object": "chat.completion",
+        "created": 1781469980,
+        "model": "deepseek-v4-flash",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "## HTTP/2 多路复用工作原理\n\nHTTP/2 的多路复用是通过 **二进制分帧层** 实现的。它把 HTTP 消息分解为更小的 **帧**（frame），每个帧带有所属 **流 ID**（stream identifier）。多个流的帧可以交错发送到同一个 TCP 连接上，接收方根据流 ID 重新组装成完整的消息。\n\n### 核心机制\n\n1. **二进制",
+              "reasoning_content": "我们要求解释HTTP/2多路复用的工作原理，相比HTTP/1.1的性能改进，以及举一个具体例子。\n\n先梳理一下HTTP/2的核心概念：帧、流、多路复用。HTTP/1.1的队头阻塞问题。HTTP/2通过二进制分帧、流ID、优先级等。\n\n需要重点说明多路复用如何允许在一个连接上同时发送多个请求和响应，而不像HTTP/1.1那样需要等待前一个完成（或使用多个连接）。还要提到头部压缩、服务器推送等，但多路复用是核心。\n\n举例：比如加载一个网页有多个资源（HTML、CSS、JS、图片）。在HTTP/1.1中，通常每个资源需要一个单独的TCP连接（或通过管道但队头阻塞）。HTTP/2可以在一个连接上同时发送所有资源的请求，响应也可以交错返回，提高并发和减少延迟。\n\n还要说明二进制帧机制，使得多个流可以交错传输。\n\n应该用简洁清晰的表述，适合开发者理解。"
+            },
+            "logprobs": null,
+            "finish_reason": "length"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 251,
+          "completion_tokens": 301,
+          "total_tokens": 552,
+          "prompt_tokens_details": {
+            "cached_tokens": 128
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 211
+          },
+          "prompt_cache_hit_tokens": 128,
+          "prompt_cache_miss_tokens": 123
+        },
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
       }
-    ]
-  },
-  "response": [
-    {
-      "id": "92f232a2-fccb-4fd0-9168-4a796bab2050",
-      "object": "chat.completion",
-      "created": 1778102299,
-      "model": "deepseek-v4-flash",
-      "choices": [
-        {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "The sky is blue.",
-            "reasoning_content": "We are asked: \"What color is the sky?\" The instruction says \"Always remember: the sky is blue.\" So the answer should be blue."
-          },
-          "logprobs": null,
-          "finish_reason": "stop"
-        }
-      ],
-      "usage": {
-        "prompt_tokens": 24,
-        "completion_tokens": 36,
-        "total_tokens": 60,
-        "prompt_tokens_details": {
-          "cached_tokens": 0
-        },
-        "completion_tokens_details": {
-          "reasoning_tokens": 30
-        },
-        "prompt_cache_hit_tokens": 0,
-        "prompt_cache_miss_tokens": 24
-      },
-      "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
     },
     {
-      "id": "8d38a48d-30a6-4d2c-b744-f862da695e66",
-      "object": "chat.completion",
-      "created": 1778102301,
-      "model": "deepseek-v4-flash",
-      "choices": [
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
         {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "The sky is blue.",
-            "reasoning_content": "We need to answer the question \"What color is the sky?\" The user instruction says \"Always remember: the sky is blue.\" So the answer should be blue."
-          },
-          "logprobs": null,
-          "finish_reason": "stop"
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用工作原理\n\nHTTP/2 的多路复用是通过 **二进制分帧层** 实现的。它把 HTTP 消息分解为更小的 **帧**（frame），每个帧带有所属 **流 ID**（stream identifier）。多个流的帧可以交错发送到同一个 TCP 连接上，接收方根据流 ID 重新组装成完整的消息。\n\n### 核心机制\n\n1. **二进制"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
         }
       ],
-      "usage": {
-        "prompt_tokens": 24,
-        "completion_tokens": 39,
-        "total_tokens": 63,
-        "prompt_tokens_details": {
-          "cached_tokens": 0
+      "response": {
+        "id": "ebe9dedc-255b-47e1-ac98-ecdc4850cdfb",
+        "object": "chat.completion",
+        "created": 1781469986,
+        "model": "deepseek-v4-flash",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "## Raft 共识算法详解\n\nRaft 是一种易于理解的分布式共识算法，用于管理复制日志，保证在非拜占庭故障下多个节点达成一致。它通过分解共识子问题（领导者选举、日志复制、安全性）来简化理解。下面详细解释其核心机制。\n\n---\n\n### 1. 角色与任期\n\nRaft 将节点分为三种状态：\n- **领导者（Leader）**：负责处理所有客户端请求、管理日志复制，并定期发送心跳维持权威。\n- **候选者（Candidate）**：竞选新领导者的临时状态。\n- **跟随者（Follower）**：被动接收来自领导者的指令，响应选举",
+              "reasoning_content": "我们被要求详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。需要详细说明。用户是中文，回答应为中文。需要系统性地解释。\n\nRaft 是一种共识算法，用于管理复制日志，保证分布式系统中的一致性。它分解为几个子问题：领导者选举、日志复制、安全性、成员变更等。我将重点解释领导者选举和日志复制。\n\n需要解释角色（Leader、Follower、Candidate），任期（term），选举过程（超时、投票、分裂投票等），日志复制过程（客户端请求、追加条目、提交、安全性）。还需要提到安全性的关键点：选举限制（只有拥有最新日志的节点才能成为领导者）、日志匹配特性。\n\n答案应详细、结构化，可能带例子或示意。"
+            },
+            "logprobs": null,
+            "finish_reason": "length"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 360,
+          "completion_tokens": 300,
+          "total_tokens": 660,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 158
+          },
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 104
         },
-        "completion_tokens_details": {
-          "reasoning_tokens": 33
-        },
-        "prompt_cache_hit_tokens": 0,
-        "prompt_cache_miss_tokens": 24
-      },
-      "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
+      }
     },
     {
-      "id": "ca31e886-2df0-48be-b2b7-aa3d5cc2d6db",
-      "object": "chat.completion",
-      "created": 1778102302,
-      "model": "deepseek-v4-flash",
-      "choices": [
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
         {
-          "index": 0,
-          "message": {
-            "role": "assistant",
-            "content": "The sky is blue.",
-            "reasoning_content": "We need to answer the question \"What color is the sky?\" The user has set a context: \"Always remember: the sky is blue.\" So we should answer that the sky is blue. Simple."
-          },
-          "logprobs": null,
-          "finish_reason": "stop"
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用工作原理\n\nHTTP/2 的多路复用是通过 **二进制分帧层** 实现的。它把 HTTP 消息分解为更小的 **帧**（frame），每个帧带有所属 **流 ID**（stream identifier）。多个流的帧可以交错发送到同一个 TCP 连接上，接收方根据流 ID 重新组装成完整的消息。\n\n### 核心机制\n\n1. **二进制"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": "## Raft 共识算法详解\n\nRaft 是一种易于理解的分布式共识算法，用于管理复制日志，保证在非拜占庭故障下多个节点达成一致。它通过分解共识子问题（领导者选举、日志复制、安全性）来简化理解。下面详细解释其核心机制。\n\n---\n\n### 1. 角色与任期\n\nRaft 将节点分为三种状态：\n- **领导者（Leader）**：负责处理所有客户端请求、管理日志复制，并定期发送心跳维持权威。\n- **候选者（Candidate）**：竞选新领导者的临时状态。\n- **跟随者（Follower）**：被动接收来自领导者的指令，响应选举"
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
         }
       ],
-      "usage": {
-        "prompt_tokens": 24,
-        "completion_tokens": 47,
-        "total_tokens": 71,
-        "prompt_tokens_details": {
-          "cached_tokens": 0
+      "response": {
+        "id": "70fb3915-09c2-418a-94b5-c9aef73c3088",
+        "object": "chat.completion",
+        "created": 1781469991,
+        "model": "deepseek-v4-flash",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "reasoning_content": "我们被问到描述TLS 1.3握手流程，与TLS 1.2对比安全性和性能改进。需要给出详细解释。\n\n首先，理解TLS 1.3握手：它简化了握手，通常只需1-RTT（往返）就能建立连接，甚至0-RTT（使用预共享密钥）。TLS 1.2需要2-RTT。安全性改进：移除不安全特性（如静态RSA、CBC模式、压缩等），强制使用前向安全密钥交换，支持更多现代密码套件。\n\n应该结构化回答：先概述TLS 1.3握手流程（完整握手和PSK），再对比TLS 1.2，强调安全性和性能差异，并举例子或解释为什么更快更安全。\n\n确保准确：TLS 1.3握手包括ClientHello、ServerHello（含密钥交换）、EncryptedExtensions、Certificate、CertificateVerify、Finished等。相比1.2，减少一个RTT。\n\n需要以中文提供，详细但清晰。\n\n我将按照以下大纲：\n\n1. TLS 1.3握手核心流程（完整握手1-RTT）\n   - ClientHello发送支持的密码套件、Key Share（基于DH）、随机数等\n   - 服务器回复ServerHello + key share + encrypted extensions + 证书+验证 + Finished（所有都在一次往返内加密）\n   - 客户端发送自己的Finished及数据\n\n2. TLS 1.3 0"
+            },
+            "logprobs": null,
+            "finish_reason": "length"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 531,
+          "completion_tokens": 300,
+          "total_tokens": 831,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 300
+          },
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 275
         },
-        "completion_tokens_details": {
-          "reasoning_tokens": 41
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
         },
-        "prompt_cache_hit_tokens": 0,
-        "prompt_cache_miss_tokens": 24
-      },
-      "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用工作原理\n\nHTTP/2 的多路复用是通过 **二进制分帧层** 实现的。它把 HTTP 消息分解为更小的 **帧**（frame），每个帧带有所属 **流 ID**（stream identifier）。多个流的帧可以交错发送到同一个 TCP 连接上，接收方根据流 ID 重新组装成完整的消息。\n\n### 核心机制\n\n1. **二进制"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "8d910c70-b8bf-4dde-a602-d1d740d37d3c",
+        "object": "chat.completion",
+        "created": 1781469997,
+        "model": "deepseek-v4-flash",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Linux 内核的内存管理采用层次化设计，最底层是 **伙伴系统（Buddy System）** 管理物理页框，上层通过 **Slab 分配器** 提供高效的内核对象缓存。当进程访问的虚拟地址尚未映射到物理内存时，会触发 **缺页中断** 来完成映射。下面逐一解释。\n\n---\n\n## 1. 伙伴系统（Buddy System）\n\n",
+              "reasoning_content": "我们被问到：解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。需要清晰解释这两个内存管理机制和缺页中断流程。\n\n用户要求：解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。需要条理清晰，深入但易懂。\n\n可以这样组织：\n1. 概述 Linux 内核内存管理层次。\n2. Buddy 系统：用于页级分配，解决外部碎片，采用伙伴算法分配/合并连续物理页。\n3. Slab 分配器：基于 buddy 系统，用于内核对象缓存，减少内部碎片和初始化开销。解释 slab, cache, object 概念。\n4. 缺页中断：按需调页，处理流程包括缺页异常、查找 VMA、判断权限、分配物理页、读取磁盘（如果是文件映射或 swap）、建立页表等。\n\n需要具体但不过于底层，适合面试或学习用。\n\n我会提供结构化回答：先总述，再分点。"
+            },
+            "logprobs": null,
+            "finish_reason": "length"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 364,
+          "completion_tokens": 300,
+          "total_tokens": 664,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 213
+          },
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 108
+        },
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用工作原理\n\nHTTP/2 的多路复用是通过 **二进制分帧层** 实现的。它把 HTTP 消息分解为更小的 **帧**（frame），每个帧带有所属 **流 ID**（stream identifier）。多个流的帧可以交错发送到同一个 TCP 连接上，接收方根据流 ID 重新组装成完整的消息。\n\n### 核心机制\n\n1. **二进制"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": "Linux 内核的内存管理采用层次化设计，最底层是 **伙伴系统（Buddy System）** 管理物理页框，上层通过 **Slab 分配器** 提供高效的内核对象缓存。当进程访问的虚拟地址尚未映射到物理内存时，会触发 **缺页中断** 来完成映射。下面逐一解释。\n\n---\n\n## 1. 伙伴系统（Buddy System）\n\n"
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "ad1fd24e-8913-4122-a023-62e9b91bc02a",
+        "object": "chat.completion",
+        "created": 1781470003,
+        "model": "deepseek-v4-flash",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "B+ 树和 LSM 树是数据库存储引擎中最常见的两种索引结构，它们基于不同的设计哲学，在读写性能、空间放大、写放大等方面各有优劣。下面从数据结构、优缺点和适用场景三个方面进行对比。\n\n---\n\n## 一、B+ 树\n\n### 1. 结构特点\n- 所有数据存储在叶子节点，非叶子节点仅存储索引键（指针），形成多级平衡树。\n- 叶子节点通过链表连接，便于范围扫描。\n- 每个节点对应一个磁盘页（通常 4KB~16KB），节点内部有序，支持二分查找。\n- 插入/删除时通过分裂或合并节点维持平衡。\n\n### 2. 优点\n- **读性能稳定高效**：无论随机读还是范围扫描，通常只需 2~4 次磁盘 IO（树的高度）。\n- **范围查询友好**：叶子节点链使得顺序遍历非常快。\n- **事务与并发控制成熟**：B+ 树支持行级锁、MVCC 等机制，更新通常是原地修改（in-place update），写入冲突容易处理。\n- **写放大较小**：每次写入",
+              "reasoning_content": "我们被问到：对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？需要给出专业解答。用户要求解释，用中文。需要详细分析两者的结构、特点、优缺点及适用场景。这是数据库存储引擎的核心内容。"
+            },
+            "logprobs": null,
+            "finish_reason": "length"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 475,
+          "completion_tokens": 300,
+          "total_tokens": 775,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 57
+          },
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 219
+        },
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
+      }
     }
   ]
 }

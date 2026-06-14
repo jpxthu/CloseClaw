@@ -14,9 +14,9 @@
     ]
   },
   "response": {
-    "id": "a64b0fb8-7500-456e-83f8-c01f11925bab",
+    "id": "03a8dc12-72ee-4923-bf4b-973ff1ecb5f5",
     "object": "chat.completion",
-    "created": 1778102395,
+    "created": 1781470596,
     "model": "deepseek-v4-pro",
     "choices": [
       {
@@ -24,11 +24,11 @@
         "message": {
           "role": "assistant",
           "content": "",
-          "reasoning_content": "The user is asking about the weather in San Francisco. Let me use the get_weather tool to fetch this information.",
+          "reasoning_content": "The user is asking about the weather in San Francisco. Let me use the get_weather tool to fetch the current weather.",
           "tool_calls": [
             {
               "index": 0,
-              "id": "call_00_yXbUdnzBALMPnrl4UWNW0132",
+              "id": "call_00_goLEcIZOpwCdbxWsofDm9700",
               "type": "function",
               "function": {
                 "name": "get_weather",
@@ -43,13 +43,13 @@
     ],
     "usage": {
       "prompt_tokens": 295,
-      "completion_tokens": 70,
-      "total_tokens": 365,
+      "completion_tokens": 71,
+      "total_tokens": 366,
       "prompt_tokens_details": {
         "cached_tokens": 256
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 24
+        "reasoning_tokens": 25
       },
       "prompt_cache_hit_tokens": 256,
       "prompt_cache_miss_tokens": 39

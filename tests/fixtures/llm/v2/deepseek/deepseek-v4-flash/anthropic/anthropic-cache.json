@@ -3,102 +3,237 @@
   "streaming": false,
   "scenario": "anthropic-cache",
   "model": "deepseek-v4-flash",
-  "expect": "cache",
-  "request": {
-    "model": "deepseek-v4-flash",
-    "messages": [
-      {
-        "role": "user",
-        "content": "What color is the sky?"
-      }
-    ]
-  },
-  "response": [
+  "expect": "cache_incremental",
+  "turns": [
     {
-      "id": "4d1651c4-8316-4d0d-a5d0-b8b98f961cf3",
-      "type": "message",
-      "role": "assistant",
-      "model": "deepseek-v4-flash",
-      "content": [
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
         {
-          "type": "thinking",
-          "thinking": "We know: \"Always remember: the sky is blue.\" So the answer is blue.",
-          "signature": "4d1651c4-8316-4d0d-a5d0-b8b98f961cf3"
-        },
-        {
-          "type": "text",
-          "text": "The sky is blue."
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         }
       ],
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "usage": {
-        "input_tokens": 24,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "output_tokens": 24,
-        "service_tier": "standard"
-      }
-    },
-    {
-      "id": "9644ad9d-5ce1-4523-bfd3-1a9bac055dac",
-      "type": "message",
-      "role": "assistant",
-      "model": "deepseek-v4-flash",
-      "content": [
-        {
-          "type": "thinking",
-          "thinking": "We need to answer the question: \"What color is the sky?\" The user's instruction says \"Always remember: the sky is blue.\" So the answer should be blue.",
-          "signature": "9644ad9d-5ce1-4523-bfd3-1a9bac055dac"
-        },
-        {
-          "type": "text",
-          "text": "The sky is blue."
+      "response": {
+        "id": "5e0951d5-59fa-4641-9460-6ec4c3df04c6",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们被要求解释HTTP/2多路复用的工作原理，以及相比HTTP/1.1的性能改进，并举一个具体例子。需要清晰说明。",
+            "signature": "5e0951d5-59fa-4641-9460-6ec4c3df04c6"
+          },
+          {
+            "type": "text",
+            "text": "## HTTP/2 多路复用的工作原理\n\nHTTP/2 的多路复用是在同一个 TCP 连接上**并行、交错**地发送多个请求和响应，而无需等待前一个完成。核心机制如下：\n\n1. **流**：每个 HTTP 请求-响应对在一个独立的逻辑通道（即“流”）中传输，每个流拥有唯一的整数标识符。\n2. **帧**：HTTP/2 将报文拆分为更小的二进制帧（如 HEADERS 帧、DATA 帧），不同流的帧可以**交错**发送。\n3. **并行传输**：客户端无需等待前一个请求的响应，就可以同时发起多个请求。服务器也无需等待前一个响应的数据帧发送完毕，就可以插入另一个流的帧。\n4. **优先级与流控制**：客户端可指定流的优先级，服务器据此决定处理顺序。流控制防止接收方被数据淹没。\n\n## 相比 HTTP/1.1 的性能改进\n\n| 方面 | HTTP/1.1 | HTTP/2 多路复用 |\n|------|----------|----------------|\n| **连接使用** | 每个请求通常需要一个 TCP 连接（或使用 keep-alive 串行化） | 单一连接承载所有并行流 |\n| **队首阻塞** |"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 123,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 128,
+          "output_tokens": 300,
+          "service_tier": "standard"
         }
-      ],
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "usage": {
-        "input_tokens": 24,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "output_tokens": 41,
-        "service_tier": "standard"
       }
     },
     {
-      "id": "cdec51ca-55d8-424c-9c21-8c5269899868",
-      "type": "message",
-      "role": "assistant",
-      "model": "deepseek-v4-flash",
-      "content": [
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
         {
-          "type": "thinking",
-          "thinking": "We are asked: \"What color is the sky?\" The user says \"Always remember: the sky is blue.\" So the answer should be blue.",
-          "signature": "cdec51ca-55d8-424c-9c21-8c5269899868"
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         },
         {
-          "type": "text",
-          "text": "The sky is blue."
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用的工作原理\n\nHTTP/2 的多路复用是在同一个 TCP 连接上**并行、交错**地发送多个请求和响应，而无需等待前一个完成。核心机制如下：\n\n1. **流**：每个 HTTP 请求-响应对在一个独立的逻辑通道（即“流”）中传输，每个流拥有唯一的整数标识符。\n2. **帧**：HTTP/2 将报文拆分为更小的二进制帧（如 HEADERS 帧、DATA 帧），不同流的帧可以**交错**发送。\n3. **并行传输**：客户端无需等待前一个请求的响应，就可以同时发起多个请求。服务器也无需等待前一个响应的数据帧发送完毕，就可以插入另一个流的帧。\n4. **优先级与流控制**：客户端可指定流的优先级，服务器据此决定处理顺序。流控制防止接收方被数据淹没。\n\n## 相比 HTTP/1.1 的性能改进\n\n| 方面 | HTTP/1.1 | HTTP/2 多路复用 |\n|------|----------|----------------|\n| **连接使用** | 每个请求通常需要一个 TCP 连接（或使用 keep-alive 串行化） | 单一连接承载所有并行流 |\n| **队首阻塞** |"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
         }
       ],
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "usage": {
-        "input_tokens": 24,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "output_tokens": 36,
-        "service_tier": "standard"
+      "response": {
+        "id": "9ff66bfc-62e4-4621-8d3d-1f16f9f19d56",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们被问到“详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。” 这是一个解释性任务。需要全面覆盖RAFT算法。用户期望一个详细的解释，包括领导者选举和日志复制。还需要可能涉及术语如term、状态、安全性等。我们应结构化回答，先概述，再分别详细说明领导者选举和日志复制，并讨论安全性和一致性。注意不要超出必要的细节。",
+            "signature": "9ff66bfc-62e4-4621-8d3d-1f16f9f19d56"
+          },
+          {
+            "type": "text",
+            "text": "# Raft 共识算法详解\n\nRaft 是一种用于管理复制日志的共识算法，它通过**领导者选举**和**日志复制**两个核心机制，在分布式系统中保证所有节点的日志最终一致，且在少数节点故障时仍能继续工作。Raft 将共识问题分解为相对独立的子问题，使其更易于理解和实现。\n\n## 1. 节点状态与任期\n\nRaft 中的节点有三种状态：\n- **领导者（Leader）**：负责处理所有客户端请求，并将日志复制到其他节点。\n- **候选者（Candidate）**：在选举过程中，试图成为领导者的节点。\n- **跟随者（Follower）**：被动接收领导者的日志复制和心跳，并响应候选者的投票请求。\n\n此外，Raft 引入**任期（term）**概念：每个选举周期对应一个递增的任期编号。任期在逻辑上作为逻辑时钟，帮助节点检测过时的信息。\n\n## 2. 领导者选举\n\n### 触发条件\n- "
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 282,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用的工作原理\n\nHTTP/2 的多路复用是在同一个 TCP 连接上**并行、交错**地发送多个请求和响应，而无需等待前一个完成。核心机制如下：\n\n1. **流**：每个 HTTP 请求-响应对在一个独立的逻辑通道（即“流”）中传输，每个流拥有唯一的整数标识符。\n2. **帧**：HTTP/2 将报文拆分为更小的二进制帧（如 HEADERS 帧、DATA 帧），不同流的帧可以**交错**发送。\n3. **并行传输**：客户端无需等待前一个请求的响应，就可以同时发起多个请求。服务器也无需等待前一个响应的数据帧发送完毕，就可以插入另一个流的帧。\n4. **优先级与流控制**：客户端可指定流的优先级，服务器据此决定处理顺序。流控制防止接收方被数据淹没。\n\n## 相比 HTTP/1.1 的性能改进\n\n| 方面 | HTTP/1.1 | HTTP/2 多路复用 |\n|------|----------|----------------|\n| **连接使用** | 每个请求通常需要一个 TCP 连接（或使用 keep-alive 串行化） | 单一连接承载所有并行流 |\n| **队首阻塞** |"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": "# Raft 共识算法详解\n\nRaft 是一种用于管理复制日志的共识算法，它通过**领导者选举**和**日志复制**两个核心机制，在分布式系统中保证所有节点的日志最终一致，且在少数节点故障时仍能继续工作。Raft 将共识问题分解为相对独立的子问题，使其更易于理解和实现。\n\n## 1. 节点状态与任期\n\nRaft 中的节点有三种状态：\n- **领导者（Leader）**：负责处理所有客户端请求，并将日志复制到其他节点。\n- **候选者（Candidate）**：在选举过程中，试图成为领导者的节点。\n- **跟随者（Follower）**：被动接收领导者的日志复制和心跳，并响应候选者的投票请求。\n\n此外，Raft 引入**任期（term）**概念：每个选举周期对应一个递增的任期编号。任期在逻辑上作为逻辑时钟，帮助节点检测过时的信息。\n\n## 2. 领导者选举\n\n### 触发条件\n- "
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
+        }
+      ],
+      "response": {
+        "id": "5aceb323-d51b-4e7f-85ce-d4ba54ba276f",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们被问到：\"描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。\" 需要详细解释TLS 1.3握手流程（简化版），然后与TLS 1.2对比，突出安全性和性能改进。注意：用户可能期望一个结构化的回答。作为AI，应该清晰、准确，并涵盖关键点。",
+            "signature": "5aceb323-d51b-4e7f-85ce-d4ba54ba276f"
+          },
+          {
+            "type": "text",
+            "text": "# TLS 1.3 握手流程及与 TLS 1.2 的对比\n\n## TLS 1.2 握手简要回顾\n\nTLS 1.2 的完整握手（未使用会话复用）需要 **2 个 RTT**（往返时间）：\n\n1. **ClientHello** —— 客户端发送支持的密码套件、随机数等。\n2. **ServerHello + Certificate + ServerKeyExchange + CertificateRequest（可选）+ ServerHelloDone** —— 服务器回复证书、密钥交换参数（如 DH 公钥）、完成消息。\n3. **ClientCertificate（可选）+ ClientKeyExchange + CertificateVerify（可选）+ ChangeCipherSpec + Finished** —— 客户端发送自己的密钥交换参数、证书（若需）、验证握手完整性。\n4. **ChangeCipherSpec + Finished** —— 服务器确认安全连接建立。\n\n若使用 **会话恢复（Session Ticket 或 Session ID）**，则可将握手缩短至 1 个 RTT（仅发送 ClientHello 和 ServerHello "
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 268,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 512,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用的工作原理\n\nHTTP/2 的多路复用是在同一个 TCP 连接上**并行、交错**地发送多个请求和响应，而无需等待前一个完成。核心机制如下：\n\n1. **流**：每个 HTTP 请求-响应对在一个独立的逻辑通道（即“流”）中传输，每个流拥有唯一的整数标识符。\n2. **帧**：HTTP/2 将报文拆分为更小的二进制帧（如 HEADERS 帧、DATA 帧），不同流的帧可以**交错**发送。\n3. **并行传输**：客户端无需等待前一个请求的响应，就可以同时发起多个请求。服务器也无需等待前一个响应的数据帧发送完毕，就可以插入另一个流的帧。\n4. **优先级与流控制**：客户端可指定流的优先级，服务器据此决定处理顺序。流控制防止接收方被数据淹没。\n\n## 相比 HTTP/1.1 的性能改进\n\n| 方面 | HTTP/1.1 | HTTP/2 多路复用 |\n|------|----------|----------------|\n| **连接使用** | 每个请求通常需要一个 TCP 连接（或使用 keep-alive 串行化） | 单一连接承载所有并行流 |\n| **队首阻塞** |"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "b64c097b-ebd1-4c69-bef0-ea86c2daf654",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们被问到“解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。” 需要详细解释两个内存管理机制和一个处理流程。\n\n回答结构：先简介，然后分别介绍 buddy 系统、slab 分配器，最后缺页中断处理流程。注意是 Linux 内核相关内容。\n\n1. Buddy 系统：物理页框分配器，用来管理物理内存，将内存划分为 2 的幂次大小的块（order），解决外碎片问题。合并时两个大小相同且地址连续的块可以合并成更大的块。主要函数 alloc_pages, free_pages。\n\n2. Slab 分配器：基于 buddy 系统，用于内核对象（如 task_struct, inode）的缓存分配，避免频繁创建和销毁引起的内部碎片和分配开销。slab 包含多个对象，有 full, partial, empty 三种状态。后来有 slub 分配器作为默认。\n\n3. 缺页中断处理流程：当 CPU 访问的虚拟地址不在物理内存中时触发缺页中断。处理流程：保存上下文；检查地址是否有效（地址空间、权限）；如果该页已被换出到磁盘（swap），则从交换区读入；如果是匿名页第一次访问（写时复制或其他），分配物理页填充；如果是文件映射且未缓存，则从磁盘读取；更新页表；返回用户空间继续执行。可能涉及内核处理函数",
+            "signature": "b64c097b-ebd1-4c69-bef0-ea86c2daf654"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 30,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 512,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "## HTTP/2 多路复用的工作原理\n\nHTTP/2 的多路复用是在同一个 TCP 连接上**并行、交错**地发送多个请求和响应，而无需等待前一个完成。核心机制如下：\n\n1. **流**：每个 HTTP 请求-响应对在一个独立的逻辑通道（即“流”）中传输，每个流拥有唯一的整数标识符。\n2. **帧**：HTTP/2 将报文拆分为更小的二进制帧（如 HEADERS 帧、DATA 帧），不同流的帧可以**交错**发送。\n3. **并行传输**：客户端无需等待前一个请求的响应，就可以同时发起多个请求。服务器也无需等待前一个响应的数据帧发送完毕，就可以插入另一个流的帧。\n4. **优先级与流控制**：客户端可指定流的优先级，服务器据此决定处理顺序。流控制防止接收方被数据淹没。\n\n## 相比 HTTP/1.1 的性能改进\n\n| 方面 | HTTP/1.1 | HTTP/2 多路复用 |\n|------|----------|----------------|\n| **连接使用** | 每个请求通常需要一个 TCP 连接（或使用 keep-alive 串行化） | 单一连接承载所有并行流 |\n| **队首阻塞** |"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "19b6a4ca-2ee9-4c4b-af34-9f76089eefbf",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们被问到对比B+树和LSM树在数据库索引中的优缺点，各自适合什么场景。需要给出详细的比较。考虑用户可能期望的深度：解释两者基本结构、读写性能、空间放大、写放大、应用场景等。用中文回答。",
+            "signature": "19b6a4ca-2ee9-4c4b-af34-9f76089eefbf"
+          },
+          {
+            "type": "text",
+            "text": "## B+ 树与 LSM 树对比\n\n### 基本结构\n- **B+ 树**：平衡多路搜索树，所有数据存储在叶子节点，内部节点仅存键和指针。叶子节点之间通过链表连接，支持高效范围扫描。通常按页（block）组织，每个节点对应一个磁盘页。\n- **LSM 树**（Log-Structured Merge-Tree）：由多层不可变的排序表（SSTable）组成，写入先进入内存中的 MemTable（有序），当达到阈值时冻结并落盘为不可变文件。后台通过合并（compaction）将较小层文件合并到较大层，保持有序。\n\n### 详细对比\n\n| 维度 | B+ 树 | LSM 树 |\n|------|-------|--------|\n| **写性能** | 写入可能涉及随机写（索引节点拆分、页面分裂），且需写 WAL 保证持久性。磁盘 I/O 较多，写吞吐受限。 | **写非常快**：所有写入先追加到内存（或 WAL），批量顺序刷盘。无随机写，大幅提升每秒写入量（TPS）。"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 55,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 512,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
       }
     }
   ],
   "system_sent": [
     {
       "type": "text",
-      "text": "You are a helpful assistant. Always remember: the sky is blue."
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
     }
-  ],
-  "max_tokens_sent": 1024,
-  "cache_control_note": "Anthropic 协议在 system 末尾标记了 cache_control:ephemeral"
+  ]
 }

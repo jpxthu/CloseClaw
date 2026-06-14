@@ -14,19 +14,19 @@
     ]
   },
   "response": {
-    "id": "39b2ddc0-841a-4225-b3e7-2d74e8c58106",
+    "id": "a90f5b2f-4717-4a3d-9b41-ab025d729502",
     "type": "message",
     "role": "assistant",
     "model": "deepseek-v4-pro",
     "content": [
       {
         "type": "thinking",
-        "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function with the location \"San Francisco\".",
-        "signature": "39b2ddc0-841a-4225-b3e7-2d74e8c58106"
+        "thinking": "The user is asking about the weather in San Francisco. Let me call the get_weather function.",
+        "signature": "a90f5b2f-4717-4a3d-9b41-ab025d729502"
       },
       {
         "type": "tool_use",
-        "id": "call_00_kLur8vIXdDqh5ezFmtGe5883",
+        "id": "call_00_JT92020GNet1TtbnbuqD2492",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"
@@ -39,7 +39,7 @@
       "input_tokens": 39,
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 256,
-      "output_tokens": 72,
+      "output_tokens": 66,
       "service_tier": "standard"
     }
   },

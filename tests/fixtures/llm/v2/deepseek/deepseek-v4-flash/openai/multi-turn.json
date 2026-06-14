@@ -22,9 +22,9 @@
     ]
   },
   "response": {
-    "id": "696b311c-7245-4638-a879-79c3fbba20c0",
+    "id": "a59344f1-95cc-459f-9608-3bad1496e876",
     "object": "chat.completion",
-    "created": 1778102309,
+    "created": 1781470024,
     "model": "deepseek-v4-flash",
     "choices": [
       {
@@ -32,7 +32,7 @@
         "message": {
           "role": "assistant",
           "content": "Your name is Alice.",
-          "reasoning_content": "We need to answer \"What is my name?\" given that earlier the user said \"My name is Alice.\" So the answer is Alice."
+          "reasoning_content": "We need to answer \"What is my name?\" The user previously said \"My name is Alice.\" So the answer is Alice."
         },
         "logprobs": null,
         "finish_reason": "stop"
@@ -40,17 +40,17 @@
     ],
     "usage": {
       "prompt_tokens": 26,
-      "completion_tokens": 34,
-      "total_tokens": 60,
+      "completion_tokens": 32,
+      "total_tokens": 58,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 28
+        "reasoning_tokens": 26
       },
       "prompt_cache_hit_tokens": 0,
       "prompt_cache_miss_tokens": 26
     },
-    "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+    "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
   }
 }

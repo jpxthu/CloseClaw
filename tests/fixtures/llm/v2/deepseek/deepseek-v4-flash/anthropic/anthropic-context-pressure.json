@@ -1,0 +1,263 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-context-pressure",
+  "model": "deepseek-v4-flash",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "cf4ec7c0-f80a-497e-be61-e559610b2bf8",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to answer \"What is 2+2?\" in one sentence. Simple: 2+2 equals 4.",
+            "signature": "cf4ec7c0-f80a-497e-be61-e559610b2bf8"
+          },
+          {
+            "type": "text",
+            "text": "2+2 equals 4."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 104,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 128,
+          "output_tokens": 34,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "817f8567-6d1c-480d-a87a-108831a17e60",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to answer the user's request: \"Now explain the Riemann hypothesis and its implications for prime number distribution.\" The user previously asked \"What is 2+2? Answer in one sentence.\" and I gave a one-sentence answer. Now they ask for an explanation of the Riemann hypothesis and its implications for prime number distribution. I should provide a clear, concise explanation, likely longer than one sentence. The user didn't specify a length, so I'll give a brief but informative explanation.",
+            "signature": "817f8567-6d1c-480d-a87a-108831a17e60"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 128,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 128,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "b0fce4e1-2bb2-4986-bc3b-b9f255f440b6",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to answer the user's request: \"Compare and contrast TCP and UDP protocols, including congestion control and use cases.\" The user asked after the previous exchange about Riemann hypothesis, but now wants this comparison. Provide a clear answer.",
+            "signature": "b0fce4e1-2bb2-4986-bc3b-b9f255f440b6"
+          },
+          {
+            "type": "text",
+            "text": "TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are both transport-layer protocols, but they differ fundamentally in reliability, congestion control, and use cases.\n\n**TCP** is connection-oriented and guarantees reliable, ordered delivery through acknowledgments, ret"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 19,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are both transport-layer protocols, but they differ fundamentally in reliability, congestion control, and use cases.\n\n**TCP** is connection-oriented and guarantees reliable, ordered delivery through acknowledgments, ret"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "dce2007f-a74d-4037-825b-bcd9725718ae",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to respond to the user's request: \"Describe the CAP theorem in distributed systems and give examples of each trade-off.\" The user had earlier asked about TCP/UDP and I accidentally cut off mid-sentence. But now they ask about CAP theorem. I should provide a clear, concise description of CAP theorem and examples for each trade-off (consistency, availability, partition tolerance). Also note that CAP theorem states that in a distributed data store, you can only have two of these three properties",
+            "signature": "dce2007f-a74d-4037-825b-bcd9725718ae"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 90,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are both transport-layer protocols, but they differ fundamentally in reliability, congestion control, and use cases.\n\n**TCP** is connection-oriented and guarantees reliable, ordered delivery through acknowledgments, ret"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "677c2456-8335-4c78-9c8a-18efbdca7d6f",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-flash",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to explain transformer attention mechanisms, from matrix multiplication to multi-head attention. The user asked a specific technical question. I should provide a clear, step-by-step explanation starting from basic scaled dot-product attention: how queries, keys, values are matrices, the matrix multiplication QK^T, scaling, softmax, then multiplication with V. Then explain multi-head attention: splitting into multiple heads, each head performs attention, then concatenation and linear projection. Mention benefits: capturing different representation subspaces",
+            "signature": "677c2456-8335-4c78-9c8a-18efbdca7d6f"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 109,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

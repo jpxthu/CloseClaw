@@ -1,0 +1,263 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-context-pressure",
+  "model": "deepseek-v4-pro",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "d15a0200-4a57-46e9-9175-441a4782ea98",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We are asked: \"What is 2+2? Answer in one sentence.\" The answer is simply 4. I'll output that in one sentence.",
+            "signature": "d15a0200-4a57-46e9-9175-441a4782ea98"
+          },
+          {
+            "type": "text",
+            "text": "2+2 equals 4."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 104,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 128,
+          "output_tokens": 40,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "f760a8da-8a88-48fb-9145-2f1f18d90b43",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to respond with an explanation of the Riemann hypothesis and its implications for prime number distribution. The user just asked a simple math question and got a one-sentence answer; now they've shifted to a complex topic. I must provide a thorough but concise explanation. Since the user didn't specify format, I'll give a structured explanation: define the Riemann hypothesis, state its connection to the zeta function, then explain implications for prime distribution. Keep it accessible but accurate.",
+            "signature": "f760a8da-8a88-48fb-9145-2f1f18d90b43"
+          },
+          {
+            "type": "text",
+            "text": "The Riemann hypothesis proposes"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 128,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 128,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis proposes"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "07dee388-a6a1-48c8-b018-011bd16acf8b",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to respond to the user's request. The user asked: \"Compare and contrast TCP and UDP protocols, including congestion control and use cases.\" I need to provide a helpful answer, but note that the user's previous messages are: first \"What is 2+2? Answer in one sentence.\" I answered \"2+2 equals 4.\" Then they asked \"Now explain the Riemann hypothesis and its implications for prime number distribution.\" I started with \"The Riemann hypothesis proposes\" but that",
+            "signature": "07dee388-a6a1-48c8-b018-011bd16acf8b"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 23,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis proposes"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "34f70a2c-b1c3-48bf-b988-cb5b1879ee83",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to answer the user's query: \"Describe the CAP theorem in distributed systems and give examples of each trade-off.\" The user asked a series of questions, but only the last one is pending. They first asked what 2+2 is, then asked about Riemann hypothesis, then TCP/UDP, but I only answered the first one with \"2+2 equals 4.\" The user then followed up with \"Now explain the Riemann hypothesis...\" and I responded with \"The Riemann hypothesis proposes",
+            "signature": "34f70a2c-b1c3-48bf-b988-cb5b1879ee83"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 42,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis proposes"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "4873f01e-bf97-467f-b872-49855c93bc29",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to answer the user's query: \"Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention.\" This is a follow-up to the earlier conversation where the user asked about 2+2, then Riemann hypothesis, then TCP/UDP, then CAP theorem, now transformer attention. The assistant's previous responses were all single-sentence or partial, indicating the user wanted concise answers? But the user's request now is to \"Explain how transformer attention mechanisms work...\". The assistant",
+            "signature": "4873f01e-bf97-467f-b872-49855c93bc29"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 61,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 100,
+          "service_tier": "standard"
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

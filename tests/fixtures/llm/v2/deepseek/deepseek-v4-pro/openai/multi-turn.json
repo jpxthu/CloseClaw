@@ -22,9 +22,9 @@
     ]
   },
   "response": {
-    "id": "950ec757-c77e-4338-96bc-6b434b785df9",
+    "id": "ab8aa3e1-5bb8-4651-9833-0372294fe2d7",
     "object": "chat.completion",
-    "created": 1778102370,
+    "created": 1781470588,
     "model": "deepseek-v4-pro",
     "choices": [
       {
@@ -32,7 +32,7 @@
         "message": {
           "role": "assistant",
           "content": "Your name is Alice! You told me just a moment ago. 😊",
-          "reasoning_content": "We need to answer the question \"What is my name?\" given the conversation history. The user previously said \"My name is Alice.\" and I responded \"Hi Alice! Nice to meet you.\" So the answer is clearly \"Alice.\" The AI should respond with something like \"Your name is Alice.\" I'll keep it friendly and direct."
+          "reasoning_content": "We need to answer: \"What is my name?\" The user previously said \"My name is Alice.\" So I should respond with her name. Simple."
         },
         "logprobs": null,
         "finish_reason": "stop"
@@ -40,13 +40,13 @@
     ],
     "usage": {
       "prompt_tokens": 26,
-      "completion_tokens": 84,
-      "total_tokens": 110,
+      "completion_tokens": 47,
+      "total_tokens": 73,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 68
+        "reasoning_tokens": 31
       },
       "prompt_cache_hit_tokens": 0,
       "prompt_cache_miss_tokens": 26

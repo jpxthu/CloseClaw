@@ -14,12 +14,15 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     "minimax": {
         # ---- OpenAI 协议 ----
         "openai_url": "https://api.minimaxi.com/v1/chat/completions",
+        "models_url": "https://api.minimaxi.com/v1/models",
+        "usage_url": None,  # MiniMax 无公开用量查询 API
         "openai_headers": {
             "Authorization": None,  # 运行时填入 Bearer token
             "Content-Type": "application/json",
         },
         # ---- Anthropic 协议 ----
         "anthropic_url": "https://api.minimaxi.com/anthropic/v1/messages",
+        "anthropic_models_url": "https://api.minimaxi.com/anthropic/v1/models",
         "anthropic_headers": {
             "x-api-key": None,
             "anthropic-version": "2023-06-01",
@@ -50,6 +53,8 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     "glm": {
         # ---- OpenAI 协议（Coding Plan 端点）----
         "openai_url": "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+        "models_url": "https://open.bigmodel.cn/api/coding/paas/v4/models",
+        "usage_url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
         "openai_headers": {
             "Authorization": None,
             "Content-Type": "application/json",
@@ -85,6 +90,8 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     "deepseek": {
         # ---- OpenAI 协议 ----
         "openai_url": "https://api.deepseek.com/chat/completions",
+        "models_url": "https://api.deepseek.com/models",
+        "usage_url": "https://api.deepseek.com/user/balance",
         "openai_headers": {
             "Authorization": None,
             "Content-Type": "application/json",

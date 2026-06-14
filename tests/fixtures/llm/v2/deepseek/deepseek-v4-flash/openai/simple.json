@@ -14,17 +14,17 @@
     ]
   },
   "response": {
-    "id": "3a5c3999-d0c4-497b-8e5a-2f213417acc1",
+    "id": "d576ea48-b39f-4a73-9db2-ce76c1af608f",
     "object": "chat.completion",
-    "created": 1778102310,
+    "created": 1781470025,
     "model": "deepseek-v4-flash",
     "choices": [
       {
         "index": 0,
         "message": {
           "role": "assistant",
-          "content": "Hello my friend",
-          "reasoning_content": "We need to respond with a greeting in exactly three words. \"Hello\" is one word, so we need two more. Common three-word greetings: \"Hello there friend\", \"Hello my friend\", \"Hello everyone\", \"Hello world\", etc. But simplest: \"Hello, how are?\" is three words? \"Hello how are\" is three words but not standard. Better: \"Hello there world\" is three. Or \"Hi there everyone\" but \"hi\" is not hello. The instruction says \"say hello\", so use \"hello\". \"Hello world again\" is three. But maybe \"Hello, my friend\" with comma? Comma doesn't count as word. So \"Hello my friend\" works. Or \"Hello to you\" (3 words). I'll go with \"Hello my friend\"."
+          "content": "Hello my friend.",
+          "reasoning_content": "We need to respond with a greeting in exactly three words. The user says \"Say hello in 3 words.\" So we output a three-word hello. For example: \"Hello, how are?\" or \"Hi there friend.\" But must be exactly three words. Common: \"Hello, world.\" is two words. \"Hello there.\" is two. \"Good morning.\" two. So three-word: \"Hello, my friend.\" That's three? Count: Hello, my friend - \"Hello,\" \"my\" \"friend\" - three words. Or \"Hi, how are?\" - \"Hi,\" \"how\" \"are\" - three. But \"are\" alone is not a sentence. Better: \"Hello, nice day.\" But may not be standard. Let's just pick a simple one: \"Hello, how are?\" Actually \"Hello, how are you?\" is four. So \"Hello, how are?\" is three but missing \"you\". Alternatively: \"Greetings to you.\" - three words. \"Good day to.\" - weird. \"Hello there friend.\" - three words: \"Hello\" \"there\" \"friend\". That works. Or \"Hello, my friend.\" with comma counts? Typically comma doesn't count as word. So \"Hello my friend\" is three words. I'll answer: \"Hello my friend.\""
         },
         "logprobs": null,
         "finish_reason": "stop"
@@ -32,17 +32,17 @@
     ],
     "usage": {
       "prompt_tokens": 11,
-      "completion_tokens": 169,
-      "total_tokens": 180,
+      "completion_tokens": 278,
+      "total_tokens": 289,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
       "completion_tokens_details": {
-        "reasoning_tokens": 165
+        "reasoning_tokens": 273
       },
       "prompt_cache_hit_tokens": 0,
       "prompt_cache_miss_tokens": 11
     },
-    "system_fingerprint": "fp_058df29938_prod0820_fp8_kvcache_20260402"
+    "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
   }
 }
