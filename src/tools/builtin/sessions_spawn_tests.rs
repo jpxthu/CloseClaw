@@ -213,3 +213,85 @@ async fn test_sessions_spawn_missing_task_error_with_allowed_tools() {
         other => panic!("expected InvalidArgs, got {:?}", other),
     }
 }
+
+// ===========================================================================
+// Model parameter parsing tests (Step 1.4)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 6. test_sessions_spawn_model_param_parsed
+// ---------------------------------------------------------------------------
+
+/// When `model` is present in the JSON args, `parse_args` should extract
+/// it as `Some(String)` in `SpawnArgs.model`.
+#[test]
+fn test_sessions_spawn_model_param_parsed() {
+    let args = json!({
+        "task": "do work",
+        "model": "deepseek/deepseek-chat"
+    });
+    let spawn_args = crate::tools::builtin::sessions_spawn::SessionsSpawnTool::parse_args(&args)
+        .expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.model.as_deref(),
+        Some("deepseek/deepseek-chat"),
+        "model should be parsed from args"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. test_sessions_spawn_model_param_absent
+// ---------------------------------------------------------------------------
+
+/// When `model` is absent from the JSON args, `parse_args` should set
+/// `SpawnArgs.model` to `None`.
+#[test]
+fn test_sessions_spawn_model_param_absent() {
+    let args = json!({"task": "do work"});
+    let spawn_args = crate::tools::builtin::sessions_spawn::SessionsSpawnTool::parse_args(&args)
+        .expect("parse_args should succeed");
+    assert!(
+        spawn_args.model.is_none(),
+        "model should be None when not provided"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. test_sessions_spawn_model_param_empty_string
+// ---------------------------------------------------------------------------
+
+/// When `model` is present but empty string, `parse_args` should set
+/// `SpawnArgs.model` to `Some("")` (empty string is still a value).
+#[test]
+fn test_sessions_spawn_model_param_empty_string() {
+    let args = json!({"task": "do work", "model": ""});
+    let spawn_args = crate::tools::builtin::sessions_spawn::SessionsSpawnTool::parse_args(&args)
+        .expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.model.as_deref(),
+        Some(""),
+        "model should be Some(\"\") when set to empty string"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 9. test_sessions_spawn_model_param_schema
+// ---------------------------------------------------------------------------
+
+/// The input schema should declare `model` as a string property.
+#[test]
+fn test_sessions_spawn_model_param_schema() {
+    let tool = make_tool();
+    let schema = tool.input_schema();
+    let model_prop = schema["properties"]["model"]
+        .as_object()
+        .expect("model should be an object in properties");
+    assert_eq!(model_prop["type"], "string");
+    assert!(
+        model_prop["description"]
+            .as_str()
+            .unwrap()
+            .contains("Override"),
+        "description should mention override"
+    );
+}
