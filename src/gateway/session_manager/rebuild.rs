@@ -60,6 +60,8 @@ impl SessionManager {
                 tool_ctx: &tool_ctx,
                 skill_registry,
                 agent_id: Some(&agent_id),
+                agent_tools: None,
+                agent_disallowed_tools: None,
                 dynamic_sections: vec![],
                 append_section: None,
             },

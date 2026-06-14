@@ -127,6 +127,13 @@ pub struct WorkspaceBuildConfig<'a> {
     pub skill_registry: Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
     /// Agent ID for skill listing filtering.
     pub agent_id: Option<&'a str>,
+    /// Agent-level tool whitelist from config (`tools` field).
+    ///
+    /// Passed through to [`PromptGenerationContext`] so the tool
+    /// section only lists tools the agent is allowed to use.
+    pub agent_tools: Option<Vec<String>>,
+    /// Agent-level tool blacklist from config (`disallowedTools` field).
+    pub agent_disallowed_tools: Option<Vec<String>>,
     /// Additional dynamic sections to include.
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
@@ -163,7 +170,15 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     }
     // ToolsSection — real content when registry available
     if let Some(reg) = config.tool_registry {
-        sections.push(build_tools_section(reg, config.tool_ctx).await);
+        sections.push(
+            build_tools_section(
+                reg,
+                config.tool_ctx,
+                config.agent_tools.clone(),
+                config.agent_disallowed_tools.clone(),
+            )
+            .await,
+        );
     } else {
         sections.push(Section::ToolsSection(String::new()));
     }

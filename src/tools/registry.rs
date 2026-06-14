@@ -194,9 +194,28 @@ impl ToolRegistry {
     pub async fn build_tools_section(&self, ctx: &PromptGenerationContext) -> String {
         let guard = self.tools.read().await;
 
-        // Collect ToolInfo from all registered tools
+        // Determine the set of allowed tool names.
+        // Whitelist: tools == ["*"] or None → all allowed.
+        // Blacklist: disallowed_tools → excluded after whitelist.
+        let allowed: Option<&[String]> = ctx
+            .tools
+            .as_deref()
+            .filter(|t| t != &["*"] && !t.is_empty());
+        let disallowed: &[String] = ctx.disallowed_tools.as_deref().unwrap_or(&[]);
+
+        // Collect ToolInfo from registered tools, filtered by
+        // the agent's tools / disallowed_tools config.
         let tool_infos: Vec<ToolInfo> = guard
             .values()
+            .filter(|t| {
+                let name = t.name();
+                if let Some(wl) = allowed {
+                    if !wl.iter().any(|n| n == name) {
+                        return false;
+                    }
+                }
+                !disallowed.iter().any(|n| n == name)
+            })
             .map(|t| ToolInfo::from_tool(t, ctx))
             .collect();
 
