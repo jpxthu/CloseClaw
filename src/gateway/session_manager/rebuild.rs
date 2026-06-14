@@ -53,36 +53,10 @@ impl SessionManager {
         };
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
         let agent_cfg = self.get_agent_config(&agent_id).await;
-        let agent_tools = agent_cfg
+        let filters = agent_cfg
             .as_ref()
-            .map(|c| {
-                if c.tools.is_empty() || c.tools == ["*"] {
-                    None
-                } else {
-                    Some(c.tools.clone())
-                }
-            })
-            .flatten();
-        let agent_disallowed_tools = agent_cfg
-            .as_ref()
-            .map(|c| {
-                if c.disallowed_tools.is_empty() {
-                    None
-                } else {
-                    Some(c.disallowed_tools.clone())
-                }
-            })
-            .flatten();
-        let agent_skills = agent_cfg
-            .as_ref()
-            .map(|c| {
-                if c.skills.is_empty() || c.skills == ["*"] {
-                    None
-                } else {
-                    Some(c.skills.clone())
-                }
-            })
-            .flatten();
+            .map(Self::extract_agent_filters)
+            .unwrap_or_default();
         let prompt = build_from_workspace(
             &workspace_root,
             WorkspaceBuildConfig {
@@ -91,9 +65,9 @@ impl SessionManager {
                 tool_ctx: &tool_ctx,
                 skill_registry,
                 agent_id: Some(&agent_id),
-                agent_tools,
-                agent_disallowed_tools,
-                agent_skills,
+                agent_tools: filters.agent_tools,
+                agent_disallowed_tools: filters.agent_disallowed_tools,
+                agent_skills: filters.agent_skills,
                 dynamic_sections: vec![],
                 append_section: None,
             },

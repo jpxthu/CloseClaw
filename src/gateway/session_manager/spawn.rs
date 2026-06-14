@@ -134,22 +134,7 @@ impl SessionManager {
         };
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
         // Pass agent-level tool filtering from the resolved config.
-        let agent_tools = if config.tools.is_empty() || config.tools == ["*"] {
-            None
-        } else {
-            Some(config.tools.clone())
-        };
-        let agent_disallowed_tools = if config.disallowed_tools.is_empty() {
-            None
-        } else {
-            Some(config.disallowed_tools.clone())
-        };
-        // Pass agent-level skill filtering from the resolved config.
-        let agent_skills = if config.skills.is_empty() || config.skills == ["*"] {
-            None
-        } else {
-            Some(config.skills.clone())
-        };
+        let filters = Self::extract_agent_filters(config);
         let prompt = build_from_workspace(
             &workspace_root,
             WorkspaceBuildConfig {
@@ -158,9 +143,9 @@ impl SessionManager {
                 tool_ctx: &tool_ctx,
                 skill_registry,
                 agent_id: Some(&agent_id),
-                agent_tools,
-                agent_disallowed_tools,
-                agent_skills,
+                agent_tools: filters.agent_tools,
+                agent_disallowed_tools: filters.agent_disallowed_tools,
+                agent_skills: filters.agent_skills,
                 dynamic_sections: vec![],
                 append_section: None,
             },

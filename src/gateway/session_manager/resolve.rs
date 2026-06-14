@@ -5,7 +5,9 @@
 //! 3. key_registry miss → create new session → register → return
 
 use super::session_helpers;
+use super::session_helpers::AgentToolSkillConfig;
 use super::SessionManager;
+use crate::config::agents::ResolvedAgentConfig;
 use crate::gateway::Message;
 use crate::im::processor::ProcessError;
 use crate::llm::session::ConversationSession;
@@ -17,6 +19,30 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 impl SessionManager {
+    /// Extract tool/skill filter configuration from an agent config.
+    pub(super) fn extract_agent_filters(config: &ResolvedAgentConfig) -> AgentToolSkillConfig {
+        let agent_tools = if config.tools.is_empty() || config.tools == ["*"] {
+            None
+        } else {
+            Some(config.tools.clone())
+        };
+        let agent_disallowed_tools = if config.disallowed_tools.is_empty() {
+            None
+        } else {
+            Some(config.disallowed_tools.clone())
+        };
+        let agent_skills = if config.skills.is_empty() || config.skills == ["*"] {
+            None
+        } else {
+            Some(config.skills.clone())
+        };
+        AgentToolSkillConfig {
+            agent_tools,
+            agent_disallowed_tools,
+            agent_skills,
+        }
+    }
+
     /// Resolve a session_key to a session_id.
     ///
     /// Lookup flow:
@@ -79,45 +105,17 @@ impl SessionManager {
                             let tool_registry = self.tool_registry.read().await;
                             let skill_registry = self.skill_registry.read().await.clone();
                             let agent_cfg = self.get_agent_config(&agent_id).await;
-                            let agent_tools = agent_cfg
+                            let filters = agent_cfg
                                 .as_ref()
-                                .map(|c| {
-                                    if c.tools.is_empty() || c.tools == ["*"] {
-                                        None
-                                    } else {
-                                        Some(c.tools.clone())
-                                    }
-                                })
-                                .flatten();
-                            let agent_disallowed_tools = agent_cfg
-                                .as_ref()
-                                .map(|c| {
-                                    if c.disallowed_tools.is_empty() {
-                                        None
-                                    } else {
-                                        Some(c.disallowed_tools.clone())
-                                    }
-                                })
-                                .flatten();
-                            let agent_skills = agent_cfg
-                                .as_ref()
-                                .map(|c| {
-                                    if c.skills.is_empty() || c.skills == ["*"] {
-                                        None
-                                    } else {
-                                        Some(c.skills.clone())
-                                    }
-                                })
-                                .flatten();
+                                .map(Self::extract_agent_filters)
+                                .unwrap_or_default();
                             let prompt = session_helpers::build_session_system_prompt(
                                 &self.workspace_dir,
                                 self.bootstrap_mode,
                                 &tool_registry,
                                 skill_registry,
                                 &agent_id,
-                                agent_tools,
-                                agent_disallowed_tools,
-                                agent_skills,
+                                &filters,
                             )
                             .await;
 
@@ -192,45 +190,17 @@ impl SessionManager {
         let skill_registry = self.skill_registry.read().await.clone();
         let agent_id = message.to.clone();
         let agent_cfg = self.get_agent_config(&agent_id).await;
-        let agent_tools = agent_cfg
+        let filters = agent_cfg
             .as_ref()
-            .map(|c| {
-                if c.tools.is_empty() || c.tools == ["*"] {
-                    None
-                } else {
-                    Some(c.tools.clone())
-                }
-            })
-            .flatten();
-        let agent_disallowed_tools = agent_cfg
-            .as_ref()
-            .map(|c| {
-                if c.disallowed_tools.is_empty() {
-                    None
-                } else {
-                    Some(c.disallowed_tools.clone())
-                }
-            })
-            .flatten();
-        let agent_skills = agent_cfg
-            .as_ref()
-            .map(|c| {
-                if c.skills.is_empty() || c.skills == ["*"] {
-                    None
-                } else {
-                    Some(c.skills.clone())
-                }
-            })
-            .flatten();
+            .map(Self::extract_agent_filters)
+            .unwrap_or_default();
         let prompt = session_helpers::build_session_system_prompt(
             &self.workspace_dir,
             self.bootstrap_mode,
             &tool_registry,
             skill_registry,
             &agent_id,
-            agent_tools,
-            agent_disallowed_tools,
-            agent_skills,
+            &filters,
         )
         .await;
 

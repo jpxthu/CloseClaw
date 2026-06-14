@@ -16,6 +16,14 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
+/// Encapsulates agent-level tool and skill filter configuration.
+#[derive(Debug, Clone, Default)]
+pub(super) struct AgentToolSkillConfig {
+    pub agent_tools: Option<Vec<String>>,
+    pub agent_disallowed_tools: Option<Vec<String>>,
+    pub agent_skills: Option<Vec<String>>,
+}
+
 /// Generate a unique session ID.
 ///
 /// Format: `{agent_id}_{timestamp_ms}_{8-hex}`
@@ -33,9 +41,7 @@ pub(super) async fn build_session_system_prompt(
     tool_registry: &Option<Arc<ToolRegistry>>,
     skill_registry: Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>,
     agent_id: &str,
-    agent_tools: Option<Vec<String>>,
-    agent_disallowed_tools: Option<Vec<String>>,
-    agent_skills: Option<Vec<String>>,
+    filters: &AgentToolSkillConfig,
 ) -> String {
     let bootstrap_files = if let Some(ref workspace) = workspace_dir {
         load_bootstrap_files(workspace, bootstrap_mode)
@@ -65,9 +71,9 @@ pub(super) async fn build_session_system_prompt(
             tool_ctx: &tool_ctx,
             skill_registry,
             agent_id: Some(agent_id),
-            agent_tools,
-            agent_disallowed_tools,
-            agent_skills,
+            agent_tools: filters.agent_tools.clone(),
+            agent_disallowed_tools: filters.agent_disallowed_tools.clone(),
+            agent_skills: filters.agent_skills.clone(),
             dynamic_sections: vec![],
             append_section: None,
         },
