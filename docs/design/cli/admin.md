@@ -38,7 +38,7 @@ handler 函数
 
 run 命令启动 daemon 进程，读取配置目录、初始化所有组件后进入消息循环。stop 命令读取 PID 文件，向 daemon 进程发送终止信号，清理 PID 文件。
 
-config 命令管理配置文件。setup 子命令启动交互式配置向导（详见 [LLM Provider 配置向导](../llm/provider-config-wizard.md)），引导用户选择 Provider、输入凭据、发现模型并写入配置。validate 子命令校验配置文件格式。
+config 命令管理配置文件。setup 子命令启动交互式配置向导（详见 [LLM Provider 配置向导](../llm/provider-config-wizard.md)），引导用户选择 Provider、输入凭据、发现模型并写入配置。validate 子命令校验配置文件格式。list 子命令列出 `~/.closeclaw/` 目录下的所有配置文件（models.json、channels.json、gateway.json、plugins.json、system.json、credentials.json），显示文件路径、版本号和最后修改时间。
 
 rule 命令管理权限规则。check 子命令校验单条规则语法，list 子命令列出已有规则。
 
@@ -58,6 +58,7 @@ closeclaw <command> [args]
 │   ├── stop：读 PID 文件 → kill 进程 → 清理 PID 文件
 │   ├── config setup：交互式向导 → 拉取模型列表 → 用户选择 → 写入配置
 │   ├── config validate：读文件 → 校验格式 → 输出结果
+│   ├── config list：扫描配置目录 → 列出配置文件 → 输出列表
 │   └── rule check/list：读规则文件 → 校验/列表 → 输出结果
 │
 └─ daemon RPC
