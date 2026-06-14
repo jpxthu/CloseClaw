@@ -139,7 +139,7 @@ fn test_two_phase_agent_deny_user_allow() {
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
-/// Agent Allow + User no match → Denied (non-owner)
+/// Agent Allow + User no match → Allowed (agent rule decides when no user rule exists)
 #[test]
 fn test_two_phase_agent_allow_user_no_match() {
     let rules = vec![
@@ -160,9 +160,9 @@ fn test_two_phase_agent_allow_user_no_match() {
         // No UserAndAgent rule for alice+test-agent
     ];
     let engine = make_ruleset(Effect::Deny, rules);
-    // Agent Allow + User None → Denied (intersection model: both must Allow)
+    // Agent Allow + User None → Allowed (no user restriction, agent decides)
     let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
-    assert!(matches!(resp, PermissionResponse::Denied { .. }));
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 }
 
 /// Two phases both have no match → Denied (default policy)
@@ -248,7 +248,7 @@ fn test_two_phase_owner_agent_no_match() {
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
 }
 
-/// Non-owner behavior not affected by Owner shortcut (User Allow alone is not enough)
+/// Non-owner behavior not affected by Owner shortcut (User Allow alone is sufficient when no AgentOnly rule exists)
 #[test]
 fn test_two_phase_non_owner_needs_both_phases() {
     // Only UserAndAgent Allow rule, no AgentOnly rule
@@ -269,15 +269,15 @@ fn test_two_phase_non_owner_needs_both_phases() {
         priority: 5,
     }];
     let engine = make_ruleset(Effect::Deny, rules);
-    // Alice is not owner, Agent phase has no match, User phase Allow is not enough alone
+    // Alice is not owner, Agent phase has no match, User phase Allow → Allowed (no agent restriction)
     let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
-    // Agent None + User Allow → Denied (intersection model: both must Allow)
-    assert!(matches!(resp, PermissionResponse::Denied { .. }));
+    // Agent None + User Allow → Allowed (no agent restriction, user decides)
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 }
 // ---------------------------------------------------------------------------
 // Extra deny subjects tests
 // ---------------------------------------------------------------------------
-/// extra_deny_subjects = None → Agent Allow + User no match → Denied (intersection model)
+/// extra_deny_subjects = None → Agent Allow + User no match → Allowed (no user restriction)
 #[test]
 fn test_extra_deny_subjects_empty() {
     let rules = vec![Rule {
@@ -295,9 +295,9 @@ fn test_extra_deny_subjects_empty() {
         priority: 10,
     }];
     let engine = make_ruleset(Effect::Deny, rules);
-    // Only AgentOnly Allow rule, no UserAndAgent rule → intersection model → Denied
+    // Only AgentOnly Allow rule, no UserAndAgent rule → Allowed (no user restriction)
     let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
-    assert!(matches!(resp, PermissionResponse::Denied { .. }));
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 }
 
 /// extra_deny_subjects has a matching subject → overrides result to Denied

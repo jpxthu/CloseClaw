@@ -47,6 +47,7 @@ Agent 维度规则    User 维度规则
 - **Agent 规则**仅匹配 Agent ID，定义 Agent 自身的能力边界
 - **User+Agent 规则**同时匹配 User ID 和 Agent ID，实现细粒度交集控制
 - 两套规则在同一引擎中求值，双方都必须 Allow 操作才放行
+- **某维度无规则时的语义**：当某一维度没有匹配规则时，该维度视为无限制，由另一维度自主决定。例如 Agent 维度返回 Allow 但 User 维度无 UserAndAgent 规则（返回 None），则整体结果为 Allow——即“无用户规则”不等同于“无用户许可”，而是“无用户限制”。同理，Agent 维度无规则时，由 User 维度决定。
 
 Owner（User ID = `"owner"`）在引擎层面短路：当 caller 的 User ID 为 Owner 时，跳过所有 User 维度规则，仅评估 Agent 维度。
 

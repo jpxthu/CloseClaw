@@ -185,6 +185,12 @@ impl PermissionEngine {
             ) => PermissionResponse::Allowed {
                 token: generate_token(),
             },
+            (Some(PermissionResponse::Allowed { .. }), None) => PermissionResponse::Allowed {
+                token: generate_token(),
+            },
+            (None, Some(PermissionResponse::Allowed { .. })) => PermissionResponse::Allowed {
+                token: generate_token(),
+            },
             _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
         };
         info!(

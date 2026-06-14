@@ -275,7 +275,6 @@ async fn test_permission_engine_reload_updates_rules() {
     let mut engine = PermissionEngine::new_with_default_data_root(initial_rules);
 
     // Initial: should allow
-    let tmpdir = TempDir::new().unwrap();
     let test_file = tmpdir.path().join("file.txt");
     let test_file_str = test_file.to_str().unwrap().to_string();
     let response = engine.evaluate(
@@ -312,6 +311,94 @@ async fn test_permission_engine_reload_updates_rules() {
 // Integration Test: Permission Engine Template Resolution
 // Ensures templates are properly resolved during rule expansion
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Regression: Bare request with AgentOnly rules should return Allowed
+// Verifies Step 1.1 fix: (Some(Allowed), None) no longer falls to default_deny
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_bare_request_agent_only_rules_return_allowed() {
+    // Build a ruleset with ONLY AgentOnly rules (no UserAndAgent rules)
+    let rules = RuleSetBuilder::new()
+        .rule(
+            RuleBuilder::new()
+                .name("agent-read-file")
+                .subject_glob("*")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["/home/**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("agent-exec-git")
+                .subject_glob("*")
+                .allow()
+                .action(Action::Command {
+                    command: "git".to_string(),
+                    args: CommandArgs::Allowed {
+                        allowed: vec!["status".to_string(), "log".to_string()],
+                    },
+                })
+                .build()
+                .unwrap(),
+        )
+        .default_file(Effect::Deny)
+        .default_command(Effect::Deny)
+        .build()
+        .unwrap();
+
+    let engine = PermissionEngine::new_with_default_data_root(rules);
+
+    // Bare file read — agent allows, no user rules → should be Allowed
+    let response = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/home/admin/file.txt".to_string(),
+            op: "read".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(response, PermissionResponse::Allowed { .. }),
+        "Bare request with only AgentOnly rules should return Allowed, got: {:?}",
+        response
+    );
+
+    // Bare git status — agent allows, no user rules → should be Allowed
+    let response = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "git".to_string(),
+            args: vec!["status".to_string()],
+        }),
+        None,
+    );
+    assert!(
+        matches!(response, PermissionResponse::Allowed { .. }),
+        "Bare request with only AgentOnly rules should return Allowed, got: {:?}",
+        response
+    );
+
+    // Bare exec rm — no matching agent rule → should be Denied (default_deny)
+    let response = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-rf".to_string()],
+        }),
+        None,
+    );
+    assert!(
+        matches!(response, PermissionResponse::Denied { .. }),
+        "Bare request with no matching rule should return Denied, got: {:?}",
+        response
+    );
+}
 
 #[tokio::test]
 async fn test_permission_engine_template_resolution() {
