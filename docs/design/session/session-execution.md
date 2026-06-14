@@ -38,7 +38,7 @@ Session 的整体状态由三维组合判定：
 |-----|----------|----------|-----------|---------|
 | Idle | 无 | 无 | 无 | **Idle**：完全空闲，等待输入 |
 | Idle | 无 | 有 | 无 | **Idle（后台活跃）**：可接受新输入，但需提示有后台任务 |
-| Idle | 无 | 无 | 有 Running | **Waiting**：等待子 session 完成 |
+| Idle | 无 | 无 | 有 Running | **Waiting**：被动检测——系统识别到子 session 运行中。agent 可通过 yield 主动进入阻塞式 Waiting |
 | Requesting / Receiving | * | * | * | **Busy**：LLM 交互中 |
 | * | 有前台 | * | * | **Busy**：工具执行中（阻塞） |
 
@@ -52,7 +52,7 @@ Session 的整体状态由三维组合判定：
 
 停止完成后，LLM 状态置 Idle，工具状态和子 Session 状态清空。
 
-级联采用 AbortController 链：父 session 的 AbortController abort 时联动子 session，子 session 单独 abort 不影响父。
+级联采用取消信号链：父 session 的取消信号触发时联动子 session，子 session 单独取消不影响父。
 
 ### 停止入口
 
@@ -78,6 +78,54 @@ Session 的整体状态由三维组合判定：
 - **later**：在合适时机注入。用于普通后台工具完成通知
 
 通知内容为结构化格式，包含任务标识、完成状态、结果或输出路径。带去重保护——同一任务只注入一次。
+
+### Yield 机制
+
+当 agent 通过 sessions_spawn 创建子 session 后，继续工作没有意义——它需要等待子 agent 的结果才能做下一步决策。Yield 机制让 agent 主动结束当前 turn，将执行权交还给系统，等待子 agent 完成通知。
+
+#### sessions_yield 工具
+
+sessions_yield 是 agent 明确表达「我 spawn 完了，等结果」的工具调用。调用后：
+
+1. 当前 turn 立即结束，不再发起新的 LLM 请求
+2. session 进入 Waiting 状态——不接受新的用户输入（斜杠指令除外）
+3. 系统监控所有活跃子 session，全部完成后自动恢复
+
+#### Waiting 状态行为
+
+Waiting 有两种进入方式，行为不同：
+
+- **被动 Waiting**：agent spawn 子 session 后未 yield，系统自动判定为 Waiting。此状态下 session 仍接受用户输入——agent 可以继续对话，子 agent 完成后通过 announce 消息在后续 turn 中注入
+- **主动 Waiting**：agent 调用 sessions_yield 后进入。此状态下用户消息排队、子 agent 完成后自动恢复。agent 选择 yield 意味着"在子 agent 完成之前我没有别的事要做"
+
+两种 Waiting 共同的约束：
+
+- **用户消息排队**：用户在此期间发送的消息进入等待队列，等 session 恢复后再处理
+- **子 agent 完成自动触发**：每收到一个子 agent 的完成 announce，系统注入到父 session 的消息队列
+- **全部完成后自动恢复**：所有子 agent 完成后，session 从 Waiting 回到 Idle，开始处理排队消息和 announce 结果
+- **超时保护**：若子 agent 在可配置的时间内未完成，系统解除 Waiting 状态，注入部分完成的 announce + 超时提示
+
+#### 禁止轮询
+
+Yield 机制的配套约束：agent 在 spawn 子 agent 后不应主动查询子 agent 状态。子 agent 的完成通知是 push-based——系统保证自动推送，agent 不需要也禁止调用 session 查询工具去轮询。这个约束在子 agent 的系统提示词中明确注入。
+
+#### Yield 循环
+
+典型的 spawn→yield→resume 流程：
+
+```
+父 agent turn:
+  → sessions_spawn(子A) + sessions_spawn(子B)
+  → sessions_yield
+  ↓
+session 进入 Waiting
+  ↓
+子A 完成 → announce 注入父 session 消息队列
+子B 完成 → announce 注入父 session 消息队列
+  ↓
+全部完成 → session 恢复 Idle
+  ↓
+下一 turn: agent 看到子A和子B的 announce 结果
 
 ## 数据流
 
