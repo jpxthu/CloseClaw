@@ -131,8 +131,7 @@ fn test_parse_response_empty_choices() {
 
 #[test]
 fn test_decorate_headers_bearer() {
-    std::env::remove_var("GLM_API_KEY");
-    let proto = GlmProtocol::new();
+    let proto = GlmProtocol::with_api_key("".into());
     let mut headers = HeaderMap::new();
     proto.decorate_headers(&mut headers).unwrap();
     let auth = headers.get(AUTHORIZATION).unwrap();
