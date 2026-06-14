@@ -64,6 +64,20 @@ def _http_post_streaming(url: str, headers: dict, payload: dict, timeout: int = 
     return "\n".join(lines) + "\ndata: [DONE]\n"
 
 
+def _http_get(url: str, headers: dict, timeout: int = 30) -> dict:
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8") if e.fp else ""
+        try:
+            err_body = json.loads(body)
+        except Exception:
+            err_body = {"raw": body}
+        raise HTTPResponseError(e.code, e.reason, err_body)
+
+
 # ============================================================
 # 协议抽象层
 # ============================================================
@@ -179,6 +193,43 @@ ANTHROPIC_TOOLS = [
     }
 ]
 
+# 长 system prompt（300+ tokens），用于 cache-long 场景
+LONG_SYSTEM_PROMPT = (
+    "You are an expert software engineer and coding assistant with deep knowledge of "
+    "multiple programming languages, software architecture, and best practices. Your role "
+    "is to help users write, review, and debug code across various languages including but "
+    "not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard "
+    "coding conventions, emphasize readability and maintainability, and always consider "
+    "edge cases and error handling. When suggesting code changes, you provide clear "
+    "explanations of why the change is necessary and how it improves the existing codebase. "
+    "You are familiar with modern development tools, CI/CD pipelines, testing frameworks, "
+    "and deployment strategies. You understand the importance of security, performance, and "
+    "scalability in software design. When faced with ambiguous requirements, you ask "
+    "clarifying questions before proceeding with implementation. You prefer simple, elegant "
+    "solutions over clever but hard-to-understand code. You document your reasoning and "
+    "decisions clearly. You are patient with learners and thorough in your explanations, "
+    "breaking down complex concepts into digestible parts. You stay current with the latest "
+    "developments in the software engineering field and can discuss trade-offs between "
+    "different approaches."
+)
+
+
+# ============================================================
+# 非 Chat 场景定义
+# ============================================================
+
+NON_CHAT_SCENARIOS: dict[str, dict[str, Any]] = {
+    "model-list": {
+        "description": "获取 provider 模型列表",
+        "provider_url_key": "models_url",
+        "anthropic_url_key": "anthropic_models_url",
+    },
+    "usage-quota": {
+        "description": "查询用量/配额",
+        "provider_url_key": "usage_url",
+    },
+}
+
 
 # ============================================================
 # 场景定义（每个场景都有 protocol + provider 过滤条件）
@@ -205,14 +256,41 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         ],
         "expect": "context",
     },
+    "context-pressure": {
+        "protocol": "openai",
+        "messages": [
+            {"role": "system", "content": LONG_SYSTEM_PROMPT},
+            {"role": "user", "content": "What is 2+2? Answer in one sentence."},
+        ],
+        "expect": "context_pressure",
+        "_context_pressure": True,
+        "_context_turns": 5,
+        "_context_followups": [
+            "Now explain the Riemann hypothesis and its implications for prime number distribution.",
+            "Compare and contrast TCP and UDP protocols, including congestion control and use cases.",
+            "Describe the CAP theorem in distributed systems and give examples of each trade-off.",
+            "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention.",
+        ],
+        "_max_tokens_override": 100,
+    },
     "cache": {
         "protocol": "openai",
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant. Always remember: the sky is blue."},
-            {"role": "user", "content": "What color is the sky?"},
+            {"role": "system", "content": LONG_SYSTEM_PROMPT},
+            {"role": "user", "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"},
         ],
-        "expect": "cache",
-        "repeat": 3,
+        "expect": "cache_incremental",
+        "_context_pressure": True,
+        "_context_turns": 5,
+        "_context_followups": [
+            "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。",
+            "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。",
+        ],
+        "_revert_after_turn": 1,
+        "_revert_at_turn": 4,
+        "_revert_user": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。",
+        "_revert_followups": ["对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"],
+        "_max_tokens_override": 300,
     },
     "tool-use": {
         "protocol": "openai",
@@ -344,13 +422,43 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     },
     "anthropic-cache": {
         "protocol": "anthropic",
-        "messages": [{"role": "user", "content": "What color is the sky?"}],
-        "expect": "cache",
-        "system": [
-            {"type": "text", "text": "You are a helpful assistant. Always remember: the sky is blue."},
+        "messages": [
+            {"role": "user", "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"},
         ],
-        "repeat": 3,
-        "max_tokens": 1024,
+        "expect": "cache_incremental",
+        "_context_pressure": True,
+        "_context_turns": 5,
+        "_context_followups": [
+            "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。",
+            "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。",
+        ],
+        "_revert_after_turn": 1,
+        "_revert_at_turn": 4,
+        "_revert_user": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。",
+        "_revert_followups": ["对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"],
+        "system": [
+            {"type": "text", "text": LONG_SYSTEM_PROMPT},
+        ],
+        "max_tokens": 300,
+    },
+    "anthropic-context-pressure": {
+        "protocol": "anthropic",
+        "messages": [
+            {"role": "user", "content": "What is 2+2? Answer in one sentence."},
+        ],
+        "expect": "context_pressure",
+        "_context_pressure": True,
+        "_context_turns": 5,
+        "_context_followups": [
+            "Now explain the Riemann hypothesis and its implications for prime number distribution.",
+            "Compare and contrast TCP and UDP protocols, including congestion control and use cases.",
+            "Describe the CAP theorem in distributed systems and give examples of each trade-off.",
+            "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention.",
+        ],
+        "system": [
+            {"type": "text", "text": LONG_SYSTEM_PROMPT},
+        ],
+        "max_tokens": 100,
     },
     "anthropic-error-auth": {
         "protocol": "anthropic",
@@ -391,9 +499,11 @@ def _build_request_kwargs(spec: dict[str, Any], messages: list[dict]) -> dict[st
         if spec.get("tools"):
             kwargs["tools"] = spec["tools"]
     else:
-        for field in ("temperature", "top_p"):
+        for field in ("temperature", "top_p", "max_tokens"):
             if field in spec:
                 kwargs[field] = spec[field]
+        if spec.get("_max_tokens_override") is not None:
+            kwargs["max_tokens"] = spec["_max_tokens_override"]
         if spec.get("tools"):
             kwargs["tools"] = spec["tools"]
 
@@ -548,9 +658,14 @@ def capture_single(
         _capture_glm_tool_streaming(client, scenario, model, out_dir, spec, messages, protocol)
         return
 
-    # ---- Cache 场景 ----
-    if scenario in ("cache", "anthropic-cache"):
+    # ---- Cache 场景（增量多轮）----
+    if scenario in ("cache", "anthropic-cache") and not spec.get("_context_pressure"):
         _capture_cache(client, scenario, model, out_dir, spec, messages, protocol)
+        return
+
+    # ---- Context 压力测试场景 ----
+    if spec.get("_context_pressure"):
+        _capture_context_pressure(client, scenario, model, out_dir, spec, messages, protocol)
         return
 
     # ---- 常规单次/重复请求 ----
@@ -808,6 +923,135 @@ def _capture_glm_tool_streaming(
     meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _extract_assistant_text(result: dict, is_anthropic: bool) -> str:
+    """从 API 响应中提取 assistant 回复文本。"""
+    if is_anthropic:
+        content = result.get("content", [])
+        return "\n".join(
+            block.get("text", "") for block in content
+            if block.get("type") == "text"
+        )
+    else:
+        choices = result.get("choices", [])
+        return choices[0].get("message", {}).get("content", "") if choices else ""
+
+
+def _capture_context_pressure(
+    client: LLMClient,
+    scenario: str,
+    model: str,
+    out_dir: Path,
+    spec: dict[str, Any],
+    messages: list[dict],
+    protocol: str,
+) -> None:
+    """多轮对话：每轮叠加 messages，可选 revert 回退到早期节点发新问题。
+
+    spec 字段：
+      _context_turns: 总轮数（含 revert 轮）
+      _context_followups: 每轮追加的 user 消息列表（正常线性叠加）
+      _revert_after_turn: 保留前 N 轮的 Q&A 后做 revert（如 =1 表示保留 Q1+A1）
+      _revert_at_turn: 在第 K 轮执行 revert（1-based，默认 = _revert_after_turn + 1）
+      _revert_user: revert 后发送的新 user 消息
+      _revert_followups: revert 后继续追加的 user 消息列表
+    """
+    is_anthropic = protocol == "anthropic"
+    request_kwargs = _build_request_kwargs(spec, messages)
+    turns = spec.get("_context_turns", 5)
+    followups = spec.get("_context_followups", [])
+    revert_after_turn = spec.get("_revert_after_turn")
+    revert_at_turn = spec.get("_revert_at_turn", (revert_after_turn or 0) + 1)
+    revert_user = spec.get("_revert_user")
+    revert_followups = spec.get("_revert_followups", [])
+
+    system_sent = request_kwargs.pop("system", None)
+
+    snapshots: list[dict] = []
+    results: list[dict] = []
+    current_messages = list(messages)
+    # completed_turns[N] = 第 N 轮 Q&A 完成后的 messages 快照
+    # completed_turns[0] = 初始 messages（还没有任何 Q&A）
+    # completed_turns[1] = Q1+A1 完成后的 messages
+    completed_turns: list[list[dict]] = [list(current_messages)]
+    revert_done = False
+
+    for i in range(turns):
+        # 是否做 revert
+        is_revert = (revert_after_turn is not None
+                     and revert_user is not None
+                     and not revert_done
+                     and i + 1 == revert_at_turn)
+
+        if is_revert:
+            # revert：保留前 revert_after_turn 轮的 Q&A，丢掉之后的
+            base = completed_turns[revert_after_turn]
+            current_messages = [dict(m) for m in base]
+            current_messages.append({"role": "user", "content": revert_user})
+            revert_done = True
+
+        # 记录本轮发送的完整 messages 快照
+        snapshots.append({
+            "turn": i + 1,
+            "is_revert": is_revert,
+            "messages": [dict(m) for m in current_messages],
+        })
+
+        round_kwargs = dict(request_kwargs)
+        if is_anthropic and system_sent:
+            round_kwargs["system"] = system_sent
+
+        try:
+            result = client.chat(current_messages, model, **round_kwargs)
+            results.append(result)
+
+            assistant_text = _extract_assistant_text(result, is_anthropic)
+            current_messages.append({"role": "assistant", "content": assistant_text})
+
+            # 记录本轮 Q&A 完成后的 messages
+            completed_turns.append(list(current_messages))
+
+            # 追加下一轮 user 消息
+            if is_revert or (revert_done and i > 0):
+                # revert 后的线性追加
+                rev_idx = i - next(j for j in range(i, -1, -1)
+                                   if snapshots[j].get("is_revert"))
+                if rev_idx < len(revert_followups):
+                    current_messages.append({"role": "user", "content": revert_followups[rev_idx]})
+            elif i < len(followups):
+                current_messages.append({"role": "user", "content": followups[i]})
+
+        except HTTPResponseError as e:
+            results.append({
+                "error": True,
+                "http_code": e.code,
+                "reason": e.reason,
+                "body": e.body,
+            })
+            break
+
+        if i < turns - 1:
+            time.sleep(1)
+
+    output: dict[str, Any] = {
+        "protocol": protocol,
+        "streaming": False,
+        "scenario": scenario,
+        "model": model,
+        "expect": spec["expect"],
+        "turns": [
+            {**snap, "response": results[i] if i < len(results) else None}
+            for i, snap in enumerate(snapshots)
+        ],
+    }
+
+    if system_sent is not None:
+        output["system_sent"] = system_sent
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{scenario}.json"
+    out_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 def _capture_cache(
     client: LLMClient,
     scenario: str,
@@ -876,6 +1120,89 @@ def _capture_cache(
 
 
 # ============================================================
+# 非 Chat 场景采集
+# ============================================================
+
+def capture_non_chat(
+    provider: str,
+    api_key: str,
+    scenario: str,
+    out_dir: Path,
+) -> None:
+    """采集非 Chat 类 API（model-list, usage-quota）。"""
+    cfg = PROVIDER_CONFIG[provider]
+    spec = NON_CHAT_SCENARIOS[scenario]
+    url_key = spec["provider_url_key"]
+
+    # 确定 URL
+    url = cfg.get(url_key)
+    if not url:
+        # 特殊处理：MiniMax 无 usage_url
+        msg = f"{provider} 无 {scenario} API"
+        print(f"    跳过: {msg}")
+        _write_non_chat_skip(out_dir, scenario, provider, msg)
+        return
+
+    # model-list 对 Anthropic 协议可能有独立 URL
+    if scenario == "model-list":
+        anthropic_url_key = spec.get("anthropic_url_key")
+        if anthropic_url_key and cfg.get(anthropic_url_key):
+            url = cfg[anthropic_url_key]  # 优先使用 anthropic 专用 URL
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    print(f"    GET {url}", end=" ", flush=True)
+    try:
+        result = _http_get(url, headers)
+        print("✓")
+    except HTTPResponseError as e:
+        result = {
+            "error": True,
+            "http_code": e.code,
+            "reason": e.reason,
+            "body": e.body,
+        }
+        print(f"✗ HTTP {e.code}")
+    except Exception as e:
+        result = {"error": True, "reason": str(e)}
+        print(f"✗ {e}")
+
+    output: dict[str, Any] = {
+        "protocol": "n/a",
+        "streaming": False,
+        "scenario": scenario,
+        "model": "provider",
+        "provider": provider,
+        "expect": scenario,
+        "request": {"method": "GET", "url": url},
+        "response": result,
+    }
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{scenario}.json"
+    out_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _write_non_chat_skip(
+    out_dir: Path, scenario: str, provider: str, message: str
+) -> None:
+    """写入跳过信息文件（provider 不支持该非 Chat 场景）。"""
+    output: dict[str, Any] = {
+        "protocol": "n/a",
+        "streaming": False,
+        "scenario": scenario,
+        "model": "provider",
+        "provider": provider,
+        "expect": scenario,
+        "request": {},
+        "response": {"skipped": True, "reason": message},
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{scenario}.json"
+    out_file.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+# ============================================================
 # 主入口
 # ============================================================
 
@@ -891,6 +1218,12 @@ def main() -> None:
         "--output-base",
         default="/home/admin/code/closeclaw-test/tests/fixtures/llm/v2",
     )
+    parser.add_argument(
+        "--scenario-type",
+        choices=["chat", "non-chat", "all"],
+        default="all",
+        help="采集场景类型: chat=仅对话, non-chat=仅非对话(model-list/usage-quota), all=全部",
+    )
     args = parser.parse_args()
 
     if not args.api_key:
@@ -898,38 +1231,62 @@ def main() -> None:
         sys.exit(1)
 
     output_base = Path(args.output_base)
-    out_dir = output_base / args.provider / args.model / args.protocol
-
-    # 清理该组合下的旧文件
-    if out_dir.exists():
-        for f in out_dir.iterdir():
-            f.unlink()
-
-    client = make_client(args.provider, args.api_key, args.protocol)
-
-    # 筛选出适用于该 (provider, protocol) 的所有场景
-    applicable = [
-        name for name, spec in SCENARIOS.items()
-        if spec["protocol"] == args.protocol
-        and (spec.get("provider") is None or spec["provider"] == args.provider)
-    ]
-
-    print(f"[{args.provider}/{args.model}/{args.protocol}] 共 {len(applicable)} 个场景")
-    print(f"输出目录: {out_dir}")
-    print("-" * 60)
+    stype = args.scenario_type
 
     done = 0
     fail = 0
 
-    for scenario in sorted(applicable):
-        print(f"  {scenario} ...", end=" ", flush=True)
-        try:
-            capture_single(client, scenario, args.model, out_dir, args.api_key)
-            print("✓")
-            done += 1
-        except Exception as e:
-            print(f"✗ {e}")
-            fail += 1
+    # ---- Chat 场景 ----
+    if stype in ("chat", "all"):
+        out_dir = output_base / args.provider / args.model / args.protocol
+
+        # 清理该组合下的旧文件
+        if out_dir.exists():
+            for f in out_dir.iterdir():
+                f.unlink()
+
+        client = make_client(args.provider, args.api_key, args.protocol)
+
+        # 筛选出适用于该 (provider, protocol) 的所有场景
+        applicable = [
+            name for name, spec in SCENARIOS.items()
+            if spec["protocol"] == args.protocol
+            and (spec.get("provider") is None or spec["provider"] == args.provider)
+        ]
+
+        print(f"[{args.provider}/{args.model}/{args.protocol}] 共 {len(applicable)} 个 chat 场景")
+        print(f"输出目录: {out_dir}")
+        print("-" * 60)
+
+        for scenario in sorted(applicable):
+            print(f"  {scenario} ...", end=" ", flush=True)
+            try:
+                capture_single(client, scenario, args.model, out_dir, args.api_key)
+                print("✓")
+                done += 1
+            except Exception as e:
+                print(f"✗ {e}")
+                fail += 1
+
+    # ---- 非 Chat 场景 ----
+    if stype in ("non-chat", "all"):
+        provider_out_dir = output_base / args.provider / "provider"
+
+        print(f"")
+        print(f"[{args.provider}/provider] 非 Chat 场景")
+        print(f"输出目录: {provider_out_dir}")
+        print("-" * 60)
+
+        for scenario in sorted(NON_CHAT_SCENARIOS.keys()):
+            print(f"  {scenario} ...", end=" ", flush=True)
+            try:
+                capture_non_chat(
+                    args.provider, args.api_key, scenario, provider_out_dir
+                )
+                done += 1
+            except Exception as e:
+                print(f"✗ {e}")
+                fail += 1
 
     print("-" * 60)
     print(f"完成: {done} 成功, {fail} 失败")

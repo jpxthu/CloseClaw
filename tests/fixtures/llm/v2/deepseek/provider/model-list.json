@@ -1,0 +1,27 @@
+{
+  "protocol": "n/a",
+  "streaming": false,
+  "scenario": "model-list",
+  "model": "_provider",
+  "provider": "deepseek",
+  "expect": "model-list",
+  "request": {
+    "method": "GET",
+    "url": "https://api.deepseek.com/models"
+  },
+  "response": {
+    "object": "list",
+    "data": [
+      {
+        "id": "deepseek-v4-flash",
+        "object": "model",
+        "owned_by": "deepseek"
+      },
+      {
+        "id": "deepseek-v4-pro",
+        "object": "model",
+        "owned_by": "deepseek"
+      }
+    ]
+  }
+}

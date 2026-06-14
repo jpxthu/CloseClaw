@@ -3,102 +3,233 @@
   "streaming": false,
   "scenario": "anthropic-cache",
   "model": "deepseek-v4-pro",
-  "expect": "cache",
-  "request": {
-    "model": "deepseek-v4-pro",
-    "messages": [
-      {
-        "role": "user",
-        "content": "What color is the sky?"
-      }
-    ]
-  },
-  "response": [
+  "expect": "cache_incremental",
+  "turns": [
     {
-      "id": "df1c30de-78da-48a3-be27-dc8b15035eec",
-      "type": "message",
-      "role": "assistant",
-      "model": "deepseek-v4-pro",
-      "content": [
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
         {
-          "type": "thinking",
-          "thinking": "We are asked: \"What color is the sky?\" The instruction says: \"You are a helpful assistant. Always remember: the sky is blue.\" So I must answer that the sky is blue.",
-          "signature": "df1c30de-78da-48a3-be27-dc8b15035eec"
-        },
-        {
-          "type": "text",
-          "text": "The sky is blue."
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         }
       ],
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "usage": {
-        "input_tokens": 24,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "output_tokens": 46,
-        "service_tier": "standard"
+      "response": {
+        "id": "5dba3598-e5eb-48c8-8eac-62693d8d41d3",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to explain HTTP/2 multiplexing: how it works, and compare performance improvements over HTTP/1.1. Provide a concrete example.\n\nPlan:\n- Start by summarizing what HTTP/2 is and its key feature multiplexing.\n- Explain HTTP/1.1 limitations: head-of-line blocking (HOL blocking), need for multiple connections (6-8 per domain), connection setup overhead, etc.\n- How HTTP/2 multiplexing works: binary framing layer, streams, messages, frames. Single TCP connection, multiple concurrent streams, interleaving frames. Stream prioritization, flow control.\n- Performance improvements: elimination of HOL blocking at application layer (though TCP HOL still exists), reduced latency because no need for multiple connections, better resource utilization, reduced connection overhead, header compression (HPACK) which is separate but related.\n- Concrete example: a web page loading many resources (CSS, JS, images). In HTTP/1.1, even with pipelining (rarely used), resources must be fetched sequentially over one connection, or multiple connections opened leading to contention and overhead. In HTTP/2, all resources can be requested concurrently over a single connection, interleaving responses, so the page loads faster. Show a timeline comparison: HTTP/1.1 with multiple connections vs HTTP/2 single connection multiplexed. Mention server push as additional benefit but not core multiplexing.\n- Wrap up with summary.\n\nI'll structure the answer:\n\n1. Introduction to HTTP",
+            "signature": "5dba3598-e5eb-48c8-8eac-62693d8d41d3"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 123,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 128,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
       }
     },
     {
-      "id": "c822b6fe-cac0-48e3-b095-6d88ac481d37",
-      "type": "message",
-      "role": "assistant",
-      "model": "deepseek-v4-pro",
-      "content": [
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
         {
-          "type": "thinking",
-          "thinking": "We are asked: \"What color is the sky?\" The instruction says: \"You are a helpful assistant. Always remember: the sky is blue.\" So I need to respond accordingly. The sky is blue.",
-          "signature": "c822b6fe-cac0-48e3-b095-6d88ac481d37"
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         },
         {
-          "type": "text",
-          "text": "The sky is blue."
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
         }
       ],
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "usage": {
-        "input_tokens": 24,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "output_tokens": 48,
-        "service_tier": "standard"
+      "response": {
+        "id": "1dc4fc14-fd79-4133-ab4e-438a84a3a009",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们被要求详细解释RAFT共识算法，包括领导者选举和日志复制的过程。需要给出一个全面的解释，涵盖算法的关键组件和工作原理。可以使用中文回答。",
+            "signature": "1dc4fc14-fd79-4133-ab4e-438a84a3a009"
+          },
+          {
+            "type": "text",
+            "text": "RAFT（Raft）是一种用于管理复制日志的共识算法，旨在更易于理解，同时提供与 Paxos 同等的容错性能。它将共识问题分解为三个相对独立的子问题：领导者选举、日志复制和安全性。下面详细解释前两个核心过程。\n\n---\n\n## 1. 背景和概述\n\n在分布式系统中，多个节点通过一致性算法就某个值或日志序列达成一致。RAFT 将节点分为三种角色：\n- **领导者** — 处理所有客户端请求，管理日志复制。\n- **跟随者** — 被动接收来自领导者的日志条目，完全响应领导者的请求（如投票）。\n- **候选者** — 发起选举，争夺领导者身份。\n\n时间被划分为连续递增的**任期**，每个任期内最多只有一个领导者。\n\n---\n\n## 2. 领导者选举\n\n### 2.1 启动触发\n所有节点启动时都是跟随者。如果跟随者在一段时间内（**选举超时**）没有收到来自当前领导者的心跳（`AppendEntries` RPC），它会认为领导者失效，于是：\n- 增加自己的当前任期号。\n- 转变为候选者。\n- 向自己投一票，然后向其他所有节点并行发送 `RequestVote` RPC，请求投票"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 15,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
       }
     },
     {
-      "id": "fe9990aa-b136-40cd-b42a-5997c5ce2b44",
-      "type": "message",
-      "role": "assistant",
-      "model": "deepseek-v4-pro",
-      "content": [
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
         {
-          "type": "thinking",
-          "thinking": "We are asked: \"What color is the sky?\" The instruction says: \"You are a helpful assistant. Always remember: the sky is blue.\" So I need to respond that the sky is blue.",
-          "signature": "fe9990aa-b136-40cd-b42a-5997c5ce2b44"
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         },
         {
-          "type": "text",
-          "text": "The sky is blue."
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": "RAFT（Raft）是一种用于管理复制日志的共识算法，旨在更易于理解，同时提供与 Paxos 同等的容错性能。它将共识问题分解为三个相对独立的子问题：领导者选举、日志复制和安全性。下面详细解释前两个核心过程。\n\n---\n\n## 1. 背景和概述\n\n在分布式系统中，多个节点通过一致性算法就某个值或日志序列达成一致。RAFT 将节点分为三种角色：\n- **领导者** — 处理所有客户端请求，管理日志复制。\n- **跟随者** — 被动接收来自领导者的日志条目，完全响应领导者的请求（如投票）。\n- **候选者** — 发起选举，争夺领导者身份。\n\n时间被划分为连续递增的**任期**，每个任期内最多只有一个领导者。\n\n---\n\n## 2. 领导者选举\n\n### 2.1 启动触发\n所有节点启动时都是跟随者。如果跟随者在一段时间内（**选举超时**）没有收到来自当前领导者的心跳（`AppendEntries` RPC），它会认为领导者失效，于是：\n- 增加自己的当前任期号。\n- 转变为候选者。\n- 向自己投一票，然后向其他所有节点并行发送 `RequestVote` RPC，请求投票"
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
         }
       ],
-      "stop_reason": "end_turn",
-      "stop_sequence": null,
-      "usage": {
-        "input_tokens": 24,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-        "output_tokens": 47,
-        "service_tier": "standard"
+      "response": {
+        "id": "a4433d44-12c9-4a26-b56d-11d733123f7a",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to describe TLS 1.3 handshake flow, compare with TLS 1.2, and highlight security and performance improvements.\n\nThe user asked in Chinese: \"描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。\"\n\nI should provide a comprehensive explanation, covering:\n- TLS 1.3 handshake steps (full handshake, 1-RTT, 0-RTT).\n- Compare with TLS 1.2's typical full handshake (2 round trips).\n- Security improvements: removal of obsolete/insecure algorithms (RSA key exchange, static DH, fragile CBC, etc.), forward secrecy mandatory, handshake encryption, downgrade protection, etc.\n- Performance improvements: reduced round trips (1-RTT full, 0-RTT resumption), simpler cipher suites (AEAD-only), fewer round trips, faster session resumption with PSK.\n\nI'll structure it clearly, with explanations in Chinese. I'll avoid overly technical depth but enough to demonstrate expertise.",
+            "signature": "a4433d44-12c9-4a26-b56d-11d733123f7a"
+          },
+          {
+            "type": "text",
+            "text": "TLS 1.3（RFC 8446）相比 TLS 1.2（RFC 5246）在安全模型、握手效率和协议简洁性上进行了大幅改进。下面详细说明其握手流程，并对两者进行对比。\n\n---\n\n## 一、TLS 1.3 握手流程\n\nTLS 1.3 握手分为 **1-RTT 模式**（完整握手）和"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 310,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "38bbf776-6489-4a8f-a083-93f95adfa34c",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们被要求解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。需要详细解释这两个分配器的工作原理、目的以及它们之间的关系，然后解释缺页中断的处理流程。最后，可以总结这些机制如何协同工作来高效管理内存。\n\n回答大纲：\n1. Buddy 系统：用于管理物理页框（page frames）。解释伙伴系统如何分配和释放连续物理页面，解决外部碎片问题，通过分裂和合并空闲块。\n2. Slab 分配器：位于 buddy 系统之上，用于内核中频繁分配和释放的小对象（如 inode、dentry、task_struct 等）。解释 slab 如何通过缓存对象避免重复初始化，减少内部碎片，并利用着色（coloring）优化 CPU 缓存行。描述 slab 的三个主要部分：cache、slab、object。\n3. Buddy 和 Slab 的关系：Slab 从 Buddy 获取物理页面来构建 slab，slab 内部管理对象分配。\n4. 缺页中断（Page Fault）：流程包括：硬件触发异常，CPU 陷入内核，do_page_fault 处理，查找 VMA，然后分三种情况：匿名页、文件映射页、写时复制。详细步骤：访问无效地址导致段错误；合法地址但未分配物理页，分配并建立页表映射；缺页从文件读取；写时复制；进程被换出到交换区等",
+            "signature": "38bbf776-6489-4a8f-a083-93f95adfa34c"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 19,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "5bde80d3-ef68-4344-8a09-a7dd593f9d18",
+        "type": "message",
+        "role": "assistant",
+        "model": "deepseek-v4-pro",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We need to answer: \"对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？\"\n\nLet's prepare a comprehensive answer. I'll structure it as follows:\n\n1. Brief introduction to B+ tree and LSM tree, their core structures.\n2. Detailed comparison: read performance, write performance, space amplification, write amplification, read amplification, compaction issues, etc.\n3. Pros and cons of each.\n4. Suitable scenarios: B+ tree for OLTP workloads (read-heavy, point queries, range scans), LSM tree for write-heavy, high throughput, large-scale logging/analytics, time-series, etc.\n5. Mention modern variants and optimizations (like Bw-tree, Fractal tree, LSM with bloom filters, etc.) but keep it focused.\n\nMake it concise but thorough. Use clear language.\n\nI'll craft the response.",
+            "signature": "5bde80d3-ef68-4344-8a09-a7dd593f9d18"
+          },
+          {
+            "type": "text",
+            "text": "B+ 树和 LSM 树是数据库存储引擎中最常用的两种索引结构，它们在读写性能、空间利用率、实现复杂度等方面存在本质差别，适用于完全不同的工作负载。\n\n---\n\n### 1. 核心结构与思想\n\n**B+ 树（原地更新）**\n- 数据按主键有序存储在多路平衡树中，所有实际记录（或记录指针）只存在于叶子节点，内部节点仅作索引。\n- 插入/更新/删除操作通常**直接覆盖**原位数据（可能引发页分裂或合并）。\n-"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 44,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256,
+          "output_tokens": 300,
+          "service_tier": "standard"
+        }
       }
     }
   ],
   "system_sent": [
     {
       "type": "text",
-      "text": "You are a helpful assistant. Always remember: the sky is blue."
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
     }
-  ],
-  "max_tokens_sent": 1024,
-  "cache_control_note": "Anthropic 协议在 system 末尾标记了 cache_control:ephemeral"
+  ]
 }

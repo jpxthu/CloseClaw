@@ -1,0 +1,83 @@
+{
+  "glm-5.1": {
+    "context_window": 204800,
+    "max_tokens": 131072,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-5": {
+    "context_window": 204800,
+    "max_tokens": 131072,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-5-turbo": {
+    "context_window": 204800,
+    "max_tokens": 131072,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-4.7": {
+    "context_window": 204800,
+    "max_tokens": 131072,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-4.7-flashx": {
+    "context_window": 204800,
+    "max_tokens": 131072,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-4.7-flash": {
+    "context_window": 204800,
+    "max_tokens": 131072,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-4.6": {
+    "context_window": 204800,
+    "max_tokens": 131072,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-4.5-air": {
+    "context_window": 131072,
+    "max_tokens": 98304,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "glm-4.5-airx": {
+    "context_window": 131072,
+    "max_tokens": 98304,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  }
+}
