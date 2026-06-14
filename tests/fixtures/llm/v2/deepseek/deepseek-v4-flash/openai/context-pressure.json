@@ -1,9 +1,9 @@
 {
   "protocol": "openai",
   "streaming": false,
-  "scenario": "cache",
-  "model": "deepseek-v4-pro",
-  "expect": "cache_incremental",
+  "scenario": "context-pressure",
+  "model": "deepseek-v4-flash",
+  "expect": "context_pressure",
   "turns": [
     {
       "turn": 1,
@@ -15,40 +15,40 @@
         },
         {
           "role": "user",
-          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+          "content": "What is 2+2? Answer in one sentence."
         }
       ],
       "response": {
-        "id": "57b85c28-470d-4127-8cdf-36f4c54c673a",
+        "id": "09dc9377-22ed-4e53-a0e6-1a2c22d06dce",
         "object": "chat.completion",
-        "created": 1781470546,
-        "model": "deepseek-v4-pro",
+        "created": 1781470008,
+        "model": "deepseek-v4-flash",
         "choices": [
           {
             "index": 0,
             "message": {
               "role": "assistant",
-              "content": "",
-              "reasoning_content": "We need to explain HTTP/2 multiplexing, compare with HTTP/1.1 performance improvements, and give a concrete example. The user asked: \"解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。\"\n\nI'll craft a comprehensive answer in Chinese.\n\nKey points:\n- HTTP/1.1 limitations: Head-of-line blocking (HoL) on connection level; multiple TCP connections needed for parallelism (typically 6 per domain), leading to resource overhead; request pipelining but rarely used due to HoL issues; textual protocol with verbose headers.\n- HTTP/2: Binary framing layer; streams multiplexed over a single TCP connection; each stream has an identifier, can be prioritized; frames interleaved; no ordering constraints between streams; enables true concurrency without connection overhead.\n- Multiplexing: The ability to send multiple requests and responses concurrently over a single TCP connection, interleaving frames from different streams. Clients can issue requests without waiting for previous responses; server can push resources.\n- Performance improvements:\n  - Reduced latency: avoid TCP handshake for multiple connections, better utilization of a single connection, avoid HoL blocking at HTTP level (though TCP HoL still exists, mitigated by stream prioritization and less connections).\n  - Less resource consumption: fewer TCP connections (saves memory, CPU, reduces port exhaustion).\n  - Header compression (HPACK) reduces overhead.\n"
+              "content": "2+2 equals 4.",
+              "reasoning_content": "We need to answer \"What is 2+2?\" in one sentence. The answer is 4."
             },
             "logprobs": null,
-            "finish_reason": "length"
+            "finish_reason": "stop"
           }
         ],
         "usage": {
-          "prompt_tokens": 251,
-          "completion_tokens": 300,
-          "total_tokens": 551,
+          "prompt_tokens": 232,
+          "completion_tokens": 30,
+          "total_tokens": 262,
           "prompt_tokens_details": {
             "cached_tokens": 128
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 300
+            "reasoning_tokens": 22
           },
           "prompt_cache_hit_tokens": 128,
-          "prompt_cache_miss_tokens": 123
+          "prompt_cache_miss_tokens": 104
         },
-        "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
       }
     },
     {
@@ -61,48 +61,48 @@
         },
         {
           "role": "user",
-          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+          "content": "What is 2+2? Answer in one sentence."
         },
         {
           "role": "assistant",
-          "content": ""
+          "content": "2+2 equals 4."
         },
         {
           "role": "user",
-          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
         }
       ],
       "response": {
-        "id": "098a3a8d-22c5-417b-b622-3c66ca1143f0",
+        "id": "150235ef-cad0-4053-8830-c58b78c67258",
         "object": "chat.completion",
-        "created": 1781470552,
-        "model": "deepseek-v4-pro",
+        "created": 1781470010,
+        "model": "deepseek-v4-flash",
         "choices": [
           {
             "index": 0,
             "message": {
               "role": "assistant",
               "content": "",
-              "reasoning_content": "我们需要详细解释RAFT共识算法，包括领导者选举和日志复制的过程。这是一个技术问题，需要清晰、准确且详尽的回答。我将以导师或专家的口吻，系统性地讲解RAFT算法。\n\n首先，需要介绍RAFT的总体设计目标：易理解性。与Paxos相比，RAFT通过分解问题（领导者选举、日志复制、安全性）并强化领导者的角色，使得算法更直观。\n\n然后，分部分讲解：\n\n1. **基础概念**：\n   - 节点状态：跟随者（Follower）、候选者（Candidate）、领导者（Leader）。\n   - 任期（Term）：逻辑时钟，每个任期最多一个领导者。\n   - RPC通信：请求投票（RequestVote）和附加日志（AppendEntries，也用于心跳）。还会提到安装快照（InstallSnapshot）用于日志压缩，但问题没要求不过可以简要提及。\n\n2. **领导者选举**：\n   - 初始状态所有节点是Follower，有随机选举超时。\n   - 超时后变为Candidate，增加当前任期，给自己投票，并行发送RequestVote RPC。\n   - 选举结果：获得多数票成为Leader；收到合法Leader的心跳则退回Follower；票数平分则超时重新选举（随机超时避免分裂）。\n   - 关键细节：每个节点每任期只投一票，根据日志新鲜程度决定投票（candidate的日志至少和自己一样新）。\n\n3"
+              "reasoning_content": "We need to answer in the context of the previous exchange. The user asked \"What is 2+2? Answer in one sentence.\" I answered \"2+2 equals 4.\" Then they said \"Now explain the Riemann hypothesis and its implications for prime number distribution.\" So they want an explanation of the Riemann hypothesis and its implications, presumably also in one sentence? Or just a clear explanation? The instruction \"Answer in one sentence\" was for the first question only. For the second, they"
             },
             "logprobs": null,
             "finish_reason": "length"
           }
         ],
         "usage": {
-          "prompt_tokens": 271,
-          "completion_tokens": 300,
-          "total_tokens": 571,
+          "prompt_tokens": 256,
+          "completion_tokens": 100,
+          "total_tokens": 356,
           "prompt_tokens_details": {
             "cached_tokens": 128
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 300
+            "reasoning_tokens": 100
           },
           "prompt_cache_hit_tokens": 128,
-          "prompt_cache_miss_tokens": 143
+          "prompt_cache_miss_tokens": 128
         },
-        "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
       }
     },
     {
@@ -115,7 +115,15 @@
         },
         {
           "role": "user",
-          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
         },
         {
           "role": "assistant",
@@ -123,83 +131,21 @@
         },
         {
           "role": "user",
-          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
-        },
-        {
-          "role": "assistant",
-          "content": ""
-        },
-        {
-          "role": "user",
-          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
         }
       ],
       "response": {
-        "id": "7a3958de-591f-4a39-ba01-12656c13a873",
+        "id": "4342860d-1207-4f29-9052-b93035a664b7",
         "object": "chat.completion",
-        "created": 1781470557,
-        "model": "deepseek-v4-pro",
-        "choices": [
-          {
-            "index": 0,
-            "message": {
-              "role": "assistant",
-              "content": "TLS 1.3 对握手协议进行了彻底重构，目的是减少延迟、强化安全，并移除历史遗留的不安全设计。下面先描述 TLS 1.3 的完整握手流程，再与 TLS 1.2 对比，最后总结安全性和性能改进。\n\n---\n\n## TLS 1.3 ",
-              "reasoning_content": "我们被要求用中文回答“描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。”\n\n需要详细解释TLS 1.3握手过程，对比TLS 1.2，突出安全性和性能改进。\n\n首先，回忆TLS 1.3的握手流程：简化的1-RTT握手，以及0-RTT恢复。与TLS 1.2主要区别：减少了往返次数，删除了不安全的算法和功能，加密了更多握手消息等。\n\n我会先从TLS 1.3握手流程入手，说明完整握手（ClientHello, ServerHello, 加密扩展, 服务器证书, CertificateVerify, Finished等）。然后对比TLS 1.2，指出TLS 1.2的两次往返，明文的部分握手，以及更少的协商项。最后总结安全性和性能提升：速度更快（1-RTT vs 2-RTT），前向安全，加密了证书和ServerHello等，删除过时密码套件，0-RTT数据等。\n\n确保回答专业且符合要求。"
-            },
-            "logprobs": null,
-            "finish_reason": "length"
-          }
-        ],
-        "usage": {
-          "prompt_tokens": 301,
-          "completion_tokens": 300,
-          "total_tokens": 601,
-          "prompt_tokens_details": {
-            "cached_tokens": 256
-          },
-          "completion_tokens_details": {
-            "reasoning_tokens": 231
-          },
-          "prompt_cache_hit_tokens": 256,
-          "prompt_cache_miss_tokens": 45
-        },
-        "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
-      }
-    },
-    {
-      "turn": 4,
-      "is_revert": true,
-      "messages": [
-        {
-          "role": "system",
-          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
-        },
-        {
-          "role": "user",
-          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
-        },
-        {
-          "role": "assistant",
-          "content": ""
-        },
-        {
-          "role": "user",
-          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
-        }
-      ],
-      "response": {
-        "id": "af05e07e-c320-4420-a991-950102274166",
-        "object": "chat.completion",
-        "created": 1781470562,
-        "model": "deepseek-v4-pro",
+        "created": 1781470013,
+        "model": "deepseek-v4-flash",
         "choices": [
           {
             "index": 0,
             "message": {
               "role": "assistant",
               "content": "",
-              "reasoning_content": "我们被要求解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。我们需要给出详细、准确的解释，可能包括它们的原理、用途、工作方式，以及缺页中断的处理步骤。考虑到用户可能希望深入理解，我们要组织好答案，从 Buddy 系统开始，因为它是底层页分配器，Slab 分配器在其上构建，用于分配小对象。缺页中断是虚拟内存的核心部分。\n\n需要涵盖：\n1. Buddy 系统（伙伴系统）：Linux 内核用于分配物理页框的算法。解释其如何管理空闲页面、分配和合并、避免碎片。可能提到 order、free_area 数组。\n2. Slab 分配器：在 Buddy 系统之上，为内核对象（如 inode、task_struct）提供高速缓存，减少内存分配开销和内部碎片。解释 slab、slub、slob（当前主要是 slub）。原理：缓存特定大小的对象，预分配，着色（避免缓存冲突），回收。\n3. 缺页中断（Page fault）：当进程访问虚拟地址时，如果页表项无效或不存在，触发异常。处理流程：检查地址合法性、找到对应的 VMA、分配物理页（调用 Buddy/Slab? 实际上是分配页框用 Buddy，但 Slab 管理内核对象，用户进程缺页分配的是匿名页或文件页，用伙伴系统分配页框）、填充页、更新页表"
+              "reasoning_content": "We need to answer the user's request: \"Compare and contrast TCP and UDP protocols, including congestion control and use cases.\" The user previously asked \"What is 2+2? Answer in one sentence.\" and then \"Now explain the Riemann hypothesis and its implications for prime number distribution.\" The assistant answered those. Now the user asks for TCP vs UDP comparison. The assistant should provide a clear, concise comparison covering congestion control and use cases. Likely in a few paragraphs. The assistant should be"
             },
             "logprobs": null,
             "finish_reason": "length"
@@ -207,18 +153,88 @@
         ],
         "usage": {
           "prompt_tokens": 275,
-          "completion_tokens": 300,
-          "total_tokens": 575,
+          "completion_tokens": 100,
+          "total_tokens": 375,
           "prompt_tokens_details": {
-            "cached_tokens": 128
+            "cached_tokens": 256
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 300
+            "reasoning_tokens": 100
           },
-          "prompt_cache_hit_tokens": 128,
-          "prompt_cache_miss_tokens": 147
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 19
         },
-        "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "74520631-4d21-4741-a498-bd5deab4923a",
+        "object": "chat.completion",
+        "created": 1781470015,
+        "model": "deepseek-v4-flash",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "reasoning_content": "We need to answer the user's request: \"Describe the CAP theorem in distributed systems and give examples of each trade-off.\" This is a straightforward knowledge question. I'll provide a concise but comprehensive description of CAP theorem (Consistency, Availability, Partition Tolerance), then give examples for each possible trade-off: CA (Consistency + Availability, but no partition tolerance) – rare in practice, maybe single-node systems; CP (Consistency + Partition Tolerance, sacrifice Availability) – e.g., traditional databases"
+            },
+            "logprobs": null,
+            "finish_reason": "length"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 294,
+          "completion_tokens": 100,
+          "total_tokens": 394,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 100
+          },
+          "prompt_cache_hit_tokens": 256,
+          "prompt_cache_miss_tokens": 38
+        },
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
       }
     },
     {
@@ -231,7 +247,15 @@
         },
         {
           "role": "user",
-          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
         },
         {
           "role": "assistant",
@@ -239,7 +263,7 @@
         },
         {
           "role": "user",
-          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
         },
         {
           "role": "assistant",
@@ -247,40 +271,48 @@
         },
         {
           "role": "user",
-          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
         }
       ],
       "response": {
-        "id": "b0385c72-b4a6-477e-a06b-12e318d69d3f",
+        "id": "c3431e0c-bf1a-41fa-958d-b506dd7fe462",
         "object": "chat.completion",
-        "created": 1781470567,
-        "model": "deepseek-v4-pro",
+        "created": 1781470018,
+        "model": "deepseek-v4-flash",
         "choices": [
           {
             "index": 0,
             "message": {
               "role": "assistant",
-              "content": "B+ 树和 LSM 树是数据库索引中两种最主流的存储结构，分别代表就地更新（in-place update）和异位更新（out-of-place update）两种设计哲学。下面从结构原理、关键性能指标以及适用场景三个维度进行对比。\n\n## 1. 结构原理\n\n### B+ 树\n- **全内存索引页**：数据记录（叶子节点）通过指针链路有序排列，所有键的副本存在于内部节点，形成多级索引。\n- **就地更新**：插入或更新时直接在目标叶子页中修改，若页空间不足则发生页分裂（page split），将部分记录迁移到新页。\n- **动态平衡**：分裂或合并操作自底向上传播，确保树高度基本稳定（通常为 3~4 层）。\n- **自然有序**：叶子节点通过双向链表连接，范围扫描只需通过链表顺序访问。\n\n",
-              "reasoning_content": "我们被要求对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景。需要解释它们的工作原理、优缺点、适用场景。应该结构化回答，分点说明。不需要特别深入代码细节，但需清晰。可能还要提及其他变体，比如 B-tree vs B+ tree，但重点是 B+ tree 和 LSM tree。强调读放大、写放大、空间放大等。适合场景：OLTP vs OLAP，写密集 vs 读密集。"
+              "content": "",
+              "reasoning_content": "We need to answer: \"Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention.\" The user wants a detailed explanation from matrix multiplication up to multi-head attention. Provide clear step-by-step description. The previous assistant had a short answer \"2+2 equals 4\" then \"?\" for Riemann hypothesis? Actually the user gave a series of prompts: \"What is 2+2? Answer in one sentence.\" then \"Now explain the Riemann hypothesis...\" but the assistant didn't"
             },
             "logprobs": null,
             "finish_reason": "length"
           }
         ],
         "usage": {
-          "prompt_tokens": 300,
-          "completion_tokens": 300,
-          "total_tokens": 600,
+          "prompt_tokens": 313,
+          "completion_tokens": 100,
+          "total_tokens": 413,
           "prompt_tokens_details": {
             "cached_tokens": 256
           },
           "completion_tokens_details": {
-            "reasoning_tokens": 105
+            "reasoning_tokens": 100
           },
           "prompt_cache_hit_tokens": 256,
-          "prompt_cache_miss_tokens": 44
+          "prompt_cache_miss_tokens": 57
         },
-        "system_fingerprint": "fp_9954b31ca7_prod0820_fp8_kvcache_20260402"
+        "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
       }
     }
   ]

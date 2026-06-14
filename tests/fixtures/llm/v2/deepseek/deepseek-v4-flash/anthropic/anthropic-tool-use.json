@@ -14,19 +14,19 @@
     ]
   },
   "response": {
-    "id": "8d97fe05-5b8d-446a-b87e-752ca5406ece",
+    "id": "9d0b061d-3d54-43ed-a2b9-1b63ec139e6a",
     "type": "message",
     "role": "assistant",
     "model": "deepseek-v4-flash",
     "content": [
       {
         "type": "thinking",
-        "thinking": "The user wants to know the weather in San Francisco. I can use the get_weather tool to find out.",
-        "signature": "8d97fe05-5b8d-446a-b87e-752ca5406ece"
+        "thinking": "The user wants to know the weather in San Francisco. Let me call the get_weather function for San Francisco.",
+        "signature": "9d0b061d-3d54-43ed-a2b9-1b63ec139e6a"
       },
       {
         "type": "tool_use",
-        "id": "call_00_xwGmddRbslRM8q1igf8i9882",
+        "id": "call_00_Vau98RhEyykRxCrGkYDe1551",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"
