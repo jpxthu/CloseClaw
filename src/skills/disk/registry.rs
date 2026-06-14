@@ -122,16 +122,40 @@ impl DiskSkillRegistry {
     /// - Within the same priority, sorts by name alphabetically
     /// - Filters: only includes skills where `agent_id` is empty or matches the given agent_id,
     ///   and `user_invocable` is true (skills with `user_invocable: false` are excluded)
+    /// - When `skills_whitelist` is `Some(list)`, only skills whose name appears in
+    ///   the list are included (unless the list is `["*"]`, which means no filter).
     /// - Format: `- **{name}**: {description}` + optionally ` — {when_to_use}`
     /// - Returns empty string if no skills match
-    pub fn generate_listing(&self, agent_id: Option<&str>) -> String {
+    pub fn generate_listing(
+        &self,
+        agent_id: Option<&str>,
+        skills_whitelist: Option<&[String]>,
+    ) -> String {
+        let use_whitelist = skills_whitelist
+            .filter(|w| !(w.len() == 1 && w[0] == "*"))
+            .map(|w| {
+                w.iter()
+                    .map(|s| s.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+            });
+
         let mut filtered: Vec<&DiskSkill> = self
             .skills
             .iter()
             .filter(|s| {
-                s.manifest.user_invocable
-                    && (s.manifest.agent_id.is_empty()
-                        || agent_id.map_or(true, |id| s.manifest.agent_id == id))
+                if !s.manifest.user_invocable {
+                    return false;
+                }
+                if !(s.manifest.agent_id.is_empty()
+                    || agent_id.map_or(true, |id| s.manifest.agent_id == id))
+                {
+                    return false;
+                }
+                if let Some(ref set) = use_whitelist {
+                    set.contains(s.manifest.name.as_str())
+                } else {
+                    true
+                }
             })
             .collect();
 

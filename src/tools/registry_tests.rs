@@ -51,6 +51,8 @@ fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
         available_tool_names: names.iter().map(|s| s.to_string()).collect(),
+        tools: None,
+        disallowed_tools: None,
     }
 }
 

@@ -52,6 +52,11 @@ impl SessionManager {
             session: None,
         };
         let workspace_root = self.workspace_dir.clone().unwrap_or_default();
+        let agent_cfg = self.get_agent_config(&agent_id).await;
+        let filters = agent_cfg
+            .as_ref()
+            .map(Self::extract_agent_filters)
+            .unwrap_or_default();
         let prompt = build_from_workspace(
             &workspace_root,
             WorkspaceBuildConfig {
@@ -60,6 +65,9 @@ impl SessionManager {
                 tool_ctx: &tool_ctx,
                 skill_registry,
                 agent_id: Some(&agent_id),
+                agent_tools: filters.agent_tools,
+                agent_disallowed_tools: filters.agent_disallowed_tools,
+                agent_skills: filters.agent_skills,
                 dynamic_sections: vec![],
                 append_section: None,
             },
