@@ -96,8 +96,8 @@ async fn test_config_validate_models_with_invalid_base_url() {
 // config list tests
 // -----------------------------------------------------------------
 
-#[tokio::test]
-async fn test_config_list_empty_dir() {
+#[test]
+fn test_config_list_empty_dir() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".closeclaw")).unwrap();
     let result = {
@@ -118,8 +118,8 @@ async fn test_config_list_empty_dir() {
     );
 }
 
-#[tokio::test]
-async fn test_config_list_no_config_dir() {
+#[test]
+fn test_config_list_no_config_dir() {
     let tmp = tempfile::tempdir().unwrap();
     let result = {
         let mut r = None;
@@ -337,8 +337,8 @@ async fn test_config_validate_system_invalid_session_mode() {
 // Step 1.2: config list with credentials directory
 // -----------------------------------------------------------------
 
-#[tokio::test]
-async fn test_config_list_discovers_credentials_files() {
+#[test]
+fn test_config_list_discovers_credentials_files() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".closeclaw").join("credentials")).unwrap();
     std::fs::write(
@@ -367,8 +367,8 @@ async fn test_config_list_discovers_credentials_files() {
     );
 }
 
-#[tokio::test]
-async fn test_config_list_empty_credentials_dir() {
+#[test]
+fn test_config_list_empty_credentials_dir() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join(".closeclaw").join("credentials")).unwrap();
     let result = {
@@ -393,8 +393,8 @@ async fn test_config_list_empty_credentials_dir() {
 // Step 1.4: handle_stop PID cleanup tests
 // -----------------------------------------------------------------
 
-#[tokio::test]
-async fn test_stop_pid_file_not_found() {
+#[test]
+fn test_stop_pid_file_not_found() {
     let tmp = tempfile::tempdir().unwrap();
     let result = {
         let mut r = None;
@@ -416,8 +416,8 @@ async fn test_stop_pid_file_not_found() {
     );
 }
 
-#[tokio::test]
-async fn test_stop_stale_pid_file_cleans_up() {
+#[test]
+fn test_stop_stale_pid_file_cleans_up() {
     let tmp = tempfile::tempdir().unwrap();
     let pid_file = tmp.path().join(".closeclaw").join("daemon.pid");
     std::fs::create_dir_all(pid_file.parent().unwrap()).unwrap();
