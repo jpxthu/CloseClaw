@@ -27,6 +27,10 @@ BashTool 的执行链路包含五层处理：
 | `run_in_background` | boolean | 否 | 设为 true 将命令放入后台执行，立即返回任务标识。agent 随后通过通知获取结果 |
 | `cwd` | string | 否 | 工作目录，默认为 session 的工作目录 |
 
+### 工具提示词
+
+Bash 工具的描述不包含工作目录和 Git 状态——这些上下文由 system prompt 动态层统一注入（WorkingDirectory + GitStatus Section），所有工具均可访问。单个工具不需要重复注入会话级信息。
+
 ### 超时控制
 
 命令执行有硬性时间限制。超时后子进程被终止，结果中标记 `interrupted: true`，已产生的 stdout/stderr 保留。
@@ -93,7 +97,6 @@ BashTool 的 call() 返回结果包含以下字段：
 | `interrupted` | boolean | 是否因超时被终止 |
 | `backgroundTaskId` | string | 后台任务标识（仅 `run_in_background: true` 或自动后台化时返回） |
 | `assistantAutoBackgrounded` | boolean | 是否因阻塞预算超时被自动转为后台 |
-| `backgroundedByUser` | boolean | 是否被用户手动转为后台 |
 | `persistedOutputPath` | string | 持久化输出文件路径（输出超过累积阈值时） |
 | `persistedOutputSize` | number | 持久化文件的原始字节数 |
 | `returnCodeInterpretation` | string | 非错误退出码的特殊语义说明（如 grep 的 0=命中、1=未命中） |
