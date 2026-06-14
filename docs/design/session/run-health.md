@@ -74,9 +74,9 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 
 **第一层：即时检测**。父 agent spawn 子 agent 后如果下一个 turn 没有调用 sessions_yield 而是继续做其他操作，系统注入提醒：「你有 N 个子 agent 仍在运行，建议 yield 等待结果」。这一层在 turn 边界触发，几乎零延迟。
 
-**第二层：定时巡检**。后台 sweeper 每 60 秒扫描所有活跃子 agent session。如果子 agent 已完成但 announce 未成功投递到父 session，触发重投递。这一层兜底第一层遗漏的投递失败。
+**第二层：定时巡检**。Run Health 模块内置 AnnounceSweeper，每 60 秒扫描所有活跃子 agent session。如果子 agent 已完成但 announce 未成功投递到父 session，触发重投递。这一层兜底第一层遗漏的投递失败。与 session-lifecycle 的 ArchiveSweeper（负责归档/清理，可配置间隔）是独立组件。
 
-**第三层：启动恢复**。系统重启后扫描 pending_operations 中未完成的 spawn 操作，重新注入 announce 或标记失败。这一层兜底进程崩溃导致的状态丢失。
+**第三层：启动恢复**。系统重启后扫描 pending_operations 中未完成的 spawn 操作，向父 session 注入恢复通知（告知有哪些子 session 未完成）。后续由 LLM 自行查询子 session 状态并决定重试或放弃——系统不替 agent 做自动判定。这一层兜底进程崩溃导致的状态丢失。
 
 ### 失败类别与处理
 

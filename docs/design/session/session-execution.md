@@ -38,7 +38,7 @@ Session 的整体状态由三维组合判定：
 |-----|----------|----------|-----------|---------|
 | Idle | 无 | 无 | 无 | **Idle**：完全空闲，等待输入 |
 | Idle | 无 | 有 | 无 | **Idle（后台活跃）**：可接受新输入，但需提示有后台任务 |
-| Idle | 无 | 无 | 有 Running | **Waiting**：等待子 session 完成 |
+| Idle | 无 | 无 | 有 Running | **Waiting**：被动检测——系统识别到子 session 运行中。agent 可通过 yield 主动进入阻塞式 Waiting |
 | Requesting / Receiving | * | * | * | **Busy**：LLM 交互中 |
 | * | 有前台 | * | * | **Busy**：工具执行中（阻塞） |
 
@@ -93,7 +93,12 @@ sessions_yield 是 agent 明确表达「我 spawn 完了，等结果」的工具
 
 #### Waiting 状态行为
 
-Waiting 状态下 session 的行为约束：
+Waiting 有两种进入方式，行为不同：
+
+- **被动 Waiting**：agent spawn 子 session 后未 yield，系统自动判定为 Waiting。此状态下 session 仍接受用户输入——agent 可以继续对话，子 agent 完成后通过 announce 消息在后续 turn 中注入
+- **主动 Waiting**：agent 调用 sessions_yield 后进入。此状态下用户消息排队、子 agent 完成后自动恢复。agent 选择 yield 意味着"在子 agent 完成之前我没有别的事要做"
+
+两种 Waiting 共同的约束：
 
 - **用户消息排队**：用户在此期间发送的消息进入等待队列，等 session 恢复后再处理
 - **子 agent 完成自动触发**：每收到一个子 agent 的完成 announce，系统注入到父 session 的消息队列
