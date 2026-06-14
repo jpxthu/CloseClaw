@@ -3,6 +3,8 @@
 //! Implements ConfigProvider trait for extensible config management.
 
 pub mod agent_loader;
+#[cfg(test)]
+mod agent_loader_tests;
 pub mod agents;
 pub mod backup;
 pub mod manager;
