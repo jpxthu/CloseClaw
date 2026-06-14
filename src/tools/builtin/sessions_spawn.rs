@@ -1,5 +1,6 @@
 //! Built-in sessions_spawn tool — creates child sessions for sub-agents.
 
+use crate::agent::prompt_template::PromptTemplate;
 use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::{SessionManager, SpawnMode};
@@ -32,6 +33,7 @@ struct SpawnArgs {
     mode_str: String,
     fork: bool,
     allowed_tools: Option<Vec<String>>,
+    prompt_template: Option<PromptTemplate>,
 }
 
 impl SessionsSpawnTool {
@@ -83,6 +85,12 @@ impl SessionsSpawnTool {
                     .collect::<Vec<String>>()
             })
             .filter(|v| !v.is_empty());
+        let prompt_template = args
+            .get("promptTemplate")
+            .and_then(|v| v.as_str())
+            .map(|s| s.parse::<PromptTemplate>())
+            .transpose()
+            .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
         Ok(SpawnArgs {
             task: task.to_string(),
             agent_id,
@@ -92,6 +100,7 @@ impl SessionsSpawnTool {
             mode_str: mode_str.to_string(),
             fork,
             allowed_tools,
+            prompt_template,
         })
     }
 
@@ -241,6 +250,11 @@ impl Tool for SessionsSpawnTool {
                         "type": "string"
                     },
                     "description": tools_desc
+                },
+                "promptTemplate": {
+                    "type": "string",
+                    "enum": ["explore", "validation"],
+                    "description": "Built-in prompt template to prepend to the task. 'explore' constrains read-only research; 'validation' enforces structured audit output."
                 }
             },
             "required": ["task"]
@@ -273,12 +287,17 @@ impl Tool for SessionsSpawnTool {
             .get_session_depth(parent_session_id)
             .await
             .unwrap_or(0);
+        // Prepend prompt template prefix to task if specified
+        let effective_task = match spawn_args.prompt_template {
+            Some(tpl) => format!("{}\n\n{}", tpl.prefix(), spawn_args.task),
+            None => spawn_args.task.clone(),
+        };
         let child_session_id = self
             .create_child(
                 &config,
                 parent_session_id,
                 parent_depth,
-                &spawn_args.task,
+                &effective_task,
                 spawn_args.light_context,
                 spawn_args.workspace.as_deref(),
                 spawn_args.mode,
