@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "path": "docs/design/agent/agent-config.md",
+    "commit": "bee5890a8780b03eabdb2661c28c4a4277c24025",
+    "commit_time": "2026-06-16T01:53:21+08:00",
+    "confirmed_time": "2026-06-16T02:02:41.978965+08:00",
+    "comment": ""
+  }
+]
