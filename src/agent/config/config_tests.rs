@@ -8,10 +8,6 @@ fn test_agent_config_save_load() {
         id: "test-id".to_string(),
         name: Some("Test Agent".to_string()),
         parent_id: Some("parent-id".to_string()),
-        communication: CommunicationConfig {
-            outbound: vec!["parent-id".to_string()],
-            inbound: vec!["parent-id".to_string()],
-        },
         ..Default::default()
     };
 
@@ -22,7 +18,6 @@ fn test_agent_config_save_load() {
     assert_eq!(loaded.id, config.id);
     assert_eq!(loaded.name, config.name);
     assert_eq!(loaded.parent_id, config.parent_id);
-    assert_eq!(loaded.communication.outbound, config.communication.outbound);
 }
 
 #[test]
@@ -56,6 +51,7 @@ fn test_permissions_save_load() {
 
 #[test]
 fn test_default_communication_config() {
+    // CommunicationConfig is still available as a standalone type.
     let with_parent = CommunicationConfig::default_with_parent(Some("parent-1"));
     assert_eq!(with_parent.outbound, vec!["parent-1"]);
     assert_eq!(with_parent.inbound, vec!["parent-1"]);
@@ -67,89 +63,56 @@ fn test_default_communication_config() {
 
 #[test]
 fn test_communication_allowed() {
-    let parent = AgentConfig {
-        id: "parent-1".to_string(),
-        name: Some("Parent".to_string()),
-        parent_id: None,
-        communication: CommunicationConfig {
-            outbound: vec!["child-1".to_string()],
-            inbound: vec!["child-1".to_string()],
-        },
-        ..Default::default()
+    // CommunicationConfig and check_communication_allowed still work as
+    // standalone functions, even though AgentConfig no longer has a
+    // communication field (removed in Step 1.4 - not in design doc).
+    let source_comm = CommunicationConfig {
+        outbound: vec!["child-1".to_string()],
+        inbound: vec!["child-1".to_string()],
     };
 
-    let child = AgentConfig {
-        id: "child-1".to_string(),
-        name: Some("Child".to_string()),
-        parent_id: Some("parent-1".to_string()),
-        communication: CommunicationConfig::default_with_parent(Some("parent-1")),
-        ..Default::default()
-    };
+    let target_comm = CommunicationConfig::default_with_parent(Some("parent-1"));
 
     // Parent -> Child should be allowed
-    let result = check_communication_allowed(&parent, &child);
+    let result = check_communication_allowed(&source_comm, "parent-1", &target_comm, "child-1");
     assert_eq!(result, CommunicationCheckResult::Allowed);
 
     // Child -> Parent should be allowed
-    let result = check_communication_allowed(&child, &parent);
+    let result = check_communication_allowed(&target_comm, "child-1", &source_comm, "parent-1");
     assert_eq!(result, CommunicationCheckResult::Allowed);
 }
 
 #[test]
 fn test_communication_denied_outbound() {
-    let agent_a = AgentConfig {
-        id: "agent-a".to_string(),
-        name: Some("Agent A".to_string()),
-        parent_id: None,
-        communication: CommunicationConfig {
-            outbound: vec!["agent-b".to_string()],
-            inbound: vec!["agent-b".to_string()],
-        },
-        ..Default::default()
+    let agent_a_comm = CommunicationConfig {
+        outbound: vec!["agent-b".to_string()],
+        inbound: vec!["agent-b".to_string()],
     };
 
-    let agent_c = AgentConfig {
-        id: "agent-c".to_string(),
-        name: Some("Agent C".to_string()),
-        parent_id: None,
-        communication: CommunicationConfig {
-            outbound: vec![],
-            inbound: vec![],
-        },
-        ..Default::default()
+    let agent_c_comm = CommunicationConfig {
+        outbound: vec![],
+        inbound: vec![],
     };
 
     // Agent A -> Agent C: A's outbound doesn't contain C
-    let result = check_communication_allowed(&agent_a, &agent_c);
+    let result = check_communication_allowed(&agent_a_comm, "agent-a", &agent_c_comm, "agent-c");
     assert_eq!(result, CommunicationCheckResult::TargetNotInSourceOutbound);
 }
 
 #[test]
 fn test_communication_denied_inbound() {
-    let agent_a = AgentConfig {
-        id: "agent-a".to_string(),
-        name: Some("Agent A".to_string()),
-        parent_id: None,
-        communication: CommunicationConfig {
-            outbound: vec!["agent-b".to_string()],
-            inbound: vec!["agent-b".to_string()],
-        },
-        ..Default::default()
+    let agent_a_comm = CommunicationConfig {
+        outbound: vec!["agent-b".to_string()],
+        inbound: vec!["agent-b".to_string()],
     };
 
-    let agent_b = AgentConfig {
-        id: "agent-b".to_string(),
-        name: Some("Agent B".to_string()),
-        parent_id: None,
-        communication: CommunicationConfig {
-            outbound: vec![],
-            inbound: vec![], // B doesn't accept inbound from anyone
-        },
-        ..Default::default()
+    let agent_b_comm = CommunicationConfig {
+        outbound: vec![],
+        inbound: vec![], // B doesn't accept inbound from anyone
     };
 
     // Agent A -> Agent B: A's outbound contains B, but B's inbound doesn't contain A
-    let result = check_communication_allowed(&agent_a, &agent_b);
+    let result = check_communication_allowed(&agent_a_comm, "agent-a", &agent_b_comm, "agent-b");
     assert_eq!(result, CommunicationCheckResult::SourceNotInTargetInbound);
 }
 

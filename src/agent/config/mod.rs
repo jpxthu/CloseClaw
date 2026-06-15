@@ -9,6 +9,8 @@ use std::path::Path;
 pub use crate::agent::communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig,
 };
+// Note: CommunicationConfig is re-exported for backward compatibility but the
+// field is removed from AgentConfig (Step 1.4 - not in design doc).
 use crate::session::bootstrap::BootstrapMode;
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
@@ -24,19 +26,7 @@ pub struct AgentConfig {
     /// Parent agent ID (if this agent was spawned by another).
     #[serde(default)]
     pub parent_id: Option<String>,
-    /// Communication whitelist configuration.
-    #[serde(default)]
-    pub communication: CommunicationConfig,
-    /// Wait timeout for graceful child agent shutdown (seconds).
-    /// None means use registry-level default (30s).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wait_timeout_secs: Option<u64>,
-    /// Grace period after wait timeout before SIGTERM/SIGKILL (seconds).
-    /// None means use registry-level default (10s).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grace_period_secs: Option<u64>,
-
-    // === New fields from design doc ===
+    // === Fields from design doc ===
     /// Default LLM model for this agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -122,9 +112,6 @@ impl Default for AgentConfig {
             id: String::new(),
             name: None,
             parent_id: None,
-            communication: CommunicationConfig::default(),
-            wait_timeout_secs: None,
-            grace_period_secs: None,
             model: None,
             workspace: None,
             agent_dir: None,

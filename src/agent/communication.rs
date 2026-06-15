@@ -1,6 +1,5 @@
 //! Agent communication permission checks.
 
-use crate::agent::config::AgentConfig;
 use serde::{Deserialize, Serialize};
 
 /// Communication whitelist for an agent.
@@ -47,19 +46,18 @@ pub enum CommunicationCheckResult {
 }
 
 /// Check if communication from source to target is allowed.
-/// Returns the result of the central arbiter logic.
+/// Uses standalone communication configs and agent IDs.
 pub fn check_communication_allowed(
-    source_config: &AgentConfig,
-    target_config: &AgentConfig,
+    source_config: &CommunicationConfig,
+    source_id: &str,
+    target_config: &CommunicationConfig,
+    target_id: &str,
 ) -> CommunicationCheckResult {
-    if !source_config.communication.can_send_to(&target_config.id) {
+    if !source_config.can_send_to(target_id) {
         return CommunicationCheckResult::TargetNotInSourceOutbound;
     }
 
-    if !target_config
-        .communication
-        .can_receive_from(&source_config.id)
-    {
+    if !target_config.can_receive_from(source_id) {
         return CommunicationCheckResult::SourceNotInTargetInbound;
     }
 
