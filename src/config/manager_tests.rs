@@ -416,7 +416,9 @@ fn test_agent_permissions_missing_file_returns_default() {
 
     // Create agents.json with one registered agent
     let agents_json = r#"{ "version": "1.0", "agents": ["test-agent"] }"#;
-    fs::write(tmp.path().join("agents.json"), agents_json).unwrap();
+    let agents_dir = tmp.path().join("config");
+    fs::create_dir_all(&agents_dir).unwrap();
+    fs::write(agents_dir.join("agents.json"), agents_json).unwrap();
 
     // Create agent directory with config.json but NO permissions.json
     let agent_dir = tmp.path().join("agents").join("test-agent");

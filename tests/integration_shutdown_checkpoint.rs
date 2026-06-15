@@ -236,8 +236,9 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
     let config_dir = temp_dir.path();
 
     // Write minimal agents.json so daemon starts successfully
+    std::fs::create_dir_all(config_dir.join("config")).expect("create config dir");
     std::fs::write(
-        config_dir.join("agents.json"),
+        config_dir.join("config").join("agents.json"),
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write agents.json");

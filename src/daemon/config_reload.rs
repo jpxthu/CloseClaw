@@ -43,16 +43,18 @@ fn setup_watcher(
     let config_path = Path::new(config_dir);
     let agents_dir = config_path.join("agents");
 
+    let agents_json_path = config_path.join("config").join("agents.json");
+
     let config_files: Vec<PathBuf> = [
         "models.json",
         "channels.json",
         "gateway.json",
         "plugins.json",
         "system.json",
-        "agents.json",
     ]
     .iter()
     .map(|f| config_path.join(f))
+    .chain(std::iter::once(agents_json_path))
     .collect();
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>(64);
@@ -186,17 +188,18 @@ pub(crate) fn init_config_hot_reload(
 
     let config_path = Path::new(config_dir);
     let agents_dir = config_path.join("agents");
+    let agents_json_path = config_path.join("config").join("agents.json");
     let watch_count = [
         "models.json",
         "channels.json",
         "gateway.json",
         "plugins.json",
         "system.json",
-        "agents.json",
     ]
     .iter()
     .filter(|f| config_path.join(f).exists())
     .count()
+        + if agents_json_path.exists() { 1 } else { 0 }
         + if agents_dir.exists() { 1 } else { 0 };
 
     info!(

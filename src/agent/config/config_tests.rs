@@ -8,13 +8,6 @@ fn test_agent_config_save_load() {
         id: "test-id".to_string(),
         name: Some("Test Agent".to_string()),
         parent_id: Some("parent-id".to_string()),
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: CommunicationConfig {
-            outbound: vec!["parent-id".to_string()],
-            inbound: vec!["parent-id".to_string()],
-        },
         ..Default::default()
     };
 
@@ -25,8 +18,6 @@ fn test_agent_config_save_load() {
     assert_eq!(loaded.id, config.id);
     assert_eq!(loaded.name, config.name);
     assert_eq!(loaded.parent_id, config.parent_id);
-    assert_eq!(loaded.max_child_depth, config.max_child_depth);
-    assert_eq!(loaded.communication.outbound, config.communication.outbound);
 }
 
 #[test]
@@ -60,6 +51,7 @@ fn test_permissions_save_load() {
 
 #[test]
 fn test_default_communication_config() {
+    // CommunicationConfig is still available as a standalone type.
     let with_parent = CommunicationConfig::default_with_parent(Some("parent-1"));
     assert_eq!(with_parent.outbound, vec!["parent-1"]);
     assert_eq!(with_parent.inbound, vec!["parent-1"]);
@@ -71,107 +63,56 @@ fn test_default_communication_config() {
 
 #[test]
 fn test_communication_allowed() {
-    let parent = AgentConfig {
-        id: "parent-1".to_string(),
-        name: Some("Parent".to_string()),
-        parent_id: None,
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: CommunicationConfig {
-            outbound: vec!["child-1".to_string()],
-            inbound: vec!["child-1".to_string()],
-        },
-        ..Default::default()
+    // CommunicationConfig and check_communication_allowed still work as
+    // standalone functions, even though AgentConfig no longer has a
+    // communication field (removed in Step 1.4 - not in design doc).
+    let source_comm = CommunicationConfig {
+        outbound: vec!["child-1".to_string()],
+        inbound: vec!["child-1".to_string()],
     };
 
-    let child = AgentConfig {
-        id: "child-1".to_string(),
-        name: Some("Child".to_string()),
-        parent_id: Some("parent-1".to_string()),
-        max_child_depth: 1,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: CommunicationConfig::default_with_parent(Some("parent-1")),
-        ..Default::default()
-    };
+    let target_comm = CommunicationConfig::default_with_parent(Some("parent-1"));
 
     // Parent -> Child should be allowed
-    let result = check_communication_allowed(&parent, &child);
+    let result = check_communication_allowed(&source_comm, "parent-1", &target_comm, "child-1");
     assert_eq!(result, CommunicationCheckResult::Allowed);
 
     // Child -> Parent should be allowed
-    let result = check_communication_allowed(&child, &parent);
+    let result = check_communication_allowed(&target_comm, "child-1", &source_comm, "parent-1");
     assert_eq!(result, CommunicationCheckResult::Allowed);
 }
 
 #[test]
 fn test_communication_denied_outbound() {
-    let agent_a = AgentConfig {
-        id: "agent-a".to_string(),
-        name: Some("Agent A".to_string()),
-        parent_id: None,
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: CommunicationConfig {
-            outbound: vec!["agent-b".to_string()],
-            inbound: vec!["agent-b".to_string()],
-        },
-        ..Default::default()
+    let agent_a_comm = CommunicationConfig {
+        outbound: vec!["agent-b".to_string()],
+        inbound: vec!["agent-b".to_string()],
     };
 
-    let agent_c = AgentConfig {
-        id: "agent-c".to_string(),
-        name: Some("Agent C".to_string()),
-        parent_id: None,
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: CommunicationConfig {
-            outbound: vec![],
-            inbound: vec![],
-        },
-        ..Default::default()
+    let agent_c_comm = CommunicationConfig {
+        outbound: vec![],
+        inbound: vec![],
     };
 
     // Agent A -> Agent C: A's outbound doesn't contain C
-    let result = check_communication_allowed(&agent_a, &agent_c);
+    let result = check_communication_allowed(&agent_a_comm, "agent-a", &agent_c_comm, "agent-c");
     assert_eq!(result, CommunicationCheckResult::TargetNotInSourceOutbound);
 }
 
 #[test]
 fn test_communication_denied_inbound() {
-    let agent_a = AgentConfig {
-        id: "agent-a".to_string(),
-        name: Some("Agent A".to_string()),
-        parent_id: None,
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: CommunicationConfig {
-            outbound: vec!["agent-b".to_string()],
-            inbound: vec!["agent-b".to_string()],
-        },
-        ..Default::default()
+    let agent_a_comm = CommunicationConfig {
+        outbound: vec!["agent-b".to_string()],
+        inbound: vec!["agent-b".to_string()],
     };
 
-    let agent_b = AgentConfig {
-        id: "agent-b".to_string(),
-        name: Some("Agent B".to_string()),
-        parent_id: None,
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: CommunicationConfig {
-            outbound: vec![],
-            inbound: vec![], // B doesn't accept inbound from anyone
-        },
-        ..Default::default()
+    let agent_b_comm = CommunicationConfig {
+        outbound: vec![],
+        inbound: vec![], // B doesn't accept inbound from anyone
     };
 
     // Agent A -> Agent B: A's outbound contains B, but B's inbound doesn't contain A
-    let result = check_communication_allowed(&agent_a, &agent_b);
+    let result = check_communication_allowed(&agent_a_comm, "agent-a", &agent_b_comm, "agent-b");
     assert_eq!(result, CommunicationCheckResult::SourceNotInTargetInbound);
 }
 
@@ -349,88 +290,6 @@ fn test_agent_config_camel_case_parse() {
     assert_eq!(config.subagents.model, None);
 }
 
-#[test]
-fn test_max_depth_allowed() {
-    // Root agent with max_child_depth=3, currently at depth 0
-    let root = AgentConfig {
-        id: "root".to_string(),
-        name: Some("Root".to_string()),
-        parent_id: None,
-        max_child_depth: 3,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: Default::default(),
-        ..Default::default()
-    };
-
-    // No parents, so depth = 0, max_child_depth = 3
-    // Can spawn (0 < 3), max_allowed for child = 2
-    let result = check_max_depth(&root, |_: &str| None);
-    match result {
-        MaxDepthCheckResult::Allowed {
-            current_depth,
-            max_allowed,
-        } => {
-            assert_eq!(current_depth, 0);
-            assert_eq!(max_allowed, 2); // 3 - 1
-        }
-        _ => panic!("expected Allowed"),
-    }
-}
-
-#[test]
-fn test_max_depth_exceeded() {
-    // Agent at depth 3, max_child_depth=2 (already exceeded!)
-    let leaf = AgentConfig {
-        id: "leaf".to_string(),
-        name: Some("Leaf".to_string()),
-        parent_id: Some("parent".to_string()),
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: Default::default(),
-        ..Default::default()
-    };
-
-    // Simulate: root -> child1 -> child2 -> leaf (depth 3)
-    let get_parent = |id: &str| match id {
-        "parent" => Some(AgentConfig {
-            id: "parent".to_string(),
-            name: Some("Parent".to_string()),
-            parent_id: Some("grandparent".to_string()),
-            max_child_depth: 2,
-            created_at: Utc::now(),
-            state: AgentConfigState::Running,
-            communication: Default::default(),
-            ..Default::default()
-        }),
-        "grandparent" => Some(AgentConfig {
-            id: "grandparent".to_string(),
-            name: Some("Grandparent".to_string()),
-            parent_id: None,
-            max_child_depth: 3,
-            created_at: Utc::now(),
-            state: AgentConfigState::Running,
-            communication: Default::default(),
-            ..Default::default()
-        }),
-        _ => None,
-    };
-
-    let result = check_max_depth(&leaf, get_parent);
-    match result {
-        MaxDepthCheckResult::ExceedsMaxDepth {
-            current_depth,
-            max_child_depth,
-        } => {
-            // leaf has 2 ancestors (parent + grandparent) = depth 2
-            assert_eq!(current_depth, 2);
-            assert_eq!(max_child_depth, 2);
-        }
-        _ => panic!("expected ExceedsMaxDepth"),
-    }
-}
-
 // Step 1.5 — Tests for optional name and id fallback
 
 #[test]
@@ -497,4 +356,65 @@ fn test_resolved_config_merge_name_fallback() {
     assert_eq!(resolved.id, "agent-z");
     assert_eq!(resolved.name, "agent-z");
     assert_eq!(resolved.source, ConfigSource::Merged);
+}
+
+// Step 1.2–1.4 — Reverse serde: unknown fields from removed fields are
+// silently ignored. This ensures backward compatibility with old config
+// files that still contain deprecated fields.
+
+#[test]
+fn test_agent_config_ignores_removed_fields() {
+    // JSON contains all fields removed in Steps 1.2–1.4:
+    // - max_child_depth (Step 1.2)
+    // - state, created_at (Step 1.3)
+    // - communication, wait_timeout_secs, grace_period_secs (Step 1.4)
+    let json = r#"{
+        "id": "legacy-agent",
+        "name": "Legacy Agent",
+        "max_child_depth": 5,
+        "created_at": "2025-01-15T10:30:00Z",
+        "state": "running",
+        "communication": {
+            "outbound": ["child-1"],
+            "inbound": ["parent-1"]
+        },
+        "wait_timeout_secs": 30,
+        "grace_period_secs": 10,
+        "model": "gpt-4o"
+    }"#;
+
+    // Must deserialize without error — unknown fields are ignored.
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.id, "legacy-agent");
+    assert_eq!(config.name, Some("Legacy Agent".to_string()));
+    assert_eq!(config.model, Some("gpt-4o".to_string()));
+
+    // Ensure removed fields are NOT present on the struct.
+    // (Compile-time check: these fields don't exist on AgentConfig.)
+    let json_str = serde_json::to_string(&config).unwrap();
+    let reparsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+    assert!(
+        reparsed.get("max_child_depth").is_none(),
+        "max_child_depth should not be serialized"
+    );
+    assert!(
+        reparsed.get("state").is_none(),
+        "state should not be serialized"
+    );
+    assert!(
+        reparsed.get("createdAt").is_none(),
+        "createdAt should not be serialized"
+    );
+    assert!(
+        reparsed.get("communication").is_none(),
+        "communication should not be serialized"
+    );
+    assert!(
+        reparsed.get("waitTimeoutSecs").is_none(),
+        "waitTimeoutSecs should not be serialized"
+    );
+    assert!(
+        reparsed.get("gracePeriodSecs").is_none(),
+        "gracePeriodSecs should not be serialized"
+    );
 }

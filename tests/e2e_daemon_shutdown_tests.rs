@@ -99,7 +99,9 @@ async fn test_drain_signal_broadcast() {
 async fn test_daemon_run_sigterm_shutdown() {
     // Create temp dir with minimal agents.json
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
-    let agents_path = temp_dir.path().join("agents.json");
+    let config_dir = temp_dir.path().join("config");
+    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    let agents_path = config_dir.join("agents.json");
     std::fs::write(&agents_path, r#"{"version":"1.0.0","agents":[]}"#).expect("write agents.json");
 
     // Do NOT set FEISHU/LLM env vars — Daemon::start will skip those components
