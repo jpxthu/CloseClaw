@@ -64,7 +64,7 @@ fn test_validate_and_inject_spawn_success() {
     let child = make_allowed_perms("child");
     let parent = make_allowed_perms("parent");
 
-    let result = engine.validate_and_inject_spawn("child", &child, &parent);
+    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
     assert!(result.is_ok());
 
     // Verify cache was populated
@@ -78,7 +78,7 @@ fn test_validate_and_inject_spawn_fully_denied() {
     let child = make_fully_denied_perms("child");
     let parent = make_allowed_perms("parent");
 
-    let result = engine.validate_and_inject_spawn("child", &child, &parent);
+    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
     assert!(result.is_err());
     match result.unwrap_err() {
         SpawnPermissionError::FullyDenied {
@@ -88,6 +88,7 @@ fn test_validate_and_inject_spawn_fully_denied() {
             assert_eq!(child_agent_id, "child");
             assert_eq!(parent_agent_id, "parent");
         }
+        other => panic!("expected FullyDenied, got {:?}", other),
     }
 
     // Verify cache was NOT populated
@@ -103,10 +104,10 @@ fn test_validate_and_inject_spawn_idempotent() {
 
     // First call succeeds
     engine
-        .validate_and_inject_spawn("child", &child, &parent)
+        .validate_and_inject_spawn("child", &child, &parent, None, None)
         .unwrap();
     // Second call succeeds (idempotent)
-    let result = engine.validate_and_inject_spawn("child", &child, &parent);
+    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
     assert!(result.is_ok());
 }
 
@@ -246,7 +247,13 @@ fn test_concurrent_spawn_and_evaluate() {
         let parent = Arc::clone(&parent);
         handles.push(thread::spawn(move || {
             let child = make_allowed_perms(&format!("child-{}", i));
-            let result = engine.validate_and_inject_spawn(&format!("child-{}", i), &child, &parent);
+            let result = engine.validate_and_inject_spawn(
+                &format!("child-{}", i),
+                &child,
+                &parent,
+                None,
+                None,
+            );
             assert!(result.is_ok());
         }));
     }

@@ -138,7 +138,7 @@ impl SessionsSpawnTool {
                 });
             if let Some(parent_perms) = parent_perms {
                 self.permission_engine
-                    .validate_and_inject_spawn(&config.id, &child_perms, &parent_perms)
+                    .validate_and_inject_spawn(&config.id, &child_perms, &parent_perms, None, None)
                     .map_err(|e| {
                         ToolCallError::ExecutionFailed(format!("spawn permission denied: {}", e))
                     })?;
