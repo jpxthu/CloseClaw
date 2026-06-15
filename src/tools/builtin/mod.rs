@@ -77,6 +77,7 @@ pub async fn register_builtin_tools(
     spawn_controller: Arc<SpawnController>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<crate::config::ConfigManager>,
+    agent_registry: Arc<crate::agent::registry::AgentRegistry>,
 ) {
     // file_ops
     registry.register(ReadTool::new()).await.ok();
@@ -118,6 +119,7 @@ pub async fn register_builtin_tools(
             session_manager.clone(),
             permission_engine.clone(),
             config_manager,
+            agent_registry,
         ))
         .await
         .ok();

@@ -70,7 +70,7 @@ mod llm_init;
 /// Global daemon state
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
-    pub agent_registry: Arc<RwLock<crate::agent::registry::AgentRegistry>>,
+    pub agent_registry: Arc<crate::agent::registry::AgentRegistry>,
     pub permission_engine: Arc<PermissionEngine>,
     pub shutdown: shutdown::ShutdownHandle,
     /// SQLite storage for session persistence
@@ -163,7 +163,7 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
-        let agent_registry = Arc::new(RwLock::new(crate::agent::registry::AgentRegistry::new(30)));
+        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new(30));
         info!("Agent registry initialized",);
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
@@ -249,15 +249,33 @@ impl Daemon {
                     );
                 }
 
+                // Populate AgentRegistry with resolved configs from ConfigManager.
+                // This fulfills the design-doc startup flow:
+                //   ConfigManager.load_agents() → AgentRegistry.populate()
+                {
+                    let configs: Vec<_> = config_manager
+                        .agents()
+                        .into_iter()
+                        .map(|(_, c)| c)
+                        .collect();
+                    agent_registry.populate(configs).await;
+                }
+
                 // Pass config_manager to SessionManager for agent tool/skill filtering.
                 session_manager
                     .set_config_manager(Arc::clone(&config_manager))
+                    .await;
+
+                // Pass agent_registry to SessionManager for design-doc config queries.
+                session_manager
+                    .set_agent_registry(Arc::clone(&agent_registry))
                     .await;
 
                 // Initialize config hot-reload: watch JSON files + agents/ dir
                 config_watcher = match config_reload::init_config_hot_reload(
                     config_dir,
                     Arc::clone(&config_manager),
+                    Arc::clone(&agent_registry),
                 ) {
                     Ok(handle) => Some(handle),
                     Err(e) => {
@@ -281,6 +299,7 @@ impl Daemon {
                     spawn_controller,
                     Arc::clone(&session_manager),
                     Arc::clone(&config_manager),
+                    Arc::clone(&agent_registry),
                 )
                 .await;
             }

@@ -298,6 +298,7 @@ async fn test_find_or_create_with_tool_registry() {
             .expect("failed to create ConfigManager for test"),
     );
     let spawn_controller = Arc::new(SpawnController::new(Arc::clone(&cfg_mgr), Arc::clone(&mgr)));
+    let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new(30));
     register_builtin_tools(
         &tool_registry,
         disk_reg,
@@ -305,6 +306,7 @@ async fn test_find_or_create_with_tool_registry() {
         spawn_controller,
         Arc::clone(&mgr),
         Arc::clone(&cfg_mgr),
+        agent_registry,
     )
     .await;
     mgr.set_tool_registry(tool_registry).await;
