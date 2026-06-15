@@ -137,8 +137,20 @@ impl SessionsSpawnTool {
                         .cloned()
                 });
             if let Some(parent_perms) = parent_perms {
+                // Get user_id from parent session checkpoint for three-way intersection.
+                let user_id = self.session_manager.get_sender_id(parent_session_id).await;
+                let user_perms = user_id.as_ref().map(|uid| {
+                    self.permission_engine
+                        .evaluate_user_permissions(uid, &config.id)
+                });
                 self.permission_engine
-                    .validate_and_inject_spawn(&config.id, &child_perms, &parent_perms, None, None)
+                    .validate_and_inject_spawn(
+                        &config.id,
+                        &child_perms,
+                        &parent_perms,
+                        user_perms.as_ref(),
+                        user_id.as_deref(),
+                    )
                     .map_err(|e| {
                         ToolCallError::ExecutionFailed(format!("spawn permission denied: {}", e))
                     })?;

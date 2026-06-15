@@ -15,7 +15,7 @@ use tracing::info;
 /// Permission Engine - evaluates access requests against rules
 pub struct PermissionEngine {
     /// RuleSet
-    rules: RuleSet,
+    pub(crate) rules: RuleSet,
     /// O(1) lookup index: agent_id -> list of rule indices
     agent_rule_index: HashMap<String, Vec<usize>>,
     /// O(1) lookup index: "{user_id}:{agent_id}" -> list of rule indices
@@ -303,7 +303,7 @@ impl PermissionEngine {
 
     /// Collect Subject::UserAndAgent candidate rule indices via user_agent_rule_index (O(1)),
     /// then via Glob fallback if no exact match (matches UserAndAgent only).
-    fn collect_user_agent_candidates(
+    pub(crate) fn collect_user_agent_candidates(
         &self,
         caller: &super::engine_types::Caller,
         agent_id: &str,
@@ -329,7 +329,7 @@ impl PermissionEngine {
     }
 
     /// Steps 3-4: Expand templates, then evaluate rules (deny-precedence).
-    fn match_rules(
+    pub(crate) fn match_rules(
         &self,
         candidates: &[usize],
         rules: &RuleSet,

@@ -2,6 +2,7 @@
 
 use super::engine_types::{PermissionRequestBody, PermissionResponse};
 use crate::agent::config::AgentPermissions;
+use std::collections::HashMap;
 use thiserror::Error;
 
 /// Error type for spawn permission validation failures.
@@ -192,6 +193,106 @@ impl super::engine_eval::PermissionEngine {
                     })
                 }
             }
+        }
+    }
+}
+
+// --- User permissions evaluation from RuleSet ---
+
+impl super::engine_eval::PermissionEngine {
+    /// Evaluate user permissions across all dimensions for a given user and agent,
+    /// returning an `AgentPermissions` that can be used for spawn-time intersection.
+    ///
+    /// Iterates over each permission dimension (exec, file_read, file_write, network,
+    /// spawn, tool_call, config_write), constructs a representative request body,
+    /// evaluates the User phase (UserAndAgent rules only), and collects the results
+    /// into an `AgentPermissions`.
+    pub fn evaluate_user_permissions(&self, user_id: &str, agent_id: &str) -> AgentPermissions {
+        let dimensions = [
+            (
+                "exec",
+                PermissionRequestBody::CommandExec {
+                    agent: agent_id.to_string(),
+                    cmd: String::new(),
+                    args: Vec::new(),
+                },
+            ),
+            (
+                "file_read",
+                PermissionRequestBody::FileOp {
+                    agent: agent_id.to_string(),
+                    path: String::new(),
+                    op: "read".to_string(),
+                },
+            ),
+            (
+                "file_write",
+                PermissionRequestBody::FileOp {
+                    agent: agent_id.to_string(),
+                    path: String::new(),
+                    op: "write".to_string(),
+                },
+            ),
+            (
+                "network",
+                PermissionRequestBody::NetOp {
+                    agent: agent_id.to_string(),
+                    host: String::new(),
+                    port: 0,
+                },
+            ),
+            (
+                "spawn",
+                PermissionRequestBody::InterAgentMsg {
+                    from: agent_id.to_string(),
+                    to: String::new(),
+                },
+            ),
+            (
+                "tool_call",
+                PermissionRequestBody::ToolCall {
+                    agent: agent_id.to_string(),
+                    skill: String::new(),
+                    method: String::new(),
+                },
+            ),
+            (
+                "config_write",
+                PermissionRequestBody::ConfigWrite {
+                    agent: agent_id.to_string(),
+                    config_file: String::new(),
+                },
+            ),
+        ];
+
+        let caller = super::engine_types::Caller {
+            user_id: user_id.to_string(),
+            agent: agent_id.to_string(),
+            creator_id: String::new(),
+        };
+        let rules = self.rules.clone();
+
+        let mut permissions = HashMap::with_capacity(dimensions.len());
+        for (dim, body) in &dimensions {
+            let candidates = self.collect_user_agent_candidates(&caller, agent_id, &rules);
+            let result = self.match_rules(&candidates, &rules, &caller, body);
+            let allowed = matches!(
+                result,
+                Some(super::engine_types::PermissionResponse::Allowed { .. })
+            );
+            permissions.insert(
+                dim.to_string(),
+                crate::agent::config::ActionPermission {
+                    allowed,
+                    limits: crate::agent::config::PermissionLimits::default(),
+                },
+            );
+        }
+
+        AgentPermissions {
+            agent_id: agent_id.to_string(),
+            permissions,
+            inherited_from: None,
         }
     }
 }
