@@ -357,3 +357,64 @@ fn test_resolved_config_merge_name_fallback() {
     assert_eq!(resolved.name, "agent-z");
     assert_eq!(resolved.source, ConfigSource::Merged);
 }
+
+// Step 1.2–1.4 — Reverse serde: unknown fields from removed fields are
+// silently ignored. This ensures backward compatibility with old config
+// files that still contain deprecated fields.
+
+#[test]
+fn test_agent_config_ignores_removed_fields() {
+    // JSON contains all fields removed in Steps 1.2–1.4:
+    // - max_child_depth (Step 1.2)
+    // - state, created_at (Step 1.3)
+    // - communication, wait_timeout_secs, grace_period_secs (Step 1.4)
+    let json = r#"{
+        "id": "legacy-agent",
+        "name": "Legacy Agent",
+        "max_child_depth": 5,
+        "created_at": "2025-01-15T10:30:00Z",
+        "state": "running",
+        "communication": {
+            "outbound": ["child-1"],
+            "inbound": ["parent-1"]
+        },
+        "wait_timeout_secs": 30,
+        "grace_period_secs": 10,
+        "model": "gpt-4o"
+    }"#;
+
+    // Must deserialize without error — unknown fields are ignored.
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.id, "legacy-agent");
+    assert_eq!(config.name, Some("Legacy Agent".to_string()));
+    assert_eq!(config.model, Some("gpt-4o".to_string()));
+
+    // Ensure removed fields are NOT present on the struct.
+    // (Compile-time check: these fields don't exist on AgentConfig.)
+    let json_str = serde_json::to_string(&config).unwrap();
+    let reparsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+    assert!(
+        reparsed.get("max_child_depth").is_none(),
+        "max_child_depth should not be serialized"
+    );
+    assert!(
+        reparsed.get("state").is_none(),
+        "state should not be serialized"
+    );
+    assert!(
+        reparsed.get("createdAt").is_none(),
+        "createdAt should not be serialized"
+    );
+    assert!(
+        reparsed.get("communication").is_none(),
+        "communication should not be serialized"
+    );
+    assert!(
+        reparsed.get("waitTimeoutSecs").is_none(),
+        "waitTimeoutSecs should not be serialized"
+    );
+    assert!(
+        reparsed.get("gracePeriodSecs").is_none(),
+        "gracePeriodSecs should not be serialized"
+    );
+}
