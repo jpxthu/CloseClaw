@@ -30,7 +30,7 @@ use crate::session::storage::SqliteStorage;
 use crate::session::sweeper::ArchiveSweeper;
 use crate::skills::builtin::builtin_skills_with_engine_and_approval_flow;
 use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
-use crate::tools::builtin::register_builtin_tools;
+use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
 use crate::tools::ToolRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -292,16 +292,15 @@ impl Daemon {
                     Arc::clone(&config_manager),
                     Arc::clone(&session_manager),
                 ));
-                register_builtin_tools(
-                    &tool_registry,
-                    disk_reg,
-                    Arc::clone(&permission_engine),
+                let builtin_ctx = Arc::new(BuiltinToolContext {
+                    config_manager: Arc::clone(&config_manager),
+                    agent_registry: Arc::clone(&agent_registry),
+                    disk_registry: disk_reg,
+                    permission_engine: Arc::clone(&permission_engine),
                     spawn_controller,
-                    Arc::clone(&session_manager),
-                    Arc::clone(&config_manager),
-                    Arc::clone(&agent_registry),
-                )
-                .await;
+                    session_manager: Arc::clone(&session_manager),
+                });
+                register_builtin_tools(&tool_registry, builtin_ctx).await;
             }
         }
 
