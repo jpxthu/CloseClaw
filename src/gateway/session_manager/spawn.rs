@@ -12,7 +12,6 @@ use crate::llm::session::ChatSession;
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use crate::session::persistence::PendingMessage;
-use crate::session::workspace;
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::ToolContext;
@@ -275,8 +274,9 @@ impl SessionManager {
     /// Fallback order:
     /// 1. Explicit `workspace` arg (if provided) — used as-is.
     /// 2. `config.workspace` (if set).
-    /// 3. `<parent_workspace>/<child_agent_id>/` — subdirectory under the
-    ///    parent session's workspace.
+    /// 3. `<parent_workspace>/<child_agent_id>/<user_id>/` — subdirectory under the
+    ///    parent session's workspace, using the actual user_id from the parent's
+    ///    session context (fallback to "default" if unavailable).
     /// 4. `/tmp` (last resort).
     async fn resolve_child_workspace(
         &self,
@@ -305,8 +305,17 @@ impl SessionManager {
         };
         if let Some(make_parent_ws) = parent_workspace {
             let parent_ws = make_parent_ws.await;
-            return workspace::ensure_workspace_dir(&parent_ws, &config.id, "default")
-                .map_err(|e| format!("workspace creation failed: {}", e));
+            // Use actual user_id from parent session context instead of
+            // hardcoding "default", per design doc: workspace path =
+            // <parent_workspace>/<child_agent_id>/<user_id>/.
+            let user_id = self
+                .get_sender_id(parent_session_id)
+                .await
+                .unwrap_or_else(|| "default".to_string());
+            let child_ws = parent_ws.join(&config.id).join(&user_id);
+            std::fs::create_dir_all(&child_ws)
+                .map_err(|e| format!("workspace creation failed: {}", e))?;
+            return Ok(child_ws);
         }
         Ok(PathBuf::from("/tmp"))
     }
