@@ -112,6 +112,139 @@ fn test_validate_and_inject_spawn_idempotent() {
 }
 
 // -------------------------------------------------------------------------
+// Three-way intersection tests (child ∩ parent ∩ user)
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_validate_and_inject_spawn_user_deny_overrides() {
+    let engine = make_engine();
+    let child = make_allowed_perms("child");
+    let parent = make_allowed_perms("parent");
+    let user = make_fully_denied_perms("user-1");
+
+    let result =
+        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-1"));
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        SpawnPermissionError::FullyDeniedWithUser {
+            child_agent_id,
+            parent_agent_id,
+            user_id,
+        } => {
+            assert_eq!(child_agent_id, "child");
+            assert_eq!(parent_agent_id, "parent");
+            assert_eq!(user_id, "user-1");
+        }
+        other => panic!("expected FullyDeniedWithUser, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_validate_and_inject_spawn_user_partial_deny() {
+    let engine = make_engine();
+    let child = make_allowed_perms("child");
+    let parent = make_allowed_perms("parent");
+
+    // User denies exec but allows everything else
+    let mut user_perms_map = HashMap::new();
+    for dim in &[
+        "exec",
+        "file_read",
+        "file_write",
+        "network",
+        "spawn",
+        "tool_call",
+        "config_write",
+    ] {
+        user_perms_map.insert(
+            dim.to_string(),
+            crate::agent::config::ActionPermission {
+                allowed: *dim != "exec",
+                limits: crate::agent::config::PermissionLimits::default(),
+            },
+        );
+    }
+    let user = AgentPermissions {
+        agent_id: "user-2".to_string(),
+        permissions: user_perms_map,
+        inherited_from: None,
+    };
+
+    let result =
+        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-2"));
+    assert!(result.is_ok());
+
+    // Verify cached agent perms: exec should be denied (user denied it)
+    let cache = engine.agent_permissions.read().unwrap();
+    let cached = cache.get("child").unwrap();
+    assert!(!cached.permissions.get("exec").unwrap().allowed);
+    // Other dims should be allowed
+    assert!(cached.permissions.get("file_read").unwrap().allowed);
+    assert!(cached.permissions.get("spawn").unwrap().allowed);
+}
+
+#[test]
+fn test_validate_and_inject_spawn_user_allow_full() {
+    let engine = make_engine();
+    let child = make_allowed_perms("child");
+    let parent = make_allowed_perms("parent");
+    let user = make_allowed_perms("user-3");
+
+    let result =
+        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-3"));
+    assert!(result.is_ok());
+
+    // Verify cached agent perms: all allowed
+    let cache = engine.agent_permissions.read().unwrap();
+    let cached = cache.get("child").unwrap();
+    for dim in &[
+        "exec",
+        "file_read",
+        "file_write",
+        "network",
+        "spawn",
+        "tool_call",
+        "config_write",
+    ] {
+        assert!(
+            cached.permissions.get(*dim).unwrap().allowed,
+            "{} should be allowed",
+            dim
+        );
+    }
+}
+
+#[test]
+fn test_validate_and_inject_spawn_user_cache_injection() {
+    let engine = make_engine();
+    let child = make_allowed_perms("child");
+    let parent = make_allowed_perms("parent");
+    let user = make_allowed_perms("user-4");
+
+    let result =
+        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-4"));
+    assert!(result.is_ok());
+
+    // Verify user_effective_permissions cache was populated
+    let user_cache = engine.user_effective_permissions.read().unwrap();
+    assert!(user_cache.contains_key("user-4"));
+}
+
+#[test]
+fn test_validate_and_inject_spawn_no_user_no_cache() {
+    let engine = make_engine();
+    let child = make_allowed_perms("child");
+    let parent = make_allowed_perms("parent");
+
+    // No user → user cache should NOT be populated
+    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
+    assert!(result.is_ok());
+
+    let user_cache = engine.user_effective_permissions.read().unwrap();
+    assert!(user_cache.is_empty());
+}
+
+// -------------------------------------------------------------------------
 // check_agent_effective_permissions tests
 // -------------------------------------------------------------------------
 
