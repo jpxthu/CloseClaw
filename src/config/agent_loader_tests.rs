@@ -71,10 +71,11 @@ fn test_merge_agent_ids_union() {
     let merged = ConfigManager::merge_agent_ids(&user, &project);
 
     assert_eq!(merged.len(), 4, "should have 4 unique IDs");
-    assert_eq!(merged[0], "alpha");
-    assert_eq!(merged[1], "beta");
-    assert_eq!(merged[2], "gamma");
-    assert_eq!(merged[3], "delta");
+    // project-first: project yields beta, delta, alpha; then user yields gamma
+    assert_eq!(merged[0], "beta");
+    assert_eq!(merged[1], "delta");
+    assert_eq!(merged[2], "alpha");
+    assert_eq!(merged[3], "gamma");
 }
 
 /// When project list is empty, merged result equals user list.
