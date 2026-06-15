@@ -115,16 +115,17 @@ impl SessionsSpawnTool {
     ///
     /// Returns `Ok(())` if the spawn is permitted (or if there are no permissions to check),
     /// or `Err(ToolCallError)` if the spawn is fully denied.
-    async fn validate_spawn_permissions(
+    pub(crate) async fn validate_spawn_permissions(
         &self,
         config: &crate::config::agents::ResolvedAgentConfig,
         parent_session_id: &str,
     ) -> Result<(), ToolCallError> {
-        let child_perms = self
-            .config_manager
-            .agent_permissions()
-            .get(&config.id)
-            .cloned();
+        let child_perms = config.permissions.clone().or_else(|| {
+            self.config_manager
+                .agent_permissions()
+                .get(&config.id)
+                .cloned()
+        });
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
         if let (Some(child_perms), Some(parent_agent_id)) = (child_perms, parent_agent_id) {
             let parent_perms = self

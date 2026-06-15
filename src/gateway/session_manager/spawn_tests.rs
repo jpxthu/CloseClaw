@@ -6,12 +6,14 @@
 //! `super::tests` at `pub(super)` visibility.
 
 use super::spawn::SpawnMode;
-use super::tests::{clear_global_prompt_state, make_test_mgr};
+use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use crate::agent::config::SubagentsConfig;
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::{PersistenceService, SessionCheckpoint};
+use crate::session::ReasoningLevel;
 use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,6 +32,7 @@ fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentCo
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
+        permissions: None,
         source: ConfigSource::Merged,
     }
 }
@@ -424,6 +427,7 @@ async fn test_create_child_session_allowed_tools_override() {
         tools: vec!["ToolA".into(), "ToolB".into(), "ToolC".into()],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
+        permissions: None,
         source: ConfigSource::Merged,
     };
 
@@ -484,4 +488,145 @@ async fn test_create_child_session_no_allowed_tools_preserves_config() {
         .expect("create_child_session without allowed_tools should succeed");
 
     assert!(mgr.has_session(&child_id).await);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_create_child_session_workspace_fallback_to_parent() {
+    clear_global_prompt_state();
+
+    // Set up manager with a workspace root.
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+
+    // Parent workspace: {tmp}/workspaces/parent-agent/default/
+    let parent_workspace = tmp
+        .path()
+        .join("workspaces")
+        .join("parent-agent")
+        .join("default");
+    std::fs::create_dir_all(&parent_workspace).unwrap();
+
+    let config = test_resolved_config("child-agent", None);
+
+    // Register parent session with the parent workspace as its workdir.
+    register_parent_session(&mgr, "parent-ws", parent_workspace.clone()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-ws",
+            1,
+            "test workspace fallback",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // Verify child session exists
+    assert!(mgr.has_session(&child_id).await);
+
+    // Verify child workspace is a subdirectory of parent workspace.
+    let child_cs = mgr
+        .get_conversation_session(&child_id)
+        .await
+        .expect("child conversation session should exist");
+    let child_workdir = child_cs.read().await.workdir().to_path_buf();
+    assert!(
+        child_workdir.starts_with(&parent_workspace),
+        "child workdir {:?} should be under parent workspace {:?}",
+        child_workdir,
+        parent_workspace
+    );
+    // Verify the child agent_id appears in the path
+    assert!(
+        child_workdir.to_string_lossy().contains("child-agent"),
+        "child workdir {:?} should contain child agent id",
+        child_workdir
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_create_child_session_workspace_uses_actual_user_id() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+
+    // Set up MemoryStorage with a parent checkpoint that has a sender_id.
+    let storage = Arc::new(crate::session::storage::memory::MemoryStorage::new());
+    let parent_session_id = "parent-with-user";
+    let parent_agent_id = "parent-agent";
+    let actual_user_id = "ou_actual_user_123";
+    let mut cp = SessionCheckpoint::new(parent_session_id.to_string());
+    cp.sender_id = Some(actual_user_id.to_string());
+    cp.agent_id = Some(parent_agent_id.to_string());
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage),
+        Some(tmp.path().to_path_buf()),
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    // Parent workspace: {tmp}/workspaces/parent-agent/default/
+    let parent_workspace = tmp
+        .path()
+        .join("workspaces")
+        .join(parent_agent_id)
+        .join("default");
+    std::fs::create_dir_all(&parent_workspace).unwrap();
+
+    let config = test_resolved_config("child-agent", None);
+
+    // Register parent session with the parent workspace as its workdir.
+    register_parent_session(&mgr, parent_session_id, parent_workspace.clone()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            parent_session_id,
+            1,
+            "test user_id passing",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // Verify child workspace path contains the actual user_id.
+    let child_cs = mgr
+        .get_conversation_session(&child_id)
+        .await
+        .expect("child conversation session should exist");
+    let child_workdir = child_cs.read().await.workdir().to_path_buf();
+    assert!(
+        child_workdir.to_string_lossy().contains(actual_user_id),
+        "child workdir {:?} should contain actual user_id '{}'",
+        child_workdir,
+        actual_user_id
+    );
+    // Verify it does NOT contain the hardcoded "default" user_id.
+    // The path should be: <parent_workspace>/<child_agent_id>/<actual_user_id>/
+    let expected_suffix = format!("{}/{}", "child-agent", actual_user_id);
+    assert!(
+        child_workdir.to_string_lossy().ends_with(&expected_suffix),
+        "child workdir {:?} should end with '{}/{}'",
+        child_workdir,
+        "child-agent",
+        actual_user_id
+    );
 }

@@ -11,10 +11,20 @@
 use std::collections::HashMap;
 
 use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits};
+use crate::agent::registry::AgentRegistry;
+use crate::agent::spawn::SpawnController;
+use crate::config::ConfigManager;
+use crate::gateway::session_manager::SessionManager;
+use crate::gateway::{DmScope, GatewayConfig, Session};
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_spawn::SpawnPermissionError;
 use crate::permission::engine::engine_types::PermissionRequestBody;
 use crate::permission::rules::RuleSetBuilder;
+use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::ReasoningLevel;
+use crate::tools::builtin::sessions_spawn::SessionsSpawnTool;
+use crate::tools::ToolCallError;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -460,5 +470,457 @@ async fn test_multi_generation_spawn_chain() {
     assert!(
         result.is_none(),
         "file_read should be allowed at runtime for grandchild-agent"
+    );
+}
+
+// ===========================================================================
+// Inline permissions priority test (Step 1.2)
+// ===========================================================================
+
+/// Test: Inline permissions from AgentConfig.permissions take priority over
+/// external permissions.json loaded via config_manager.agent_permissions().
+///
+/// Setup:
+/// - ConfigManager has external permissions: all-deny for "priority-agent"
+/// - ResolvedAgentConfig has inline permissions: exec-deny, rest-allow
+/// - Expected: inline permissions are used (not the external all-deny)
+#[tokio::test]
+async fn test_inline_permissions_override_external() {
+    let tmp = TempDir::new().unwrap();
+
+    // Create ConfigManager with external all-deny permissions for the agent.
+    let cm = Arc::new(
+        ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
+    );
+    {
+        let mut ext_perms = cm.agent_permissions.write().unwrap();
+        ext_perms.insert(
+            "priority-agent".to_string(),
+            make_all_deny("priority-agent"),
+        );
+    }
+
+    // Create ResolvedAgentConfig with inline permissions (exec-deny, rest-allow).
+    let inline_perms = make_partial_deny("priority-agent", &["exec"]);
+    let config = crate::config::agents::ResolvedAgentConfig {
+        id: "priority-agent".to_string(),
+        name: "priority-agent".to_string(),
+        parent_id: None,
+        model: Some("test-model".to_string()),
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: BootstrapMode::Full,
+        skills: vec![],
+        tools: vec![],
+        disallowed_tools: vec![],
+        subagents: crate::agent::config::SubagentsConfig::default(),
+        permissions: Some(inline_perms.clone()),
+        source: crate::config::agents::ConfigSource::Merged,
+    };
+
+    // Build SessionManager with a parent session.
+    let gw_config = GatewayConfig {
+        name: "test".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        dm_scope: DmScope::default(),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &gw_config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    {
+        let mut sessions = sm.sessions.write().await;
+        sessions.insert(
+            "parent-sess".to_string(),
+            Session {
+                id: "parent-sess".to_string(),
+                agent_id: "parent-agent".to_string(),
+                channel: "feishu".to_string(),
+                created_at: 0,
+                depth: 0,
+            },
+        );
+    }
+
+    let pe = Arc::new(make_permission_engine());
+    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
+    let ar = Arc::new(AgentRegistry::new(30));
+    let tool = SessionsSpawnTool::new(controller, sm, pe.clone(), cm.clone(), ar);
+
+    // Insert parent effective permissions into the engine cache so
+    // validate_spawn_permissions can retrieve them.
+    let parent_perms = make_all_allow("parent-agent");
+    {
+        let mut cache = pe.agent_permissions.write().unwrap();
+        cache.insert("parent-agent".to_string(), parent_perms);
+    }
+
+    // Call validate_spawn_permissions with the inline-permissions config.
+    let result = tool
+        .validate_spawn_permissions(&config, "parent-sess")
+        .await;
+
+    // Should succeed: inline perms (exec-deny) × parent (all-allow) = not fully denied.
+    assert!(
+        result.is_ok(),
+        "spawn should succeed with inline permissions (not fully denied)"
+    );
+
+    // Verify the engine cache was populated with the inline-permissions result
+    // (exec=deny, rest=allow), NOT the external all-deny result.
+    let cached = pe
+        .get_agent_effective_permissions("priority-agent")
+        .expect("agent should be cached after successful spawn");
+
+    // exec should be denied (from inline permissions).
+    assert!(
+        !cached.permissions.get("exec").unwrap().allowed,
+        "exec should be denied from inline permissions"
+    );
+    // file_read should be ALLOWED (from inline permissions), not denied (external would deny all).
+    assert!(
+        cached.permissions.get("file_read").unwrap().allowed,
+        "file_read should be allowed from inline permissions (external would deny)"
+    );
+    // network should be ALLOWED (from inline permissions).
+    assert!(
+        cached.permissions.get("network").unwrap().allowed,
+        "network should be allowed from inline permissions"
+    );
+}
+
+/// Test: When AgentConfig.permissions is None, fallback to config_manager's
+/// external permissions.json.
+#[tokio::test]
+async fn test_external_permissions_used_when_inline_absent() {
+    let tmp = TempDir::new().unwrap();
+
+    // Create ConfigManager with external exec-deny permissions.
+    let cm = Arc::new(
+        ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
+    );
+    {
+        let mut ext_perms = cm.agent_permissions.write().unwrap();
+        ext_perms.insert(
+            "fallback-agent".to_string(),
+            make_partial_deny("fallback-agent", &["exec"]),
+        );
+    }
+
+    // Create ResolvedAgentConfig with NO inline permissions (None).
+    let config = crate::config::agents::ResolvedAgentConfig {
+        id: "fallback-agent".to_string(),
+        name: "fallback-agent".to_string(),
+        parent_id: None,
+        model: Some("test-model".to_string()),
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: BootstrapMode::Full,
+        skills: vec![],
+        tools: vec![],
+        disallowed_tools: vec![],
+        subagents: crate::agent::config::SubagentsConfig::default(),
+        permissions: None,
+        source: crate::config::agents::ConfigSource::Merged,
+    };
+
+    // Build SessionManager with a parent session.
+    let gw_config = GatewayConfig {
+        name: "test".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        dm_scope: DmScope::default(),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &gw_config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    {
+        let mut sessions = sm.sessions.write().await;
+        sessions.insert(
+            "parent-sess-2".to_string(),
+            Session {
+                id: "parent-sess-2".to_string(),
+                agent_id: "parent-agent-2".to_string(),
+                channel: "feishu".to_string(),
+                created_at: 0,
+                depth: 0,
+            },
+        );
+    }
+
+    let pe = Arc::new(make_permission_engine());
+    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
+    let ar = Arc::new(AgentRegistry::new(30));
+    let tool = SessionsSpawnTool::new(controller, sm, pe.clone(), cm.clone(), ar);
+
+    // Insert parent effective permissions into the engine cache.
+    let parent_perms = make_all_allow("parent-agent-2");
+    {
+        let mut cache = pe.agent_permissions.write().unwrap();
+        cache.insert("parent-agent-2".to_string(), parent_perms);
+    }
+
+    // Call validate_spawn_permissions — should use external permissions (exec-deny).
+    let result = tool
+        .validate_spawn_permissions(&config, "parent-sess-2")
+        .await;
+    assert!(
+        result.is_ok(),
+        "spawn should succeed with external permissions"
+    );
+
+    // Verify the cached permissions match the external exec-deny config.
+    let cached = pe
+        .get_agent_effective_permissions("fallback-agent")
+        .expect("agent should be cached after successful spawn");
+    assert!(
+        !cached.permissions.get("exec").unwrap().allowed,
+        "exec should be denied from external permissions"
+    );
+    assert!(
+        cached.permissions.get("file_read").unwrap().allowed,
+        "file_read should be allowed from external permissions"
+    );
+}
+
+// ===========================================================================
+// Multi-layer recursive permission intersection (Step 1.4)
+// ===========================================================================
+
+/// Test: Three-layer spawn chain where each level introduces different
+/// permission restrictions. Verify the grandchild's effective permissions
+/// are the intersection of all restrictions along the full chain.
+///
+/// Chain:
+///   depth=0 (root-agent):  deny exec, deny file_write
+///   depth=1 (child-agent): deny network, deny file_read
+///   depth=2 (grandchild):  deny spawn
+///
+/// Expected grandchild effective:
+///   exec=deny (root), file_read=deny (child), file_write=deny (root),
+///   network=deny (child), spawn=deny (grandchild),
+///   tool_call=allow, config_write=allow
+#[test]
+fn test_recursive_permission_intersection_three_layers() {
+    let engine = make_permission_engine();
+
+    // depth=0: root denies exec + file_write, allows rest.
+    let root = make_partial_deny("root-agent", &["exec", "file_write"]);
+
+    // depth=1: child denies network + file_read, allows rest.
+    let child = make_partial_deny("child-agent", &["network", "file_read"]);
+
+    // Spawn child under root: effective = child ∩ root.
+    engine
+        .validate_and_inject_spawn("child-agent", &child, &root, None, None)
+        .expect("spawn of child-agent should succeed");
+
+    let child_effective = engine
+        .get_agent_effective_permissions("child-agent")
+        .expect("child-agent should be in cache");
+
+    // Child effective: exec=deny (root), file_read=deny (child),
+    // file_write=deny (root), network=deny (child),
+    // spawn=allow, tool_call=allow, config_write=allow.
+    assert!(!child_effective.permissions.get("exec").unwrap().allowed);
+    assert!(
+        !child_effective
+            .permissions
+            .get("file_read")
+            .unwrap()
+            .allowed
+    );
+    assert!(
+        !child_effective
+            .permissions
+            .get("file_write")
+            .unwrap()
+            .allowed
+    );
+    assert!(!child_effective.permissions.get("network").unwrap().allowed);
+    assert!(child_effective.permissions.get("spawn").unwrap().allowed);
+    assert!(
+        child_effective
+            .permissions
+            .get("tool_call")
+            .unwrap()
+            .allowed
+    );
+    assert!(
+        child_effective
+            .permissions
+            .get("config_write")
+            .unwrap()
+            .allowed
+    );
+
+    // depth=2: grandchild denies spawn, allows rest.
+    let grandchild = make_partial_deny("grandchild-agent", &["spawn"]);
+
+    // Spawn grandchild under child: effective = grandchild ∩ child_effective.
+    engine
+        .validate_and_inject_spawn(
+            "grandchild-agent",
+            &grandchild,
+            &child_effective,
+            None,
+            None,
+        )
+        .expect("spawn of grandchild-agent should succeed");
+
+    let gc_effective = engine
+        .get_agent_effective_permissions("grandchild-agent")
+        .expect("grandchild-agent should be in cache");
+
+    // Grandchild effective: all denied dims from every level accumulate.
+    assert!(
+        !gc_effective.permissions.get("exec").unwrap().allowed,
+        "exec should be denied (from root)"
+    );
+    assert!(
+        !gc_effective.permissions.get("file_read").unwrap().allowed,
+        "file_read should be denied (from child)"
+    );
+    assert!(
+        !gc_effective.permissions.get("file_write").unwrap().allowed,
+        "file_write should be denied (from root)"
+    );
+    assert!(
+        !gc_effective.permissions.get("network").unwrap().allowed,
+        "network should be denied (from child)"
+    );
+    assert!(
+        !gc_effective.permissions.get("spawn").unwrap().allowed,
+        "spawn should be denied (from grandchild)"
+    );
+    assert!(
+        gc_effective.permissions.get("tool_call").unwrap().allowed,
+        "tool_call should be allowed (no restriction in chain)"
+    );
+    assert!(
+        gc_effective
+            .permissions
+            .get("config_write")
+            .unwrap()
+            .allowed,
+        "config_write should be allowed (no restriction in chain)"
+    );
+
+    // Verify inherited_from chain is correct.
+    assert_eq!(gc_effective.inherited_from, Some("child-agent".to_string()));
+    assert_eq!(
+        child_effective.inherited_from,
+        Some("root-agent".to_string())
+    );
+}
+
+// ===========================================================================
+// FullyDenied silent return through SessionsSpawnTool (Step 1.4)
+// ===========================================================================
+
+/// Test: When a child agent is fully denied, `validate_spawn_permissions`
+/// returns `ToolCallError::ExecutionFailed` with the FullyDenied error.
+/// The child session is NOT created — the error short-circuits the spawn
+/// pipeline before `create_child` is reached.
+#[tokio::test]
+async fn test_fully_denied_silent_return_no_session_created() {
+    let tmp = TempDir::new().unwrap();
+
+    let cm = Arc::new(
+        ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
+    );
+    // No external permissions — child has inline all-deny.
+
+    let config = crate::config::agents::ResolvedAgentConfig {
+        id: "denied-child".to_string(),
+        name: "denied-child".to_string(),
+        parent_id: None,
+        model: Some("test-model".to_string()),
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: BootstrapMode::Full,
+        skills: vec![],
+        tools: vec![],
+        disallowed_tools: vec![],
+        subagents: crate::agent::config::SubagentsConfig::default(),
+        permissions: Some(make_all_deny("denied-child")),
+        source: crate::config::agents::ConfigSource::Merged,
+    };
+
+    let gw_config = GatewayConfig {
+        name: "test".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        dm_scope: DmScope::default(),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &gw_config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    {
+        let mut sessions = sm.sessions.write().await;
+        sessions.insert(
+            "parent-sess-deny".to_string(),
+            Session {
+                id: "parent-sess-deny".to_string(),
+                agent_id: "parent-agent-deny".to_string(),
+                channel: "feishu".to_string(),
+                created_at: 0,
+                depth: 0,
+            },
+        );
+    }
+
+    let pe = Arc::new(make_permission_engine());
+    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
+    let ar = Arc::new(AgentRegistry::new(30));
+    let tool = SessionsSpawnTool::new(controller, sm.clone(), pe.clone(), cm.clone(), ar);
+
+    // Parent has all-allow effective permissions in cache.
+    let parent_perms = make_all_allow("parent-agent-deny");
+    {
+        let mut cache = pe.agent_permissions.write().unwrap();
+        cache.insert("parent-agent-deny".to_string(), parent_perms);
+    }
+
+    // validate_spawn_permissions should fail with FullyDenied.
+    let result = tool
+        .validate_spawn_permissions(&config, "parent-sess-deny")
+        .await;
+
+    assert!(result.is_err(), "spawn should fail for fully-denied child");
+    let err_msg = match result.unwrap_err() {
+        ToolCallError::ExecutionFailed(msg) => msg,
+        other => panic!("expected ExecutionFailed, got: {:?}", other),
+    };
+    assert!(
+        err_msg.contains("denied-child"),
+        "error should mention the denied agent_id, got: {}",
+        err_msg
+    );
+    assert!(
+        err_msg.contains("denied"),
+        "error should mention 'denied', got: {}",
+        err_msg
+    );
+
+    // Verify the child was NOT cached (spawn was rejected).
+    assert!(
+        pe.get_agent_effective_permissions("denied-child").is_none(),
+        "fully-denied child should NOT be in permission cache after rejection"
     );
 }
