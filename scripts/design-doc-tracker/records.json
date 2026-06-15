@@ -12,5 +12,12 @@
     "commit_time": "2026-06-16T05:21:16+08:00",
     "confirmed_time": "2026-06-16T05:46:58.571823+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/agent/agent-registry.md",
+    "commit": "f214fb8c8fa76ea1d6129d5b7950f095b3be11ed",
+    "commit_time": "2026-06-16T06:26:31+08:00",
+    "confirmed_time": "2026-06-16T06:33:58.813743+08:00",
+    "comment": ""
   }
 ]
