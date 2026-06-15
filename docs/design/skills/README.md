@@ -17,6 +17,7 @@ Skills 模块是 CloseClaw 的 agent 可复用能力插件体系。用户创建 
 | 文档 | 内容 |
 |------|------|
 | [skill-listing-injection.md](skill-listing-injection.md) | Skill 列表注入：session 启动时的列表注入、热重载替换、compaction 保护、条件激活 |
+| [skill-definition.md](skill-definition.md) | Skill 定义：frontmatter 配置、执行模式、目录层级与优先级 |
 
 ## 架构
 
