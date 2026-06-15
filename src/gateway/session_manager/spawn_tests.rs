@@ -487,3 +487,65 @@ async fn test_create_child_session_no_allowed_tools_preserves_config() {
 
     assert!(mgr.has_session(&child_id).await);
 }
+
+#[tokio::test]
+#[serial]
+async fn test_create_child_session_workspace_fallback_to_parent() {
+    clear_global_prompt_state();
+
+    // Set up manager with a workspace root.
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+
+    // Parent workspace: {tmp}/workspaces/parent-agent/default/
+    let parent_workspace = tmp
+        .path()
+        .join("workspaces")
+        .join("parent-agent")
+        .join("default");
+    std::fs::create_dir_all(&parent_workspace).unwrap();
+
+    let config = test_resolved_config("child-agent", None);
+
+    // Register parent session with the parent workspace as its workdir.
+    register_parent_session(&mgr, "parent-ws", parent_workspace.clone()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-ws",
+            1,
+            "test workspace fallback",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // Verify child session exists
+    assert!(mgr.has_session(&child_id).await);
+
+    // Verify child workspace is a subdirectory of parent workspace.
+    let child_cs = mgr
+        .get_conversation_session(&child_id)
+        .await
+        .expect("child conversation session should exist");
+    let child_workdir = child_cs.read().await.workdir().to_path_buf();
+    assert!(
+        child_workdir.starts_with(&parent_workspace),
+        "child workdir {:?} should be under parent workspace {:?}",
+        child_workdir,
+        parent_workspace
+    );
+    // Verify the child agent_id appears in the path
+    assert!(
+        child_workdir.to_string_lossy().contains("child-agent"),
+        "child workdir {:?} should contain child agent id",
+        child_workdir
+    );
+}

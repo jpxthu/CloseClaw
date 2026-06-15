@@ -103,7 +103,9 @@ impl SessionManager {
         let child_session_id = Uuid::new_v4().to_string();
 
         // 2. Determine workspace path (3-level fallback)
-        let workdir_path = self.resolve_child_workspace(config, workspace).await?;
+        let workdir_path = self
+            .resolve_child_workspace(config, workspace, parent_session_id)
+            .await?;
 
         // 3. Determine bootstrap_mode
         let bootstrap_mode = if light_context {
@@ -273,12 +275,14 @@ impl SessionManager {
     /// Fallback order:
     /// 1. Explicit `workspace` arg (if provided) — used as-is.
     /// 2. `config.workspace` (if set).
-    /// 3. `self.workspace_dir/<agent_id>/spawn` via `ensure_workspace_dir`.
+    /// 3. `<parent_workspace>/<child_agent_id>/` — subdirectory under the
+    ///    parent session's workspace.
     /// 4. `/tmp` (last resort).
     async fn resolve_child_workspace(
         &self,
         config: &ResolvedAgentConfig,
         workspace: Option<&str>,
+        parent_session_id: &str,
     ) -> Result<PathBuf, String> {
         if let Some(ws) = workspace {
             return Ok(PathBuf::from(ws));
@@ -286,8 +290,22 @@ impl SessionManager {
         if let Some(ref ws) = config.workspace {
             return Ok(ws.clone());
         }
-        if let Some(ref root) = self.workspace_dir {
-            return workspace::ensure_workspace_dir(root, &config.id, "spawn")
+        // Level 3: create subdirectory under parent session's workspace.
+        let parent_workspace = {
+            let conv_sessions = self.conversation_sessions.read().await;
+            conv_sessions.get(parent_session_id).map(|cs| {
+                // Clone the path while holding a short-lived read lock;
+                // the guard is dropped when the closure returns.
+                let cs_clone = cs.clone();
+                async move {
+                    let guard = cs_clone.read().await;
+                    guard.workdir().to_path_buf()
+                }
+            })
+        };
+        if let Some(make_parent_ws) = parent_workspace {
+            let parent_ws = make_parent_ws.await;
+            return workspace::ensure_workspace_dir(&parent_ws, &config.id, "default")
                 .map_err(|e| format!("workspace creation failed: {}", e));
         }
         Ok(PathBuf::from("/tmp"))
