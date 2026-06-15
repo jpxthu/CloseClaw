@@ -104,11 +104,4 @@ pub fn create_registry(heartbeat_timeout_secs: i64) -> SharedAgentRegistry {
 }
 
 #[cfg(test)]
-mod tests {
-    // Note: state-machine tests (`test_state_transition_validation` /
-    // `test_graceful_shutdown_config`) were removed in Step 1.3 along
-    // with the registry's `update_state` API and the `wait_timeout_secs`
-    // / `grace_period_secs` knobs. The `AgentState` machine itself still
-    // lives in `crate::agent::state` and is exercised by its own unit
-    // tests.
-}
+mod config_tests;
