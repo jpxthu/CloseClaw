@@ -103,23 +103,21 @@ AgentRegistry.reload_config(configs)  // 全量替换 configs
 
 | 模块 | 调用关系 |
 |------|---------|
-| Daemon | 启动时调用 `populate()` 填充注册表 |
-| Config Hot Reload | 检测到 agent 配置变更后通知 Daemon，Daemon 调用 reload() 更新注册表 |
+| Daemon | 启动时调用 `populate()` 批量填充 configs；运行时通过 `register()` 注册 agent 元数据 |
+| Config Hot Reload | 检测到 agent 配置变更后通知 Daemon，Daemon 调用 `reload_config()` 更新注册表 |
 | Config | 提供 `ResolvedAgentConfig` 数据源（Config 只负责文件 IO 和合并，不参与注册） |
 
 ### 下游
 
 | 模块 | 消费方式 |
 |------|---------|
-| Session | 创建 session 时查询 agent 配置（模型、workspace、工具集、skill 列表等） |
-| System Prompt | 查询 bootstrap 模式配置 |
-| Skills Registry | 查询 agent 的 skills 白名单 |
-| Tools Registry | 查询 agent 的 tools 白名单 / 黑名单 |
+| SessionManager | 持有 `Arc<AgentRegistry>`，通过 `get_agent_config()` 调用 `get_config()` 查询 agent 配置 |
+| SessionsSpawnTool | 通过 `BuiltinToolContext.agent_registry` 直接调用 `get_config()` 查询父 agent 配置（模型继承等） |
 
 ### 无关
 
 | 模块 | 说明 |
 |------|------|
-| Gateway | AgentRegistry 不参与消息路由 |
+| Gateway | 不直接依赖 AgentRegistry，通过 SessionManager 间接获取 agent 配置 |
 | IM Adapter | AgentRegistry 不涉及平台通信 |
 | Processor Chain | AgentRegistry 不参与消息处理 |
