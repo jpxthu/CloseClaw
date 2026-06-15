@@ -121,3 +121,56 @@ AgentRegistry.reload_config(configs)  // 全量替换 configs
 | Gateway | 不直接依赖 AgentRegistry，通过 SessionManager 间接获取 agent 配置 |
 | IM Adapter | AgentRegistry 不涉及平台通信 |
 | Processor Chain | AgentRegistry 不参与消息处理 |
+
+## 生命周期管理
+
+AgentRegistry 提供五个生命周期方法，管理 agent 的创建、进程启停和元数据清理：
+
+| 方法 | 签名 | 语义 |
+|------|------|------|
+| `register` | `register(name, parent_id) → RegistryResult<Agent>` | 创建 agent 元数据（UUID 生成 id、记录 name/parent_id/created_at），不启动进程。`parent_id` 可选，用于建立层级关系。 |
+| `spawn` | `spawn(name, parent_id, binary_path, bootstrap_minimal, workspace_dir) → RegistryResult<Agent>` | 先调用 `register()` 创建元数据，再调用 `AgentProcess::spawn()` 启动子进程，将进程句柄存入 `processes` HashMap。`binary_path` 必须是绝对路径且文件存在，否则失败并自动清理已注册的元数据。 |
+| `kill` | `kill(id) → RegistryResult<()>` | 通过进程句柄终止运行中的 agent 进程。仅影响 `processes` HashMap，不影响元数据。 |
+| `remove` | `remove(id) → RegistryResult<Agent>` | 先 `kill()` 终止进程，再从 `processes` 和 `agents` HashMap 中移除对应条目。返回被移除的 Agent 元数据。 |
+| `send_message` | `send_message(id, message) → RegistryResult<()>` | 通过进程句柄向 agent 的 stdin 发送消息。若进程不存在则返回 `AgentNotFound` 错误。 |
+
+**错误类型**（`RegistryError`）：
+- `AgentNotFound`：按 id 查找 agent 时未找到
+- `AgentAlreadyExists`：agent 已存在（预留，当前 `register` 不检查）
+- `InvalidStateTransition`：无效状态转换（预留）
+- `DestroyConfirmationRequired`：销毁确认（预留）
+- `ProcessError`：进程启动/终止失败
+
+## 树形层级查询
+
+AgentRegistry 基于 agent 的 `parent_id` 字段构建树形层级关系，提供以下查询接口：
+
+| 方法 | 签名 | 语义 |
+|------|------|------|
+| `get` | `get(id) → RegistryResult<Agent>` | 按 id 查找单个 agent 元数据，未找到返回 `AgentNotFound` 错误 |
+| `get_children` | `get_children(parent_id) → Vec<Agent>` | 获取 `parent_id` 匹配的直接子 agent 列表，时间复杂度 O(n) |
+| `get_parent` | `get_parent(agent_id) → Option<Agent>` | 获取指定 agent 的父级元数据，根节点返回 `None` |
+| `get_ancestors` | `get_ancestors(agent_id) → Vec<Agent>` | 沿 `parent_id` 链向上遍历，返回从直接父级到根节点的祖先列表（不含自身） |
+| `get_descendants` | `get_descendants(agent_id) → Vec<Agent>` | 广度优先遍历所有后代节点，返回完整后代列表 |
+| `is_ancestor_of` | `is_ancestor_of(ancestor_id, descendant_id) → bool` | 判断 `ancestor_id` 是否在 `descendant_id` 的祖先链中 |
+
+**补充查询方法**：
+- `list() → Vec<Agent>`：返回所有已注册的 agent 列表
+- `count() → usize`：返回已注册 agent 数量
+
+所有树查询方法均基于 `agents` HashMap 的 `parent_id` 字段实时计算，不维护额外索引。
+
+## Agent 元数据存储
+
+AgentRegistry 内部维护三个并发安全的 HashMap，分别存储不同职责的数据：
+
+| 存储 | 类型 | 职责 |
+|------|------|------|
+| `agents` | `RwLock<HashMap<String, Agent>>` | 存储 agent 元数据（id/name/parent_id/created_at），支持注册、查询、删除 |
+| `processes` | `RwLock<HashMap<String, AgentProcessHandle>>` | 存储运行中 agent 的子进程句柄，支持启动、终止、消息发送 |
+| `configs` | `RwLock<HashMap<String, ResolvedAgentConfig>>` | 存储 agent 配置（只读查询层），由 `populate()` 批量填充、`reload_config()` 全量替换 |
+
+**设计要点**：
+- 三个 HashMap 使用独立的 `RwLock`，读操作（`get_config`/`get`/树查询）不互斥，写操作（`register`/`remove`/`populate`）按 HashMap 粒度加锁
+- `agents` 和 `configs` 的生命周期由 Daemon 管理（启动填充/热重载），`processes` 的生命周期由运行时操作管理（spawn/remove）
+- `AgentRegistry` 不持有 `Agent` 的进程状态——运行时状态（心跳、活跃度）由 session 模块负责
