@@ -19,7 +19,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `id` | agent 唯一标识 | 是 | - |
 | `name` | 显示名称 | 否 | 同 id |
 | `parentId` | 父 agent ID（agent 创建时写入，运行时不变） | 否 | null |
-| `model` | 默认 LLM 模型及 fallback 列表 | 否 | 系统默认模型 |
+| `model` | 默认 LLM 模型标识（单个模型）。模型 fallback 链由系统级 LLM 模块（FallbackClient）管理 | 否 | 系统默认模型 |
 | `workspace` | 工作目录路径 | 否 | 系统默认 workspace |
 | `agentDir` | bootstrap 文件所在目录 | 否 | 系统默认 agent 目录 |
 | `bootstrapMode` | bootstrap 加载模式 | 否 | `"full"` |

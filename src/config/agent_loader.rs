@@ -50,7 +50,7 @@ impl ConfigManager {
     pub(crate) fn merge_agent_ids(user: &[String], project: &[String]) -> Vec<String> {
         let mut seen = HashSet::new();
         let mut merged = Vec::new();
-        for id in user.iter().chain(project.iter()) {
+        for id in project.iter().chain(user.iter()) {
             if seen.insert(id.clone()) {
                 merged.push(id.clone());
             }
