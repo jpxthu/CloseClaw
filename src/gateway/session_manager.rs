@@ -67,6 +67,8 @@ pub struct SessionManager {
     key_registry: RwLock<HashMap<String, String>>,
     /// Config manager for looking up agent-level tool/skill filtering.
     config_manager: RwLock<Option<Arc<ConfigManager>>>,
+    /// Agent registry for looking up resolved agent configs (design-doc query layer).
+    agent_registry: RwLock<Option<Arc<crate::agent::registry::AgentRegistry>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -103,6 +105,7 @@ impl SessionManager {
             channel_active_sessions: RwLock::new(HashMap::new()),
             key_registry: RwLock::new(HashMap::new()),
             config_manager: RwLock::new(None),
+            agent_registry: RwLock::new(None),
         }
     }
 
@@ -111,13 +114,21 @@ impl SessionManager {
         *self.config_manager.write().await = Some(config_manager);
     }
 
-    /// Look up agent config by ID from the config manager.
+    /// Set the agent registry for resolved config lookups.
+    pub async fn set_agent_registry(
+        &self,
+        agent_registry: Arc<crate::agent::registry::AgentRegistry>,
+    ) {
+        *self.agent_registry.write().await = Some(agent_registry);
+    }
+
+    /// Look up agent config by ID via the AgentRegistry.
     async fn get_agent_config(
         &self,
         agent_id: &str,
     ) -> Option<crate::config::agents::ResolvedAgentConfig> {
-        let guard = self.config_manager.read().await;
-        guard.as_ref()?.agent(agent_id)
+        let guard = self.agent_registry.read().await;
+        guard.as_ref()?.get_config(agent_id).await
     }
 
     /// Set priority prompt overrides.

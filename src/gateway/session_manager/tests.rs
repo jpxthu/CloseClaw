@@ -269,7 +269,7 @@ async fn test_find_or_create_with_tool_registry() {
     use crate::permission::engine::engine_eval::PermissionEngine;
     use crate::permission::rules::RuleSetBuilder;
     use crate::skills::DiskSkillRegistry;
-    use crate::tools::builtin::register_builtin_tools;
+    use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
     use crate::tools::ToolRegistry;
 
     clear_global_prompt_state();
@@ -298,15 +298,16 @@ async fn test_find_or_create_with_tool_registry() {
             .expect("failed to create ConfigManager for test"),
     );
     let spawn_controller = Arc::new(SpawnController::new(Arc::clone(&cfg_mgr), Arc::clone(&mgr)));
-    register_builtin_tools(
-        &tool_registry,
-        disk_reg,
-        perm_engine,
+    let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new(30));
+    let builtin_ctx = Arc::new(BuiltinToolContext {
+        config_manager: Arc::clone(&cfg_mgr),
+        agent_registry,
+        disk_registry: disk_reg,
+        permission_engine: perm_engine,
         spawn_controller,
-        Arc::clone(&mgr),
-        Arc::clone(&cfg_mgr),
-    )
-    .await;
+        session_manager: Arc::clone(&mgr),
+    });
+    register_builtin_tools(&tool_registry, builtin_ctx).await;
     mgr.set_tool_registry(tool_registry).await;
 
     let msg = test_message();

@@ -50,7 +50,7 @@ mod tests {
     use crate::session::bootstrap::BootstrapMode;
     use crate::session::persistence::ReasoningLevel;
     use crate::skills::DiskSkillRegistry;
-    use crate::tools::builtin::register_builtin_tools;
+    use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -66,6 +66,7 @@ mod tests {
         Arc<SpawnController>,
         Arc<SessionManager>,
         Arc<ConfigManager>,
+        Arc<crate::agent::registry::AgentRegistry>,
     ) {
         let tmp = TempDir::new().expect("tempdir for test");
         let cfg_mgr = Arc::new(
@@ -90,21 +91,43 @@ mod tests {
             Arc::clone(&cfg_mgr),
             Arc::clone(&session_manager),
         ));
-        (spawn_controller, session_manager, cfg_mgr)
+        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new(30));
+        (spawn_controller, session_manager, cfg_mgr, agent_registry)
+    }
+
+    fn make_builtin_ctx(
+        disk_registry: Arc<DiskSkillRegistry>,
+        permission_engine: Arc<PermissionEngine>,
+        spawn_controller: Arc<SpawnController>,
+        session_manager: Arc<SessionManager>,
+        config_manager: Arc<ConfigManager>,
+        agent_registry: Arc<crate::agent::registry::AgentRegistry>,
+    ) -> Arc<BuiltinToolContext> {
+        Arc::new(BuiltinToolContext {
+            config_manager,
+            agent_registry,
+            disk_registry,
+            permission_engine,
+            spawn_controller,
+            session_manager,
+        })
     }
 
     #[tokio::test]
     async fn test_build_tools_section_returns_tools_section() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let (spawn_controller, session_manager, config_manager) = test_spawn_deps();
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         register_builtin_tools(
             &registry,
-            disk_registry,
-            test_permission_engine(),
-            spawn_controller,
-            session_manager,
-            config_manager,
+            make_builtin_ctx(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager,
+                config_manager,
+                agent_registry,
+            ),
         )
         .await;
         let ctx = crate::tools::ToolContext {
@@ -125,14 +148,17 @@ mod tests {
     async fn test_build_tools_section_contains_group_headers() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let (spawn_controller, session_manager, config_manager) = test_spawn_deps();
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         register_builtin_tools(
             &registry,
-            disk_registry,
-            test_permission_engine(),
-            spawn_controller,
-            session_manager,
-            config_manager,
+            make_builtin_ctx(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager,
+                config_manager,
+                agent_registry,
+            ),
         )
         .await;
         let ctx = crate::tools::ToolContext {
@@ -159,14 +185,17 @@ mod tests {
     async fn test_build_tools_section_contains_tool_names() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let (spawn_controller, session_manager, config_manager) = test_spawn_deps();
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         register_builtin_tools(
             &registry,
-            disk_registry,
-            test_permission_engine(),
-            spawn_controller,
-            session_manager,
-            config_manager,
+            make_builtin_ctx(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager,
+                config_manager,
+                agent_registry,
+            ),
         )
         .await;
         let ctx = crate::tools::ToolContext {
@@ -203,14 +232,17 @@ mod tests {
     async fn test_build_tools_section_respects_max_length() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let (spawn_controller, session_manager, config_manager) = test_spawn_deps();
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         register_builtin_tools(
             &registry,
-            disk_registry,
-            test_permission_engine(),
-            spawn_controller,
-            session_manager,
-            config_manager,
+            make_builtin_ctx(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager,
+                config_manager,
+                agent_registry,
+            ),
         )
         .await;
         let ctx = crate::tools::ToolContext {
