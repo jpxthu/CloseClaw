@@ -86,6 +86,7 @@ def _save_records(records: List[Dict[str, str]]) -> None:
 # Paths excluded from check output (relative to REPO_ROOT)
 BLACKLIST = frozenset({
     "docs/design/README.md",
+    "docs/design/STANDARDS.md",
 })
 
 
