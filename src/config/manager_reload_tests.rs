@@ -68,7 +68,9 @@ fn test_reload_agents_success() {
     setup_config_dir_at(&config_dir);
 
     let agents_json = r#"{ "version": "1.0", "agents": ["alpha"] }"#;
-    fs::write(config_dir.join("agents.json"), agents_json).unwrap();
+    let agents_dir = config_dir.join("config");
+    fs::create_dir_all(&agents_dir).unwrap();
+    fs::write(agents_dir.join("agents.json"), agents_json).unwrap();
 
     let agent_dir = config_dir.join("agents").join("alpha");
     fs::create_dir_all(&agent_dir).unwrap();

@@ -28,8 +28,10 @@ async fn test_sigterm_triggers_graceful_shutdown() {
     let config_dir = temp_dir.path();
 
     // Write a minimal agents.json so daemon doesn't fail to load config
+    let agents_dir = config_dir.join("config");
+    std::fs::create_dir_all(&agents_dir).expect("create config dir");
     std::fs::write(
-        config_dir.join("agents.json"),
+        agents_dir.join("agents.json"),
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write test agents.json");
@@ -98,8 +100,9 @@ async fn test_sigint_triggers_graceful_shutdown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_dir = temp_dir.path();
 
+    std::fs::create_dir_all(config_dir.join("config")).expect("create config dir");
     std::fs::write(
-        config_dir.join("agents.json"),
+        config_dir.join("config").join("agents.json"),
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write test agents.json");
