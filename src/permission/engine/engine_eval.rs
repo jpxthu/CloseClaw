@@ -15,7 +15,7 @@ use tracing::info;
 /// Permission Engine - evaluates access requests against rules
 pub struct PermissionEngine {
     /// RuleSet
-    rules: RuleSet,
+    pub(crate) rules: RuleSet,
     /// O(1) lookup index: agent_id -> list of rule indices
     agent_rule_index: HashMap<String, Vec<usize>>,
     /// O(1) lookup index: "{user_id}:{agent_id}" -> list of rule indices
@@ -26,6 +26,9 @@ pub struct PermissionEngine {
     data_root: PathBuf,
     /// Per-agent effective permissions cache (populated by spawn validation)
     pub(crate) agent_permissions:
+        std::sync::RwLock<HashMap<String, crate::agent::config::AgentPermissions>>,
+    /// Per-user effective permissions cache (populated by spawn validation)
+    pub(crate) user_effective_permissions:
         std::sync::RwLock<HashMap<String, crate::agent::config::AgentPermissions>>,
 }
 
@@ -41,6 +44,7 @@ impl PermissionEngine {
             templates: HashMap::new(),
             data_root,
             agent_permissions: std::sync::RwLock::new(HashMap::new()),
+            user_effective_permissions: std::sync::RwLock::new(HashMap::new()),
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -129,9 +133,20 @@ impl PermissionEngine {
             "permission check initiated"
         );
 
+        let is_owner = caller.user_id == "owner";
+
         // Step 0.7: Agent effective permissions pre-check
         if let Some(response) = self.check_agent_effective_permissions(&agent_id, request.body()) {
             return response;
+        }
+
+        // Step 0.8: User effective permissions pre-check
+        if !is_owner {
+            if let Some(response) =
+                self.check_user_effective_permissions(&caller.user_id, request.body())
+            {
+                return response;
+            }
         }
 
         // Step 0: Creator rule (highest priority)
@@ -140,7 +155,6 @@ impl PermissionEngine {
         }
 
         let rules = self.rules.clone();
-        let is_owner = caller.user_id == "owner";
 
         // Step 1: Agent phase — collect AgentOnly candidates and evaluate
         let agent_candidates = self.collect_agent_candidates(&caller, &agent_id, &rules);
@@ -299,7 +313,7 @@ impl PermissionEngine {
 
     /// Collect Subject::UserAndAgent candidate rule indices via user_agent_rule_index (O(1)),
     /// then via Glob fallback if no exact match (matches UserAndAgent only).
-    fn collect_user_agent_candidates(
+    pub(crate) fn collect_user_agent_candidates(
         &self,
         caller: &super::engine_types::Caller,
         agent_id: &str,
@@ -325,7 +339,7 @@ impl PermissionEngine {
     }
 
     /// Steps 3-4: Expand templates, then evaluate rules (deny-precedence).
-    fn match_rules(
+    pub(crate) fn match_rules(
         &self,
         candidates: &[usize],
         rules: &RuleSet,

@@ -87,7 +87,7 @@ async fn test_child_all_deny_spawn_returns_permission_denied() {
 
     // Simulate the permission validation that sessions_spawn performs.
     // Child all-deny × parent all-allow = fully denied.
-    let result = engine.validate_and_inject_spawn("child-all-deny", &child, &parent);
+    let result = engine.validate_and_inject_spawn("child-all-deny", &child, &parent, None, None);
 
     match result {
         Err(SpawnPermissionError::FullyDenied {
@@ -96,6 +96,9 @@ async fn test_child_all_deny_spawn_returns_permission_denied() {
         }) => {
             assert_eq!(child_agent_id, "child-all-deny");
             assert_eq!(parent_agent_id, "parent-agent");
+        }
+        Err(SpawnPermissionError::FullyDeniedWithUser { .. }) => {
+            panic!("expected FullyDenied, not FullyDeniedWithUser");
         }
         other => panic!(
             "expected FullyDenied error for all-deny child, got: {:?}",
@@ -125,7 +128,7 @@ async fn test_child_partial_deny_spawn_success_injects_cache() {
     let parent = make_all_allow("parent-agent");
 
     // Spawn should succeed (child is not fully denied).
-    let result = engine.validate_and_inject_spawn("child-partial", &child, &parent);
+    let result = engine.validate_and_inject_spawn("child-partial", &child, &parent, None, None);
     assert!(
         result.is_ok(),
         "spawn should succeed for partial-deny child"
@@ -196,7 +199,7 @@ async fn test_parent_effective_permissions_from_cache() {
 
     // Spawn A under grandparent.
     engine
-        .validate_and_inject_spawn("child-a", &child_a, &grandparent)
+        .validate_and_inject_spawn("child-a", &child_a, &grandparent, None, None)
         .expect("spawn of child-a should succeed");
 
     // Verify A's effective permissions are in cache.
@@ -213,7 +216,7 @@ async fn test_parent_effective_permissions_from_cache() {
 
     // Spawn B under A (using A's effective permissions as parent).
     engine
-        .validate_and_inject_spawn("child-b", &child_b, &a_effective)
+        .validate_and_inject_spawn("child-b", &child_b, &a_effective, None, None)
         .expect("spawn of child-b under child-a should succeed");
 
     // Verify B's cached effective permissions.
@@ -294,7 +297,7 @@ async fn test_runtime_permission_enforcement() {
 
     // Spawn child (injects into cache).
     engine
-        .validate_and_inject_spawn("child-rt", &child, &parent)
+        .validate_and_inject_spawn("child-rt", &child, &parent, None, None)
         .expect("spawn should succeed");
 
     // Simulate an exec operation for child-rt.
@@ -362,7 +365,7 @@ async fn test_multi_generation_spawn_chain() {
 
     // Spawn child under root.
     engine
-        .validate_and_inject_spawn("child-agent", &child, &root)
+        .validate_and_inject_spawn("child-agent", &child, &root, None, None)
         .expect("spawn of child under root should succeed");
 
     // Verify child's effective permissions: exec=deny (inherited from root).
@@ -387,7 +390,13 @@ async fn test_multi_generation_spawn_chain() {
 
     // Spawn grandchild under child.
     engine
-        .validate_and_inject_spawn("grandchild-agent", &grandchild, &child_effective)
+        .validate_and_inject_spawn(
+            "grandchild-agent",
+            &grandchild,
+            &child_effective,
+            None,
+            None,
+        )
         .expect("spawn of grandchild under child should succeed");
 
     // Verify grandchild's effective permissions: exec=deny (inherited chain).
