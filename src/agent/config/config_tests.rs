@@ -418,3 +418,92 @@ fn test_agent_config_ignores_removed_fields() {
         "gracePeriodSecs should not be serialized"
     );
 }
+
+// Step 1.1 — Inline permissions in AgentConfig
+
+#[test]
+fn test_agent_config_inline_permissions_load() {
+    let json = r#"{
+        "id": "agent-with-perms",
+        "name": "Agent With Inline Perms",
+        "permissions": {
+            "agent_id": "agent-with-perms",
+            "permissions": {
+                "exec": { "allowed": true, "limits": { "commands": ["git"], "paths": [], "timeout_ms": 30000 } },
+                "file_read": { "allowed": true },
+                "file_write": { "allowed": false }
+            }
+        }
+    }"#;
+
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    let perms = config.permissions.unwrap();
+    assert_eq!(perms.agent_id, "agent-with-perms");
+    assert!(perms.is_allowed("exec"));
+    assert!(perms.is_allowed("file_read"));
+    assert!(!perms.is_allowed("file_write"));
+}
+
+#[test]
+fn test_agent_config_inline_permissions_none_when_absent() {
+    let json = r#"{ "id": "no-perms" }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert!(config.permissions.is_none());
+}
+
+#[test]
+fn test_agent_config_inline_permissions_roundtrip() {
+    let perms = AgentPermissions {
+        agent_id: "rt-agent".to_string(),
+        permissions: HashMap::from([
+            (
+                "exec".to_string(),
+                ActionPermission {
+                    allowed: true,
+                    limits: PermissionLimits::default(),
+                },
+            ),
+            (
+                "network".to_string(),
+                ActionPermission {
+                    allowed: false,
+                    limits: PermissionLimits::default(),
+                },
+            ),
+        ]),
+        inherited_from: None,
+    };
+    let config = AgentConfig {
+        id: "rt-agent".to_string(),
+        permissions: Some(perms),
+        ..Default::default()
+    };
+
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(
+        parsed.get("permissions").is_some(),
+        "permissions should be serialized"
+    );
+
+    let deserialized: AgentConfig = serde_json::from_str(&json).unwrap();
+    let p = deserialized.permissions.unwrap();
+    assert_eq!(p.agent_id, "rt-agent");
+    assert!(p.is_allowed("exec"));
+    assert!(!p.is_allowed("network"));
+}
+
+#[test]
+fn test_agent_config_inline_permissions_omitted_when_none() {
+    let config = AgentConfig {
+        id: "skip-none".to_string(),
+        permissions: None,
+        ..Default::default()
+    };
+    let json_str = serde_json::to_string(&config).unwrap();
+    let reparsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+    assert!(
+        reparsed.get("permissions").is_none(),
+        "permissions should be omitted when None (skip_serializing_if)"
+    );
+}
