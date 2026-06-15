@@ -5,5 +5,12 @@
     "commit_time": "2026-06-16T01:53:21+08:00",
     "confirmed_time": "2026-06-16T02:02:41.978965+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/agent/agent-permissions.md",
+    "commit": "1cf64a2f4763901f0fa3596b10364eb41e9aedb7",
+    "commit_time": "2026-06-16T05:21:16+08:00",
+    "confirmed_time": "2026-06-16T05:46:58.571823+08:00",
+    "comment": ""
   }
 ]
