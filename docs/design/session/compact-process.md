@@ -130,8 +130,8 @@ LLM 摘要步骤不修改 system prompt 内容。Compaction 结束后，SessionM
 
 - **LLM Provider**：被调用来执行实际的对话摘要生成。
 - **Checkpoint Manager**：压缩完成后触发 checkpoint 保存，持久化压缩后的 transcript（system prompt 为运行时字段，不进入 SessionCheckpoint）。
+- **Session Injection**：压缩完成后通知 SessionManager，由 SessionManager 触发注入流程重建 system prompt（间接下游，详见 [session-injection.md](session-injection.md)）。
 
 ### 无关
 
 - **Archive Sweeper**（无调用关系）：管理 session 的归档和清理生命周期，与压缩流程无交互。
-- **Session Injection**（间接关联）：压缩完成后通知 SessionManager，由 SessionManager 触发注入流程重建 system prompt。compact-process 不直接调用注入，详细触发时机见 [session-injection.md](session-injection.md)。

@@ -2,7 +2,7 @@
 
 ## 概述
 
-`/status` 指令用于查看当前会话的运行状态，包括模式、模型、推理深度、上下文用量、缓存命中率、活跃子 agent 数、工作目录和 system prompt 追加指令列表。
+`/status` 指令用于查看当前会话的运行状态，包括模式、模型、推理深度、上下文用量、缓存命中率、缓存读写 token 累计、活跃子 agent 数、工作目录和 system prompt 追加指令列表。
 
 ## 架构
 
@@ -29,7 +29,7 @@ Gateway 直接回复用户
 
 - **输入**：无参数
 - **处理**：读取 SlashContext 中的会话状态字段
-- **输出**：Reply 包含当前模式、模型名称、推理深度、上下文用量、缓存命中率（会话累计缓存命中 token / 会话累计 prompt token，数据来源为会话统计 RunningStats）、缓存读取与写入 token 累计值、活跃子 agent 数量、工作目录、system prompt 追加指令列表
+- **输出**：Reply 包含当前模式、模型名称、推理深度、上下文用量、缓存命中率（会话累计缓存命中 token / 会话累计 prompt token，数据来源为会话统计 RunningStats）、缓存读写 token 累计、活跃子 agent 数、工作目录、system prompt 追加指令列表
 
 ## 模块关系
 
