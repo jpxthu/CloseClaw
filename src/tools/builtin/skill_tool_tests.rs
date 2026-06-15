@@ -93,6 +93,7 @@ mod tests {
                 model: None,
             },
             source: ConfigSource::Merged,
+            permissions: None,
         };
         {
             let mut agents = config_manager.agents.write().unwrap();
@@ -112,6 +113,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: SubagentsConfig::default(),
+            permissions: None,
             source: ConfigSource::Merged,
         };
         {
