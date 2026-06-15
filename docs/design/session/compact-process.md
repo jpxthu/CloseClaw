@@ -38,7 +38,7 @@ Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md 等）
 - **手动触发**：用户输入 `/compact` 斜杠命令，可附带自定义保留指令（如 `/compact 保留用户名和邮箱`）。仅输入 `/compact` 时不附带自定义指令。
 - **自动触发**：每次收到用户消息后，估算当前 token 用量，当剩余空间低于可配置阈值时自动执行压缩。自动触发内建了以下防护：
 
-**Token 估算**：用字符数乘以配置系数做线性估算，不依赖外部 tokenizer。不同模型的上下文窗口大小在内部维护。
+**Token 估算**：组合使用服务端精确用量和字符估算。已完成的 LLM 调用使用服务端返回的精确 usage 数据（prompt_tokens、completion_tokens、cache 相关 token），从会话统计（RunningStats）中读取；尚未发送的待估消息（如用户新输入）用字符数乘以配置系数做线性估算，不依赖外部 tokenizer。两者相加得到当前上下文 token 总量。不同模型的上下文窗口大小由模型发现子系统的知识库提供。
 
 **分级告警阈值**：根据剩余 token 空间分为正常、预警、触发自动压缩、阻塞四个级别。阻塞状态下拒绝新请求，要求用户手动压缩。
 
@@ -75,8 +75,9 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
   → 从消息历史中提取对话消息（排除 system prompt）
   → 构建压缩 prompt（含自定义指令）→ 调用 LLM
   → 从响应中提取摘要 → 组装 boundary 消息
-  → 统计 before/after 字符和 token 数
+  → 统计 before token 数（已返回消息用精确 usage + 待发送消息用字符估算）
   → 用 boundary 消息替换对话消息
+  → 统计 after token 数（boundary 消息用字符估算）
   → 通知 SessionManager，由 SessionManager 触发注入流程重建 system prompt 静态层
   → 持久化压缩后的 transcript（仅 boundary 消息）
   → 返回压缩统计给用户
@@ -122,13 +123,15 @@ LLM 摘要步骤不修改 system prompt 内容。Compaction 结束后，SessionM
 
 - **Chat Session**：检查自动压缩阈值，截获 `/compact` 命令触发压缩。
 - **Slash Command**：解析 `/compact [指令]` 格式。
+- **LLM 模块（会话统计）**：提供已完成的 LLM 调用的精确 usage 数据（prompt_tokens、completion_tokens、cache 相关 token），用于 token 估算。
+- **LLM 模块（模型发现）**：提供模型上下文窗口大小等推荐参数，用于阈值判断。
 
 ### 下游
 
 - **LLM Provider**：被调用来执行实际的对话摘要生成。
 - **Checkpoint Manager**：压缩完成后触发 checkpoint 保存，持久化压缩后的 transcript（system prompt 为运行时字段，不进入 SessionCheckpoint）。
+- **Session Injection**：压缩完成后通知 SessionManager，由 SessionManager 触发注入流程重建 system prompt（间接下游，详见 [session-injection.md](session-injection.md)）。
 
 ### 无关
 
 - **Archive Sweeper**（无调用关系）：管理 session 的归档和清理生命周期，与压缩流程无交互。
-- **Session Injection**（间接关联）：压缩完成后通知 SessionManager，由 SessionManager 触发注入流程重建 system prompt。compact-process 不直接调用注入，详细触发时机见 [session-injection.md](session-injection.md)。
