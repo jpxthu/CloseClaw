@@ -2,7 +2,6 @@
 //!
 //! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -25,12 +24,6 @@ pub struct AgentConfig {
     /// Parent agent ID (if this agent was spawned by another).
     #[serde(default)]
     pub parent_id: Option<String>,
-    /// When this agent was created.
-    #[serde(default = "default_created_at")]
-    pub created_at: DateTime<Utc>,
-    /// Current operational state.
-    #[serde(default)]
-    pub state: AgentConfigState,
     /// Communication whitelist configuration.
     #[serde(default)]
     pub communication: CommunicationConfig,
@@ -72,10 +65,6 @@ pub struct AgentConfig {
 
 fn default_all() -> Vec<String> {
     vec!["*".to_string()]
-}
-
-fn default_created_at() -> DateTime<Utc> {
-    Utc::now()
 }
 
 fn default_bootstrap_mode() -> BootstrapMode {
@@ -133,8 +122,6 @@ impl Default for AgentConfig {
             id: String::new(),
             name: None,
             parent_id: None,
-            created_at: chrono::Utc::now(),
-            state: AgentConfigState::default(),
             communication: CommunicationConfig::default(),
             wait_timeout_secs: None,
             grace_period_secs: None,
@@ -148,19 +135,6 @@ impl Default for AgentConfig {
             subagents: SubagentsConfig::default(),
         }
     }
-}
-
-/// Operational state of an agent (distinct from runtime `AgentState`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentConfigState {
-    /// Active and processing.
-    #[default]
-    Running,
-    /// Suspended/paused.
-    Suspended,
-    /// Stopped.
-    Stopped,
 }
 
 impl AgentConfig {

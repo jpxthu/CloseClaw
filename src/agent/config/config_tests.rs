@@ -8,8 +8,6 @@ fn test_agent_config_save_load() {
         id: "test-id".to_string(),
         name: Some("Test Agent".to_string()),
         parent_id: Some("parent-id".to_string()),
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
         communication: CommunicationConfig {
             outbound: vec!["parent-id".to_string()],
             inbound: vec!["parent-id".to_string()],
@@ -73,8 +71,6 @@ fn test_communication_allowed() {
         id: "parent-1".to_string(),
         name: Some("Parent".to_string()),
         parent_id: None,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
         communication: CommunicationConfig {
             outbound: vec!["child-1".to_string()],
             inbound: vec!["child-1".to_string()],
@@ -86,8 +82,6 @@ fn test_communication_allowed() {
         id: "child-1".to_string(),
         name: Some("Child".to_string()),
         parent_id: Some("parent-1".to_string()),
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
         communication: CommunicationConfig::default_with_parent(Some("parent-1")),
         ..Default::default()
     };
@@ -107,8 +101,6 @@ fn test_communication_denied_outbound() {
         id: "agent-a".to_string(),
         name: Some("Agent A".to_string()),
         parent_id: None,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
         communication: CommunicationConfig {
             outbound: vec!["agent-b".to_string()],
             inbound: vec!["agent-b".to_string()],
@@ -120,8 +112,6 @@ fn test_communication_denied_outbound() {
         id: "agent-c".to_string(),
         name: Some("Agent C".to_string()),
         parent_id: None,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
         communication: CommunicationConfig {
             outbound: vec![],
             inbound: vec![],
@@ -140,8 +130,6 @@ fn test_communication_denied_inbound() {
         id: "agent-a".to_string(),
         name: Some("Agent A".to_string()),
         parent_id: None,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
         communication: CommunicationConfig {
             outbound: vec!["agent-b".to_string()],
             inbound: vec!["agent-b".to_string()],
@@ -153,8 +141,6 @@ fn test_communication_denied_inbound() {
         id: "agent-b".to_string(),
         name: Some("Agent B".to_string()),
         parent_id: None,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
         communication: CommunicationConfig {
             outbound: vec![],
             inbound: vec![], // B doesn't accept inbound from anyone
