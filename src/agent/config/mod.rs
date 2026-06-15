@@ -8,8 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 pub use crate::agent::communication::{
-    check_communication_allowed, check_max_depth, CommunicationCheckResult, CommunicationConfig,
-    MaxDepthCheckResult,
+    check_communication_allowed, CommunicationCheckResult, CommunicationConfig,
 };
 use crate::session::bootstrap::BootstrapMode;
 
@@ -26,9 +25,6 @@ pub struct AgentConfig {
     /// Parent agent ID (if this agent was spawned by another).
     #[serde(default)]
     pub parent_id: Option<String>,
-    /// Maximum depth of child hierarchy this agent can create.
-    #[serde(default = "default_max_child_depth")]
-    pub max_child_depth: u32,
     /// When this agent was created.
     #[serde(default = "default_created_at")]
     pub created_at: DateTime<Utc>,
@@ -72,10 +68,6 @@ pub struct AgentConfig {
     /// Sub-agent spawn control parameters.
     #[serde(default)]
     pub subagents: SubagentsConfig,
-}
-
-fn default_max_child_depth() -> u32 {
-    3
 }
 
 fn default_all() -> Vec<String> {
@@ -141,7 +133,6 @@ impl Default for AgentConfig {
             id: String::new(),
             name: None,
             parent_id: None,
-            max_child_depth: default_max_child_depth(),
             created_at: chrono::Utc::now(),
             state: AgentConfigState::default(),
             communication: CommunicationConfig::default(),

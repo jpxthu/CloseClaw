@@ -8,7 +8,6 @@ fn test_agent_config_save_load() {
         id: "test-id".to_string(),
         name: Some("Test Agent".to_string()),
         parent_id: Some("parent-id".to_string()),
-        max_child_depth: 2,
         created_at: Utc::now(),
         state: AgentConfigState::Running,
         communication: CommunicationConfig {
@@ -25,7 +24,6 @@ fn test_agent_config_save_load() {
     assert_eq!(loaded.id, config.id);
     assert_eq!(loaded.name, config.name);
     assert_eq!(loaded.parent_id, config.parent_id);
-    assert_eq!(loaded.max_child_depth, config.max_child_depth);
     assert_eq!(loaded.communication.outbound, config.communication.outbound);
 }
 
@@ -75,7 +73,6 @@ fn test_communication_allowed() {
         id: "parent-1".to_string(),
         name: Some("Parent".to_string()),
         parent_id: None,
-        max_child_depth: 2,
         created_at: Utc::now(),
         state: AgentConfigState::Running,
         communication: CommunicationConfig {
@@ -89,7 +86,6 @@ fn test_communication_allowed() {
         id: "child-1".to_string(),
         name: Some("Child".to_string()),
         parent_id: Some("parent-1".to_string()),
-        max_child_depth: 1,
         created_at: Utc::now(),
         state: AgentConfigState::Running,
         communication: CommunicationConfig::default_with_parent(Some("parent-1")),
@@ -111,7 +107,6 @@ fn test_communication_denied_outbound() {
         id: "agent-a".to_string(),
         name: Some("Agent A".to_string()),
         parent_id: None,
-        max_child_depth: 2,
         created_at: Utc::now(),
         state: AgentConfigState::Running,
         communication: CommunicationConfig {
@@ -125,7 +120,6 @@ fn test_communication_denied_outbound() {
         id: "agent-c".to_string(),
         name: Some("Agent C".to_string()),
         parent_id: None,
-        max_child_depth: 2,
         created_at: Utc::now(),
         state: AgentConfigState::Running,
         communication: CommunicationConfig {
@@ -146,7 +140,6 @@ fn test_communication_denied_inbound() {
         id: "agent-a".to_string(),
         name: Some("Agent A".to_string()),
         parent_id: None,
-        max_child_depth: 2,
         created_at: Utc::now(),
         state: AgentConfigState::Running,
         communication: CommunicationConfig {
@@ -160,7 +153,6 @@ fn test_communication_denied_inbound() {
         id: "agent-b".to_string(),
         name: Some("Agent B".to_string()),
         parent_id: None,
-        max_child_depth: 2,
         created_at: Utc::now(),
         state: AgentConfigState::Running,
         communication: CommunicationConfig {
@@ -347,88 +339,6 @@ fn test_agent_config_camel_case_parse() {
     assert_eq!(config.subagents.max_children, 0);
     assert_eq!(config.subagents.default_child_agent, None);
     assert_eq!(config.subagents.model, None);
-}
-
-#[test]
-fn test_max_depth_allowed() {
-    // Root agent with max_child_depth=3, currently at depth 0
-    let root = AgentConfig {
-        id: "root".to_string(),
-        name: Some("Root".to_string()),
-        parent_id: None,
-        max_child_depth: 3,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: Default::default(),
-        ..Default::default()
-    };
-
-    // No parents, so depth = 0, max_child_depth = 3
-    // Can spawn (0 < 3), max_allowed for child = 2
-    let result = check_max_depth(&root, |_: &str| None);
-    match result {
-        MaxDepthCheckResult::Allowed {
-            current_depth,
-            max_allowed,
-        } => {
-            assert_eq!(current_depth, 0);
-            assert_eq!(max_allowed, 2); // 3 - 1
-        }
-        _ => panic!("expected Allowed"),
-    }
-}
-
-#[test]
-fn test_max_depth_exceeded() {
-    // Agent at depth 3, max_child_depth=2 (already exceeded!)
-    let leaf = AgentConfig {
-        id: "leaf".to_string(),
-        name: Some("Leaf".to_string()),
-        parent_id: Some("parent".to_string()),
-        max_child_depth: 2,
-        created_at: Utc::now(),
-        state: AgentConfigState::Running,
-        communication: Default::default(),
-        ..Default::default()
-    };
-
-    // Simulate: root -> child1 -> child2 -> leaf (depth 3)
-    let get_parent = |id: &str| match id {
-        "parent" => Some(AgentConfig {
-            id: "parent".to_string(),
-            name: Some("Parent".to_string()),
-            parent_id: Some("grandparent".to_string()),
-            max_child_depth: 2,
-            created_at: Utc::now(),
-            state: AgentConfigState::Running,
-            communication: Default::default(),
-            ..Default::default()
-        }),
-        "grandparent" => Some(AgentConfig {
-            id: "grandparent".to_string(),
-            name: Some("Grandparent".to_string()),
-            parent_id: None,
-            max_child_depth: 3,
-            created_at: Utc::now(),
-            state: AgentConfigState::Running,
-            communication: Default::default(),
-            ..Default::default()
-        }),
-        _ => None,
-    };
-
-    let result = check_max_depth(&leaf, get_parent);
-    match result {
-        MaxDepthCheckResult::ExceedsMaxDepth {
-            current_depth,
-            max_child_depth,
-        } => {
-            // leaf has 2 ancestors (parent + grandparent) = depth 2
-            assert_eq!(current_depth, 2);
-            assert_eq!(max_child_depth, 2);
-        }
-        _ => panic!("expected ExceedsMaxDepth"),
-    }
 }
 
 // Step 1.5 — Tests for optional name and id fallback
