@@ -133,9 +133,20 @@ impl PermissionEngine {
             "permission check initiated"
         );
 
+        let is_owner = caller.user_id == "owner";
+
         // Step 0.7: Agent effective permissions pre-check
         if let Some(response) = self.check_agent_effective_permissions(&agent_id, request.body()) {
             return response;
+        }
+
+        // Step 0.8: User effective permissions pre-check
+        if !is_owner {
+            if let Some(response) =
+                self.check_user_effective_permissions(&caller.user_id, request.body())
+            {
+                return response;
+            }
         }
 
         // Step 0: Creator rule (highest priority)
@@ -144,7 +155,6 @@ impl PermissionEngine {
         }
 
         let rules = self.rules.clone();
-        let is_owner = caller.user_id == "owner";
 
         // Step 1: Agent phase — collect AgentOnly candidates and evaluate
         let agent_candidates = self.collect_agent_candidates(&caller, &agent_id, &rules);
