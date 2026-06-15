@@ -4,6 +4,7 @@
 //! Watches individual config JSON files and the agents/ directory, triggering
 //! incremental or full reloads on the ConfigManager.
 
+use crate::agent::registry::AgentRegistry;
 use crate::config::manager::{ConfigManager, ConfigSection};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -81,23 +82,35 @@ fn setup_watcher(
     Ok((watcher, rx))
 }
 
-/// Reload all agent configs and log the result.
-fn reload_agents_with_log(path: &std::path::Path, cm: &ConfigManager) {
+/// Reload all agent configs and sync the AgentRegistry.
+async fn reload_agents_with_log(
+    path: &std::path::Path,
+    cm: &ConfigManager,
+    agent_registry: &AgentRegistry,
+) {
     info!(
         path = %path.display(),
         "agent config change detected, reloading agents"
     );
     if let Err(e) = cm.reload_agents() {
         tracing::warn!(error = %e, "failed to reload agent configs");
+        return;
     }
+    // Sync the new configs into AgentRegistry (design-doc hot-reload path).
+    let configs: Vec<_> = cm.agents().into_iter().map(|(_, c)| c).collect();
+    agent_registry.reload_config(configs).await;
 }
 
 /// Handle a single changed file path: reload agents or the matching section.
-async fn handle_changed_path(path: &std::path::Path, cm: &ConfigManager) {
+async fn handle_changed_path(
+    path: &std::path::Path,
+    cm: &ConfigManager,
+    agent_registry: &AgentRegistry,
+) {
     let path_str = path.to_string_lossy();
 
     if path_str.contains("/agents/") || path_str.contains("\\agents\\") {
-        reload_agents_with_log(path, cm);
+        reload_agents_with_log(path, cm, agent_registry).await;
         return;
     }
 
@@ -107,7 +120,7 @@ async fn handle_changed_path(path: &std::path::Path, cm: &ConfigManager) {
     };
 
     if filename == "agents.json" {
-        reload_agents_with_log(path, cm);
+        reload_agents_with_log(path, cm, agent_registry).await;
         return;
     }
 
@@ -143,6 +156,7 @@ async fn handle_changed_path(path: &std::path::Path, cm: &ConfigManager) {
 fn spawn_event_consumer(
     mut rx: mpsc::Receiver<notify::Result<Event>>,
     config_manager: Arc<ConfigManager>,
+    agent_registry: Arc<AgentRegistry>,
 ) {
     tokio::spawn(async move {
         let debounce = Duration::from_millis(500);
@@ -169,7 +183,7 @@ fn spawn_event_consumer(
             last_reload = now;
 
             for path in &event.paths {
-                handle_changed_path(path, &config_manager).await;
+                handle_changed_path(path, &config_manager, &agent_registry).await;
             }
         }
     });
@@ -182,9 +196,10 @@ fn spawn_event_consumer(
 pub(crate) fn init_config_hot_reload(
     config_dir: &str,
     config_manager: Arc<ConfigManager>,
+    agent_registry: Arc<AgentRegistry>,
 ) -> anyhow::Result<ConfigWatcherHandle> {
     let (watcher, rx) = setup_watcher(config_dir)?;
-    spawn_event_consumer(rx, Arc::clone(&config_manager));
+    spawn_event_consumer(rx, Arc::clone(&config_manager), Arc::clone(&agent_registry));
 
     let config_path = Path::new(config_dir);
     let agents_dir = config_path.join("agents");
