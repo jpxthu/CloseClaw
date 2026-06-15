@@ -472,3 +472,156 @@ mod credentials_path_tests {
         );
     }
 }
+
+// -----------------------------------------------------------------
+// Step 1.2: master agent creation tests
+// -----------------------------------------------------------------
+
+#[cfg(test)]
+mod master_agent_tests {
+    use super::*;
+    use crate::agent::config::AgentConfig;
+    use crate::config::agents::AgentsConfig;
+    use tempfile::TempDir;
+
+    fn make_wizard_output() -> WizardOutput {
+        WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "MiniMax M2.7".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn test_wizard_creates_master_agent_config() {
+        let tmp = TempDir::new().unwrap();
+        let output = make_wizard_output();
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        let master_config_path = tmp.path().join("agents").join("master").join("config.json");
+        assert!(
+            master_config_path.exists(),
+            "agents/master/config.json should exist after wizard run"
+        );
+
+        let config = AgentConfig::load(&master_config_path)
+            .expect("master config.json should be valid AgentConfig");
+        assert_eq!(config.id, "master");
+    }
+
+    #[test]
+    fn test_wizard_registers_master_in_agents_json() {
+        let tmp = TempDir::new().unwrap();
+        let output = make_wizard_output();
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        let agents_json_path = tmp.path().join("config").join("agents.json");
+        assert!(
+            agents_json_path.exists(),
+            "config/agents.json should exist after wizard run"
+        );
+
+        let content = std::fs::read_to_string(&agents_json_path).unwrap();
+        let agents_config: AgentsConfig =
+            serde_json::from_str(&content).expect("agents.json should be valid JSON");
+        assert!(
+            agents_config.agents.contains(&"master".to_string()),
+            "agents.json should contain 'master', got: {:?}",
+            agents_config.agents
+        );
+    }
+
+    #[test]
+    fn test_wizard_idempotent_master_agent() {
+        let tmp = TempDir::new().unwrap();
+
+        // Manually create master config with custom content
+        let master_dir = tmp.path().join("agents").join("master");
+        std::fs::create_dir_all(&master_dir).unwrap();
+        let master_config_path = master_dir.join("config.json");
+        let custom_config = AgentConfig {
+            id: "master".to_string(),
+            name: Some("My Custom Agent".to_string()),
+            ..AgentConfig::default()
+        };
+        custom_config.save(&master_config_path).unwrap();
+
+        // Run wizard
+        let output = make_wizard_output();
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        // Verify: config.json should NOT be overwritten
+        let loaded = AgentConfig::load(&master_config_path).unwrap();
+        assert_eq!(
+            loaded.name.as_deref(),
+            Some("My Custom Agent"),
+            "existing master config.json should not be overwritten by wizard"
+        );
+    }
+
+    #[test]
+    fn test_wizard_idempotent_agents_json() {
+        let tmp = TempDir::new().unwrap();
+
+        // Manually create agents.json with master already registered
+        let agents_config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(&agents_config_dir).unwrap();
+        let agents_json_path = agents_config_dir.join("agents.json");
+        let initial = AgentsConfig {
+            agents: vec!["master".to_string()],
+        };
+        let json = serde_json::to_string_pretty(&initial).unwrap();
+        std::fs::write(&agents_json_path, json).unwrap();
+
+        // Run wizard
+        let output = make_wizard_output();
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        // Verify: master should appear exactly once
+        let content = std::fs::read_to_string(&agents_json_path).unwrap();
+        let agents_config: AgentsConfig = serde_json::from_str(&content).unwrap();
+        let master_count = agents_config
+            .agents
+            .iter()
+            .filter(|id| id.as_str() == "master")
+            .count();
+        assert_eq!(
+            master_count, 1,
+            "master should appear exactly once in agents.json, got {}",
+            master_count
+        );
+    }
+
+    #[test]
+    fn test_wizard_invalid_agents_json_returns_error() {
+        let tmp = TempDir::new().unwrap();
+
+        // Manually create agents.json with invalid JSON
+        let agents_config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(&agents_config_dir).unwrap();
+        let agents_json_path = agents_config_dir.join("agents.json");
+        std::fs::write(&agents_json_path, "not valid json {{{").unwrap();
+
+        // Run wizard — should return an error
+        let output = make_wizard_output();
+        let result = write_wizard_config_to(&output, tmp.path());
+        assert!(
+            result.is_err(),
+            "invalid agents.json should cause an error, got Ok",
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("agents.json"),
+            "error message should mention agents.json, got: {}",
+            err_msg,
+        );
+    }
+}

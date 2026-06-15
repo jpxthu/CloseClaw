@@ -6,6 +6,8 @@ pub mod types;
 pub use fetch::*;
 pub use types::*;
 
+use crate::agent::config::AgentConfig;
+use crate::config::agents::AgentsConfig;
 use crate::config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
@@ -111,6 +113,78 @@ fn config_dir() -> PathBuf {
     PathBuf::from(home).join(".closeclaw")
 }
 
+/// Merge models from wizard output into existing config, then write models.json.
+///
+/// Preserves existing providers not being updated and their non-selected models.
+fn merge_and_write_models(config_path: &Path, output: &WizardOutput) -> anyhow::Result<PathBuf> {
+    let models_path = config_path.join("models.json");
+    let existing: ModelsConfigData = if models_path.exists() {
+        let content = std::fs::read_to_string(&models_path)?;
+        ModelsConfigData::from_json_str(&content).unwrap_or_else(|_| ModelsConfigData::default())
+    } else {
+        ModelsConfigData::default()
+    };
+
+    let new_provider_models: Vec<ModelDefinition> = output
+        .selected_models
+        .iter()
+        .map(|m| ModelDefinition {
+            id: m.id.clone(),
+            name: Some(m.name.clone()),
+            enabled: Some(true),
+        })
+        .collect();
+
+    let recommended_protocol = output.selected_models.first().map(|m| {
+        let kb = ProviderModelKnowledge::new();
+        kb.recommended_protocol(&output.provider_id, &m.id)
+            .to_string()
+    });
+
+    let mut providers = existing.providers;
+    providers.remove(&output.provider_id);
+    providers.insert(
+        output.provider_id.clone(),
+        ProviderConfig {
+            base_url: None,
+            api_key: None,
+            api: None,
+            protocol: recommended_protocol,
+            models: new_provider_models,
+        },
+    );
+
+    let merged = ModelsConfigData {
+        mode: "merge".to_string(),
+        providers,
+    };
+    <ModelsConfigData as crate::config::providers::ConfigProvider>::validate(&merged)
+        .map_err(|e| anyhow::anyhow!("merged config validation failed: {}", e))?;
+
+    let json = serde_json::to_string_pretty(&merged)?;
+    std::fs::write(&models_path, json)
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", models_path.display(), e))?;
+    Ok(models_path)
+}
+
+/// Write provider API key to credentials directory.
+fn write_provider_credentials(
+    config_path: &Path,
+    output: &WizardOutput,
+) -> anyhow::Result<PathBuf> {
+    let creds_dir = config_path.join("credentials");
+    std::fs::create_dir_all(&creds_dir)?;
+    let cred_file = creds_dir.join(format!("{}.json", output.provider_id));
+    let creds = AnyProviderCredentials::ApiKey(ApiKeyCredentials {
+        provider: output.provider_id.clone(),
+        api_key: output.credential.clone(),
+    });
+    let creds_json = serde_json::to_string_pretty(&creds)?;
+    std::fs::write(&cred_file, creds_json)
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", cred_file.display(), e))?;
+    Ok(cred_file)
+}
+
 /// Write wizard output to config files.
 ///
 /// Merging strategy:
@@ -128,77 +202,65 @@ fn config_dir() -> PathBuf {
 pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(config_path)?;
 
-    // ── Load or create models.json ─────────────────────────────────────────────
-    let models_path = config_path.join("models.json");
-    let existing: ModelsConfigData = if models_path.exists() {
-        let content = std::fs::read_to_string(&models_path)?;
-        ModelsConfigData::from_json_str(&content).unwrap_or_else(|_| ModelsConfigData::default())
-    } else {
-        ModelsConfigData::default()
-    };
-
-    // ── Build the new provider config from WizardOutput.selected_models ────────
-    let new_provider_models: Vec<ModelDefinition> = output
-        .selected_models
-        .iter()
-        .map(|m| ModelDefinition {
-            id: m.id.clone(),
-            name: Some(m.name.clone()),
-            enabled: Some(true),
-        })
-        .collect();
-
-    // ── Query recommended_protocol from knowledge base ────────────────────────
-    let recommended_protocol = output.selected_models.first().map(|m| {
-        let kb = ProviderModelKnowledge::new();
-        kb.recommended_protocol(&output.provider_id, &m.id)
-            .to_string()
-    });
-
-    // ── Merge: preserve all existing providers, replace selected provider ───────
-    let mut providers = existing.providers;
-    // Remove entries for the selected provider so we can replace them
-    providers.remove(&output.provider_id);
-
-    let new_provider_config = ProviderConfig {
-        base_url: None,
-        api_key: None,
-        api: None,
-        protocol: recommended_protocol,
-        models: new_provider_models,
-    };
-    providers.insert(output.provider_id.clone(), new_provider_config);
-
-    let merged = ModelsConfigData {
-        mode: "merge".to_string(),
-        providers,
-    };
-    <ModelsConfigData as crate::config::providers::ConfigProvider>::validate(&merged)
-        .map_err(|e| anyhow::anyhow!("merged config validation failed: {}", e))?;
-
-    // ── Write models.json ─────────────────────────────────────────────────────
-    let json = serde_json::to_string_pretty(&merged)?;
-    std::fs::write(&models_path, json)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", models_path.display(), e))?;
-
-    // ── Write credentials ────────────────────────────────────────────────────
-    let creds_dir = config_path.join("credentials");
-    std::fs::create_dir_all(&creds_dir)?;
-    let cred_file = creds_dir.join(format!("{}.json", output.provider_id));
-    let creds = AnyProviderCredentials::ApiKey(ApiKeyCredentials {
-        provider: output.provider_id.clone(),
-        api_key: output.credential.clone(),
-    });
-    let creds_json = serde_json::to_string_pretty(&creds)?;
-    std::fs::write(&cred_file, creds_json)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", cred_file.display(), e))?;
+    let models_path = merge_and_write_models(config_path, output)?;
+    let cred_file = write_provider_credentials(config_path, output)?;
+    let master_config_path = create_master_agent_config(config_path)?;
+    let agents_json_path = register_master_in_agents_json(config_path)?;
 
     println!(
-        "✅ Configuration written:\n   models: {}\n   credentials: {}",
+        "✅ Configuration written:\n   models: {}\n   credentials: {}\n   agent: {}\n   agents registry: {}",
         models_path.display(),
-        cred_file.display()
+        cred_file.display(),
+        master_config_path.display(),
+        agents_json_path.display()
     );
     Ok(())
+}
+
+/// Create master agent directory and config.json.
+///
+/// If `config.json` already exists, it is not overwritten (idempotent).
+fn create_master_agent_config(config_path: &Path) -> anyhow::Result<PathBuf> {
+    let agents_dir = config_path.join("agents").join("master");
+    let master_config_path = agents_dir.join("config.json");
+    if !master_config_path.exists() {
+        std::fs::create_dir_all(&agents_dir)
+            .map_err(|e| anyhow::anyhow!("failed to create agent dir: {}", e))?;
+        let master_config = AgentConfig {
+            id: "master".to_string(),
+            ..AgentConfig::default()
+        };
+        master_config
+            .save(&master_config_path)
+            .map_err(|e| anyhow::anyhow!("failed to write master config: {}", e))?;
+    }
+    Ok(master_config_path)
+}
+
+/// Read or create agents.json, then register `"master"` in it.
+///
+/// If agents.json already contains `"master"`, no duplicate is added (idempotent).
+fn register_master_in_agents_json(config_path: &Path) -> anyhow::Result<PathBuf> {
+    let agents_config_dir = config_path.join("config");
+    std::fs::create_dir_all(&agents_config_dir)
+        .map_err(|e| anyhow::anyhow!("failed to create config dir: {}", e))?;
+    let agents_json_path = agents_config_dir.join("agents.json");
+    let mut agents_config: AgentsConfig = if agents_json_path.exists() {
+        let content = std::fs::read_to_string(&agents_json_path)
+            .map_err(|e| anyhow::anyhow!("failed to read agents.json: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("failed to parse agents.json: {}", e))?
+    } else {
+        AgentsConfig::default()
+    };
+    if !agents_config.agents.contains(&"master".to_string()) {
+        agents_config.agents.push("master".to_string());
+    }
+    let agents_json = serde_json::to_string_pretty(&agents_config)
+        .map_err(|e| anyhow::anyhow!("failed to serialize agents.json: {}", e))?;
+    std::fs::write(&agents_json_path, agents_json)
+        .map_err(|e| anyhow::anyhow!("failed to write agents.json: {}", e))?;
+    Ok(agents_json_path)
 }
 
 /// Write wizard output to config files in the default config directory.
