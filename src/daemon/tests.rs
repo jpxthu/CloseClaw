@@ -17,7 +17,9 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
             }
         ]
     });
-    std::fs::write(dir.join("agents.json"), agents_content.to_string())?;
+    let config_dir = dir.join("config");
+    std::fs::create_dir_all(&config_dir)?;
+    std::fs::write(config_dir.join("agents.json"), agents_content.to_string())?;
     Ok(())
 }
 

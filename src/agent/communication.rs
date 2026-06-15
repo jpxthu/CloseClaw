@@ -1,6 +1,5 @@
 //! Agent communication permission checks.
 
-use crate::agent::config::AgentConfig;
 use serde::{Deserialize, Serialize};
 
 /// Communication whitelist for an agent.
@@ -47,75 +46,20 @@ pub enum CommunicationCheckResult {
 }
 
 /// Check if communication from source to target is allowed.
-/// Returns the result of the central arbiter logic.
+/// Uses standalone communication configs and agent IDs.
 pub fn check_communication_allowed(
-    source_config: &AgentConfig,
-    target_config: &AgentConfig,
+    source_config: &CommunicationConfig,
+    source_id: &str,
+    target_config: &CommunicationConfig,
+    target_id: &str,
 ) -> CommunicationCheckResult {
-    if !source_config.communication.can_send_to(&target_config.id) {
+    if !source_config.can_send_to(target_id) {
         return CommunicationCheckResult::TargetNotInSourceOutbound;
     }
 
-    if !target_config
-        .communication
-        .can_receive_from(&source_config.id)
-    {
+    if !target_config.can_receive_from(source_id) {
         return CommunicationCheckResult::SourceNotInTargetInbound;
     }
 
     CommunicationCheckResult::Allowed
-}
-
-/// Result of a max_depth permission check.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MaxDepthCheckResult {
-    /// Agent can spawn children at this depth.
-    Allowed {
-        current_depth: u32,
-        max_allowed: u32,
-    },
-    /// Agent cannot spawn: would exceed max_child_depth.
-    ExceedsMaxDepth {
-        current_depth: u32,
-        max_child_depth: u32,
-    },
-}
-
-/// Check if an agent can spawn a child at the proposed depth.
-///
-/// `get_parent` is a callback that returns the parent agent's config given its ID.
-/// Returns the result of the depth check.
-pub fn check_max_depth<F>(agent_config: &AgentConfig, get_parent: F) -> MaxDepthCheckResult
-where
-    F: Fn(&str) -> Option<AgentConfig>,
-{
-    let mut current_depth = 0u32;
-    let mut current_parent_id = agent_config.parent_id.clone();
-
-    while let Some(parent_id) = current_parent_id {
-        if parent_id.is_empty() {
-            break;
-        }
-        if let Some(parent) = get_parent(&parent_id) {
-            current_depth += 1;
-            current_parent_id = parent.parent_id.clone();
-        } else {
-            break;
-        }
-    }
-
-    let max_child_depth = agent_config.max_child_depth;
-
-    if current_depth >= max_child_depth {
-        MaxDepthCheckResult::ExceedsMaxDepth {
-            current_depth,
-            max_child_depth,
-        }
-    } else {
-        let max_allowed = max_child_depth.saturating_sub(1);
-        MaxDepthCheckResult::Allowed {
-            current_depth,
-            max_allowed,
-        }
-    }
 }
