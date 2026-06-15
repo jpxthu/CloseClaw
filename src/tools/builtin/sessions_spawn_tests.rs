@@ -69,7 +69,8 @@ fn make_tool() -> SessionsSpawnTool {
     let sm = Arc::new(make_session_manager());
     let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
     let pe = Arc::new(make_permission_engine());
-    SessionsSpawnTool::new(controller, sm, pe, cm)
+    let ar = Arc::new(crate::agent::registry::AgentRegistry::new(30));
+    SessionsSpawnTool::new(controller, sm, pe, cm, ar)
 }
 
 /// A `ToolContext` with `session_id = None` — used to exercise the

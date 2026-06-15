@@ -36,6 +36,19 @@ use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::skills::DiskSkillRegistry;
 
+/// Shared dependencies for built-in tool registration.
+///
+/// Bundles the common `Arc` handles so that [`register_builtin_tools`]
+/// stays within the 6-parameter limit defined in CONTRIBUTING.md.
+pub struct BuiltinToolContext {
+    pub config_manager: Arc<crate::config::ConfigManager>,
+    pub agent_registry: Arc<crate::agent::registry::AgentRegistry>,
+    pub disk_registry: Arc<DiskSkillRegistry>,
+    pub permission_engine: Arc<PermissionEngine>,
+    pub spawn_controller: Arc<SpawnController>,
+    pub session_manager: Arc<SessionManager>,
+}
+
 /// Registers all built-in tools with the given registry.
 ///
 /// Currently registers 19 tools:
@@ -72,11 +85,7 @@ use crate::skills::DiskSkillRegistry;
 /// - [`SkillTool`]
 pub async fn register_builtin_tools(
     registry: &crate::tools::ToolRegistry,
-    disk_registry: Arc<DiskSkillRegistry>,
-    permission_engine: Arc<PermissionEngine>,
-    spawn_controller: Arc<SpawnController>,
-    session_manager: Arc<SessionManager>,
-    config_manager: Arc<crate::config::ConfigManager>,
+    context: Arc<BuiltinToolContext>,
 ) {
     // file_ops
     registry.register(ReadTool::new()).await.ok();
@@ -99,34 +108,35 @@ pub async fn register_builtin_tools(
     // bash
     let bg_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
     registry
-        .register(BashTool::new(permission_engine.clone(), bg_manager))
+        .register(BashTool::new(context.permission_engine.clone(), bg_manager))
         .await
         .ok();
     // skills
     registry
         .register(SkillTool::new(
-            disk_registry,
-            spawn_controller.clone(),
-            session_manager.clone(),
+            context.disk_registry.clone(),
+            context.spawn_controller.clone(),
+            context.session_manager.clone(),
         ))
         .await
         .ok();
     // sessions
     registry
         .register(SessionsSpawnTool::new(
-            spawn_controller,
-            session_manager.clone(),
-            permission_engine.clone(),
-            config_manager,
+            context.spawn_controller.clone(),
+            context.session_manager.clone(),
+            context.permission_engine.clone(),
+            context.config_manager.clone(),
+            context.agent_registry.clone(),
         ))
         .await
         .ok();
     registry
-        .register(SessionsSteerTool::new(session_manager.clone()))
+        .register(SessionsSteerTool::new(context.session_manager.clone()))
         .await
         .ok();
     registry
-        .register(SessionsKillTool::new(session_manager))
+        .register(SessionsKillTool::new(context.session_manager.clone()))
         .await
         .ok();
 }

@@ -1,6 +1,7 @@
 //! Built-in sessions_spawn tool — creates child sessions for sub-agents.
 
 use crate::agent::prompt_template::PromptTemplate;
+use crate::agent::registry::AgentRegistry;
 use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::{SessionManager, SpawnMode};
@@ -21,6 +22,7 @@ pub struct SessionsSpawnTool {
     session_manager: Arc<SessionManager>,
     permission_engine: Arc<PermissionEngine>,
     config_manager: Arc<ConfigManager>,
+    agent_registry: Arc<AgentRegistry>,
 }
 
 /// Parsed arguments for a `sessions_spawn` tool call.
@@ -44,12 +46,14 @@ impl SessionsSpawnTool {
         session_manager: Arc<SessionManager>,
         permission_engine: Arc<PermissionEngine>,
         config_manager: Arc<ConfigManager>,
+        agent_registry: Arc<AgentRegistry>,
     ) -> Self {
         Self {
             spawn_controller,
             session_manager,
             permission_engine,
             config_manager,
+            agent_registry,
         }
     }
 
@@ -292,10 +296,14 @@ impl Tool for SessionsSpawnTool {
         // Look up the parent agent's subagents.model config
         // (used as priority level 2 in the model priority chain).
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
-        let parent_subagents_model = parent_agent_id
-            .as_ref()
-            .and_then(|id| self.config_manager.agent(id))
-            .and_then(|c| c.subagents.model.clone());
+        let parent_subagents_model = match &parent_agent_id {
+            Some(id) => self
+                .agent_registry
+                .get_config(id)
+                .await
+                .and_then(|c| c.subagents.model.clone()),
+            None => None,
+        };
         let parent_depth = self
             .session_manager
             .get_session_depth(parent_session_id)
