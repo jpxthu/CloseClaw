@@ -104,4 +104,56 @@ impl super::engine_eval::PermissionEngine {
             }
         }
     }
+
+    /// Get the effective permissions for a given user from the cache.
+    ///
+    /// Returns `Some(AgentPermissions)` if the user has been previously validated
+    /// and injected into the cache, `None` if not found.
+    pub fn get_user_effective_permissions(&self, user_id: &str) -> Option<AgentPermissions> {
+        let cache = self
+            .user_effective_permissions
+            .read()
+            .expect("user_effective_permissions lock poisoned");
+        cache.get(user_id).cloned()
+    }
+
+    /// Check the user effective permissions cache for a given request body.
+    ///
+    /// Returns:
+    /// - `None` if dimension is unknown (e.g., SlashCommand) or cache miss
+    /// - `Some(Denied)` if the dimension is denied
+    /// - `None` if the dimension is allowed (continue with normal evaluate)
+    pub fn check_user_effective_permissions(
+        &self,
+        user_id: &str,
+        body: &PermissionRequestBody,
+    ) -> Option<PermissionResponse> {
+        let dim = body.dimension_name()?;
+
+        let cache = self
+            .user_effective_permissions
+            .read()
+            .expect("user_effective_permissions lock poisoned");
+
+        match cache.get(user_id) {
+            None => None, // cache miss → continue with normal evaluate
+            Some(perms) => {
+                let allowed = perms
+                    .permissions
+                    .get(dim)
+                    .map(|p| p.allowed)
+                    .unwrap_or(false);
+
+                if allowed {
+                    None // allowed → continue with normal evaluate
+                } else {
+                    Some(PermissionResponse::Denied {
+                        reason: format!("user effective permission denied for dimension '{}'", dim),
+                        rule: "<user_effective_permissions>".to_string(),
+                        risk_level: super::engine_risk::assess_risk_level(body),
+                    })
+                }
+            }
+        }
+    }
 }

@@ -27,6 +27,9 @@ pub struct PermissionEngine {
     /// Per-agent effective permissions cache (populated by spawn validation)
     pub(crate) agent_permissions:
         std::sync::RwLock<HashMap<String, crate::agent::config::AgentPermissions>>,
+    /// Per-user effective permissions cache (populated by spawn validation)
+    pub(crate) user_effective_permissions:
+        std::sync::RwLock<HashMap<String, crate::agent::config::AgentPermissions>>,
 }
 
 // --- Construction & index management ---
@@ -41,6 +44,7 @@ impl PermissionEngine {
             templates: HashMap::new(),
             data_root,
             agent_permissions: std::sync::RwLock::new(HashMap::new()),
+            user_effective_permissions: std::sync::RwLock::new(HashMap::new()),
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
