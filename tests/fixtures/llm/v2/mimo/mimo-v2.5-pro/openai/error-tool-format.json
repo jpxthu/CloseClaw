@@ -1,0 +1,41 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-tool-format",
+  "model": "mimo-v2.5-pro",
+  "expect": "error",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "400",
+        "message": "Param Incorrect",
+        "param": "`name` is not set",
+        "type": ""
+      }
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "description": "test",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  ]
+}

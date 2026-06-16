@@ -1,0 +1,344 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "context-pressure",
+  "model": "MiniMax-M2.7",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "067f778fde62793b2451c315fce5a590",
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking a simple math question: what is 2+2? They want the answer in one sentence.\n</think>\n\n\n2 + 2 equals 4.",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548176,
+        "model": "MiniMax-M2.7",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 277,
+          "total_characters": 0,
+          "prompt_tokens": 242,
+          "completion_tokens": 35,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking a simple math question: what is 2+2? They want the answer in one sentence.\n</think>\n\n\n2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "067f77929f758603234a5e871f100feb",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking me to explain the Riemann hypothesis and its implications for prime number distribution. This is a famous unsolved problem in mathematics, so I should explain what it is, its connection to prime numbers, and what proving or disproving it would mean.\n\nLet me provide a clear explanation covering:\n1. What the Riemann hypothesis is\n2. The Riemann zeta function\n3. Its connection to prime numbers (through the Euler product)\n4. The implications if it were proven true\n\nThis is a</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548178,
+        "model": "MiniMax-M2.7",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 373,
+          "total_characters": 0,
+          "prompt_tokens": 273,
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking a simple math question: what is 2+2? They want the answer in one sentence.\n</think>\n\n\n2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain the Riemann hypothesis and its implications for prime number distribution. This is a famous unsolved problem in mathematics, so I should explain what it is, its connection to prime numbers, and what proving or disproving it would mean.\n\nLet me provide a clear explanation covering:\n1. What the Riemann hypothesis is\n2. The Riemann zeta function\n3. Its connection to prime numbers (through the Euler product)\n4. The implications if it were proven true\n\nThis is a</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "067f77958ecd45a2b0c6dd1cef65b935",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user wants a comparison of TCP and UDP protocols. Let me provide a comprehensive comparison covering the key aspects.\n</think>\n\n\n**TCP (Transmission Control Protocol)** is a connection-oriented, reliable protocol that guarantees ordered delivery of data through acknowledgment systems, retransmission of lost packets, and flow control via sliding windows; it implements congestion control algorithms like slow start, congestion avoidance, and fast recovery to prevent network overload.\n\n**UDP (User Datagram Protocol)** is a connectionless, unreliable protocol that sends datagrams",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548182,
+        "model": "MiniMax-M2.7",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 398,
+          "total_characters": 0,
+          "prompt_tokens": 298,
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking a simple math question: what is 2+2? They want the answer in one sentence.\n</think>\n\n\n2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain the Riemann hypothesis and its implications for prime number distribution. This is a famous unsolved problem in mathematics, so I should explain what it is, its connection to prime numbers, and what proving or disproving it would mean.\n\nLet me provide a clear explanation covering:\n1. What the Riemann hypothesis is\n2. The Riemann zeta function\n3. Its connection to prime numbers (through the Euler product)\n4. The implications if it were proven true\n\nThis is a</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user wants a comparison of TCP and UDP protocols. Let me provide a comprehensive comparison covering the key aspects.\n</think>\n\n\n**TCP (Transmission Control Protocol)** is a connection-oriented, reliable protocol that guarantees ordered delivery of data through acknowledgment systems, retransmission of lost packets, and flow control via sliding windows; it implements congestion control algorithms like slow start, congestion avoidance, and fast recovery to prevent network overload.\n\n**UDP (User Datagram Protocol)** is a connectionless, unreliable protocol that sends datagrams"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "067f7799b7711a200250931dc814bb41",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking about the CAP theorem in distributed systems. Let me provide a comprehensive explanation of the theorem and real-world examples for each trade-off.\n\nCAP Theorem states that a distributed data store cannot simultaneously provide more than two of the following three guarantees:\n1. Consistency (C) - Every read receives the most recent write or an error\n2. Availability (A) - Every request receives a response, without guarantee that it contains the most recent write\n3. Partition tolerance (P) - The</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548186,
+        "model": "MiniMax-M2.7",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 499,
+          "total_characters": 0,
+          "prompt_tokens": 399,
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking a simple math question: what is 2+2? They want the answer in one sentence.\n</think>\n\n\n2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain the Riemann hypothesis and its implications for prime number distribution. This is a famous unsolved problem in mathematics, so I should explain what it is, its connection to prime numbers, and what proving or disproving it would mean.\n\nLet me provide a clear explanation covering:\n1. What the Riemann hypothesis is\n2. The Riemann zeta function\n3. Its connection to prime numbers (through the Euler product)\n4. The implications if it were proven true\n\nThis is a</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user wants a comparison of TCP and UDP protocols. Let me provide a comprehensive comparison covering the key aspects.\n</think>\n\n\n**TCP (Transmission Control Protocol)** is a connection-oriented, reliable protocol that guarantees ordered delivery of data through acknowledgment systems, retransmission of lost packets, and flow control via sliding windows; it implements congestion control algorithms like slow start, congestion avoidance, and fast recovery to prevent network overload.\n\n**UDP (User Datagram Protocol)** is a connectionless, unreliable protocol that sends datagrams"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking about the CAP theorem in distributed systems. Let me provide a comprehensive explanation of the theorem and real-world examples for each trade-off.\n\nCAP Theorem states that a distributed data store cannot simultaneously provide more than two of the following three guarantees:\n1. Consistency (C) - Every read receives the most recent write or an error\n2. Availability (A) - Every request receives a response, without guarantee that it contains the most recent write\n3. Partition tolerance (P) - The</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "067f779d158d364fe6d69f8100e6cbd7",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking me to explain how transformer attention mechanisms work, covering the entire pipeline from matrix multiplication through to multi-head attention. This is a comprehensive technical topic, so I'll provide a thorough but clear explanation.\n\nLet me structure this to cover:\n\n1. The basic attention mechanism (Scaled Dot-Product Attention)\n2. Query, Key, Value concepts\n3. Matrix operations involved\n4. Softmax and scaling\n5. Multi-Head Attention\n6. Why multi-head is beneficial\n\n</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548190,
+        "model": "MiniMax-M2.7",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 524,
+          "total_characters": 0,
+          "prompt_tokens": 424,
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    }
+  ]
+}

@@ -525,7 +525,7 @@ data: [DONE]
 ### 8.5 工具流式输出（tool_stream）
 
 - 参数：`tool_stream=True`（需配合 `stream=True`）
-- 支持模型：GLM-5.1、GLM-5、GLM-5-Turbo、GLM-4.7、GLM-4.6
+- 支持模型：GLM-5、GLM-5-Turbo、GLM-4.7、GLM-4.6
 - 流式响应中 `delta.tool_calls` 包含工具调用增量信息
 
 ```python

@@ -1,0 +1,193 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-result",
+  "model": "mimo-v2.5",
+  "expect": "tool_result",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "round1": {
+      "id": "97ec9dce1f4f4b22b55a76eb7548f78a",
+      "type": "message",
+      "role": "assistant",
+      "model": "mimo-v2.5",
+      "stop_reason": "tool_use",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The user is asking about the weather in San Francisco. I have a tool called `get_weather` that can get the current weather in a given location. I'll use that tool with the location parameter set to \"San Francisco\".",
+          "signature": ""
+        },
+        {
+          "type": "tool_use",
+          "id": "call_16f364f0265a440c9a2a0f82",
+          "name": "get_weather",
+          "input": {
+            "location": "San Francisco"
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 56,
+        "output_tokens": 70,
+        "cache_read_input_tokens": 448
+      }
+    },
+    "round2": {
+      "id": "7f2907ac761d479db62b28976069a9da",
+      "type": "message",
+      "role": "assistant",
+      "model": "mimo-v2.5",
+      "stop_reason": "end_turn",
+      "content": [
+        {
+          "type": "text",
+          "text": "The weather in San Francisco right now is **24°C and sunny**! ☀️\n\nLooks like a beautiful day to be out and about in the city. Is there anything else you'd like to know about the weather or anything else I can help you with?"
+        },
+        {
+          "type": "thinking",
+          "thinking": "The weather in San Francisco is currently 24°C and sunny. I'll provide this information to the user in a friendly and helpful manner.",
+          "signature": ""
+        }
+      ],
+      "usage": {
+        "input_tokens": 143,
+        "output_tokens": 87,
+        "cache_read_input_tokens": 448
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_16f364f0265a440c9a2a0f82",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "97ec9dce1f4f4b22b55a76eb7548f78a",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "tool_use",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking about the weather in San Francisco. I have a tool called `get_weather` that can get the current weather in a given location. I'll use that tool with the location parameter set to \"San Francisco\".",
+            "signature": ""
+          },
+          {
+            "type": "tool_use",
+            "id": "call_16f364f0265a440c9a2a0f82",
+            "name": "get_weather",
+            "input": {
+              "location": "San Francisco"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 56,
+          "output_tokens": 70,
+          "cache_read_input_tokens": 448
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "The user is asking about the weather in San Francisco. I have a tool called `get_weather` that can get the current weather in a given location. I'll use that tool with the location parameter set to \"San Francisco\".",
+              "signature": ""
+            },
+            {
+              "type": "tool_use",
+              "id": "call_16f364f0265a440c9a2a0f82",
+              "name": "get_weather",
+              "input": {
+                "location": "San Francisco"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "call_16f364f0265a440c9a2a0f82",
+              "content": "24℃, sunny"
+            }
+          ]
+        }
+      ],
+      "response": {
+        "id": "7f2907ac761d479db62b28976069a9da",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "The weather in San Francisco right now is **24°C and sunny**! ☀️\n\nLooks like a beautiful day to be out and about in the city. Is there anything else you'd like to know about the weather or anything else I can help you with?"
+          },
+          {
+            "type": "thinking",
+            "thinking": "The weather in San Francisco is currently 24°C and sunny. I'll provide this information to the user in a friendly and helpful manner.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 143,
+          "output_tokens": 87,
+          "cache_read_input_tokens": 448
+        }
+      }
+    }
+  ],
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

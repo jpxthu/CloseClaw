@@ -1,0 +1,215 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-cache",
+  "model": "mimo-v2.5",
+  "expect": "cache_incremental",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        }
+      ],
+      "response": {
+        "id": "5909d83d546145ca9001a7e7d4543bce",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "HTTP/2 是 HTTP 协议的重大升级，它通过多路复用（Multiplexing）等技术显著提升了性能。下面我将详细解释其工作原理和改进，并提供一个具体例子。\n\n### HTTP/2 多路复用的工作原理\n在 HTTP/1.1 中，每个请求都需要建立独立的 TCP 连接（或使用 keep-alive 复用连接，但请求是串行的），这会导致：\n- **队头阻塞（Head-of-Line Blocking）**：一个慢请求会阻塞后续请求。\n- **连接数限制**：浏览器对同一域名的 TCP 连接数有限制（通常 6-8 个），并发请求时需要排队。\n\nHTTP/2 的多路复用通过以下机制解决了这些问题：\n1. **二进制分帧层**：所有通信都"
+          },
+          {
+            "type": "thinking",
+            "thinking": "The user asks in Chinese to explain HTTP/2 multiplexing and its performance improvements over HTTP/1.1, with a concrete example. As an expert software engineer, I need to provide a clear, thorough explanation in Chinese, following best practices. I'll cover the working principle of multiplexing (streams, frames, HPACK, flow control), improvements (no HOL blocking, parallel requests, header compression, server push), and give a real-world example. Ensure it's patient, detailed, and breaks down concepts. No code review needed here, just explanation with examples.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 259,
+          "output_tokens": 300
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "HTTP/2 是 HTTP 协议的重大升级，它通过多路复用（Multiplexing）等技术显著提升了性能。下面我将详细解释其工作原理和改进，并提供一个具体例子。\n\n### HTTP/2 多路复用的工作原理\n在 HTTP/1.1 中，每个请求都需要建立独立的 TCP 连接（或使用 keep-alive 复用连接，但请求是串行的），这会导致：\n- **队头阻塞（Head-of-Line Blocking）**：一个慢请求会阻塞后续请求。\n- **连接数限制**：浏览器对同一域名的 TCP 连接数有限制（通常 6-8 个），并发请求时需要排队。\n\nHTTP/2 的多路复用通过以下机制解决了这些问题：\n1. **二进制分帧层**：所有通信都"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        }
+      ],
+      "response": {
+        "id": "e62314ee336a4145916280167c5c56b4",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们首先详细解释RAFT共识算法，包括领导者选举和日志复制的过程。RAFT是一种用于管理复制日志的共识算法，其目标是易于理解。它将共识问题分解为几个相对独立的子问题：领导者选举、日志复制、安全性和成员变更。\n\n 1. 领导者选举：\n    在RAFT中，节点有三种状态：领导者（Leader）、跟随者（Follower）和候选人（Candidate）。\n    所有节点启动时都是跟随者。如果跟随者在一段时间内没有收到领导者的心跳（或日志条目），则认为领导者已失效，开始新的选举。\n    跟随者增加当前任期（term），并转换为候选人。候选人首先向其他节点请求投票，如果收到大多数节点的投票，则成为领导者。\n    领导者定期向所有跟随者发送心跳以维持其权威，并阻止新的选举。\n\n 2. 日志复制：\n    领导者接收客户端请求，将操作作为新条目追加到日志中，然后并行地向所有跟随者发送AppendEntries RPC。\n    一旦条目被安全地复制（即被大多数节点持久化），领导者将条目应用到状态机，并返回结果给客户端。\n    如果跟随者崩溃或响应缓慢，领导者会不断重试AppendEntries RPC（即使在领导者崩溃后，新领导者也会尝试完成未完成的日志复制",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 211,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "HTTP/2 是 HTTP 协议的重大升级，它通过多路复用（Multiplexing）等技术显著提升了性能。下面我将详细解释其工作原理和改进，并提供一个具体例子。\n\n### HTTP/2 多路复用的工作原理\n在 HTTP/1.1 中，每个请求都需要建立独立的 TCP 连接（或使用 keep-alive 复用连接，但请求是串行的），这会导致：\n- **队头阻塞（Head-of-Line Blocking）**：一个慢请求会阻塞后续请求。\n- **连接数限制**：浏览器对同一域名的 TCP 连接数有限制（通常 6-8 个），并发请求时需要排队。\n\nHTTP/2 的多路复用通过以下机制解决了这些问题：\n1. **二进制分帧层**：所有通信都"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
+        }
+      ],
+      "response": {
+        "id": "5c8471faf11c4e6cb02a449b732353ee",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们详细描述TLS 1.3握手流程，并与TLS 1.2进行对比，说明安全性和性能上的改进。\n\n TLS 1.3 握手流程：\n\n TLS 1.3的握手过程分为两个阶段：密钥交换和身份验证。在TLS 1.3中，握手过程通常只需要1-RTT（往返时间），并且可以支持0-RTT恢复。\n\n 1. 客户端发送ClientHello消息，其中包含：\n    - 客户端支持的TLS版本（TLS 1.3）。\n    - 客户端生成的随机数（client_random）。\n    - 客户端支持的密码套件列表（在TLS 1.3中，这些密码套件都是AEAD密码，并且密钥交换算法通常使用椭圆曲线迪菲-赫尔曼（ECDH）或RSA，但更倾向于使用ECDH）。\n    - 支持的密钥共享组（key_share）扩展，其中包含客户端为每个支持的密钥共享组生成的公钥。\n    - 其他扩展，如服务器名称指示（SNI）、支持的签名算法等。\n\n 2. 服务器响应ServerHello消息，其中包含：\n    - 服务器选择的TLS版本（TLS 1.3）。\n    - 服务器生成的随机数（server_random）。\n    - 服务器选择的密码套",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 56,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 448
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "HTTP/2 是 HTTP 协议的重大升级，它通过多路复用（Multiplexing）等技术显著提升了性能。下面我将详细解释其工作原理和改进，并提供一个具体例子。\n\n### HTTP/2 多路复用的工作原理\n在 HTTP/1.1 中，每个请求都需要建立独立的 TCP 连接（或使用 keep-alive 复用连接，但请求是串行的），这会导致：\n- **队头阻塞（Head-of-Line Blocking）**：一个慢请求会阻塞后续请求。\n- **连接数限制**：浏览器对同一域名的 TCP 连接数有限制（通常 6-8 个），并发请求时需要排队。\n\nHTTP/2 的多路复用通过以下机制解决了这些问题：\n1. **二进制分帧层**：所有通信都"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "0f3f01dba86648418dcbafdd80608e97",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们首先需要理解 Linux 内存管理的几个关键组件：伙伴系统（buddy system）和 slab 分配器，以及缺页中断的处理流程。\n\n1. **伙伴系统（Buddy System）**：\n   伙伴系统是 Linux 内核用于管理物理内存页框的分配和释放的一种算法。它将空闲内存块组织成大小为2的幂次方的块（例如，1页、2页、4页、8页等）。每个块都有一个“伙伴”，即相邻的相同大小的块。当需要分配内存时，伙伴系统会找到一个大小合适的块，如果当前没有恰好大小的块，就会将更大的块分裂成两个伙伴块，直到得到所需大小的块。释放内存时，伙伴系统会尝试合并相邻的空闲伙伴块，形成更大的块，以减少内存碎片。\n\n2. **Slab 分配器**：\n   Slab 分配器建立在伙伴系统之上，用于高效地分配和释放内核中常用的小对象（例如，task_struct、inode 等）。它通过缓存这些对象来避免频繁地分配和释放整个页面，从而提高性能。Slab 分配器维护了多个缓存（cache），每个缓存存储一种特定类型的对象。当需要分配一个对象时，slab 分配器会从对应的缓存中取出一个空闲对象；如果没有空闲对象，则会",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 217,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "HTTP/2 是 HTTP 协议的重大升级，它通过多路复用（Multiplexing）等技术显著提升了性能。下面我将详细解释其工作原理和改进，并提供一个具体例子。\n\n### HTTP/2 多路复用的工作原理\n在 HTTP/1.1 中，每个请求都需要建立独立的 TCP 连接（或使用 keep-alive 复用连接，但请求是串行的），这会导致：\n- **队头阻塞（Head-of-Line Blocking）**：一个慢请求会阻塞后续请求。\n- **连接数限制**：浏览器对同一域名的 TCP 连接数有限制（通常 6-8 个），并发请求时需要排队。\n\nHTTP/2 的多路复用通过以下机制解决了这些问题：\n1. **二进制分帧层**：所有通信都"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "f8ade253b8c84ce49ee8930fe4703863",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "# B+树 vs LSM树：数据库索引对比分析\n\n## 一、基本结构原理\n\n### B+树（B+ Tree）\n```\n          [10|20]"
+          },
+          {
+            "type": "thinking",
+            "thinking": "用户询问的是数据库索引中两种常见数据结构的对比：B+树和LSM树。这是一个非常经典的数据库系统设计问题，需要从多个维度进行比较分析。\n\n首先需要明确两种结构的基本原理：\n- B+树是传统的平衡搜索树结构，被关系型数据库广泛采用\n- LSM树是日志结构合并树，主要用在NoSQL和时序数据库中\n\n接下来需要从几个关键维度进行对比：\n1. 写入性能：LSM树通过顺序写入和批量合并获得高写入吞吐\n2. 读取性能：B+树通常有更稳定的读性能，LSM可能有多级查找开销\n3. 空间效率：LSM树可能有空间放大问题\n4. 并发控制：两者实现事务的方式不同\n5. 写放大：LSM树会有数据重写问题\n\n需要考虑典型应用场景：\n- OLTP系统通常选择B+树（如MySQL InnoDB）\n- 日志分析/时序数据更适合LSM树（如Cassandra）\n\n最后要强调没有绝对优劣，要根据工作负载特征选择。可以用一个对比表格来清晰展示差异，这样更便于用户理解。",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 57,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 448
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

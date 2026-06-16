@@ -3,108 +3,243 @@
   "streaming": false,
   "scenario": "anthropic-cache",
   "model": "MiniMax-M2.7",
-  "expect": "cache",
-  "request": {
-    "model": "MiniMax-M2.7",
-    "messages": [
-      {
-        "role": "user",
-        "content": "What color is the sky?"
-      }
-    ]
-  },
-  "response": [
+  "expect": "cache_incremental",
+  "turns": [
     {
-      "id": "064ae3557203431276b3cf3cba7662a1",
-      "type": "message",
-      "role": "assistant",
-      "model": "MiniMax-M2.7",
-      "content": [
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
         {
-          "thinking": "The user asks \"What color is the sky?\" The system says: \"You are a helpful assistant. Always remember: the sky is blue.\" So the correct answer: The sky is blue (with nuance that can appear different due to scattering, at night it's black, etc.)\n\nThe user: straightforward. So answer: The sky is blue under normal daylight conditions due to Rayleigh scattering.\n\nThe system instruction says always remember: sky is blue. So I must answer accordingly.\n\nThus answer: The sky appears blue due to Rayleigh scattering of sunlight. At sunrise/sunset, it may appear red/orange, at night it's black. But the default is blue.\n\nThus answer concisely.\n\nThus: The sky is blue.\n",
-          "signature": "f8cf9ca3a1886d58f1373b9f9149e82c2d45f3cc5f2fac662318cf292783b5b7",
-          "type": "thinking"
-        },
-        {
-          "text": "\nUnder normal daylight conditions the sky looks **blue**—the hue we see is due to Rayleigh scattering of sunlight in the atmosphere, which scatters short‑wavelength (blue) light more efficiently than longer wavelengths.  \n\n*(At sunrise or sunset the sky can shift to reds and oranges, and at night it appears dark/black.)*",
-          "type": "text"
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         }
       ],
-      "usage": {
-        "input_tokens": 36,
-        "output_tokens": 213,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0
-      },
-      "stop_reason": "end_turn",
-      "base_resp": {
-        "status_code": 0,
-        "status_msg": "success"
+      "response": {
+        "id": "067f77b0ebea6f843ac39470fc9f6b6e",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "用户询问 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上的改进，并要求举一个具体例子。这是一个关于网络协议的基础知识问题，我需要清晰地解释：\n\n1. HTTP/1.1 的问题（管线化、头部阻塞）\n2. HTTP/2 多路复用的工作原理\n3. 性能改进的具体方面\n4. 用一个具体的例子来说明\n\n让我组织一下回答：\n\n## HTTP/1.1 的限制\n\n### 1. 连接限制\n- 浏览器通常对每个域名只允许 6-8 个并发连接\n- 每个连接一次只能处理一个请求-响应周期\n\n### 2. 头部阻塞（Head-of-line Blocking）\n- HTTP/1.1 的管线化（pipelining）很少被使用\n- 即使使用，服务器也必须按顺序返回响应\n- 队头的请求阻塞后面的请求\n\n### 3. 重复的头部传输\n- 每个请求都要携带完整的 Headers\n- Cookie 和 User-Agent 等重复发送，浪费带宽\n\n## HTTP/2 多路复用\n\n### 工作原理\n\nHTTP/2 引入的几个关键概念：\n\n1. **二进制分帧层（Binary Framing Layer）**\n   - 把消息分解成更小的帧（Frame）\n   - 帧是最小的通信单位\n   \n2. **流（Stream）和多路复用**\n   - 在单个 TCP 连接上建立多个独立的逻辑通道\n   - 每个",
+            "signature": "4daa000b0ff5ecd1b480a9cd538b5f510ad98bc84b64b03db693dea81c774303",
+            "type": "thinking"
+          }
+        ],
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 300,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
       }
     },
     {
-      "id": "064ae35cdc9e6c50c1ecff930269e430",
-      "type": "message",
-      "role": "assistant",
-      "model": "MiniMax-M2.7",
-      "content": [
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
         {
-          "thinking": "The user is asking \"What color is the sky?\" This is a simple, straightforward question about the color of the sky. I know from my instructions that I should always remember \"the sky is blue\" - so I should answer that the sky is blue.\n\nHowever, I should also be accurate - the sky can appear different colors depending on various factors:\n- During the day, under normal conditions, the sky appears blue due to Rayleigh scattering\n- At sunrise/sunset, the sky can appear orange, red, pink, etc.\n- At night, the sky is dark/black\n- Under certain atmospheric conditions, it can appear gray, hazy, etc.\n\nBut the most direct, simple answer that aligns with my instruction to \"always remember: the sky is blue\" would be that the sky is blue.\n",
-          "signature": "2d7ab8c0eb36c9bd893ceba9faa7b026f8d01d4bf8ba34ead2c1de204fee8739",
-          "type": "thinking"
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         },
         {
-          "text": "\nThe sky is blue (on a clear day). However, it can appear different colors depending on conditions — orange and pink at sunrise and sunset, gray on cloudy days, and dark/black at night.",
-          "type": "text"
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
         }
       ],
-      "usage": {
-        "input_tokens": 36,
-        "output_tokens": 205,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0
-      },
-      "stop_reason": "end_turn",
-      "base_resp": {
-        "status_code": 0,
-        "status_msg": "success"
+      "response": {
+        "id": "067f77b4ab265a335ee772c7bb556c88",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "用户要求详细解释 Raft 共识算法，包括领导者选举和日志复制的过程。这是一个分布式系统领域的经典问题。让我系统地解释这个算法。\n\nRaft 是一种用于管理复制日志的共识算法，由 Diego Ongaro 和 John Ousterhout 在 2014 年的论文 \"In Search of an Understandable Consensus Algorithm\" 中提出。Raft 的设计目标是比 Paxos 更容易理解，同时能够有效地解决分布式系统中的共识问题。\n\n主要内容包括：\n1. Raft 的基本概念和角色\n2. 领导者选举（Leader Election）\n3. 日志复制（Log Replication）\n4. 安全性保证\n5. 节点故障处理\n6. 一个具体示例\n\n让我组织一个清晰的解释。\n",
+            "signature": "40b05dfa932dc342821afcce5a96559f8467624e6494ad2213bd36db4baea5c6",
+            "type": "thinking"
+          },
+          {
+            "text": "# Raft 共识算法详解\n\n## 1. 基本概念\n\nRaft 是一种用于分布式系统的共识算法，核心目标是让多个节点就某个值达成一致。它将问题分解为三个相对独立的子问题：\n\n```\n┌─────────────────────────────────────────────────────────────┐\n│                    Raft 算法的三大子问题                      │\n├─────────────────────────────────────────────────────────────┤\n│                                                             │\n│   ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐  │\n│   │  领导者选举  │   │   日志复制   │   │  安全性保证      │  │\n│   │(Leader      │   │(Log         │   │(Safety          │  │",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 29,
+          "output_tokens": 300,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
       }
     },
     {
-      "id": "064ae362630953d38f4d4052b34b0776",
-      "type": "message",
-      "role": "assistant",
-      "model": "MiniMax-M2.7",
-      "content": [
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
         {
-          "thinking": "The user is asking about the color of the sky. This is a straightforward factual question. I know that the sky appears blue during the day due to Rayleigh scattering, though it can appear other colors at sunrise/sunset (reds, oranges, pinks, purples) and is dark (black with stars) at night.\n\nI should provide a helpful, accurate answer.\n",
-          "signature": "451f32aa12670c45f1aba5ba94a1dfed6347a0291a1512ace1a5fe41d4718c19",
-          "type": "thinking"
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
         },
         {
-          "text": "\nThe sky is typically **blue** during the daytime. This is due to a phenomenon called **Rayleigh scattering**, where sunlight interacts with molecules and small particles in Earth's atmosphere, scattering shorter wavelengths of light (blue and violet) more than longer wavelengths (red and yellow).\n\nA few additional notes:\n\n- **At sunrise and sunset**, the sky often appears **red, orange, or pink** because the sun's light travels through more atmosphere, scattering away most of the blue light.\n- **At night**, the sky appears **dark** (often black), though we see stars, the moon, and planets.\n- **On cloudy days**, the sky appears **gray** or white due to water droplets scattering light in all directions.\n\nIs there anything else you'd like to know?",
-          "type": "text"
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": "# Raft 共识算法详解\n\n## 1. 基本概念\n\nRaft 是一种用于分布式系统的共识算法，核心目标是让多个节点就某个值达成一致。它将问题分解为三个相对独立的子问题：\n\n```\n┌─────────────────────────────────────────────────────────────┐\n│                    Raft 算法的三大子问题                      │\n├─────────────────────────────────────────────────────────────┤\n│                                                             │\n│   ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐  │\n│   │  领导者选举  │   │   日志复制   │   │  安全性保证      │  │\n│   │(Leader      │   │(Log         │   │(Safety          │  │"
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
         }
       ],
-      "usage": {
-        "input_tokens": 36,
-        "output_tokens": 233,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0
-      },
-      "stop_reason": "end_turn",
-      "base_resp": {
-        "status_code": 0,
-        "status_msg": "success"
+      "response": {
+        "id": "067f77b72c276a69570e015a8cd4e988",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "用户要求我详细解释 TLS 1.3 握手流程，并与 TLS 1.2 进行对比，说明安全性和性能上的改进。这是一个关于网络安全协议的技术问题。\n\n我需要涵盖：\n1. TLS 1.3 握手流程的详细步骤\n2. TLS 1.2 握手流程（作为对比）\n3. 两者在安全性上的改进\n4. 两者在性能上的改进\n5. 具体的数据对比（如握手次数、延迟等）\n\n让我组织一个全面的回答。\n",
+            "signature": "5d7ac9a39c0596c9e2a8bccfbfc32a562ab1572892de7503373832993cd598bf",
+            "type": "thinking"
+          },
+          {
+            "text": "# TLS 1.3 握手流程详解\n\n## 1. TLS 1.2 握手流程（回顾对比）\n\n### 1.1 完整的 TLS 1.2 握手（2-RTT）\n\n```\n┌─────────┐                                          ┌─────────┐\n│  Client │                                          │  Server │\n└────┬────┘                                          └────┬────┘\n     │                                                    │\n     │────────── ClientHello ──────────────────────────►│\n     │         (TLS 1.2, 支持的密码套件列表,             │\n     │          支持的椭圆曲线, 随机数)                   │\n     │                                                    │\n     │◄──────── ServerHello ────────────────────────────│\n     │        (选定的密码套件, 随机数)                    │\n     │                                                    │\n     │◄──────── Certificate ─────────────────────────────│\n     │        (服务器证书链)                               │\n     │",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 180,
+          "output_tokens": 300,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 288
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "067f77baebfb19749fc376ec22312bef",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "用户问的是Linux内核中三个重要的内存管理概念：\n1. slab分配器\n2. buddy系统\n3. 缺页中断处理流程\n\n让我详细解释这些内容。\n\n## 1. Buddy System（伙伴系统）\n\nBuddy system是Linux内核用于管理物理内存的基本分配算法。\n\n核心思想：\n- 内存被分成不同大小的块（2^order，order从0到最大）\n- 每个order维护一个链表，存储对应大小的空闲块\n- 分配时，如果请求的大小对应的order没有空闲块，就从更大的order分裂\n- 释放时，如果相邻的块（伙伴块）也是空闲的，就合并成更大的块\n\n优点：分配和释放简单快速，减少外部碎片\n缺点：可能产生内部碎片\n\n## 2. Slab分配器\n\nSlab分配器构建在buddy系统之上，专门用于分配固定大小的对象。\n\n核心思想：\n- 为每种对象类型（task_struct、inode等）维护一个slab缓存\n- 每个slab由一个或多个物理页组成\n- slab中的对象分为：完全分配、完全空闲、部分分配三种状态\n- 使用对象池的概念，减少内存碎片\n\n优点：\n- 减少内部碎片\n- 快速分配/释放（不需要查找空闲空间）\n- 对象可以着色（cache coloring）来优化CPU缓存\n- 可以对对象进行构造函数初始化\n\n\n- 缺页中断处理发生在进程访问未映射内存时。当发生缺页异常时，内核通过",
+            "signature": "28b75bb92a85adcd7b54f8c7f8059ea51eb233c73fe8354cfecf6b36da6f1085",
+            "type": "thinking"
+          }
+        ],
+        "usage": {
+          "input_tokens": 31,
+          "output_tokens": 300,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 256
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "067f77bd7d2a25b338f040b21340b985",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "用户问的是B+树和LSM树在数据库索引中的对比，这是一个经典的数据库存储引擎问题。我需要从多个维度来详细分析这两种索引结构的优缺点，以及各自的适用场景。\n\n让我系统地组织这个回答：\n\n1. **B+树的特点**\n   - 结构：平衡多路搜索树，所有数据存在叶子节点，叶子节点通过链表连接\n   - 读操作友好，顺序读写友好\n   - 写入需要查找位置，可能触发节点分裂\n\n2. **LSM树的特点**\n   - 结构：Log-Structured Merge Tree，多层结构（SSTable + MemTable + WAL）\n   - 写入友好，先写内存再批量刷盘\n   - 读取需要检查多个层级\n\n3. **详细对比**\n   - 写入性能\n   - 读取性能\n   - 空间放大\n   - 读放大\n   - 写放大\n   - 适用场景\n\n4. **典型应用**\n   - B+树：传统关系型数据库（MySQL InnoDB, PostgreSQL等）\n   - LSM树：NoSQL数据库（LevelDB, RocksDB, Cassandra等）\n\n我会用图表和具体数字来让对比更清晰。\n",
+            "signature": "c3d3cd558d84f72e5ac15bccdf867d2bc2efd4e5322ee740104754fba7294c92",
+            "type": "thinking"
+          },
+          {
+            "text": "# B+ 树 vs LSM 树：数据库索引结构对比\n\n## 1. 数据结构对比\n\n### B+ 树结构\n\n```\n                    [17|35|50|72|89]\n                   /    |    |",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 29,
+          "output_tokens": 300,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 288
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
       }
     }
   ],
   "system_sent": [
     {
       "type": "text",
-      "text": "You are a helpful assistant. Always remember: the sky is blue."
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
     }
-  ],
-  "max_tokens_sent": 1024,
-  "cache_control_note": "Anthropic 协议在 system 末尾标记了 cache_control:ephemeral"
+  ]
 }

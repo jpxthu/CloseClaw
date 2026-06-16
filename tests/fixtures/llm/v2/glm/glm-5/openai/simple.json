@@ -1,0 +1,45 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-5",
+  "expect": "text",
+  "request": {
+    "model": "glm-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello to you!",
+          "reasoning_content": "1.  **Analyze the Request:**\n    *   Task: Say hello.\n    *   Constraint: Exactly 3 words.\n\n2.  **Brainstorming 3-word greetings:**\n    *   \"Hello to you!\" (3 words)\n    *   \"Hi there, friend!\" (3 words)\n    *   \"Hope you're well.\" (3 words - not exactly a direct greeting, more of a pleasantry)\n    *   \"Hello, how are you?\" (4 words - too long)\n    *   \"Hey, howdy, hello!\" (3 words)\n    *   \"A warm hello!\" (3 words)\n    *   \"Hello right back!\" (3 words)\n\n3.  **Selecting the best option:**\n    *   \"Hello to you!\" is very natural and clearly fulfills both the semantic and constraint requirements.\n    *   \"A warm hello!\" is also very polite and fits perfectly.\n    *   Let's go with \"Hello to you!\"\n\n4.  **Verification:**\n    *   Word 1: Hello\n    *   Word 2: to\n    *   Word 3: you.\n    *   Count: 3 words.\n\n5.  **Output Generation:** Provide just the 3 words.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1781548096,
+    "id": "20260616022812abf11d5b232e47e5",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "20260616022812abf11d5b232e47e5",
+    "usage": {
+      "completion_tokens": 271,
+      "completion_tokens_details": {
+        "reasoning_tokens": 265
+      },
+      "prompt_tokens": 19,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 290
+    }
+  }
+}

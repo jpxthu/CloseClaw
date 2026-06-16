@@ -1,0 +1,67 @@
+{
+  "protocol": "n/a",
+  "streaming": false,
+  "scenario": "model-list",
+  "model": "provider",
+  "provider": "minimax",
+  "expect": "model-list",
+  "request": {
+    "method": "GET",
+    "url": "https://api.minimaxi.com/anthropic/v1/models"
+  },
+  "response": {
+    "data": [
+      {
+        "id": "MiniMax-M3",
+        "type": "model",
+        "display_name": "MiniMax-M3",
+        "created_at": "2026-06-01T00:00:00Z"
+      },
+      {
+        "id": "MiniMax-M2.7",
+        "type": "model",
+        "display_name": "MiniMax-M2.7",
+        "created_at": "2026-03-18T02:00:00Z"
+      },
+      {
+        "id": "MiniMax-M2.7-highspeed",
+        "type": "model",
+        "display_name": "MiniMax-M2.7-Highspeed",
+        "created_at": "2026-03-18T02:00:00Z"
+      },
+      {
+        "id": "MiniMax-M2.5",
+        "type": "model",
+        "display_name": "MiniMax-M2.5",
+        "created_at": "2026-02-13T02:00:00Z"
+      },
+      {
+        "id": "MiniMax-M2.5-highspeed",
+        "type": "model",
+        "display_name": "MiniMax-M2.5-Highspeed",
+        "created_at": "2026-02-13T02:00:00Z"
+      },
+      {
+        "id": "MiniMax-M2.1",
+        "type": "model",
+        "display_name": "MiniMax-M2.1",
+        "created_at": "2025-12-23T02:00:00Z"
+      },
+      {
+        "id": "MiniMax-M2.1-highspeed",
+        "type": "model",
+        "display_name": "MiniMax-M2.1-Highspeed",
+        "created_at": "2025-12-23T02:00:00Z"
+      },
+      {
+        "id": "MiniMax-M2",
+        "type": "model",
+        "display_name": "MiniMax-M2",
+        "created_at": "2025-10-27T02:00:00Z"
+      }
+    ],
+    "first_id": "MiniMax-M3",
+    "last_id": "MiniMax-M2",
+    "has_more": false
+  }
+}

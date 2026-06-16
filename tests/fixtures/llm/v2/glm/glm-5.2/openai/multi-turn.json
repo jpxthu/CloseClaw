@@ -1,0 +1,53 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "glm-5.2",
+  "expect": "context",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Your name is Alice.",
+          "reasoning_content": "1.  **Analyze the Input:** The user is asking \"What is my name?\".\n2.  **Analyze the Context:** Look back at the conversation history.\n    *   User: \"My name is Alice.\"\n    *   Model: \"Hi Alice! Nice to meet you.\"\n    *   User: \"What is my name?\"\n3.  **Identify the Information:** The user explicitly stated their name in the first turn. The name is \"Alice\".\n4.  **Formulate the Response:** State the user's name clearly based on the provided context. Keep it polite and natural.\n    *   *Draft 1:* Your name is Alice.\n    *   *Draft 2:* You told me earlier that your name is Alice.\n    *   *Draft 3:* Your name is Alice! (Enthusiastic and direct)\n5.  **Select the Best Response:** Draft 1 or 3 is best. Let's go with a friendly \"Your name is Alice.\"",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1781546525,
+    "id": "202606160201594563de7569804f6b",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "202606160201594563de7569804f6b",
+    "usage": {
+      "completion_tokens": 214,
+      "completion_tokens_details": {
+        "reasoning_tokens": 207
+      },
+      "prompt_tokens": 34,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 248
+    }
+  }
+}
