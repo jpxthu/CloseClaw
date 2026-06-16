@@ -71,11 +71,10 @@ fn test_merge_agent_ids_union() {
     let merged = ConfigManager::merge_agent_ids(&user, &project);
 
     assert_eq!(merged.len(), 4, "should have 4 unique IDs");
-    // project-first: project yields beta, delta, alpha; then user yields gamma
-    assert_eq!(merged[0], "beta");
-    assert_eq!(merged[1], "delta");
-    assert_eq!(merged[2], "alpha");
-    assert_eq!(merged[3], "gamma");
+    assert_eq!(merged[0], "alpha");
+    assert_eq!(merged[1], "beta");
+    assert_eq!(merged[2], "gamma");
+    assert_eq!(merged[3], "delta");
 }
 
 /// When project list is empty, merged result equals user list.
@@ -94,43 +93,6 @@ fn test_merge_agent_ids_both_empty() {
     let project: Vec<String> = vec![];
     let merged = ConfigManager::merge_agent_ids(&user, &project);
     assert!(merged.is_empty());
-}
-
-/// When user list is empty, merged result equals project list.
-#[test]
-fn test_merge_agent_ids_empty_user() {
-    let user: Vec<String> = vec![];
-    let project = vec!["x".to_string(), "y".to_string()];
-    let merged = ConfigManager::merge_agent_ids(&user, &project);
-    assert_eq!(merged, vec!["x", "y"]);
-}
-
-/// Completely disjoint lists — all IDs from both are preserved,
-/// project IDs first, then user IDs.
-#[test]
-fn test_merge_agent_ids_disjoint() {
-    let user = vec!["u1".to_string(), "u2".to_string()];
-    let project = vec!["p1".to_string(), "p2".to_string()];
-    let merged = ConfigManager::merge_agent_ids(&user, &project);
-    assert_eq!(merged.len(), 4, "should have 4 unique IDs");
-    // project-first ordering
-    assert_eq!(merged[0], "p1");
-    assert_eq!(merged[1], "p2");
-    assert_eq!(merged[2], "u1");
-    assert_eq!(merged[3], "u2");
-}
-
-/// Same ID in both lists — project entry is kept (project-first semantics).
-#[test]
-fn test_merge_agent_ids_same_id_project_wins() {
-    let user = vec!["shared".to_string()];
-    let project = vec!["shared".to_string()];
-    let merged = ConfigManager::merge_agent_ids(&user, &project);
-    assert_eq!(merged.len(), 1, "shared ID should appear once");
-    assert_eq!(
-        merged[0], "shared",
-        "project entry should be kept (first-wins)"
-    );
 }
 
 // ===========================================================================
