@@ -6,3 +6,10 @@ while read local_ref local_sha remote_ref remote_sha; do
         exit 1
     fi
 done
+
+# 角色检查 — 读取 git config hooks.role，加载对应的角色规则
+hook_name=$(basename "$0")
+role=$(git config hooks.role 2>/dev/null || true)
+if [ -n "$role" ] && [ -f ".githooks/roles/${role}.${hook_name}" ]; then
+    bash ".githooks/roles/${role}.${hook_name}"
+fi

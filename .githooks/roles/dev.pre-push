@@ -1,0 +1,24 @@
+#!/bin/bash
+# dev role: push 前兜底检查，确保没有绕过 pre-commit 修改受保护文件
+# 与 dev.pre-commit 保持一致
+
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        base="$local_sha"
+    elif [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    else
+        base="$remote_sha"
+    fi
+
+    protected=$(git diff --name-only "$base" "$local_sha" | grep -E '^(docs/design/|CONTRIBUTING\.md$)' || true)
+    if [ -n "$protected" ]; then
+        echo ""
+        echo "ERROR: 以下受保护文件不允许修改："
+        echo "$protected"
+        echo ""
+        echo "禁止更改 design doc 和开发规范，如若违反一定会被 owner revert。"
+        echo "请勿绕过限制，及时撤销或上报（给主脑）违规更改。"
+        exit 1
+    fi
+done
