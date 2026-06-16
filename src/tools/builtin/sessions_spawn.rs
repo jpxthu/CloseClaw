@@ -316,7 +316,7 @@ impl Tool for SessionsSpawnTool {
         let parent_subagents_model = match &parent_agent_id {
             Some(id) => self
                 .agent_registry
-                .get_config(id)
+                .get(id)
                 .await
                 .and_then(|c| c.subagents.model.clone()),
             None => None,

@@ -1,8 +1,7 @@
-//! Agent Runtime - manages agent lifecycle and inter-agent communication
+//! Agent module - pure configuration layer for agent definitions.
 
 pub mod communication;
 pub mod config;
-pub mod process;
 pub mod prompt_template;
 pub mod registry;
 pub mod spawn;
