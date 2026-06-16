@@ -1,6 +1,6 @@
 //! Built-in sessions_spawn tool — creates child sessions for sub-agents.
 
-use super::prompt_template::PromptTemplate;
+use crate::agent::prompt_template::PromptTemplate;
 use crate::agent::registry::AgentRegistry;
 use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
@@ -307,7 +307,7 @@ impl Tool for SessionsSpawnTool {
                 ToolCallError::ExecutionFailed(format!("spawn validation failed: {}", e))
             })?;
         let config = spawn_result.config;
-        let effective_remaining_depth = spawn_result.effective_remaining_depth;
+        let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
         self.validate_spawn_permissions(&config, parent_session_id)
             .await?;
         // Look up the parent agent's subagents.model config
@@ -316,7 +316,7 @@ impl Tool for SessionsSpawnTool {
         let parent_subagents_model = match &parent_agent_id {
             Some(id) => self
                 .agent_registry
-                .get(id)
+                .get_config(id)
                 .await
                 .and_then(|c| c.subagents.model.clone()),
             None => None,
@@ -344,7 +344,7 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.allowed_tools,
                 spawn_args.model.as_deref(),
                 parent_subagents_model.as_deref(),
-                effective_remaining_depth,
+                effective_max_spawn_depth,
             )
             .await?;
         Ok(ToolResult {

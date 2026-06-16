@@ -10,7 +10,6 @@ pub mod coding_agent;
 pub mod file_ops;
 pub mod git_ops;
 pub mod permission;
-pub mod prompt_template;
 pub mod search;
 pub mod sessions_kill;
 pub mod sessions_spawn;
@@ -133,17 +132,11 @@ pub async fn register_builtin_tools(
         .await
         .ok();
     registry
-        .register(SessionsSteerTool::new(
-            context.session_manager.clone(),
-            context.permission_engine.clone(),
-        ))
+        .register(SessionsSteerTool::new(context.session_manager.clone()))
         .await
         .ok();
     registry
-        .register(SessionsKillTool::new(
-            context.session_manager.clone(),
-            context.permission_engine.clone(),
-        ))
+        .register(SessionsKillTool::new(context.session_manager.clone()))
         .await
         .ok();
 }
