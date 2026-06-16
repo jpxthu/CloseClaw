@@ -14,11 +14,11 @@ while read local_ref local_sha remote_ref remote_sha; do
     protected=$(git diff --name-only "$base" "$local_sha" | grep -E '^(docs/design/|CONTRIBUTING\.md$)' || true)
     if [ -n "$protected" ]; then
         echo ""
-        echo "ERROR: dev 角色不允许修改以下受保护文件："
+        echo "ERROR: 以下受保护文件不允许修改："
         echo "$protected"
         echo ""
-        echo "docs/design/ 和 CONTRIBUTING.md 由项目维护者管控。"
-        echo "如需修改，请联系维护者或提 issue 讨论。"
+        echo "禁止更改 design doc 和开发规范，如若违反一定会被 owner revert。"
+        echo "请勿绕过限制，及时撤销或上报（给主脑）违规更改。"
         exit 1
     fi
 done
