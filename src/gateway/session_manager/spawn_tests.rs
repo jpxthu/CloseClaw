@@ -1,9 +1,5 @@
-//! Tests for `SessionManager::create_child_session` and the children tracking table.
-//!
-//! These tests live in a separate module to keep `session_manager.rs` and
-//! `tests.rs` under the project's 500-line file limit. Shared helpers
-//! (`make_test_mgr`, `clear_global_prompt_state`) are re-exported by
-//! `super::tests` at `pub(super)` visibility.
+//! Tests for `create_child_session` and children tracking.
+//! Helpers (`make_test_mgr`, `clear_global_prompt_state`) from `super::tests`.
 
 use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
@@ -671,7 +667,7 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
 /// depth=1, remaining_depth=3 (allows further spawning).
 #[test]
 fn test_build_spawn_context_allows_spawning() {
-    let ctx = SessionManager::build_spawn_context(1, 3);
+    let ctx = SessionManager::build_spawn_context("parent-test", 1, 3, &SpawnMode::Run, false);
     assert!(ctx.contains("sub-agent"), "should declare sub-agent role");
     assert!(
         ctx.contains("Current depth: 1. Remaining spawn depth: 3"),
@@ -689,12 +685,18 @@ fn test_build_spawn_context_allows_spawning() {
         ctx.contains("Your effective maximum depth for children is 3"),
         "should show remaining spawn depth"
     );
+    assert!(
+        ctx.contains("Parent session: parent-test"),
+        "should contain parent session id"
+    );
+    assert!(ctx.contains("Spawn mode: run"), "should contain spawn mode");
+    assert!(ctx.contains("Fork: false"), "should contain fork flag");
 }
 
 /// Verify `build_spawn_context` omits spawn guidance when remaining_depth == 0.
 #[test]
 fn test_build_spawn_context_no_spawning_at_limit() {
-    let ctx = SessionManager::build_spawn_context(3, 0);
+    let ctx = SessionManager::build_spawn_context("parent-test", 3, 0, &SpawnMode::Run, false);
     assert!(ctx.contains("sub-agent"));
     assert!(
         ctx.contains("Current depth: 3. Remaining spawn depth: 0"),
@@ -709,7 +711,7 @@ fn test_build_spawn_context_no_spawning_at_limit() {
 /// Verify `build_spawn_context` at depth=0, remaining_depth=1 (allows spawning).
 #[test]
 fn test_build_spawn_context_depth_zero() {
-    let ctx = SessionManager::build_spawn_context(0, 1);
+    let ctx = SessionManager::build_spawn_context("parent-test", 0, 1, &SpawnMode::Run, false);
     assert!(ctx.contains("Current depth: 0. Remaining spawn depth: 1"));
     assert!(
         ctx.contains("Your effective maximum depth for children is 1"),
@@ -717,10 +719,40 @@ fn test_build_spawn_context_depth_zero() {
     );
 }
 
+/// Verify `build_spawn_context` with SpawnMode::Session shows "session" mode text.
+#[test]
+fn test_build_spawn_context_session_mode() {
+    let ctx = SessionManager::build_spawn_context("parent-s", 1, 2, &SpawnMode::Session, false);
+    assert!(
+        ctx.contains("Spawn mode: session"),
+        "session mode should render 'Spawn mode: session', got: {}",
+        ctx
+    );
+    assert!(
+        !ctx.contains("Spawn mode: run"),
+        "session mode should NOT contain 'Spawn mode: run'"
+    );
+}
+
+/// Verify `build_spawn_context` with fork=true shows fork flag as true.
+#[test]
+fn test_build_spawn_context_fork_true() {
+    let ctx = SessionManager::build_spawn_context("parent-f", 0, 3, &SpawnMode::Run, true);
+    assert!(
+        ctx.contains("Fork: true"),
+        "fork=true should render 'Fork: true', got: {}",
+        ctx
+    );
+    assert!(
+        !ctx.contains("Fork: false"),
+        "fork=true should NOT contain 'Fork: false'"
+    );
+}
+
 /// Verify the behavioral constraints section is always present.
 #[test]
 fn test_build_spawn_context_behavioral_constraints() {
-    let ctx = SessionManager::build_spawn_context(0, 1);
+    let ctx = SessionManager::build_spawn_context("parent-test", 0, 1, &SpawnMode::Run, false);
     assert!(
         ctx.contains("Behavioral constraints"),
         "should have behavioral constraints header"
@@ -797,7 +829,7 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
 /// section (per design doc §结构化输出) when remaining_depth > 0.
 #[test]
 fn test_build_spawn_context_structured_output_guidance() {
-    let ctx = SessionManager::build_spawn_context(1, 2);
+    let ctx = SessionManager::build_spawn_context("parent-test", 1, 2, &SpawnMode::Run, false);
     assert!(
         ctx.contains("Structured output (optional)"),
         "should contain structured output header"
@@ -828,7 +860,7 @@ fn test_build_spawn_context_structured_output_guidance() {
 /// and that the child may reply freely.
 #[test]
 fn test_build_spawn_context_structured_output_is_optional() {
-    let ctx = SessionManager::build_spawn_context(0, 1);
+    let ctx = SessionManager::build_spawn_context("parent-test", 0, 1, &SpawnMode::Run, false);
     assert!(
         ctx.contains("suggestion"),
         "should indicate structured output is a suggestion"
@@ -843,7 +875,7 @@ fn test_build_spawn_context_structured_output_is_optional() {
 /// (it is independent of spawn depth — it always applies).
 #[test]
 fn test_build_spawn_context_structured_output_at_depth_limit() {
-    let ctx = SessionManager::build_spawn_context(3, 0);
+    let ctx = SessionManager::build_spawn_context("parent-test", 3, 0, &SpawnMode::Run, false);
     assert!(
         ctx.contains("Structured output (optional)"),
         "structured output should be present even at spawn depth limit"
