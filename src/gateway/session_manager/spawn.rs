@@ -161,7 +161,8 @@ impl SessionManager {
         //     The design doc requires the child's first message to
         //     contain context告知 (role, depth, comms) followed by
         //     the task content.
-        let spawn_context = Self::build_spawn_context(depth, max_spawn_depth);
+        let spawn_context =
+            Self::build_spawn_context(parent_session_id, depth, max_spawn_depth, &mode, fork);
 
         // 5. Create ConversationSession
         // Model priority: explicit model param > parent agent.subagents.model
@@ -292,12 +293,25 @@ impl SessionManager {
     /// - Communication behavior (push-based, no polling)
     /// - Behavioral constraints (direct execution, no back-and-forth)
     /// - Spawn guidance when depth allows further spawning
-    pub(crate) fn build_spawn_context(depth: u32, remaining_depth: u32) -> String {
+    pub(crate) fn build_spawn_context(
+        parent_session_id: &str,
+        depth: u32,
+        remaining_depth: u32,
+        spawn_mode: &SpawnMode,
+        fork: bool,
+    ) -> String {
+        let mode_text = match spawn_mode {
+            SpawnMode::Run => "run",
+            SpawnMode::Session => "session",
+        };
         let mut ctx = format!(
             "## Spawn Context\n\
              You are running as a sub-agent. \
+             Parent session: {parent_session_id}. \
              Current depth: {depth}. \
-             Remaining spawn depth: {remaining_depth}.\n\
+             Remaining spawn depth: {remaining_depth}. \
+             Spawn mode: {mode_text}. \
+             Fork: {fork}.\n\
              **Communication behavior:** Your results are automatically \
              pushed back to the parent agent when you finish. \
              Do not poll for status. \
