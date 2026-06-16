@@ -1,0 +1,41 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-model",
+  "model": "MiniMax-M3",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "id": "067f73c553008278ac3c5f1fc5b939c2",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M3",
+    "content": [
+      {
+        "text": "Hi there! How can I help you today?",
+        "type": "text"
+      }
+    ],
+    "usage": {
+      "input_tokens": 50,
+      "output_tokens": 10,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 114,
+      "service_tier": "standard"
+    },
+    "stop_reason": "end_turn",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "max_tokens_sent": 1024
+}

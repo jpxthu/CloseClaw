@@ -1,0 +1,59 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "MiniMax-M3",
+  "expect": "context",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response": {
+    "id": "067f7385df40abccfb2636e0f7050d44",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Your name is Alice.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1781547142,
+    "model": "MiniMax-M3",
+    "object": "chat.completion",
+    "usage": {
+      "total_tokens": 212,
+      "total_characters": 0,
+      "prompt_tokens": 205,
+      "completion_tokens": 7,
+      "prompt_tokens_details": {
+        "cached_tokens": 171
+      }
+    },
+    "input_sensitive": false,
+    "output_sensitive": false,
+    "input_sensitive_type": 0,
+    "output_sensitive_type": 0,
+    "output_sensitive_int": 0,
+    "service_tier": "standard",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  }
+}

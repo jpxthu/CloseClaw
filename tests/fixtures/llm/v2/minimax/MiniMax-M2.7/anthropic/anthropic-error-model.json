@@ -14,24 +14,22 @@
     ]
   },
   "response": {
-    "id": "064ae369d01a22bb269c6cb2af503b92",
+    "id": "067f77d29994f7871ab1db4dd28c4518",
     "type": "message",
     "role": "assistant",
-    "model": "MiniMax-M2.7",
+    "model": "MiniMax-M3",
     "content": [
       {
-        "thinking": "The user just said \"hi\". As an assistant, we respond with a greeting. There's no policy violation. We can answer in a friendly way. No need for any special constraints. Just greet.",
-        "signature": "fdbe29c582ee6a84909be5b4da9a53f291622ad94a76655e5ee51276ea744854",
-        "type": "thinking"
-      },
-      {
-        "text": "Hello! How can I help you today?",
+        "text": "Hi! How can I help you today?",
         "type": "text"
       }
     ],
     "usage": {
-      "input_tokens": 42,
-      "output_tokens": 53
+      "input_tokens": 50,
+      "output_tokens": 9,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 114,
+      "service_tier": "standard"
     },
     "stop_reason": "end_turn",
     "base_resp": {

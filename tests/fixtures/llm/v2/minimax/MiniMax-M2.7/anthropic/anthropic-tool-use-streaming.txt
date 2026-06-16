@@ -1,5 +1,5 @@
 event: message_start
-data: {"type":"message_start","message":{"id":"064ae37cf06786eef44a1c574f945044","type":"message","role":"assistant","content":[],"model":"MiniMax-M2.7","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":212,"output_tokens":0},"service_tier":"standard"}}
+data: {"type":"message_start","message":{"id":"067f77db2e6977eb3cd9f15721d9d8f2","type":"message","role":"assistant","content":[],"model":"MiniMax-M2.7","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}
 
 event: ping
 data: {"type":"ping"}
@@ -8,28 +8,58 @@ event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The user"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The"}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" wants to know the current weather in San Francisco. I should use the get_weather function with \"San Francisco\" as the location."}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" user is asking about"}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"453aa42f8b546756089f04c4885d05b6b9cb2a20e671116f52162e4c8587ff51"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" the weather in San"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" Francisco. I'll"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" use the get_"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"weather function to get"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" the"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" current weather information for"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" San Francisco."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"762dd773f78c34ecc6fee5f9902f1038c014eaef10a8777a06b58b3d5a852bf4"}}
 
 event: content_block_stop
 data: {"type":"content_block_stop","index":0}
 
 event: content_block_start
-data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_function_6h9vpnirgv9b_1","name":"get_weather","input":{}}}
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_3efd82acdd574a37a89c6c05","name":"get_weather","input":{}}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"location\": \"San Francisco\"}"}}
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"location\": \"San Francisco"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"}"}}
 
 event: content_block_stop
 data: {"type":"content_block_stop","index":1}
 
 event: message_delta
-data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":212,"output_tokens":58}}
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":27,"output_tokens":56,"cache_creation_input_tokens":0,"cache_read_input_tokens":192}}
 
 event: message_stop
 data: {"type":"message_stop"}

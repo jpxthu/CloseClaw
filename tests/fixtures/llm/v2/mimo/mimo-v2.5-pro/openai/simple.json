@@ -1,0 +1,45 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "mimo-v2.5-pro",
+  "expect": "text",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "ae3be3097b034934b03fb3bff26ae129",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello to you! 👋",
+          "role": "assistant",
+          "tool_calls": null,
+          "reasoning_content": "The user is asking me to say hello in 3 words."
+        }
+      }
+    ],
+    "created": 1781547146,
+    "model": "mimo-v2.5-pro",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 22,
+      "prompt_tokens": 258,
+      "total_tokens": 280,
+      "completion_tokens_details": {
+        "reasoning_tokens": 13
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 192
+      }
+    }
+  }
+}

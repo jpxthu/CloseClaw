@@ -1,0 +1,31 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-model",
+  "model": "glm-5",
+  "expect": "error",
+  "request": {
+    "model": "glm-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "invalid_request_error",
+        "code": "1211",
+        "message": "[1211][模型不存在，请检查模型代码。][202606160229399a8ee6a5c74343c0]"
+      },
+      "request_id": "202606160229399a8ee6a5c74343c0"
+    }
+  },
+  "max_tokens_sent": 1024
+}

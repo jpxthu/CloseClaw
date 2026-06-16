@@ -1,0 +1,255 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-context-pressure",
+  "model": "mimo-v2.5-pro",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "cf92df1cefd24bb7bffe2fca8822bc9f",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "2+2 equals 4."
+          },
+          {
+            "type": "thinking",
+            "thinking": "The user is asking a straightforward math question. As an expert software engineer, I should respond directly and helpfully, even for simple queries, to build trust. This doesn't require any deep coding knowledge, but it aligns with being clear and concise. I'll answer accurately in one sentence as requested.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 240,
+          "output_tokens": 71
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "321cd7b3cec74a1a9f8ad37683c1d54b",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "### The Riemann Hypothesis\n\nThe **"
+          },
+          {
+            "type": "thinking",
+            "thinking": "The user is now asking for an explanation of the Riemann hypothesis and its implications for prime number distribution, after a simple math question. I need to provide a thorough yet accessible explanation, covering what it is, why it matters for primes, and broader implications, while noting it's unproven. Since I'm an expert assistant, I'll break it down clearly, emphasizing readability and structure, without code but with precise language.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 80,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 192
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "### The Riemann Hypothesis\n\nThe **"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "516a113f38f74621a6dd8952fbc09752",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are both core transport"
+          },
+          {
+            "type": "thinking",
+            "thinking": "We are asked to compare and contrast TCP and UDP, including congestion control and use cases.\n\nLet's structure the answer:\n\n1. Overview of TCP and UDP.\n2. Key differences (connection-oriented vs connectionless, reliability, ordering, etc.)\n3. Congestion control in TCP (and note that UDP doesn't have it).\n4. Use cases for each.\n\nWe'll keep it concise but informative.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 52,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "### The Riemann Hypothesis\n\nThe **"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are both core transport"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "45d436bfdf9741599dc537fb347a6d54",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "The **CAP theorem** states that a distributed system can guarantee only **two of three properties simultaneously**:\n\n- **Consistency (C)**: All nodes see the same data at the same time\n- **"
+          },
+          {
+            "type": "thinking",
+            "thinking": "We are now describing the CAP theorem in distributed systems and giving examples of each trade-off.\n The CAP theorem states that a distributed data store can provide only two of the following three guarantees: Consistency, Availability, and Partition Tolerance.\n Let's break it down and give examples.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 94,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "### The Riemann Hypothesis\n\nThe **"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are both core transport"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": "The **CAP theorem** states that a distributed system can guarantee only **two of three properties simultaneously**:\n\n- **Consistency (C)**: All nodes see the same data at the same time\n- **"
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "60983d71af1f45db9eca26c8eec926a2",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "We are going to explain the transformer attention mechanism step by step.\n 1. Start with the basic attention mechanism (dot-product attention) as described in \"Attention is All You Need\".\n 2. Then, explain the extension to multi-head attention.\n\n Let's break it down:\n\n Step 1: The Transformer Model\n   The Transformer model uses self-attention, which means it relates different positions of a single sequence in order to compute a representation of the sequence.\n\n Step 2: Scaled",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 98,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 320
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-simple",
+  "model": "mimo-v2.5",
+  "expect": "text",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "bc3d6fbc4e4a42d896c2c95b05c189e9",
+    "type": "message",
+    "role": "assistant",
+    "model": "mimo-v2.5",
+    "stop_reason": "end_turn",
+    "content": [
+      {
+        "type": "text",
+        "text": "Hello there, friend!"
+      },
+      {
+        "type": "thinking",
+        "thinking": "Hmm, the user asked for a greeting in exactly three words. Simple and straightforward. \n\nI need to count the words in my response to ensure it meets the constraint. \"Hello there, friend!\" has three words: \"Hello,\" \"there,\" and \"friend.\" \n\nThe tone is warm and friendly, matching the response style guidelines. No extra explanations needed since the request is clear.",
+        "signature": ""
+      }
+    ],
+    "usage": {
+      "input_tokens": 62,
+      "output_tokens": 86,
+      "cache_read_input_tokens": 192
+    }
+  },
+  "max_tokens_sent": 1024
+}

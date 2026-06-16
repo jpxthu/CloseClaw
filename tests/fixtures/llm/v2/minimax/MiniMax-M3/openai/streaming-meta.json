@@ -1,0 +1,16 @@
+{
+  "protocol": "openai",
+  "streaming": true,
+  "scenario": "streaming",
+  "model": "MiniMax-M3",
+  "expect": "streaming",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count from 1 to 3."
+      }
+    ]
+  }
+}

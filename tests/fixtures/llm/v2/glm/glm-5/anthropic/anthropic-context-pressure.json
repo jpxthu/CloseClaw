@@ -1,0 +1,260 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-context-pressure",
+  "model": "glm-5",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "msg_202606160229214d4c220accde4f2c",
+        "type": "message",
+        "role": "assistant",
+        "model": "glm-5.2",
+        "content": [
+          {
+            "type": "text",
+            "text": "2+2 equals 4."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 44,
+          "output_tokens": 8,
+          "cache_read_input_tokens": 192,
+          "server_tool_use": {
+            "web_search_requests": 0
+          },
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "msg_20260616022924d9d970446bc54263",
+        "type": "message",
+        "role": "assistant",
+        "model": "glm-5.2",
+        "content": [
+          {
+            "type": "text",
+            "text": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is a famous unsolved mathematical conjecture stating that all non-trivial zeros of the Riemann zeta function have a real part exactly equal to 1/2. To understand its implications for prime numbers, we have to look at how the zeta function connects to primes: the locations of its zeros dictate the error term in the Prime Number Theorem, which estimates how many primes exist below a given"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 262,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 0,
+          "server_tool_use": {
+            "web_search_requests": 0
+          },
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is a famous unsolved mathematical conjecture stating that all non-trivial zeros of the Riemann zeta function have a real part exactly equal to 1/2. To understand its implications for prime numbers, we have to look at how the zeta function connects to primes: the locations of its zeros dictate the error term in the Prime Number Theorem, which estimates how many primes exist below a given"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "msg_20260616022928be643ebcabd141c4",
+        "type": "message",
+        "role": "assistant",
+        "model": "glm-5.2",
+        "content": [
+          {
+            "type": "text",
+            "text": "Transmission Control Protocol (TCP) and User Datagram Protocol (UDP) are the two primary transport layer protocols in the Internet Protocol (IP) suite. While both are used to send packets of data over networks, they take fundamentally different approaches to data transmission based on the trade-off between reliability and speed.\n\nHere is a detailed comparison and contrast of the two protocols, focusing on their mechanics, congestion control, and ideal use cases.\n\n### Core Differences (Contrast)\n\n**1. Connection vs. Connectionless:"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 381,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 0,
+          "server_tool_use": {
+            "web_search_requests": 0
+          },
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is a famous unsolved mathematical conjecture stating that all non-trivial zeros of the Riemann zeta function have a real part exactly equal to 1/2. To understand its implications for prime numbers, we have to look at how the zeta function connects to primes: the locations of its zeros dictate the error term in the Prime Number Theorem, which estimates how many primes exist below a given"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "Transmission Control Protocol (TCP) and User Datagram Protocol (UDP) are the two primary transport layer protocols in the Internet Protocol (IP) suite. While both are used to send packets of data over networks, they take fundamentally different approaches to data transmission based on the trade-off between reliability and speed.\n\nHere is a detailed comparison and contrast of the two protocols, focusing on their mechanics, congestion control, and ideal use cases.\n\n### Core Differences (Contrast)\n\n**1. Connection vs. Connectionless:"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "msg_202606160229324743d90fe0e04e1f",
+        "type": "message",
+        "role": "assistant",
+        "model": "glm-5.2",
+        "content": [
+          {
+            "type": "text",
+            "text": "The **CAP Theorem**, formulated by computer scientist Eric Brewer, is a foundational principle in distributed systems. It states that any distributed data store can only simultaneously provide **two of the following three guarantees**:\n\n1. **Consistency (C):** Every read receives the most recent write or an error. In a consistent system, all nodes see the exact same data at the exact same time. If a user updates a profile picture, any node they query immediately afterward will return the new picture, not"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 308,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 192,
+          "server_tool_use": {
+            "web_search_requests": 0
+          },
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2+2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is a famous unsolved mathematical conjecture stating that all non-trivial zeros of the Riemann zeta function have a real part exactly equal to 1/2. To understand its implications for prime numbers, we have to look at how the zeta function connects to primes: the locations of its zeros dictate the error term in the Prime Number Theorem, which estimates how many primes exist below a given"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "Transmission Control Protocol (TCP) and User Datagram Protocol (UDP) are the two primary transport layer protocols in the Internet Protocol (IP) suite. While both are used to send packets of data over networks, they take fundamentally different approaches to data transmission based on the trade-off between reliability and speed.\n\nHere is a detailed comparison and contrast of the two protocols, focusing on their mechanics, congestion control, and ideal use cases.\n\n### Core Differences (Contrast)\n\n**1. Connection vs. Connectionless:"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": "The **CAP Theorem**, formulated by computer scientist Eric Brewer, is a foundational principle in distributed systems. It states that any distributed data store can only simultaneously provide **two of the following three guarantees**:\n\n1. **Consistency (C):** Every read receives the most recent write or an error. In a consistent system, all nodes see the exact same data at the exact same time. If a user updates a profile picture, any node they query immediately afterward will return the new picture, not"
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "msg_202606160229350a8bd907426c4fb5",
+        "type": "message",
+        "role": "assistant",
+        "model": "glm-5.2",
+        "content": [
+          {
+            "type": "text",
+            "text": "At its core, the attention mechanism in a Transformer model is a way for a neural network to mathematically determine which parts of an input sequence are most relevant to each other. It allows the model to dynamically focus on important words (or tokens), regardless of how far apart they are in the text.\n\nHere is a step-by-step breakdown of how attention works, moving from the underlying matrix operations to the concept of multi-head attention.\n\n### 1. The Core Components: Queries, Keys, and"
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 428,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 192,
+          "server_tool_use": {
+            "web_search_requests": 0
+          },
+          "service_tier": "standard"
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

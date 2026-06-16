@@ -1,0 +1,62 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-use",
+  "model": "mimo-v2.5",
+  "expect": "tool_use",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "id": "81abd4098316474c8dfea1f686384302",
+    "type": "message",
+    "role": "assistant",
+    "model": "mimo-v2.5",
+    "stop_reason": "tool_use",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "The user wants to know the weather in San Francisco. I have a tool for getting weather. I should use it. Let's call the get_weather function with location \"San Francisco\".",
+        "signature": ""
+      },
+      {
+        "type": "tool_use",
+        "id": "call_2217f673030d45c295e3d8f2",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 56,
+      "output_tokens": 61,
+      "cache_read_input_tokens": 448
+    }
+  },
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

@@ -1,0 +1,30 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-auth",
+  "model": "MiniMax-M3",
+  "expect": "error",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 401,
+    "reason": "Unauthorized",
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "authentication_error",
+        "message": "login fail: Please carry the API secret key in the 'X-Api-Key' field of the request header"
+      },
+      "request_id": "067f73c5b635e865b7b883edff4278dc"
+    }
+  },
+  "max_tokens_sent": 1024
+}

@@ -1,0 +1,220 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-cache",
+  "model": "mimo-v2.5-pro",
+  "expect": "cache_incremental",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        }
+      ],
+      "response": {
+        "id": "00cfd3d0a1ea4998a44a8bff7bc0eba6",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "# HTTP/2 多路复用的工作原理及性能改进\n\n## 工作原理\n\nHTTP/2 引入了**多路复用(Multiplexing)**技术，允许通过单个TCP连接并行处理多个请求和响应。与HTTP/1.1不同，HTTP/2将通信分解为更小的、独立的二进制帧(frame)，这些帧可以交错发送和接收，然后在另一端重新组装。\n\n具体来说：\n1. 每个请求/响应对被分解为多个帧\n2. 每个帧都有标识符标记属于哪个流(stream)\n3. 这些帧可以在同一个连接中混合传输\n4. 接收方根据标识符将帧重新组合成完整消息\n\n## 相比HTTP/1.1的性能改进\n\n1. **减少连接数量**：不需要为每个请求建立新连接\n2. **消除队头阻塞**：解决了HTTP/1.1中的线头阻塞问题(在应用层)\n3. **更高的吞吐量**：充分利用带宽\n4. **减少延迟**：无需等待前一个请求完成\n5. **头部压缩**：使用HPACK压缩减少开销\n\n## 具体例子\n\n假设一个网页需要加载3个资源：`index.html`、`style.css`和`app.js`。\n\n**HTTP/1.1情况**：\n``",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 3,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        }
+      ],
+      "response": {
+        "id": "ed45ff829db84191957479fe9162394b",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "RAFT 是一种用于管理复制日志的共识算法，旨在提供一个更易理解、更易于实现的分布式系统共识方案。它通过选举一个领导者来管理集群的状态变更和日志复制，确保所有节点最终具有一致的状态。以下是 RAFT 的核心机制：\n\n---\n\n### **一、核心概念**\n1."
+          },
+          {
+            "type": "thinking",
+            "thinking": "用户询问 RAFT 共识算法的详细解释，包括领导者选举和日志复制。这是一个分布式系统中的核心算法问题。需要确保解释清晰、有结构，涵盖关键概念和流程。用户可能希望深入理解算法的细节，或者用于学习、面试、系统设计等目的。考虑到用户之前的对话历史，他们似乎对网络协议和分布式系统感兴趣。\n\n首先需要概述 RAFT 的基本概念和设计目标，然后分步讲解领导者选举和日志复制的过程。需要确保解释准确，避免过于简化或遗漏重要细节。例如，领导者选举中的 term 概念、超时机制、投票规则等。日志复制中的追加条目 RPC、一致性检查、提交机制等。\n\n还需要考虑用户可能不熟悉的相关概念，如分布式共识、容错机制等，但根据之前的对话，用户可能有一定的技术背景。因此，可以在解释中适当引用这些概念，但不必过于基础。\n\n最后，需要总结 RAFT 的优势和应用场景，帮助用户理解其重要性。确保语言通俗易懂，结构清晰，必要时使用示例或比喻。",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 31,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": "RAFT 是一种用于管理复制日志的共识算法，旨在提供一个更易理解、更易于实现的分布式系统共识方案。它通过选举一个领导者来管理集群的状态变更和日志复制，确保所有节点最终具有一致的状态。以下是 RAFT 的核心机制：\n\n---\n\n### **一、核心概念**\n1."
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
+        }
+      ],
+      "response": {
+        "id": "a9702b95ae4c451686a7ffb11b121d1c",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "# TLS 1.3 握手流程与改进\n\n## TLS 1.3"
+          },
+          {
+            "type": "thinking",
+            "thinking": "嗯，用户之前已经讨论过HTTP/2和RAFT算法，现在转向TLS 1.3，说明他们对网络协议和分布式系统都有兴趣，可能是个后端工程师或者全栈开发者。他们之前的问题很具体，这次也想要详细的技术对比，说明需要深度解析而不是表面概述。\n\n用户可能正在优化系统性能或解决安全问题，比如减少延迟或者升级加密套件。TLS握手直接影响用户体验和安全性，所以他们可能在为高并发或敏感数据场景做准备。从之前的对话看，他们喜欢结构清晰、有例子的解释，所以这次也需要保持类似的风格。\n\nTLS 1.3的改进很多，需要突出核心变化：握手轮次减少、移除不安全的算法、加密更多握手信息。对比1.2时要强调安全性和性能的具体提升点，比如前向保密强制化、静态RSA禁用这些关键变化。\n\n用户可能没有说出来的深层需求：他们可能想知道如何在实际项目中迁移，或者评估升级的收益。所以除了流程对比，最后补充了实际部署建议，帮助他们做决策。\n\n要注意避免过于学术化的描述，保持实用导向。比如用RTT数量对比、列举被移除的具体算法，让技术改进更直观。最后的安全性和性能改进表格能快速抓住重点，符合他们之前对技术总结的偏好。",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 137,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "e8d2f1dbc18c466ea27318d3afd10946",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "我们首先解释两个内存管理机制：slab分配器和buddy系统，然后解释缺页中断的处理流程。\n\n1. **Buddy系统**：\n   - Buddy系统是Linux内核中用于管理物理内存页的一种算法。它将内存划分成大小为2的幂次方的块，并用链表管理空闲块。\n   - 当请求分配内存时，它会寻找满足要求的最小块。如果找到的块太大，它会将块分成两半（这两个半块称为buddy），直到得到合适大小的块。\n   - 释放内存时，buddy系统会检查相邻的buddy块是否空闲，如果是，则合并成一个更大的块，直到无法合并。\n   - Buddy系统解决外部碎片问题，但内部碎片问题仍然存在（因为分配的内存块大小必须是2的幂次方）。\n\n2. **Slab分配器**：\n   - Slab分配器建立在buddy系统之上，用于分配小块内存（远小于一个页面）和频繁创建、销毁的数据结构（如inode、task_struct等）。\n   - Slab分配器预先分配一些内存对象（称为slab对象），这些对象被缓存起来。当内核需要分配一个特定大小的对象时，可以直接从slab缓存中获取，避免了频繁的buddy分配和释放。\n   - Slab分配器减少了内部碎片（因为对象大小",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 37,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "f9a73874793a4ef1b7c75d2d8489736e",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "好的，这是一个非常核心的数据库存储引擎问题。我们来详细对比 B+ 树和 LSM 树。\n\n### 核心思想与结构\n\n1.  **B+ 树**\n    *   **结构**：一种平衡的多路搜索树。数据（或指向数据的指针）按索引键的顺序存储在**叶子节点**上，叶子节点之间通过指针串联，形成一个有序链表。"
+          },
+          {
+            "type": "thinking",
+            "thinking": "好的，用户这次问的是数据库索引结构，要对比B+树和LSM树的优缺点和适用场景。需要先拆解问题，用户可能想了解为什么有些数据库选B+树，有些选LSM，背后设计权衡是什么。\n\n用户可能是有数据库选型需求的后端或运维工程师，或者是学习存储原理的学生。深层需求可能是在实际项目中选择合适存储引擎，或者理解常见数据库系统的设计哲学。\n\n先从基本原理入手，B+树适合读多写少，LSM适合写多读少。得解释清楚两者读写流程的本质差异，比如B+树是随机写磁盘，LSM是顺序写。然后对比写入放大、读取性能、空间放大这些关键指标。\n\n需要举具体例子说明场景，比如OLTP用B+树，日志或时序数据用LSM。最后总结如何根据业务特点选择，用户可能真正需要的是决策依据而不仅仅是理论。",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 69,
+          "output_tokens": 300,
+          "cache_read_input_tokens": 256
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

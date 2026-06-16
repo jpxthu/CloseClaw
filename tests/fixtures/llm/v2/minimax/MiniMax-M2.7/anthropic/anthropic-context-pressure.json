@@ -1,0 +1,277 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-context-pressure",
+  "model": "MiniMax-M2.7",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "067f77c068cf0d971c4d92501b70ee8a",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "The user is asking a simple math question: what is 2+2? They want a one-sentence answer.\n",
+            "signature": "510eac12d8d92f5f790f65c36d21f0ac3ad752ee6fafa5f69e88a0446931dbfb",
+            "type": "thinking"
+          },
+          {
+            "text": "\n2 + 2 equals **4**.",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 242,
+          "output_tokens": 35,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        },
+        "stop_reason": "end_turn",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "\n2 + 2 equals **4**."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "067f77c22c23ec7951cf3ae3afd440a8",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "The user is asking me to explain the Riemann hypothesis and its implications for prime number distribution. This is a mathematical topic that I can explain thoroughly. Let me provide a comprehensive explanation.\n\nThe Riemann Hypothesis is one of the most famous unsolved problems in mathematics, and it's one of the Clay Mathematics Institute's Millennium Prize Problems (with a $1 million reward for a proof).\n\nLet me break this down:\n\n1. **The Riemann Zeta Function**: The Riemann zeta function ζ(s) is defined for complex",
+            "signature": "cd98737af3e429175d9693795cd49a5d2f1f17781dec2ee04c5181640c2bcd3d",
+            "type": "thinking"
+          }
+        ],
+        "usage": {
+          "input_tokens": 79,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 194
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "\n2 + 2 equals **4**."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "067f77c60189a90635442d562fafde08",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "The user is asking me to compare and contrast TCP and UDP protocols, including congestion control and use cases. This is a networking question that I can answer thoroughly.\n\nLet me organize this comparison:\n\n1. **Connection-oriented vs connectionless**\n2. **Reliability**\n3. **Congestion control**\n4. **Flow control**\n5. **Header overhead**\n6. **Use cases**\n7. **Speed considerations**\n\nI'll provide a comprehensive but organized response.\n",
+            "signature": "cdd73387668937710bc5eab8187a639f29f797983b2497dd022e2790f88e1e99",
+            "type": "thinking"
+          },
+          {
+            "text": "\n# TCP vs UDP Comparison\n\n",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 298,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "\n2 + 2 equals **4**."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "\n# TCP vs UDP Comparison\n\n"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "067f77cbc56f2ea9ef38406869681e7d",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "The user is asking about the CAP theorem in distributed systems. This is a fundamental concept in distributed computing that describes the trade-offs between three properties:\n\n1. **Consistency** - Every read receives the most recent write or an error\n2. **Availability** - Every request receives a response, without guarantee that it contains the most recent write\n3. **Partition tolerance** - The system continues to operate despite network partitions (messages being dropped or delayed)\n\nThe theorem states that a distributed system can only",
+            "signature": "17ad484c0fa0454f8f9e24804fcb808e94b5cde7485c577be042af8d1c594a89",
+            "type": "thinking"
+          }
+        ],
+        "usage": {
+          "input_tokens": 329,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "\n2 + 2 equals **4**."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "\n# TCP vs UDP Comparison\n\n"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "067f77cfd414af7fc5f7869cc2189eb6",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M2.7",
+        "content": [
+          {
+            "thinking": "The user is asking me to explain transformer attention mechanisms, from the basic matrix operations up to multi-head attention. This is a comprehensive topic in deep learning/NLP. Let me break it down systematically.\n\nI'll cover:\n1. Basic attention concept (Scaled Dot-Product Attention)\n2. Matrix operations involved\n3. Query, Key, Value interpretation\n4. Multi-Head Attention\n5. Why multi-head is beneficial\n\nLet me write a clear, educational explanation.\n",
+            "signature": "bb7483e769b03095f204600abef79146f1df50364b6578b812815658f575368c",
+            "type": "thinking"
+          },
+          {
+            "text": "\n# Transformer Attention",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 354,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}
