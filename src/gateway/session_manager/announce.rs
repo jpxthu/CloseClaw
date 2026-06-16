@@ -160,6 +160,13 @@ impl SessionManager {
                 .await
                 .unregister_child_handle(child_session_id);
         }
+
+        // Remove the child entry from the parent's `children` tracking
+        // table so `count_active_children` no longer counts this
+        // completed session (fixes concurrency inflation for run-mode
+        // children that never go through `kill_child`).
+        self.remove_child_from_tracking(&parent_session_id, child_session_id)
+            .await;
     }
 
     /// Find the (parent_session_id, child_agent_id) of a child whose
