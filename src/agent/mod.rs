@@ -1,8 +1,6 @@
 //! Agent module - pure configuration layer for agent definitions.
 
-pub mod communication;
 pub mod config;
-pub mod prompt_template;
 pub mod registry;
 pub mod spawn;
 
@@ -60,7 +58,3 @@ mod tests {
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod spawn_tests;
-
-#[cfg(test)]
-#[path = "prompt_template_tests.rs"]
-mod prompt_template_tests;

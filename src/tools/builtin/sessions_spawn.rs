@@ -1,6 +1,6 @@
 //! Built-in sessions_spawn tool — creates child sessions for sub-agents.
 
-use crate::agent::prompt_template::PromptTemplate;
+use super::prompt_template::PromptTemplate;
 use crate::agent::registry::AgentRegistry;
 use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;

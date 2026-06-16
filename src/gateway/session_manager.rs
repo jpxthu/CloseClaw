@@ -24,6 +24,7 @@ use tracing::warn;
 
 mod announce;
 mod channel;
+pub mod communication;
 mod key_registry;
 mod rebuild;
 mod resolve;
