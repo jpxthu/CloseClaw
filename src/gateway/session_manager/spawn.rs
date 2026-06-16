@@ -291,11 +291,12 @@ impl SessionManager {
     /// - Communication behavior (push-based, no polling)
     /// - Behavioral constraints (direct execution, no back-and-forth)
     /// - Spawn guidance when depth allows further spawning
-    pub(crate) fn build_spawn_context(depth: u32, max_spawn_depth: u32) -> String {
+    pub(crate) fn build_spawn_context(depth: u32, remaining_depth: u32) -> String {
         let mut ctx = format!(
             "## Spawn Context\n\
              You are running as a sub-agent. \
-             Current depth: {depth} / Maximum depth: {max_spawn_depth}.\n\
+             Current depth: {depth}. \
+             Remaining spawn depth: {remaining_depth}.\n\
              **Communication behavior:** Your results are automatically \
              pushed back to the parent agent when you finish. \
              Do not poll for status. \
@@ -305,12 +306,11 @@ impl SessionManager {
              - Trust push-based completion notifications\n             - Do not call session query tools to check child agent status\n             - Execute the task directly; do not ask for confirmation \
                or suggest next steps — the parent agent handles that"
         );
-        if depth < max_spawn_depth {
-            let upper = max_spawn_depth - depth;
+        if remaining_depth > 0 {
             ctx.push_str(&format!(
                 "\n\
              - You may spawn child agents for sub-tasks. \
-               Your effective maximum depth for children is {upper}."
+               Your effective maximum depth for children is {remaining_depth}."
             ));
         }
         ctx.push('\n');
