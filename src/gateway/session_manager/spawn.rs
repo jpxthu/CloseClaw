@@ -6,8 +6,8 @@
 //! table so `SpawnController` can enforce depth and concurrency limits.
 
 use super::SessionManager;
-use crate::agent::communication::CommunicationConfig;
 use crate::config::agents::ResolvedAgentConfig;
+use crate::gateway::session_manager::communication::CommunicationConfig;
 use crate::gateway::Session;
 use crate::llm::session::ChatSession;
 use crate::llm::session::ConversationSession;
