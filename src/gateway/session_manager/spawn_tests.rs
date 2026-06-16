@@ -1,9 +1,5 @@
-//! Tests for `SessionManager::create_child_session` and the children tracking table.
-//!
-//! These tests live in a separate module to keep `session_manager.rs` and
-//! `tests.rs` under the project's 500-line file limit. Shared helpers
-//! (`make_test_mgr`, `clear_global_prompt_state`) are re-exported by
-//! `super::tests` at `pub(super)` visibility.
+//! Tests for `create_child_session` and children tracking.
+//! Helpers (`make_test_mgr`, `clear_global_prompt_state`) from `super::tests`.
 
 use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
@@ -720,6 +716,36 @@ fn test_build_spawn_context_depth_zero() {
     assert!(
         ctx.contains("Your effective maximum depth for children is 1"),
         "should show remaining depth"
+    );
+}
+
+/// Verify `build_spawn_context` with SpawnMode::Session shows "session" mode text.
+#[test]
+fn test_build_spawn_context_session_mode() {
+    let ctx = SessionManager::build_spawn_context("parent-s", 1, 2, &SpawnMode::Session, false);
+    assert!(
+        ctx.contains("Spawn mode: session"),
+        "session mode should render 'Spawn mode: session', got: {}",
+        ctx
+    );
+    assert!(
+        !ctx.contains("Spawn mode: run"),
+        "session mode should NOT contain 'Spawn mode: run'"
+    );
+}
+
+/// Verify `build_spawn_context` with fork=true shows fork flag as true.
+#[test]
+fn test_build_spawn_context_fork_true() {
+    let ctx = SessionManager::build_spawn_context("parent-f", 0, 3, &SpawnMode::Run, true);
+    assert!(
+        ctx.contains("Fork: true"),
+        "fork=true should render 'Fork: true', got: {}",
+        ctx
+    );
+    assert!(
+        !ctx.contains("Fork: false"),
+        "fork=true should NOT contain 'Fork: false'"
     );
 }
 
