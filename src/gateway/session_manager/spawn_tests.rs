@@ -10,7 +10,7 @@ use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use crate::agent::config::SubagentsConfig;
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::llm::session::{ChatSession, ConversationSession};
+use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::{PersistenceService, SessionCheckpoint};
 use crate::session::ReasoningLevel;
@@ -116,9 +116,19 @@ async fn test_create_child_session_basic() {
         .expect("conversation session should exist");
     let cs_guard = cs.read().await;
     assert_eq!(cs_guard.get_pending_messages().len(), 1);
-    assert_eq!(
-        cs_guard.get_pending_messages()[0].content,
-        "do something useful"
+    // Spawn context is now injected into the first user message
+    let first_msg = &cs_guard.get_pending_messages()[0].content;
+    assert!(
+        first_msg.contains("do something useful"),
+        "pending message should contain the task"
+    );
+    assert!(
+        first_msg.contains("Spawn Context"),
+        "pending message should contain spawn context"
+    );
+    assert!(
+        first_msg.contains("sub-agent"),
+        "pending message should contain sub-agent role declaration"
     );
 }
 
@@ -763,19 +773,21 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
         .await
         .expect("child session should exist");
     let guard = cs.read().await;
-    let prompt = guard.system_prompt().expect("system prompt should be set");
 
+    // Spawn context is now injected into the first user message
+    // (not the system prompt) per the design doc.
+    let first_msg = &guard.get_pending_messages()[0].content;
     assert!(
-        prompt.contains("sub-agent"),
-        "system prompt should contain sub-agent role declaration"
+        first_msg.contains("sub-agent"),
+        "first user message should contain sub-agent role declaration"
     );
     assert!(
-        prompt.contains("Current depth: 2. Remaining spawn depth: 4"),
-        "system prompt should contain depth info"
+        first_msg.contains("Current depth: 2. Remaining spawn depth: 4"),
+        "first user message should contain depth info"
     );
     assert!(
-        prompt.contains("results are automatically pushed back"),
-        "system prompt should describe push-based communication"
+        first_msg.contains("results are automatically pushed back"),
+        "first user message should describe push-based communication"
     );
 }
 
