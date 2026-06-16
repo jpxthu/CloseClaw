@@ -310,4 +310,79 @@ mod tests {
             content
         );
     }
+
+    #[tokio::test]
+    async fn test_task_writing_guidance_when_spawn_available() {
+        let registry = ToolRegistry::new();
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
+        register_builtin_tools(
+            &registry,
+            make_builtin_ctx(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager,
+                config_manager,
+                agent_registry,
+            ),
+        )
+        .await;
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            content.contains("smart colleague"),
+            "missing 'smart colleague' in guidance: {}",
+            &content[content.len().min(content.len().saturating_sub(500))..]
+        );
+        assert!(
+            content.contains("judgment calls"),
+            "missing 'judgment calls' in guidance"
+        );
+        assert!(
+            content.contains("fork mode"),
+            "missing 'fork mode' in guidance"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_task_writing_guidance_absent_when_spawn_unavailable() {
+        // Empty registry → sessions_spawn is not in available_tool_names
+        let registry = ToolRegistry::new();
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            !content.contains("smart colleague"),
+            "task writing guidance should NOT appear without sessions_spawn, got: {}",
+            content
+        );
+        assert!(
+            !content.contains("judgment calls"),
+            "task writing guidance should NOT appear without sessions_spawn"
+        );
+        assert!(
+            !content.contains("fork mode"),
+            "task writing guidance should NOT appear without sessions_spawn"
+        );
+    }
 }
