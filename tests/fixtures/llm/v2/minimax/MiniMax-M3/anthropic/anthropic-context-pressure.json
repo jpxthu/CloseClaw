@@ -1,0 +1,265 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-context-pressure",
+  "model": "MiniMax-M3",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "067f73b71f44207584b483071021407a",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M3",
+        "content": [
+          {
+            "text": "2 + 2 equals 4.",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 255,
+          "output_tokens": 9,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 128,
+          "service_tier": "standard"
+        },
+        "stop_reason": "end_turn",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "067f73baa309337aacfbbee46905ef5a",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M3",
+        "content": [
+          {
+            "text": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is one of the most famous unsolved problems in mathematics and concerns the Riemann zeta function, defined for complex numbers *s* as ζ(*s*) = Σ(1/n^(*s*)). It states that all non-trivial zeros of this function have a real part equal to 1/2 (the \"critical line\"). Because the distribution of prime numbers is intimately connected to the locations of these zeros through the explicit formula relating primes",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 33,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 382,
+          "service_tier": "standard"
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is one of the most famous unsolved problems in mathematics and concerns the Riemann zeta function, defined for complex numbers *s* as ζ(*s*) = Σ(1/n^(*s*)). It states that all non-trivial zeros of this function have a real part equal to 1/2 (the \"critical line\"). Because the distribution of prime numbers is intimately connected to the locations of these zeros through the explicit formula relating primes"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "067f73bd232b8962cba1960e550fc2ce",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M3",
+        "content": [
+          {
+            "text": "# TCP vs UDP: A Comparison\n\nBoth TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are core transport layer protocols in the TCP/IP suite, but they serve fundamentally different purposes due to their contrasting design philosophies.\n\n## Core Characteristics\n\n**TCP** is a **connection-oriented** protocol that establishes a session via a three-way handshake (SYN, SYN-ACK, ACK) before data exchange. It guarantees ordered, reliable delivery of data through mechanisms like sequence numbers, acknowledgments",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 127,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 414,
+          "service_tier": "standard"
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is one of the most famous unsolved problems in mathematics and concerns the Riemann zeta function, defined for complex numbers *s* as ζ(*s*) = Σ(1/n^(*s*)). It states that all non-trivial zeros of this function have a real part equal to 1/2 (the \"critical line\"). Because the distribution of prime numbers is intimately connected to the locations of these zeros through the explicit formula relating primes"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "# TCP vs UDP: A Comparison\n\nBoth TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are core transport layer protocols in the TCP/IP suite, but they serve fundamentally different purposes due to their contrasting design philosophies.\n\n## Core Characteristics\n\n**TCP** is a **connection-oriented** protocol that establishes a session via a three-way handshake (SYN, SYN-ACK, ACK) before data exchange. It guarantees ordered, reliable delivery of data through mechanisms like sequence numbers, acknowledgments"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "067f73c0df247cab073db1c070cfb6c3",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M3",
+        "content": [
+          {
+            "text": "# The CAP Theorem\n\nThe **CAP theorem**, formulated by computer scientist Eric Brewer in 2000 and later proven formally, states that any distributed data store can simultaneously deliver only **two out of three** desirable guarantees:\n\n- **Consistency (C)**: Every read receives the most recent write or an error. All nodes see the same data at the same time.\n- **Availability (A)**: Every request receives a response (even if it's not the most recent data). The system remains operational",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 127,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 540,
+          "service_tier": "standard"
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": "The Riemann hypothesis, proposed by Bernhard Riemann in 1859, is one of the most famous unsolved problems in mathematics and concerns the Riemann zeta function, defined for complex numbers *s* as ζ(*s*) = Σ(1/n^(*s*)). It states that all non-trivial zeros of this function have a real part equal to 1/2 (the \"critical line\"). Because the distribution of prime numbers is intimately connected to the locations of these zeros through the explicit formula relating primes"
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": "# TCP vs UDP: A Comparison\n\nBoth TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are core transport layer protocols in the TCP/IP suite, but they serve fundamentally different purposes due to their contrasting design philosophies.\n\n## Core Characteristics\n\n**TCP** is a **connection-oriented** protocol that establishes a session via a three-way handshake (SYN, SYN-ACK, ACK) before data exchange. It guarantees ordered, reliable delivery of data through mechanisms like sequence numbers, acknowledgments"
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": "# The CAP Theorem\n\nThe **CAP theorem**, formulated by computer scientist Eric Brewer in 2000 and later proven formally, states that any distributed data store can simultaneously deliver only **two out of three** desirable guarantees:\n\n- **Consistency (C)**: Every read receives the most recent write or an error. All nodes see the same data at the same time.\n- **Availability (A)**: Every request receives a response (even if it's not the most recent data). The system remains operational"
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "067f73c3dedb4b9492b18ee5d6f096f5",
+        "type": "message",
+        "role": "assistant",
+        "model": "MiniMax-M3",
+        "content": [
+          {
+            "text": "# Transformer Attention Mechanisms\n\nThe attention mechanism is the core innovation behind transformers, allowing models to weigh the importance of different input tokens relative to each other. Here's a walkthrough from fundamentals to multi-head attention.\n\n## 1. Input Representation\n\nEach input token is converted into a vector embedding **x** of dimension *d_model* (e.g., 512). For a sequence of *n* tokens, we have an input matrix **X** of shape *n × d_model*.\n\n## ",
+            "type": "text"
+          }
+        ],
+        "usage": {
+          "input_tokens": 127,
+          "output_tokens": 100,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 666,
+          "service_tier": "standard"
+        },
+        "stop_reason": "max_tokens",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

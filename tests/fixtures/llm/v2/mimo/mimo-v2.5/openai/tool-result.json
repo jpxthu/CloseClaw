@@ -1,0 +1,222 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-result",
+  "model": "mimo-v2.5",
+  "expect": "tool_result",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "round1": {
+      "id": "73be9e0ede1a41f59798032e74e7ec1e",
+      "choices": [
+        {
+          "finish_reason": "tool_calls",
+          "index": 0,
+          "message": {
+            "content": "",
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "id": "call_d2e04688f4844b9195cae896",
+                "function": {
+                  "arguments": "{\"location\": \"San Francisco\"}",
+                  "name": "get_weather"
+                },
+                "type": "function"
+              }
+            ],
+            "reasoning_content": "The user is asking about the weather in San Francisco. I should use the get_weather function to retrieve this information."
+          }
+        }
+      ],
+      "created": 1781547143,
+      "model": "mimo-v2.5",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 47,
+        "prompt_tokens": 504,
+        "total_tokens": 551,
+        "completion_tokens_details": {
+          "reasoning_tokens": 23
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 192
+        }
+      }
+    },
+    "round2": {
+      "id": "e4e807d7182e4428a9a045cea1da541b",
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "The weather in San Francisco is currently **24°C (75°F) and sunny** ☀️. Sounds like a beautiful day! Perfect weather for exploring the city or enjoying some time outdoors. Is there anything else you'd like to know?",
+            "role": "assistant",
+            "tool_calls": null,
+            "reasoning_content": "The function returned the weather information for San Francisco. It shows 24℃ and sunny. I'll provide this information to the user in a friendly way."
+          }
+        }
+      ],
+      "created": 1781547149,
+      "model": "mimo-v2.5",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 86,
+        "prompt_tokens": 568,
+        "total_tokens": 654,
+        "completion_tokens_details": {
+          "reasoning_tokens": 32
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 448
+        }
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_d2e04688f4844b9195cae896",
+        "name": "get_weather",
+        "arguments": "{\"location\": \"San Francisco\"}"
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "73be9e0ede1a41f59798032e74e7ec1e",
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "id": "call_d2e04688f4844b9195cae896",
+                  "function": {
+                    "arguments": "{\"location\": \"San Francisco\"}",
+                    "name": "get_weather"
+                  },
+                  "type": "function"
+                }
+              ],
+              "reasoning_content": "The user is asking about the weather in San Francisco. I should use the get_weather function to retrieve this information."
+            }
+          }
+        ],
+        "created": 1781547143,
+        "model": "mimo-v2.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 47,
+          "prompt_tokens": 504,
+          "total_tokens": 551,
+          "completion_tokens_details": {
+            "reasoning_tokens": 23
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 192
+          }
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "call_d2e04688f4844b9195cae896",
+              "function": {
+                "arguments": "{\"location\": \"San Francisco\"}",
+                "name": "get_weather"
+              },
+              "type": "function"
+            }
+          ],
+          "reasoning_content": "The user is asking about the weather in San Francisco. I should use the get_weather function to retrieve this information."
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_d2e04688f4844b9195cae896",
+          "content": "24℃, sunny"
+        }
+      ],
+      "response": {
+        "id": "e4e807d7182e4428a9a045cea1da541b",
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "The weather in San Francisco is currently **24°C (75°F) and sunny** ☀️. Sounds like a beautiful day! Perfect weather for exploring the city or enjoying some time outdoors. Is there anything else you'd like to know?",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "The function returned the weather information for San Francisco. It shows 24℃ and sunny. I'll provide this information to the user in a friendly way."
+            }
+          }
+        ],
+        "created": 1781547149,
+        "model": "mimo-v2.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 86,
+          "prompt_tokens": 568,
+          "total_tokens": 654,
+          "completion_tokens_details": {
+            "reasoning_tokens": 32
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 448
+          }
+        }
+      }
+    }
+  ],
+  "extra_body_sent": {
+    "reasoning_split": true
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "minimax-reasoning-split",
+  "model": "MiniMax-M3",
+  "expect": "reasoning",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "067f73805276eca509d925562a556baf",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "<think>The user is asking me to calculate 17 * 23 and show my work step by step. This is a simple multiplication problem. Let me solve it.\n\n17 × 23\n\nI can use several methods:\n1. Standard algorithm\n2. Distributive property: 17 × 23 = 17 × (20 + 3) = 17 × 20 + 17 × 3\n3. Lattice multiplication\n\nLet me show this step by step using the distributive property method, which is clear and easy to follow.\n\n17 × 23 = 17 × (20 + 3)\n= 17 × 20 + 17 × 3\n= 340 + 51\n= 391\n\nLet me verify: 17 × 23\n= 17 × 23\n  17\n× 23\n----\n  51  (17 × 3)\n 340  (17 × 20)\n----\n 391\n\nYes, 391 is correct.\n\nI'll present this clearly with multiple methods to be educational.</think>\n\n# Calculating 17 × 23\n\n## Method: Breaking It Down (Distributive Property)\n\nThe key idea is to split 23 into tens and ones: **23 = 20 + 3**\n\n### Step 1: Set up the multiplication\n$$17 \\times 23 = 17 \\times (20 + 3)$$\n\n### Step 2: Distribute (multiply 17 by each part)\n$$= (17 \\times 20) + (17 \\times 3)$$\n\n### Step 3: Calculate each piece\n- **17 × 20** = 340\n- **17 × 3** = 51\n\n### Step 4: Add the results together\n$$340 + 51 = 391$$\n\n---\n\n## Verification Using the Standard Algorithm\n\n```\n       1 7\n   ×   2 3\n   ─────────\n       5 1    ← 17 × 3\n     3 4 0    ← 17 × 20\n   ─────────\n     3 9 1\n```\n\n## ✅ Answer: **17 × 23 = 391**",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1781547136,
+    "model": "MiniMax-M3",
+    "object": "chat.completion",
+    "usage": {
+      "total_tokens": 644,
+      "total_characters": 0,
+      "prompt_tokens": 190,
+      "completion_tokens": 454,
+      "completion_tokens_details": {
+        "reasoning_tokens": 216
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 128
+      }
+    },
+    "input_sensitive": false,
+    "output_sensitive": false,
+    "input_sensitive_type": 0,
+    "output_sensitive_type": 0,
+    "output_sensitive_int": 0,
+    "service_tier": "standard",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "extra_body_sent": {
+    "reasoning_split": true
+  }
+}

@@ -22,27 +22,27 @@
     ]
   },
   "response": {
-    "id": "064ae343bbc8bb0e57e87b2d4b9b020a",
+    "id": "067f77a49c291a275dbd1ee0045a5641",
     "choices": [
       {
         "finish_reason": "stop",
         "index": 0,
         "message": {
-          "content": "<think>The user has introduced themselves as Alice in the previous message, so their name is Alice.</think>\n\nYour name is Alice! You just told me earlier.",
+          "content": "<think>The user asked what their name is. Based on the conversation, they introduced themselves as Alice in the first message. So their name is Alice.\n</think>\n\nYour name is Alice! You introduced yourself at the start of our conversation.",
           "role": "assistant"
         }
       }
     ],
-    "created": 1778102342,
+    "created": 1781548198,
     "model": "MiniMax-M2.7",
     "object": "chat.completion",
     "usage": {
-      "total_tokens": 81,
+      "total_tokens": 118,
       "total_characters": 0,
-      "prompt_tokens": 49,
-      "completion_tokens": 32,
+      "prompt_tokens": 71,
+      "completion_tokens": 47,
       "prompt_tokens_details": {
-        "cached_tokens": 0
+        "cached_tokens": 32
       }
     },
     "input_sensitive": false,
@@ -52,7 +52,7 @@
     "output_sensitive_int": 0,
     "base_resp": {
       "status_code": 0,
-      "status_msg": "success"
+      "status_msg": ""
     }
   }
 }

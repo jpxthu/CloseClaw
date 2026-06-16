@@ -1,0 +1,45 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "glm-5.2",
+  "expect": "text",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello to you.",
+          "reasoning_content": "1.  **Analyze the Request:**\n    *   Goal: Say hello.\n    *   Constraint: Exactly 3 words.\n\n2.  **Brainstorm options (3-word greetings):**\n    *   \"Hello to you.\"\n    *   \"Hi there, friend.\"\n    *   \"How are you?\" (technically asking, but serves as a greeting)\n    *   \"Hey, howdy, hi!\"\n    *   \"A warm hello.\"\n    *   \"Hello, my friend.\"\n\n3.  **Select the best option:**\n    *   \"Hello to you.\" - Simple, direct, exactly three words.\n    *   \"Hi there, friend.\" - Friendly.\n    *   \"A warm hello.\" - Nice sentiment.\n\n4.  **Count words to be absolutely sure:**\n    *   \"Hello\" (1) \"to\" (2) \"you.\" (3) - Punctuation doesn't count as a word, but the token/word itself does. Perfect.\n\n5.  **Final Output Generation:** Provide just the three words to strictly adhere to the prompt's implied constraint (keep it concise).\n    *   *Self-correction*: Prompt doesn't strictly say \"only output 3 words\", but it's best practice to be exact.\n    *   Output: Hello to you.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1781546530,
+    "id": "202606160202059f260361bbeb42b7",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "202606160202059f260361bbeb42b7",
+    "usage": {
+      "completion_tokens": 280,
+      "completion_tokens_details": {
+        "reasoning_tokens": 274
+      },
+      "prompt_tokens": 19,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 299
+    }
+  }
+}

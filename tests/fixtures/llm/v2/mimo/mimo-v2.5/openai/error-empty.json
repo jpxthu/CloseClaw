@@ -1,0 +1,24 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-empty",
+  "model": "mimo-v2.5",
+  "expect": "error",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": []
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "400",
+        "message": "Param Incorrect",
+        "param": "messages must not be empty",
+        "type": ""
+      }
+    }
+  }
+}

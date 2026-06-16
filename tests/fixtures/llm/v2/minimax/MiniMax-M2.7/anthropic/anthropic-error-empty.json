@@ -18,7 +18,7 @@
         "type": "invalid_request_error",
         "message": "invalid params, messages must not be empty (2013)"
       },
-      "request_id": "064ae3691e1f2d08c2136eb011495cab"
+      "request_id": "067f77d2a932d7332c0091817077322e"
     }
   },
   "max_tokens_sent": 1024

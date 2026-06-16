@@ -1,0 +1,29 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-model",
+  "model": "mimo-v2.5",
+  "expect": "error",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "code": "400",
+        "message": "Param Incorrect",
+        "param": "Not supported model this-model-does-not-exist-999"
+      }
+    }
+  },
+  "max_tokens_sent": 1024
+}

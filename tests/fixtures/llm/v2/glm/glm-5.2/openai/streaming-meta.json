@@ -1,0 +1,16 @@
+{
+  "protocol": "openai",
+  "streaming": true,
+  "scenario": "streaming",
+  "model": "glm-5.2",
+  "expect": "streaming",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count from 1 to 3."
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error-empty",
+  "model": "mimo-v2.5-pro",
+  "expect": "error",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": []
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "error": {
+        "type": "invalid_request_error",
+        "message": "'messages' must contain at least one entry for Claude /messages requests"
+      }
+    }
+  },
+  "max_tokens_sent": 1024
+}

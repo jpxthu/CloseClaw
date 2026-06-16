@@ -1,0 +1,302 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "context-pressure",
+  "model": "mimo-v2.5",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "8fe932f2d20240da8b56ebb4c6227ea0",
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "2 + 2 equals 4.",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "The user is asking a simple arithmetic question: \"What is 2+2?\". This isn't related to software engineering or coding, but I should still provide a clear, concise answer as per my role as an expert assistant. The instruction is to answer in one sentence, so I need to keep it brief and direct. No need for explanations or code here—just the fact."
+            }
+          }
+        ],
+        "created": 1781547119,
+        "model": "mimo-v2.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 89,
+          "prompt_tokens": 240,
+          "total_tokens": 329,
+          "completion_tokens_details": {
+            "reasoning_tokens": 78
+          },
+          "prompt_tokens_details": {}
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "d01c111c6c83418992d5305c2426bbaf",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "Hmm, the user is shifting from a basic arithmetic question to a complex unsolved problem in mathematics. The Riemann hypothesis is a deep topic, so I need to balance clarity with accuracy. \n\nFirst, I should acknowledge its significance and define the zeta function simply, avoiding unnecessary jargon. Then, I can explain how it connects to prime distribution through Euler’s product formula, emphasizing the link between zeros and primes. \n\nThe implications should highlight both theoretical and practical impacts, like cryptography and"
+            }
+          }
+        ],
+        "created": 1781547123,
+        "model": "mimo-v2.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 100,
+          "prompt_tokens": 273,
+          "total_tokens": 373,
+          "completion_tokens_details": {
+            "reasoning_tokens": 99
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 192
+          }
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "a569a8710b854613b1bafcef2875479b",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "We are comparing and contrasting TCP and UDP. Let's outline the key points:\n\nTCP (Transmission Control Protocol):\n- Connection-oriented (three-way handshake)\n- Reliable data transfer (acknowledgments, retransmissions, sequence numbers)\n- Flow control (sliding window)\n- Congestion control (algorithms like slow start, congestion avoidance, fast retransmit, fast recovery)\n- Ordered data delivery\n- Error-checking and error recovery\n- Used for applications that require reliability (e.g"
+            }
+          }
+        ],
+        "created": 1781547126,
+        "model": "mimo-v2.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 100,
+          "prompt_tokens": 298,
+          "total_tokens": 398,
+          "completion_tokens_details": {
+            "reasoning_tokens": 99
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          }
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "b0d76e4eea3645f09b36e330e8f5ce46",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "The user is asking about the CAP theorem in distributed systems and wants examples of each trade-off. Let me start by recalling what the CAP theorem stands for: Consistency, Availability, and Partition tolerance. The theorem states that a distributed data store can only provide two of these three guarantees simultaneously. \n\nNow, I need to break down each component. Consistency means that every read receives the most recent write or an error. Availability means every request receives a non-error response, without guaranteeing it contains"
+            }
+          }
+        ],
+        "created": 1781547129,
+        "model": "mimo-v2.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 100,
+          "prompt_tokens": 323,
+          "total_tokens": 423,
+          "completion_tokens_details": {
+            "reasoning_tokens": 99
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          }
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "2 + 2 equals 4."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "cc93722acb5c45a0898f99165a01e768",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "The user is asking for a technical explanation of transformer attention mechanisms, building on our previous questions about distributed systems and networking protocols. They seem to be exploring computer science concepts progressively.\n\nThe explanation needs to cover both the fundamental math (matrix multiplications) and the architectural innovations (multi-head attention). I should structure this logically, starting with basic attention and building up to multi-head.\n\nThe key components to include are:\n1. Query-Key-Value framework\n2. Scaled dot-product attention\n3"
+            }
+          }
+        ],
+        "created": 1781547133,
+        "model": "mimo-v2.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 100,
+          "prompt_tokens": 349,
+          "total_tokens": 449,
+          "completion_tokens_details": {
+            "reasoning_tokens": 99
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 320
+          }
+        }
+      }
+    }
+  ]
+}

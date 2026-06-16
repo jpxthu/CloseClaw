@@ -1,0 +1,54 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "MiniMax-M3",
+  "expect": "text",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "067f7386d96c2eddd34a00a143608926",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "<think>The user is asking me to say hello in 3 words. This is a simple request. I should respond with exactly 3 words that constitute a greeting.</think>\n\nHello, friend there!",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1781547143,
+    "model": "MiniMax-M3",
+    "object": "chat.completion",
+    "usage": {
+      "total_tokens": 223,
+      "total_characters": 0,
+      "prompt_tokens": 183,
+      "completion_tokens": 40,
+      "completion_tokens_details": {
+        "reasoning_tokens": 32
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 128
+      }
+    },
+    "input_sensitive": false,
+    "output_sensitive": false,
+    "input_sensitive_type": 0,
+    "output_sensitive_type": 0,
+    "output_sensitive_int": 0,
+    "service_tier": "standard",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  }
+}

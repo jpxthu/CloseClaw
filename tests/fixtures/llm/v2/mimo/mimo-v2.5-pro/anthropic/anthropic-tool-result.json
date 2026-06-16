@@ -1,0 +1,193 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-result",
+  "model": "mimo-v2.5-pro",
+  "expect": "tool_result",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "round1": {
+      "id": "7d00a1325ab7428e80c2577026b9b98a",
+      "type": "message",
+      "role": "assistant",
+      "model": "mimo-v2.5-pro",
+      "stop_reason": "tool_use",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function to get this information.",
+          "signature": ""
+        },
+        {
+          "type": "tool_use",
+          "id": "call_f0d0b4cc8e01486b868cf332",
+          "name": "get_weather",
+          "input": {
+            "location": "San Francisco"
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 60,
+        "output_tokens": 47,
+        "cache_read_input_tokens": 448
+      }
+    },
+    "round2": {
+      "id": "c7f33a027f2643ac83bb1ce243a1f083",
+      "type": "message",
+      "role": "assistant",
+      "model": "mimo-v2.5-pro",
+      "stop_reason": "end_turn",
+      "content": [
+        {
+          "type": "text",
+          "text": "The weather in San Francisco right now is **24°C (about 75°F) and sunny**! ☀️\n\nLooks like a beautiful day — perfect for a stroll along the Embarcadero or grabbing some ice cream at Fisherman's Wharf. Is there anything else you'd like to know?"
+        },
+        {
+          "type": "thinking",
+          "thinking": "Great, I got the weather information for San Francisco. It's 24°C and sunny. Let me share this with the user in a friendly way.",
+          "signature": ""
+        }
+      ],
+      "usage": {
+        "input_tokens": 124,
+        "output_tokens": 100,
+        "cache_read_input_tokens": 448
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        }
+      ],
+      "tool_call": {
+        "id": "call_f0d0b4cc8e01486b868cf332",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      },
+      "mock_tool_response": "24℃, sunny",
+      "response": {
+        "id": "7d00a1325ab7428e80c2577026b9b98a",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "tool_use",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function to get this information.",
+            "signature": ""
+          },
+          {
+            "type": "tool_use",
+            "id": "call_f0d0b4cc8e01486b868cf332",
+            "name": "get_weather",
+            "input": {
+              "location": "San Francisco"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 60,
+          "output_tokens": 47,
+          "cache_read_input_tokens": 448
+        }
+      }
+    },
+    {
+      "round": 2,
+      "request_messages": [
+        {
+          "role": "user",
+          "content": "How's the weather in San Francisco?"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "The user is asking about the weather in San Francisco. I should use the get_weather function to get this information.",
+              "signature": ""
+            },
+            {
+              "type": "tool_use",
+              "id": "call_f0d0b4cc8e01486b868cf332",
+              "name": "get_weather",
+              "input": {
+                "location": "San Francisco"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "call_f0d0b4cc8e01486b868cf332",
+              "content": "24℃, sunny"
+            }
+          ]
+        }
+      ],
+      "response": {
+        "id": "c7f33a027f2643ac83bb1ce243a1f083",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5-pro",
+        "stop_reason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "The weather in San Francisco right now is **24°C (about 75°F) and sunny**! ☀️\n\nLooks like a beautiful day — perfect for a stroll along the Embarcadero or grabbing some ice cream at Fisherman's Wharf. Is there anything else you'd like to know?"
+          },
+          {
+            "type": "thinking",
+            "thinking": "Great, I got the weather information for San Francisco. It's 24°C and sunny. Let me share this with the user in a friendly way.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 124,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 448
+        }
+      }
+    }
+  ],
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

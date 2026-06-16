@@ -1,0 +1,53 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "multi-turn",
+  "model": "mimo-v2.5-pro",
+  "expect": "context",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Alice."
+      },
+      {
+        "role": "assistant",
+        "content": "Hi Alice! Nice to meet you."
+      },
+      {
+        "role": "user",
+        "content": "What is my name?"
+      }
+    ]
+  },
+  "response": {
+    "id": "26a473d77b8048f6a29d67aaea3b7173",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Your name is Alice! You introduced yourself earlier. How can I help you today?",
+          "role": "assistant",
+          "tool_calls": null,
+          "reasoning_content": "The user is asking me what their name is. They told me earlier that their name is Alice, so I should respond with that."
+        }
+      }
+    ],
+    "created": 1781547145,
+    "model": "mimo-v2.5-pro",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 47,
+      "prompt_tokens": 279,
+      "total_tokens": 326,
+      "completion_tokens_details": {
+        "reasoning_tokens": 27
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 192
+      }
+    }
+  }
+}

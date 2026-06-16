@@ -15,7 +15,7 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         # ---- OpenAI 协议 ----
         "openai_url": "https://api.minimaxi.com/v1/chat/completions",
         "models_url": "https://api.minimaxi.com/v1/models",
-        "usage_url": None,  # MiniMax 无公开用量查询 API
+        "usage_url": "https://www.minimax.io/v1/token_plan/remains",
         "openai_headers": {
             "Authorization": None,  # 运行时填入 Bearer token
             "Content-Type": "application/json",
@@ -30,6 +30,7 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         },
         # 模型列表（Phase 0 文档有记录的）
         "openai_models": [
+            "MiniMax-M3",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
             "MiniMax-M2.5",
@@ -39,6 +40,7 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
             "MiniMax-M2",
         ],
         "anthropic_models": [
+            "MiniMax-M3",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
             "MiniMax-M2.5",
@@ -68,6 +70,7 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
             "Content-Type": "application/json",
         },
         "openai_models": [
+            "glm-5.2",
             "glm-5.1",
             "glm-5",
             "glm-5-turbo",
@@ -79,6 +82,7 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
             "glm-4.5-airx",
         ],
         "anthropic_models": [
+            "glm-5.2",
             "glm-5.1",
             "glm-5",
             "glm-5-turbo",
@@ -110,6 +114,32 @@ PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "anthropic_models": [
             "deepseek-v4-flash",
             "deepseek-v4-pro",
+        ],
+        "_error_via_base_resp": False,
+    },
+    "mimo": {
+        # ---- OpenAI 协议（Token Plan 端点）----
+        "openai_url": "https://token-plan-cn.xiaomimimo.com/v1/chat/completions",
+        "models_url": "https://token-plan-cn.xiaomimimo.com/v1/models",
+        "usage_url": None,  # MiMo 无公开用量查询 API
+        "openai_headers": {
+            "Authorization": None,  # 运行时填入 Bearer token
+            "Content-Type": "application/json",
+        },
+        # ---- Anthropic 协议 ----
+        "anthropic_url": "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages",
+        "anthropic_headers": {
+            "x-api-key": None,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        "openai_models": [
+            "mimo-v2.5-pro",
+            "mimo-v2.5",
+        ],
+        "anthropic_models": [
+            "mimo-v2.5-pro",
+            "mimo-v2.5",
         ],
         "_error_via_base_resp": False,
     },

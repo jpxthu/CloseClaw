@@ -194,22 +194,22 @@ DeepSeek 无主动 cache control，被动触发。
 **OpenAI** (`openai/cache.json`)：
 ```json
 "usage": {
-  "prompt_tokens_details": { "cached_tokens": 0 },
-  "prompt_cache_hit_tokens": 0,
-  "prompt_cache_miss_tokens": 24
+  "prompt_tokens_details": { "cached_tokens": 128 },
+  "prompt_cache_hit_tokens": 128,
+  "prompt_cache_miss_tokens": 123
 }
 ```
 
 **Anthropic** (`anthropic/anthropic-cache.json`)：
 ```json
 "usage": {
-  "input_tokens": 24,
+  "input_tokens": 123,
   "cache_creation_input_tokens": 0,
-  "cache_read_input_tokens": 0
+  "cache_read_input_tokens": 128
 }
 ```
 
-注意：fixture 中 cache 全为 0（prompt 太短未触达阈值）。
+Cache 被动触发，`cached_tokens` / `cache_read_input_tokens` 随轮次递增（第 2 轮起稳定在 256/512）。
 
 ---
 

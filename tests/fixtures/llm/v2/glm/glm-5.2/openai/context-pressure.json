@@ -1,0 +1,303 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "context-pressure",
+  "model": "glm-5.2",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Two plus two equals four.",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781546466,
+        "id": "2026061602005959be3d471ad649e2",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "2026061602005959be3d471ad649e2",
+        "usage": {
+          "completion_tokens": 8,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 242,
+          "prompt_tokens_details": {
+            "cached_tokens": 192
+          },
+          "total_tokens": 250
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "Two plus two equals four."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1.  **Analyze the Request:**\n    *   **Topic:** Riemann hypothesis and its implications for prime number distribution.\n    *   **Persona constraints:** Expert software engineer (though this is a math topic, the tone should remain clear, structured, and analytical), patient with learners, thorough, break down complex concepts, simple over clever.\n    *   **Goal:** Explain a highly complex mathematical conjecture clearly and accurately.\n\n2.  **Deconstruct the Riemann Hyp",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781546479,
+        "id": "20260616020107ff2928c290dd41fd",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "20260616020107ff2928c290dd41fd",
+        "usage": {
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 100
+          },
+          "prompt_tokens": 267,
+          "prompt_tokens_details": {
+            "cached_tokens": 192
+          },
+          "total_tokens": 367
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "Two plus two equals four."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "The user wants me to compare and contrast TCP and UDP protocols, including congestion control and use cases. This is a networking fundamentals question. I'll provide a thorough, well-structured explanation.\n\nLet me think through the key differences:\n\n**TCP (Transmission Control Protocol):**\n- Connection-oriented (three-way handshake)\n- Reliable delivery (acknowledgments, retransmissions)\n- Ordered delivery (sequence numbers)\n- Flow control (sliding window)\n- Congestion control (slow start, congestion avoidance,",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781546483,
+        "id": "202606160201201d98b5ef89944fc5",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "202606160201201d98b5ef89944fc5",
+        "usage": {
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 100
+          },
+          "prompt_tokens": 286,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "total_tokens": 386
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "Two plus two equals four."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1.  **Analyze the Request:**\n    *   The user is asking for a description of the CAP theorem in distributed systems.\n    *   The user also wants examples of each trade-off (CP, AP, CA - though CA is theoretically redundant in distributed systems, it's worth a mention).\n    *   *Context Check:* The previous turns had empty assistant responses for some reason (likely a formatting glitch or interrupted generation in the prompt history), but I should just focus on answering the",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781546491,
+        "id": "20260616020124368a71a9c3b64d0b",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "20260616020124368a71a9c3b64d0b",
+        "usage": {
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 100
+          },
+          "prompt_tokens": 305,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "total_tokens": 405
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": "Two plus two equals four."
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1.  **Analyze the Request:**\n    *   The user is asking for an explanation of the transformer attention mechanism.\n    *   Specific topics to cover: matrix multiplication, multi-head attention.\n    *   The context is a rapid sequence of questions (2+2, Riemann hypothesis, TCP vs UDP, CAP theorem, Transformer attention). *Wait, looking at the history, the previous turns were blank!*\n    *   *Self-Correction/Context check:* Ah",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781546495,
+        "id": "202606160201323e8c8eedf0f84cfa",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "202606160201323e8c8eedf0f84cfa",
+        "usage": {
+          "completion_tokens": 100,
+          "completion_tokens_details": {
+            "reasoning_tokens": 100
+          },
+          "prompt_tokens": 325,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "total_tokens": 425
+        }
+      }
+    }
+  ]
+}

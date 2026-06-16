@@ -1,0 +1,40 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-simple",
+  "model": "mimo-v2.5-pro",
+  "expect": "text",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "f7a6618f1c5f4a61ab1728ef785250a2",
+    "type": "message",
+    "role": "assistant",
+    "model": "mimo-v2.5-pro",
+    "stop_reason": "end_turn",
+    "content": [
+      {
+        "type": "text",
+        "text": "Hello to you! 👋"
+      },
+      {
+        "type": "thinking",
+        "thinking": "The user wants me to say hello in exactly 3 words.",
+        "signature": ""
+      }
+    ],
+    "usage": {
+      "input_tokens": 66,
+      "output_tokens": 22,
+      "cache_read_input_tokens": 192
+    }
+  },
+  "max_tokens_sent": 1024
+}

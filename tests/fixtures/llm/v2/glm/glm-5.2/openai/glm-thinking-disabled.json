@@ -1,0 +1,50 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "glm-thinking-disabled",
+  "model": "glm-5.2",
+  "expect": "no-reasoning",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23?"
+      }
+    ]
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "17 * 23 = 391",
+          "reasoning_content": "1.  **Identify the core request:** The user is asking for the product of 17 and 23.\n2.  **Perform the multiplication:**\n    *   Method 1: Standard algorithm\n        *   17 * 20 = 340\n        *   17 * 3 = 51\n        *   340 + 51 = 391\n    *   Method 2: FOIL / Binomial expansion\n        *   (20 - 3) * (20 + 3)\n        *   20^2 - 3^2\n        *   400 - 9 = 391\n3.  **Verify the result:** 391 is correct.\n4.  **Format the output:** State the answer clearly.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1781546519,
+    "id": "20260616020154546066dc975a4d33",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "20260616020154546066dc975a4d33",
+    "usage": {
+      "completion_tokens": 173,
+      "completion_tokens_details": {
+        "reasoning_tokens": 163
+      },
+      "prompt_tokens": 19,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 192
+    }
+  },
+  "extra_body_sent": {
+    "thinking": {
+      "type": "disabled"
+    }
+  }
+}

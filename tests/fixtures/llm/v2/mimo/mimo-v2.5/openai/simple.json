@@ -1,0 +1,45 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "simple",
+  "model": "mimo-v2.5",
+  "expect": "text",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "bfa310fa68aa4decb03ae452977b962e",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "Hello there, friend.",
+          "role": "assistant",
+          "tool_calls": null,
+          "reasoning_content": "Hmm, the user asks for a greeting in exactly three words. This is a straightforward request with clear constraints. \n\nI need to ensure the response is warm and conversational as per my guidelines, while strictly adhering to the word limit. \"Hello there, friend\" comes to mind naturally—it's friendly, uses three words, and fits the tone. \n\nNo need to overcomplicate this. The user didn't ask for anything else, so I'll keep it simple and stop there."
+        }
+      }
+    ],
+    "created": 1781547137,
+    "model": "mimo-v2.5",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 107,
+      "prompt_tokens": 254,
+      "total_tokens": 361,
+      "completion_tokens_details": {
+        "reasoning_tokens": 99
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 192
+      }
+    }
+  }
+}

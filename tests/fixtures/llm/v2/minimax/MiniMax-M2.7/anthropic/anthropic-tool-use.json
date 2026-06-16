@@ -14,19 +14,19 @@
     ]
   },
   "response": {
-    "id": "064ae37a016314a8f4ee2f9a8870e77c",
+    "id": "067f77dacce36d147794e4d8f9d53636",
     "type": "message",
     "role": "assistant",
     "model": "MiniMax-M2.7",
     "content": [
       {
-        "thinking": "The user wants to know the weather in San Francisco. I'll call the get_weather function with \"San Francisco\" as the location.",
-        "signature": "20ad569a1d3cfc78c16c570c12b7ecbc0ffafea8caa5c8acbe54638fedfafb33",
+        "thinking": "The user is asking about the weather in San Francisco. I'll use the get_weather function to get the current weather information.\n",
+        "signature": "b3f8659f09a6bd4045ffc39909a937b5bd5f2bda96a3402b14182d6c43a9b028",
         "type": "thinking"
       },
       {
         "type": "tool_use",
-        "id": "call_function_kqfb0v7wxmpk_1",
+        "id": "call_ef79fce85ee747a7a724b6eb",
         "name": "get_weather",
         "input": {
           "location": "San Francisco"
@@ -34,8 +34,10 @@
       }
     ],
     "usage": {
-      "input_tokens": 212,
-      "output_tokens": 56
+      "input_tokens": 27,
+      "output_tokens": 53,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 192
     },
     "stop_reason": "tool_use",
     "base_resp": {

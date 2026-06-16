@@ -1,0 +1,272 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "glm-5",
+  "expect": "cache_incremental",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1. **拆解请求：**\n   * **主题：** HTTP/2 多路复用。\n   * **核心问题：**\n     1. 多路复用是如何工作的？(工作原理)\n     2. 相比 HTTP/1.1，它在性能上有哪些改进？(相比 HTTP/1.1 的性能改进)\n     3. 提供一个具体的例子。(具体例子)\n   * **角色设定：** 专家级软件工程师，耐心，讲解清晰，结构严谨。\n\n2. **第一部分：多路复用是如何工作的（工作原理）**\n   * *概念：* 什么是多路复用？它指的是在同一个 TCP 连接上同时发送多个请求/响应。\n   * *机制（HTTP/2 二进制分帧层）：*\n     * HTTP/1.1 使用文本（明文）。\n     * HTTP/2 使用二进制。将数据拆分为更小的“帧”（Headers 帧、Data 帧）。\n     * “流”的概念：一个流代表一个完整的请求/响应交换。多个流在一个 TCP 连接内并发存在。\n     * 每个帧都有一个“流 ID”标记，因此接收端（客户端或服务端）知道如何将帧重新拼接成完整的消息。\n   * *TCP 连接状态：* 只建立*一次*连接（通常通过 ALPN 进行协商）。只要连接保持开启，它就会持续用于多个请求。\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548023,
+        "id": "202606160226547b7a28fee0c04714",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "202606160226547b7a28fee0c04714",
+        "usage": {
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens": 260,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "total_tokens": 560
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1.  **拆解请求：**\n    *   **主题：** RAFT 共识算法。\n    *   **需涵盖的核心部分：** 总体概述、领导者选举、日志复制。\n    *   **目标受众：** 请求详细解释的软件工程师/开发者。需要专业、清晰且逻辑结构严谨。\n\n2.  **初步头脑风暴与关键词联想：**\n    *   *共识：* 就达成一致。容错性。复制状态机。\n    *   *RAFT 与 Paxos 的对比：* 为了可理解性而设计。拆分为子问题。\n    *   *节点状态：* 跟随者、候选人、领导者。\n    *   *任期：* 逻辑时钟。单调递增。\n    *   *领导者选举：* 心跳、选举超时、随机化超时时间（对防止死锁/平局至关重要）、RequestVote RPC。\n    *   *日志复制：* AppendEntries RPC、提交、应用到状态机、匹配索引、下一个索引。\n    *   *安全性：* 选举限制（日志必须是最新的）、提交规则（只提交当前任期的日志）。\n\n3.  **构建解释结构：**\n    *   **引言：** 什么是 RAFT？（目标、类比、与 Paxos 的对比）。\n    *   **核心概念：** 状态机安全性与复制状态机。\n    *   **节点状态：**",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548031,
+        "id": "2026061602270429be35f558624804",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "2026061602270429be35f558624804",
+        "usage": {
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens": 280,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "total_tokens": 580
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1.  **拆解请求：**\n    *   **主题：** TLS 1.3 握手流程。\n    *   **任务 1：** 详细描述 TLS 1.3 握手流程。\n    *   **任务 2：** 将其与 TLS 1.2 进行对比。\n    *   **任务 3：** 说明安全性和性能上的改进。\n\n2.  **目标受众与基调：**\n    *   *角色：* 专家级软件工程师。\n    *   *基调：* 专业、清晰、技术准确、结构化且易于理解。有效地使用比喻或清晰的步骤式逻辑。\n\n3.  **分析任务 1：TLS 1.3 握手流程（详细）：**\n    *   *核心概念：* 1-RTT 握手，0-RTT（早期数据）。更加严格的加密套件，密钥协商（ECDHE）。\n    *   *步骤拆解：*\n        *   **Client Hello (CH)：** 客户端不仅发送问候，还*立即*猜测密钥共享（例如 X25519）并在此消息中发送其部分的公钥。还会指示支持的密码套件（仅限 AEAD）。可能包含预共享密钥 (PSK) 或早期数据。\n        *   **Server Hello (SH)：** 服务端选择密钥共享并将其部分的公钥发回。*此时，双方",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548038,
+        "id": "202606160227121d3e76814f3c4f37",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "202606160227121d3e76814f3c4f37",
+        "usage": {
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 300
+          },
+          "prompt_tokens": 311,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "total_tokens": 611
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1.  **Deconstruct the Request:**\n    *   **Topic 1:** Buddy System (伙伴系统)\n    *   **Topic 2:** Slab Allocator (Slab分配器)\n    *   **Topic 3:** Page Fault Handling (缺页中断的处理流程)\n    *   **Context:** Linux Memory Management.\n    *   **Language:** Chinese.\n\n2.  **Part 1: Buddy System (伙伴系统)**\n    *   *What is it?* A memory allocation algorithm used by Linux to manage physical memory pages.\n    *   *Core Concept:* Divide and conquer. Split large blocks into smaller ones when needed, merge them back when freed.\n    *   *How it works (Step-by-Step):*\n        1. Memory is divided into fixed-size blocks (usually pages, 4KB).\n        2. Blocks are grouped by size (powers of 2: $2^0, 2^1, 2^2, \\dots$ up to $2^{MAX\\_ORDER}$).\n        3. *Allocation:* If a block of size $2^k$ is requested but not available, take a block of size $2^{k+1}$ and split it into two $2^k$ blocks. These two are \"buddies\".\n        4. *Freeing:* When a $2^k$ block is freed, check if its \"buddy\" is also free",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548044,
+        "id": "202606160227194a94f0fc0db34017",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "202606160227194a94f0fc0db34017",
+        "usage": {
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 300
+          },
+          "prompt_tokens": 282,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "total_tokens": 582
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "reasoning_content": "1. **理解目标：** 用户希望对比 B+ 树和 LSM（Log-Structured Merge-tree，日志结构合并树）作为数据库索引时的优缺点，并了解它们各自最适合的场景。\n\n2. **拆解主题：**\n    * **B+ 树：** 传统的、使用最广泛的索引结构（例如 InnoDB、Postgres）。需要了解其结构（叶子节点、内部节点、顺序磁盘 I/O）以及读/写特征。\n    * **LSM 树：** 现代的、高写入吞吐量结构（例如 RocksDB、Cassandra、LevelDB、HBase）。需要了解其结构（内存表/MemTable、SSTable、多层结构、合并/compaction）以及读/写特征。\n    * **对比点：** 读性能、写性能、空间放大、写放大、读放大、并发/锁。\n    * **适用场景：** 何时使用哪种（OLTP、OLAP、时间序列、写入繁重型对比读取繁重型）。\n\n3. **起草内容 - 逐节进行：**\n\n    * **简介：** 简要定义这两个概念以设定背景。\n\n    * **B+ 树（读优化型）：**\n        * *工作原理（简述）：* 平衡树结构，只有叶子节点存数据，叶子节点之间有指针相连。\n        * *优点：*\n            * 极致的读取性能",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781548051,
+        "id": "20260616022725f72cbfcc59884d2b",
+        "model": "glm-5.2",
+        "object": "chat.completion",
+        "request_id": "20260616022725f72cbfcc59884d2b",
+        "usage": {
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 298
+          },
+          "prompt_tokens": 307,
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          },
+          "total_tokens": 607
+        }
+      }
+    }
+  ]
+}

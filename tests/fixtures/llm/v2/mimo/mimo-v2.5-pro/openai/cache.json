@@ -1,0 +1,270 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "mimo-v2.5-pro",
+  "expect": "cache_incremental",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        }
+      ],
+      "response": {
+        "id": "b02f6a4a260a4590bfb415bee6809549",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "### HTTP/2 多路复用的工作原理\n\nHTTP/2 是 HTTP 协议的第二个主要版本（基于 SPDY 协议发展而来），旨在解决 HTTP/1.1 的一些性能瓶颈，其中多路复用（Multiplexing）是其核心特性之一。它的工作原理可以分解为以下几个关键步骤：\n\n1. **二进制分帧层（Binary Framing Layer）**：\n   - HTTP/2 将所有通信数据（包括请求头、响应头、主体数据）分解为小的、独立的**帧（Frame）**，每个帧都有固定的头部（通常 9 字节），包含帧类型、长度、标志和**流 ID（Stream ID）** 等信息。\n   - 流（Stream）是一个逻辑通道，用于传输一个完整的 HTTP 交互（例如一个请求-响应对）。每个流由一个唯一的 Stream ID 标识（奇数用于客户端发起的流，偶数用于服务器发起的流）。\n   - 这些帧通过一个单一的 **TCP 连接** 进行传输，而不是为每个请求创建新连接。连接在建立后（通过 TLS 或明文）保持打开状态，直到一方显式关闭。\n\n2. **多路复用（Multiplexing）机制**：\n   - 多个流可以**并发**（Interleaved）在同一 TCP 连接上传输："
+            }
+          }
+        ],
+        "created": 1781547084,
+        "model": "mimo-v2.5-pro",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 300,
+          "prompt_tokens": 259,
+          "total_tokens": 559,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {}
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        }
+      ],
+      "response": {
+        "id": "a55ee3ee23c1418096a2f2e8b378bab7",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "好的，用户之前已经问了HTTP/2多路复用的问题，现在转向了RAFT共识算法。看来用户可能在学习分布式系统，或者在工作中遇到了相关的需求。首先得确认用户的基础知识水平，毕竟RAFT涉及的概念比较多。\n\n用户之前的问题是关于网络协议的，现在突然转到共识算法，可能是对系统设计有整体兴趣。考虑到之前回答过HTTP/2的例子，这次也需要具体的例子来帮助理解。不过RAFT比HTTP/2复杂，得拆解清楚。\n\n用户要求详细解释，包括领导者选举和日志复制，说明他们需要深入的工作机制，而不仅仅是表面概念。可能是在准备面试、设计系统，或者写论文。得确保解释既有理论又有实际步骤，避免太抽象。\n\n要思考用户可能已经了解基础，比如知道分布式系统的基本问题，但需要具体流程。比如，为什么需要领导者，心跳的作用是什么。得用比喻来类比，比如团队合作，让复杂概念更易懂。\n\n要注意避免过于学术化的语言，同时保持准确性。比如用term（任期）这样的术语时要解释清楚。还有日志复制中的提交过程，可能需要强调安全性和一致性检查。\n\n需要举例说明整个流程，从选举到复制日志，让用户能想象出实际场景。比如客户端发送命令后，如何通过领导者同步到其他节点。同时提到异常情况，比如领导者宕机，展示算法的鲁棒性。\n\n最后总结特点，"
+            }
+          }
+        ],
+        "created": 1781547094,
+        "model": "mimo-v2.5-pro",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 300,
+          "prompt_tokens": 287,
+          "total_tokens": 587,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          }
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
+        }
+      ],
+      "response": {
+        "id": "3410adbd329b42ef8025a79f67de4701",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "嗯，用户之前问了HTTP/2多路复用、RAFT共识算法和现在TLS 1.3握手流程，看来对底层协议和分布式系统挺有兴趣的。可能是个后端开发者或者系统架构师，想深入理解这些技术的原理和优化点。\n\n用户可能不只是想要一个简单的流程描述，而是希望理解TLS 1.3为什么比1.2更安全更快，以及这些改进如何在实际中起作用。之前解释RAFT时用了详细步骤和状态机图示，这次也应该保持类似的清晰度，但更侧重对比和实际影响。\n\nTLS 1.3的握手确实简化了很多，但得把关键变化说清楚。比如握手从两轮变一轮，移除不安全的加密套件，还有0-RTT的优缺点。用户可能关心实际部署中的权衡，比如0-RTT的重放攻击风险。\n\n对比时要突出安全性和性能的具体提升，比如前向保密成为强制要求，还有减少的RTT如何降低延迟。得用例子说明，比如普通网站访问和TLS 1.2相比快多少，但也要提安全权衡。\n\n用户可能没直接问但隐含想知道的是：这些改进对现有系统迁移有什么影响？为什么TLS 1.3在现代互联网中成为标准？虽然不用展开，但可以在总结里稍带提到普及趋势。\n\n最后要确保解释足够深入但不过于技术化"
+            }
+          }
+        ],
+        "created": 1781547104,
+        "model": "mimo-v2.5-pro",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 300,
+          "prompt_tokens": 324,
+          "total_tokens": 624,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          }
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "80ccc3255cfd4d3f858a012012588adc",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "我们首先解释Linux内存管理中的两个重要概念：buddy系统和slab分配器，然后讨论缺页中断的处理流程。\n\n1. buddy系统：\n   - 作用：buddy系统是Linux内核中用于管理物理内存页框（page frames）的一种分配算法。它主要解决外部碎片问题。\n   - 原理：将内存划分成2的幂次方大小的块，例如1页、2页、4页等。分配时寻找最小的足够大的块，如果块太大，则将其分成两个小块（这两个小块互为buddy），直到大小合适。释放时，会尝试合并相邻的空闲buddy块，形成更大的块。\n   - 特点：buddy系统管理的是物理页框，分配的单位是页（通常4KB）的2的幂次方倍数。\n\n2. slab分配器：\n   - 作用：slab分配器建立在buddy系统之上，用于管理内核中的小对象（比如数据结构体）的分配。它解决了内部碎片问题，并且通过缓存提高了分配效率。\n   - 原理：slab分配器为每种常用对象创建一个或多个缓存（cache），每个缓存由多个slab组成，而每个slab又由多个连续的物理页框组成，这些页框被划分为固定大小的对象。当需要分配一个对象时，"
+            }
+          }
+        ],
+        "created": 1781547113,
+        "model": "mimo-v2.5-pro",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 300,
+          "prompt_tokens": 293,
+          "total_tokens": 593,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          }
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "aef99931776b4a47a913c591a6af5075",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "好的，这是一个非常核心的数据库存储引擎问题。B+ 树和 LSM 树是两种主流的数据结构，它们的设计哲学截然不同，因此在性能特性和适用场景上也有显著差异。\n\n下面我将",
+              "role": "assistant",
+              "tool_calls": null,
+              "reasoning_content": "好的，用户这次问的是B+树和LSM树在数据库索引中的对比，需要先拆解问题。首先得确定用户已经了解基本的索引概念，可能是数据库开发者或者学生在学习存储引擎。\n\n用户可能正在设计数据库系统，或者在选择合适的存储引擎，需要根据具体场景做技术选型。深层需求可能不只是理论对比，而是想了解如何在实际项目中应用，比如选择MySQL还是Cassandra这类问题。\n\n需要先解释两种数据结构的核心机制，避免过于学术化，重点放在实际影响性能的因素上。然后得举例说明各自的使用场景，比如OLTP和OLAP的区别，用户可能关心写密集和读密集的不同表现。\n\n要注意避免偏向某一方，保持客观，指出各自的优缺点。比如B+树适合读多写少，LSM适合写多读少，但也要提到LSM的读放大问题。用户可能没明说但想知道在实际生产中的权衡，比如压缩策略的影响或者维护成本。\n\n最后总结时要明确，帮助用户根据业务需求做决定。可能还需要提醒实际数据库中的混合使用，比如某些系统同时支持两种索引，让用户知道这不是非此即彼的选择。"
+            }
+          }
+        ],
+        "created": 1781547123,
+        "model": "mimo-v2.5-pro",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 300,
+          "prompt_tokens": 325,
+          "total_tokens": 625,
+          "completion_tokens_details": {
+            "reasoning_tokens": 251
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 256
+          }
+        }
+      }
+    }
+  ]
+}

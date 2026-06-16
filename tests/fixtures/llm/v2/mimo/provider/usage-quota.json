@@ -1,0 +1,13 @@
+{
+  "protocol": "n/a",
+  "streaming": false,
+  "scenario": "usage-quota",
+  "model": "provider",
+  "provider": "mimo",
+  "expect": "usage-quota",
+  "request": {},
+  "response": {
+    "skipped": true,
+    "reason": "mimo 无 usage-quota API"
+  }
+}

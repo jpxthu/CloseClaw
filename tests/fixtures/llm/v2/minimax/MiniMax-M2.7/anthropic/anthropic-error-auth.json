@@ -21,9 +21,9 @@
       "type": "error",
       "error": {
         "type": "authentication_error",
-        "message": "login fail: Please carry the API secret key in the 'Authorization' field of the request header"
+        "message": "login fail: Please carry the API secret key in the 'X-Api-Key' field of the request header"
       },
-      "request_id": "064ae3695e7bacc6141264bf46bff35f"
+      "request_id": "067f77d22f9155f16bcf5d3eab544ca4"
     }
   },
   "max_tokens_sent": 1024

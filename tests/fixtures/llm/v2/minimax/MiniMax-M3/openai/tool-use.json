@@ -1,0 +1,85 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-use",
+  "model": "MiniMax-M3",
+  "expect": "tool_calls",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "id": "067f738f580bcff19a4904129b460d10",
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "<think>\nThe user is asking about the weather in San Francisco. I should use the get_weather tool to retrieve this information.\n</think>\n",
+          "role": "assistant",
+          "name": "MiniMax AI",
+          "tool_calls": [
+            {
+              "id": "call_function_jj03kqesldza_1",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\": \"San Francisco\"}"
+              },
+              "index": 0
+            }
+          ],
+          "audio_content": ""
+        }
+      }
+    ],
+    "created": 1781547151,
+    "model": "MiniMax-M3",
+    "object": "chat.completion",
+    "usage": {
+      "total_tokens": 479,
+      "total_characters": 0,
+      "prompt_tokens": 425,
+      "completion_tokens": 54,
+      "prompt_tokens_details": {
+        "cached_tokens": 411
+      }
+    },
+    "input_sensitive": false,
+    "output_sensitive": false,
+    "input_sensitive_type": 0,
+    "output_sensitive_type": 0,
+    "output_sensitive_int": 0,
+    "service_tier": "standard",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
+}

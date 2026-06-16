@@ -1,0 +1,17 @@
+{
+  "protocol": "anthropic",
+  "streaming": true,
+  "scenario": "anthropic-streaming",
+  "model": "mimo-v2.5-pro",
+  "expect": "streaming",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Count from 1 to 3."
+      }
+    ]
+  },
+  "max_tokens_sent": 1024
+}

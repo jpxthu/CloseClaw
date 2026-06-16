@@ -1,0 +1,67 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-use",
+  "model": "MiniMax-M3",
+  "expect": "tool_use",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "id": "067f73d09ca619909f2bcdf706ab2ef7",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M3",
+    "content": [
+      {
+        "text": "Let me check the current weather in San Francisco for you.",
+        "type": "text"
+      },
+      {
+        "type": "tool_use",
+        "id": "call_function_ue9r8urupes5_1",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      }
+    ],
+    "usage": {
+      "input_tokens": 14,
+      "output_tokens": 40,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 398,
+      "service_tier": "standard"
+    },
+    "stop_reason": "tool_use",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}
