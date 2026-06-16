@@ -401,6 +401,19 @@ impl SessionManager {
         Ok(PathBuf::from("/tmp"))
     }
 
+    /// Remove a child session entry from the parent's `children` tracking
+    /// table. Extracted from `kill_child` so `try_push_announce` can also
+    /// clean up after a run-mode child completes.
+    pub(crate) async fn remove_child_from_tracking(&self, parent_id: &str, child_id: &str) {
+        let mut children = self.children.write().await;
+        if let Some(list) = children.get_mut(parent_id) {
+            list.retain(|info| info.session_id != child_id);
+            if list.is_empty() {
+                children.remove(parent_id);
+            }
+        }
+    }
+
     /// Validate that a child session is owned by the given parent and
     /// was spawned in `Session` mode (persistent). Returns the child
     /// info on success, `None` otherwise.
@@ -470,15 +483,7 @@ impl SessionManager {
         }
 
         // Remove from children tracking table.
-        {
-            let mut children = self.children.write().await;
-            if let Some(list) = children.get_mut(parent_id) {
-                list.retain(|info| info.session_id != child_id);
-                if list.is_empty() {
-                    children.remove(parent_id);
-                }
-            }
-        }
+        self.remove_child_from_tracking(parent_id, child_id).await;
 
         Ok(())
     }

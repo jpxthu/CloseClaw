@@ -72,7 +72,7 @@ fn ctx_without_session() -> ToolContext {
 }
 
 // ---------------------------------------------------------------------------
-// Steer: missing childId
+// Steer: missing sessionId
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -84,12 +84,12 @@ async fn test_steer_missing_child_id() {
 
     let result = tool.call(json!({"task": "something"}), &ctx).await;
 
-    let err = result.expect_err("steer should fail when childId is missing");
+    let err = result.expect_err("steer should fail when sessionId is missing");
     match err {
         ToolCallError::InvalidArgs(msg) => {
             assert!(
-                msg.contains("childId"),
-                "error should mention childId, got: {}",
+                msg.contains("sessionId"),
+                "error should mention sessionId, got: {}",
                 msg
             );
         }
@@ -108,7 +108,7 @@ async fn test_steer_missing_task() {
     let tool = SessionsSteerTool::new(mgr, pe);
     let ctx = ctx_with_session("parent-x");
 
-    let result = tool.call(json!({"childId": "some-id"}), &ctx).await;
+    let result = tool.call(json!({"sessionId": "some-id"}), &ctx).await;
 
     let err = result.expect_err("steer should fail when task is missing");
     match err {
@@ -124,7 +124,7 @@ async fn test_steer_missing_task() {
 }
 
 // ---------------------------------------------------------------------------
-// Kill: missing childId
+// Kill: missing sessionId
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -136,12 +136,12 @@ async fn test_kill_missing_child_id() {
 
     let result = tool.call(json!({}), &ctx).await;
 
-    let err = result.expect_err("kill should fail when childId is missing");
+    let err = result.expect_err("kill should fail when sessionId is missing");
     match err {
         ToolCallError::InvalidArgs(msg) => {
             assert!(
-                msg.contains("childId"),
-                "error should mention childId, got: {}",
+                msg.contains("sessionId"),
+                "error should mention sessionId, got: {}",
                 msg
             );
         }
@@ -161,7 +161,7 @@ async fn test_steer_no_session_id_in_context() {
     let ctx = ctx_without_session();
 
     let result = tool
-        .call(json!({"childId": "some-id", "task": "something"}), &ctx)
+        .call(json!({"sessionId": "some-id", "task": "something"}), &ctx)
         .await;
 
     let err = result.expect_err("steer should fail when session_id is None");
@@ -188,7 +188,7 @@ async fn test_kill_no_session_id_in_context() {
     let tool = SessionsKillTool::new(mgr, pe);
     let ctx = ctx_without_session();
 
-    let result = tool.call(json!({"childId": "some-id"}), &ctx).await;
+    let result = tool.call(json!({"sessionId": "some-id"}), &ctx).await;
 
     let err = result.expect_err("kill should fail when session_id is None");
     match err {
@@ -216,7 +216,7 @@ async fn test_steer_child_not_found() {
 
     let result = tool
         .call(
-            json!({"childId": "nonexistent-child", "task": "redo"}),
+            json!({"sessionId": "nonexistent-child", "task": "redo"}),
             &ctx,
         )
         .await;
@@ -246,7 +246,7 @@ async fn test_kill_child_not_found() {
     let ctx = ctx_with_session("parent-x");
 
     let result = tool
-        .call(json!({"childId": "nonexistent-child"}), &ctx)
+        .call(json!({"sessionId": "nonexistent-child"}), &ctx)
         .await;
 
     let err = result.expect_err("kill should fail when child not found");
@@ -386,7 +386,7 @@ async fn test_steer_permission_allowed() {
     };
 
     let result = tool
-        .call(json!({"childId": child_id, "task": "new task"}), &ctx)
+        .call(json!({"sessionId": child_id, "task": "new task"}), &ctx)
         .await;
 
     let tool_result = result.expect("steer should succeed when permission is allowed");
@@ -419,7 +419,7 @@ async fn test_steer_permission_denied() {
     };
 
     let result = tool
-        .call(json!({"childId": child_id, "task": "new task"}), &ctx)
+        .call(json!({"sessionId": child_id, "task": "new task"}), &ctx)
         .await;
 
     let err = result.expect_err("steer should fail when permission is denied");
@@ -459,7 +459,7 @@ async fn test_kill_permission_allowed() {
         session: None,
     };
 
-    let result = tool.call(json!({"childId": child_id}), &ctx).await;
+    let result = tool.call(json!({"sessionId": child_id}), &ctx).await;
 
     let tool_result = result.expect("kill should succeed when permission is allowed");
     assert_eq!(tool_result.data["child_id"], child_id);
@@ -490,7 +490,7 @@ async fn test_kill_permission_denied() {
         session: None,
     };
 
-    let result = tool.call(json!({"childId": child_id}), &ctx).await;
+    let result = tool.call(json!({"sessionId": child_id}), &ctx).await;
 
     let err = result.expect_err("kill should fail when permission is denied");
     match err {
@@ -533,7 +533,7 @@ async fn test_steer_explicit_allow_overrides_default_deny() {
     };
 
     let result = tool
-        .call(json!({"childId": child_id, "task": "steer task"}), &ctx)
+        .call(json!({"sessionId": child_id, "task": "steer task"}), &ctx)
         .await;
 
     let tool_result =
@@ -568,7 +568,7 @@ async fn test_kill_explicit_allow_overrides_default_deny() {
         session: None,
     };
 
-    let result = tool.call(json!({"childId": child_id}), &ctx).await;
+    let result = tool.call(json!({"sessionId": child_id}), &ctx).await;
 
     let tool_result =
         result.expect("kill should succeed when explicit allow rule overrides default deny");
