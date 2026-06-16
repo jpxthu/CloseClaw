@@ -6,6 +6,18 @@
 use super::sections::Section;
 use crate::tools::{PromptGenerationContext, ToolContext, ToolRegistry};
 
+/// Task writing guidance appended to the tools section when spawn is available.
+/// Source: docs/design/agent/agent-spawn.md §父 Agent 的 Task 编写指引
+const TASK_WRITING_GUIDANCE: &str = concat!(
+    "\n\n## Task Writing Guidance for Spawning Sub-Agents\n\n\n",
+    "When spawning a sub-agent, write the task as you would brief a smart colleague ",
+    "who just walked into the room \u{2014} explain what you need done and why.\n\n",
+    "- Do NOT push judgment calls onto the sub-agent. The parent agent should ",
+    "complete understanding and decision-making; the sub-agent executes.\n",
+    "- Use fork mode when the sub-agent needs full context of the ongoing conversation. ",
+    "Use normal spawn for independent, self-contained tasks."
+);
+
 /// Build the Tools section content from a registry.
 ///
 /// The registry's `build_tools_section` requires a [`PromptGenerationContext`]
@@ -36,6 +48,19 @@ pub async fn build_tools_section(
 
     // 3. Acquire the registry lock again and render the section.
     let content = registry.build_tools_section(&prompt_ctx).await;
+
+    // 4. If the spawn tool is available, append task writing guidance.
+    let content = if prompt_ctx
+        .available_tool_names
+        .iter()
+        .any(|n| n == "sessions_spawn")
+    {
+        let guidance = TASK_WRITING_GUIDANCE;
+        format!("{}\n{}", content, guidance)
+    } else {
+        content
+    };
+
     Section::ToolsSection(content)
 }
 
@@ -283,6 +308,81 @@ mod tests {
             content.is_empty(),
             "expected empty content, got: {}",
             content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_task_writing_guidance_when_spawn_available() {
+        let registry = ToolRegistry::new();
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
+        register_builtin_tools(
+            &registry,
+            make_builtin_ctx(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager,
+                config_manager,
+                agent_registry,
+            ),
+        )
+        .await;
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            content.contains("smart colleague"),
+            "missing 'smart colleague' in guidance: {}",
+            &content[content.len().min(content.len().saturating_sub(500))..]
+        );
+        assert!(
+            content.contains("judgment calls"),
+            "missing 'judgment calls' in guidance"
+        );
+        assert!(
+            content.contains("fork mode"),
+            "missing 'fork mode' in guidance"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_task_writing_guidance_absent_when_spawn_unavailable() {
+        // Empty registry → sessions_spawn is not in available_tool_names
+        let registry = ToolRegistry::new();
+        let ctx = crate::tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            !content.contains("smart colleague"),
+            "task writing guidance should NOT appear without sessions_spawn, got: {}",
+            content
+        );
+        assert!(
+            !content.contains("judgment calls"),
+            "task writing guidance should NOT appear without sessions_spawn"
+        );
+        assert!(
+            !content.contains("fork mode"),
+            "task writing guidance should NOT appear without sessions_spawn"
         );
     }
 }
