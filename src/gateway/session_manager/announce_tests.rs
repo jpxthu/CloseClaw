@@ -94,7 +94,7 @@ async fn test_try_push_announce_run_mode() {
             None,
             None,
             None,
-            3, // remaining_spawn_depth
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -142,7 +142,7 @@ async fn test_try_push_announce_session_mode_noop() {
             None,
             None,
             None,
-            3, // remaining_spawn_depth
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -266,7 +266,7 @@ async fn test_thinking_blocks_excluded() {
             None,
             None,
             None,
-            3, // remaining_spawn_depth
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");

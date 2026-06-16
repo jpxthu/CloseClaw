@@ -12,18 +12,16 @@ use thiserror::Error;
 pub struct SpawnValidationResult {
     /// Resolved configuration of the target agent.
     pub config: ResolvedAgentConfig,
-    /// Remaining spawn depth the child has after this spawn.
+    /// Effective max spawn depth the child may use.
     /// Computed as `min(child.max_spawn_depth, parent.max_spawn_depth - 1)`.
-    pub effective_remaining_depth: u32,
+    pub effective_max_spawn_depth: u32,
 }
 
 /// Errors returned by SpawnController validation.
 #[derive(Debug, Error)]
 pub enum SpawnError {
-    #[error(
-        "spawn depth exhausted: child has no remaining spawn capability (remaining={remaining})"
-    )]
-    DepthExhausted { remaining: u32 },
+    #[error("spawn depth limit exceeded: current depth {current} >= max {max}")]
+    DepthExceeded { current: u32, max: u32 },
     #[error("max concurrent children reached: {current} >= {max}")]
     MaxChildrenReached { current: usize, max: u32 },
     #[error("agent '{agent_id}' not in allowlist")]
@@ -53,14 +51,21 @@ impl SpawnController {
     /// Validate a spawn request.
     ///
     /// Returns a [`SpawnValidationResult`] with the target agent's resolved
-    /// config and the child's remaining spawn depth, or a
+    /// config and the effective max spawn depth for the child, or a
     /// [`SpawnError`] on failure.
     pub async fn validate(
         &self,
         parent_session_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<SpawnValidationResult, SpawnError> {
-        // 1. Determine parent agent_id from session manager
+        // 1. Get parent depth
+        let parent_depth = self
+            .session_manager
+            .get_session_depth(parent_session_id)
+            .await
+            .unwrap_or(0);
+
+        // 2. Determine parent agent_id from session manager
         let parent_agent_id = self
             .session_manager
             .get_chat_id(parent_session_id)
@@ -122,25 +127,19 @@ impl SpawnController {
             )
         };
 
-        // 6. Depth check — reject if the parent itself has reached its depth
-        //    limit.  The child's effective remaining spawn depth is
-        //    min(child.max_spawn_depth, parent.max_spawn_depth - parent_depth - 1).
-        //    A value of 0 is still valid (child is allowed to exist, it just
-        //    cannot spawn further).
-        let parent_depth = self
-            .session_manager
-            .get_session_depth(parent_session_id)
-            .await
-            .unwrap_or(0);
-        if parent_depth >= max_spawn_depth {
-            return Err(SpawnError::DepthExhausted { remaining: 0 });
-        }
+        // 6. Depth check — effective max = min(child.max_spawn_depth, parent.max_spawn_depth - 1)
         let child_max_spawn_depth = target_config
             .as_ref()
             .map(|c| c.subagents.max_spawn_depth)
             .unwrap_or(1);
-        let effective_remaining =
-            child_max_spawn_depth.min(max_spawn_depth.saturating_sub(parent_depth + 1));
+        let effective_max = child_max_spawn_depth.min(max_spawn_depth.saturating_sub(1));
+        let child_depth = parent_depth + 1;
+        if child_depth > effective_max {
+            return Err(SpawnError::DepthExceeded {
+                current: child_depth,
+                max: effective_max,
+            });
+        }
 
         // 7. Concurrency check
         // No lock held here — safe to await.
@@ -162,11 +161,11 @@ impl SpawnController {
             });
         }
 
-        // 9. Return validation result with child's remaining spawn depth
+        // 9. Return validation result with effective max spawn depth
         let config = target_config.ok_or(SpawnError::ConfigNotFound(target_id))?;
         Ok(SpawnValidationResult {
             config,
-            effective_remaining_depth: effective_remaining,
+            effective_max_spawn_depth: effective_max,
         })
     }
 }
