@@ -307,7 +307,7 @@ impl Tool for SessionsSpawnTool {
                 ToolCallError::ExecutionFailed(format!("spawn validation failed: {}", e))
             })?;
         let config = spawn_result.config;
-        let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
+        let effective_remaining_depth = spawn_result.effective_remaining_depth;
         self.validate_spawn_permissions(&config, parent_session_id)
             .await?;
         // Look up the parent agent's subagents.model config
@@ -344,7 +344,7 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.allowed_tools,
                 spawn_args.model.as_deref(),
                 parent_subagents_model.as_deref(),
-                effective_max_spawn_depth,
+                effective_remaining_depth,
             )
             .await?;
         Ok(ToolResult {

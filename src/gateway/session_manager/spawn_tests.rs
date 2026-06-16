@@ -10,7 +10,7 @@ use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use crate::agent::config::SubagentsConfig;
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::llm::session::{ChatSession, ConversationSession};
+use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::{PersistenceService, SessionCheckpoint};
 use crate::session::ReasoningLevel;
@@ -92,7 +92,7 @@ async fn test_create_child_session_basic() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -116,9 +116,19 @@ async fn test_create_child_session_basic() {
         .expect("conversation session should exist");
     let cs_guard = cs.read().await;
     assert_eq!(cs_guard.get_pending_messages().len(), 1);
-    assert_eq!(
-        cs_guard.get_pending_messages()[0].content,
-        "do something useful"
+    // Spawn context is now injected into the first user message
+    let first_msg = &cs_guard.get_pending_messages()[0].content;
+    assert!(
+        first_msg.contains("do something useful"),
+        "pending message should contain the task"
+    );
+    assert!(
+        first_msg.contains("Spawn Context"),
+        "pending message should contain spawn context"
+    );
+    assert!(
+        first_msg.contains("sub-agent"),
+        "pending message should contain sub-agent role declaration"
     );
 }
 
@@ -149,7 +159,7 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -172,7 +182,7 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
@@ -211,7 +221,7 @@ async fn test_create_child_session_registers_child_info() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -253,7 +263,7 @@ async fn test_steer_child_injects_pending_message() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -307,7 +317,7 @@ async fn test_kill_child_removes_from_all_tables() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -371,7 +381,7 @@ async fn test_validate_child_ownership_returns_none_for_run_mode() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -410,7 +420,7 @@ async fn test_validate_child_ownership_returns_info_for_session_mode() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -468,7 +478,7 @@ async fn test_create_child_session_allowed_tools_override() {
             Some(allowed),
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
@@ -504,7 +514,7 @@ async fn test_create_child_session_no_allowed_tools_preserves_config() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session without allowed_tools should succeed");
@@ -547,7 +557,7 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -626,7 +636,7 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3, // remaining_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -658,13 +668,13 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
 // ── Step 1.4: spawn-context injection tests ─────────────────────────────
 
 /// Verify `build_spawn_context` produces the expected paragraph for
-/// depth=1, max_spawn_depth=3 (allows further spawning).
+/// depth=1, remaining_depth=3 (allows further spawning).
 #[test]
 fn test_build_spawn_context_allows_spawning() {
     let ctx = SessionManager::build_spawn_context(1, 3);
     assert!(ctx.contains("sub-agent"), "should declare sub-agent role");
     assert!(
-        ctx.contains("Current depth: 1 / Maximum depth: 3"),
+        ctx.contains("Current depth: 1. Remaining spawn depth: 3"),
         "should contain depth info"
     );
     assert!(
@@ -676,34 +686,34 @@ fn test_build_spawn_context_allows_spawning() {
         "should forbid polling"
     );
     assert!(
-        ctx.contains("Your effective maximum depth for children is 2"),
-        "should show effective spawn depth (3-1=2)"
+        ctx.contains("Your effective maximum depth for children is 3"),
+        "should show remaining spawn depth"
     );
 }
 
-/// Verify `build_spawn_context` omits spawn guidance when depth == max_spawn_depth.
+/// Verify `build_spawn_context` omits spawn guidance when remaining_depth == 0.
 #[test]
 fn test_build_spawn_context_no_spawning_at_limit() {
-    let ctx = SessionManager::build_spawn_context(3, 3);
+    let ctx = SessionManager::build_spawn_context(3, 0);
     assert!(ctx.contains("sub-agent"));
     assert!(
-        ctx.contains("Current depth: 3 / Maximum depth: 3"),
+        ctx.contains("Current depth: 3. Remaining spawn depth: 0"),
         "should contain depth info"
     );
     assert!(
         !ctx.contains("effective maximum depth"),
-        "should NOT include spawn guidance at limit"
+        "should NOT include spawn guidance when remaining is 0"
     );
 }
 
-/// Verify `build_spawn_context` at depth=0, max_spawn_depth=1 (allows spawning).
+/// Verify `build_spawn_context` at depth=0, remaining_depth=1 (allows spawning).
 #[test]
 fn test_build_spawn_context_depth_zero() {
     let ctx = SessionManager::build_spawn_context(0, 1);
-    assert!(ctx.contains("Current depth: 0 / Maximum depth: 1"));
+    assert!(ctx.contains("Current depth: 0. Remaining spawn depth: 1"));
     assert!(
         ctx.contains("Your effective maximum depth for children is 1"),
-        "should show effective depth (1-0=1)"
+        "should show remaining depth"
     );
 }
 
@@ -763,19 +773,21 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
         .await
         .expect("child session should exist");
     let guard = cs.read().await;
-    let prompt = guard.system_prompt().expect("system prompt should be set");
 
+    // Spawn context is now injected into the first user message
+    // (not the system prompt) per the design doc.
+    let first_msg = &guard.get_pending_messages()[0].content;
     assert!(
-        prompt.contains("sub-agent"),
-        "system prompt should contain sub-agent role declaration"
+        first_msg.contains("sub-agent"),
+        "first user message should contain sub-agent role declaration"
     );
     assert!(
-        prompt.contains("Current depth: 2 / Maximum depth: 4"),
-        "system prompt should contain depth info"
+        first_msg.contains("Current depth: 2. Remaining spawn depth: 4"),
+        "first user message should contain depth info"
     );
     assert!(
-        prompt.contains("results are automatically pushed back"),
-        "system prompt should describe push-based communication"
+        first_msg.contains("results are automatically pushed back"),
+        "first user message should describe push-based communication"
     );
 }
 

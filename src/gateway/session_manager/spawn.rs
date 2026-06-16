@@ -156,11 +156,12 @@ impl SessionManager {
         .await;
         drop(tool_registry_guard);
 
-        // 4a. Append spawn context to the system prompt so the child
-        //     agent knows its role, depth limits, and communication
-        //     behavior.  Non-spawn sessions never reach this path.
+        // 4a. Build spawn context — injected as the first part of
+        //     the pending user message (not in the system prompt).
+        //     The design doc requires the child's first message to
+        //     contain context告知 (role, depth, comms) followed by
+        //     the task content.
         let spawn_context = Self::build_spawn_context(depth, max_spawn_depth);
-        let prompt = format!("{}\n{}", prompt, spawn_context);
 
         // 5. Create ConversationSession
         // Model priority: explicit model param > parent agent.subagents.model
@@ -221,9 +222,9 @@ impl SessionManager {
             }
         }
 
-        // 6. Inject task as pending message
-        let pending_msg =
-            PendingMessage::new(format!("{}-task", child_session_id), task.to_string());
+        // 6. Inject context告知 + task as pending message
+        let content = format!("{}\n\n{}", spawn_context, task);
+        let pending_msg = PendingMessage::new(format!("{}-task", child_session_id), content);
         cs.push_pending(pending_msg);
 
         // 7. Register to conversation_sessions and sessions mappings
@@ -291,11 +292,12 @@ impl SessionManager {
     /// - Communication behavior (push-based, no polling)
     /// - Behavioral constraints (direct execution, no back-and-forth)
     /// - Spawn guidance when depth allows further spawning
-    pub(crate) fn build_spawn_context(depth: u32, max_spawn_depth: u32) -> String {
+    pub(crate) fn build_spawn_context(depth: u32, remaining_depth: u32) -> String {
         let mut ctx = format!(
             "## Spawn Context\n\
              You are running as a sub-agent. \
-             Current depth: {depth} / Maximum depth: {max_spawn_depth}.\n\
+             Current depth: {depth}. \
+             Remaining spawn depth: {remaining_depth}.\n\
              **Communication behavior:** Your results are automatically \
              pushed back to the parent agent when you finish. \
              Do not poll for status. \
@@ -305,12 +307,11 @@ impl SessionManager {
              - Trust push-based completion notifications\n             - Do not call session query tools to check child agent status\n             - Execute the task directly; do not ask for confirmation \
                or suggest next steps — the parent agent handles that"
         );
-        if depth < max_spawn_depth {
-            let upper = max_spawn_depth - depth;
+        if remaining_depth > 0 {
             ctx.push_str(&format!(
                 "\n\
              - You may spawn child agents for sub-tasks. \
-               Your effective maximum depth for children is {upper}."
+               Your effective maximum depth for children is {remaining_depth}."
             ));
         }
         ctx.push('\n');

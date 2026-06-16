@@ -132,11 +132,17 @@ pub async fn register_builtin_tools(
         .await
         .ok();
     registry
-        .register(SessionsSteerTool::new(context.session_manager.clone()))
+        .register(SessionsSteerTool::new(
+            context.session_manager.clone(),
+            context.permission_engine.clone(),
+        ))
         .await
         .ok();
     registry
-        .register(SessionsKillTool::new(context.session_manager.clone()))
+        .register(SessionsKillTool::new(
+            context.session_manager.clone(),
+            context.permission_engine.clone(),
+        ))
         .await
         .ok();
 }

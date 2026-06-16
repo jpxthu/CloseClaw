@@ -150,16 +150,16 @@ async fn test_validate_passes() {
     assert_eq!(result.config.id, "child");
     assert_eq!(result.config.source, ConfigSource::User);
     // parent.max_spawn_depth=2, child.max_spawn_depth=1 (default)
-    // effective_max = min(1, 2-1) = 1
-    assert_eq!(result.effective_max_spawn_depth, 1);
+    // effective_remaining = min(1, 2-1) = 1
+    assert_eq!(result.effective_remaining_depth, 1);
 }
 
 // ---------------------------------------------------------------------------
-// 2. test_validate_depth_exceeded
+// 2. test_validate_depth_exhausted
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_validate_depth_exceeded() {
+async fn test_validate_depth_exhausted() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(cm.clone(), sm.clone());
@@ -171,20 +171,19 @@ async fn test_validate_depth_exceeded() {
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
-    // Parent at depth 0 → child_depth=1 > 0 → DepthExceeded.
+    // Parent at depth 0 → effective_remaining=0 → DepthExhausted.
     let parent_id = setup_parent_session(&sm, "parent").await;
 
     let err = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("validate should reject when child_depth > effective_max");
+        .expect_err("validate should reject when effective_remaining == 0");
 
     match err {
-        SpawnError::DepthExceeded { current, max } => {
-            assert_eq!(current, 1);
-            assert_eq!(max, 0);
+        SpawnError::DepthExhausted { remaining } => {
+            assert_eq!(remaining, 0);
         }
-        other => panic!("expected DepthExceeded, got {:?}", other),
+        other => panic!("expected DepthExhausted, got {:?}", other),
     }
 }
 
@@ -320,8 +319,8 @@ async fn test_validate_wildcard_allow() {
 
     assert_eq!(result.config.id, "any-arbitrary-agent");
     // parent.max_spawn_depth=2, child.max_spawn_depth=1 (default)
-    // effective_max = min(1, 2-1) = 1
-    assert_eq!(result.effective_max_spawn_depth, 1);
+    // effective_remaining = min(1, 2-1) = 1
+    assert_eq!(result.effective_remaining_depth, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -329,8 +328,8 @@ async fn test_validate_wildcard_allow() {
 // ---------------------------------------------------------------------------
 
 /// Parent maxSpawnDepth=1, child maxSpawnDepth=2
-/// → effective_max = min(2, 1-1) = 0
-/// → child_depth=1 > 0 → DepthExceeded.
+/// → effective_remaining = min(2, 1-1) = 0
+/// → child has no spawn capability but is itself valid → OK.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth1_child_depth2() {
     let cm = Arc::new(make_config_manager());
@@ -348,18 +347,13 @@ async fn test_validate_cascade_parent_depth1_child_depth2() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    let err = controller
+    let result = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+        .expect("should pass: child is valid, remaining=0 means no further spawn");
 
-    match err {
-        SpawnError::DepthExceeded { current, max } => {
-            assert_eq!(current, 1);
-            assert_eq!(max, 0);
-        }
-        other => panic!("expected DepthExceeded, got {:?}", other),
-    }
+    assert_eq!(result.config.id, "child");
+    assert_eq!(result.effective_remaining_depth, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -389,10 +383,10 @@ async fn test_validate_cascade_parent_depth2_child_depth2() {
     let result = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect("should pass: effective_max=1, child_depth=1 <= 1");
+        .expect("should pass: effective_remaining=1, child is valid");
 
     assert_eq!(result.config.id, "child");
-    assert_eq!(result.effective_max_spawn_depth, 1);
+    assert_eq!(result.effective_remaining_depth, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -422,10 +416,10 @@ async fn test_validate_cascade_parent_depth3_child_depth1() {
     let result = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect("should pass: effective_max=1, child_depth=1 <= 1");
+        .expect("should pass: effective_remaining=1, child is valid");
 
     assert_eq!(result.config.id, "child");
-    assert_eq!(result.effective_max_spawn_depth, 1);
+    assert_eq!(result.effective_remaining_depth, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -484,14 +478,14 @@ async fn test_validate_cascade_parent_depth5_child_depth1() {
     let result = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect("should pass: effective_max=1, child_depth=1 <= 1");
+        .expect("should pass: effective_remaining=1, child is valid");
 
     assert_eq!(result.config.id, "child");
-    assert_eq!(result.effective_max_spawn_depth, 1);
+    assert_eq!(result.effective_remaining_depth, 1);
 }
 
 /// Parent maxSpawnDepth=5, child maxSpawnDepth=3
-/// → effective_max = min(3, 5-1) = 3
+/// → effective_remaining = min(3, 5-1) = 3
 /// → child_depth=1 <= 3 → OK.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth5_child_depth3() {
@@ -516,12 +510,12 @@ async fn test_validate_cascade_parent_depth5_child_depth3() {
         .expect("should pass: effective_max=3, child_depth=1 <= 3");
 
     assert_eq!(result.config.id, "child");
-    assert_eq!(result.effective_max_spawn_depth, 3);
+    assert_eq!(result.effective_remaining_depth, 3);
 }
 
 /// Parent maxSpawnDepth=0, child maxSpawnDepth=5
-/// → effective_max = min(5, 0-1) = min(5, 0 via saturating_sub) = 0
-/// → child_depth=1 > 0 → DepthExceeded.
+/// → effective_remaining = min(5, 0-1) = min(5, 0 via saturating_sub) = 0
+/// → child has no spawn capability → DepthExhausted.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth0_child_depth5() {
     let cm = Arc::new(make_config_manager());
@@ -542,21 +536,20 @@ async fn test_validate_cascade_parent_depth0_child_depth5() {
     let err = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+        .expect_err("should reject: effective_remaining=0");
 
     match err {
-        SpawnError::DepthExceeded { current, max } => {
-            assert_eq!(current, 1);
-            assert_eq!(max, 0);
+        SpawnError::DepthExhausted { remaining } => {
+            assert_eq!(remaining, 0);
         }
-        other => panic!("expected DepthExceeded, got {:?}", other),
+        other => panic!("expected DepthExhausted, got {:?}", other),
     }
 }
 
 /// Target agent not configured (default max_spawn_depth=1)
 /// with parent max_spawn_depth=1
-/// → effective_max = min(1, 1-1) = 0
-/// → child_depth=1 > 0 → DepthExceeded.
+/// → effective_remaining = min(1, 1-0-1) = 0
+/// → child is valid but has no spawn capability → OK.
 /// Verifies that unconfigured targets use the default max_spawn_depth=1.
 #[tokio::test]
 async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
@@ -573,16 +566,11 @@ async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    let err = controller
+    let result = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+        .expect("should pass: child is valid, remaining=0 means no further spawn");
 
-    match err {
-        SpawnError::DepthExceeded { current, max } => {
-            assert_eq!(current, 1);
-            assert_eq!(max, 0);
-        }
-        other => panic!("expected DepthExceeded, got {:?}", other),
-    }
+    assert_eq!(result.config.id, "child");
+    assert_eq!(result.effective_remaining_depth, 0);
 }
