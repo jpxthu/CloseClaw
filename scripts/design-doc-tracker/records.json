@@ -1,5 +1,12 @@
 [
   {
+    "path": "docs/design/agent/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-06-16T13:30:33.818868+08:00",
+    "comment": "blocked: agent-registry.md 描述完整生命周期管理层（register/spawn/kill/remove/send_message）与 README.md 'Agent 是纯配置档案、不持有生命周期' 直接矛盾；configs/agents.json 文件格式与代码解析格式不匹配"
+  },
+  {
     "path": "docs/design/agent/agent-config.md",
     "commit": "bee5890a8780b03eabdb2661c28c4a4277c24025",
     "commit_time": "2026-06-16T01:53:21+08:00",

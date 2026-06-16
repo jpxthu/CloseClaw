@@ -967,7 +967,7 @@ fn test_non_spawn_session_no_communication_config() {
 /// Verify `CommunicationConfig::default_with_parent` with a valid parent id.
 #[test]
 fn test_communication_config_default_with_parent() {
-    use crate::agent::communication::CommunicationConfig;
+    use crate::gateway::session_manager::communication::CommunicationConfig;
 
     let config = CommunicationConfig::default_with_parent(Some("agent-abc"));
     assert_eq!(config.outbound, vec!["agent-abc".to_string()]);
@@ -977,7 +977,7 @@ fn test_communication_config_default_with_parent() {
 /// Verify `CommunicationConfig::default_with_parent` with None parent.
 #[test]
 fn test_communication_config_default_with_parent_none() {
-    use crate::agent::communication::CommunicationConfig;
+    use crate::gateway::session_manager::communication::CommunicationConfig;
 
     let config = CommunicationConfig::default_with_parent(None);
     assert!(config.outbound.is_empty());
@@ -987,7 +987,7 @@ fn test_communication_config_default_with_parent_none() {
 /// Verify `can_send_to` / `can_receive_from` respect the whitelist.
 #[test]
 fn test_communication_config_permission_checks() {
-    use crate::agent::communication::CommunicationConfig;
+    use crate::gateway::session_manager::communication::CommunicationConfig;
 
     let config = CommunicationConfig::default_with_parent(Some("parent-1"));
     assert!(config.can_send_to("parent-1"));
