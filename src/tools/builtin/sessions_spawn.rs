@@ -1,6 +1,6 @@
 //! Built-in sessions_spawn tool — creates child sessions for sub-agents.
 
-use crate::agent::prompt_template::PromptTemplate;
+use super::prompt_template::PromptTemplate;
 use crate::agent::registry::AgentRegistry;
 use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
@@ -316,7 +316,7 @@ impl Tool for SessionsSpawnTool {
         let parent_subagents_model = match &parent_agent_id {
             Some(id) => self
                 .agent_registry
-                .get_config(id)
+                .get(id)
                 .await
                 .and_then(|c| c.subagents.model.clone()),
             None => None,

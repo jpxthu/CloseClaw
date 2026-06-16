@@ -10,6 +10,7 @@ pub mod coding_agent;
 pub mod file_ops;
 pub mod git_ops;
 pub mod permission;
+pub mod prompt_template;
 pub mod search;
 pub mod sessions_kill;
 pub mod sessions_spawn;

@@ -6,11 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-pub use crate::agent::communication::{
+pub use crate::gateway::session_manager::communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig,
 };
-// Note: CommunicationConfig is re-exported for backward compatibility but the
-// field is removed from AgentConfig (Step 1.4 - not in design doc).
 use crate::session::bootstrap::BootstrapMode;
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
