@@ -241,13 +241,20 @@ mod tests {
         assert_eq!(sm.get_session_depth(child_id).await, Some(1));
 
         // Verify the child session has the skill body as its pending task
+        // (spawn context is prepended by create_child_session)
         let cs = sm
             .get_conversation_session(child_id)
             .await
             .expect("child conversation session should exist");
         let pending = cs.read().await.get_pending_messages();
         assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].content, "# Fork Skill\n\nDo the fork thing.");
+        assert!(
+            pending[0]
+                .content
+                .ends_with("# Fork Skill\n\nDo the fork thing."),
+            "pending message should end with skill body, got: {}",
+            pending[0].content
+        );
     }
 
     #[tokio::test]
