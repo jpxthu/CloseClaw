@@ -6,7 +6,6 @@ pub mod process;
 pub mod prompt_template;
 pub mod registry;
 pub mod spawn;
-pub mod state;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
