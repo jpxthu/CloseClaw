@@ -1,0 +1,40 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-thinking",
+  "model": "mimo-v2.5",
+  "expect": "reasoning",
+  "request": {
+    "model": "mimo-v2.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "7ce84517791a42a2a49de20be5e54e86",
+    "type": "message",
+    "role": "assistant",
+    "model": "mimo-v2.5",
+    "stop_reason": "end_turn",
+    "content": [
+      {
+        "type": "text",
+        "text": "Of course! Let's calculate \\( 17 \\times 23 \\) step by step.\n\n### **Method 1: Using the distributive property**\n\nWe can break down one of the numbers to make the multiplication easier:\n\n1.  Split 23 into \\( 20 + 3 \\):\n    \\[\n    17 \\times 23 = 17 \\times (20 + 3)\n    \\]\n\n2.  Multiply 17 by each part separately:\n    \\[\n    17 \\times 20 = 340\n    \\]\n    \\[\n    17 \\times 3 = 51\n    \\]\n\n3.  Add the two results together:\n    \\[\n    340 + 51 = 391\n    \\]\n\n### **Method 2: Using long multiplication**\n\nWe can also multiply the numbers directly:\n\n```\n    1 7\n  × 2 3\n  -----\n    5 1  (17 × 3)\n  3 4 0  (17 × 20, remembering the 0 for the tens place)\n  -----\n  3 9 1  (Add the partial products)\n```\n\nBoth methods give the same result.\n\n**Answer:**\n\\[\n17 \\times 23 = 391\n\\]"
+      },
+      {
+        "type": "thinking",
+        "thinking": "Okay, the user asked for the product of 17 and 23 with step-by-step work. Let me break down how to solve this multiplication problem.\n\nFirst, I can use the distributive property to make it easier. 23 can be split into 20 and 3. So multiply 17 by each part separately. 17 times 20 is 340, and 17 times 3 is 51. Then add those results together: 340 plus 51 equals 391.\n\nAlternatively, I could do long multiplication. Write 17 on top and 23 below. Multiply 7 by 3 to get 21, write 1 and carry over 2. Then 1 times 3 plus the carried 2 is 5. Next, multiply by the tens digit: 7 times 2 is 14, write 4 and carry 1. Then 1 times 2 plus 1 is 3. Adding both partial products gives 391 again.\n\nBoth methods confirm the answer is 391. Let me present the steps clearly.",
+        "signature": ""
+      }
+    ],
+    "usage": {
+      "input_tokens": 71,
+      "output_tokens": 536,
+      "cache_read_input_tokens": 192
+    }
+  },
+  "max_tokens_sent": 2048
+}

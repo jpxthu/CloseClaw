@@ -14,18 +14,17 @@
     ]
   },
   "response": {
-    "id": "064ae3509d678bbd6048e1acee877eb5",
+    "id": "067f77ab890a6c092d45a6dbe17abdc8",
     "choices": [
       {
         "finish_reason": "tool_calls",
         "index": 0,
         "message": {
-          "content": "<think>\nThe user is asking about the weather in San Francisco. I should use the get_weather function to retrieve the current weather information for San Francisco.\n</think>\n\n\n",
+          "content": "<think>The user is asking about the weather in San Francisco. I should use the get_weather function to get the current weather information for San Francisco.\n</think>\n\n",
           "role": "assistant",
-          "name": "MiniMax AI",
           "tool_calls": [
             {
-              "id": "call_function_bgvg1ndx09ty_1",
+              "id": "call_40c63efbad4a40cea2bd2d6d",
               "type": "function",
               "function": {
                 "name": "get_weather",
@@ -33,21 +32,20 @@
               },
               "index": 0
             }
-          ],
-          "audio_content": ""
+          ]
         }
       }
     ],
-    "created": 1778102352,
+    "created": 1781548204,
     "model": "MiniMax-M2.7",
     "object": "chat.completion",
     "usage": {
-      "total_tokens": 270,
+      "total_tokens": 276,
       "total_characters": 0,
-      "prompt_tokens": 212,
-      "completion_tokens": 58,
-      "completion_tokens_details": {
-        "reasoning_tokens": 33
+      "prompt_tokens": 219,
+      "completion_tokens": 57,
+      "prompt_tokens_details": {
+        "cached_tokens": 192
       }
     },
     "input_sensitive": false,

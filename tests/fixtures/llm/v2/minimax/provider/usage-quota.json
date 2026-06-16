@@ -1,0 +1,18 @@
+{
+  "protocol": "n/a",
+  "streaming": false,
+  "scenario": "usage-quota",
+  "model": "provider",
+  "provider": "minimax",
+  "expect": "usage-quota",
+  "request": {
+    "method": "GET",
+    "url": "https://www.minimax.io/v1/token_plan/remains"
+  },
+  "response": {
+    "base_resp": {
+      "status_code": 2049,
+      "status_msg": "invalid api key"
+    }
+  }
+}

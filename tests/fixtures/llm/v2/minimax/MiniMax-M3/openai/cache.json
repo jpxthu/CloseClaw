@@ -1,0 +1,317 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "MiniMax-M3",
+  "expect": "cache_incremental",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        }
+      ],
+      "response": {
+        "id": "067f733b86bc21624478d31730b18221",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking me to explain HTTP/2 multiplexing, how it works, and what performance improvements it has over HTTP/1.1, with a specific example. This is a technical question about web protocols. Let me think through this carefully and provide a comprehensive answer.\n\n## HTTP/1.1 Background and Problems\n\nIn HTTP/1.1, each TCP connection can only handle one request-response cycle at a time (or with pipelining, but that has head-of-line blocking issues). To load multiple resources (like CSS, JS, images on a webpage), browsers had to:\n\n1. **Open multiple TCP connections** (typically 6 per domain in browsers) - each connection has TCP handshake overhead, TLS handshake, slow start, etc.\n2. **Use domain sharding** - distribute resources across different domains to get more connections\n3. **Use resource concatenation** - combine CSS files, JS files into one\n4. **Use sprites/images** - combine multiple small images into one\n5. **Use inlining** - embed resources in HTML\n\nThese were all workarounds for HTTP/1.1's limitations.\n\n## HTTP/2 Key Features\n\nHTTP/2 (RFC 7540, released 2015) introduced several major improvements:\n\n### 1. Binary Framing Layer\n- HTTP/1.1 uses text-based protocol\n- HTTP/2 uses binary framing - more efficient to parse, more compact\n\n### 2. Multiplex</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781547067,
+        "model": "MiniMax-M3",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 713,
+          "total_characters": 0,
+          "prompt_tokens": 413,
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 128
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "service_tier": "standard",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain HTTP/2 multiplexing, how it works, and what performance improvements it has over HTTP/1.1, with a specific example. This is a technical question about web protocols. Let me think through this carefully and provide a comprehensive answer.\n\n## HTTP/1.1 Background and Problems\n\nIn HTTP/1.1, each TCP connection can only handle one request-response cycle at a time (or with pipelining, but that has head-of-line blocking issues). To load multiple resources (like CSS, JS, images on a webpage), browsers had to:\n\n1. **Open multiple TCP connections** (typically 6 per domain in browsers) - each connection has TCP handshake overhead, TLS handshake, slow start, etc.\n2. **Use domain sharding** - distribute resources across different domains to get more connections\n3. **Use resource concatenation** - combine CSS files, JS files into one\n4. **Use sprites/images** - combine multiple small images into one\n5. **Use inlining** - embed resources in HTML\n\nThese were all workarounds for HTTP/1.1's limitations.\n\n## HTTP/2 Key Features\n\nHTTP/2 (RFC 7540, released 2015) introduced several major improvements:\n\n### 1. Binary Framing Layer\n- HTTP/1.1 uses text-based protocol\n- HTTP/2 uses binary framing - more efficient to parse, more compact\n\n### 2. Multiplex</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        }
+      ],
+      "response": {
+        "id": "067f73410f4c8caf249f8bf52626cc4c",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking me to explain the Raft consensus algorithm in detail, including leader election and log replication processes. This is a fundamental distributed systems concept. Let me provide a thorough, well-structured explanation.\n\n## Raft Overview\n\nRaft is a consensus algorithm designed by Diego Ongaro and John Ousterhout to be understandable. It's an alternative to Paxos that provides the same guarantees but is decomposed into relatively independent subproblems.\n\n### Three States of a Server\n- Follower\n- Candidate\n- Leader\n\n### Time Division\nRaft divides time into terms (terms are monotonically increasing integers).\n\n### Key Sub-problems\n1. Leader Election\n2. Log Replication\n3. Safety\n\nLet me think through each carefully.\n\n## Leader Election\n\n### Trigger\n- Followers have election timeout (randomized, typically 150-300ms)\n- If follower doesn't hear from leader within timeout, it becomes candidate\n- Candidate increments term, votes for itself, sends RequestVote RPC to all other servers\n\n### Voting\n- Each server votes at most once per term (first-come-first-served)\n- Vote granted if:\n  - Candidate's log is at least as up-to-date as voter's (up-to-date check based on last log term and length)\n  - Voter hasn't voted for someone else this term\n- Majority votes needed to win\n\n### Possible Outcomes\n1. Candidate wins (gets majority) → becomes Leader, sends heartbeats\n2. Another</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781547073,
+        "model": "MiniMax-M3",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 1040,
+          "total_characters": 0,
+          "prompt_tokens": 740,
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 640
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "service_tier": "standard",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain HTTP/2 multiplexing, how it works, and what performance improvements it has over HTTP/1.1, with a specific example. This is a technical question about web protocols. Let me think through this carefully and provide a comprehensive answer.\n\n## HTTP/1.1 Background and Problems\n\nIn HTTP/1.1, each TCP connection can only handle one request-response cycle at a time (or with pipelining, but that has head-of-line blocking issues). To load multiple resources (like CSS, JS, images on a webpage), browsers had to:\n\n1. **Open multiple TCP connections** (typically 6 per domain in browsers) - each connection has TCP handshake overhead, TLS handshake, slow start, etc.\n2. **Use domain sharding** - distribute resources across different domains to get more connections\n3. **Use resource concatenation** - combine CSS files, JS files into one\n4. **Use sprites/images** - combine multiple small images into one\n5. **Use inlining** - embed resources in HTML\n\nThese were all workarounds for HTTP/1.1's limitations.\n\n## HTTP/2 Key Features\n\nHTTP/2 (RFC 7540, released 2015) introduced several major improvements:\n\n### 1. Binary Framing Layer\n- HTTP/1.1 uses text-based protocol\n- HTTP/2 uses binary framing - more efficient to parse, more compact\n\n### 2. Multiplex</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "详细解释 RAFT 共识算法，包括领导者选举和日志复制的过程。"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain the Raft consensus algorithm in detail, including leader election and log replication processes. This is a fundamental distributed systems concept. Let me provide a thorough, well-structured explanation.\n\n## Raft Overview\n\nRaft is a consensus algorithm designed by Diego Ongaro and John Ousterhout to be understandable. It's an alternative to Paxos that provides the same guarantees but is decomposed into relatively independent subproblems.\n\n### Three States of a Server\n- Follower\n- Candidate\n- Leader\n\n### Time Division\nRaft divides time into terms (terms are monotonically increasing integers).\n\n### Key Sub-problems\n1. Leader Election\n2. Log Replication\n3. Safety\n\nLet me think through each carefully.\n\n## Leader Election\n\n### Trigger\n- Followers have election timeout (randomized, typically 150-300ms)\n- If follower doesn't hear from leader within timeout, it becomes candidate\n- Candidate increments term, votes for itself, sends RequestVote RPC to all other servers\n\n### Voting\n- Each server votes at most once per term (first-come-first-served)\n- Vote granted if:\n  - Candidate's log is at least as up-to-date as voter's (up-to-date check based on last log term and length)\n  - Voter hasn't voted for someone else this term\n- Majority votes needed to win\n\n### Possible Outcomes\n1. Candidate wins (gets majority) → becomes Leader, sends heartbeats\n2. Another</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "描述 TLS 1.3 握手流程，并与 TLS 1.2 对比，说明安全性和性能上的改进。"
+        }
+      ],
+      "response": {
+        "id": "067f734849ccc6b7b52432706aa28730",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking me to describe the TLS 1.3 handshake flow and compare it with TLS 1.2, explaining security and performance improvements. This is a great technical topic. Let me think through this comprehensively.\n\n## TLS 1.3 Background\n- RFC 8446 published in August 2018\n- Major redesign focused on reducing handshake latency and removing obsolete cryptographic features\n\n## TLS 1.2 Handshake (Baseline)\n\nTLS 1.2 with RSA key exchange typically requires 2 round trips:\n1. Client → Server: ClientHello (with random, cipher suites, etc.)\n2. Server → Client: ServerHello, Certificate, ServerKeyExchange, ServerHelloDone\n3. Client → Server: ClientKeyExchange, ChangeCipherSpec, Finished\n4. Server → Client: ChangeCipherSpec, Finished\n\nWith TLS 1.2 and ECDHE, similar but uses ephemeral keys.\n\n## TLS 1.3 Handshake\n\n### 1-RTT Handshake (basic)\n1. Client → Server: ClientHello (with key share, supported groups, signature algorithms)\n2. Server → Client: ServerHello (with key share), EncryptedExtensions, Certificate, CertificateVerify, Finished\n3. Client → Server: Finished\n\nThis is only 1-RTT compared to TLS 1.2's 2-RTT.\n\n### 0-RTT Handshake (with PSK)\n- Client can send encrypted application data in the first flight</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781547080,
+        "model": "MiniMax-M3",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 1375,
+          "total_characters": 0,
+          "prompt_tokens": 1075,
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 1024
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "service_tier": "standard",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain HTTP/2 multiplexing, how it works, and what performance improvements it has over HTTP/1.1, with a specific example. This is a technical question about web protocols. Let me think through this carefully and provide a comprehensive answer.\n\n## HTTP/1.1 Background and Problems\n\nIn HTTP/1.1, each TCP connection can only handle one request-response cycle at a time (or with pipelining, but that has head-of-line blocking issues). To load multiple resources (like CSS, JS, images on a webpage), browsers had to:\n\n1. **Open multiple TCP connections** (typically 6 per domain in browsers) - each connection has TCP handshake overhead, TLS handshake, slow start, etc.\n2. **Use domain sharding** - distribute resources across different domains to get more connections\n3. **Use resource concatenation** - combine CSS files, JS files into one\n4. **Use sprites/images** - combine multiple small images into one\n5. **Use inlining** - embed resources in HTML\n\nThese were all workarounds for HTTP/1.1's limitations.\n\n## HTTP/2 Key Features\n\nHTTP/2 (RFC 7540, released 2015) introduced several major improvements:\n\n### 1. Binary Framing Layer\n- HTTP/1.1 uses text-based protocol\n- HTTP/2 uses binary framing - more efficient to parse, more compact\n\n### 2. Multiplex</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        }
+      ],
+      "response": {
+        "id": "067f734ec272ac4c9653e7c8eb6e9a20",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user is asking about Linux memory management, specifically:\n1. Slab allocator\n2. Buddy system\n3. Page fault handling process\n\nThis is a deep technical question about OS internals. Let me organize my thoughts comprehensively.\n\n## Buddy System\n\nThe buddy system is a memory allocation algorithm that manages physical memory in power-of-2 sized blocks (pages). It's the foundation of the Linux page allocator.\n\n### How it works:\n- Physical memory is divided into zones (DMA, DMA32, Normal, HighMem on 32-bit; DMA, DMA32, Normal on 64-bit)\n- Each zone has free_area structures with 11 lists (for orders 0-10)\n  - Order 0 = 1 page (4KB)\n  - Order 1 = 2 pages (8KB)\n  - Order 2 = 4 pages (16KB)\n  - ...\n  - Order 10 = 1024 pages (4MB)\n- Each list contains free blocks of that specific order\n- \"Buddy\" relationship: two blocks of size 2^k are buddies if they are adjacent in memory and were formed by splitting a 2^(k+1) block\n\n### Allocation:\n1. To allocate 2^k pages, look at the k-th free list\n2. If empty, look at higher order (k+1), take a block, split into two buddies, put one in list, return the other\n3. Continue recursively until</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781547087,
+        "model": "MiniMax-M3",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 1042,
+          "total_characters": 0,
+          "prompt_tokens": 742,
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 640
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "service_tier": "standard",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+        },
+        {
+          "role": "user",
+          "content": "解释 HTTP/2 多路复用的工作原理，以及它相比 HTTP/1.1 在性能上有哪些改进。举一个具体例子。"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking me to explain HTTP/2 multiplexing, how it works, and what performance improvements it has over HTTP/1.1, with a specific example. This is a technical question about web protocols. Let me think through this carefully and provide a comprehensive answer.\n\n## HTTP/1.1 Background and Problems\n\nIn HTTP/1.1, each TCP connection can only handle one request-response cycle at a time (or with pipelining, but that has head-of-line blocking issues). To load multiple resources (like CSS, JS, images on a webpage), browsers had to:\n\n1. **Open multiple TCP connections** (typically 6 per domain in browsers) - each connection has TCP handshake overhead, TLS handshake, slow start, etc.\n2. **Use domain sharding** - distribute resources across different domains to get more connections\n3. **Use resource concatenation** - combine CSS files, JS files into one\n4. **Use sprites/images** - combine multiple small images into one\n5. **Use inlining** - embed resources in HTML\n\nThese were all workarounds for HTTP/1.1's limitations.\n\n## HTTP/2 Key Features\n\nHTTP/2 (RFC 7540, released 2015) introduced several major improvements:\n\n### 1. Binary Framing Layer\n- HTTP/1.1 uses text-based protocol\n- HTTP/2 uses binary framing - more efficient to parse, more compact\n\n### 2. Multiplex</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "解释 Linux 内存的 slab 分配器和 buddy 系统，以及缺页中断的处理流程。"
+        },
+        {
+          "role": "assistant",
+          "content": "<think>The user is asking about Linux memory management, specifically:\n1. Slab allocator\n2. Buddy system\n3. Page fault handling process\n\nThis is a deep technical question about OS internals. Let me organize my thoughts comprehensively.\n\n## Buddy System\n\nThe buddy system is a memory allocation algorithm that manages physical memory in power-of-2 sized blocks (pages). It's the foundation of the Linux page allocator.\n\n### How it works:\n- Physical memory is divided into zones (DMA, DMA32, Normal, HighMem on 32-bit; DMA, DMA32, Normal on 64-bit)\n- Each zone has free_area structures with 11 lists (for orders 0-10)\n  - Order 0 = 1 page (4KB)\n  - Order 1 = 2 pages (8KB)\n  - Order 2 = 4 pages (16KB)\n  - ...\n  - Order 10 = 1024 pages (4MB)\n- Each list contains free blocks of that specific order\n- \"Buddy\" relationship: two blocks of size 2^k are buddies if they are adjacent in memory and were formed by splitting a 2^(k+1) block\n\n### Allocation:\n1. To allocate 2^k pages, look at the k-th free list\n2. If empty, look at higher order (k+1), take a block, split into two buddies, put one in list, return the other\n3. Continue recursively until</think>\n\n"
+        },
+        {
+          "role": "user",
+          "content": "对比 B+ 树和 LSM 树在数据库索引中的优缺点，各自适合什么场景？"
+        }
+      ],
+      "response": {
+        "id": "067f7355bbf40a5c9c694c5afed7b093",
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "<think>The user wants a comparison of B+ tree and LSM tree in database indexing, including their pros/cons and ideal use cases. This is a classic database systems topic. Let me organize this comprehensively.\n\n## B+ Tree\n\nB+ tree is the traditional index structure used in most RDBMS (MySQL InnoDB, PostgreSQL, Oracle, SQL Server).\n\n### Structure:\n- Balanced tree where all data is stored in leaf nodes\n- Internal nodes only contain keys for navigation\n- Leaf nodes are linked together (usually as a doubly-linked list) for range scan support\n- Each node is typically one page/block in size\n- Tree height is kept balanced through splits and merges\n\n### Operations:\n- Read: O(log n) - tree traversal\n- Write: O(log n) - need to find leaf, modify, possibly split\n- Range scan: efficient due to linked leaves\n\n### Advantages:\n1. **Excellent read performance** - predictable O(log n) point queries\n2. **Strong consistency** - writes are immediately visible (in same transaction), supports ACID well\n3. **Mature ecosystem** - well understood, lots of tooling, MVCC implementations\n4. **Range queries are efficient** - leaf node linked list enables sequential scan\n5. **Transaction support** - well integrated with WAL, two-phase commit, etc.\n6. **Cache friendly** - internal nodes fit in memory, tree often becomes cache-resident\n7. **Stable performance** - no</think>\n\n",
+              "role": "assistant"
+            }
+          }
+        ],
+        "created": 1781547093,
+        "model": "MiniMax-M3",
+        "object": "chat.completion",
+        "usage": {
+          "total_tokens": 1373,
+          "total_characters": 0,
+          "prompt_tokens": 1073,
+          "completion_tokens": 300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 299
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 1024
+          }
+        },
+        "input_sensitive": false,
+        "output_sensitive": false,
+        "input_sensitive_type": 0,
+        "output_sensitive_type": 0,
+        "output_sensitive_int": 0,
+        "service_tier": "standard",
+        "base_resp": {
+          "status_code": 0,
+          "status_msg": ""
+        }
+      }
+    }
+  ]
+}

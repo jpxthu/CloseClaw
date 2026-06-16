@@ -1,0 +1,239 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-context-pressure",
+  "model": "mimo-v2.5",
+  "expect": "context_pressure",
+  "turns": [
+    {
+      "turn": 1,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        }
+      ],
+      "response": {
+        "id": "75802460b39a4d43a2fa64b28bdd0d22",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user asks: \"What is 2+2? Answer in one sentence.\" This is a trivial math question. The system prompt says I am an expert software engineer and coding assistant. I should answer concisely, as per user request: one sentence. So I can say: \"2+2 equals 4.\" That's one sentence. Provide a brief explanation? The user said answer in one sentence, so just that. However, the system prompt says I am a coding assistant",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 240,
+          "output_tokens": 100
+        }
+      }
+    },
+    {
+      "turn": 2,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        }
+      ],
+      "response": {
+        "id": "79cb63f218804d078c162f4b5b1a7753",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Hmm, the user asked two very different things—a simple arithmetic question and a deep mathematical concept. Since they already got the quick answer to 2+2, I should focus on the Riemann hypothesis now.  \n\nThe user seems curious but maybe not deeply familiar with advanced math, so I’ll need to balance clarity and depth. I’ll start with a concise definition, then outline why it matters for primes, and finally mention broader implications to show its significance.  \n\nI should avoid overly technical",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 73,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 192
+        }
+      }
+    },
+    {
+      "turn": 3,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        }
+      ],
+      "response": {
+        "id": "c03527fdd4b54158b62f55f8f1b553f8",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Okay, the user asked for a comparison between TCP and UDP protocols, including congestion control and use cases. Let me start by recalling the key differences between these two. TCP is connection-oriented, reliable, and has congestion control, while UDP is connectionless, faster, but unreliable.\n\nI need to structure the answer clearly. Maybe start with an overview table for quick reference, then explain each point in detail. Should include how each handles reliability, ordering, congestion control, and where they’re used.",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 34,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 4,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        }
+      ],
+      "response": {
+        "id": "81a3c6ce81744c9ca2e912812c7cea44",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user asks about the CAP theorem in distributed systems. I need to explain the theorem clearly and provide concrete examples for each trade-off. \n\nFirst, I recall the three components of CAP: Consistency, Availability, and Partition tolerance. The theorem states that a distributed system can only guarantee two out of three. Partition tolerance is generally considered non-negotiable, so the choice is between CP and AP systems.\n\nI should structure the response by defining each component, explaining the trade-offs, and then",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 59,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 256
+        }
+      }
+    },
+    {
+      "turn": 5,
+      "is_revert": false,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 2+2? Answer in one sentence."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Now explain the Riemann hypothesis and its implications for prime number distribution."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Compare and contrast TCP and UDP protocols, including congestion control and use cases."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Describe the CAP theorem in distributed systems and give examples of each trade-off."
+        },
+        {
+          "role": "assistant",
+          "content": ""
+        },
+        {
+          "role": "user",
+          "content": "Explain how transformer attention mechanisms work, from matrix multiplication to multi-head attention."
+        }
+      ],
+      "response": {
+        "id": "8e837084cc5a4283811006bc2dccbc54",
+        "type": "message",
+        "role": "assistant",
+        "model": "mimo-v2.5",
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking about transformer attention mechanisms, which is a topic in machine learning and deep learning. They want me to explain the process from matrix multiplication to multi-head attention. \n\nThis is a complex topic, so I need to break it down step by step. The key concepts to cover include the query, key, and value matrices, the scaled dot-product attention, and then the multi-head attention mechanism. \n\nI should start by explaining the basic attention mechanism, then move on to how it",
+            "signature": ""
+          }
+        ],
+        "usage": {
+          "input_tokens": 85,
+          "output_tokens": 100,
+          "cache_read_input_tokens": 256
+        }
+      }
+    }
+  ],
+  "system_sent": [
+    {
+      "type": "text",
+      "text": "You are an expert software engineer and coding assistant with deep knowledge of multiple programming languages, software architecture, and best practices. Your role is to help users write, review, and debug code across various languages including but not limited to Rust, Python, TypeScript, Go, and Java. You follow industry-standard coding conventions, emphasize readability and maintainability, and always consider edge cases and error handling. When suggesting code changes, you provide clear explanations of why the change is necessary and how it improves the existing codebase. You are familiar with modern development tools, CI/CD pipelines, testing frameworks, and deployment strategies. You understand the importance of security, performance, and scalability in software design. When faced with ambiguous requirements, you ask clarifying questions before proceeding with implementation. You prefer simple, elegant solutions over clever but hard-to-understand code. You document your reasoning and decisions clearly. You are patient with learners and thorough in your explanations, breaking down complex concepts into digestible parts. You stay current with the latest developments in the software engineering field and can discuss trade-offs between different approaches."
+    }
+  ]
+}

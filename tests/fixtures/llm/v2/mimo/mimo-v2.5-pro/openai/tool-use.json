@@ -1,0 +1,75 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-use",
+  "model": "mimo-v2.5-pro",
+  "expect": "tool_calls",
+  "request": {
+    "model": "mimo-v2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "id": "bc46bd52cad74320b7fba899b2d12392",
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "call_5850d8fee82b4ca3940e9a2f",
+              "function": {
+                "arguments": "{\"location\": \"San Francisco\"}",
+                "name": "get_weather"
+              },
+              "type": "function"
+            }
+          ],
+          "reasoning_content": "The user wants to know the current weather in San Francisco. I should use the get_weather function with \"San Francisco\" as the location parameter."
+        }
+      }
+    ],
+    "created": 1781547154,
+    "model": "mimo-v2.5-pro",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 53,
+      "prompt_tokens": 508,
+      "total_tokens": 561,
+      "completion_tokens_details": {
+        "reasoning_tokens": 29
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 448
+      }
+    }
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": [
+            "location"
+          ]
+        }
+      }
+    }
+  ]
+}
