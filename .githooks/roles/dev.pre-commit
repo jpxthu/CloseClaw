@@ -1,0 +1,14 @@
+#!/bin/bash
+# dev role: 禁止改动 docs/design/ 和 CONTRIBUTING.md
+# 这些文件由项目维护者管控，开发者如需修改请联系维护者或提 issue 讨论
+
+protected=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^(docs/design/|CONTRIBUTING\.md$)' || true)
+if [ -n "$protected" ]; then
+    echo ""
+    echo "ERROR: dev 角色不允许修改以下受保护文件："
+    echo "$protected"
+    echo ""
+    echo "docs/design/ 和 CONTRIBUTING.md 由项目维护者管控。"
+    echo "如需修改，请联系维护者或提 issue 讨论。"
+    exit 1
+fi
