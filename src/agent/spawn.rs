@@ -6,6 +6,17 @@ use crate::gateway::SessionManager;
 use std::sync::Arc;
 use thiserror::Error;
 
+/// Result of a successful spawn validation, containing the resolved
+/// target config and the effective max spawn depth for the child.
+#[derive(Debug, Clone)]
+pub struct SpawnValidationResult {
+    /// Resolved configuration of the target agent.
+    pub config: ResolvedAgentConfig,
+    /// Effective max spawn depth the child may use.
+    /// Computed as `min(child.max_spawn_depth, parent.max_spawn_depth - 1)`.
+    pub effective_max_spawn_depth: u32,
+}
+
 /// Errors returned by SpawnController validation.
 #[derive(Debug, Error)]
 pub enum SpawnError {
@@ -37,12 +48,16 @@ impl SpawnController {
         }
     }
 
-    /// Validate a spawn request. Returns the target agent's resolved config on success.
+    /// Validate a spawn request.
+    ///
+    /// Returns a [`SpawnValidationResult`] with the target agent's resolved
+    /// config and the effective max spawn depth for the child, or a
+    /// [`SpawnError`] on failure.
     pub async fn validate(
         &self,
         parent_session_id: &str,
         target_agent_id: Option<&str>,
-    ) -> Result<ResolvedAgentConfig, SpawnError> {
+    ) -> Result<SpawnValidationResult, SpawnError> {
         // 1. Get parent depth
         let parent_depth = self
             .session_manager
@@ -112,12 +127,17 @@ impl SpawnController {
             )
         };
 
-        // 6. Depth check
+        // 6. Depth check — effective max = min(child.max_spawn_depth, parent.max_spawn_depth - 1)
+        let child_max_spawn_depth = target_config
+            .as_ref()
+            .map(|c| c.subagents.max_spawn_depth)
+            .unwrap_or(1);
+        let effective_max = child_max_spawn_depth.min(max_spawn_depth.saturating_sub(1));
         let child_depth = parent_depth + 1;
-        if child_depth > max_spawn_depth {
+        if child_depth > effective_max {
             return Err(SpawnError::DepthExceeded {
                 current: child_depth,
-                max: max_spawn_depth,
+                max: effective_max,
             });
         }
 
@@ -141,7 +161,11 @@ impl SpawnController {
             });
         }
 
-        // 9. Return target config
-        target_config.ok_or(SpawnError::ConfigNotFound(target_id))
+        // 9. Return validation result with effective max spawn depth
+        let config = target_config.ok_or(SpawnError::ConfigNotFound(target_id))?;
+        Ok(SpawnValidationResult {
+            config,
+            effective_max_spawn_depth: effective_max,
+        })
     }
 }

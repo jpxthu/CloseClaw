@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::agent::communication::CommunicationConfig;
 use crate::llm::session_state::{ChildSessionState, LlmState, ToolExecState};
 use crate::llm::stats::RunningStats;
 use crate::llm::streaming::StreamingSink;
@@ -112,6 +113,9 @@ pub struct ConversationSession {
     pub(crate) cancel_token: CancellationToken,
     /// `stop()` idempotency flag. See [`super::session_handles`].
     pub(crate) stopped: Arc<AtomicBool>,
+    /// Communication configuration for spawned child sessions.
+    /// When set, restricts which agents the child may communicate with.
+    communication_config: Option<CommunicationConfig>,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -147,6 +151,7 @@ impl ConversationSession {
             child_handles: Arc::new(RwLock::new(HashMap::new())),
             cancel_token: CancellationToken::new(),
             stopped: Arc::new(AtomicBool::new(false)),
+            communication_config: None,
         }
     }
 
@@ -188,6 +193,17 @@ impl ConversationSession {
     pub fn with_reasoning_level(mut self, level: ReasoningLevel) -> Self {
         self.reasoning_level = level;
         self
+    }
+
+    /// Sets the communication configuration.
+    pub fn with_communication_config(mut self, config: CommunicationConfig) -> Self {
+        self.communication_config = Some(config);
+        self
+    }
+
+    /// Returns the communication configuration, if set.
+    pub fn communication_config(&self) -> Option<&CommunicationConfig> {
+        self.communication_config.as_ref()
     }
 
     /// Returns the current reasoning level.
@@ -426,6 +442,7 @@ impl std::fmt::Debug for ConversationSession {
             )
             .field("cancel_token", &"<CancelToken>")
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
+            .field("communication_config", &self.communication_config)
             .finish()
     }
 }
