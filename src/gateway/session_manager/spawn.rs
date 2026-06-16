@@ -6,6 +6,7 @@
 //! table so `SpawnController` can enforce depth and concurrency limits.
 
 use super::SessionManager;
+use crate::agent::communication::CommunicationConfig;
 use crate::config::agents::ResolvedAgentConfig;
 use crate::gateway::Session;
 use crate::llm::session::ChatSession;
@@ -85,6 +86,7 @@ impl SessionManager {
         allowed_tools: Option<Vec<String>>,
         model_override: Option<&str>,
         parent_subagents_model: Option<&str>,
+        max_spawn_depth: u32,
     ) -> Result<String, String> {
         // Apply tool whitelist override: when allowed_tools is provided,
         // replace the config's tools list so the child session only has
@@ -154,6 +156,12 @@ impl SessionManager {
         .await;
         drop(tool_registry_guard);
 
+        // 4a. Append spawn context to the system prompt so the child
+        //     agent knows its role, depth limits, and communication
+        //     behavior.  Non-spawn sessions never reach this path.
+        let spawn_context = Self::build_spawn_context(depth, max_spawn_depth);
+        let prompt = format!("{}\n{}", prompt, spawn_context);
+
         // 5. Create ConversationSession
         // Model priority: explicit model param > parent agent.subagents.model
         // > target agent.model > system default
@@ -197,6 +205,12 @@ impl SessionManager {
         )
         .with_system_prompt(prompt)
         .with_reasoning_level(self.default_reasoning_level);
+
+        // 5b. Generate communication config: child may only
+        //     communicate with its parent agent.
+        let parent_agent_id = self.get_chat_id(parent_session_id).await;
+        let comm_config = CommunicationConfig::default_with_parent(parent_agent_id.as_deref());
+        cs = cs.with_communication_config(comm_config);
 
         // 6a. Fork mode: inject parent session's conversation history
         //     before the task so the child inherits the parent's context.
@@ -267,6 +281,40 @@ impl SessionManager {
 
         // 9. Return child session id
         Ok(child_session_id)
+    }
+
+    /// Build the spawn context paragraph appended to child system prompts.
+    ///
+    /// The paragraph tells the child agent:
+    /// - Its role (sub-agent)
+    /// - Current depth / maximum depth
+    /// - Communication behavior (push-based, no polling)
+    /// - Behavioral constraints (direct execution, no back-and-forth)
+    /// - Spawn guidance when depth allows further spawning
+    pub(crate) fn build_spawn_context(depth: u32, max_spawn_depth: u32) -> String {
+        let mut ctx = format!(
+            "## Spawn Context\n\
+             You are running as a sub-agent. \
+             Current depth: {depth} / Maximum depth: {max_spawn_depth}.\n\
+             **Communication behavior:** Your results are automatically \
+             pushed back to the parent agent when you finish. \
+             Do not poll for status. \
+             If you need to wait for sub-agent results, use the yield \
+             mechanism to end your current turn.\n\
+             **Behavioral constraints:**\n\
+             - Trust push-based completion notifications\n             - Do not call session query tools to check child agent status\n             - Execute the task directly; do not ask for confirmation \
+               or suggest next steps — the parent agent handles that"
+        );
+        if depth < max_spawn_depth {
+            let upper = max_spawn_depth - depth;
+            ctx.push_str(&format!(
+                "\n\
+             - You may spawn child agents for sub-tasks. \
+               Your effective maximum depth for children is {upper}."
+            ));
+        }
+        ctx.push('\n');
+        ctx
     }
 
     /// Resolve the workspace path for a child session.

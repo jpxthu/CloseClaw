@@ -131,14 +131,15 @@ async fn test_validate_passes() {
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(cm.clone(), sm.clone());
 
-    // Parent uses default subagents config (allow_agents=["*"], max_spawn_depth=1,
-    // max_children=5, require_agent_id=false).
-    let parent = make_agent("parent", SubagentsConfig::default());
+    // Parent uses max_spawn_depth=2 so child_depth=1 passes the depth check.
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 2;
+    let parent = make_agent("parent", parent_sub);
     // Target agent exists in the agents map.
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
-    // Parent at depth 0 → child_depth=1, max_spawn_depth=1 → OK.
+    // Parent at depth 0 → child_depth=1, effective_max=min(1,2-1)=1 → OK.
     let parent_id = setup_parent_session(&sm, "parent").await;
 
     let result = controller
@@ -146,8 +147,11 @@ async fn test_validate_passes() {
         .await
         .expect("validate should succeed for a legal request");
 
-    assert_eq!(result.id, "child");
-    assert_eq!(result.source, ConfigSource::User);
+    assert_eq!(result.config.id, "child");
+    assert_eq!(result.config.source, ConfigSource::User);
+    // parent.max_spawn_depth=2, child.max_spawn_depth=1 (default)
+    // effective_max = min(1, 2-1) = 1
+    assert_eq!(result.effective_max_spawn_depth, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +177,7 @@ async fn test_validate_depth_exceeded() {
     let err = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("validate should reject when child_depth > max_spawn_depth");
+        .expect_err("validate should reject when child_depth > effective_max");
 
     match err {
         SpawnError::DepthExceeded { current, max } => {
@@ -195,8 +199,10 @@ async fn test_validate_max_children() {
     let controller = SpawnController::new(cm.clone(), sm.clone());
 
     // max_children=1 with 1 already-registered child → at the limit.
+    // max_spawn_depth=2 so depth check passes before concurrency check.
     let mut sub = SubagentsConfig::default();
     sub.max_children = 1;
+    sub.max_spawn_depth = 2;
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -229,8 +235,10 @@ async fn test_validate_agent_not_allowed() {
     let controller = SpawnController::new(cm.clone(), sm.clone());
 
     // Allowlist only contains "allowed-agent" — target "child" is denied.
+    // max_spawn_depth=2 so depth check passes before whitelist check.
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec!["allowed-agent".to_string()];
+    sub.max_spawn_depth = 2;
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -294,6 +302,7 @@ async fn test_validate_wildcard_allow() {
     // Explicit "*" wildcard in allow_agents — any target should be permitted.
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec!["*".to_string()];
+    sub.max_spawn_depth = 2;
     let parent = make_agent("parent", sub);
     // Pick a non-default, otherwise-unrestricted target id.
     let target = make_agent("any-arbitrary-agent", SubagentsConfig::default());
@@ -309,5 +318,271 @@ async fn test_validate_wildcard_allow() {
         .await
         .expect("validate should succeed when allow_agents contains '*'");
 
-    assert_eq!(result.id, "any-arbitrary-agent");
+    assert_eq!(result.config.id, "any-arbitrary-agent");
+    // parent.max_spawn_depth=2, child.max_spawn_depth=1 (default)
+    // effective_max = min(1, 2-1) = 1
+    assert_eq!(result.effective_max_spawn_depth, 1);
+}
+
+// ---------------------------------------------------------------------------
+// 7. test_validate_cascade_parent_depth1_child_depth2
+// ---------------------------------------------------------------------------
+
+/// Parent maxSpawnDepth=1, child maxSpawnDepth=2
+/// → effective_max = min(2, 1-1) = 0
+/// → child_depth=1 > 0 → DepthExceeded.
+#[tokio::test]
+async fn test_validate_cascade_parent_depth1_child_depth2() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 1;
+    let parent = make_agent("parent", parent_sub);
+
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.max_spawn_depth = 2;
+    let child = make_agent("child", child_sub);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let err = controller
+        .validate(&parent_id, Some("child"))
+        .await
+        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+
+    match err {
+        SpawnError::DepthExceeded { current, max } => {
+            assert_eq!(current, 1);
+            assert_eq!(max, 0);
+        }
+        other => panic!("expected DepthExceeded, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 8. test_validate_cascade_parent_depth2_child_depth2
+// ---------------------------------------------------------------------------
+
+/// Parent maxSpawnDepth=2, child maxSpawnDepth=2
+/// → effective_max = min(2, 2-1) = 1
+/// → child_depth=1 <= 1 → OK.
+#[tokio::test]
+async fn test_validate_cascade_parent_depth2_child_depth2() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 2;
+    let parent = make_agent("parent", parent_sub);
+
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.max_spawn_depth = 2;
+    let child = make_agent("child", child_sub);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let result = controller
+        .validate(&parent_id, Some("child"))
+        .await
+        .expect("should pass: effective_max=1, child_depth=1 <= 1");
+
+    assert_eq!(result.config.id, "child");
+    assert_eq!(result.effective_max_spawn_depth, 1);
+}
+
+// ---------------------------------------------------------------------------
+// 9. test_validate_cascade_parent_depth3_child_depth1
+// ---------------------------------------------------------------------------
+
+/// Parent maxSpawnDepth=3, child maxSpawnDepth=1
+/// → effective_max = min(1, 3-1) = 1
+/// → child_depth=1 <= 1 → OK.
+#[tokio::test]
+async fn test_validate_cascade_parent_depth3_child_depth1() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 3;
+    let parent = make_agent("parent", parent_sub);
+
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.max_spawn_depth = 1;
+    let child = make_agent("child", child_sub);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let result = controller
+        .validate(&parent_id, Some("child"))
+        .await
+        .expect("should pass: effective_max=1, child_depth=1 <= 1");
+
+    assert_eq!(result.config.id, "child");
+    assert_eq!(result.effective_max_spawn_depth, 1);
+}
+
+// ---------------------------------------------------------------------------
+// 10. test_validate_cascade_unknown_target_config_not_found
+// ---------------------------------------------------------------------------
+
+/// Target agent not in agents map → ConfigNotFound (existing behavior preserved).
+#[tokio::test]
+async fn test_validate_cascade_unknown_target_config_not_found() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 2;
+    let parent = make_agent("parent", parent_sub);
+    inject_agents(&cm, vec![("parent", parent)]);
+    // NOTE: "unknown-child" is NOT injected → target_config = None
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let err = controller
+        .validate(&parent_id, Some("unknown-child"))
+        .await
+        .expect_err("should fail with ConfigNotFound for unknown target");
+
+    assert!(
+        matches!(err, SpawnError::ConfigNotFound(_)),
+        "expected ConfigNotFound, got {:?}",
+        err
+    );
+}
+
+// ── Step 1.4: additional cascading depth edge-case tests ─────────────────
+
+/// Parent maxSpawnDepth=5, child maxSpawnDepth=1
+/// → effective_max = min(1, 5-1) = 1
+/// → child_depth=1 <= 1 → OK.
+#[tokio::test]
+async fn test_validate_cascade_parent_depth5_child_depth1() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 5;
+    let parent = make_agent("parent", parent_sub);
+
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.max_spawn_depth = 1;
+    let child = make_agent("child", child_sub);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let result = controller
+        .validate(&parent_id, Some("child"))
+        .await
+        .expect("should pass: effective_max=1, child_depth=1 <= 1");
+
+    assert_eq!(result.config.id, "child");
+    assert_eq!(result.effective_max_spawn_depth, 1);
+}
+
+/// Parent maxSpawnDepth=5, child maxSpawnDepth=3
+/// → effective_max = min(3, 5-1) = 3
+/// → child_depth=1 <= 3 → OK.
+#[tokio::test]
+async fn test_validate_cascade_parent_depth5_child_depth3() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 5;
+    let parent = make_agent("parent", parent_sub);
+
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.max_spawn_depth = 3;
+    let child = make_agent("child", child_sub);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let result = controller
+        .validate(&parent_id, Some("child"))
+        .await
+        .expect("should pass: effective_max=3, child_depth=1 <= 3");
+
+    assert_eq!(result.config.id, "child");
+    assert_eq!(result.effective_max_spawn_depth, 3);
+}
+
+/// Parent maxSpawnDepth=0, child maxSpawnDepth=5
+/// → effective_max = min(5, 0-1) = min(5, 0 via saturating_sub) = 0
+/// → child_depth=1 > 0 → DepthExceeded.
+#[tokio::test]
+async fn test_validate_cascade_parent_depth0_child_depth5() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 0;
+    let parent = make_agent("parent", parent_sub);
+
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.max_spawn_depth = 5;
+    let child = make_agent("child", child_sub);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let err = controller
+        .validate(&parent_id, Some("child"))
+        .await
+        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+
+    match err {
+        SpawnError::DepthExceeded { current, max } => {
+            assert_eq!(current, 1);
+            assert_eq!(max, 0);
+        }
+        other => panic!("expected DepthExceeded, got {:?}", other),
+    }
+}
+
+/// Target agent not configured (default max_spawn_depth=1)
+/// with parent max_spawn_depth=1
+/// → effective_max = min(1, 1-1) = 0
+/// → child_depth=1 > 0 → DepthExceeded.
+/// Verifies that unconfigured targets use the default max_spawn_depth=1.
+#[tokio::test]
+async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    let mut parent_sub = SubagentsConfig::default();
+    parent_sub.max_spawn_depth = 1;
+    let parent = make_agent("parent", parent_sub);
+    // "child" has default max_spawn_depth=1
+    let child = make_agent("child", SubagentsConfig::default());
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let err = controller
+        .validate(&parent_id, Some("child"))
+        .await
+        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+
+    match err {
+        SpawnError::DepthExceeded { current, max } => {
+            assert_eq!(current, 1);
+            assert_eq!(max, 0);
+        }
+        other => panic!("expected DepthExceeded, got {:?}", other),
+    }
 }

@@ -180,6 +180,7 @@ pub(super) async fn spawn_n_run_children(
                 None,
                 None,
                 None,
+                3, // max_spawn_depth
             )
             .await
             .expect("create_child_session should succeed");
