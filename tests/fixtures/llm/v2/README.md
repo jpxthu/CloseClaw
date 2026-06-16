@@ -193,12 +193,18 @@ tests/fixtures/llm/v2/
 
 | 供应商 | 端点 | 返回内容 |
 |--------|------|--------|
-| GLM | `GET /api/monitor/usage/quota/limit` | Coding Plan 套餐等级、多维限额 |
+| GLM | `GET /api/monitor/usage/quota/limit` | Coding Plan 套餐等级（level）、多维限额 |
 | DeepSeek | `GET /user/balance` | 账户余额（赠金 + 充值） |
-| MiniMax | `GET /v1/token_plan/remains` | Token Plan 订阅剩余额度 |
+| MiniMax | `GET /v1/token_plan/remains` | Token Plan 订阅剩余额度（需 Subscription Key） |
 | MiMo | 无 | — |
 
-GLM 的用量数据与模型无关，按 provider 级别采集一次即可。MiMo 无 usage-quota API，fixture 记录为 `{"skipped": true, "reason": "..."}`。
+GLM 返回 `limits[]` 数组，每项含 `type`（`TIME_LIMIT` / `TOKENS_LIMIT`）、`unit` 枚举（3=小时、5=月、6=周）、`number`（具体数值）、`percentage`（已用百分比）、`nextResetTime`。例如 `unit=3, number=5` 表示 5 小时滚动窗口。
+
+DeepSeek 返回 `balance_infos[]`，含 `total_balance`、`granted_balance`（赠金）、`topped_up_balance`（充值）。
+
+MiniMax 需用 Token Plan Subscription Key（`sk-cp-` 前缀），pay-as-you-go key 返回 `invalid api key (2049)`。
+
+各 provider 的用量数据与模型无关，按 provider 级别采集一次。MiMo 无 usage-quota API，fixture 记录为 `{"skipped": true, "reason": "..."}`。
 
 ## 新模型适配流程
 
