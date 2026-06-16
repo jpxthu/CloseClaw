@@ -44,12 +44,18 @@ mode="session"：子 session 保持存活，等待父 agent 后续 steer
 
 ### Depth 追踪
 
-每个 agent 的 `maxSpawnDepth` 控制其自身子孙树的最大层级数（详见 agent-config.md）。spawn 时，子 agent 的实际 spawn 能力取其自身配置与父 agent 剩余能力的较小值：子 agent 实际能力 = min(子 agent.maxSpawnDepth, 父 agent.maxSpawnDepth - 1)。能力 ≤ 0 时禁止该 agent 继续 spawn。
+每个 agent 的 `maxSpawnDepth` 控制其自身子孙树的最大层级数（详见 agent-config.md）。spawn 时，子 agent 的实际 spawn 能力取其自身配置与父 agent 剩余能力的较小值：子 agent 实际能力 = min(子 agent.maxSpawnDepth, 父 agent.maxSpawnDepth - 父 agent 当前 depth - 1)。能力 ≤ 0 时禁止该 agent 继续 spawn。
+
+简化：当父 agent depth 为 0 时，公式简化为 min(子 agent.maxSpawnDepth, 父 agent.maxSpawnDepth - 1)。
 
 ```
-root (maxSpawnDepth=1)
+root (depth=0, maxSpawnDepth=1)
   └── spawn(child, child.maxSpawnDepth=2)
-        └── child 实际能力 = min(2, 1-1) = 0，child 不可再 spawn
+        └── child 实际能力 = min(2, 1-0-1) = 0，child 不可再 spawn
+
+mid (depth=1, maxSpawnDepth=3)
+  └── spawn(child, child.maxSpawnDepth=2)
+        └── child 实际能力 = min(2, 3-1-1) = 1，child 还可再 spawn 一层
 ```
 
 配置 `maxSpawnDepth = 0` 的 agent 完全禁止 spawn 任何子 agent。
