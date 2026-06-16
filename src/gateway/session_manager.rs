@@ -433,6 +433,8 @@ mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;
 #[cfg(test)]
+mod concurrency_count_tests;
+#[cfg(test)]
 mod flush_tests;
 #[cfg(test)]
 mod model_priority_tests;
