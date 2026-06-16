@@ -8,7 +8,7 @@ Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn =
 
 ### 入口：sessions_spawn 工具
 
-`sessions_spawn` 由 Session 模块注册到 ToolRegistry（分组 `session_ops`），参数定义详见 [session-tools.md](../session/session-tools.md)。以下展开 spawn 特有的行为描述。
+`sessions_spawn` 由 Session 模块注册到 ToolRegistry（分组 `sessions`），参数定义详见 [session-tools.md](../session/session-tools.md)。以下展开 spawn 特有的行为描述。
 
 ### Spawn 控制流程
 
