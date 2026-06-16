@@ -177,6 +177,7 @@ impl SessionsSpawnTool {
         allowed_tools: Option<Vec<String>>,
         model: Option<&str>,
         parent_subagents_model: Option<&str>,
+        max_spawn_depth: u32,
     ) -> Result<String, ToolCallError> {
         self.session_manager
             .create_child_session(
@@ -191,6 +192,7 @@ impl SessionsSpawnTool {
                 allowed_tools,
                 model,
                 parent_subagents_model,
+                max_spawn_depth,
             )
             .await
             .map_err(|e| {
@@ -297,13 +299,15 @@ impl Tool for SessionsSpawnTool {
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
             ToolCallError::ExecutionFailed("no session_id in tool context".into())
         })?;
-        let config = self
+        let spawn_result = self
             .spawn_controller
             .validate(parent_session_id, spawn_args.agent_id.as_deref())
             .await
             .map_err(|e| {
                 ToolCallError::ExecutionFailed(format!("spawn validation failed: {}", e))
             })?;
+        let config = spawn_result.config;
+        let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
         self.validate_spawn_permissions(&config, parent_session_id)
             .await?;
         // Look up the parent agent's subagents.model config
@@ -340,6 +344,7 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.allowed_tools,
                 spawn_args.model.as_deref(),
                 parent_subagents_model.as_deref(),
+                effective_max_spawn_depth,
             )
             .await?;
         Ok(ToolResult {
