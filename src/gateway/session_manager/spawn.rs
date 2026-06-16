@@ -6,8 +6,8 @@
 //! table so `SpawnController` can enforce depth and concurrency limits.
 
 use super::SessionManager;
+use crate::agent::communication::CommunicationConfig;
 use crate::config::agents::ResolvedAgentConfig;
-use crate::gateway::session_manager::communication::CommunicationConfig;
 use crate::gateway::Session;
 use crate::llm::session::ChatSession;
 use crate::llm::session::ConversationSession;
@@ -156,12 +156,11 @@ impl SessionManager {
         .await;
         drop(tool_registry_guard);
 
-        // 4a. Build spawn context — injected as the first part of
-        //     the pending user message (not in the system prompt).
-        //     The design doc requires the child's first message to
-        //     contain context告知 (role, depth, comms) followed by
-        //     the task content.
+        // 4a. Append spawn context to the system prompt so the child
+        //     agent knows its role, depth limits, and communication
+        //     behavior.  Non-spawn sessions never reach this path.
         let spawn_context = Self::build_spawn_context(depth, max_spawn_depth);
+        let prompt = format!("{}\n{}", prompt, spawn_context);
 
         // 5. Create ConversationSession
         // Model priority: explicit model param > parent agent.subagents.model
@@ -222,9 +221,9 @@ impl SessionManager {
             }
         }
 
-        // 6. Inject context告知 + task as pending message
-        let content = format!("{}\n\n{}", spawn_context, task);
-        let pending_msg = PendingMessage::new(format!("{}-task", child_session_id), content);
+        // 6. Inject task as pending message
+        let pending_msg =
+            PendingMessage::new(format!("{}-task", child_session_id), task.to_string());
         cs.push_pending(pending_msg);
 
         // 7. Register to conversation_sessions and sessions mappings
@@ -292,12 +291,11 @@ impl SessionManager {
     /// - Communication behavior (push-based, no polling)
     /// - Behavioral constraints (direct execution, no back-and-forth)
     /// - Spawn guidance when depth allows further spawning
-    pub(crate) fn build_spawn_context(depth: u32, remaining_depth: u32) -> String {
+    pub(crate) fn build_spawn_context(depth: u32, max_spawn_depth: u32) -> String {
         let mut ctx = format!(
             "## Spawn Context\n\
              You are running as a sub-agent. \
-             Current depth: {depth}. \
-             Remaining spawn depth: {remaining_depth}.\n\
+             Current depth: {depth} / Maximum depth: {max_spawn_depth}.\n\
              **Communication behavior:** Your results are automatically \
              pushed back to the parent agent when you finish. \
              Do not poll for status. \
@@ -307,11 +305,12 @@ impl SessionManager {
              - Trust push-based completion notifications\n             - Do not call session query tools to check child agent status\n             - Execute the task directly; do not ask for confirmation \
                or suggest next steps — the parent agent handles that"
         );
-        if remaining_depth > 0 {
+        if depth < max_spawn_depth {
+            let upper = max_spawn_depth - depth;
             ctx.push_str(&format!(
                 "\n\
              - You may spawn child agents for sub-tasks. \
-               Your effective maximum depth for children is {remaining_depth}."
+               Your effective maximum depth for children is {upper}."
             ));
         }
 
@@ -387,19 +386,6 @@ impl SessionManager {
         Ok(PathBuf::from("/tmp"))
     }
 
-    /// Remove a child session entry from the parent's `children` tracking
-    /// table. Extracted from `kill_child` so `try_push_announce` can also
-    /// clean up after a run-mode child completes.
-    pub(crate) async fn remove_child_from_tracking(&self, parent_id: &str, child_id: &str) {
-        let mut children = self.children.write().await;
-        if let Some(list) = children.get_mut(parent_id) {
-            list.retain(|info| info.session_id != child_id);
-            if list.is_empty() {
-                children.remove(parent_id);
-            }
-        }
-    }
-
     /// Validate that a child session is owned by the given parent and
     /// was spawned in `Session` mode (persistent). Returns the child
     /// info on success, `None` otherwise.
@@ -469,7 +455,15 @@ impl SessionManager {
         }
 
         // Remove from children tracking table.
-        self.remove_child_from_tracking(parent_id, child_id).await;
+        {
+            let mut children = self.children.write().await;
+            if let Some(list) = children.get_mut(parent_id) {
+                list.retain(|info| info.session_id != child_id);
+                if list.is_empty() {
+                    children.remove(parent_id);
+                }
+            }
+        }
 
         Ok(())
     }

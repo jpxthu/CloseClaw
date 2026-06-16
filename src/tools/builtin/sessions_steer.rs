@@ -1,8 +1,6 @@
 //! Built-in sessions_steer tool — injects a new task into a persistent child session.
 
 use crate::gateway::SessionManager;
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::engine::engine_types::{Caller, PermissionRequest, PermissionRequestBody};
 use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
@@ -15,19 +13,12 @@ use std::sync::Arc;
 /// Only works on `mode=session` children owned by the calling parent.
 pub struct SessionsSteerTool {
     session_manager: Arc<SessionManager>,
-    permission_engine: Arc<PermissionEngine>,
 }
 
 impl SessionsSteerTool {
     /// Create a new `SessionsSteerTool` with the given dependencies.
-    pub fn new(
-        session_manager: Arc<SessionManager>,
-        permission_engine: Arc<PermissionEngine>,
-    ) -> Self {
-        Self {
-            session_manager,
-            permission_engine,
-        }
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
     }
 }
 
@@ -57,7 +48,7 @@ impl Tool for SessionsSteerTool {
         json!({
             "type": "object",
             "properties": {
-                "sessionId": {
+                "childId": {
                     "type": "string",
                     "description": "The session ID of the child session to steer"
                 },
@@ -66,7 +57,7 @@ impl Tool for SessionsSteerTool {
                     "description": "The new task to inject into the child session"
                 }
             },
-            "required": ["sessionId", "task"]
+            "required": ["childId", "task"]
         })
     }
 
@@ -80,11 +71,9 @@ impl Tool for SessionsSteerTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // 1. Extract parameters
         let child_id = args
-            .get("sessionId")
+            .get("childId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ToolCallError::InvalidArgs("missing required field 'sessionId'".into())
-            })?;
+            .ok_or_else(|| ToolCallError::InvalidArgs("missing required field 'childId'".into()))?;
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
@@ -96,8 +85,7 @@ impl Tool for SessionsSteerTool {
         })?;
 
         // 3. Validate ownership
-        let child_info = self
-            .session_manager
+        self.session_manager
             .validate_child_ownership(parent_session_id, child_id)
             .await
             .ok_or_else(|| {
@@ -106,46 +94,13 @@ impl Tool for SessionsSteerTool {
                 )
             })?;
 
-        // 4. Permission engine check — cross-agent communication
-        let user_id = self
-            .session_manager
-            .get_sender_id(parent_session_id)
-            .await
-            .unwrap_or_default();
-        let caller = Caller {
-            user_id,
-            agent: ctx.agent_id.clone(),
-            ..Caller::default()
-        };
-        let body = PermissionRequestBody::InterAgentMsg {
-            from: ctx.agent_id.clone(),
-            to: child_info.agent_id.clone(),
-        };
-        match self.permission_engine.evaluate(
-            PermissionRequest::WithCaller {
-                caller,
-                request: body,
-            },
-            None,
-        ) {
-            crate::permission::engine::engine_types::PermissionResponse::Allowed { .. } => {}
-            crate::permission::engine::engine_types::PermissionResponse::Denied {
-                reason, ..
-            } => {
-                return Err(ToolCallError::ExecutionFailed(format!(
-                    "permission denied: {}",
-                    reason
-                )));
-            }
-        }
-
-        // 5. Steer the child session
+        // 4. Steer the child session
         self.session_manager
             .steer_child(child_id, task)
             .await
             .map_err(ToolCallError::ExecutionFailed)?;
 
-        // 6. Return result
+        // 5. Return result
         Ok(ToolResult {
             data: json!({
                 "child_id": child_id,

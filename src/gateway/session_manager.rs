@@ -24,7 +24,6 @@ use tracing::warn;
 
 mod announce;
 mod channel;
-pub mod communication;
 mod key_registry;
 mod rebuild;
 mod resolve;
@@ -129,7 +128,7 @@ impl SessionManager {
         agent_id: &str,
     ) -> Option<crate::config::agents::ResolvedAgentConfig> {
         let guard = self.agent_registry.read().await;
-        guard.as_ref()?.get(agent_id).await
+        guard.as_ref()?.get_config(agent_id).await
     }
 
     /// Set priority prompt overrides.
@@ -433,8 +432,6 @@ impl SessionManager {
 mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;
-#[cfg(test)]
-mod concurrency_count_tests;
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]

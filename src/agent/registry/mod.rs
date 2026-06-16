@@ -1,18 +1,44 @@
-//! Agent Registry - stores resolved agent configurations.
+//! Agent Registry - manages all agent lifecycles
 //!
-//! This module is a pure configuration layer: it holds the resolved configs
-//! populated once at startup (or reloaded at runtime) and exposes read-only
-//! queries. All runtime state (processes, lifecycle) lives elsewhere.
+//! Provides centralized management for creating, tracking, and removing agents.
 
+pub mod lifecycle;
+pub mod query;
+
+use crate::agent::process::{AgentProcess, AgentProcessHandle};
+use crate::agent::Agent;
 use crate::config::agents::ResolvedAgentConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::RwLock;
 
-/// Thread-safe agent configuration registry.
+/// Errors that can occur in the agent registry
+#[derive(Error, Debug)]
+pub enum RegistryError {
+    #[error("agent not found: {0}")]
+    AgentNotFound(String),
+    #[error("agent already exists: {0}")]
+    AgentAlreadyExists(String),
+    #[error("invalid state transition: {0}")]
+    InvalidStateTransition(String),
+    #[error("destroy requires confirmation (token mismatch or missing)")]
+    DestroyConfirmationRequired,
+    #[error("process error: {0}")]
+    ProcessError(#[from] crate::agent::process::ProcessError),
+}
+
+/// Result type for registry operations
+pub type RegistryResult<T> = Result<T, RegistryError>;
+
+/// Thread-safe agent registry for managing all agent lifecycles
 #[derive(Debug)]
 pub struct AgentRegistry {
-    /// Map of agent ID to resolved agent config.
+    /// Map of agent ID to agent metadata
+    pub(super) agents: RwLock<HashMap<String, Agent>>,
+    /// Map of agent ID to running process handle
+    pub(super) processes: RwLock<HashMap<String, AgentProcessHandle>>,
+    /// Map of agent ID to resolved agent config (read-only query layer)
     pub(super) configs: RwLock<HashMap<String, ResolvedAgentConfig>>,
 }
 
@@ -23,14 +49,22 @@ impl Default for AgentRegistry {
 }
 
 impl AgentRegistry {
-    /// Create a new registry.
+    /// Create a new registry. The `heartbeat_timeout_secs` parameter is
+    /// retained for backward compatibility (20+ existing call sites) but
+    /// is no longer used; runtime heartbeat/liveness tracking is owned by
+    /// the session module.
     pub fn new(_heartbeat_timeout_secs: i64) -> Self {
         Self::new_with_graceful_shutdown(30)
     }
 
     /// Create a new registry with graceful shutdown configuration.
+    /// `heartbeat_timeout_secs` is retained for backward compatibility but
+    /// is no longer used; runtime heartbeat/liveness tracking is owned by
+    /// the session module.
     pub fn new_with_graceful_shutdown(_heartbeat_timeout_secs: i64) -> Self {
         Self {
+            agents: RwLock::new(HashMap::new()),
+            processes: RwLock::new(HashMap::new()),
             configs: RwLock::new(HashMap::new()),
         }
     }
@@ -46,7 +80,7 @@ impl AgentRegistry {
 
     /// Look up a resolved agent config by ID.
     /// Returns `None` if no config with the given ID exists.
-    pub async fn get(&self, id: &str) -> Option<ResolvedAgentConfig> {
+    pub async fn get_config(&self, id: &str) -> Option<ResolvedAgentConfig> {
         let map = self.configs.read().await;
         map.get(id).cloned()
     }
