@@ -57,12 +57,12 @@ impl Tool for SessionsKillTool {
         json!({
             "type": "object",
             "properties": {
-                "childId": {
+                "sessionId": {
                     "type": "string",
                     "description": "The session ID of the child session to kill"
                 }
             },
-            "required": ["childId"]
+            "required": ["sessionId"]
         })
     }
 
@@ -76,9 +76,11 @@ impl Tool for SessionsKillTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // 1. Extract parameters
         let child_id = args
-            .get("childId")
+            .get("sessionId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolCallError::InvalidArgs("missing required field 'childId'".into()))?;
+            .ok_or_else(|| {
+                ToolCallError::InvalidArgs("missing required field 'sessionId'".into())
+            })?;
 
         // 2. Get parent session_id from context
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {

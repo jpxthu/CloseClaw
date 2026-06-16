@@ -57,7 +57,7 @@ impl Tool for SessionsSteerTool {
         json!({
             "type": "object",
             "properties": {
-                "childId": {
+                "sessionId": {
                     "type": "string",
                     "description": "The session ID of the child session to steer"
                 },
@@ -66,7 +66,7 @@ impl Tool for SessionsSteerTool {
                     "description": "The new task to inject into the child session"
                 }
             },
-            "required": ["childId", "task"]
+            "required": ["sessionId", "task"]
         })
     }
 
@@ -80,9 +80,11 @@ impl Tool for SessionsSteerTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // 1. Extract parameters
         let child_id = args
-            .get("childId")
+            .get("sessionId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolCallError::InvalidArgs("missing required field 'childId'".into()))?;
+            .ok_or_else(|| {
+                ToolCallError::InvalidArgs("missing required field 'sessionId'".into())
+            })?;
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
