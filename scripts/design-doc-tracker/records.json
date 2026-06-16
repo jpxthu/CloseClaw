@@ -19,5 +19,12 @@
     "commit_time": "2026-06-16T06:26:31+08:00",
     "confirmed_time": "2026-06-16T06:33:58.813743+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/agent/agent-spawn.md",
+    "commit": "f4e822e931a26359734aaa1caf84c5b83f726dd4",
+    "commit_time": "2026-06-16T12:04:42+08:00",
+    "confirmed_time": "2026-06-16T12:13:57.552082+08:00",
+    "comment": ""
   }
 ]
