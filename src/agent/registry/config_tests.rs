@@ -3,6 +3,38 @@ use crate::agent::registry::AgentRegistry;
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
 use crate::session::bootstrap::BootstrapMode;
 
+// ---- Construction tests ----
+
+#[tokio::test]
+async fn test_new_construction() {
+    let registry = AgentRegistry::new(30);
+    // After construction the config map must be empty.
+    assert!(
+        registry.get("any-id").await.is_none(),
+        "newly created registry should have no configs"
+    );
+}
+
+#[tokio::test]
+async fn test_new_with_graceful_shutdown() {
+    let registry = AgentRegistry::new_with_graceful_shutdown(30);
+    // Must construct successfully and start empty.
+    assert!(
+        registry.get("any-id").await.is_none(),
+        "registry created via new_with_graceful_shutdown should have no configs"
+    );
+}
+
+#[tokio::test]
+async fn test_default_trait() {
+    let registry = AgentRegistry::default();
+    // Default() delegates to new_with_graceful_shutdown, should be empty.
+    assert!(
+        registry.get("any-id").await.is_none(),
+        "default registry should have no configs"
+    );
+}
+
 /// Helper: build a minimal `ResolvedAgentConfig` for tests.
 fn make_config(id: &str) -> ResolvedAgentConfig {
     ResolvedAgentConfig {
