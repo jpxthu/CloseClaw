@@ -779,6 +779,69 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
     );
 }
 
+// ── Step 1.2: structured output guidance tests ─────────────────────────────
+
+/// Verify `build_spawn_context` includes the structured output guidance
+/// section (per design doc §结构化输出) when remaining_depth > 0.
+#[test]
+fn test_build_spawn_context_structured_output_guidance() {
+    let ctx = SessionManager::build_spawn_context(1, 2);
+    assert!(
+        ctx.contains("Structured output (optional)"),
+        "should contain structured output header"
+    );
+    assert!(
+        ctx.contains("Task scope"),
+        "should contain Task scope section"
+    );
+    assert!(
+        ctx.contains("Execution results"),
+        "should contain Execution results section"
+    );
+    assert!(
+        ctx.contains("Files involved"),
+        "should contain Files involved section"
+    );
+    assert!(
+        ctx.contains("File changes"),
+        "should contain File changes section"
+    );
+    assert!(
+        ctx.contains("Issues found"),
+        "should contain Issues found section"
+    );
+}
+
+/// Verify the structured output guidance explicitly states it is optional
+/// and that the child may reply freely.
+#[test]
+fn test_build_spawn_context_structured_output_is_optional() {
+    let ctx = SessionManager::build_spawn_context(0, 1);
+    assert!(
+        ctx.contains("suggestion"),
+        "should indicate structured output is a suggestion"
+    );
+    assert!(
+        ctx.contains("may reply freely"),
+        "should state the child may reply freely"
+    );
+}
+
+/// Verify structured output guidance is present even at remaining_depth == 0
+/// (it is independent of spawn depth — it always applies).
+#[test]
+fn test_build_spawn_context_structured_output_at_depth_limit() {
+    let ctx = SessionManager::build_spawn_context(3, 0);
+    assert!(
+        ctx.contains("Structured output (optional)"),
+        "structured output should be present even at spawn depth limit"
+    );
+    assert!(
+        ctx.contains("Task scope"),
+        "Task scope should be present at depth limit"
+    );
+}
+
 // ── Step 1.4: communication config tests ─────────────────────────────────
 
 /// Verify the child session's communication config restricts

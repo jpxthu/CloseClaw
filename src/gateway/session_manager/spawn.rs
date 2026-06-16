@@ -313,6 +313,24 @@ impl SessionManager {
                Your effective maximum depth for children is {upper}."
             ));
         }
+
+        // Structured output guidance (optional, per design doc §结构化输出).
+        // Helps the parent agent parse and act on the child's results.
+        ctx.push_str(
+            "\n\
+             **Structured output (optional):** \
+             When you complete your task, consider structuring your \
+             response with the following sections:\n\
+             - **Task scope**: one-sentence confirmation of what you \
+               understood\n\
+             - **Execution results**: key findings or answers\n\
+             - **Files involved**: relevant file paths\n\
+             - **File changes**: modified files and what changed\n\
+             - **Issues found**: problems or risks encountered\n\
+             Structured output is a suggestion — you may reply freely — \
+             but it helps the parent agent process your results.",
+        );
+
         ctx.push('\n');
         ctx
     }
