@@ -10,7 +10,7 @@ use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use crate::agent::config::SubagentsConfig;
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::llm::session::ConversationSession;
+use crate::llm::session::{ChatSession, ConversationSession};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::{PersistenceService, SessionCheckpoint};
 use crate::session::ReasoningLevel;
@@ -52,6 +52,18 @@ async fn register_parent_session(mgr: &SessionManager, parent_id: &str, workdir:
     let arc = Arc::new(RwLock::new(cs));
     let mut conv = mgr.conversation_sessions.write().await;
     conv.insert(parent_id.to_string(), arc);
+    // Also register in `sessions` so `get_chat_id` can resolve the
+    // parent's agent_id for communication config generation.
+    mgr.sessions.write().await.insert(
+        parent_id.to_string(),
+        crate::gateway::Session {
+            id: parent_id.to_string(),
+            agent_id: "parent-agent".to_string(),
+            channel: "spawn".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
 }
 
 #[tokio::test]
@@ -80,6 +92,7 @@ async fn test_create_child_session_basic() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -136,6 +149,7 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -158,6 +172,7 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
@@ -196,6 +211,7 @@ async fn test_create_child_session_registers_child_info() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -237,6 +253,7 @@ async fn test_steer_child_injects_pending_message() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -290,6 +307,7 @@ async fn test_kill_child_removes_from_all_tables() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -353,6 +371,7 @@ async fn test_validate_child_ownership_returns_none_for_run_mode() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -391,6 +410,7 @@ async fn test_validate_child_ownership_returns_info_for_session_mode() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -448,6 +468,7 @@ async fn test_create_child_session_allowed_tools_override() {
             Some(allowed),
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
@@ -483,6 +504,7 @@ async fn test_create_child_session_no_allowed_tools_preserves_config() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session without allowed_tools should succeed");
@@ -525,6 +547,7 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -603,6 +626,7 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
             None,
             None,
             None,
+            3, // max_spawn_depth
         )
         .await
         .expect("create_child_session should succeed");
@@ -629,4 +653,238 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         "child-agent",
         actual_user_id
     );
+}
+
+// ── Step 1.4: spawn-context injection tests ─────────────────────────────
+
+/// Verify `build_spawn_context` produces the expected paragraph for
+/// depth=1, max_spawn_depth=3 (allows further spawning).
+#[test]
+fn test_build_spawn_context_allows_spawning() {
+    let ctx = SessionManager::build_spawn_context(1, 3);
+    assert!(ctx.contains("sub-agent"), "should declare sub-agent role");
+    assert!(
+        ctx.contains("Current depth: 1 / Maximum depth: 3"),
+        "should contain depth info"
+    );
+    assert!(
+        ctx.contains("results are automatically pushed back"),
+        "should describe push-based communication"
+    );
+    assert!(
+        ctx.contains("Do not poll for status"),
+        "should forbid polling"
+    );
+    assert!(
+        ctx.contains("Your effective maximum depth for children is 2"),
+        "should show effective spawn depth (3-1=2)"
+    );
+}
+
+/// Verify `build_spawn_context` omits spawn guidance when depth == max_spawn_depth.
+#[test]
+fn test_build_spawn_context_no_spawning_at_limit() {
+    let ctx = SessionManager::build_spawn_context(3, 3);
+    assert!(ctx.contains("sub-agent"));
+    assert!(
+        ctx.contains("Current depth: 3 / Maximum depth: 3"),
+        "should contain depth info"
+    );
+    assert!(
+        !ctx.contains("effective maximum depth"),
+        "should NOT include spawn guidance at limit"
+    );
+}
+
+/// Verify `build_spawn_context` at depth=0, max_spawn_depth=1 (allows spawning).
+#[test]
+fn test_build_spawn_context_depth_zero() {
+    let ctx = SessionManager::build_spawn_context(0, 1);
+    assert!(ctx.contains("Current depth: 0 / Maximum depth: 1"));
+    assert!(
+        ctx.contains("Your effective maximum depth for children is 1"),
+        "should show effective depth (1-0=1)"
+    );
+}
+
+/// Verify the behavioral constraints section is always present.
+#[test]
+fn test_build_spawn_context_behavioral_constraints() {
+    let ctx = SessionManager::build_spawn_context(0, 1);
+    assert!(
+        ctx.contains("Behavioral constraints"),
+        "should have behavioral constraints header"
+    );
+    assert!(
+        ctx.contains("Trust push-based completion"),
+        "should trust push-based notifications"
+    );
+    assert!(
+        ctx.contains("do not ask for confirmation"),
+        "should forbid confirmation-seeking"
+    );
+}
+
+// ── Step 1.4: child session spawn-context integration test ───────────────
+
+/// Integration test: `create_child_session` appends spawn context to
+/// the system prompt so the child agent knows its role and limits.
+#[tokio::test]
+#[serial]
+async fn test_child_session_system_prompt_contains_spawn_context() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let config = test_resolved_config("child-agent", None);
+
+    register_parent_session(&mgr, "parent-prompt", tmp.path().to_path_buf()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-prompt",
+            2,
+            "test task",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            4, // max_spawn_depth
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    let cs = mgr
+        .get_conversation_session(&child_id)
+        .await
+        .expect("child session should exist");
+    let guard = cs.read().await;
+    let prompt = guard.system_prompt().expect("system prompt should be set");
+
+    assert!(
+        prompt.contains("sub-agent"),
+        "system prompt should contain sub-agent role declaration"
+    );
+    assert!(
+        prompt.contains("Current depth: 2 / Maximum depth: 4"),
+        "system prompt should contain depth info"
+    );
+    assert!(
+        prompt.contains("results are automatically pushed back"),
+        "system prompt should describe push-based communication"
+    );
+}
+
+// ── Step 1.4: communication config tests ─────────────────────────────────
+
+/// Verify the child session's communication config restricts
+/// communication to the parent agent only.
+#[tokio::test]
+#[serial]
+async fn test_child_session_communication_config_has_parent() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let config = test_resolved_config("comm-child", None);
+
+    register_parent_session(&mgr, "parent-comm", tmp.path().to_path_buf()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            "parent-comm",
+            1,
+            "comm task",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    let cs = mgr
+        .get_conversation_session(&child_id)
+        .await
+        .expect("child session should exist");
+    let guard = cs.read().await;
+    let comm = guard
+        .communication_config()
+        .expect("communication_config should be set");
+
+    // Outbound should contain parent agent id
+    assert_eq!(comm.outbound.len(), 1);
+    // The parent agent id is looked up via get_chat_id which reads
+    // from sessions. The parent session was registered with
+    // agent_id="parent-agent" by the test setup, so the comm config
+    // should reference that.
+    assert!(
+        comm.outbound.contains(&"parent-agent".to_string()),
+        "outbound should contain parent agent id, got: {:?}",
+        comm.outbound
+    );
+
+    // Inbound should also contain parent agent id
+    assert_eq!(comm.inbound.len(), 1);
+    assert!(
+        comm.inbound.contains(&"parent-agent".to_string()),
+        "inbound should contain parent agent id, got: {:?}",
+        comm.inbound
+    );
+}
+
+/// Verify a non-spawn session does NOT have communication config.
+#[test]
+fn test_non_spawn_session_no_communication_config() {
+    use std::path::PathBuf;
+    let cs = crate::llm::session::ConversationSession::new(
+        "regular-session".to_string(),
+        "test-model".to_string(),
+        PathBuf::from("/tmp"),
+    );
+    assert!(
+        cs.communication_config().is_none(),
+        "non-spawn session should not have communication_config"
+    );
+}
+
+/// Verify `CommunicationConfig::default_with_parent` with a valid parent id.
+#[test]
+fn test_communication_config_default_with_parent() {
+    use crate::agent::communication::CommunicationConfig;
+
+    let config = CommunicationConfig::default_with_parent(Some("agent-abc"));
+    assert_eq!(config.outbound, vec!["agent-abc".to_string()]);
+    assert_eq!(config.inbound, vec!["agent-abc".to_string()]);
+}
+
+/// Verify `CommunicationConfig::default_with_parent` with None parent.
+#[test]
+fn test_communication_config_default_with_parent_none() {
+    use crate::agent::communication::CommunicationConfig;
+
+    let config = CommunicationConfig::default_with_parent(None);
+    assert!(config.outbound.is_empty());
+    assert!(config.inbound.is_empty());
+}
+
+/// Verify `can_send_to` / `can_receive_from` respect the whitelist.
+#[test]
+fn test_communication_config_permission_checks() {
+    use crate::agent::communication::CommunicationConfig;
+
+    let config = CommunicationConfig::default_with_parent(Some("parent-1"));
+    assert!(config.can_send_to("parent-1"));
+    assert!(!config.can_send_to("other-agent"));
+    assert!(config.can_receive_from("parent-1"));
+    assert!(!config.can_receive_from("other-agent"));
 }

@@ -158,7 +158,7 @@ impl Tool for SkillTool {
                 })?;
 
                 // Validate spawn with the parent agent's config
-                let config = self
+                let spawn_result = self
                     .spawn_controller
                     .validate(parent_session_id, None)
                     .await
@@ -168,6 +168,7 @@ impl Tool for SkillTool {
                             e
                         ))
                     })?;
+                let config = spawn_result.config;
 
                 // Get parent depth
                 let parent_depth = self
@@ -196,6 +197,7 @@ impl Tool for SkillTool {
                         allowed_tools,
                         None, // model_override
                         None, // parent_subagents_model
+                        1,    // max_spawn_depth (skill tool doesn't spawn)
                     )
                     .await
                     .map_err(|e| {
