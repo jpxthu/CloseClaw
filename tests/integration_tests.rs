@@ -1,7 +1,7 @@
 //! Integration Tests for CloseClaw
 //!
 //! Tests in this file verify cross-module interactions:
-//! - Agent registry lifecycle and hierarchy
+//! - Agent registry config query
 //! - Config loading + agent registry
 //! - Skill loading + execution chain
 
@@ -110,6 +110,11 @@ fn make_test_ruleset() -> RuleSet {
 // Tests populate + get for config storage and parent_id field query
 // ---------------------------------------------------------------------------
 
+/// Creates a [`ResolvedAgentConfig`] for testing purposes.
+///
+/// Given an agent `id` and an optional `parent_id`, builds a default
+/// [`AgentConfig`], wraps it with [`ConfigSource::User`], and returns
+/// a fully resolved configuration suitable for [`SharedAgentRegistry::populate`].
 fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfig {
     let mut cfg = AgentConfig::default();
     cfg.id = id.to_string();
