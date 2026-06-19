@@ -191,8 +191,11 @@ async fn create_agent_dir_and_config(
         ..AgentConfig::default()
     };
     let config_path = agent_dir.join("config.json");
-    config
-        .save(&config_path)
+    let content = serde_json::to_string_pretty(&config).map_err(|e| AdminResponse::Error {
+        message: format!("failed to serialize config: {}", e),
+    })?;
+    tokio::fs::write(&config_path, content)
+        .await
         .map_err(|e| AdminResponse::Error {
             message: format!("failed to write config.json: {}", e),
         })?;
@@ -200,21 +203,38 @@ async fn create_agent_dir_and_config(
 }
 
 /// Append the new agent name to agents.json.
-fn update_agents_json(name: &str, context: &AdminContext) -> Result<(), AdminResponse> {
+async fn update_agents_json(name: &str, context: &AdminContext) -> Result<(), AdminResponse> {
     let agents_json_path = context.config_dir.join("config").join("agents.json");
-    let mut agent_ids = context
-        .config_manager
-        .load_agents_json(&agents_json_path)
-        .unwrap_or_default();
+
+    // Load existing agents.json (blocking I/O)
+    let mut agent_ids = {
+        let config_manager = Arc::clone(&context.config_manager);
+        let path = agents_json_path.clone();
+        tokio::task::spawn_blocking(move || {
+            config_manager.load_agents_json(&path).unwrap_or_default()
+        })
+        .await
+        .map_err(|e| AdminResponse::Error {
+            message: format!("failed to load agents.json: {}", e),
+        })?
+    };
+
     agent_ids.push(name.to_string());
     let agents_json = serde_json::json!({ "agents": agent_ids });
     let agents_json_bytes =
         serde_json::to_vec_pretty(&agents_json).map_err(|e| AdminResponse::Error {
             message: format!("failed to serialize agents.json: {}", e),
         })?;
-    write_atomically(&agents_json_path, &agents_json_bytes).map_err(|e| AdminResponse::Error {
-        message: format!("failed to update agents.json: {}", e),
-    })
+
+    // Write agents.json atomically (blocking I/O)
+    tokio::task::spawn_blocking(move || write_atomically(&agents_json_path, &agents_json_bytes))
+        .await
+        .map_err(|e| AdminResponse::Error {
+            message: format!("failed to update agents.json: {}", e),
+        })?
+        .map_err(|e| AdminResponse::Error {
+            message: format!("failed to update agents.json: {}", e),
+        })
 }
 
 /// Reload agent configs and repopulate the registry.
@@ -242,7 +262,7 @@ async fn dispatch_agent_create(
     if let Err(e) = create_agent_dir_and_config(name, model, context).await {
         return e;
     }
-    if let Err(e) = update_agents_json(name, context) {
+    if let Err(e) = update_agents_json(name, context).await {
         return e;
     }
     if let Err(e) = reload_registry(context) {

@@ -352,8 +352,14 @@ async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHa
     let handle = tokio::spawn(async move {
         let _ = server.serve().await;
     });
-    // Give the server a moment to bind
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // Poll until the socket is ready
+    let sock_path = config_dir.join("admin.sock");
+    for _ in 0..50 {
+        if tokio::net::UnixStream::connect(&sock_path).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     (config_dir, handle)
 }
 
