@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use closeclaw::cli::args::*;
-use closeclaw::permission::{Defaults, PermissionEngine, Rule, RuleSet};
+use closeclaw::permission::{Defaults, Effect, PermissionEngine, Rule, RuleSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -146,7 +146,40 @@ pub async fn handle_rule(action: RuleAction) -> Result<()> {
             println!("✅ Rule '{}': valid", r.name);
         }
         RuleAction::List => {
-            println!("Rules:\n  (not implemented)");
+            let path = config_dir().join("permissions.json");
+            if !path.exists() {
+                println!("No permissions file found at {}", path.display());
+                return Ok(());
+            }
+            let contents = std::fs::read_to_string(&path)
+                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path.display(), e))?;
+            let rule_set: RuleSet = serde_json::from_str(&contents)
+                .map_err(|e| anyhow::anyhow!("Failed to parse '{}': {}", path.display(), e))?;
+            if rule_set.rules.is_empty() {
+                println!("No rules defined in {}", path.display());
+                return Ok(());
+            }
+            println!("Rules ({}):", rule_set.rules.len());
+            for rule in &rule_set.rules {
+                let effect = match rule.effect {
+                    Effect::Allow => "allow",
+                    Effect::Deny => "deny",
+                };
+                let action_count = rule.actions.len();
+                let action_label = if action_count == 1 {
+                    "action"
+                } else {
+                    "actions"
+                };
+                println!(
+                    "  {} | {} | {} | {} {}",
+                    rule.name,
+                    rule.subject.agent_id(),
+                    effect,
+                    action_count,
+                    action_label
+                );
+            }
         }
     }
     Ok(())
