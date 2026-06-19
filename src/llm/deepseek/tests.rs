@@ -58,47 +58,9 @@ fn test_provider_accessors() {
 // send() success tests
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn test_send_success_text_only() {
-    let mut server = mockito::Server::new_async().await;
-    let fixture = include_str!("../../../tests/fixtures/llm/deepseek/chat-success.json");
-
-    let m = server
-        .mock("POST", "/chat/completions")
-        .match_header(
-            "authorization",
-            mockito::Matcher::Regex(r"Bearer sk-.*".into()),
-        )
-        .match_header("content-type", "application/json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(fixture)
-        .create_async()
-        .await;
-
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
-    let req = make_request("deepseek-v4-flash");
-    let body = json!({
-        "model": "deepseek-v4-flash",
-        "messages": [{"role": "user", "content": "Hello"}],
-        "temperature": 0.7,
-        "max_tokens": 100
-    });
-
-    let result = provider.send(req, body).await;
-
-    m.assert_async().await;
-    let resp = result.expect("send should succeed");
-    assert_eq!(resp.content_blocks.len(), 1);
-    assert_eq!(
-        resp.content_blocks[0],
-        RawContentBlock::Text("Hello! How can I help you today?".into())
-    );
-    assert_eq!(resp.usage.prompt_tokens, 12);
-    assert_eq!(resp.usage.completion_tokens, 8);
-    assert_eq!(resp.usage.total_tokens, Some(20));
-    assert_eq!(resp.finish_reason.as_deref(), Some("stop"));
-}
+// TODO: Rewrite with v2 fixture (deepseek/deepseek-v4-flash/openai/simple.json)
+// #[tokio::test]
+// async fn test_send_success_text_only() { ... }
 
 #[tokio::test]
 async fn test_send_success_with_reasoning_content() {

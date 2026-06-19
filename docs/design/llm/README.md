@@ -6,7 +6,7 @@ LLM 模块为 CloseClaw 提供统一的多供应商、多协议、多模型 LLM 
 
 ## 架构
 
-LLM 模块采用五层分离架构，每层只做一件事，层间通过标准类型传递。模块支持两种协议：OpenAI 协议（内容以纯文本字符串承载，推理过程嵌入 XML 标签）和 Anthropic 协议（内容以类型化结构数组承载，推理过程和工具调用为独立内容块）。Protocol 层负责屏蔽两种协议的序列化差异。
+LLM 模块采用五层分离架构，每层只做一件事，层间通过标准类型传递。模块支持两种协议：OpenAI 协议（内容以纯文本字符串承载，推理过程通过独立字段承载）和 Anthropic 协议（内容以类型化结构数组承载，推理过程和工具调用为独立内容块）。Protocol 层负责屏蔽两种协议的序列化差异，ModelInterpreter 按 [protocol-mapping](protocol-mapping.md) 将协议原生字段归一化为统一内容块和流式事件。
 
 **前缀稳定性原则**：同一 session 内连续多次 API 调用之间，请求的前缀部分（静态 system prompt + 历史消息）必须完全相同，只有尾部新增内容变化——这是前缀缓存生效的前提。任何在请求前缀中注入可变内容的做法都会系统性破坏 KV cache，导致所有 token 按全价计费。此原则贯穿 system prompt 静态/动态分离、消息历史尾部缓存标记、以及 cache adapter 的缓存控制参数注入。
 
@@ -46,20 +46,28 @@ LLM Client（UnifiedChatClient）—— 统一入口
 
 ### 统一内容块
 
-所有协议的响应内容归一化为四种内容块类型：文本块、推理块、工具调用块、工具结果块。无论上游是 OpenAI 协议还是 Anthropic 协议，上层业务只看到这四种类型。
+所有协议的响应内容归一化为四种内容块类型：文本块、推理块、工具调用块、工具结果块。详细映射规则见 [protocol-mapping](protocol-mapping.md)。
 
 ### 流式事件
 
-流式输出通过统一事件模型传递：内容块开始、内容增量、内容块结束、消息结束、错误事件。屏蔽 OpenAI SSE 和 Anthropic SSE 在事件粒度上的差异。
+流式输出通过统一事件模型传递：内容块开始、内容增量、内容块结束、消息结束、错误事件。详细事件映射见 [protocol-mapping](protocol-mapping.md)。
 
 ### 模型发现
 
 LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发现能力：消费各 Provider 的模型列表查询接口，通过 `/models` 端点动态探测可用模型，结合本地缓存和内嵌知识库，自动填充模型的推荐参数（上下文窗口、最大输出、推理标记等）。此能力独立于对话调用链路，主要用于配置阶段的模型选择。详见 [model-discovery](model-discovery.md)。
 
 **子功能文档**：
+- [protocol-mapping](protocol-mapping.md) — OpenAI/Anthropic 双协议到统一内容块和流式事件的映射规范
 - [cache-adapter](cache-adapter.md) — 跨供应商统一缓存策略，最大化静态区 system prompt 的缓存折扣
 - [model-discovery](model-discovery.md) — 从供应商 API 动态发现可用模型，结合知识库和缓存自动填充推荐参数
 - [provider-config-wizard](provider-config-wizard.md) — CLI 交互式向导：选 provider、输入凭据、发现模型、写配置
+
+**Provider 文档**（各供应商特有行为，均引用 protocol-mapping）：
+- [minimax](providers/minimax.md) — Anthropic 协议，thinking 独立内容块，支持 cache_control
+- [glm](providers/glm.md) — OpenAI 协议，reasoning_content 独立字段，Anthropic 下 thinking 易丢失
+- [deepseek](providers/deepseek.md) — 双协议，Anthropic 略优（signature 可追溯），thinking 无法关闭
+- [mimo](providers/mimo.md) — OpenAI 协议（略优），thinking 默认行为，signature 为空
+- [volcengine](providers/volcengine.md) — OpenAI 协议，豆包系列模型
 
 ## 数据流
 
