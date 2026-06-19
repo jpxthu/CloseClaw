@@ -419,91 +419,187 @@ fn test_agent_config_ignores_removed_fields() {
     );
 }
 
-// Step 1.1 — Inline permissions in AgentConfig
+// --- Step 1.3: Tests for design-doc alignment ---
 
 #[test]
-fn test_agent_config_inline_permissions_load() {
+fn test_merge_skills_star_overrides_user() {
+    // Project-level ["*"] should override user-level specific list.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["*".to_string()],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["specific-skill".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.skills,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level skills"
+    );
+}
+
+#[test]
+fn test_merge_tools_star_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["*".to_string()],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["read".to_string(), "grep".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.tools,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level tools"
+    );
+}
+
+#[test]
+fn test_merge_allow_agents_star_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["*".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["agent-a".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.subagents.allow_agents,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level allow_agents"
+    );
+}
+
+#[test]
+fn test_merge_skills_empty_project_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec![],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["user-skill".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.skills,
+        vec!["user-skill".to_string()],
+        "empty project skills should fall back to user skills"
+    );
+}
+
+#[test]
+fn test_agent_config_deserialize_ignores_permissions_key() {
+    // After design-doc alignment, AgentConfig should not have a permissions field.
+    // Deserializing JSON with a permissions field should not populate any such field.
     let json = r#"{
-        "id": "agent-with-perms",
-        "name": "Agent With Inline Perms",
+        "id": "no-inline-perms",
         "permissions": {
-            "agent_id": "agent-with-perms",
-            "permissions": {
-                "exec": { "allowed": true, "limits": { "commands": ["git"], "paths": [], "timeout_ms": 30000 } },
-                "file_read": { "allowed": true },
-                "file_write": { "allowed": false }
-            }
+            "agent_id": "no-inline-perms",
+            "permissions": {}
         }
     }"#;
-
     let config: AgentConfig = serde_json::from_str(json).unwrap();
-    let perms = config.permissions.unwrap();
-    assert_eq!(perms.agent_id, "agent-with-perms");
-    assert!(perms.is_allowed("exec"));
-    assert!(perms.is_allowed("file_read"));
-    assert!(!perms.is_allowed("file_write"));
+    // permissions field has been removed; verify id is still parsed correctly
+    assert_eq!(config.id, "no-inline-perms");
+    // Verify skills retains default value — proves permissions key was fully ignored.
+    assert_eq!(config.skills, vec!["*"]);
 }
 
 #[test]
-fn test_agent_config_inline_permissions_none_when_absent() {
-    let json = r#"{ "id": "no-perms" }"#;
-    let config: AgentConfig = serde_json::from_str(json).unwrap();
-    assert!(config.permissions.is_none());
-}
-
-#[test]
-fn test_agent_config_inline_permissions_roundtrip() {
-    let perms = AgentPermissions {
-        agent_id: "rt-agent".to_string(),
-        permissions: HashMap::from([
-            (
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits::default(),
-                },
-            ),
-            (
-                "network".to_string(),
-                ActionPermission {
-                    allowed: false,
-                    limits: PermissionLimits::default(),
-                },
-            ),
-        ]),
-        inherited_from: None,
-    };
+fn test_resolved_config_no_permissions_field() {
+    // Verify that ResolvedAgentConfig can be constructed without a permissions field.
     let config = AgentConfig {
-        id: "rt-agent".to_string(),
-        permissions: Some(perms),
+        id: "test-agent".to_string(),
         ..Default::default()
     };
+    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    assert_eq!(resolved.id, "test-agent");
 
-    let json = serde_json::to_string(&config).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(
-        parsed.get("permissions").is_some(),
-        "permissions should be serialized"
+    // Verify merge path also works without a permissions field (no panic).
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some("gpt-4o".to_string()),
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        ..Default::default()
+    };
+    let merged = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(merged.id, "test-agent");
+    assert_eq!(merged.source, ConfigSource::Merged);
+
+    // Verify default field values on resolved config.
+    assert_eq!(merged.skills, vec!["*"]); // default from AgentConfig::default()
+    assert_eq!(merged.tools, vec!["*"]); // default from AgentConfig::default()
+    assert!(merged.disallowed_tools.is_empty());
+}
+
+#[test]
+fn test_merge_tools_empty_project_falls_back_to_user() {
+    // Project-level tools is empty vec → fall back to user-level tools.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec![],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["read".to_string(), "grep".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.tools,
+        vec!["read", "grep"],
+        "empty project tools should fall back to user tools"
     );
-
-    let deserialized: AgentConfig = serde_json::from_str(&json).unwrap();
-    let p = deserialized.permissions.unwrap();
-    assert_eq!(p.agent_id, "rt-agent");
-    assert!(p.is_allowed("exec"));
-    assert!(!p.is_allowed("network"));
 }
 
 #[test]
-fn test_agent_config_inline_permissions_omitted_when_none() {
-    let config = AgentConfig {
-        id: "skip-none".to_string(),
-        permissions: None,
+fn test_merge_allow_agents_empty_project_falls_back_to_user() {
+    // Project-level allow_agents is empty vec → fall back to user-level.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec![],
+            ..Default::default()
+        },
         ..Default::default()
     };
-    let json_str = serde_json::to_string(&config).unwrap();
-    let reparsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-    assert!(
-        reparsed.get("permissions").is_none(),
-        "permissions should be omitted when None (skip_serializing_if)"
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["agent-a".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.subagents.allow_agents,
+        vec!["agent-a"],
+        "empty project allow_agents should fall back to user allow_agents"
     );
 }
