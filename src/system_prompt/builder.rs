@@ -314,4 +314,140 @@ mod tests {
         let result2 = build_system_prompt(sections, None);
         assert_eq!(result1, result2);
     }
+
+    // ---- AgentRegistry bootstrap mode query path tests ----
+
+    #[test]
+    fn test_workspace_build_config_has_agent_registry_field() {
+        // Verify the agent_registry field is accessible and defaults to None
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+        };
+        let config = WorkspaceBuildConfig {
+            bootstrap_files: vec![],
+            tool_registry: None,
+            tool_ctx: &ctx,
+            skill_registry: None,
+            agent_id: None,
+            agent_tools: None,
+            agent_disallowed_tools: None,
+            agent_skills: None,
+            dynamic_sections: vec![],
+            append_section: None,
+            agent_registry: None,
+        };
+        assert!(config.agent_registry.is_none());
+    }
+
+    #[test]
+    fn test_workspace_build_config_with_agent_registry() {
+        use crate::agent::registry::AgentRegistry;
+        use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+        use crate::session::bootstrap::loader::BootstrapMode;
+
+        let agent_reg = Arc::new(AgentRegistry::new(30));
+        agent_reg.populate(vec![ResolvedAgentConfig {
+            id: "test-agent".into(),
+            name: "test-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Minimal,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            source: ConfigSource::User,
+        }]);
+
+        let ctx = ToolContext {
+            agent_id: "test-agent".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+        };
+        let config = WorkspaceBuildConfig {
+            bootstrap_files: vec![],
+            tool_registry: None,
+            tool_ctx: &ctx,
+            skill_registry: None,
+            agent_id: Some("test-agent"),
+            agent_tools: None,
+            agent_disallowed_tools: None,
+            agent_skills: None,
+            dynamic_sections: vec![],
+            append_section: None,
+            agent_registry: Some(agent_reg),
+        };
+        assert!(config.agent_registry.is_some());
+        assert_eq!(config.agent_id, Some("test-agent"));
+    }
+
+    #[test]
+    fn test_agent_registry_query_bootstrap_mode_minimal() {
+        use crate::agent::registry::AgentRegistry;
+        use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+        use crate::session::bootstrap::loader::BootstrapMode;
+
+        let agent_reg = Arc::new(AgentRegistry::new(30));
+        agent_reg.populate(vec![ResolvedAgentConfig {
+            id: "minimal-agent".into(),
+            name: "minimal-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Minimal,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            source: ConfigSource::User,
+        }]);
+
+        // Verify the registry can be queried for bootstrap mode
+        let mode = agent_reg.query_bootstrap_mode("minimal-agent");
+        assert_eq!(mode, Some(BootstrapMode::Minimal));
+    }
+
+    #[test]
+    fn test_agent_registry_query_bootstrap_mode_full() {
+        use crate::agent::registry::AgentRegistry;
+        use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+        use crate::session::bootstrap::loader::BootstrapMode;
+
+        let agent_reg = Arc::new(AgentRegistry::new(30));
+        agent_reg.populate(vec![ResolvedAgentConfig {
+            id: "full-agent".into(),
+            name: "full-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Full,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            source: ConfigSource::User,
+        }]);
+
+        let mode = agent_reg.query_bootstrap_mode("full-agent");
+        assert_eq!(mode, Some(BootstrapMode::Full));
+    }
+
+    #[test]
+    fn test_agent_registry_query_bootstrap_mode_not_found() {
+        use crate::agent::registry::AgentRegistry;
+
+        let agent_reg = Arc::new(AgentRegistry::new(30));
+        let mode = agent_reg.query_bootstrap_mode("missing-agent");
+        assert_eq!(mode, None);
+    }
 }

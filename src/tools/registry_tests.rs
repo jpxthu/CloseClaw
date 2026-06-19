@@ -496,3 +496,147 @@ async fn test_build_tools_section_empty() {
     let section = reg.build_tools_section(&ctx).await;
     assert!(section.is_empty());
 }
+
+// ---- AgentRegistry query path tests ----
+// Tests for ToolRegistry's ability to query AgentRegistry directly
+// for tools configuration, per design-doc query path.
+
+use crate::agent::registry::AgentRegistry;
+use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+use crate::session::bootstrap::loader::BootstrapMode;
+use std::sync::Arc;
+
+fn make_agent_config(
+    id: &str,
+    tools: Vec<String>,
+    disallowed_tools: Vec<String>,
+) -> ResolvedAgentConfig {
+    ResolvedAgentConfig {
+        id: id.to_string(),
+        name: id.to_string(),
+        parent_id: None,
+        model: None,
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: BootstrapMode::Full,
+        skills: vec![],
+        tools,
+        disallowed_tools,
+        subagents: Default::default(),
+        source: ConfigSource::User,
+    }
+}
+
+#[tokio::test]
+async fn test_set_and_get_agent_registry() {
+    let reg = ToolRegistry::new();
+    assert!(reg.get_agent_registry().await.is_none());
+
+    let arc_reg = Arc::new(AgentRegistry::new(30));
+    reg.set_agent_registry(Arc::clone(&arc_reg)).await;
+
+    let returned = reg.get_agent_registry().await.unwrap();
+    assert!(Arc::ptr_eq(&returned, &arc_reg));
+}
+
+#[tokio::test]
+async fn test_query_agent_tools_config_not_set() {
+    let reg = ToolRegistry::new();
+    // No agent registry set — should return (None, None)
+    let (tools, disallowed) = reg.query_agent_tools_config("any-agent").await;
+    assert_eq!(tools, None);
+    assert_eq!(disallowed, None);
+}
+
+#[tokio::test]
+async fn test_query_agent_tools_config_agent_not_found() {
+    let reg = ToolRegistry::new();
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![]);
+    reg.set_agent_registry(agent_reg).await;
+
+    let (tools, disallowed) = reg.query_agent_tools_config("nonexistent").await;
+    assert_eq!(tools, None);
+    assert_eq!(disallowed, None);
+}
+
+#[tokio::test]
+async fn test_query_agent_tools_config_with_tools_whitelist() {
+    let reg = ToolRegistry::new();
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config(
+        "agent-1",
+        vec!["Read".into(), "Write".into()],
+        vec![],
+    )]);
+    reg.set_agent_registry(agent_reg).await;
+
+    let (tools, disallowed) = reg.query_agent_tools_config("agent-1").await;
+    assert_eq!(tools, Some(vec!["Read".into(), "Write".into()]));
+    assert_eq!(disallowed, None);
+}
+
+#[tokio::test]
+async fn test_query_agent_tools_config_with_disallowed() {
+    let reg = ToolRegistry::new();
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config(
+        "agent-2",
+        vec![],
+        vec!["Bash".into(), "Write".into()],
+    )]);
+    reg.set_agent_registry(agent_reg).await;
+
+    let (tools, disallowed) = reg.query_agent_tools_config("agent-2").await;
+    assert_eq!(tools, None);
+    assert_eq!(disallowed, Some(vec!["Bash".into(), "Write".into()]));
+}
+
+#[tokio::test]
+async fn test_query_agent_tools_config_wildcard() {
+    let reg = ToolRegistry::new();
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config(
+        "agent-wild",
+        vec!["*".into()],
+        vec![],
+    )]);
+    reg.set_agent_registry(agent_reg).await;
+
+    let (tools, disallowed) = reg.query_agent_tools_config("agent-wild").await;
+    // ["*"] should be treated as no filtering (None)
+    assert_eq!(tools, None);
+    assert_eq!(disallowed, None);
+}
+
+#[tokio::test]
+async fn test_query_agent_tools_config_empty_tools() {
+    let reg = ToolRegistry::new();
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config("agent-empty", vec![], vec![])]);
+    reg.set_agent_registry(agent_reg).await;
+
+    let (tools, disallowed) = reg.query_agent_tools_config("agent-empty").await;
+    // Empty tools = no filtering
+    assert_eq!(tools, None);
+    assert_eq!(disallowed, None);
+}
+
+#[tokio::test]
+async fn test_query_agent_tools_config_both_lists() {
+    let reg = ToolRegistry::new();
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config(
+        "agent-both",
+        vec!["Read".into(), "Write".into(), "Edit".into()],
+        vec!["Write".into()],
+    )]);
+    reg.set_agent_registry(agent_reg).await;
+
+    let (tools, disallowed) = reg.query_agent_tools_config("agent-both").await;
+    assert_eq!(
+        tools,
+        Some(vec!["Read".into(), "Write".into(), "Edit".into()])
+    );
+    assert_eq!(disallowed, Some(vec!["Write".into()]));
+}
