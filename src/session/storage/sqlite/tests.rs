@@ -233,3 +233,114 @@ async fn test_load_both_new_and_old_null_yields_none() {
     );
     assert!(loaded.account_id.is_none());
 }
+
+// ===================================================================
+// parent_session_id + depth tests
+// ===================================================================
+
+#[tokio::test]
+async fn test_save_load_parent_session_id_and_depth() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let cp = SessionCheckpoint::new("spawn-child".into())
+        .with_parent_session_id("spawn-parent".into())
+        .with_depth(2);
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("spawn-child").await.unwrap();
+    assert!(loaded.is_some());
+    let loaded = loaded.unwrap();
+    assert_eq!(loaded.parent_session_id.as_deref(), Some("spawn-parent"));
+    assert_eq!(loaded.depth, 2);
+}
+
+#[tokio::test]
+async fn test_parent_session_id_depth_defaults_when_null() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // Save a checkpoint (parent_session_id=NULL, depth=0 by default)
+    let cp = create_test_checkpoint("root-session");
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("root-session").await.unwrap();
+    assert!(loaded.is_some());
+    let loaded = loaded.unwrap();
+    assert!(loaded.parent_session_id.is_none());
+    assert_eq!(loaded.depth, 0);
+}
+
+// ===================================================================
+// list_children_sessions tests
+// ===================================================================
+
+#[tokio::test]
+async fn test_list_children_sessions_basic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // Parent
+    let mut parent = create_test_checkpoint("parent-db");
+    parent.parent_session_id = None;
+    storage.save_checkpoint(&parent).await.unwrap();
+
+    // Child 1
+    let mut child1 = create_test_checkpoint("child1-db");
+    child1.parent_session_id = Some("parent-db".to_string());
+    storage.save_checkpoint(&child1).await.unwrap();
+
+    // Child 2
+    let mut child2 = create_test_checkpoint("child2-db");
+    child2.parent_session_id = Some("parent-db".to_string());
+    storage.save_checkpoint(&child2).await.unwrap();
+
+    // Unrelated
+    let mut unrelated = create_test_checkpoint("unrelated-db");
+    unrelated.parent_session_id = Some("other-parent".to_string());
+    storage.save_checkpoint(&unrelated).await.unwrap();
+
+    let mut children = storage.list_children_sessions("parent-db").await.unwrap();
+    children.sort();
+    assert_eq!(
+        children,
+        vec!["child1-db".to_string(), "child2-db".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn test_list_children_sessions_no_children() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    storage
+        .save_checkpoint(&create_test_checkpoint("no-kids"))
+        .await
+        .unwrap();
+    let children = storage.list_children_sessions("no-kids").await.unwrap();
+    assert!(children.is_empty());
+}
+
+#[tokio::test]
+async fn test_list_children_sessions_after_delete() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut child = create_test_checkpoint("child-del-db");
+    child.parent_session_id = Some("parent-del-db".to_string());
+    storage.save_checkpoint(&child).await.unwrap();
+
+    let children = storage
+        .list_children_sessions("parent-del-db")
+        .await
+        .unwrap();
+    assert_eq!(children, vec!["child-del-db".to_string()]);
+
+    storage.delete_checkpoint("child-del-db").await.unwrap();
+
+    let children = storage
+        .list_children_sessions("parent-del-db")
+        .await
+        .unwrap();
+    assert!(children.is_empty());
+}

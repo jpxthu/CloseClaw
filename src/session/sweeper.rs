@@ -290,6 +290,8 @@ mod tests {
         idle_sessions: Mutex<Vec<String>>,
         /// Session IDs returned from `list_expired_archived_sessions_for_agent`.
         expired_sessions: Mutex<Vec<String>>,
+        /// Session IDs deleted via `delete_checkpoint`.
+        deleted: Mutex<Vec<String>>,
     }
 
     impl MemStorage {
@@ -308,14 +310,20 @@ mod tests {
         fn add_checkpoint(&self, checkpoint: SessionCheckpoint) {
             self.checkpoints.lock().unwrap().push(checkpoint);
         }
+
+        /// Get IDs of sessions deleted via `delete_checkpoint`.
+        fn deleted_ids(&self) -> Vec<String> {
+            self.deleted.lock().unwrap().clone()
+        }
     }
 
     #[async_trait]
     impl PersistenceService for MemStorage {
         async fn save_checkpoint(
             &self,
-            _checkpoint: &SessionCheckpoint,
+            checkpoint: &SessionCheckpoint,
         ) -> Result<(), PersistenceError> {
+            self.checkpoints.lock().unwrap().push(checkpoint.clone());
             Ok(())
         }
 
@@ -330,7 +338,12 @@ mod tests {
                 .cloned())
         }
 
-        async fn delete_checkpoint(&self, _session_id: &str) -> Result<(), PersistenceError> {
+        async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
+            self.deleted.lock().unwrap().push(session_id.into());
+            self.checkpoints
+                .lock()
+                .unwrap()
+                .retain(|cp| cp.session_id != session_id);
             Ok(())
         }
 
@@ -379,6 +392,19 @@ mod tests {
             _purge_after_minutes: i64,
         ) -> Result<Vec<String>, PersistenceError> {
             Ok(self.expired_sessions.lock().unwrap().clone())
+        }
+
+        async fn list_children_sessions(
+            &self,
+            parent_session_id: &str,
+        ) -> Result<Vec<String>, PersistenceError> {
+            let checkpoints = self.checkpoints.lock().unwrap();
+            let children: Vec<String> = checkpoints
+                .iter()
+                .filter(|cp| cp.parent_session_id.as_deref() == Some(parent_session_id))
+                .map(|cp| cp.session_id.clone())
+                .collect();
+            Ok(children)
         }
     }
 
@@ -536,5 +562,140 @@ mod tests {
 
         let _ = tx.send(());
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    }
+
+    // -----------------------------------------------------------------
+    // Test: cascade_kill_children deletes all descendants
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_cascade_kill_children_deletes_descendants() {
+        let mem = Arc::new(MemStorage::default());
+
+        // Build a 3-level tree: parent -> child1 -> grandchild
+        let mut parent = SessionCheckpoint::new("parent".into());
+        parent.parent_session_id = None;
+        parent.depth = 0;
+        mem.add_checkpoint(parent);
+
+        let mut child1 = SessionCheckpoint::new("child1".into());
+        child1.parent_session_id = Some("parent".into());
+        child1.depth = 1;
+        mem.add_checkpoint(child1);
+
+        let mut grandchild = SessionCheckpoint::new("grandchild".into());
+        grandchild.parent_session_id = Some("child1".into());
+        grandchild.depth = 2;
+        mem.add_checkpoint(grandchild);
+
+        // Run cascade
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        ArchiveSweeper::cascade_kill_children(storage.as_ref(), "parent")
+            .await
+            .unwrap();
+
+        // Both descendants should be deleted
+        let deleted = mem.deleted_ids();
+        assert!(deleted.contains(&"child1".to_string()));
+        assert!(deleted.contains(&"grandchild".to_string()));
+        // Parent itself should NOT be deleted by cascade_kill_children
+        assert!(!deleted.contains(&"parent".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cascade_kill_children_no_children_noop() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_checkpoint(SessionCheckpoint::new("leaf".into()));
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        ArchiveSweeper::cascade_kill_children(storage.as_ref(), "leaf")
+            .await
+            .unwrap();
+
+        // No children to delete
+        let deleted = mem.deleted_ids();
+        assert!(deleted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cascade_kill_children_siblings_only() {
+        let mem = Arc::new(MemStorage::default());
+
+        let mut parent = SessionCheckpoint::new("parent".into());
+        parent.parent_session_id = None;
+        mem.add_checkpoint(parent);
+
+        let mut child_a = SessionCheckpoint::new("child_a".into());
+        child_a.parent_session_id = Some("parent".into());
+        mem.add_checkpoint(child_a);
+
+        let mut child_b = SessionCheckpoint::new("child_b".into());
+        child_b.parent_session_id = Some("parent".into());
+        mem.add_checkpoint(child_b);
+
+        // Unrelated child under a different parent
+        let mut other_child = SessionCheckpoint::new("other_child".into());
+        other_child.parent_session_id = Some("other_parent".into());
+        mem.add_checkpoint(other_child);
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        ArchiveSweeper::cascade_kill_children(storage.as_ref(), "parent")
+            .await
+            .unwrap();
+
+        let deleted = mem.deleted_ids();
+        assert!(deleted.contains(&"child_a".to_string()));
+        assert!(deleted.contains(&"child_b".to_string()));
+        // other_child should NOT be deleted
+        assert!(!deleted.contains(&"other_child".to_string()));
+    }
+
+    // -----------------------------------------------------------------
+    // Test: cascade_archive kills children then archives parent
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_cascade_archive_kills_children_then_archives_parent() {
+        let mem = Arc::new(MemStorage::default());
+
+        let mut parent = SessionCheckpoint::new("parent-archive".into());
+        parent.parent_session_id = None;
+        mem.add_checkpoint(parent);
+
+        let mut child = SessionCheckpoint::new("child-archive".into());
+        child.parent_session_id = Some("parent-archive".into());
+        mem.add_checkpoint(child);
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        ArchiveSweeper::cascade_archive_impl(storage, "parent-archive".into())
+            .await
+            .unwrap();
+
+        // Child should be deleted
+        let deleted = mem.deleted_ids();
+        assert!(deleted.contains(&"child-archive".to_string()));
+
+        // Parent should be archived
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(archive_called.contains(&"parent-archive".into()));
+    }
+
+    #[tokio::test]
+    async fn test_cascade_archive_no_children_archives_parent() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_checkpoint(SessionCheckpoint::new("solo-parent".into()));
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        ArchiveSweeper::cascade_archive_impl(storage, "solo-parent".into())
+            .await
+            .unwrap();
+
+        // No children deleted
+        let deleted = mem.deleted_ids();
+        assert!(deleted.is_empty());
+
+        // Parent should be archived
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(archive_called.contains(&"solo-parent".into()));
     }
 }
