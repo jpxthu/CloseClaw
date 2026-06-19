@@ -254,7 +254,7 @@ impl Daemon {
                 //   ConfigManager.load_agents() → AgentRegistry.populate()
                 {
                     let configs: Vec<_> = config_manager.agents().into_values().collect();
-                    agent_registry.populate(configs).await;
+                    agent_registry.populate(configs);
                 }
 
                 // Pass config_manager to SessionManager for agent tool/skill filtering.
