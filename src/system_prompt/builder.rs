@@ -4,6 +4,8 @@
 
 use super::sections::{get_cached_section, load_cached_file_section, read_file_section, Section};
 use super::tools_section::build_tools_section;
+use crate::agent::registry::AgentRegistry;
+use crate::session::bootstrap::loader::load_bootstrap_files;
 use crate::skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -118,6 +120,10 @@ use crate::tools::{ToolContext, ToolRegistry};
 pub struct WorkspaceBuildConfig<'a> {
     /// Bootstrap files as (filename, content) pairs, in display order.
     /// Provided by `load_bootstrap_files`.
+    ///
+    /// When empty and `agent_registry` + `agent_id` are set, the builder
+    /// queries the AgentRegistry for the bootstrap mode and loads files
+    /// automatically (design-doc query path).
     pub bootstrap_files: Vec<(String, String)>,
     /// Tool registry for generating the ToolsSection.
     pub tool_registry: Option<&'a ToolRegistry>,
@@ -144,9 +150,21 @@ pub struct WorkspaceBuildConfig<'a> {
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
     pub append_section: Option<String>,
+    /// Optional AgentRegistry reference for direct bootstrap mode queries.
+    ///
+    /// When set alongside `agent_id`, the builder can query the AgentRegistry
+    /// for the agent's bootstrap mode configuration, fulfilling the
+    /// design-doc query path: System Prompt → AgentRegistry.get(agent_id)
+    /// → bootstrap_mode.
+    pub agent_registry: Option<Arc<AgentRegistry>>,
 }
 
 /// Build a system prompt from a workspace directory.
+///
+/// When `config.bootstrap_files` is empty and `config.agent_registry`
+/// and `config.agent_id` are set, the builder queries the AgentRegistry
+/// for the agent's bootstrap mode and loads files automatically
+/// (design-doc query path: System Prompt → AgentRegistry).
 pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     config: WorkspaceBuildConfig<'_>,
@@ -154,9 +172,28 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     let root = workspace_root.as_ref();
     let mut sections: Vec<Section> = Vec::new();
 
+    // Resolve bootstrap files: use pre-loaded files, or query AgentRegistry
+    // for the bootstrap mode and load them on the fly.
+    let resolved_bootstrap_files = if config.bootstrap_files.is_empty() {
+        if let (Some(registry), Some(agent_id)) = (config.agent_registry.as_ref(), config.agent_id)
+        {
+            if let Some(mode) = registry.query_bootstrap_mode(agent_id) {
+                load_bootstrap_files(root, mode)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect()
+            } else {
+                config.bootstrap_files.clone()
+            }
+        } else {
+            config.bootstrap_files.clone()
+        }
+    } else {
+        config.bootstrap_files.clone()
+    };
+
     // RoleSection from bootstrap files (skip MEMORY.md)
-    let role: String = config
-        .bootstrap_files
+    let role: String = resolved_bootstrap_files
         .iter()
         .filter(|(n, _)| n != "MEMORY.md")
         .map(|(_, c)| c.as_str())

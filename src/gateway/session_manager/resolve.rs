@@ -109,6 +109,7 @@ impl SessionManager {
                                 .as_ref()
                                 .map(Self::extract_agent_filters)
                                 .unwrap_or_default();
+                            let agent_registry = self.agent_registry.read().await.clone();
                             let prompt = session_helpers::build_session_system_prompt(
                                 &self.workspace_dir,
                                 self.bootstrap_mode,
@@ -116,6 +117,7 @@ impl SessionManager {
                                 skill_registry,
                                 &agent_id,
                                 &filters,
+                                agent_registry,
                             )
                             .await;
 
@@ -194,6 +196,7 @@ impl SessionManager {
             .as_ref()
             .map(Self::extract_agent_filters)
             .unwrap_or_default();
+        let agent_registry = self.agent_registry.read().await.clone();
         let prompt = session_helpers::build_session_system_prompt(
             &self.workspace_dir,
             self.bootstrap_mode,
@@ -201,6 +204,7 @@ impl SessionManager {
             skill_registry,
             &agent_id,
             &filters,
+            agent_registry,
         )
         .await;
 

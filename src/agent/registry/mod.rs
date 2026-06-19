@@ -5,6 +5,7 @@
 //! queries. All runtime state (processes, lifecycle) lives elsewhere.
 
 use crate::config::agents::ResolvedAgentConfig;
+use crate::session::bootstrap::loader::BootstrapMode;
 use dashmap::DashMap;
 use std::sync::Arc;
 
@@ -57,6 +58,18 @@ impl AgentRegistry {
         for cfg in configs {
             self.configs.insert(cfg.id.clone(), cfg);
         }
+    }
+
+    /// Query the bootstrap mode for an agent by ID.
+    ///
+    /// Returns the agent's configured `BootstrapMode` (Full or Minimal).
+    /// Returns `None` if the agent is not found in the registry.
+    ///
+    /// This is the System Prompt → AgentRegistry query path described in
+    /// the design doc: System Prompt queries bootstrap mode configuration
+    /// directly from AgentRegistry.
+    pub fn query_bootstrap_mode(&self, agent_id: &str) -> Option<BootstrapMode> {
+        self.configs.get(agent_id).map(|cfg| cfg.bootstrap_mode)
     }
 }
 
