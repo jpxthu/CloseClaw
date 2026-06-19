@@ -35,6 +35,7 @@ mod tests {
             account_id: None,
             parent_session_id: None,
             depth: 0,
+            effective_max_spawn_depth: None,
         }
     }
 
@@ -395,6 +396,7 @@ mod tests {
             account_id: None,
             parent_session_id: None,
             depth: 0,
+            effective_max_spawn_depth: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -437,6 +439,7 @@ mod tests {
             account_id: None,
             parent_session_id: None,
             depth: 0,
+            effective_max_spawn_depth: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -479,6 +482,7 @@ mod tests {
             account_id: None,
             parent_session_id: None,
             depth: 0,
+            effective_max_spawn_depth: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 

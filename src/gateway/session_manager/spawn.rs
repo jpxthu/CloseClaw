@@ -46,10 +46,36 @@ impl SessionManager {
         sessions.get(session_id).map(|s| s.depth)
     }
 
+    /// Get the effective max spawn depth budget for a session.
+    ///
+    /// Reads from the session's checkpoint (persisted by `create_child_session`).
+    /// Returns `None` if the session has no stored effective budget (e.g. root
+    /// sessions created before Step 1.1, or when storage is unavailable).
+    pub async fn get_effective_max_spawn_depth(&self, session_id: &str) -> Option<u32> {
+        let storage = self.storage.read().await;
+        let storage = storage.as_ref()?;
+        match storage.load_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp.effective_max_spawn_depth,
+            _ => None,
+        }
+    }
+
     /// Count active (non-completed) child sessions for a parent.
     pub async fn count_active_children(&self, parent_id: &str) -> usize {
         let children = self.children.read().await;
         children.get(parent_id).map(|v| v.len()).unwrap_or(0)
+    }
+
+    /// List all active child session IDs for a parent.
+    ///
+    /// Returns a cloned snapshot so the caller does not hold the
+    /// `children` lock across await points.
+    pub(crate) async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
+        let children = self.children.read().await;
+        children
+            .get(parent_id)
+            .map(|list| list.iter().map(|info| info.session_id.clone()).collect())
+            .unwrap_or_default()
     }
 
     /// Register a child session under its parent. Called after child session creation.
@@ -276,7 +302,8 @@ impl SessionManager {
             .with_platform("spawn".to_string())
             .with_agent_id(config.id.clone())
             .with_parent_session_id(parent_session_id.to_string())
-            .with_depth(depth);
+            .with_depth(depth)
+            .with_effective_max_spawn_depth(Some(max_spawn_depth));
         if let Some(storage) = self.storage.read().await.as_ref() {
             if let Err(e) = storage.save_checkpoint(&cp).await {
                 warn!(
@@ -407,9 +434,8 @@ impl SessionManager {
         Ok(PathBuf::from("/tmp"))
     }
 
-    /// Validate that a child session is owned by the given parent and
-    /// was spawned in `Session` mode (persistent). Returns the child
-    /// info on success, `None` otherwise.
+    /// Validate that a child session is owned by the given parent.
+    /// Returns the child info on success, `None` otherwise.
     ///
     /// Pure read operation — does not hold the children lock across
     /// any await point.
@@ -421,10 +447,7 @@ impl SessionManager {
         let children = self.children.read().await;
         children
             .get(parent_id)
-            .and_then(|list| {
-                list.iter()
-                    .find(|info| info.session_id == child_id && info.mode == SpawnMode::Session)
-            })
+            .and_then(|list| list.iter().find(|info| info.session_id == child_id))
             .cloned()
     }
 

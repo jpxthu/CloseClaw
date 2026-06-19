@@ -33,6 +33,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         account_id: None,
         parent_session_id: None,
         depth: 0,
+        effective_max_spawn_depth: None,
     }
 }
 

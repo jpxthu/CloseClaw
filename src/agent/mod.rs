@@ -7,3 +7,7 @@ pub mod spawn;
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod spawn_tests;
+
+#[cfg(test)]
+#[path = "spawn_budget_tests.rs"]
+mod spawn_budget_tests;

@@ -252,6 +252,7 @@ mod tests {
             sender_id: None,
             parent_session_id: None,
             depth: 0,
+            effective_max_spawn_depth: None,
         }
     }
 
