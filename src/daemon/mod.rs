@@ -5,6 +5,8 @@
 pub mod config_reload;
 pub mod shutdown;
 pub mod skill_reload;
+use crate::admin::client::admin_socket_path;
+use crate::admin::server::{AdminContext, AdminServer};
 use crate::agent::spawn::SpawnController;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
@@ -85,6 +87,11 @@ pub struct Daemon {
     _config_watcher: Option<config_reload::ConfigWatcherHandle>,
     /// Daemon-level approval orchestrator
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    /// Admin RPC server task handle (drop cancels the task)
+    #[allow(dead_code)]
+    admin_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Path to the admin RPC socket file (cleaned up on shutdown)
+    admin_socket_path: PathBuf,
 }
 // --- Lifecycle: start, run ---
 impl Daemon {
@@ -230,17 +237,18 @@ impl Daemon {
         // Create ToolRegistry and register builtin tools
         let tool_registry = Arc::new(ToolRegistry::new());
         let mut config_watcher = None;
+        // Create ConfigManager early so it's available for admin RPC.
+        let config_manager = Arc::new(
+            ConfigManager::new(PathBuf::from(config_dir))
+                .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
+        );
         {
             let disk_reg_opt = {
                 let guard = skill_registry.read().unwrap();
                 guard.as_ref().map(|dr| Arc::new(dr.clone()))
             };
             if let Some(disk_reg) = disk_reg_opt {
-                // Create ConfigManager and load agent configs (non-fatal if missing).
-                let config_manager = Arc::new(
-                    ConfigManager::new(PathBuf::from(config_dir))
-                        .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
-                );
+                // Load agent configs (non-fatal if missing).
                 if let Err(e) = config_manager.load_agents(None) {
                     tracing::warn!(
                         error = %e,
@@ -334,6 +342,22 @@ impl Daemon {
             Arc::clone(&approval_flow),
         );
 
+        // ── Admin RPC Server ──────────────────────────────────────────────
+        let admin_sock_path = admin_socket_path(Path::new(config_dir));
+        let admin_context = AdminContext {
+            agent_registry: Arc::clone(&agent_registry),
+            skill_registry: skill_registry.clone(),
+            config_manager: Arc::clone(&config_manager),
+            config_dir: PathBuf::from(config_dir),
+        };
+        let admin_server = AdminServer::new(&admin_sock_path, admin_context);
+        let admin_handle = tokio::spawn(async move {
+            if let Err(e) = admin_server.serve().await {
+                tracing::error!(error = %e, "admin RPC server failed");
+            }
+        });
+        info!("admin RPC server started on {}", admin_sock_path.display());
+
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -349,6 +373,8 @@ impl Daemon {
             _skill_watcher: Some(skill_watcher),
             _config_watcher: config_watcher,
             approval_flow,
+            admin_handle: Some(admin_handle),
+            admin_socket_path: admin_sock_path,
         })
     }
     /// Run the daemon — blocks until shutdown signal is received.
@@ -374,6 +400,8 @@ impl Daemon {
         // Clear all pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
         let _ = self.sweeper_shutdown_tx.send(());
+        // Clean up admin socket file
+        let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
         Ok(())
     }
     /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
@@ -390,6 +418,8 @@ impl Daemon {
         // Clear all pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
         let _ = self.sweeper_shutdown_tx.send(());
+        // Clean up admin socket file
+        let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
         Ok(())
     }
 }

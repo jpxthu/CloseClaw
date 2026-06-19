@@ -47,6 +47,11 @@ impl AgentRegistry {
         self.configs.get(id)
     }
 
+    /// Iterate all registered agent configs.
+    pub fn iter(&self) -> dashmap::iter::Iter<'_, String, ResolvedAgentConfig> {
+        self.configs.iter()
+    }
+
     /// Replace all stored configs with the given set (hot-reload).
     pub fn reload(&self, configs: Vec<ResolvedAgentConfig>) {
         self.configs.clear();
