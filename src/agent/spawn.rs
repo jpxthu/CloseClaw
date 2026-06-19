@@ -127,12 +127,29 @@ impl SpawnController {
             )
         };
 
-        // 6. Depth check — effective max = min(child.max_spawn_depth, parent.max_spawn_depth - 1)
+        // 6. Depth check — read the parent's effective budget from
+        //    its checkpoint (persisted by create_child_session).  For
+        //    root sessions or legacy checkpoints without the field,
+        //    fall back to the config value.
+        let parent_effective_budget = self
+            .session_manager
+            .get_effective_max_spawn_depth(parent_session_id)
+            .await
+            .unwrap_or(max_spawn_depth);
+
+        if parent_effective_budget == 0 {
+            return Err(SpawnError::DepthExceeded {
+                current: parent_depth + 1,
+                max: 0,
+            });
+        }
+
+        // effective = min(child.max_spawn_depth, parent_effective_budget - 1)
         let child_max_spawn_depth = target_config
             .as_ref()
             .map(|c| c.subagents.max_spawn_depth)
             .unwrap_or(1);
-        let effective_max = child_max_spawn_depth.min(max_spawn_depth.saturating_sub(1));
+        let effective_max = child_max_spawn_depth.min(parent_effective_budget.saturating_sub(1));
         let child_depth = parent_depth + 1;
         if child_depth > effective_max {
             return Err(SpawnError::DepthExceeded {

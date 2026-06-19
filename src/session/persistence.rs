@@ -73,6 +73,13 @@ pub struct SessionCheckpoint {
     /// spawn 层级深度（根节点为 0）
     #[serde(default)]
     pub depth: u32,
+    /// 有效最大 spawn 深度预算（沿 spawn 链传播）
+    ///
+    /// 根 agent 的有效预算 = maxSpawnDepth；
+    /// 子 agent 的有效预算 = min(子.maxSpawnDepth, 父.有效预算 - 1)。
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON。
+    #[serde(default)]
+    pub effective_max_spawn_depth: Option<u32>,
 }
 
 impl SessionCheckpoint {
@@ -102,6 +109,7 @@ impl SessionCheckpoint {
             sender_id: None,
             parent_session_id: None,
             depth: 0,
+            effective_max_spawn_depth: None,
         }
     }
 
@@ -201,6 +209,11 @@ impl SessionCheckpoint {
     /// Update the spawn depth
     pub fn with_depth(mut self, depth: u32) -> Self {
         self.depth = depth;
+        self
+    }
+    /// Update the effective max spawn depth
+    pub fn with_effective_max_spawn_depth(mut self, depth: Option<u32>) -> Self {
+        self.effective_max_spawn_depth = depth;
         self
     }
     /// Touch the updated_at timestamp

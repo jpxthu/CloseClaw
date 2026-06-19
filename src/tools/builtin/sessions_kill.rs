@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// Tool that kills a persistent child session by stopping it (cascade)
+/// Tool that kills a child session by stopping it (cascade)
 /// and removing it from all tracking tables.
 ///
-/// Only works on `mode=session` children owned by the calling parent.
+/// Works on any mode (run / session) children owned by the calling parent.
 pub struct SessionsKillTool {
     session_manager: Arc<SessionManager>,
 }
@@ -37,9 +37,10 @@ impl Tool for SessionsKillTool {
     }
 
     fn detail(&self) -> String {
-        "Kill a persistent (mode=session) child session by triggering a cascading \
+        "Kill a child session by triggering a cascading \
          stop (cancels in-flight LLM requests and tool processes), then removing \
          it from all tracking tables. The archive is preserved. \
+         Supports any mode (run / session). \
          Requires the child to be owned by the calling parent session."
             .to_string()
     }
