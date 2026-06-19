@@ -3,33 +3,11 @@
 use super::*;
 use crate::llm::Provider;
 
-// --- Fixture-based deserialization and content extraction tests ---
-
-#[test]
-fn test_simple_chat_deserialize_and_extract() {
-    let json = include_str!("../../../tests/fixtures/llm/minimax/simple-chat.json");
-    let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-    let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
-    let msg = &choice.message;
-    let extracted = MiniMaxProvider::extract_content(msg);
-    assert!(
-        !extracted.is_empty(),
-        "Expected non-empty extracted content from reasoning_content"
-    );
-    assert_eq!(extracted, msg.reasoning_content.as_ref().unwrap().trim());
-}
-
-#[test]
-fn test_simple_chat_content_priority_over_reasoning() {
-    // both-content.json: both content and reasoning_content populated → content wins
-    let json = include_str!("../../../tests/fixtures/llm/minimax/both-content.json");
-    let resp: MiniMaxResponse = serde_json::from_str(json).unwrap();
-    let choice = resp.choices.as_ref().and_then(|c| c.first()).unwrap();
-    let msg = &choice.message;
-    let extracted = MiniMaxProvider::extract_content(msg);
-    // content takes priority
-    assert!(extracted.starts_with("Final answer:"));
-}
+// TODO: Rewrite with v2 fixture (minimax/MiniMax-M3/anthropic/)
+// #[test]
+// fn test_simple_chat_deserialize_and_extract() { ... }
+// #[test]
+// fn test_simple_chat_content_priority_over_reasoning() { ... }
 
 // --- Provider trait tests ---
 

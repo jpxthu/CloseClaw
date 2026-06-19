@@ -42,7 +42,7 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 | 供应商 | 推荐协议 | 原因 |
 |--------|---------|------|
-| MiniMax | Anthropic | OpenAI 协议下推理内容以 XML 标签嵌入文本，缺乏结构化区分；Anthropic 协议下为独立内容块 |
+| MiniMax | Anthropic | OpenAI 协议下推理内容以特殊标签嵌入文本，缺乏结构化区分；Anthropic 协议下为独立内容块 |
 | GLM | OpenAI | Anthropic 协议下推理块可能丢失 |
 | DeepSeek | Anthropic | 协议下响应带数字签名，便于追溯内容来源 |
 

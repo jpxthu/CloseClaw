@@ -1,103 +1,288 @@
-# GLM Coding Plan API Fixtures
+# GLM Fixtures
 
-Real API responses captured from `https://open.bigmodel.cn/api/coding/paas/v4/chat/completions`.
+## 推荐协议结论
 
-**Supported models**: GLM-5.1, GLM-5-Turbo, GLM-4.7, GLM-4.5-Air
+**优先使用 OpenAI 协议。**
 
-**Important observations** (differences from OpenAI/MiniMax):
+GLM 在 Anthropic 协议下,simple 场景(无工具调用)会**完全丢失 thinking 内容**,无法通过任何字段恢复。
 
-| Aspect | GLM Behavior |
-|--------|--------------|
-| Reasoning models | Uses `reasoning_content` field (like MiniMax), NOT `content`. `content` is empty string for reasoning models |
-| finish_reason=length | Triggers when `max_tokens` limit hit — still fills `reasoning_content` |
-| Error format | `{ "error": { "code": "1211", "message": "..." } }` — top-level `error` key, not nested |
-| Model name in response | May differ in casing from request (e.g., `"GLM-4.7"` → `"glm-5.1"`) |
-| Reasoning tokens | Tracked in `usage.completion_tokens_details.reasoning_tokens` |
-| Cached tokens | Tracked in `usage.prompt_tokens_details.cached_tokens` |
-| Streaming delta | Uses `reasoning_content` in `delta`, NOT `content` |
-| Streaming format | SSE `data: ` prefix per line |
+OpenAI 协议下 `reasoning_content` 是独立字段,`content` 干净,thinking 始终可用。
 
-## Chat Completions Fixtures
+| 协议 | Thinking 处理 | 备注 |
+|------|-------------|------|
+| **OpenAI** ✅ | `choices[].message.reasoning_content` 独立字段,`content` 不混入 thinking | 优先使用 |
+| Anthropic ⚠️ | simple 场景 `content` 只有 text block,thinking block 完全丢失 | 仅工具调用场景使用 |
 
-| File | Model | Description |
-|------|-------|-------------|
-| `glm-5.1-chat.json` | GLM-5.1 | Basic chat, short response |
-| `glm-5.1-multi-turn.json` | GLM-5.1 | 3-turn conversation |
-| `glm-5.1-system-prompt.json` | GLM-5.1 | With system prompt, emoji style |
-| `glm-5.1-short-max-tokens.json` | GLM-5.1 | `finish_reason=length`, max_tokens=5 |
-| `glm-5.1-code-generation.json` | GLM-5.1 | Python hello world |
-| `glm-5.1-unicode-chat.json` | GLM-5.1 | Chinese content |
-| `glm-5.1-temp-1.0.json` | GLM-5.1 | Temperature 1.0 |
-| `glm-5.1-long-history.json` | GLM-5.1 | 5-turn conversation history |
-| `glm-5.1-reasoning.json` | GLM-5.1 | Reasoning-heavy math question |
-| `glm-5-turbo-chat.json` | GLM-5-Turbo | Basic chat |
-| `glm-4.7-simple-chat.json` | GLM-4.7 | Basic chat, temperature 0.7 |
-| `glm-4.7-math-temp0.json` | GLM-4.7 | Math answer, temperature 0 |
-| `glm-4.7-short-max-tokens.json` | GLM-4.7 | `finish_reason=length`, max_tokens=5 |
-| `glm-4.7-long-response.json` | GLM-4.7 | Full paragraph, 300 tokens |
-| `glm-4.7-multi-turn.json` | GLM-4.7 | 3-turn conversation |
-| `glm-4.7-system-prompt.json` | GLM-4.7 | With system prompt |
-| `glm-4.7-code-generation.json` | GLM-4.7 | Python hello world |
-| `glm-4.7-unicode-chat.json` | GLM-4.7 | Chinese content |
-| `glm-4.7-long-history.json` | GLM-4.7 | 5-turn conversation history |
-| `glm-4.7-temp-1.0.json` | GLM-4.7 | Temperature 1.0 |
-| `glm-4.5-air-chat.json` | GLM-4.5-Air | Basic chat |
-| `glm-error-invalid-model.json` | — | Error: invalid model (code 1211) |
-| `glm-error-empty-messages.json` | — | Error: empty messages (code 1214) |
+---
 
-## Streaming Fixtures
+## 目录结构
 
-| File | Model | Description |
-|------|-------|-------------|
-| `streaming-glm-4.7.txt` | GLM-4.7 | SSE streaming, "Count to 3" |
-| `streaming-glm-5.1.txt` | GLM-5.1 | SSE streaming, "What is 2+2?" |
-| `streaming-glm-5.1-v2.txt` | GLM-5.1 | SSE streaming, another sample |
+```
+glm/
+├── glm-5.2/             # 替代 glm-5.1(glm-5.1 已下架,调用转发到 glm-5.2)
+│   ├── openai/          # 16 场景
+│   │   ├── simple.json
+│   │   ├── glm-thinking.json          # thinking enabled（extra_body.thinking.type="enabled"）
+│   │   ├── glm-thinking-disabled.json  # thinking disabled
+│   │   ├── cache.json                  # cached_tokens = 0（不支持）
+│   │   ├── context-pressure.json
+│   │   ├── streaming.txt
+│   │   ├── streaming-meta.json
+│   │   ├── tool-use.json
+│   │   ├── tool-result.json
+│   │   ├── tool-use-streaming.txt
+│   │   ├── tool-use-streaming-meta.json
+│   │   ├── multi-turn.json
+│   │   ├── error-auth.json
+│   │   ├── error-model.json
+│   │   ├── error-empty.json
+│   │   └── error-tool-format.json
+│   └── anthropic/       # 13 场景
+│       ├── anthropic-simple.json
+│       ├── anthropic-thinking.json
+│       ├── anthropic-cache.json
+│       ├── anthropic-context-pressure.json
+│       ├── anthropic-streaming.txt
+│       ├── anthropic-streaming-meta.json
+│       ├── anthropic-tool-use.json
+│       ├── anthropic-tool-result.json
+│       ├── anthropic-tool-use-streaming.txt
+│       ├── anthropic-tool-use-streaming-meta.json
+│       └── anthropic-error-*.json
+├── glm-5.1/             # ⚠️ 已下架。历史 fixture 仅作参考，新适配请用 glm-5.2
+│   └── …（同 glm-5.2 结构）
+├── glm-5/               # 同结构，支持 tool_stream=True
+├── glm-5-turbo/         # 同结构
+├── glm-4.7/             # 同结构，支持 tool_stream=True
+└── glm-4.5-air/         # 同结构
+```
 
-## Usage Fixtures
+---
 
-| File | Endpoint | Description |
-|------|----------|-------------|
-| `usage-glm-coding-plan.json` | `open.bigmodel.cn/api/monitor/usage/quota/limit` | CN endpoint, Pro plan |
-| `usage-glm-global.json` | `api.z.ai/api/monitor/usage/quota/limit` | Global endpoint, same data |
+## 各场景响应字段说明
 
-**Usage response key fields**:
-- `level`: plan tier (`pro`, `lite`, `max`)
-- `TOKENS_LIMIT` `unit=3`: 5-hour window, `percentage` shows usage
-- `TOKENS_LIMIT` `unit=6`: weekly/monthly window
-- `TIME_LIMIT` `unit=5`: MCP quota (search, web-reader, zread)
+### OpenAI - simple(基础对话)
 
-## Capture Script
+文件:`glm-5.2/openai/simple.json`
 
-See `capture-glm-fixtures.sh` — run with `GLM_API_KEY=your_key ./capture-glm-fixtures.sh`.
+```json
+{
+  "choices": [{
+    "message": {
+      "content": "Hello to you.",
+      "reasoning_content": "1. **Analyze the Request:** ...",   // 始终存在,内容可能很短
+      "role": "assistant"
+    },
+    "finish_reason": "stop"
+  }],
+  "usage": {
+    "prompt_tokens_details": {"cached_tokens": 0},
+    "completion_tokens_details": {"reasoning_tokens": 274},
+    "completion_tokens": 280
+  }
+}
+```
 
-**Note**: Coding Plan does not support Anthropic-compatible API endpoint. Only the OpenAI-compatible `/coding/paas/v4/chat/completions` endpoint is available.
+**注意**:即使未启用 thinking,`reasoning_content` 字段也会出现,只是内容很短(模型仍做内部推理)。
 
-## MCP Fixtures
+---
 
-MCP servers use SSE response format (`id:` + `event:message` + `data:` lines).
+### OpenAI - glm-thinking(thinking enabled)
 
-**Endpoint**: `https://open.bigmodel.cn/api/mcp/<service>/mcp`
+文件:`glm-5.2/openai/glm-thinking.json`
 
-| File | MCP Server | Content |
-|------|-----------|---------|
-| `mcp-web-search-prime-list.json` | Web Search | `tools/list` — `web_search_prime` tool |
-| `mcp-web-reader-list.json` | Web Reader | `tools/list` — `webReader` tool |
-| `mcp-zread-list.json` | ZRead | `tools/list` — `search_doc`, `read_file`, `get_repo_structure` |
+请求需发送:
+```json
+"extra_body": {"thinking": {"type": "enabled"}}
+```
 
-**MCP handshake** (web_search_prime):
-- `initialize` → ✅ Returns protocol version, capabilities, server info (2024-11-05)
-- `tools/list` → ✅ Works
-- `tools/call` → ❌ Auth fails (`MCP error -401: Api key not found`)
-  - The Coding Plan API key works for chat completions but NOT for MCP endpoints
-  - MCP endpoints appear to require a different key format or separate MCP access
-  - `zread` also returns `MCP error -500` (server-side error)
-  - These MCP tools are designed to be called from Claude Code/Cline/etc., not via raw curl
+响应:
+```json
+{
+  "choices": [{
+    "message": {
+      "reasoning_content": "1. Understand the Goal...\n2. Choose a Method...\n3. Drafting...\n4. Structuring...\n...",
+      "content": "17 * 23 = **391**\n\nHere is the step-by-step..."
+    }
+  }],
+  "usage": {
+    "completion_tokens_details": {"reasoning_tokens": 788},
+    "completion_tokens": 1230
+  }
+}
+```
 
-**Note**: Vision MCP (`@z_ai/mcp-server`) is a local npm package, not a remote HTTP endpoint — requires Node.js + MCP client to use.
+`reasoning_content` 长且完整,`content` 干净不含 thinking。
 
-## Not Tested (Coding Plan limitations)
+---
 
-- Function calling / tool use (MCP tools are the mechanism, not direct API)
-- Vision / image input (via Vision MCP local package)
-- Audio input
-- File attachment
+### OpenAI - cache
+
+文件:`glm-5.2/openai/cache.json`
+
+**GLM 不支持 cache**,`prompt_tokens_details.cached_tokens` 始终为 `0`。
+连续三次相同 system + user 调用,prompt_tokens 均为 26,无缓存命中。
+
+---
+
+### OpenAI - streaming(SSE)
+
+文件:`glm-5.2/openai/streaming.txt`
+
+流式输出分为两个阶段:
+1. **reasoning_content 阶段**:`delta` 中只有 `reasoning_content`,持续 chunks
+2. **content 阶段**:`delta` 中只有 `content`,持续 chunks
+3. **结束 chunk**:`choices[].finish_reason="stop"` + `usage` 字段
+
+典型 chunk 序列:
+```
+data: {"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"1"}}]}
+data: {"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":". "}}]}
+... (reasoning_content 逐渐累积)
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"1"}}]}
+data: {"choices":[{"index":0,"delta":{"content":","}}]}
+... (content 逐渐累积)
+data: {"choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":""}}],
+       "usage":{"prompt_tokens":13,"completion_tokens":115,...}}
+data: [DONE]
+```
+
+---
+
+### OpenAI - tool-use
+
+文件:`glm-5.2/openai/tool-use.json`
+
+```json
+{
+  "choices": [{
+    "finish_reason": "tool_calls",
+    "message": {
+      "reasoning_content": "The user wants to know the current weather...",
+      "content": "",
+      "tool_calls": [{
+        "id": "call_-7666540262859992883",
+        "type": "function",
+        "function": {"name": "get_weather", "arguments": "{\"location\":\"San Francisco\"}"}
+      }]
+    }
+  }],
+  "usage": {
+    "prompt_tokens_details": {"cached_tokens": 128},  // 有缓存命中
+    "completion_tokens_details": {"reasoning_tokens": 19},
+    "completion_tokens": 32
+  }
+}
+```
+
+**多轮工具调用关键**:回传时需携带上一轮的 `reasoning_content`,否则多轮会断裂。
+控制参数:`extra_body.thinking.clear_thinking: false`(保留上一轮)。
+
+---
+
+### Anthropic - simple / thinking
+
+文件:`glm-5.2/anthropic/anthropic-simple.json` / `anthropic-thinking.json`
+
+**Both have NO thinking block**,response is clean text only:
+
+```json
+{
+  "content": [{"type": "text", "text": "Hello to you!"}],
+  "stop_reason": "end_turn"
+}
+```
+
+thinking 内容完全丢失,无法通过任何字段恢复。Anthropic 协议下 GLM 不返回 thinking block。
+
+---
+
+### Anthropic - cache
+
+文件:`glm-5.2/anthropic/anthropic-cache.json`
+
+```json
+"usage": {
+  "cache_read_input_tokens": 0
+}
+```
+
+**GLM 不支持 cache**,即使 system 末尾标记了 `cache_control:ephemeral`,`cache_read_input_tokens` 仍为 0。
+
+---
+
+### Anthropic - streaming
+
+文件:`glm-5.2/anthropic/anthropic-streaming.txt`
+
+SSE 事件流:
+```
+event: message_start
+event: ping
+event: content_block_start      // index=0, type="text"
+event: content_block_delta       // text_delta 逐段输出
+event: content_block_delta
+...
+event: content_block_stop
+event: message_delta             // 含 usage 和 stop_reason
+event: message_stop
+data: [DONE]
+```
+
+无 thinking block,全程只有 `content_block_delta` → `text`。
+
+---
+
+### Anthropic - tool-use
+
+文件:`glm-5.2/anthropic/anthropic-tool-use.json`
+
+```json
+{
+  "content": [{
+    "type": "tool_use",
+    "id": "call_ab8014a9d2e84db2807640bd",
+    "name": "get_weather",
+    "input": {"location": "San Francisco"}
+  }],
+  "stop_reason": "tool_use"
+}
+```
+
+工具调用格式:`content[].type="tool_use"`,无 reasoning_content 字段。
+`tools` 参数格式:`[{name, description, input_schema}]`(无 `type` 和 `function` 层)。
+
+---
+
+## 模型能力对比
+
+| 模型 | OpenAI | Anthropic | tool_stream | 备注 |
+|------|--------|-----------|-------------|------|
+| `glm-5.2` | ✅ | ✅ | ❌ | 替代 glm-5.1（glm-5.1 已下架，调用转发到此模型） |
+| `glm-5.1` | ✅ | ✅ | ❌ | ⚠️ 已下架，数据为历史参考，请使用 glm-5.2 |
+| `glm-5` | ✅ | ✅ | ✅ | |
+| `glm-5-turbo` | ✅ | ✅ | ❌ | |
+| `glm-4.7` | ✅ | ✅ | ✅ | |
+| `glm-4.5-air` | ✅ | ✅ | ❌ | |
+
+**tool_stream**：仅 GLM-5 / GLM-4.7 支持 `tool_stream: True`，其他模型不支持。
+
+---
+
+## Cache 支持结论
+
+**GLM 不支持任何 Cache 机制**。
+- OpenAI 协议:`prompt_tokens_details.cached_tokens` 始终为 0
+- Anthropic 协议:`cache_read_input_tokens` 始终为 0
+
+如需 cache 功能,请使用 MiniMax 或 DeepSeek。
+
+---
+
+## 错误响应格式
+
+两者格式一致,均为:
+```json
+{"error": {"message": "...", "type": "...", "code": "..."}}
+```
+HTTP 状态码对应错误类型(401 认证失败、400 参数错误、422 格式错误等)。
