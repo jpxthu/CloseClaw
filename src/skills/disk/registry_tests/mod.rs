@@ -457,7 +457,7 @@ fn test_set_agent_registry_and_accessor() {
     let mut r = DiskSkillRegistry::new(vec![]);
     assert!(r.agent_registry().is_none());
 
-    let arc_reg = Arc::new(AgentRegistry::new(30));
+    let arc_reg = Arc::new(AgentRegistry::new());
     r.set_agent_registry(Arc::clone(&arc_reg));
     assert!(r.agent_registry().is_some());
     // The returned Arc should point to the same registry
@@ -468,7 +468,7 @@ fn test_set_agent_registry_and_accessor() {
 #[test]
 fn test_generate_listing_for_agent_with_whitelist() {
     // Agent has skills whitelist ["foo", "bar"]
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config(
         "agent-1",
         vec!["foo".into(), "bar".into()],
@@ -490,7 +490,7 @@ fn test_generate_listing_for_agent_with_whitelist() {
 #[test]
 fn test_generate_listing_for_agent_agent_not_found() {
     // Agent not in registry — should show all skills (no whitelist)
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![]);
 
     let mut r = DiskSkillRegistry::new(vec![
@@ -507,7 +507,7 @@ fn test_generate_listing_for_agent_agent_not_found() {
 #[test]
 fn test_generate_listing_for_agent_wildcard_whitelist() {
     // Agent skills = ["*"] means show all
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config("agent-wild", vec!["*".into()])]);
 
     let mut r = DiskSkillRegistry::new(vec![
@@ -524,7 +524,7 @@ fn test_generate_listing_for_agent_wildcard_whitelist() {
 #[test]
 fn test_generate_listing_for_agent_empty_skills() {
     // Agent skills = [] means show all (no filtering)
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config("agent-empty", vec![])]);
 
     let mut r = DiskSkillRegistry::new(vec![
@@ -556,7 +556,7 @@ fn test_generate_listing_for_agent_no_registry_set() {
 fn test_generate_listing_fallback_to_agent_registry() {
     // When no explicit whitelist is passed, generate_listing should
     // fall back to AgentRegistry lookup.
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config("agent-fb", vec!["skill-a".into()])]);
 
     let mut r = DiskSkillRegistry::new(vec![
@@ -574,7 +574,7 @@ fn test_generate_listing_fallback_to_agent_registry() {
 #[test]
 fn test_generate_listing_explicit_whitelist_overrides_registry() {
     // When explicit whitelist is provided, AgentRegistry is not used
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config("agent-ov", vec!["skill-a".into()])]);
 
     let mut r = DiskSkillRegistry::new(vec![
@@ -592,7 +592,7 @@ fn test_generate_listing_explicit_whitelist_overrides_registry() {
 #[test]
 fn test_generate_listing_for_agent_user_invocable_filter() {
     // user_invocable: false skills should still be excluded
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config(
         "agent-inv",
         vec!["visible".into(), "hidden".into()],

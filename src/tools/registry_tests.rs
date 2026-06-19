@@ -532,7 +532,7 @@ fn test_set_and_get_agent_registry() {
     let reg = ToolRegistry::new();
     assert!(reg.get_agent_registry().is_none());
 
-    let arc_reg = Arc::new(AgentRegistry::new(30));
+    let arc_reg = Arc::new(AgentRegistry::new());
     reg.set_agent_registry(Arc::clone(&arc_reg));
 
     let returned = reg.get_agent_registry().unwrap();
@@ -551,7 +551,7 @@ fn test_query_agent_tools_config_not_set() {
 #[test]
 fn test_query_agent_tools_config_agent_not_found() {
     let reg = ToolRegistry::new();
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![]);
     reg.set_agent_registry(agent_reg);
 
@@ -563,7 +563,7 @@ fn test_query_agent_tools_config_agent_not_found() {
 #[test]
 fn test_query_agent_tools_config_with_tools_whitelist() {
     let reg = ToolRegistry::new();
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config(
         "agent-1",
         vec!["Read".into(), "Write".into()],
@@ -579,7 +579,7 @@ fn test_query_agent_tools_config_with_tools_whitelist() {
 #[test]
 fn test_query_agent_tools_config_with_disallowed() {
     let reg = ToolRegistry::new();
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config(
         "agent-2",
         vec![],
@@ -595,7 +595,7 @@ fn test_query_agent_tools_config_with_disallowed() {
 #[test]
 fn test_query_agent_tools_config_wildcard() {
     let reg = ToolRegistry::new();
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config(
         "agent-wild",
         vec!["*".into()],
@@ -612,7 +612,7 @@ fn test_query_agent_tools_config_wildcard() {
 #[test]
 fn test_query_agent_tools_config_empty_tools() {
     let reg = ToolRegistry::new();
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config("agent-empty", vec![], vec![])]);
     reg.set_agent_registry(agent_reg);
 
@@ -625,7 +625,7 @@ fn test_query_agent_tools_config_empty_tools() {
 #[test]
 fn test_query_agent_tools_config_both_lists() {
     let reg = ToolRegistry::new();
-    let agent_reg = Arc::new(AgentRegistry::new(30));
+    let agent_reg = Arc::new(AgentRegistry::new());
     agent_reg.populate(vec![make_agent_config(
         "agent-both",
         vec!["Read".into(), "Write".into(), "Edit".into()],

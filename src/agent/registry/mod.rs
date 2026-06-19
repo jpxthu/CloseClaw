@@ -18,18 +18,13 @@ pub struct AgentRegistry {
 
 impl Default for AgentRegistry {
     fn default() -> Self {
-        Self::new_with_graceful_shutdown(30)
+        Self::new()
     }
 }
 
 impl AgentRegistry {
     /// Create a new registry.
-    pub fn new(_heartbeat_timeout_secs: i64) -> Self {
-        Self::new_with_graceful_shutdown(30)
-    }
-
-    /// Create a new registry with graceful shutdown configuration.
-    pub fn new_with_graceful_shutdown(_heartbeat_timeout_secs: i64) -> Self {
+    pub fn new() -> Self {
         Self {
             configs: DashMap::new(),
         }
@@ -77,8 +72,8 @@ impl AgentRegistry {
 pub type SharedAgentRegistry = Arc<AgentRegistry>;
 
 /// Create a new shared agent registry
-pub fn create_registry(heartbeat_timeout_secs: i64) -> SharedAgentRegistry {
-    Arc::new(AgentRegistry::new(heartbeat_timeout_secs))
+pub fn create_registry() -> SharedAgentRegistry {
+    Arc::new(AgentRegistry::new())
 }
 
 #[cfg(test)]

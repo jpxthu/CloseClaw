@@ -30,7 +30,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
 /// Startup fill → query hit and miss.
 #[tokio::test]
 async fn test_populate_then_get() {
-    let registry = create_registry(30);
+    let registry = create_registry();
     let configs = vec![make_config("agent-a"), make_config("agent-b")];
 
     registry.populate(configs);
@@ -56,7 +56,7 @@ async fn test_populate_then_get() {
 /// Hot-reload: old data cleared, new data effective.
 #[tokio::test]
 async fn test_hot_reload_replaces_data() {
-    let registry = create_registry(30);
+    let registry = create_registry();
 
     // Populate with initial data.
     registry.populate(vec![make_config("old-agent")]);
@@ -80,7 +80,7 @@ async fn test_hot_reload_replaces_data() {
 /// Hot-reload: shared agents survive, removed agents gone, added agents appear.
 #[tokio::test]
 async fn test_hot_reload_partial_overlap() {
-    let registry = create_registry(30);
+    let registry = create_registry();
 
     registry.populate(vec![make_config("keep"), make_config("drop")]);
 
@@ -104,7 +104,7 @@ async fn test_hot_reload_partial_overlap() {
 /// Empty populate does not panic.
 #[tokio::test]
 async fn test_populate_empty() {
-    let registry = create_registry(30);
+    let registry = create_registry();
 
     registry.populate(vec![]);
 
@@ -117,7 +117,7 @@ async fn test_populate_empty() {
 /// Populate with duplicate IDs: the last entry wins.
 #[tokio::test]
 async fn test_populate_duplicate_id_last_wins() {
-    let registry = create_registry(30);
+    let registry = create_registry();
 
     let mut first = make_config("dup-agent");
     first.name = "first".to_string();
@@ -138,7 +138,7 @@ async fn test_populate_duplicate_id_last_wins() {
 /// Registry starts empty after create_registry.
 #[tokio::test]
 async fn test_registry_starts_empty() {
-    let registry = create_registry(30);
+    let registry = create_registry();
 
     assert!(
         registry.get("any-id").is_none(),

@@ -124,7 +124,7 @@ fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfi
 
 #[tokio::test]
 async fn test_agent_registry_config_query() {
-    let registry: SharedAgentRegistry = create_registry(30);
+    let registry: SharedAgentRegistry = create_registry();
 
     // Build configs with parent-child relationships via parent_id
     let configs = vec![
@@ -166,7 +166,7 @@ async fn test_agent_registry_config_query() {
 
 #[tokio::test]
 async fn test_config_loading_drives_agent_creation() {
-    let registry: SharedAgentRegistry = create_registry(30);
+    let registry: SharedAgentRegistry = create_registry();
 
     // Simulate agents.json config (registration list of agent IDs)
     let json = r#"{
@@ -276,7 +276,7 @@ async fn test_skill_with_permission_engine_integration() {
     let perm_skill = closeclaw::skills::builtin::PermissionSkill::with_engine(engine.clone());
 
     // Populate registry with a test agent config
-    let registry: SharedAgentRegistry = create_registry(30);
+    let registry: SharedAgentRegistry = create_registry();
     let configs = vec![make_resolved_config("test-agent", None)];
     registry.populate(configs);
 

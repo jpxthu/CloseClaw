@@ -536,7 +536,7 @@ async fn test_external_permissions_used() {
 
     let pe = Arc::new(make_permission_engine());
     let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
-    let ar = Arc::new(AgentRegistry::new(30));
+    let ar = Arc::new(AgentRegistry::new());
     let tool = SessionsSpawnTool::new(controller, sm, pe.clone(), cm.clone(), ar);
 
     // Insert parent effective permissions into the engine cache.
@@ -767,7 +767,7 @@ async fn test_fully_denied_silent_return_no_session_created() {
 
     let pe = Arc::new(make_permission_engine());
     let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
-    let ar = Arc::new(AgentRegistry::new(30));
+    let ar = Arc::new(AgentRegistry::new());
     let tool = SessionsSpawnTool::new(controller, sm.clone(), pe.clone(), cm.clone(), ar);
 
     // Parent has all-allow effective permissions in cache.

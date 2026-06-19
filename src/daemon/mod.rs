@@ -163,7 +163,7 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
-        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new(30));
+        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         info!("Agent registry initialized",);
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
