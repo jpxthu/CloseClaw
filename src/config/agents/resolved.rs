@@ -40,6 +40,10 @@ pub enum ConfigSource {
 }
 
 /// Return project's Vec if non-empty, otherwise fall back to user's.
+///
+/// Implements the design doc rule: "project non-empty value replaces
+/// user value" for Vec fields (skills, tools, disallowed_tools, allow_agents).
+/// Wildcard `["*"]` is treated as a normal non-empty value.
 fn override_if_non_empty<T>(project: Vec<T>, user: Vec<T>) -> Vec<T> {
     if !project.is_empty() {
         project

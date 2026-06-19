@@ -509,7 +509,7 @@ fn test_merge_skills_empty_project_falls_back_to_user() {
 }
 
 #[test]
-fn test_agent_config_ignores_unknown_permissions_field() {
+fn test_agent_config_deserialize_ignores_permissions_key() {
     // After design-doc alignment, AgentConfig should not have a permissions field.
     // Deserializing JSON with a permissions field should not populate any such field.
     let json = r#"{
@@ -522,6 +522,8 @@ fn test_agent_config_ignores_unknown_permissions_field() {
     let config: AgentConfig = serde_json::from_str(json).unwrap();
     // permissions field has been removed; verify id is still parsed correctly
     assert_eq!(config.id, "no-inline-perms");
+    // Verify skills retains default value — proves permissions key was fully ignored.
+    assert_eq!(config.skills, vec!["*"]);
 }
 
 #[test]
@@ -533,6 +535,25 @@ fn test_resolved_config_no_permissions_field() {
     };
     let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
     assert_eq!(resolved.id, "test-agent");
+
+    // Verify merge path also works without a permissions field (no panic).
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some("gpt-4o".to_string()),
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        ..Default::default()
+    };
+    let merged = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(merged.id, "test-agent");
+    assert_eq!(merged.source, ConfigSource::Merged);
+
+    // Verify default field values on resolved config.
+    assert_eq!(merged.skills, vec!["*"]); // default from AgentConfig::default()
+    assert_eq!(merged.tools, vec!["*"]); // default from AgentConfig::default()
+    assert!(merged.disallowed_tools.is_empty());
 }
 
 #[test]
