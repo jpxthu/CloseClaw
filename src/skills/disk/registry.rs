@@ -24,6 +24,10 @@ impl Default for DiskSkillRegistry {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Construction & basic accessors
+// ---------------------------------------------------------------------------
+
 impl DiskSkillRegistry {
     /// Creates a new registry with the given skills and no agent registry.
     pub fn new(skills: Vec<DiskSkill>) -> Self {
@@ -47,10 +51,11 @@ impl DiskSkillRegistry {
         self.agent_registry = Some(registry);
     }
 
-    /// Returns skills that have path-based conditional activation (`paths` is non-empty).
+    /// Returns skills that have path-based conditional activation
+    /// (`paths` is non-empty).
     ///
-    /// These skills are only auto-activated when the current operation context
-    /// involves files matching one of their glob patterns.
+    /// These skills are only auto-activated when the current operation
+    /// context involves files matching one of their glob patterns.
     pub fn conditional_skills(&self) -> Vec<&DiskSkill> {
         self.skills
             .iter()
@@ -58,8 +63,8 @@ impl DiskSkillRegistry {
             .collect()
     }
 
-    /// Returns `true` if any path in `paths` matches one of the glob patterns
-    /// defined in the named skill's manifest `paths` field.
+    /// Returns `true` if any path in `paths` matches one of the glob
+    /// patterns defined in the named skill's manifest `paths` field.
     ///
     /// Returns `false` when:
     /// - The skill does not exist
@@ -115,13 +120,20 @@ impl DiskSkillRegistry {
             .map(|s| s.manifest.name.as_str())
             .collect()
     }
+}
 
+// ---------------------------------------------------------------------------
+// Path matching & source filtering
+// ---------------------------------------------------------------------------
+
+impl DiskSkillRegistry {
     /// Returns all conditional skills (those with non-empty `paths`) that
-    /// match any of the given file paths, sorted by [`SkillSource`] priority
-    /// (Project > Agent > Global > ExtraDirs > Bundled) with deduplication
-    /// by name (higher-priority skill wins).
+    /// match any of the given file paths, sorted by [`SkillSource`]
+    /// priority (Project > Agent > Global > ExtraDirs > Bundled) with
+    /// deduplication by name (higher-priority skill wins).
     ///
-    /// Returns an empty vec when `paths` is empty or no conditional skills match.
+    /// Returns an empty vec when `paths` is empty or no conditional
+    /// skills match.
     pub fn find_matching_skills(&self, paths: &[&Path]) -> Vec<&DiskSkill> {
         if paths.is_empty() {
             return Vec::new();
@@ -150,69 +162,80 @@ impl DiskSkillRegistry {
     pub fn filter_by_source(&self, source: SkillSource) -> Vec<&DiskSkill> {
         self.skills.iter().filter(|s| s.source == source).collect()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Listing generation (AgentRegistry query path)
+// ---------------------------------------------------------------------------
+
+impl DiskSkillRegistry {
+    /// Look up the skills whitelist directly from the AgentRegistry
+    /// for the given agent_id.
+    ///
+    /// Returns `None` when:
+    /// - `agent_id` is `None`
+    /// - The agent registry is not set
+    /// - The agent config is not found
+    /// - The skills list is wildcard (empty or `["*"]`)
+    fn lookup_whitelist_from_agent_registry(&self, agent_id: Option<&str>) -> Option<Vec<String>> {
+        let agent_id = agent_id?;
+        let registry = self.agent_registry.as_ref()?;
+        let cfg = registry.get(agent_id)?;
+        cfg.effective_skills()
+    }
 
     /// Generates a formatted skill listing string for the given agent_id.
     ///
-    /// - Sorts by SkillSource priority (Project > Agent > Global > ExtraDirs > Bundled)
+    /// - Sorts by SkillSource priority
+    ///   (Project > Agent > Global > ExtraDirs > Bundled)
     /// - Within the same priority, sorts by name alphabetically
-    /// - Filters: only includes skills where `agent_id` is empty or matches the given agent_id,
-    ///   and `user_invocable` is true (skills with `user_invocable: false` are excluded)
-    /// - When `skills_whitelist` is `Some(list)`, only skills whose name appears in
-    ///   the list are included (unless the list is `["*"]`, which means no filter).
-    /// - When `skills_whitelist` is `None` and an `agent_registry` is set, the whitelist
-    ///   is looked up directly from the agent config (direct query path, per design doc).
-    /// - Format: `- **{name}**: {description}` + optionally ` — {when_to_use}`
+    /// - Filters: only includes skills where `agent_id` is empty or
+    ///   matches the given agent_id, and `user_invocable` is true
+    /// - When `skills_whitelist` is `Some(list)`, only skills whose
+    ///   name appears in the list are included (unless the list is
+    ///   `["*"]`, which means no filter).
+    /// - When `skills_whitelist` is `None` and an `agent_registry` is
+    ///   set, the whitelist is looked up directly from the agent config
+    ///   (direct query path, per design doc).
+    /// - Format: `- **{name}**: {description}` + optionally
+    ///   ` — {when_to_use}`
     /// - Returns empty string if no skills match
     pub fn generate_listing(
         &self,
         agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> String {
-        // When no explicit whitelist is provided, attempt to look it up
-        // directly from the AgentRegistry (design-doc query path).
         let resolved_whitelist = match skills_whitelist {
             Some(w) => Some(w.to_vec()),
-            None => self
-                .agent_registry
-                .as_ref()
-                .and_then(|reg| reg.get(agent_id.unwrap_or("")))
-                .and_then(|cfg| {
-                    let skills = &cfg.skills;
-                    if skills.is_empty() || *skills == ["*"] {
-                        None
-                    } else {
-                        Some(skills.clone())
-                    }
-                }),
+            None => self.lookup_whitelist_from_agent_registry(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
         self.generate_listing_inner(agent_id, resolved_ref)
     }
 
-    /// Generates a skill listing by directly querying the AgentRegistry for
-    /// the agent's skills whitelist.
+    /// Generates a skill listing by directly querying the AgentRegistry
+    /// for the agent's skills whitelist.
     ///
-    /// This is the primary entry point per the design doc: the Skills Registry
-    /// queries the AgentRegistry to obtain the skills configuration. Falls back
-    /// to showing all skills when the agent registry is not set or the agent
-    /// config is not found.
+    /// This is the primary entry point per the design doc: the Skills
+    /// Registry queries the AgentRegistry to obtain the skills
+    /// configuration. Falls back to showing all skills when the agent
+    /// registry is not set or the agent config is not found.
     pub fn generate_listing_for_agent(&self, agent_id: &str) -> String {
         let resolved_whitelist = self
             .agent_registry
             .as_ref()
             .and_then(|reg| reg.get(agent_id))
-            .and_then(|cfg| {
-                let skills = &cfg.skills;
-                if skills.is_empty() || *skills == ["*"] {
-                    None
-                } else {
-                    Some(skills.clone())
-                }
-            });
+            .and_then(|cfg| cfg.effective_skills());
         let resolved_ref = resolved_whitelist.as_deref();
         self.generate_listing_inner(Some(agent_id), resolved_ref)
     }
+}
 
+// ---------------------------------------------------------------------------
+// Listing filtering
+// ---------------------------------------------------------------------------
+
+impl DiskSkillRegistry {
     /// Internal implementation shared by `generate_listing` and
     /// `generate_listing_for_agent`.
     fn generate_listing_inner(
@@ -252,8 +275,21 @@ impl DiskSkillRegistry {
             return String::new();
         }
 
+        Self::render_listing(&mut filtered)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Listing rendering
+// ---------------------------------------------------------------------------
+
+impl DiskSkillRegistry {
+    /// Render a pre-filtered, pre-sorted skill slice into a listing
+    /// string. Each line is formatted as:
+    ///   `- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {paths}`
+    fn render_listing(skills: &mut Vec<&DiskSkill>) -> String {
         // Sort by source priority (lower is higher priority), then by name
-        filtered.sort_by(|a, b| {
+        skills.sort_by(|a, b| {
             let src_cmp = a.source.cmp(&b.source);
             if src_cmp != std::cmp::Ordering::Equal {
                 return src_cmp;
@@ -261,7 +297,7 @@ impl DiskSkillRegistry {
             a.manifest.name.cmp(&b.manifest.name)
         });
 
-        let lines: Vec<String> = filtered
+        let lines: Vec<String> = skills
             .iter()
             .map(|s| {
                 let when = if s.manifest.when_to_use.is_empty() {
@@ -280,7 +316,6 @@ impl DiskSkillRegistry {
                 )
             })
             .collect();
-
         lines.join("\n")
     }
 }

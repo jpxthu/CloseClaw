@@ -165,6 +165,55 @@ pub struct WorkspaceBuildConfig<'a> {
 /// and `config.agent_id` are set, the builder queries the AgentRegistry
 /// for the agent's bootstrap mode and loads files automatically
 /// (design-doc query path: System Prompt → AgentRegistry).
+/// Push the SkillListingSection into `sections` when a skill registry
+/// is available and produces a non-empty listing.
+fn push_skill_listing_section(
+    sections: &mut Vec<Section>,
+    skill_registry: &Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
+    agent_id: Option<&str>,
+    agent_skills: Option<&[String]>,
+) {
+    let Some(lock) = skill_registry else {
+        return;
+    };
+    let Ok(g) = lock.read() else {
+        return;
+    };
+    let Some(reg) = g.as_ref() else {
+        return;
+    };
+    let listing = reg.generate_listing(agent_id, agent_skills);
+    if !listing.is_empty() {
+        sections.push(Section::SkillListingSection(listing));
+    }
+}
+
+/// Resolve bootstrap files: use pre-loaded files, or query AgentRegistry
+/// for the bootstrap mode and load them on the fly.
+fn resolve_bootstrap_files(
+    root: &Path,
+    config: &WorkspaceBuildConfig<'_>,
+) -> Vec<(String, String)> {
+    if !config.bootstrap_files.is_empty() {
+        return config.bootstrap_files.clone();
+    }
+    let Some(registry) = config.agent_registry.as_ref() else {
+        return config.bootstrap_files.clone();
+    };
+    let Some(agent_id) = config.agent_id else {
+        return config.bootstrap_files.clone();
+    };
+    registry
+        .query_bootstrap_mode(agent_id)
+        .map(|mode| {
+            load_bootstrap_files(root, mode)
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
+        })
+        .unwrap_or_else(|| config.bootstrap_files.clone())
+}
+
 pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     config: WorkspaceBuildConfig<'_>,
@@ -172,25 +221,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     let root = workspace_root.as_ref();
     let mut sections: Vec<Section> = Vec::new();
 
-    // Resolve bootstrap files: use pre-loaded files, or query AgentRegistry
-    // for the bootstrap mode and load them on the fly.
-    let resolved_bootstrap_files = if config.bootstrap_files.is_empty() {
-        if let (Some(registry), Some(agent_id)) = (config.agent_registry.as_ref(), config.agent_id)
-        {
-            if let Some(mode) = registry.query_bootstrap_mode(agent_id) {
-                load_bootstrap_files(root, mode)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect()
-            } else {
-                config.bootstrap_files.clone()
-            }
-        } else {
-            config.bootstrap_files.clone()
-        }
-    } else {
-        config.bootstrap_files.clone()
-    };
+    let resolved_bootstrap_files = resolve_bootstrap_files(root, &config);
 
     // RoleSection from bootstrap files (skip MEMORY.md)
     let role: String = resolved_bootstrap_files
@@ -226,16 +257,12 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
         sections.push(Section::ToolsSection(String::new()));
     }
     // SkillListingSection
-    if let Some(lock) = config.skill_registry {
-        if let Ok(g) = lock.read() {
-            if let Some(reg) = g.as_ref() {
-                let listing = reg.generate_listing(config.agent_id, config.agent_skills.as_deref());
-                if !listing.is_empty() {
-                    sections.push(Section::SkillListingSection(listing));
-                }
-            }
-        }
-    }
+    push_skill_listing_section(
+        &mut sections,
+        &config.skill_registry,
+        config.agent_id,
+        config.agent_skills.as_deref(),
+    );
     sections.extend(config.dynamic_sections);
     build_system_prompt(sections, config.append_section)
 }
