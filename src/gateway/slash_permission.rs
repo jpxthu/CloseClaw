@@ -195,7 +195,7 @@ impl Gateway {
                     .get_conversation_session(session_id)
                     .await
                 {
-                    cs.write().await.set_reasoning_level(level.clone());
+                    cs.write().await.set_reasoning_level(level);
                     if let Some(sh) = self.session_handler.as_ref() {
                         sh.send_reply(format!("推理深度已设置为 {:?}", level)).await;
                     }
@@ -281,20 +281,19 @@ impl Gateway {
                             let mut cs = conv.write().await;
                             cs.cancel_token.cancel();
                             // Cascade stop to child handles.
-                            {
+                            let handles_to_stop: Vec<_> = {
                                 let child_handles = cs
                                     .child_handles
                                     .read()
                                     .expect("child_handles lock poisoned");
-                                let handles_to_stop: Vec<_> =
-                                    child_handles.values().filter_map(|w| w.upgrade()).collect();
-                                drop(child_handles);
-                                for child in handles_to_stop {
-                                    let child_cs = child.read().await;
-                                    child_cs.cancel_token.cancel();
-                                }
-                            }
+                                child_handles.values().filter_map(|w| w.upgrade()).collect()
+                            };
                             cs.clear_pending();
+                            drop(cs);
+                            for child in handles_to_stop {
+                                let child_cs = child.read().await;
+                                child_cs.cancel_token.cancel();
+                            }
                         }
                         if let Some(sh) = self.session_handler.as_ref() {
                             sh.send_reply("已停止当前任务".to_owned()).await;

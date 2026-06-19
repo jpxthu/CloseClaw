@@ -9,16 +9,10 @@ use serde::{Deserialize, Serialize};
 
 /// Agent registration list from agents.json (JSONC format).
 /// Only contains registered agent IDs; commented-out IDs are excluded.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentsConfig {
     /// Registered agent ID list
     pub agents: Vec<String>,
-}
-
-impl Default for AgentsConfig {
-    fn default() -> Self {
-        Self { agents: vec![] }
-    }
 }
 
 #[cfg(test)]

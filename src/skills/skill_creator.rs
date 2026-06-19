@@ -7,6 +7,12 @@ use async_trait::async_trait;
 
 pub struct SkillCreatorSkill;
 
+impl Default for SkillCreatorSkill {
+    fn default() -> Self {
+        Self
+    }
+}
+
 const GUIDE_JSON: &str = r##"{"content":"# Creating a CloseClaw Skill\\n\\n## 1. Create the Skill File\\nCreate `src/skills/your_skill_name.rs`:\\n\\n```rust\\nuse async_trait::async_trait;\\nuse crate::skills::{Skill, SkillManifest, SkillError};\\n\\npub struct YourSkill;\\n\\nimpl YourSkill {\\n    pub fn new() -> Self { Self }\\n}\\n\\n#[async_trait]\\nimpl Skill for YourSkill {\\n    fn manifest(&self) -> SkillManifest {\\n        SkillManifest {\\n            name: \"your_skill_name\".to_string(),\\n            version: \"1.0.0\".to_string(),\\n            description: \"What your skill does\".to_string(),\\n            author: Some(\"Your Name\".to_string()),\\n            dependencies: vec![],\\n        }\\n    }\\n\\n    fn methods(&self) -> Vec<&str> {\\n        vec![\"method1\", \"method2\"]\\n    }\\n\\n    async fn execute(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value, SkillError> {\\n        match method {\\n            \"method1\" => { /* ... */ }\\n            _ => Err(SkillError::MethodNotFound { ... })\\n        }\\n    }\\n}\\n```\\n\\n## 2. Register in mod.rs\\n```rust\\npub mod your_skill_name;\\npub use your_skill_name::YourSkill;\\n```\\n\\n## 3. Create SKILL.md Documentation\\nCreate `docs/skills/your_skill_name/SKILL.md` following the standard format.\\n","format":"markdown"}"##;
 
 const TEMPLATE_JSON: &str = r##"{"template":"---\\nname: skill-name\\ndescription: |\\n  One-line description of what this skill does.\\n---\\n\\n# Skill Name\\n\\n## Overview\\nDescription of the skill.\\n\\n## Quick Reference\\n| User Intent | Tool | action | Required |\\n|-------------|------|--------|----------|\\n| ... | ... | ... | ... |\\n\\n## Usage\\nDetailed usage instructions.\\n","format":"markdown"}"##;

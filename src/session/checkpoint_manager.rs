@@ -42,7 +42,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
 
     /// Get a reference to the underlying storage
     pub fn storage(&self) -> &S {
-        &*self.storage
+        &self.storage
     }
 
     /// 保存 Checkpoint（异步写入，不阻塞主流程）
