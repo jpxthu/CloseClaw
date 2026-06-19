@@ -24,14 +24,12 @@
 
 use std::path::PathBuf;
 
-use serde::Serialize;
-
 use crate::agent::config::{AgentConfig, SubagentsConfig};
 use crate::config::ConfigError;
 use crate::session::bootstrap::BootstrapMode;
 
 /// Configuration source level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigSource {
     /// Loaded from user-level config only.
     User,
@@ -41,11 +39,20 @@ pub enum ConfigSource {
     Merged,
 }
 
+/// Return project's Vec if non-empty, otherwise fall back to user's.
+fn override_if_non_empty<T>(project: Vec<T>, user: Vec<T>) -> Vec<T> {
+    if !project.is_empty() {
+        project
+    } else {
+        user
+    }
+}
+
 /// Fully resolved agent configuration after two-level merge.
 ///
 /// All optional fields have been filled with defaults where neither
 /// project nor user config specified a value.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ResolvedAgentConfig {
     pub id: String,
     pub name: String,
@@ -154,21 +161,12 @@ impl ResolvedAgentConfig {
             } else {
                 user.bootstrap_mode
             },
-            skills: if !project.skills.is_empty() {
-                project.skills
-            } else {
-                user.skills
-            },
-            tools: if !project.tools.is_empty() {
-                project.tools
-            } else {
-                user.tools
-            },
-            disallowed_tools: if !project.disallowed_tools.is_empty() {
-                project.disallowed_tools
-            } else {
-                user.disallowed_tools
-            },
+            skills: override_if_non_empty(project.skills, user.skills),
+            tools: override_if_non_empty(project.tools, user.tools),
+            disallowed_tools: override_if_non_empty(
+                project.disallowed_tools,
+                user.disallowed_tools,
+            ),
             subagents: merge_subagents(project.subagents, user.subagents),
             source: ConfigSource::Merged,
         })
@@ -198,11 +196,7 @@ const SUBAGENT_DEFAULT_MAX_CHILDREN: u32 = 5;
 /// [`ResolvedAgentConfig::merge`].
 fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> SubagentsConfig {
     SubagentsConfig {
-        allow_agents: if !project.allow_agents.is_empty() {
-            project.allow_agents
-        } else {
-            user.allow_agents
-        },
+        allow_agents: override_if_non_empty(project.allow_agents, user.allow_agents),
         require_agent_id: project.require_agent_id || user.require_agent_id,
         max_spawn_depth: if project.max_spawn_depth != SUBAGENT_DEFAULT_MAX_SPAWN_DEPTH {
             project.max_spawn_depth

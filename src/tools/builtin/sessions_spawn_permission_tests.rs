@@ -1,4 +1,4 @@
-//! Permission validation tests for `SessionsSpawnTool` (Step 1.4 of issue #873).
+//! Permission validation tests for `SessionsSpawnTool`.
 //!
 //! Covers:
 //! 1. Child agent all-deny → spawn returns PermissionDenied
