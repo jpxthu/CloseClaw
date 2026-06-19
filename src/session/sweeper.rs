@@ -156,14 +156,14 @@ impl ArchiveSweeper {
     ) {
         let cfg = config.session_config_for(agent_id, role);
 
-        // --- Idle → archive ---
+        // --- Idle → archive (cascade children first) ---
         if let Ok(idle_ids) = storage
             .list_idle_sessions_for_agent(agent_id, role, cfg.idle_minutes)
             .await
         {
             for sid in idle_ids {
                 let sid_err = sid.clone();
-                if let Err(e) = Self::archive_and_invalidate_impl(Arc::clone(&storage), sid).await {
+                if let Err(e) = Self::cascade_archive_impl(Arc::clone(&storage), sid).await {
                     error!(session_id = %sid_err, %e, "failed to archive idle session");
                 }
             }
@@ -204,6 +204,51 @@ impl ArchiveSweeper {
         storage.archive_checkpoint(&checkpoint).await?;
         storage.invalidate_session(&session_id).await?;
         info!(%session_id, "session archived and cache invalidated");
+        Ok(())
+    }
+
+    /// Cascade-terminate all descendants of `session_id` (deepest first),
+    /// then archive the parent session.
+    async fn cascade_archive_impl(
+        storage: Arc<dyn PersistenceService>,
+        session_id: String,
+    ) -> Result<(), ArchiveSweeperError> {
+        // Recursively kill all descendants (deepest → shallowest)
+        Self::cascade_kill_children(storage.as_ref(), &session_id).await?;
+
+        // Now archive the parent session itself
+        Self::archive_and_invalidate_impl(Arc::clone(&storage), session_id.clone()).await?;
+        info!(%session_id, "session archived after cascade cleanup");
+        Ok(())
+    }
+
+    /// Delete all descendants of `parent_session_id` (deepest first).
+    /// Uses an explicit stack to avoid recursive async boxing.
+    async fn cascade_kill_children(
+        storage: &dyn PersistenceService,
+        parent_session_id: &str,
+    ) -> Result<(), ArchiveSweeperError> {
+        // Collect all descendant IDs via BFS, then delete from leaves upward.
+        let mut all_descendants: Vec<String> = Vec::new();
+        let mut stack = vec![parent_session_id.to_string()];
+
+        // BFS to collect all descendant IDs
+        while let Some(current) = stack.pop() {
+            let children = storage.list_children_sessions(&current).await?;
+            for child_id in &children {
+                all_descendants.push(child_id.clone());
+                stack.push(child_id.clone());
+            }
+        }
+
+        // Delete deepest descendants first (reverse BFS order).
+        // This ensures leaf nodes are cleaned up before their parents.
+        for child_id in all_descendants.iter().rev() {
+            storage.delete_checkpoint(child_id).await?;
+            storage.invalidate_session(child_id).await?;
+            info!(parent = %parent_session_id, child = %child_id, "child session deleted and invalidated during cascade");
+        }
+
         Ok(())
     }
 
