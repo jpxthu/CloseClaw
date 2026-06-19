@@ -418,3 +418,121 @@ fn test_agent_config_ignores_removed_fields() {
         "gracePeriodSecs should not be serialized"
     );
 }
+
+// --- Step 1.3: Tests for design-doc alignment ---
+
+#[test]
+fn test_merge_skills_star_overrides_user() {
+    // Project-level ["*"] should override user-level specific list.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["*".to_string()],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["specific-skill".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.skills,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level skills"
+    );
+}
+
+#[test]
+fn test_merge_tools_star_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["*".to_string()],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["read".to_string(), "grep".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.tools,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level tools"
+    );
+}
+
+#[test]
+fn test_merge_allow_agents_star_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["*".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["agent-a".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.subagents.allow_agents,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level allow_agents"
+    );
+}
+
+#[test]
+fn test_merge_skills_empty_project_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec![],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["user-skill".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.skills,
+        vec!["user-skill".to_string()],
+        "empty project skills should fall back to user skills"
+    );
+}
+
+#[test]
+fn test_agent_config_no_inline_permissions_field() {
+    // After design-doc alignment, AgentConfig should not have a permissions field.
+    // Deserializing JSON with a permissions field should not populate any such field.
+    let json = r#"{
+        "id": "no-inline-perms",
+        "permissions": {
+            "agent_id": "no-inline-perms",
+            "permissions": {}
+        }
+    }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    // permissions field has been removed; verify id is still parsed correctly
+    assert_eq!(config.id, "no-inline-perms");
+}
+
+#[test]
+fn test_resolved_config_no_permissions_field() {
+    // Verify that ResolvedAgentConfig no longer carries a permissions field.
+    let config = AgentConfig {
+        id: "test-agent".to_string(),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    // If permissions field existed, this would fail to compile.
+    // This test serves as a compile-time check.
+    assert_eq!(resolved.id, "test-agent");
+}

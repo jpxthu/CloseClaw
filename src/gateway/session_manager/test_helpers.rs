@@ -31,7 +31,6 @@ pub(super) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        permissions: None,
         source: ConfigSource::Merged,
     }
 }
