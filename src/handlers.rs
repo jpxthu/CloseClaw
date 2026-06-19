@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use closeclaw::cli::args::*;
-use closeclaw::permission::{Defaults, PermissionEngine, RuleSet};
+use closeclaw::permission::{Defaults, PermissionEngine, Rule, RuleSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -66,7 +66,40 @@ pub async fn handle_config(action: ConfigAction) -> Result<()> {
             }
         }
         ConfigAction::List => {
-            println!("Config files:\n  (not implemented)");
+            let dir = config_dir();
+            if !dir.is_dir() {
+                println!("No config directory found at {}", dir.display());
+                return Ok(());
+            }
+            let mut entries: Vec<PathBuf> = std::fs::read_dir(&dir)
+                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", dir.display(), e))?
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "json")
+                        .unwrap_or(false)
+                })
+                .map(|e| e.path())
+                .collect();
+            entries.sort();
+            if entries.is_empty() {
+                println!("No config files found in {}", dir.display());
+                return Ok(());
+            }
+            println!("Config files:");
+            for path in &entries {
+                let filename = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.display().to_string());
+                let version = std::fs::read_to_string(path)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .and_then(|v| v.get("version")?.as_str().map(String::from))
+                    .unwrap_or_else(|| "-".to_string());
+                println!("  {} | {} | {}", filename, version, path.display());
+            }
         }
         ConfigAction::Setup { yes } => {
             handle_config_setup(yes).await?;
@@ -78,7 +111,39 @@ pub async fn handle_config(action: ConfigAction) -> Result<()> {
 pub async fn handle_rule(action: RuleAction) -> Result<()> {
     match action {
         RuleAction::Check { rule } => {
-            println!("Checking rule: {}\nRule syntax OK", rule);
+            use closeclaw::permission::rules::validation::validate_rule;
+
+            let is_file_path = rule.starts_with('/')
+                || rule.starts_with("./")
+                || rule.starts_with("../")
+                || rule.ends_with(".json");
+
+            let json_str = if is_file_path {
+                let path = std::path::Path::new(&rule);
+                std::fs::read_to_string(path)
+                    .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", rule, e))?
+            } else {
+                rule.clone()
+            };
+
+            let r: Rule = serde_json::from_str(&json_str)
+                .map_err(|e| anyhow::anyhow!("Failed to parse rule JSON: {}", e))?;
+
+            // Check mutual exclusivity of actions/template
+            if let Err(e) = r.validate() {
+                anyhow::bail!("Rule validation failed: {}", e);
+            }
+
+            // Full validation
+            let errors = validate_rule(&r);
+            if !errors.is_empty() {
+                for err in &errors {
+                    eprintln!("  ❌ {}", err);
+                }
+                anyhow::bail!("Rule '{}' has {} validation error(s)", r.name, errors.len());
+            }
+
+            println!("✅ Rule '{}': valid", r.name);
         }
         RuleAction::List => {
             println!("Rules:\n  (not implemented)");
