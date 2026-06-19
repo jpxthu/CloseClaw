@@ -1,11 +1,13 @@
 //! Session recovery service
 //!
 //! Provides functionality to recover sessions from persisted checkpoints
-//! during gateway startup.
+//! during gateway startup, including spawn_tree reconstruction.
 
-use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 
 /// Session recovery service — recovers sessions from persisted checkpoints
 pub struct SessionRecoveryService<S: PersistenceService> {
@@ -41,26 +43,45 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
     /// Execute the recovery process
     ///
     /// Scans all active sessions from storage and attempts to recover each one.
+    /// After recovery, rebuilds the spawn_tree from checkpoint data:
+    /// - Sessions with `parent_session_id` whose parent is also recovered
+    ///   are registered as children in the spawn_tree.
+    /// - Sessions with `parent_session_id` whose parent is NOT recovered
+    ///   (swept) are demoted to root nodes (depth reset to 0).
+    /// - Sessions without `parent_session_id` are confirmed as root nodes.
     pub async fn recover(&self) -> Result<RecoveryReport, PersistenceError> {
         let active_sessions = self.storage.list_active_sessions().await?;
         let mut recovered = Vec::new();
         let mut failed = Vec::new();
+        let mut checkpoints: HashMap<String, SessionCheckpoint> = HashMap::new();
 
-        for session_id in active_sessions {
-            match self.recover_session(&session_id).await {
-                Ok(()) => recovered.push(session_id.clone()),
+        for session_id in &active_sessions {
+            match self.recover_session(session_id).await {
+                Ok(()) => {
+                    recovered.push(session_id.clone());
+                    // Load checkpoint for spawn_tree reconstruction
+                    if let Ok(Some(cp)) = self.storage.load_checkpoint(session_id).await {
+                        checkpoints.insert(session_id.clone(), cp);
+                    }
+                }
                 Err(e) => {
                     tracing::error!(
                         session_id = %session_id,
                         "Failed to recover session: {}",
                         e
                     );
-                    failed.push(session_id);
+                    failed.push(session_id.clone());
                 }
             }
         }
 
-        Ok(RecoveryReport { recovered, failed })
+        let spawn_tree = Self::build_spawn_tree(&checkpoints, &recovered);
+
+        Ok(RecoveryReport {
+            recovered,
+            failed,
+            spawn_tree,
+        })
     }
 
     /// Recover a single session
@@ -79,9 +100,82 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
         Ok(())
     }
 
+    /// Build spawn_tree from recovered session checkpoints.
+    ///
+    /// - Sessions with `parent_session_id` whose parent is also recovered
+    ///   → registered as children of the parent.
+    /// - Sessions with `parent_session_id` whose parent is NOT recovered
+    ///   → demoted to root nodes (depth reset to 0).
+    /// - Sessions without `parent_session_id` → root nodes.
+    fn build_spawn_tree(
+        checkpoints: &HashMap<String, SessionCheckpoint>,
+        recovered: &[String],
+    ) -> SpawnTree {
+        let mut tree = SpawnTree::default();
+        let recovered_set: std::collections::HashSet<&String> = recovered.iter().collect();
+
+        for session_id in recovered {
+            if let Some(cp) = checkpoints.get(session_id) {
+                match &cp.parent_session_id {
+                    Some(parent_id) if recovered_set.contains(parent_id) => {
+                        // Parent recovered — register as child
+                        tree.children
+                            .entry(parent_id.clone())
+                            .or_default()
+                            .push(session_id.clone());
+                    }
+                    Some(parent_id) => {
+                        // Parent not recovered — demote to root
+                        tracing::info!(
+                            session_id = %session_id,
+                            parent_id = %parent_id,
+                            "Session demoted to root: parent not recovered"
+                        );
+                        tree.roots.push(session_id.clone());
+                    }
+                    None => {
+                        // No parent — confirmed root
+                        tree.roots.push(session_id.clone());
+                    }
+                }
+            }
+        }
+
+        tree
+    }
+
     /// Get the storage reference
     pub fn storage(&self) -> &S {
         &self.storage
+    }
+}
+
+/// Spawn tree — tracks parent-child relationships between sessions.
+///
+/// Built during recovery from checkpoint data. Used by the Session module
+/// to reconstruct the runtime spawn tree after gateway restart.
+#[derive(Debug, Clone, Default)]
+pub struct SpawnTree {
+    /// parent_session_id → list of child session_ids
+    pub children: HashMap<String, Vec<String>>,
+    /// All root sessions (no parent or parent not recovered)
+    pub roots: Vec<String>,
+}
+
+impl SpawnTree {
+    /// Check if a session is a root node (no parent or parent not recovered).
+    pub fn is_root(&self, session_id: &str) -> bool {
+        self.roots.iter().any(|id| id == session_id)
+    }
+
+    /// Get children of a session.
+    pub fn get_children(&self, session_id: &str) -> Option<&Vec<String>> {
+        self.children.get(session_id)
+    }
+
+    /// Get all root session IDs.
+    pub fn root_ids(&self) -> &[String] {
+        &self.roots
     }
 }
 
@@ -92,6 +186,8 @@ pub struct RecoveryReport {
     pub recovered: Vec<String>,
     /// List of session IDs that failed to recover
     pub failed: Vec<String>,
+    /// Spawn tree reconstructed from recovered checkpoints
+    pub spawn_tree: SpawnTree,
 }
 
 impl RecoveryReport {
@@ -152,6 +248,7 @@ mod tests {
         let report = RecoveryReport {
             recovered: vec!["s1".to_string(), "s2".to_string()],
             failed: Vec::new(),
+            spawn_tree: SpawnTree::default(),
         };
         assert!(report.is_full_success());
         assert_eq!(report.total(), 2);
@@ -162,6 +259,7 @@ mod tests {
         let report = RecoveryReport {
             recovered: vec!["s1".to_string()],
             failed: vec!["s2".to_string()],
+            spawn_tree: SpawnTree::default(),
         };
         assert!(!report.is_full_success());
         assert_eq!(report.total(), 2);
@@ -229,5 +327,177 @@ mod tests {
         // Recover should still succeed even without callback
         let report = service.recover().await.unwrap();
         assert_eq!(report.recovered.len(), 1);
+    }
+
+    // -----------------------------------------------------------------
+    // Spawn tree tests
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_recovery_spawn_tree_root_sessions() {
+        let storage = Arc::new(MemoryStorage::new());
+        storage
+            .save_checkpoint(&create_test_checkpoint("root1"))
+            .await
+            .unwrap();
+        storage
+            .save_checkpoint(&create_test_checkpoint("root2"))
+            .await
+            .unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        assert_eq!(report.recovered.len(), 2);
+        let tree = &report.spawn_tree;
+        assert_eq!(tree.roots.len(), 2);
+        assert!(tree.roots.contains(&"root1".to_string()));
+        assert!(tree.roots.contains(&"root2".to_string()));
+        assert!(tree.children.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recovery_spawn_tree_parent_child() {
+        let storage = Arc::new(MemoryStorage::new());
+
+        // Parent session
+        let mut parent_cp = create_test_checkpoint("parent");
+        parent_cp.parent_session_id = None;
+        parent_cp.depth = 0;
+        storage.save_checkpoint(&parent_cp).await.unwrap();
+
+        // Child session
+        let mut child_cp = create_test_checkpoint("child");
+        child_cp.parent_session_id = Some("parent".to_string());
+        child_cp.depth = 1;
+        storage.save_checkpoint(&child_cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        assert_eq!(report.recovered.len(), 2);
+        let tree = &report.spawn_tree;
+
+        // Parent is root, child is registered under parent
+        assert!(tree.is_root("parent"));
+        assert!(!tree.is_root("child"));
+        let children = tree.get_children("parent").unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0], "child");
+    }
+
+    #[tokio::test]
+    async fn test_recovery_spawn_tree_orphan_demoted_to_root() {
+        let storage = Arc::new(MemoryStorage::new());
+
+        // Child session whose parent is NOT in storage (swept)
+        let mut child_cp = create_test_checkpoint("orphan_child");
+        child_cp.parent_session_id = Some("missing_parent".to_string());
+        child_cp.depth = 2;
+        storage.save_checkpoint(&child_cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        assert_eq!(report.recovered.len(), 1);
+        let tree = &report.spawn_tree;
+
+        // Orphan child is demoted to root
+        assert!(tree.is_root("orphan_child"));
+        assert!(tree.children.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recovery_spawn_tree_multi_level() {
+        let storage = Arc::new(MemoryStorage::new());
+
+        // root -> child1 -> grandchild
+        let mut root_cp = create_test_checkpoint("root");
+        root_cp.parent_session_id = None;
+        root_cp.depth = 0;
+        storage.save_checkpoint(&root_cp).await.unwrap();
+
+        let mut child_cp = create_test_checkpoint("child1");
+        child_cp.parent_session_id = Some("root".to_string());
+        child_cp.depth = 1;
+        storage.save_checkpoint(&child_cp).await.unwrap();
+
+        let mut grandchild_cp = create_test_checkpoint("grandchild");
+        grandchild_cp.parent_session_id = Some("child1".to_string());
+        grandchild_cp.depth = 2;
+        storage.save_checkpoint(&grandchild_cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        assert_eq!(report.recovered.len(), 3);
+        let tree = &report.spawn_tree;
+
+        assert!(tree.is_root("root"));
+        assert!(!tree.is_root("child1"));
+        assert!(!tree.is_root("grandchild"));
+
+        let root_children = tree.get_children("root").unwrap();
+        assert_eq!(root_children, &vec!["child1".to_string()]);
+
+        let child1_children = tree.get_children("child1").unwrap();
+        assert_eq!(child1_children, &vec!["grandchild".to_string()]);
+    }
+
+    #[test]
+    fn test_spawn_tree_is_root() {
+        let tree = SpawnTree {
+            roots: vec!["r1".to_string(), "r2".to_string()],
+            children: HashMap::new(),
+        };
+        assert!(tree.is_root("r1"));
+        assert!(tree.is_root("r2"));
+        assert!(!tree.is_root("r3"));
+    }
+
+    #[test]
+    fn test_spawn_tree_get_children() {
+        let mut children = HashMap::new();
+        children.insert("p1".to_string(), vec!["c1".to_string(), "c2".to_string()]);
+        let tree = SpawnTree {
+            roots: vec![],
+            children,
+        };
+        assert_eq!(tree.get_children("p1").unwrap().len(), 2);
+        assert!(tree.get_children("p2").is_none());
+    }
+
+    #[test]
+    fn test_spawn_tree_root_ids() {
+        let tree = SpawnTree {
+            roots: vec!["a".to_string(), "b".to_string()],
+            children: HashMap::new(),
+        };
+        assert_eq!(tree.root_ids(), &["a", "b"]);
+    }
+
+    #[test]
+    fn test_build_spawn_tree_empty() {
+        let checkpoints = HashMap::new();
+        let recovered: Vec<String> = vec![];
+        let tree =
+            SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&checkpoints, &recovered);
+        assert!(tree.roots.is_empty());
+        assert!(tree.children.is_empty());
+    }
+
+    #[test]
+    fn test_build_spawn_tree_partial_recovery() {
+        // parent recovered, child NOT recovered → child not in tree at all
+        let mut checkpoints = HashMap::new();
+        let mut parent_cp = create_test_checkpoint("parent");
+        parent_cp.parent_session_id = None;
+        checkpoints.insert("parent".to_string(), parent_cp);
+
+        let recovered = vec!["parent".to_string()];
+        let tree =
+            SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&checkpoints, &recovered);
+        assert_eq!(tree.roots, vec!["parent".to_string()]);
+        assert!(tree.children.is_empty());
     }
 }
