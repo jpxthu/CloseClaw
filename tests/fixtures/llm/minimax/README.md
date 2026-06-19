@@ -1,107 +1,142 @@
-# MiniMax LLM API Fixtures
+# MiniMax Fixtures
 
-从真实 MiniMax API 捕获的请求/响应样本，用于 closeclaw LLM 模块的测试开发。
+> 模型：`MiniMax-M3`（最新）、`MiniMax-M2.7`（历史）
 
-## 文件清单
+## 推荐协议：Anthropic
 
-### OpenAI 兼容接口 (`/v1/text/chatcompletion_v2`)
-
-| 文件 | 说明 |
-|------|------|
-| `simple-chat.json` | 常规对话，temp=0.7 |
-| `math-temp0.json` | 数学问题，temp=0 |
-| `m2.7-chat.json` | MiniMax-M2.7 模型 |
-| `m2.5-highspeed-chat.json` | M2.5-highspeed |
-| `m2.7-highspeed-chat.json` | M2.7-highspeed |
-| `m2-her-chat.json` | M2-her（角色扮演模型） |
-| `multi-turn.json` | 多轮对话（含历史） |
-| `long-history.json` | 5轮长历史对话 |
-| `system-prompt.json` | 带 system prompt |
-| `code-generation.json` | 代码生成 |
-| `reasoning-heavy.json` | 重推理任务（数学） |
-| `unicode-chat.json` | 中文 prompt |
-| `long-prompt.json` | 长用户 prompt |
-| `long-response.json` | 长回答（触发 finish_reason=length） |
-| `short-max-tokens.json` | 极短 max_tokens（5） |
-| `temp-1.0.json` | temperature=1.0 |
-| `streaming.txt` | 流式响应（非 Anthropic 端点） |
-| `streaming-m2.7.txt` | M2.7 流式响应 |
-| `error-invalid-model.json` | 错误：无效模型 |
-| `error-empty-messages.json` | 错误：空消息列表 |
-| `error-missing-model.json` | 错误：缺少 model 字段 |
-| `error-auth.json` | 错误：认证失败（1004） |
-
-### Anthropic 兼容接口 (`/anthropic/v1/messages`)
-
-| 文件 | 说明 |
-|------|------|
-| `anthropic-basic.json` | 基础对话 |
-| `anthropic-with-system.json` | 带 system prompt |
-| `anthropic-thinking-block.json` | 含 thinking + text 双块 |
-| `anthropic-m2-her.json` | M2-her 模型 |
-| `anthropic-streaming.txt` | Anthropic 流式响应 |
-| `anthropic-error-invalid-model.json` | 错误：无效模型 |
-| `anthropic-error-auth.json` | 错误：认证失败 |
-
-### 用量接口
-
-| 文件 | 说明 |
-|------|------|
-| `usage-coding-plan.json` | `/openplatform/coding_plan/remains` |
+| 协议 | Thinking 处理 | 工具调用 | Cache 字段 | 推荐场景 |
+|------|-------------|---------|-----------|---------|
+| **Anthropic** ✅ | M2.7: `[{type:"thinking"},{type:"text"}]`；M3: `[{type:"text"}]`（无 thinking） | M2.7: `[{type:"thinking"},{type:"tool_use"}]`；M3: `[{type:"text"},{type:"tool_use"}]` | `usage.cache_read_input_tokens`（存在，即使为 0） | 优先使用 |
+| OpenAI | `content` 内含 `<think>...</think>` 标签，混在一起 | `finish_reason: "tool_calls"` + `tool_calls` 数组 | `prompt_tokens_details.cached_tokens`（存在，即使为 0） | 仅在必须用 OpenAI 时使用 |
 
 ---
 
-## 重要发现
+## 各场景响应字段
 
-### OpenAI 兼容接口（closeclaw 使用的）
+### simple（基础对话）
 
-```
-Response.message.content     → 永远为空字符串
-Response.message.reasoning_content → 实际回答内容（纯文本）
-Response.usage.completion_tokens → 包含 reasoning token，非纯回答 token
-Response.choices[].finish_reason  → "length" / "stop"
-```
+**OpenAI** — `openai/simple.json`
+- `choices[].message.content`: 含 `<think>...</think>` 标签（thinking 混在回复开头），需自行解析
+- `choices[].message.tool_calls`: 无
+- `usage.completion_tokens_details.reasoning_tokens`: 有值（推理 token 数）
+- `usage.prompt_tokens_details.cached_tokens`: 有字段（值可能为 0）
 
-**所有 OpenAI 兼容接口的响应，`message.content` 都是空的**，实际内容在 `message.reasoning_content`。
+**Anthropic** — `anthropic/anthropic-simple.json`
+- M2.7: `content[0].type = "thinking"`（独立 block）+ `content[1].type = "text"`（最终回复）
+- M3: `content[0].type = "text"`（仅文本块，无 thinking block，见上方 M3 行为变更）
+- `usage.cache_read_input_tokens`: 有字段（值可能为 0）
+- `stop_reason = "end_turn"`
 
-### Anthropic 兼容接口
+### thinking（推理过程）
 
-```
-Response.content → 数组，可能包含：
-  {"type": "thinking", "thinking": "...", "signature": "..."}  ← 推理块
-  {"type": "text",     "text": "..."}                        ← 最终回答块
-Response.stop_reason → "end_turn" / "max_tokens"
-Response.usage.input_tokens / output_tokens（而非 prompt/completion）
-```
+**Anthropic** — `anthropic/anthropic-thinking.json`
+- `content[0].type = "thinking"`: 含 signature 字段（**M2.7 行为**；M3 下不返回 thinking block，仅 `content: [{type: "text"}]`，见上方 M3 行为变更说明）
+- `content[1].type = "text"`: 含 markdown 格式的详细推理步骤（M2.7）
+- `stop_reason = "end_turn"`
 
-### M2-her 模型
+> OpenAI 协议下无独立 thinking block，thinking 内容嵌入 `choices[].message.content` 的 `<think>` 标签中。
 
-使用 OpenAI 兼容接口格式，但：
-- `message.content` 有实际内容（角色扮演回答）
-- `finish_reason` = "stop"（不是 "length"）
-- 无 `reasoning_content` 字段
+> **M3 行为变化**（重要）：MiniMax-M3 在 Anthropic 协议下**不再返回独立的 thinking block**。`content[]` 只含 `text` block（thinking 信息丢失）。OpenAI 协议仍返回 `<think>` 标签格式。`usage.completion_tokens_details.reasoning_tokens` 仍正常返回。适配 M3 时不应依赖 Anthropic thinking block 解析。
 
-### 错误码
 
-| status_code | 含义 |
-|------------|------|
-| 0 | 成功 |
-| 1004 | 认证失败 |
-| 2013 | 无效模型 / 参数错误 |
+### streaming（SSE 流式）
+
+**OpenAI** — `openai/streaming.txt`
+- 事件：`data: {...}` 格式
+- 首个 chunk 含 `delta.role: "assistant"`
+- thinking 内容通过 `delta.content` 增量输出，含 `<think>` 标签
+- 终止：`data: [DONE]`
+- `usage` 在 chunk 中为 null，仅在最后一块有
+
+**Anthropic** — `anthropic/anthropic-streaming.txt`
+- 事件序列：`message_start` → `content_block_start(index=0, type=thinking)` → `content_block_delta(type=thinking_delta)` → `content_block_stop` → `content_block_start(index=1, type=text)` → `content_block_delta(type=text_delta)` → `message_stop`
+- thinking 和 text 分块传输，清晰分离
+- 终止：`[DONE]`
+
+### tool-use（工具调用）
+
+**OpenAI** — `openai/tool-use.json`
+- `finish_reason = "tool_calls"`
+- `choices[].message.tool_calls`: 数组，每个元素含 `id`, `type: "function"`, `function.name`, `function.arguments`
+- `choices[].message.content`: 空或含 `<think>...</think>`（thinking 仍在）
+
+**Anthropic** — `anthropic/anthropic-tool-use.json`
+- `stop_reason = "tool_use"`
+- `content[0]`: M2.7 为 `type="thinking"`；**M3 为 `type="text"`**（thinking 块被替换为文本块，与上方 M3 行为变更一致）
+- `content[N].type = "tool_use"`: 含 `id`, `name`, `input` 字段
+
+### tool-result（多轮工具调用）
+
+**OpenAI** — `openai/tool-result.json`
+- 两轮：`round1.finish_reason = "tool_calls"`，`round2.finish_reason = "stop"`
+- `extra_body_sent: {reasoning_split: true}`
+
+**Anthropic** — `anthropic/anthropic-tool-result.json`
+- Round 1: `stop_reason = "tool_use"`，`content`: M2.7 为 `[thinking, tool_use]`；**M3 为 `[text, tool_use]`**
+- Round 2: `stop_reason = "end_turn"`，`content`: M2.7 为 `[thinking, text]`；**M3 为 `[text]`**
+- 工具结果以 `role: user, content: [{type: "tool_result", tool_use_id: "...", content: "..."}]` 传入 Round 2
+
+### cache（Prompt Cache）
+
+**OpenAI** — `openai/cache.json`
+- `usage.prompt_tokens_details.cached_tokens`: 有字段（测试中值均为 0）
+- 三个响应示例，无主动 cache control 标记
+
+**Anthropic** — `anthropic/anthropic-cache.json`
+- `usage.cache_creation_input_tokens` / `cache_read_input_tokens`: 有字段（测试中值均为 0）
+- `cache_control_note`: 标注 `cache_control:ephemeral` 在 system 末尾
+- 系统 prompt 支持通过 `cache_control:ephemeral` 主动标记缓存断点
+
+### 错误响应
+
+| 场景 | 文件 | HTTP 状态 |
+|------|------|----------|
+| Auth 失败 | `openai/error-auth.json` / `anthropic/anthropic-error-auth.json` | 401 |
+| 模型不可用 | `openai/error-model.json` / `anthropic/anthropic-error-model.json` | 400/404 |
+| 空消息 | `openai/error-empty.json` / `anthropic/anthropic-error-empty.json` | 400 |
+| 工具格式错误 | `openai/error-tool-format.json` | 400 |
+
+错误 body 结构：`{"type": "error", "error": {"type": "...", "message": "..."}, "request_id": "..."}`（`error` 内不含 `code` 字段，错误类型在 `error.type`；OpenAI 协议错误额外含 `error.http_code` 字符串）
 
 ---
 
-## 使用方式
+## 目录结构
 
-```rust
-// 在测试中引用 fixture
-let fixture = include_str!("../../../tests/fixtures/llm/minimax/simple-chat.json");
-let resp: MiniMaxResponse = serde_json::from_str(fixture).unwrap();
+```
+provider/                   # 提供商级别
+├── model-list.json         # Anthropic /v1/models 返回
+└── usage-quota.json        # Token Plan 余额查询 GET /v1/token_plan/remains
+
+MiniMax-M3/                  # 最新模型（行为有变化，详见上方 M3 变更说明）
+├── openai/                 # 15 场景
+│   ├── simple.json
+│   ├── cache.json
+│   ├── context-pressure.json          # M3 新增
+│   ├── streaming.txt
+│   ├── streaming-meta.json
+│   ├── minimax-reasoning-split.json
+│   ├── tool-use.json
+│   ├── tool-result.json
+│   ├── tool-use-streaming.txt
+│   ├── tool-use-streaming-meta.json
+│   ├── multi-turn.json
+│   └── error-auth.json / error-empty.json / error-model.json / error-tool-format.json
+└── anthropic/              # 13 场景
+    ├── anthropic-simple.json
+    ├── anthropic-thinking.json          # ⚠️ M3 下不再含 thinking block
+    ├── anthropic-context-pressure.json  # M3 新增
+    ├── anthropic-streaming.txt
+    ├── anthropic-streaming-meta.json
+    ├── anthropic-tool-use.json          # ⚠️ M3 下 thinking 被替换为 text
+    ├── anthropic-tool-result.json       # ⚠️ M3 下 thinking 被替换为 text
+    ├── anthropic-tool-use-streaming.txt
+    ├── anthropic-tool-use-streaming-meta.json
+    ├── anthropic-cache.json
+    └── anthropic-error-auth.json / anthropic-error-empty.json / anthropic-error-model.json
+
+MiniMax-M2.7/               # 历史模型，结构同上（含完整 thinking block）
+├── openai/                 # 14 场景
+└── anthropic/              # 12 场景
 ```
 
-## 更新方式
-
-```bash
-export MINIMAX_API_KEY=your_key
-bash tests/fixtures/llm/minimax/capture-minimax-fixtures.sh
-```
+两个模型的 fixture 集**完全平行**（场景名一致），可以并排比较验证 M3 行为变更。
