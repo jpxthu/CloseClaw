@@ -79,7 +79,6 @@ impl ResolvedAgentConfig {
     pub fn is_wildcard_list(list: &[String]) -> bool {
         list.is_empty() || list == ["*"]
     }
-
     /// Return the effective skills whitelist.
     ///
     /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
@@ -91,7 +90,6 @@ impl ResolvedAgentConfig {
             Some(self.skills.clone())
         }
     }
-
     /// Return the effective tools whitelist.
     ///
     /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
@@ -103,7 +101,6 @@ impl ResolvedAgentConfig {
             Some(self.tools.clone())
         }
     }
-
     /// Return the effective disallowed tools blacklist.
     ///
     /// Returns `None` when the list is empty (no tools are disallowed).
@@ -115,7 +112,9 @@ impl ResolvedAgentConfig {
             Some(self.disallowed_tools.clone())
         }
     }
+}
 
+impl ResolvedAgentConfig {
     /// Convert a single `AgentConfig` into a resolved form, tagging it
     /// with the given `source` level. The `path` argument is used purely
     /// for error reporting when `id` validation fails.
@@ -141,7 +140,6 @@ impl ResolvedAgentConfig {
             .name
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| config.id.clone());
-
         Ok(Self {
             id: config.id,
             name,
@@ -157,7 +155,6 @@ impl ResolvedAgentConfig {
             source,
         })
     }
-
     /// Merge project-level and user-level configs into a resolved form.
     ///
     /// Project fields take precedence over user fields; see the module
@@ -188,7 +185,6 @@ impl ResolvedAgentConfig {
             .filter(|n| !n.is_empty())
             .or_else(|| user.name.filter(|n| !n.is_empty()))
             .unwrap_or_else(|| id.clone());
-
         Ok(Self {
             id,
             name,
