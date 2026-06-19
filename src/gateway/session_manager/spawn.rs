@@ -127,6 +127,7 @@ impl SessionManager {
         let tool_registry_guard = self.tool_registry.read().await;
         let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
         let skill_registry = self.skill_registry.read().await.clone();
+        let agent_registry = self.agent_registry.read().await.clone();
         let agent_id = config.id.clone();
         let tool_ctx = ToolContext {
             agent_id: agent_id.clone(),
@@ -151,6 +152,7 @@ impl SessionManager {
                 agent_skills: filters.agent_skills,
                 dynamic_sections: vec![],
                 append_section: None,
+                agent_registry,
             },
         )
         .await;

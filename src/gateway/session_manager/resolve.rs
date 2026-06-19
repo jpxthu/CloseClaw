@@ -21,25 +21,10 @@ use tracing::warn;
 impl SessionManager {
     /// Extract tool/skill filter configuration from an agent config.
     pub(super) fn extract_agent_filters(config: &ResolvedAgentConfig) -> AgentToolSkillConfig {
-        let agent_tools = if config.tools.is_empty() || config.tools == ["*"] {
-            None
-        } else {
-            Some(config.tools.clone())
-        };
-        let agent_disallowed_tools = if config.disallowed_tools.is_empty() {
-            None
-        } else {
-            Some(config.disallowed_tools.clone())
-        };
-        let agent_skills = if config.skills.is_empty() || config.skills == ["*"] {
-            None
-        } else {
-            Some(config.skills.clone())
-        };
         AgentToolSkillConfig {
-            agent_tools,
-            agent_disallowed_tools,
-            agent_skills,
+            agent_tools: config.effective_tools(),
+            agent_disallowed_tools: config.effective_disallowed_tools(),
+            agent_skills: config.effective_skills(),
         }
     }
 
@@ -109,6 +94,7 @@ impl SessionManager {
                                 .as_ref()
                                 .map(Self::extract_agent_filters)
                                 .unwrap_or_default();
+                            let agent_registry = self.agent_registry.read().await.clone();
                             let prompt = session_helpers::build_session_system_prompt(
                                 &self.workspace_dir,
                                 self.bootstrap_mode,
@@ -116,6 +102,7 @@ impl SessionManager {
                                 skill_registry,
                                 &agent_id,
                                 &filters,
+                                agent_registry,
                             )
                             .await;
 
@@ -194,6 +181,7 @@ impl SessionManager {
             .as_ref()
             .map(Self::extract_agent_filters)
             .unwrap_or_default();
+        let agent_registry = self.agent_registry.read().await.clone();
         let prompt = session_helpers::build_session_system_prompt(
             &self.workspace_dir,
             self.bootstrap_mode,
@@ -201,6 +189,7 @@ impl SessionManager {
             skill_registry,
             &agent_id,
             &filters,
+            agent_registry,
         )
         .await;
 

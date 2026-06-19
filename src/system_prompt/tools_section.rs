@@ -36,20 +36,29 @@ pub async fn build_tools_section(
     let descriptors = registry.list_descriptors(ctx).await;
     let available_tool_names: Vec<String> = descriptors.into_iter().map(|d| d.name).collect();
 
-    // 2. Build the prompt-generation context from the names + the existing
+    // 2. Resolve agent-level tool filtering.
+    //    Priority: explicit parameters > AgentRegistry query.
+    let (tools, disallowed_tools) = if agent_tools.is_some() || agent_disallowed_tools.is_some() {
+        (agent_tools, agent_disallowed_tools)
+    } else {
+        // Query AgentRegistry directly (design-doc query path).
+        registry.query_agent_tools_config(&ctx.agent_id)
+    };
+
+    // 3. Build the prompt-generation context from the names + the existing
     //    execution context, including agent-level tool filtering.
     let prompt_ctx = PromptGenerationContext {
         agent_id: ctx.agent_id.clone(),
         workdir: ctx.workdir.clone(),
         available_tool_names,
-        tools: agent_tools,
-        disallowed_tools: agent_disallowed_tools,
+        tools,
+        disallowed_tools,
     };
 
-    // 3. Acquire the registry lock again and render the section.
+    // 4. Acquire the registry lock again and render the section.
     let content = registry.build_tools_section(&prompt_ctx).await;
 
-    // 4. If the spawn tool is available, append task writing guidance.
+    // 5. If the spawn tool is available, append task writing guidance.
     let content = if prompt_ctx
         .available_tool_names
         .iter()

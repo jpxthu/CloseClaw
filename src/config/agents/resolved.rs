@@ -74,6 +74,47 @@ pub struct ResolvedAgentConfig {
 }
 
 impl ResolvedAgentConfig {
+    /// Check whether a list is a wildcard (empty or `["*"]`), meaning
+    /// "no filtering — allow all".
+    pub fn is_wildcard_list(list: &[String]) -> bool {
+        list.is_empty() || list == ["*"]
+    }
+    /// Return the effective skills whitelist.
+    ///
+    /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
+    /// no filtering applies. Otherwise returns `Some(whitelist)`.
+    pub fn effective_skills(&self) -> Option<Vec<String>> {
+        if Self::is_wildcard_list(&self.skills) {
+            None
+        } else {
+            Some(self.skills.clone())
+        }
+    }
+    /// Return the effective tools whitelist.
+    ///
+    /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
+    /// no filtering applies. Otherwise returns `Some(whitelist)`.
+    pub fn effective_tools(&self) -> Option<Vec<String>> {
+        if Self::is_wildcard_list(&self.tools) {
+            None
+        } else {
+            Some(self.tools.clone())
+        }
+    }
+    /// Return the effective disallowed tools blacklist.
+    ///
+    /// Returns `None` when the list is empty (no tools are disallowed).
+    /// A non-empty list means those tools are explicitly blocked.
+    pub fn effective_disallowed_tools(&self) -> Option<Vec<String>> {
+        if self.disallowed_tools.is_empty() {
+            None
+        } else {
+            Some(self.disallowed_tools.clone())
+        }
+    }
+}
+
+impl ResolvedAgentConfig {
     /// Convert a single `AgentConfig` into a resolved form, tagging it
     /// with the given `source` level. The `path` argument is used purely
     /// for error reporting when `id` validation fails.
@@ -99,7 +140,6 @@ impl ResolvedAgentConfig {
             .name
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| config.id.clone());
-
         Ok(Self {
             id: config.id,
             name,
@@ -115,7 +155,6 @@ impl ResolvedAgentConfig {
             source,
         })
     }
-
     /// Merge project-level and user-level configs into a resolved form.
     ///
     /// Project fields take precedence over user fields; see the module
@@ -146,7 +185,6 @@ impl ResolvedAgentConfig {
             .filter(|n| !n.is_empty())
             .or_else(|| user.name.filter(|n| !n.is_empty()))
             .unwrap_or_else(|| id.clone());
-
         Ok(Self {
             id,
             name,

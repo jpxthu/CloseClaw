@@ -317,7 +317,6 @@ impl Tool for SessionsSpawnTool {
             Some(id) => self
                 .agent_registry
                 .get(id)
-                .await
                 .and_then(|c| c.subagents.model.clone()),
             None => None,
         };
