@@ -73,7 +73,20 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
             }
         }
 
-        let spawn_tree = Self::build_spawn_tree(&mut checkpoints, &recovered);
+        let (spawn_tree, demoted) = Self::build_spawn_tree(&mut checkpoints, &recovered);
+
+        // 持久化降级后的 checkpoint（depth 重置为 0）
+        for session_id in &demoted {
+            if let Some(cp) = checkpoints.get(session_id) {
+                if let Err(e) = self.storage.save_checkpoint(cp).await {
+                    tracing::error!(
+                        session_id = %session_id,
+                        "Failed to persist demoted checkpoint: {}",
+                        e
+                    );
+                }
+            }
+        }
 
         Ok(RecoveryReport {
             recovered,
@@ -106,8 +119,9 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
     fn build_spawn_tree(
         checkpoints: &mut HashMap<String, SessionCheckpoint>,
         recovered: &[String],
-    ) -> SpawnTree {
+    ) -> (SpawnTree, Vec<String>) {
         let mut tree = SpawnTree::default();
+        let mut demoted = Vec::new();
         let recovered_set: HashSet<&String> = recovered.iter().collect();
 
         for session_id in recovered {
@@ -128,6 +142,7 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
                             "Session demoted to root: parent not recovered"
                         );
                         cp.depth = 0;
+                        demoted.push(session_id.clone());
                         tree.roots.push(session_id.clone());
                     }
                     None => {
@@ -138,7 +153,7 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
             }
         }
 
-        tree
+        (tree, demoted)
     }
 
     /// Get the storage reference
@@ -483,21 +498,23 @@ mod tests {
         checkpoints.insert("orphan".to_string(), orphan_cp);
 
         let recovered = vec!["orphan".to_string()];
-        let tree =
+        let (tree, demoted) =
             SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
 
         assert!(tree.is_root("orphan"));
         assert_eq!(checkpoints["orphan"].depth, 0);
+        assert!(demoted.contains(&"orphan".to_string()));
     }
 
     #[test]
     fn test_build_spawn_tree_empty() {
         let mut checkpoints = HashMap::new();
         let recovered: Vec<String> = vec![];
-        let tree =
+        let (tree, demoted) =
             SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
         assert!(tree.roots.is_empty());
         assert!(tree.children.is_empty());
+        assert!(demoted.is_empty());
     }
 
     #[test]
@@ -509,9 +526,10 @@ mod tests {
         checkpoints.insert("parent".to_string(), parent_cp);
 
         let recovered = vec!["parent".to_string()];
-        let tree =
+        let (tree, demoted) =
             SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
         assert_eq!(tree.roots, vec!["parent".to_string()]);
         assert!(tree.children.is_empty());
+        assert!(demoted.is_empty());
     }
 }

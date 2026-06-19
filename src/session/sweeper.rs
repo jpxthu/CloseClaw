@@ -223,30 +223,30 @@ impl ArchiveSweeper {
     }
 
     /// 删除 `parent_session_id` 的所有后代 session（先深后浅）。
-    /// 使用 BFS 收集所有后代，再从叶子节点向上删除。
+    /// 使用 BFS 收集所有后代及其深度，按深度降序删除（叶节点优先）。
     async fn cascade_kill_children(
         storage: &dyn PersistenceService,
         parent_session_id: &str,
     ) -> Result<(), ArchiveSweeperError> {
-        // 通过 BFS 收集所有后代 ID，再从叶子节点向上删除。
-        let mut all_descendants: Vec<String> = Vec::new();
+        // BFS 收集所有后代及其深度
+        let mut all_descendants: Vec<(String, u32)> = Vec::new();
         let mut queue = std::collections::VecDeque::new();
-        queue.push_back(parent_session_id.to_string());
+        queue.push_back((parent_session_id.to_string(), 0u32));
 
-        // BFS 收集所有后代 ID
-        while let Some(current) = queue.pop_front() {
+        while let Some((current, depth)) = queue.pop_front() {
             let children = storage.list_children_sessions(&current).await?;
             for child_id in &children {
-                all_descendants.push(child_id.clone());
-                queue.push_back(child_id.clone());
+                all_descendants.push((child_id.clone(), depth + 1));
+                queue.push_back((child_id.clone(), depth + 1));
             }
         }
 
-        // Delete deepest descendants first (reverse BFS order).
-        // This ensures leaf nodes are cleaned up before their parents.
-        for child_id in all_descendants.iter().rev() {
-            storage.delete_checkpoint(child_id).await?;
-            storage.invalidate_session(child_id).await?;
+        // 按深度降序排序（叶节点优先删除），深度相同则按 ID 排序保证确定性
+        all_descendants.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+        for (child_id, _) in all_descendants {
+            storage.delete_checkpoint(&child_id).await?;
+            storage.invalidate_session(&child_id).await?;
             info!(parent = %parent_session_id, child = %child_id, "child session deleted and invalidated during cascade");
         }
 
@@ -698,5 +698,87 @@ mod tests {
         // Parent should be archived
         let archive_called = mem.archive_called.lock().unwrap();
         assert!(archive_called.contains(&"solo-parent".into()));
+    }
+
+    // -----------------------------------------------------------------
+    // Test: multi-branch tree — leaf nodes deleted before branch nodes
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_cascade_kill_children_multi_branch_tree() {
+        let mem = Arc::new(MemStorage::default());
+
+        // Build a multi-branch tree:
+        //       root
+        //      /    \
+        //    child_a  child_b
+        //    /    \        \
+        //  gc_a1  gc_a2    gc_b1
+        let mut root = SessionCheckpoint::new("root".into());
+        root.parent_session_id = None;
+        root.depth = 0;
+        mem.add_checkpoint(root);
+
+        let mut child_a = SessionCheckpoint::new("child_a".into());
+        child_a.parent_session_id = Some("root".into());
+        child_a.depth = 1;
+        mem.add_checkpoint(child_a);
+
+        let mut child_b = SessionCheckpoint::new("child_b".into());
+        child_b.parent_session_id = Some("root".into());
+        child_b.depth = 1;
+        mem.add_checkpoint(child_b);
+
+        let mut gc_a1 = SessionCheckpoint::new("gc_a1".into());
+        gc_a1.parent_session_id = Some("child_a".into());
+        gc_a1.depth = 2;
+        mem.add_checkpoint(gc_a1);
+
+        let mut gc_a2 = SessionCheckpoint::new("gc_a2".into());
+        gc_a2.parent_session_id = Some("child_a".into());
+        gc_a2.depth = 2;
+        mem.add_checkpoint(gc_a2);
+
+        let mut gc_b1 = SessionCheckpoint::new("gc_b1".into());
+        gc_b1.parent_session_id = Some("child_b".into());
+        gc_b1.depth = 2;
+        mem.add_checkpoint(gc_b1);
+
+        // Run cascade
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        ArchiveSweeper::cascade_kill_children(storage.as_ref(), "root")
+            .await
+            .unwrap();
+
+        // All 5 descendants should be deleted
+        let deleted = mem.deleted_ids();
+        assert!(deleted.contains(&"child_a".to_string()));
+        assert!(deleted.contains(&"child_b".to_string()));
+        assert!(deleted.contains(&"gc_a1".to_string()));
+        assert!(deleted.contains(&"gc_a2".to_string()));
+        assert!(deleted.contains(&"gc_b1".to_string()));
+        // Root itself should NOT be deleted
+        assert!(!deleted.contains(&"root".to_string()));
+        assert_eq!(deleted.len(), 5);
+
+        // Verify deletion order: all depth-2 nodes before depth-1 nodes
+        let pos_gc_a1 = deleted.iter().position(|id| id == "gc_a1").unwrap();
+        let pos_gc_a2 = deleted.iter().position(|id| id == "gc_a2").unwrap();
+        let pos_gc_b1 = deleted.iter().position(|id| id == "gc_b1").unwrap();
+        let pos_child_a = deleted.iter().position(|id| id == "child_a").unwrap();
+        let pos_child_b = deleted.iter().position(|id| id == "child_b").unwrap();
+
+        assert!(
+            pos_gc_a1 < pos_child_a,
+            "gc_a1 must be deleted before child_a"
+        );
+        assert!(
+            pos_gc_a2 < pos_child_a,
+            "gc_a2 must be deleted before child_a"
+        );
+        assert!(
+            pos_gc_b1 < pos_child_b,
+            "gc_b1 must be deleted before child_b"
+        );
     }
 }
