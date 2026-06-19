@@ -112,6 +112,22 @@ impl PersistenceService for MemoryStorage {
             .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
         Ok(archived.keys().cloned().collect())
     }
+
+    async fn list_children_sessions(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<String>, PersistenceError> {
+        let checkpoints = self
+            .checkpoints
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        let children: Vec<String> = checkpoints
+            .values()
+            .filter(|cp| cp.parent_session_id.as_deref() == Some(parent_session_id))
+            .map(|cp| cp.session_id.clone())
+            .collect();
+        Ok(children)
+    }
 }
 
 #[cfg(test)]

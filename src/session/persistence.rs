@@ -443,6 +443,14 @@ pub trait PersistenceService: Send + Sync {
     ) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
     }
+
+    /// 列出指定 session 的所有直接子 session（parent_session_id = session_id）
+    async fn list_children_sessions(
+        &self,
+        _parent_session_id: &str,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(test)]

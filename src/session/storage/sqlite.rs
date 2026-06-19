@@ -494,4 +494,31 @@ impl PersistenceService for SqliteStorage {
         self.list_expired_archived_sessions_for_agent(agent_id, role_str, purge_after_minutes)
             .await
     }
+
+    async fn list_children_sessions(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<String>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let parent_id = parent_session_id.to_string();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let mut stmt = conn
+                .prepare("SELECT id FROM sessions WHERE parent_session_id = ?1")
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let ids: Vec<String> = stmt
+                .query_map(rusqlite::params![parent_id], |row| row.get(0))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            Ok(ids)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
 }
