@@ -34,6 +34,7 @@ fn chat_body(model: &str) -> serde_json::Value {
     })
 }
 
+// TODO(v2): Remove #[allow(dead_code)] once v2 fixture-based tests call these helpers.
 #[allow(dead_code)]
 fn assert_first_text(resp: &InternalResponse, expected: &str) {
     assert!(!resp.content_blocks.is_empty());
