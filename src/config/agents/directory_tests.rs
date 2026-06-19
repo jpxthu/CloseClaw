@@ -254,8 +254,8 @@ fn test_merge_falls_back_to_user_field_when_project_empty() {
     let entry = provider.get("iota").expect("iota must be loaded");
     // Project name overrides user name.
     assert_eq!(entry.name, "Iota Project");
-    // User-provided skill survives because the project skills vec is empty.
-    assert_eq!(entry.skills, vec!["web".to_string()]);
+    // Project-level default skills=["*"] overrides user-level skills.
+    assert_eq!(entry.skills, vec!["*".to_string()]);
     assert_eq!(entry.source, ConfigSource::Merged);
 }
 

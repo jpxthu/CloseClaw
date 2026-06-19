@@ -24,7 +24,7 @@
 
 use std::path::PathBuf;
 
-use crate::agent::config::{AgentConfig, AgentPermissions, SubagentsConfig};
+use crate::agent::config::{AgentConfig, SubagentsConfig};
 use crate::config::ConfigError;
 use crate::session::bootstrap::BootstrapMode;
 
@@ -37,6 +37,19 @@ pub enum ConfigSource {
     Project,
     /// Merged from both levels (project fields override user fields).
     Merged,
+}
+
+/// Return project's Vec if non-empty, otherwise fall back to user's.
+///
+/// Implements the design doc rule: "project non-empty value replaces
+/// user value" for Vec fields (skills, tools, disallowed_tools, allow_agents).
+/// Wildcard `["*"]` is treated as a normal non-empty value.
+fn override_if_non_empty<T>(project: Vec<T>, user: Vec<T>) -> Vec<T> {
+    if !project.is_empty() {
+        project
+    } else {
+        user
+    }
 }
 
 /// Fully resolved agent configuration after two-level merge.
@@ -56,9 +69,6 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
-    /// Inline permissions for this agent.
-    /// When present, takes priority over external permissions.json.
-    pub permissions: Option<AgentPermissions>,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }
@@ -102,7 +112,6 @@ impl ResolvedAgentConfig {
             tools: config.tools,
             disallowed_tools: config.disallowed_tools,
             subagents: config.subagents,
-            permissions: config.permissions,
             source,
         })
     }
@@ -156,23 +165,13 @@ impl ResolvedAgentConfig {
             } else {
                 user.bootstrap_mode
             },
-            skills: if !project.skills.is_empty() && project.skills != ["*"] {
-                project.skills
-            } else {
-                user.skills
-            },
-            tools: if !project.tools.is_empty() && project.tools != ["*"] {
-                project.tools
-            } else {
-                user.tools
-            },
-            disallowed_tools: if !project.disallowed_tools.is_empty() {
-                project.disallowed_tools
-            } else {
-                user.disallowed_tools
-            },
+            skills: override_if_non_empty(project.skills, user.skills),
+            tools: override_if_non_empty(project.tools, user.tools),
+            disallowed_tools: override_if_non_empty(
+                project.disallowed_tools,
+                user.disallowed_tools,
+            ),
             subagents: merge_subagents(project.subagents, user.subagents),
-            permissions: project.permissions.or(user.permissions),
             source: ConfigSource::Merged,
         })
     }
@@ -201,11 +200,7 @@ const SUBAGENT_DEFAULT_MAX_CHILDREN: u32 = 5;
 /// [`ResolvedAgentConfig::merge`].
 fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> SubagentsConfig {
     SubagentsConfig {
-        allow_agents: if !project.allow_agents.is_empty() && project.allow_agents != ["*"] {
-            project.allow_agents
-        } else {
-            user.allow_agents
-        },
+        allow_agents: override_if_non_empty(project.allow_agents, user.allow_agents),
         require_agent_id: project.require_agent_id || user.require_agent_id,
         max_spawn_depth: if project.max_spawn_depth != SUBAGENT_DEFAULT_MAX_SPAWN_DEPTH {
             project.max_spawn_depth
