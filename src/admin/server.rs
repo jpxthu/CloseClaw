@@ -15,7 +15,7 @@ use crate::skills::DiskSkillRegistry;
 /// Server-side context holding references to daemon components.
 pub struct AdminContext {
     pub agent_registry: Arc<AgentRegistry>,
-    pub skill_registry: Arc<tokio::sync::RwLock<Option<DiskSkillRegistry>>>,
+    pub skill_registry: Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>,
 }
 
 /// Admin RPC server that binds a Unix domain socket and handles
@@ -151,7 +151,7 @@ async fn dispatch_agent_create(
 
 /// List all skills from the DiskSkillRegistry.
 async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse {
-    let guard = context.skill_registry.read().await;
+    let guard = context.skill_registry.read().unwrap();
     match guard.as_ref() {
         Some(registry) => {
             let skills: Vec<SkillInfo> = registry
@@ -197,7 +197,7 @@ mod tests {
     fn make_test_context() -> AdminContext {
         AdminContext {
             agent_registry: Arc::new(AgentRegistry::new()),
-            skill_registry: Arc::new(tokio::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
+            skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
         }
     }
 

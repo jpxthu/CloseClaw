@@ -5,6 +5,8 @@
 pub mod config_reload;
 pub mod shutdown;
 pub mod skill_reload;
+use crate::admin::client::admin_socket_path;
+use crate::admin::server::{AdminContext, AdminServer};
 use crate::agent::spawn::SpawnController;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
@@ -85,6 +87,9 @@ pub struct Daemon {
     _config_watcher: Option<config_reload::ConfigWatcherHandle>,
     /// Daemon-level approval orchestrator
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    /// Admin RPC server task handle (drop cancels the task)
+    #[allow(dead_code)]
+    admin_handle: Option<tokio::task::JoinHandle<()>>,
 }
 // --- Lifecycle: start, run ---
 impl Daemon {
@@ -334,6 +339,20 @@ impl Daemon {
             Arc::clone(&approval_flow),
         );
 
+        // ── Admin RPC Server ──────────────────────────────────────────────
+        let admin_sock_path = admin_socket_path(Path::new(config_dir));
+        let admin_context = AdminContext {
+            agent_registry: Arc::clone(&agent_registry),
+            skill_registry: skill_registry.clone(),
+        };
+        let admin_server = AdminServer::new(&admin_sock_path, admin_context);
+        let admin_handle = tokio::spawn(async move {
+            if let Err(e) = admin_server.serve().await {
+                tracing::error!(error = %e, "admin RPC server failed");
+            }
+        });
+        info!("admin RPC server started on {}", admin_sock_path.display());
+
         info!(
             "CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -349,6 +368,7 @@ impl Daemon {
             _skill_watcher: Some(skill_watcher),
             _config_watcher: config_watcher,
             approval_flow,
+            admin_handle: Some(admin_handle),
         })
     }
     /// Run the daemon — blocks until shutdown signal is received.
