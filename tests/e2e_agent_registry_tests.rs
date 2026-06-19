@@ -33,20 +33,20 @@ async fn test_populate_then_get() {
     let registry = create_registry(30);
     let configs = vec![make_config("agent-a"), make_config("agent-b")];
 
-    registry.populate(configs).await;
+    registry.populate(configs);
 
     // Hit: agent-a should be found
-    let a = registry.get("agent-a").await;
+    let a = registry.get("agent-a");
     assert!(a.is_some(), "agent-a should be found after populate");
     assert_eq!(a.unwrap().id, "agent-a");
 
     // Hit: agent-b should be found
-    let b = registry.get("agent-b").await;
+    let b = registry.get("agent-b");
     assert!(b.is_some(), "agent-b should be found after populate");
     assert_eq!(b.unwrap().id, "agent-b");
 
     // Miss: nonexistent agent returns None
-    let missing = registry.get("nonexistent").await;
+    let missing = registry.get("nonexistent");
     assert!(
         missing.is_none(),
         "querying a missing id should return None"
@@ -59,20 +59,20 @@ async fn test_hot_reload_replaces_data() {
     let registry = create_registry(30);
 
     // Populate with initial data.
-    registry.populate(vec![make_config("old-agent")]).await;
+    registry.populate(vec![make_config("old-agent")]);
     assert!(
-        registry.get("old-agent").await.is_some(),
+        registry.get("old-agent").is_some(),
         "old-agent should exist before reload"
     );
 
     // Hot-reload with new set that excludes old-agent.
-    registry.reload_config(vec![make_config("new-agent")]).await;
+    registry.reload_config(vec![make_config("new-agent")]);
 
     assert!(
-        registry.get("old-agent").await.is_none(),
+        registry.get("old-agent").is_none(),
         "old-agent should be gone after reload"
     );
-    let new = registry.get("new-agent").await;
+    let new = registry.get("new-agent");
     assert!(new.is_some(), "new-agent should be present after reload");
     assert_eq!(new.unwrap().id, "new-agent");
 }
@@ -82,25 +82,21 @@ async fn test_hot_reload_replaces_data() {
 async fn test_hot_reload_partial_overlap() {
     let registry = create_registry(30);
 
-    registry
-        .populate(vec![make_config("keep"), make_config("drop")])
-        .await;
+    registry.populate(vec![make_config("keep"), make_config("drop")]);
 
     // Reload with "keep" retained, "drop" removed, "added" new.
-    registry
-        .reload_config(vec![make_config("keep"), make_config("added")])
-        .await;
+    registry.reload_config(vec![make_config("keep"), make_config("added")]);
 
     assert!(
-        registry.get("keep").await.is_some(),
+        registry.get("keep").is_some(),
         "'keep' should survive reload"
     );
     assert!(
-        registry.get("drop").await.is_none(),
+        registry.get("drop").is_none(),
         "'drop' should be removed by reload"
     );
     assert!(
-        registry.get("added").await.is_some(),
+        registry.get("added").is_some(),
         "'added' should be present after reload"
     );
 }
@@ -110,10 +106,10 @@ async fn test_hot_reload_partial_overlap() {
 async fn test_populate_empty() {
     let registry = create_registry(30);
 
-    registry.populate(vec![]).await;
+    registry.populate(vec![]);
 
     assert!(
-        registry.get("anything").await.is_none(),
+        registry.get("anything").is_none(),
         "empty populate should leave registry empty"
     );
 }
@@ -128,9 +124,9 @@ async fn test_populate_duplicate_id_last_wins() {
     let mut second = make_config("dup-agent");
     second.name = "second".to_string();
 
-    registry.populate(vec![first, second]).await;
+    registry.populate(vec![first, second]);
 
-    let agent = registry.get("dup-agent").await;
+    let agent = registry.get("dup-agent");
     assert!(agent.is_some(), "dup-agent should exist");
     assert_eq!(
         agent.unwrap().name,
@@ -145,7 +141,7 @@ async fn test_registry_starts_empty() {
     let registry = create_registry(30);
 
     assert!(
-        registry.get("any-id").await.is_none(),
+        registry.get("any-id").is_none(),
         "newly created registry should have no configs"
     );
 }

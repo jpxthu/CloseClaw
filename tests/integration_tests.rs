@@ -134,29 +134,29 @@ async fn test_agent_registry_config_query() {
     ];
 
     // Populate registry with all configs
-    registry.populate(configs).await;
+    registry.populate(configs);
 
     // Verify each config is stored correctly
-    let parent = registry.get("parent-agent").await;
+    let parent = registry.get("parent-agent");
     assert!(parent.is_some());
     let parent = parent.unwrap();
     assert_eq!(parent.id, "parent-agent");
     assert!(parent.parent_id.is_none());
 
-    let child = registry.get("child-agent").await;
+    let child = registry.get("child-agent");
     assert!(child.is_some());
     let child = child.unwrap();
     assert_eq!(child.id, "child-agent");
     assert_eq!(child.parent_id.as_deref(), Some("parent-agent"));
 
-    let grandchild = registry.get("grandchild-agent").await;
+    let grandchild = registry.get("grandchild-agent");
     assert!(grandchild.is_some());
     let grandchild = grandchild.unwrap();
     assert_eq!(grandchild.id, "grandchild-agent");
     assert_eq!(grandchild.parent_id.as_deref(), Some("child-agent"));
 
     // Verify non-existent agent returns None
-    assert!(registry.get("unknown-agent").await.is_none());
+    assert!(registry.get("unknown-agent").is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -182,11 +182,11 @@ async fn test_config_loading_drives_agent_creation() {
         .iter()
         .map(|id| make_resolved_config(id, None))
         .collect();
-    registry.populate(configs).await;
+    registry.populate(configs);
 
     // Verify each agent is stored correctly via get
     for agent_id in provider.agents() {
-        let agent = registry.get(agent_id).await;
+        let agent = registry.get(agent_id);
         assert!(
             agent.is_some(),
             "agent '{}' should exist in registry",
@@ -278,9 +278,9 @@ async fn test_skill_with_permission_engine_integration() {
     // Populate registry with a test agent config
     let registry: SharedAgentRegistry = create_registry(30);
     let configs = vec![make_resolved_config("test-agent", None)];
-    registry.populate(configs).await;
+    registry.populate(configs);
 
-    let agent = registry.get("test-agent").await.unwrap();
+    let agent = registry.get("test-agent").unwrap();
     let agent_id = agent.id.clone();
 
     // Query exec permission: should be denied (no exec rule)
