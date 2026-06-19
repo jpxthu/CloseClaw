@@ -40,18 +40,18 @@ impl AdminServer {
     }
 
     /// Remove the socket file if it already exists (idempotent).
-    fn clean_up(&self) {
-        let _ = std::fs::remove_file(&self.path);
+    async fn clean_up(&self) {
+        let _ = tokio::fs::remove_file(&self.path).await;
     }
 
     /// Start the admin server. Blocks forever, processing each
     /// connection in a spawned task.
     pub async fn serve(self) -> std::io::Result<()> {
-        self.clean_up();
+        self.clean_up().await;
 
         // Ensure parent directory exists
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
 
         let listener = UnixListener::bind(&self.path)?;
@@ -158,49 +158,49 @@ fn dispatch_agent_info(name: &str, context: &AdminContext) -> AdminResponse {
     }
 }
 
-/// Create a new agent — creates config file and registers in AgentRegistry.
-async fn dispatch_agent_create(
+/// Validate that the agent name is non-empty and not already taken.
+fn validate_agent_name(name: &str, context: &AdminContext) -> Result<(), AdminResponse> {
+    if name.is_empty() {
+        return Err(AdminResponse::Error {
+            message: "agent name cannot be empty".to_string(),
+        });
+    }
+    if context.agent_registry.get(name).is_some() {
+        return Err(AdminResponse::Error {
+            message: format!("agent '{}' already exists", name),
+        });
+    }
+    Ok(())
+}
+
+/// Create the agent directory and write config.json, returning the agent dir path.
+async fn create_agent_dir_and_config(
     name: &str,
     model: Option<String>,
     context: &AdminContext,
-) -> AdminResponse {
-    // Validate name is not empty
-    if name.is_empty() {
-        return AdminResponse::Error {
-            message: "agent name cannot be empty".to_string(),
-        };
-    }
-
+) -> Result<std::path::PathBuf, AdminResponse> {
     let agent_dir = context.config_dir.join("agents").join(name);
-
-    // Check if agent already exists
-    if context.agent_registry.get(name).is_some() {
-        return AdminResponse::Error {
-            message: format!("agent '{}' already exists", name),
-        };
-    }
-
-    // Create agent directory
-    if let Err(e) = std::fs::create_dir_all(&agent_dir) {
-        return AdminResponse::Error {
+    tokio::fs::create_dir_all(&agent_dir)
+        .await
+        .map_err(|e| AdminResponse::Error {
             message: format!("failed to create agent directory: {}", e),
-        };
-    }
-
-    // Create config.json
+        })?;
     let config = AgentConfig {
         id: name.to_string(),
         model,
         ..AgentConfig::default()
     };
     let config_path = agent_dir.join("config.json");
-    if let Err(e) = config.save(&config_path) {
-        return AdminResponse::Error {
+    config
+        .save(&config_path)
+        .map_err(|e| AdminResponse::Error {
             message: format!("failed to write config.json: {}", e),
-        };
-    }
+        })?;
+    Ok(agent_dir)
+}
 
-    // Update agents.json to include the new agent
+/// Append the new agent name to agents.json.
+fn update_agents_json(name: &str, context: &AdminContext) -> Result<(), AdminResponse> {
     let agents_json_path = context.config_dir.join("config").join("agents.json");
     let mut agent_ids = context
         .config_manager
@@ -208,29 +208,56 @@ async fn dispatch_agent_create(
         .unwrap_or_default();
     agent_ids.push(name.to_string());
     let agents_json = serde_json::json!({ "agents": agent_ids });
-    let agents_json_bytes = serde_json::to_vec_pretty(&agents_json).unwrap();
-    if let Err(e) = write_atomically(&agents_json_path, &agents_json_bytes) {
-        return AdminResponse::Error {
-            message: format!("failed to update agents.json: {}", e),
-        };
-    }
+    let agents_json_bytes =
+        serde_json::to_vec_pretty(&agents_json).map_err(|e| AdminResponse::Error {
+            message: format!("failed to serialize agents.json: {}", e),
+        })?;
+    write_atomically(&agents_json_path, &agents_json_bytes).map_err(|e| AdminResponse::Error {
+        message: format!("failed to update agents.json: {}", e),
+    })
+}
 
-    // Reload agents in ConfigManager and re-populate AgentRegistry
-    if let Err(e) = context.config_manager.reload_agents() {
-        return AdminResponse::Error {
+/// Reload agent configs and repopulate the registry.
+fn reload_registry(context: &AdminContext) -> Result<(), AdminResponse> {
+    context
+        .config_manager
+        .reload_agents()
+        .map_err(|e| AdminResponse::Error {
             message: format!("failed to reload agent configs: {}", e),
-        };
-    }
+        })?;
     let configs: Vec<_> = context.config_manager.agents().into_values().collect();
     context.agent_registry.populate(configs);
+    Ok(())
+}
 
+/// Create a new agent — creates config file and registers in AgentRegistry.
+async fn dispatch_agent_create(
+    name: &str,
+    model: Option<String>,
+    context: &AdminContext,
+) -> AdminResponse {
+    if let Err(e) = validate_agent_name(name, context) {
+        return e;
+    }
+    if let Err(e) = create_agent_dir_and_config(name, model, context).await {
+        return e;
+    }
+    if let Err(e) = update_agents_json(name, context) {
+        return e;
+    }
+    if let Err(e) = reload_registry(context) {
+        return e;
+    }
     tracing::info!(name = name, "agent created successfully");
     AdminResponse::Ok
 }
 
 /// List all skills from the DiskSkillRegistry with version info.
 async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse {
-    let guard = context.skill_registry.read().unwrap();
+    let guard = context
+        .skill_registry
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     match guard.as_ref() {
         Some(registry) => {
             let skills: Vec<SkillInfo> = registry
@@ -291,7 +318,7 @@ async fn dispatch_skill_install(name: &str, context: &AdminContext) -> AdminResp
     }
 
     // Copy skill directory
-    if let Err(e) = copy_skill_dir(&source_skill_dir, &dest_skill_dir) {
+    if let Err(e) = copy_skill_dir(&source_skill_dir, &dest_skill_dir).await {
         return AdminResponse::Error {
             message: format!("failed to copy skill: {}", e),
         };
@@ -301,18 +328,18 @@ async fn dispatch_skill_install(name: &str, context: &AdminContext) -> AdminResp
     AdminResponse::Ok
 }
 
-/// Recursively copy a skill directory.
-fn copy_skill_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
+/// Recursively copy a skill directory using async I/O.
+async fn copy_skill_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let file_type = entry.file_type().await?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
         if file_type.is_dir() {
-            copy_skill_dir(&src_path, &dst_path)?;
+            Box::pin(copy_skill_dir(&src_path, &dst_path)).await?;
         } else {
-            std::fs::copy(&src_path, &dst_path)?;
+            tokio::fs::copy(&src_path, &dst_path).await?;
         }
     }
     Ok(())

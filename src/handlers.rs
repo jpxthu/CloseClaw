@@ -39,76 +39,90 @@ pub(crate) async fn handle_agent_with(action: AgentAction, cfg_dir: PathBuf) -> 
             .into_owned(),
     );
     match action {
-        AgentAction::List => {
-            let resp = client
-                .call(&closeclaw::admin::AdminRequest::AgentList)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
-            match resp {
-                closeclaw::admin::AdminResponse::AgentListResult { agents } => {
-                    if agents.is_empty() {
-                        println!("Agents:\n  (none)");
-                    } else {
-                        println!("Agents:");
-                        for a in &agents {
-                            let model = a.model.as_deref().unwrap_or("-");
-                            println!("  {} | {} | {}", a.id, a.name, model);
-                        }
-                    }
-                }
-                closeclaw::admin::AdminResponse::Error { message } => {
-                    anyhow::bail!("{}", message);
-                }
-                _ => anyhow::bail!("Unexpected response from daemon"),
-            }
-        }
-        AgentAction::Info { name } => {
-            let resp = client
-                .call(&closeclaw::admin::AdminRequest::AgentInfo { name: name.clone() })
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
-            match resp {
-                closeclaw::admin::AdminResponse::AgentInfoResult {
-                    id,
-                    name,
-                    model,
-                    skills,
-                } => {
-                    println!("Agent: {}", name);
-                    println!("  ID: {}", id);
-                    println!("  Model: {}", model.as_deref().unwrap_or("-"));
-                    if skills.is_empty() {
-                        println!("  Skills: (none)");
-                    } else {
-                        println!("  Skills: {}", skills.join(", "));
-                    }
-                }
-                closeclaw::admin::AdminResponse::Error { message } => {
-                    anyhow::bail!("{}", message);
-                }
-                _ => anyhow::bail!("Unexpected response from daemon"),
-            }
-        }
-        AgentAction::Create { name, model } => {
-            let resp = client
-                .call(&closeclaw::admin::AdminRequest::AgentCreate {
-                    name: name.clone(),
-                    model,
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
-            match resp {
-                closeclaw::admin::AdminResponse::Ok => {
-                    println!("Agent '{}' created.", name);
-                }
-                closeclaw::admin::AdminResponse::Error { message } => {
-                    anyhow::bail!("{}", message);
-                }
-                _ => anyhow::bail!("Unexpected response from daemon"),
-            }
-        }
+        AgentAction::List => handle_agent_list_rpc(&client).await,
+        AgentAction::Info { name } => handle_agent_info_rpc(&client, &name).await,
+        AgentAction::Create { name, model } => handle_agent_create_rpc(&client, &name, model).await,
     }
-    Ok(())
+}
+
+async fn handle_agent_list_rpc(client: &closeclaw::admin::AdminClient) -> Result<()> {
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::AgentList)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    match resp {
+        closeclaw::admin::AdminResponse::AgentListResult { agents } => {
+            if agents.is_empty() {
+                println!("Agents:\n  (none)");
+            } else {
+                println!("Agents:");
+                for a in &agents {
+                    let model = a.model.as_deref().unwrap_or("-");
+                    println!("  {} | {} | {}", a.id, a.name, model);
+                }
+            }
+            Ok(())
+        }
+        closeclaw::admin::AdminResponse::Error { message } => {
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
+}
+
+async fn handle_agent_info_rpc(client: &closeclaw::admin::AdminClient, name: &str) -> Result<()> {
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::AgentInfo {
+            name: name.to_string(),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    match resp {
+        closeclaw::admin::AdminResponse::AgentInfoResult {
+            id,
+            name,
+            model,
+            skills,
+        } => {
+            println!("Agent: {}", name);
+            println!("  ID: {}", id);
+            println!("  Model: {}", model.as_deref().unwrap_or("-"));
+            if skills.is_empty() {
+                println!("  Skills: (none)");
+            } else {
+                println!("  Skills: {}", skills.join(", "));
+            }
+            Ok(())
+        }
+        closeclaw::admin::AdminResponse::Error { message } => {
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
+}
+
+async fn handle_agent_create_rpc(
+    client: &closeclaw::admin::AdminClient,
+    name: &str,
+    model: Option<String>,
+) -> Result<()> {
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::AgentCreate {
+            name: name.to_string(),
+            model,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    match resp {
+        closeclaw::admin::AdminResponse::Ok => {
+            println!("Agent '{}' created.", name);
+            Ok(())
+        }
+        closeclaw::admin::AdminResponse::Error { message } => {
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
 }
 
 pub async fn handle_config(action: ConfigAction) -> Result<()> {
