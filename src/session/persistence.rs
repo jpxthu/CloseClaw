@@ -67,6 +67,12 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub sender_id: Option<String>,
+    /// 父 session ID（spawn 创建时写入，顶层 session 为空）
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
+    /// spawn 层级深度（根节点为 0）
+    #[serde(default)]
+    pub depth: u32,
 }
 
 impl SessionCheckpoint {
@@ -94,6 +100,8 @@ impl SessionCheckpoint {
             system_appends: Vec::new(),
             thread_id: None,
             sender_id: None,
+            parent_session_id: None,
+            depth: 0,
         }
     }
 
@@ -183,6 +191,16 @@ impl SessionCheckpoint {
     /// Update the thread ID
     pub fn with_thread_id(mut self, thread_id: String) -> Self {
         self.thread_id = Some(thread_id);
+        self
+    }
+    /// Update the parent session ID
+    pub fn with_parent_session_id(mut self, parent: String) -> Self {
+        self.parent_session_id = Some(parent);
+        self
+    }
+    /// Update the spawn depth
+    pub fn with_depth(mut self, depth: u32) -> Self {
+        self.depth = depth;
         self
     }
     /// Touch the updated_at timestamp
@@ -422,6 +440,14 @@ pub trait PersistenceService: Send + Sync {
         _agent_id: &str,
         _role: AgentRole,
         _purge_after_minutes: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    /// 列出指定 session 的所有直接子 session（parent_session_id = session_id）
+    async fn list_children_sessions(
+        &self,
+        _parent_session_id: &str,
     ) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
     }

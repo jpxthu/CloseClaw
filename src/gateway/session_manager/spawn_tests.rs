@@ -348,81 +348,77 @@ async fn test_kill_child_removes_from_all_tables() {
 
 #[tokio::test]
 #[serial]
-async fn test_validate_child_ownership_returns_none_for_run_mode() {
+async fn test_validate_child_ownership_by_mode() {
     clear_global_prompt_state();
 
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("run-child", None);
+    // --- Run mode: should return None ---
+    {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mgr = make_test_mgr(Some(tmp.path()));
+        let config = test_resolved_config("run-child", None);
+        register_parent_session(&mgr, "parent-validate-run", tmp.path().to_path_buf()).await;
 
-    register_parent_session(&mgr, "parent-validate-run", tmp.path().to_path_buf()).await;
+        let child_id = mgr
+            .create_child_session(
+                &config,
+                "parent-validate-run",
+                1,
+                "run task",
+                false,
+                None,
+                SpawnMode::Run,
+                false,
+                None,
+                None,
+                None,
+                3,
+            )
+            .await
+            .expect("create_child_session should succeed");
 
-    let child_id = mgr
-        .create_child_session(
-            &config,
-            "parent-validate-run",
-            1,
-            "run task",
-            false,
-            None,
-            SpawnMode::Run,
-            false,
-            None,
-            None,
-            None,
-            3, // max_spawn_depth
-        )
-        .await
-        .expect("create_child_session should succeed");
+        let result = mgr
+            .validate_child_ownership("parent-validate-run", &child_id)
+            .await;
+        assert!(
+            result.is_none(),
+            "validate_child_ownership should return None for Run mode children"
+        );
+    }
 
-    // validate_child_ownership should return None for Run mode children
-    let result = mgr
-        .validate_child_ownership("parent-validate-run", &child_id)
-        .await;
-    assert!(
-        result.is_none(),
-        "validate_child_ownership should return None for Run mode children"
-    );
-}
+    // --- Session mode: should return Some with correct info ---
+    {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mgr = make_test_mgr(Some(tmp.path()));
+        let config = test_resolved_config("session-child", None);
+        register_parent_session(&mgr, "parent-validate-session", tmp.path().to_path_buf()).await;
 
-#[tokio::test]
-#[serial]
-async fn test_validate_child_ownership_returns_info_for_session_mode() {
-    clear_global_prompt_state();
+        let child_id = mgr
+            .create_child_session(
+                &config,
+                "parent-validate-session",
+                1,
+                "session task",
+                false,
+                None,
+                SpawnMode::Session,
+                false,
+                None,
+                None,
+                None,
+                3,
+            )
+            .await
+            .expect("create_child_session should succeed");
 
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("session-child", None);
-
-    register_parent_session(&mgr, "parent-validate-session", tmp.path().to_path_buf()).await;
-
-    let child_id = mgr
-        .create_child_session(
-            &config,
-            "parent-validate-session",
-            1,
-            "session task",
-            false,
-            None,
-            SpawnMode::Session,
-            false,
-            None,
-            None,
-            None,
-            3, // max_spawn_depth
-        )
-        .await
-        .expect("create_child_session should succeed");
-
-    // validate_child_ownership should return Some for Session mode children
-    let result = mgr
-        .validate_child_ownership("parent-validate-session", &child_id)
-        .await;
-    let info =
-        result.expect("validate_child_ownership should return Some for Session mode children");
-    assert_eq!(info.session_id, child_id);
-    assert_eq!(info.mode, SpawnMode::Session);
-    assert_eq!(info.parent_session_id, "parent-validate-session");
+        let result = mgr
+            .validate_child_ownership("parent-validate-session", &child_id)
+            .await;
+        let info =
+            result.expect("validate_child_ownership should return Some for Session mode children");
+        assert_eq!(info.session_id, child_id);
+        assert_eq!(info.mode, SpawnMode::Session);
+        assert_eq!(info.parent_session_id, "parent-validate-session");
+    }
 }
 
 #[tokio::test]
@@ -466,33 +462,19 @@ async fn test_create_child_session_allowed_tools_override() {
             Some(allowed),
             None,
             None,
-            3, // max_spawn_depth
+            3,
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
 
-    // Child should be created successfully
     assert!(mgr.has_session(&child_id).await);
     assert_eq!(mgr.get_session_depth(&child_id).await, Some(1));
-}
-
-#[tokio::test]
-#[serial]
-async fn test_create_child_session_no_allowed_tools_preserves_config() {
-    clear_global_prompt_state();
-
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mgr = make_test_mgr(Some(tmp.path()));
-
-    let config = test_resolved_config("no-restrict", None);
-
-    register_parent_session(&mgr, "parent-no-restrict", tmp.path().to_path_buf()).await;
 
     // Create child without allowed_tools (None) — should use config's tools as-is
-    let child_id = mgr
+    let child_id_2 = mgr
         .create_child_session(
             &config,
-            "parent-no-restrict",
+            "parent-tools",
             1,
             "normal task",
             false,
@@ -502,12 +484,12 @@ async fn test_create_child_session_no_allowed_tools_preserves_config() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,
         )
         .await
         .expect("create_child_session without allowed_tools should succeed");
 
-    assert!(mgr.has_session(&child_id).await);
+    assert!(mgr.has_session(&child_id_2).await);
 }
 
 #[tokio::test]
@@ -918,34 +900,98 @@ fn test_non_spawn_session_no_communication_config() {
     );
 }
 
-/// Verify `CommunicationConfig::default_with_parent` with a valid parent id.
+/// Verify `CommunicationConfig` construction and permission checks.
 #[test]
-fn test_communication_config_default_with_parent() {
+fn test_communication_config_construction_and_permissions() {
     use crate::gateway::session_manager::communication::CommunicationConfig;
 
+    // With valid parent
     let config = CommunicationConfig::default_with_parent(Some("agent-abc"));
     assert_eq!(config.outbound, vec!["agent-abc".to_string()]);
     assert_eq!(config.inbound, vec!["agent-abc".to_string()]);
-}
 
-/// Verify `CommunicationConfig::default_with_parent` with None parent.
-#[test]
-fn test_communication_config_default_with_parent_none() {
-    use crate::gateway::session_manager::communication::CommunicationConfig;
-
+    // With None parent
     let config = CommunicationConfig::default_with_parent(None);
     assert!(config.outbound.is_empty());
     assert!(config.inbound.is_empty());
-}
 
-/// Verify `can_send_to` / `can_receive_from` respect the whitelist.
-#[test]
-fn test_communication_config_permission_checks() {
-    use crate::gateway::session_manager::communication::CommunicationConfig;
-
+    // Permission checks
     let config = CommunicationConfig::default_with_parent(Some("parent-1"));
     assert!(config.can_send_to("parent-1"));
     assert!(!config.can_send_to("other-agent"));
     assert!(config.can_receive_from("parent-1"));
     assert!(!config.can_receive_from("other-agent"));
+}
+
+// ── Step 1.3: spawn checkpoint parent_session_id + depth persistence ────
+
+/// Verify that `create_child_session` persists a checkpoint with the
+/// correct `parent_session_id` and `depth` values.
+#[tokio::test]
+#[serial]
+async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
+    clear_global_prompt_state();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+
+    // Use MemoryStorage so we can read back the checkpoint.
+    let storage = Arc::new(crate::session::storage::memory::MemoryStorage::new());
+
+    // Register a parent checkpoint in storage so the parent can be found.
+    let parent_session_id = "parent-cp-check";
+    let mut parent_cp = SessionCheckpoint::new(parent_session_id.to_string());
+    parent_cp.depth = 0;
+    parent_cp.parent_session_id = None;
+    storage.save_checkpoint(&parent_cp).await.unwrap();
+
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        Some(tmp.path().to_path_buf()),
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    let config = test_resolved_config("cp-check-agent", None);
+    register_parent_session(&mgr, parent_session_id, tmp.path().to_path_buf()).await;
+
+    let child_id = mgr
+        .create_child_session(
+            &config,
+            parent_session_id,
+            2, // depth
+            "checkpoint test task",
+            false,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            4,
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    // Load the child checkpoint from storage and verify fields.
+    let child_cp = storage
+        .load_checkpoint(&child_id)
+        .await
+        .expect("storage should be accessible")
+        .expect("child checkpoint should exist in storage");
+
+    assert_eq!(
+        child_cp.parent_session_id.as_deref(),
+        Some(parent_session_id),
+        "checkpoint parent_session_id should match the parent"
+    );
+    assert_eq!(
+        child_cp.depth, 2,
+        "checkpoint depth should match the depth passed to create_child_session"
+    );
+    assert_eq!(
+        child_cp.agent_id.as_deref(),
+        Some("cp-check-agent"),
+        "checkpoint agent_id should match the config"
+    );
 }
