@@ -235,17 +235,18 @@ impl Daemon {
         // Create ToolRegistry and register builtin tools
         let tool_registry = Arc::new(ToolRegistry::new());
         let mut config_watcher = None;
+        // Create ConfigManager early so it's available for admin RPC.
+        let config_manager = Arc::new(
+            ConfigManager::new(PathBuf::from(config_dir))
+                .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
+        );
         {
             let disk_reg_opt = {
                 let guard = skill_registry.read().unwrap();
                 guard.as_ref().map(|dr| Arc::new(dr.clone()))
             };
             if let Some(disk_reg) = disk_reg_opt {
-                // Create ConfigManager and load agent configs (non-fatal if missing).
-                let config_manager = Arc::new(
-                    ConfigManager::new(PathBuf::from(config_dir))
-                        .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
-                );
+                // Load agent configs (non-fatal if missing).
                 if let Err(e) = config_manager.load_agents(None) {
                     tracing::warn!(
                         error = %e,
@@ -344,6 +345,8 @@ impl Daemon {
         let admin_context = AdminContext {
             agent_registry: Arc::clone(&agent_registry),
             skill_registry: skill_registry.clone(),
+            config_manager: Arc::clone(&config_manager),
+            config_dir: PathBuf::from(config_dir),
         };
         let admin_server = AdminServer::new(&admin_sock_path, admin_context);
         let admin_handle = tokio::spawn(async move {
