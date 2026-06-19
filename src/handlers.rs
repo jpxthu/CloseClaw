@@ -2,9 +2,8 @@
 
 use anyhow::Result;
 use closeclaw::cli::args::*;
-use closeclaw::permission::{Defaults, Effect, PermissionEngine, Rule, RuleSet};
+use closeclaw::permission::{Effect, Rule, RuleSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[allow(dead_code)] // pub API for masking secrets in CLI output (covered by tests)
 pub fn mask_key(key: &str) -> String {
@@ -30,19 +29,100 @@ pub(crate) fn config_dir_for(home: impl AsRef<std::path::Path>) -> PathBuf {
 }
 
 pub async fn handle_agent(action: AgentAction) -> Result<()> {
+    handle_agent_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_agent_with(action: AgentAction, cfg_dir: PathBuf) -> Result<()> {
+    let client = closeclaw::admin::AdminClient::new(
+        closeclaw::admin::client::admin_socket_path(&cfg_dir)
+            .to_string_lossy()
+            .into_owned(),
+    );
     match action {
-        AgentAction::List => {
-            println!("Agents:\n  (no agents running)");
-        }
-        AgentAction::Create { name, model } => {
-            let m = model.unwrap_or_else(|| "minimax/MiniMax-M2.7".to_string());
-            println!("Creating agent '{}' with model '{}'", name, m);
-        }
-        AgentAction::Info { name } => {
-            println!("Agent info for '{}':\n  (not implemented)", name);
-        }
+        AgentAction::List => handle_agent_list_rpc(&client).await,
+        AgentAction::Info { name } => handle_agent_info_rpc(&client, &name).await,
+        AgentAction::Create { name, model } => handle_agent_create_rpc(&client, &name, model).await,
     }
-    Ok(())
+}
+
+async fn handle_agent_list_rpc(client: &closeclaw::admin::AdminClient) -> Result<()> {
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::AgentList)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    match resp {
+        closeclaw::admin::AdminResponse::AgentListResult { agents } => {
+            if agents.is_empty() {
+                println!("Agents:\n  (none)");
+            } else {
+                println!("Agents:");
+                for a in &agents {
+                    let model = a.model.as_deref().unwrap_or("-");
+                    println!("  {} | {} | {}", a.id, a.name, model);
+                }
+            }
+            Ok(())
+        }
+        closeclaw::admin::AdminResponse::Error { message } => {
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
+}
+
+async fn handle_agent_info_rpc(client: &closeclaw::admin::AdminClient, name: &str) -> Result<()> {
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::AgentInfo {
+            name: name.to_string(),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    match resp {
+        closeclaw::admin::AdminResponse::AgentInfoResult {
+            id,
+            name,
+            model,
+            skills,
+        } => {
+            println!("Agent: {}", name);
+            println!("  ID: {}", id);
+            println!("  Model: {}", model.as_deref().unwrap_or("-"));
+            if skills.is_empty() {
+                println!("  Skills: (none)");
+            } else {
+                println!("  Skills: {}", skills.join(", "));
+            }
+            Ok(())
+        }
+        closeclaw::admin::AdminResponse::Error { message } => {
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
+}
+
+async fn handle_agent_create_rpc(
+    client: &closeclaw::admin::AdminClient,
+    name: &str,
+    model: Option<String>,
+) -> Result<()> {
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::AgentCreate {
+            name: name.to_string(),
+            model,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    match resp {
+        closeclaw::admin::AdminResponse::Ok => {
+            println!("Agent '{}' created.", name);
+            Ok(())
+        }
+        closeclaw::admin::AdminResponse::Error { message } => {
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
 }
 
 pub async fn handle_config(action: ConfigAction) -> Result<()> {
@@ -191,37 +271,53 @@ pub(crate) async fn handle_rule_with(action: RuleAction, config_dir: PathBuf) ->
 }
 
 pub async fn handle_skill(action: SkillAction) -> Result<()> {
-    use closeclaw::skills::{builtin_skills_with_engine, init_disk_skills, ScanConfig};
+    handle_skill_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_skill_with(action: SkillAction, cfg_dir: PathBuf) -> Result<()> {
+    let client = closeclaw::admin::AdminClient::new(
+        closeclaw::admin::client::admin_socket_path(&cfg_dir)
+            .to_string_lossy()
+            .into_owned(),
+    );
     match action {
         SkillAction::List => {
-            let rs = RuleSet {
-                rules: vec![],
-                defaults: Defaults::default(),
-                template_includes: vec![],
-                agent_creators: std::collections::HashMap::new(),
-            };
-            let eng = Arc::new(PermissionEngine::new_with_default_data_root(rs));
-            let config = ScanConfig::default();
-            let disk_reg = init_disk_skills(&config);
-            if disk_reg.is_empty() {
-                println!("Installed skills (bundled):");
-            } else {
-                println!("Installed skills (disk):");
-                for name in disk_reg.list() {
-                    println!("  {} [disk]", name);
+            let resp = client
+                .call(&closeclaw::admin::AdminRequest::SkillList)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+            match resp {
+                closeclaw::admin::AdminResponse::SkillListResult { skills } => {
+                    if skills.is_empty() {
+                        println!("Installed skills:\n  (none)");
+                    } else {
+                        println!("Installed skills:");
+                        for s in &skills {
+                            let ver = s.version.as_deref().unwrap_or("-");
+                            println!("  {} v{}", s.name, ver);
+                        }
+                    }
                 }
-                println!("Installed skills (bundled):");
-            }
-            for s in builtin_skills_with_engine(eng).iter() {
-                println!(
-                    "  {} v{} [bundled]",
-                    s.manifest().name,
-                    s.manifest().version
-                );
+                closeclaw::admin::AdminResponse::Error { message } => {
+                    anyhow::bail!("{}", message);
+                }
+                _ => anyhow::bail!("Unexpected response from daemon"),
             }
         }
         SkillAction::Install { name } => {
-            println!("Installing skill: {}", name);
+            let resp = client
+                .call(&closeclaw::admin::AdminRequest::SkillInstall { name: name.clone() })
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+            match resp {
+                closeclaw::admin::AdminResponse::Ok => {
+                    println!("Skill '{}' installed.", name);
+                }
+                closeclaw::admin::AdminResponse::Error { message } => {
+                    anyhow::bail!("{}", message);
+                }
+                _ => anyhow::bail!("Unexpected response from daemon"),
+            }
         }
     }
     Ok(())

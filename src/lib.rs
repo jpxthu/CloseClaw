@@ -6,6 +6,7 @@
 //! - **Gateway**: IM protocol adapters (Feishu, Wecom, QQ, DingTalk, etc.)
 //! - **Config System**: Hot-reloadable JSON configs with validation and rollback
 
+pub mod admin;
 pub mod agent;
 pub mod cli;
 pub mod config;
