@@ -6,6 +6,8 @@ pub mod types;
 pub use fetch::*;
 pub use types::*;
 
+use crate::agent::config::AgentConfig;
+use crate::config::agents::{AgentsConfig, AgentsConfigProvider};
 use crate::config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
@@ -109,6 +111,59 @@ pub fn parse_model_selection(input: &str, total: usize) -> anyhow::Result<Vec<us
 fn config_dir() -> PathBuf {
     let home = std::env::var("HOME").expect("HOME not set");
     PathBuf::from(home).join(".closeclaw").join("config")
+}
+
+#[allow(dead_code)]
+/// Create the initial `master` agent if it does not already exist.
+///
+/// Writes:
+/// - `~/.closeclaw/agents/master/config.json`
+/// - `~/.closeclaw/config/agents.json` (appends "master" if missing)
+///
+/// Idempotent: skips files that already exist.
+fn ensure_master_agent(config_dir: &Path) -> anyhow::Result<()> {
+    let agents_dir = config_dir.parent().unwrap_or(config_dir).join("agents");
+
+    // ── Write master agent config.json if missing ──────────────────────────────
+    let master_config_path = agents_dir.join("master").join("config.json");
+    if !master_config_path.exists() {
+        let dir = master_config_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("cannot determine agent directory"))?;
+        std::fs::create_dir_all(dir)?;
+
+        let config = AgentConfig {
+            id: "master".to_string(),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string_pretty(&config)
+            .map_err(|e| anyhow::anyhow!("failed to serialize AgentConfig: {}", e))?;
+        std::fs::write(&master_config_path, json)?;
+    }
+
+    // ── Update agents.json registration list ───────────────────────────────────
+    let agents_json_path = config_dir.join("agents.json");
+    if agents_json_path.exists() {
+        let content = std::fs::read_to_string(&agents_json_path)?;
+        let provider = AgentsConfigProvider::from_json_str(&content)?;
+        let mut agents_config = provider.inner().clone();
+        if !agents_config.agents.contains(&"master".to_string()) {
+            agents_config.agents.push("master".to_string());
+            let json = serde_json::to_string_pretty(&agents_config)
+                .map_err(|e| anyhow::anyhow!("failed to serialize agents.json: {}", e))?;
+            std::fs::write(&agents_json_path, json)?;
+        }
+    } else {
+        let agents_config = AgentsConfig {
+            agents: vec!["master".to_string()],
+        };
+        let json = serde_json::to_string_pretty(&agents_config)
+            .map_err(|e| anyhow::anyhow!("failed to serialize agents.json: {}", e))?;
+        std::fs::write(&agents_json_path, json)?;
+    }
+
+    Ok(())
 }
 
 /// Write wizard output to config files.
