@@ -53,7 +53,7 @@ impl AgentRegistry {
     }
 
     /// Replace all stored configs with the given set (hot-reload).
-    pub fn reload_config(&self, configs: Vec<ResolvedAgentConfig>) {
+    pub fn reload(&self, configs: Vec<ResolvedAgentConfig>) {
         self.configs.clear();
         for cfg in configs {
             self.configs.insert(cfg.id.clone(), cfg);

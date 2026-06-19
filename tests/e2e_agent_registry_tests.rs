@@ -1,7 +1,7 @@
 //! E2E integration tests for Agent Registry.
 //!
 //! Exercises the public entry point `create_registry` → `populate` → `get` →
-//! `reload_config` lifecycle, simulating daemon startup fill, runtime query,
+//! `reload` lifecycle, simulating daemon startup fill, runtime query,
 //! and config hot-reload.
 
 use closeclaw::agent::config::SubagentsConfig;
@@ -66,7 +66,7 @@ async fn test_hot_reload_replaces_data() {
     );
 
     // Hot-reload with new set that excludes old-agent.
-    registry.reload_config(vec![make_config("new-agent")]);
+    registry.reload(vec![make_config("new-agent")]);
 
     assert!(
         registry.get("old-agent").is_none(),
@@ -85,7 +85,7 @@ async fn test_hot_reload_partial_overlap() {
     registry.populate(vec![make_config("keep"), make_config("drop")]);
 
     // Reload with "keep" retained, "drop" removed, "added" new.
-    registry.reload_config(vec![make_config("keep"), make_config("added")]);
+    registry.reload(vec![make_config("keep"), make_config("added")]);
 
     assert!(
         registry.get("keep").is_some(),
