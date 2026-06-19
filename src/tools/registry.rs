@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::agent::registry::AgentRegistry;
 use crate::tools::{PromptGenerationContext, Tool, ToolContext, ToolDescriptor, ToolError};
 
 use serde_json::Value;
@@ -48,6 +49,12 @@ const TOOLS_SECTION_MAX_LEN: usize = 15000;
 /// read-write lock so that all operations are async-safe.
 pub struct ToolRegistry {
     tools: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn Tool>>>,
+    /// Optional reference to the AgentRegistry for direct config queries.
+    ///
+    /// When set, allows querying agent-level tool filtering configuration
+    /// directly from the AgentRegistry, fulfilling the design-doc query path:
+    ///   Tools Registry → AgentRegistry.get(agent_id) → tools / disallowed_tools
+    agent_registry: tokio::sync::RwLock<Option<Arc<AgentRegistry>>>,
 }
 
 impl std::fmt::Debug for ToolRegistry {
@@ -63,6 +70,47 @@ impl Default for ToolRegistry {
 }
 
 impl ToolRegistry {
+    /// Set the AgentRegistry reference for direct config queries.
+    ///
+    /// Called during daemon initialization after the AgentRegistry is created.
+    pub async fn set_agent_registry(&self, registry: Arc<AgentRegistry>) {
+        *self.agent_registry.write().await = Some(registry);
+    }
+
+    /// Get the current AgentRegistry reference, if set.
+    pub async fn get_agent_registry(&self) -> Option<Arc<AgentRegistry>> {
+        self.agent_registry.read().await.clone()
+    }
+
+    /// Query agent-level tool filtering configuration from the AgentRegistry.
+    ///
+    /// Returns `(tools, disallowed_tools)` extracted from the agent's
+    /// `ResolvedAgentConfig`. When the agent is not found or the AgentRegistry
+    /// is not set, returns `(None, None)` (no filtering — all tools allowed).
+    pub async fn query_agent_tools_config(
+        &self,
+        agent_id: &str,
+    ) -> (Option<Vec<String>>, Option<Vec<String>>) {
+        let guard = self.agent_registry.read().await;
+        let Some(registry) = guard.as_ref() else {
+            return (None, None);
+        };
+        let Some(config) = registry.get(agent_id) else {
+            return (None, None);
+        };
+        let tools = if config.tools.is_empty() || config.tools == ["*"] {
+            None
+        } else {
+            Some(config.tools.clone())
+        };
+        let disallowed_tools = if config.disallowed_tools.is_empty() {
+            None
+        } else {
+            Some(config.disallowed_tools.clone())
+        };
+        (tools, disallowed_tools)
+    }
+
     /// Format a single group into a section line, returning (output, new_total_len).
     /// Returns None if truncation was triggered.
     ///
@@ -119,6 +167,7 @@ impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            agent_registry: tokio::sync::RwLock::new(None),
         }
     }
 

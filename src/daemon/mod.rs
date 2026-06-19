@@ -266,6 +266,12 @@ impl Daemon {
                     }
                 }
 
+                // Inject AgentRegistry into ToolRegistry so the Tools
+                // Registry can query agent tools config directly (design-doc query path).
+                tool_registry
+                    .set_agent_registry(Arc::clone(&agent_registry))
+                    .await;
+
                 // Pass config_manager to SessionManager for agent tool/skill filtering.
                 session_manager
                     .set_config_manager(Arc::clone(&config_manager))
