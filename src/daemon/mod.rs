@@ -90,6 +90,8 @@ pub struct Daemon {
     /// Admin RPC server task handle (drop cancels the task)
     #[allow(dead_code)]
     admin_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Path to the admin RPC socket file (cleaned up on shutdown)
+    admin_socket_path: PathBuf,
 }
 // --- Lifecycle: start, run ---
 impl Daemon {
@@ -372,6 +374,7 @@ impl Daemon {
             _config_watcher: config_watcher,
             approval_flow,
             admin_handle: Some(admin_handle),
+            admin_socket_path: admin_sock_path,
         })
     }
     /// Run the daemon — blocks until shutdown signal is received.
@@ -397,6 +400,8 @@ impl Daemon {
         // Clear all pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
         let _ = self.sweeper_shutdown_tx.send(());
+        // Clean up admin socket file
+        let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
         Ok(())
     }
     /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
@@ -413,6 +418,8 @@ impl Daemon {
         // Clear all pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
         let _ = self.sweeper_shutdown_tx.send(());
+        // Clean up admin socket file
+        let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
         Ok(())
     }
 }

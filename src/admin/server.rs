@@ -274,50 +274,60 @@ async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse {
     }
 }
 
-/// Install a skill from the global skills directory to the bundled directory.
-async fn dispatch_skill_install(name: &str, context: &AdminContext) -> AdminResponse {
-    // Derive global dir: parent of config_dir / skills
+/// Validate that the source skill exists and destination is not already
+/// installed. Returns `(source, dest)` paths on success.
+async fn validate_skill_install_paths(
+    name: &str,
+    context: &AdminContext,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), AdminResponse> {
     let global_dir = context.config_dir.parent().map(|p| p.join("skills"));
     let bundled_dir = context.config_dir.join("skills");
 
     let global_dir = match global_dir {
         Some(d) => d,
         None => {
-            return AdminResponse::Error {
+            return Err(AdminResponse::Error {
                 message: "cannot determine global skills directory".to_string(),
-            }
+            })
         }
     };
 
-    // Source: global skills directory
     let source_skill_dir = global_dir.join(name);
-    if !source_skill_dir.exists() {
-        return AdminResponse::Error {
+    if tokio::fs::metadata(&source_skill_dir).await.is_err() {
+        return Err(AdminResponse::Error {
             message: format!(
                 "skill '{}' not found in global directory {}",
                 name,
                 global_dir.display()
             ),
-        };
+        });
     }
 
-    // Check SKILL.md exists
     let source_skill_md = source_skill_dir.join("SKILL.md");
-    if !source_skill_md.exists() {
-        return AdminResponse::Error {
+    if tokio::fs::metadata(&source_skill_md).await.is_err() {
+        return Err(AdminResponse::Error {
             message: format!("skill '{}' does not contain SKILL.md", name),
-        };
+        });
     }
 
-    // Destination: bundled skills directory
     let dest_skill_dir = bundled_dir.join(name);
-    if dest_skill_dir.exists() {
-        return AdminResponse::Error {
+    if tokio::fs::metadata(&dest_skill_dir).await.is_ok() {
+        return Err(AdminResponse::Error {
             message: format!("skill '{}' is already installed", name),
-        };
+        });
     }
 
-    // Copy skill directory
+    Ok((source_skill_dir, dest_skill_dir))
+}
+
+/// Install a skill from the global skills directory to the bundled directory.
+async fn dispatch_skill_install(name: &str, context: &AdminContext) -> AdminResponse {
+    let (source_skill_dir, dest_skill_dir) = match validate_skill_install_paths(name, context).await
+    {
+        Ok(paths) => paths,
+        Err(resp) => return resp,
+    };
+
     if let Err(e) = copy_skill_dir(&source_skill_dir, &dest_skill_dir).await {
         return AdminResponse::Error {
             message: format!("failed to copy skill: {}", e),
