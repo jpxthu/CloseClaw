@@ -18,18 +18,13 @@ pub struct AgentRegistry {
 
 impl Default for AgentRegistry {
     fn default() -> Self {
-        Self::new_with_graceful_shutdown()
+        Self::new()
     }
 }
 
 impl AgentRegistry {
     /// Create a new registry.
     pub fn new() -> Self {
-        Self::new_with_graceful_shutdown()
-    }
-
-    /// Create a new registry with graceful shutdown configuration.
-    pub fn new_with_graceful_shutdown() -> Self {
         Self {
             configs: DashMap::new(),
         }

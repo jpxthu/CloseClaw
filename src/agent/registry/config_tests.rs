@@ -16,19 +16,9 @@ fn test_new_construction() {
 }
 
 #[test]
-fn test_new_with_graceful_shutdown() {
-    let registry = AgentRegistry::new_with_graceful_shutdown();
-    // Must construct successfully and start empty.
-    assert!(
-        registry.get("any-id").is_none(),
-        "registry created via new_with_graceful_shutdown should have no configs"
-    );
-}
-
-#[test]
 fn test_default_trait() {
     let registry = AgentRegistry::default();
-    // Default() delegates to new_with_graceful_shutdown, should be empty.
+    // Default() delegates to new(), should be empty.
     assert!(
         registry.get("any-id").is_none(),
         "default registry should have no configs"
