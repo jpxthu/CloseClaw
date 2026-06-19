@@ -318,3 +318,162 @@ async fn test_rule_list_no_file() {
         result
     );
 }
+
+// ---------------------------------------------------------------------------
+// agent / skill handler tests via mock admin server
+// ---------------------------------------------------------------------------
+
+use std::sync::Arc;
+
+/// Create a temp config dir with the required sub-structure for AdminServer.
+fn setup_admin_config_dir() -> (TempDir, PathBuf) {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = config_dir_for(tmp.path());
+    let config_sub = config_dir.join("config");
+    fs::create_dir_all(&config_sub).unwrap();
+    fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
+    (tmp, config_dir)
+}
+
+/// Start an AdminServer in the background, return (config_dir, join_handle).
+async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHandle<()>) {
+    let sock_path = config_dir.join("admin.sock");
+    let config_manager =
+        Arc::new(closeclaw::config::ConfigManager::new(config_dir.clone()).unwrap());
+    let context = closeclaw::admin::server::AdminContext {
+        agent_registry: Arc::new(closeclaw::agent::registry::AgentRegistry::new()),
+        skill_registry: Arc::new(std::sync::RwLock::new(Some(
+            closeclaw::skills::DiskSkillRegistry::default(),
+        ))),
+        config_manager,
+        config_dir: config_dir.clone(),
+    };
+    let server = closeclaw::admin::AdminServer::new(sock_path, context);
+    let handle = tokio::spawn(async move {
+        let _ = server.serve().await;
+    });
+    // Give the server a moment to bind
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (config_dir, handle)
+}
+
+// --- Agent handler tests ---------------------------------------------------
+
+#[tokio::test]
+async fn test_handle_agent_list_empty() {
+    let (_tmp, config_dir) = setup_admin_config_dir();
+    let (config_dir, handle) = start_mock_server(config_dir).await;
+    let result = handle_agent_with(AgentAction::List, config_dir).await;
+    assert!(result.is_ok(), "agent list should succeed: {:?}", result);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_handle_agent_list_with_agents() {
+    let (_tmp, config_dir) = setup_admin_config_dir();
+    let (config_dir, handle) = start_mock_server(config_dir).await;
+    // Create an agent first
+    let create_result = handle_agent_with(
+        AgentAction::Create {
+            name: "test-agent".into(),
+            model: Some("gpt-4".into()),
+        },
+        config_dir.clone(),
+    )
+    .await;
+    assert!(
+        create_result.is_ok(),
+        "agent create should succeed: {:?}",
+        create_result
+    );
+    // Now list agents
+    let result = handle_agent_with(AgentAction::List, config_dir).await;
+    assert!(result.is_ok(), "agent list should succeed: {:?}", result);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_handle_agent_info_found() {
+    let (_tmp, config_dir) = setup_admin_config_dir();
+    let (config_dir, handle) = start_mock_server(config_dir).await;
+    // Create an agent
+    handle_agent_with(
+        AgentAction::Create {
+            name: "info-agent".into(),
+            model: None,
+        },
+        config_dir.clone(),
+    )
+    .await
+    .unwrap();
+    // Get info
+    let result = handle_agent_with(
+        AgentAction::Info {
+            name: "info-agent".into(),
+        },
+        config_dir,
+    )
+    .await;
+    assert!(result.is_ok(), "agent info should succeed: {:?}", result);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_handle_agent_info_not_found() {
+    let (_tmp, config_dir) = setup_admin_config_dir();
+    let (config_dir, handle) = start_mock_server(config_dir).await;
+    let result = handle_agent_with(
+        AgentAction::Info {
+            name: "nonexistent".into(),
+        },
+        config_dir,
+    )
+    .await;
+    assert!(result.is_err(), "agent info for missing agent should fail");
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_handle_agent_create() {
+    let (_tmp, config_dir) = setup_admin_config_dir();
+    let (config_dir, handle) = start_mock_server(config_dir).await;
+    let result = handle_agent_with(
+        AgentAction::Create {
+            name: "new-agent".into(),
+            model: Some("claude-3".into()),
+        },
+        config_dir,
+    )
+    .await;
+    assert!(result.is_ok(), "agent create should succeed: {:?}", result);
+    handle.abort();
+}
+
+// --- Skill handler tests ---------------------------------------------------
+
+#[tokio::test]
+async fn test_handle_skill_list_empty() {
+    let (_tmp, config_dir) = setup_admin_config_dir();
+    let (config_dir, handle) = start_mock_server(config_dir).await;
+    let result = handle_skill_with(SkillAction::List, config_dir).await;
+    assert!(result.is_ok(), "skill list should succeed: {:?}", result);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_handle_skill_install_not_found() {
+    let (_tmp, config_dir) = setup_admin_config_dir();
+    let (config_dir, handle) = start_mock_server(config_dir).await;
+    let result = handle_skill_with(
+        SkillAction::Install {
+            name: "missing-skill".into(),
+        },
+        config_dir,
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "skill install for missing skill should fail"
+    );
+    handle.abort();
+}

@@ -29,8 +29,12 @@ pub(crate) fn config_dir_for(home: impl AsRef<std::path::Path>) -> PathBuf {
 }
 
 pub async fn handle_agent(action: AgentAction) -> Result<()> {
+    handle_agent_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_agent_with(action: AgentAction, cfg_dir: PathBuf) -> Result<()> {
     let client = closeclaw::admin::AdminClient::new(
-        closeclaw::admin::client::admin_socket_path(&config_dir())
+        closeclaw::admin::client::admin_socket_path(&cfg_dir)
             .to_string_lossy()
             .into_owned(),
     );
@@ -253,8 +257,12 @@ pub(crate) async fn handle_rule_with(action: RuleAction, config_dir: PathBuf) ->
 }
 
 pub async fn handle_skill(action: SkillAction) -> Result<()> {
+    handle_skill_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_skill_with(action: SkillAction, cfg_dir: PathBuf) -> Result<()> {
     let client = closeclaw::admin::AdminClient::new(
-        closeclaw::admin::client::admin_socket_path(&config_dir())
+        closeclaw::admin::client::admin_socket_path(&cfg_dir)
             .to_string_lossy()
             .into_owned(),
     );
