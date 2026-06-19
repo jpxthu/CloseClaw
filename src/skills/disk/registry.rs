@@ -1,20 +1,50 @@
 //! DiskSkillRegistry - in-memory registry for disk-loaded skills.
 
+use crate::agent::registry::AgentRegistry;
 use std::path::Path;
+use std::sync::Arc;
 
 use super::path_matcher::PathMatcher;
 use super::types::{DiskSkill, SkillSource};
 
 /// In-memory registry holding all discovered disk skills.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DiskSkillRegistry {
     skills: Vec<DiskSkill>,
+    /// Optional reference to the agent configuration registry.
+    /// When set, `generate_listing` can look up the skills whitelist
+    /// directly from the agent config, avoiding the need for the caller
+    /// to pass it explicitly.
+    agent_registry: Option<Arc<AgentRegistry>>,
+}
+
+impl Default for DiskSkillRegistry {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl DiskSkillRegistry {
-    /// Creates a new registry with the given skills.
+    /// Creates a new registry with the given skills and no agent registry.
     pub fn new(skills: Vec<DiskSkill>) -> Self {
-        Self { skills }
+        Self {
+            skills,
+            agent_registry: None,
+        }
+    }
+
+    /// Creates an empty registry with no skills and no agent registry.
+    fn empty() -> Self {
+        Self {
+            skills: Vec::new(),
+            agent_registry: None,
+        }
+    }
+
+    /// Inject the agent configuration registry for direct skills-whitelist
+    /// lookups.
+    pub fn set_agent_registry(&mut self, registry: Arc<AgentRegistry>) {
+        self.agent_registry = Some(registry);
     }
 
     /// Returns skills that have path-based conditional activation (`paths` is non-empty).
@@ -51,6 +81,11 @@ impl DiskSkillRegistry {
             Err(_) => return false,
         };
         paths.iter().any(|p| matcher.matches(p))
+    }
+
+    /// Returns a reference to the agent configuration registry, if set.
+    pub fn agent_registry(&self) -> Option<&Arc<AgentRegistry>> {
+        self.agent_registry.as_ref()
     }
 
     /// Returns the number of registered skills.
@@ -124,9 +159,63 @@ impl DiskSkillRegistry {
     ///   and `user_invocable` is true (skills with `user_invocable: false` are excluded)
     /// - When `skills_whitelist` is `Some(list)`, only skills whose name appears in
     ///   the list are included (unless the list is `["*"]`, which means no filter).
+    /// - When `skills_whitelist` is `None` and an `agent_registry` is set, the whitelist
+    ///   is looked up directly from the agent config (direct query path, per design doc).
     /// - Format: `- **{name}**: {description}` + optionally ` — {when_to_use}`
     /// - Returns empty string if no skills match
     pub fn generate_listing(
+        &self,
+        agent_id: Option<&str>,
+        skills_whitelist: Option<&[String]>,
+    ) -> String {
+        // When no explicit whitelist is provided, attempt to look it up
+        // directly from the AgentRegistry (design-doc query path).
+        let resolved_whitelist = match skills_whitelist {
+            Some(w) => Some(w.to_vec()),
+            None => self
+                .agent_registry
+                .as_ref()
+                .and_then(|reg| reg.get(agent_id.unwrap_or("")))
+                .and_then(|cfg| {
+                    let skills = &cfg.skills;
+                    if skills.is_empty() || *skills == ["*"] {
+                        None
+                    } else {
+                        Some(skills.clone())
+                    }
+                }),
+        };
+        let resolved_ref = resolved_whitelist.as_deref();
+        self.generate_listing_inner(agent_id, resolved_ref)
+    }
+
+    /// Generates a skill listing by directly querying the AgentRegistry for
+    /// the agent's skills whitelist.
+    ///
+    /// This is the primary entry point per the design doc: the Skills Registry
+    /// queries the AgentRegistry to obtain the skills configuration. Falls back
+    /// to showing all skills when the agent registry is not set or the agent
+    /// config is not found.
+    pub fn generate_listing_for_agent(&self, agent_id: &str) -> String {
+        let resolved_whitelist = self
+            .agent_registry
+            .as_ref()
+            .and_then(|reg| reg.get(agent_id))
+            .and_then(|cfg| {
+                let skills = &cfg.skills;
+                if skills.is_empty() || *skills == ["*"] {
+                    None
+                } else {
+                    Some(skills.clone())
+                }
+            });
+        let resolved_ref = resolved_whitelist.as_deref();
+        self.generate_listing_inner(Some(agent_id), resolved_ref)
+    }
+
+    /// Internal implementation shared by `generate_listing` and
+    /// `generate_listing_for_agent`.
+    fn generate_listing_inner(
         &self,
         agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,

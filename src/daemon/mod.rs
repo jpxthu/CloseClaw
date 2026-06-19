@@ -257,6 +257,15 @@ impl Daemon {
                     agent_registry.populate(configs);
                 }
 
+                // Inject AgentRegistry into DiskSkillRegistry so the Skills
+                // Registry can query agent configs directly (design-doc query path).
+                {
+                    let mut guard = skill_registry.write().unwrap();
+                    if let Some(ref mut disk_reg) = *guard {
+                        disk_reg.set_agent_registry(Arc::clone(&agent_registry));
+                    }
+                }
+
                 // Pass config_manager to SessionManager for agent tool/skill filtering.
                 session_manager
                     .set_config_manager(Arc::clone(&config_manager))
