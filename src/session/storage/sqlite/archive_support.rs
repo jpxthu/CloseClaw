@@ -176,7 +176,7 @@ pub fn load_checkpoint_inner(
         .prepare(
             "SELECT agent_id, role, channel, chat_id, status, title,
              last_message_at, created_at, archived_at, message_count, metadata, thread_id,
-             sender_id, platform, peer_id, account_id
+             sender_id, platform, peer_id, account_id, parent_session_id, depth
              FROM sessions WHERE id = ?1",
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -199,6 +199,8 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<String>>(13)?,
             row.get::<_, Option<String>>(14)?,
             row.get::<_, Option<String>>(15)?,
+            row.get::<_, Option<String>>(16)?,
+            row.get::<_, Option<String>>(17)?,
         ))
     }) {
         Ok(r) => r,
@@ -223,7 +225,11 @@ pub fn load_checkpoint_inner(
         platform_new,
         peer_id_new,
         account_id_new,
+        parent_session_id,
+        depth_str,
     ) = row;
+
+    let depth: u32 = depth_str.and_then(|s| s.parse().ok()).unwrap_or(0);
 
     let status = match status_db.as_str() {
         "archived" => crate::session::persistence::SessionStatus::Archived,
@@ -328,6 +334,8 @@ pub fn load_checkpoint_inner(
         account_id: account_id_new,
         thread_id,
         sender_id,
+        parent_session_id,
+        depth,
     }))
 }
 

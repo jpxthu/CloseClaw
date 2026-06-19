@@ -33,6 +33,8 @@ mod tests {
             thread_id: None,
             sender_id: None,
             account_id: None,
+            parent_session_id: None,
+            depth: 0,
         }
     }
 
@@ -391,6 +393,8 @@ mod tests {
             thread_id: None,
             sender_id: None,
             account_id: None,
+            parent_session_id: None,
+            depth: 0,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -431,6 +435,8 @@ mod tests {
             thread_id: None,
             sender_id: None,
             account_id: None,
+            parent_session_id: None,
+            depth: 0,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -471,6 +477,8 @@ mod tests {
             thread_id: None,
             sender_id: None,
             account_id: None,
+            parent_session_id: None,
+            depth: 0,
         };
         storage.save_checkpoint(&checkpoint).await?;
 

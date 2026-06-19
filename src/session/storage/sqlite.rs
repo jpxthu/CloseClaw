@@ -122,6 +122,8 @@ impl SqliteStorage {
             "platform",
             "peer_id",
             "account_id",
+            "parent_session_id",
+            "depth",
         ] {
             Self::add_column_if_not_exists(conn, col)?;
         }
@@ -287,11 +289,11 @@ impl PersistenceService for SqliteStorage {
                 "INSERT OR REPLACE INTO sessions
                  (id, agent_id, role, channel, chat_id, status, title,
                   last_message_at, created_at, archived_at, message_count, metadata, thread_id,
-                  sender_id, platform, peer_id, account_id)
+                  sender_id, platform, peer_id, account_id, parent_session_id, depth)
                  VALUES (
                      ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                      ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17
+                     ?14, ?15, ?16, ?17, ?18, ?19
                  )",
                 params![
                     checkpoint.session_id,
@@ -320,6 +322,8 @@ impl PersistenceService for SqliteStorage {
                     checkpoint.platform.as_deref(),
                     checkpoint.peer_id.as_deref(),
                     checkpoint.account_id.as_deref(),
+                    checkpoint.parent_session_id.as_deref(),
+                    checkpoint.depth,
                 ],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -489,5 +493,32 @@ impl PersistenceService for SqliteStorage {
         };
         self.list_expired_archived_sessions_for_agent(agent_id, role_str, purge_after_minutes)
             .await
+    }
+
+    async fn list_children_sessions(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<String>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let parent_id = parent_session_id.to_string();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let mut stmt = conn
+                .prepare("SELECT id FROM sessions WHERE parent_session_id = ?1")
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let ids: Vec<String> = stmt
+                .query_map(rusqlite::params![parent_id], |row| row.get(0))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            Ok(ids)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
 }

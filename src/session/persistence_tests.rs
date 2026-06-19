@@ -448,4 +448,81 @@ mod tests {
         assert!(parsed.peer_id.is_none());
         assert!(parsed.account_id.is_none());
     }
+
+    // ── parent_session_id + depth tests ───────────────────────────────────────
+
+    #[test]
+    fn test_checkpoint_parent_session_id_and_depth_default() {
+        let cp = SessionCheckpoint::new("s-parent-depth".into());
+        assert!(
+            cp.parent_session_id.is_none(),
+            "parent_session_id should default to None"
+        );
+        assert_eq!(cp.depth, 0, "depth should default to 0");
+    }
+
+    #[test]
+    fn test_checkpoint_with_parent_session_id_and_depth_builder() {
+        let cp = SessionCheckpoint::new("s-builder".into())
+            .with_parent_session_id("parent-id".to_string())
+            .with_depth(2);
+        assert_eq!(cp.parent_session_id.as_deref(), Some("parent-id"));
+        assert_eq!(cp.depth, 2);
+    }
+
+    #[test]
+    fn test_checkpoint_parent_session_id_depth_roundtrip() {
+        let cp = SessionCheckpoint::new("s-roundtrip".into())
+            .with_parent_session_id("p1".to_string())
+            .with_depth(3);
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.parent_session_id.as_deref(), Some("p1"));
+        assert_eq!(parsed.depth, 3);
+    }
+
+    #[test]
+    fn test_checkpoint_parent_session_id_depth_missing_json_defaults() {
+        // Simulate old JSON without parent_session_id and depth fields —
+        // should deserialize to None / 0 via #[serde(default)]
+        let cp = SessionCheckpoint::new("s-old-json".into())
+            .with_parent_session_id("old-parent".to_string())
+            .with_depth(5);
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        json_value
+            .as_object_mut()
+            .unwrap()
+            .remove("parent_session_id");
+        json_value.as_object_mut().unwrap().remove("depth");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            parsed.parent_session_id.is_none(),
+            "old data without parent_session_id should default to None"
+        );
+        assert_eq!(
+            parsed.depth, 0,
+            "old data without depth should default to 0"
+        );
+    }
+
+    #[test]
+    fn test_checkpoint_parent_session_id_none_roundtrip() {
+        let cp = SessionCheckpoint::new("s-none-parent".into());
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert!(parsed.parent_session_id.is_none());
+        assert_eq!(parsed.depth, 0);
+    }
+
+    #[test]
+    fn test_checkpoint_parent_session_id_depth_zero_roundtrip() {
+        let cp = SessionCheckpoint::new("s-depth-zero".into())
+            .with_parent_session_id("root-parent".to_string())
+            .with_depth(0);
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.parent_session_id.as_deref(), Some("root-parent"));
+        assert_eq!(parsed.depth, 0);
+    }
 }

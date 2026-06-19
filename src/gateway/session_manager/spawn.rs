@@ -12,11 +12,12 @@ use crate::gateway::Session;
 use crate::llm::session::ChatSession;
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
-use crate::session::persistence::PendingMessage;
+use crate::session::persistence::{PendingMessage, SessionCheckpoint, SessionStatus};
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::ToolContext;
 use std::path::PathBuf;
+use tracing::warn;
 use uuid::Uuid;
 
 /// Metadata for a child session tracked by the parent.
@@ -266,6 +267,24 @@ impl SessionManager {
                     depth,
                 },
             );
+        }
+
+        // 7b. Persist checkpoint with parent_session_id and depth so
+        //     flush_all / recovery can reconstruct the spawn tree.
+        let cp = SessionCheckpoint::new(child_session_id.clone())
+            .with_status(SessionStatus::Active)
+            .with_platform("spawn".to_string())
+            .with_agent_id(config.id.clone())
+            .with_parent_session_id(parent_session_id.to_string())
+            .with_depth(depth);
+        if let Some(storage) = self.storage.read().await.as_ref() {
+            if let Err(e) = storage.save_checkpoint(&cp).await {
+                warn!(
+                    session_id = %child_session_id,
+                    error = %e,
+                    "failed to save child session checkpoint"
+                );
+            }
         }
 
         // 8. Register to children tracking table

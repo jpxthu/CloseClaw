@@ -112,6 +112,22 @@ impl PersistenceService for MemoryStorage {
             .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
         Ok(archived.keys().cloned().collect())
     }
+
+    async fn list_children_sessions(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<String>, PersistenceError> {
+        let checkpoints = self
+            .checkpoints
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        let children: Vec<String> = checkpoints
+            .values()
+            .filter(|cp| cp.parent_session_id.as_deref() == Some(parent_session_id))
+            .map(|cp| cp.session_id.clone())
+            .collect();
+        Ok(children)
+    }
 }
 
 #[cfg(test)]
@@ -149,6 +165,8 @@ mod tests {
             system_appends: Vec::new(),
             thread_id: None,
             sender_id: None,
+            parent_session_id: None,
+            depth: 0,
         }
     }
 
@@ -220,5 +238,99 @@ mod tests {
         let loaded = storage.load_checkpoint("session3").await.unwrap();
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().last_message_id, Some("msg456".to_string()));
+    }
+
+    // ── list_children_sessions tests ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_list_children_sessions_no_children() {
+        let storage = MemoryStorage::new();
+        let cp = create_test_checkpoint("parent-only");
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let children = storage.list_children_sessions("parent-only").await.unwrap();
+        assert!(children.is_empty(), "no children should return empty vec");
+    }
+
+    #[tokio::test]
+    async fn test_list_children_sessions_with_children() {
+        let storage = MemoryStorage::new();
+
+        // Parent
+        let mut parent = create_test_checkpoint("parent");
+        parent.parent_session_id = None;
+        storage.save_checkpoint(&parent).await.unwrap();
+
+        // Child 1
+        let mut child1 = create_test_checkpoint("child1");
+        child1.parent_session_id = Some("parent".to_string());
+        storage.save_checkpoint(&child1).await.unwrap();
+
+        // Child 2
+        let mut child2 = create_test_checkpoint("child2");
+        child2.parent_session_id = Some("parent".to_string());
+        storage.save_checkpoint(&child2).await.unwrap();
+
+        // Unrelated session
+        let mut unrelated = create_test_checkpoint("unrelated");
+        unrelated.parent_session_id = Some("other-parent".to_string());
+        storage.save_checkpoint(&unrelated).await.unwrap();
+
+        let mut children = storage.list_children_sessions("parent").await.unwrap();
+        children.sort();
+        assert_eq!(children, vec!["child1".to_string(), "child2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_list_children_sessions_empty_storage() {
+        let storage = MemoryStorage::new();
+        let children = storage.list_children_sessions("nonexistent").await.unwrap();
+        assert!(children.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_children_sessions_after_delete() {
+        let storage = MemoryStorage::new();
+
+        let mut child = create_test_checkpoint("child-del");
+        child.parent_session_id = Some("parent-del".to_string());
+        storage.save_checkpoint(&child).await.unwrap();
+
+        // Verify child exists
+        let children = storage.list_children_sessions("parent-del").await.unwrap();
+        assert_eq!(children, vec!["child-del".to_string()]);
+
+        // Delete child
+        storage.delete_checkpoint("child-del").await.unwrap();
+
+        // Should be empty now
+        let children = storage.list_children_sessions("parent-del").await.unwrap();
+        assert!(children.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_children_sessions_nested() {
+        let storage = MemoryStorage::new();
+
+        // root -> child1 -> grandchild
+        let mut root = create_test_checkpoint("root");
+        root.parent_session_id = None;
+        storage.save_checkpoint(&root).await.unwrap();
+
+        let mut child1 = create_test_checkpoint("child1");
+        child1.parent_session_id = Some("root".to_string());
+        storage.save_checkpoint(&child1).await.unwrap();
+
+        let mut grandchild = create_test_checkpoint("grandchild");
+        grandchild.parent_session_id = Some("child1".to_string());
+        storage.save_checkpoint(&grandchild).await.unwrap();
+
+        // root's direct children should only be child1, not grandchild
+        let root_children = storage.list_children_sessions("root").await.unwrap();
+        assert_eq!(root_children, vec!["child1".to_string()]);
+
+        // child1's direct children should only be grandchild
+        let child1_children = storage.list_children_sessions("child1").await.unwrap();
+        assert_eq!(child1_children, vec!["grandchild".to_string()]);
     }
 }

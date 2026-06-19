@@ -35,3 +35,4 @@ pub use persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
     SessionCheckpoint,
 };
+pub use recovery::SpawnTree;
