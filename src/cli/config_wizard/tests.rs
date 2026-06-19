@@ -395,6 +395,16 @@ mod ensure_master_agent_tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// Helper: create isolated config_dir and agents_dir inside a TempDir.
+    /// Returns (config_dir, agents_dir).
+    fn isolated_dirs(tmp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
+        let config_dir = tmp.path().join("config");
+        let agents_dir = tmp.path().join("agents");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        (config_dir, agents_dir)
+    }
+
     /// Helper: assert master agent config.json has expected defaults.
     fn assert_master_config(config_path: &std::path::Path) {
         assert!(config_path.exists(), "master config.json should exist");
@@ -430,13 +440,13 @@ mod ensure_master_agent_tests {
     #[test]
     fn test_creates_on_empty_dir() {
         let tmp = TempDir::new().unwrap();
-        ensure_master_agent(tmp.path()).unwrap();
+        let (config_dir, agents_dir) = isolated_dirs(&tmp);
+        ensure_master_agent(&config_dir, &agents_dir).unwrap();
 
-        let agents_dir = tmp.path().parent().unwrap().join("agents");
-        let config_path = agents_dir.join("master").join("config.json");
-        let agents_json_path = tmp.path().join("agents.json");
+        let master_config_path = agents_dir.join("master").join("config.json");
+        let agents_json_path = config_dir.join("agents.json");
 
-        assert_master_config(&config_path);
+        assert_master_config(&master_config_path);
         assert_agents_json(&agents_json_path, &["master"]);
     }
 
@@ -444,19 +454,19 @@ mod ensure_master_agent_tests {
     #[test]
     fn test_idempotent() {
         let tmp = TempDir::new().unwrap();
-        ensure_master_agent(tmp.path()).unwrap();
+        let (config_dir, agents_dir) = isolated_dirs(&tmp);
+        ensure_master_agent(&config_dir, &agents_dir).unwrap();
 
-        let agents_dir = tmp.path().parent().unwrap().join("agents");
-        let config_path = agents_dir.join("master").join("config.json");
-        let agents_json_path = tmp.path().join("agents.json");
+        let master_config_path = agents_dir.join("master").join("config.json");
+        let agents_json_path = config_dir.join("agents.json");
 
-        let config_before = std::fs::read_to_string(&config_path).unwrap();
+        let config_before = std::fs::read_to_string(&master_config_path).unwrap();
         let agents_before = std::fs::read_to_string(&agents_json_path).unwrap();
 
         // Second call should not change anything
-        ensure_master_agent(tmp.path()).unwrap();
+        ensure_master_agent(&config_dir, &agents_dir).unwrap();
 
-        let config_after = std::fs::read_to_string(&config_path).unwrap();
+        let config_after = std::fs::read_to_string(&master_config_path).unwrap();
         let agents_after = std::fs::read_to_string(&agents_json_path).unwrap();
 
         assert_eq!(
@@ -473,8 +483,9 @@ mod ensure_master_agent_tests {
     #[test]
     fn test_appends_master_to_existing_agents_json() {
         let tmp = TempDir::new().unwrap();
-        let agents_json_path = tmp.path().join("agents.json");
-        std::fs::create_dir_all(tmp.path()).unwrap();
+        let (config_dir, agents_dir) = isolated_dirs(&tmp);
+
+        let agents_json_path = config_dir.join("agents.json");
         std::fs::write(
             &agents_json_path,
             serde_json::to_string_pretty(&AgentsConfig {
@@ -484,22 +495,21 @@ mod ensure_master_agent_tests {
         )
         .unwrap();
 
-        ensure_master_agent(tmp.path()).unwrap();
+        ensure_master_agent(&config_dir, &agents_dir).unwrap();
 
         // agents.json should now contain helper, researcher, master
         assert_agents_json(&agents_json_path, &["helper", "researcher", "master"]);
 
         // master config.json should also exist
-        let agents_dir = tmp.path().parent().unwrap().join("agents");
-        let config_path = agents_dir.join("master").join("config.json");
-        assert_master_config(&config_path);
+        let master_config_path = agents_dir.join("master").join("config.json");
+        assert_master_config(&master_config_path);
     }
 
     /// Test 4: config.json exists but agents.json missing master → master appended.
     #[test]
     fn test_agents_json_missing_master_only() {
         let tmp = TempDir::new().unwrap();
-        let agents_dir = tmp.path().parent().unwrap().join("agents");
+        let (config_dir, agents_dir) = isolated_dirs(&tmp);
 
         // Pre-create master config.json (already exists)
         std::fs::create_dir_all(agents_dir.join("master")).unwrap();
@@ -514,7 +524,7 @@ mod ensure_master_agent_tests {
         .unwrap();
 
         // Pre-create agents.json WITHOUT master
-        let agents_json_path = tmp.path().join("agents.json");
+        let agents_json_path = config_dir.join("agents.json");
         std::fs::write(
             &agents_json_path,
             serde_json::to_string_pretty(&AgentsConfig {
@@ -524,7 +534,7 @@ mod ensure_master_agent_tests {
         )
         .unwrap();
 
-        ensure_master_agent(tmp.path()).unwrap();
+        ensure_master_agent(&config_dir, &agents_dir).unwrap();
 
         // config.json should remain unchanged (not overwritten)
         let config_content =
