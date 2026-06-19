@@ -294,7 +294,7 @@ pub fn load_checkpoint_inner(
         last_message_at,
         message_count: msg_count as u64,
         platform: {
-            let has_new = platform_new.as_deref().map_or(false, |s| !s.is_empty());
+            let has_new = platform_new.as_deref().is_some_and(|s| !s.is_empty());
             if has_new {
                 platform_new
             } else if channel.is_empty() {
@@ -304,7 +304,7 @@ pub fn load_checkpoint_inner(
             }
         },
         peer_id: {
-            let has_new = peer_id_new.as_deref().map_or(false, |s| !s.is_empty());
+            let has_new = peer_id_new.as_deref().is_some_and(|s| !s.is_empty());
             if has_new {
                 peer_id_new
             } else if chat_id.is_empty() {

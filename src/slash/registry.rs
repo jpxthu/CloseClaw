@@ -13,6 +13,12 @@ pub struct HandlerRegistry {
     handlers: std::sync::RwLock<HashMap<String, Arc<dyn SlashHandler>>>,
 }
 
+impl Default for HandlerRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HandlerRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {

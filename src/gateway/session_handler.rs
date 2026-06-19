@@ -27,6 +27,8 @@ use crate::session::compaction::{
 use crate::session::persistence::ReasoningLevel;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+
+use super::OutputTx;
 use tokio_util::sync::CancellationToken;
 
 /// Metadata about an inbound message, passed through the handling pipeline.
@@ -64,7 +66,7 @@ pub enum HandleResult {
 pub struct SessionMessageHandler {
     pub(super) session_manager: Arc<SessionManager>,
     pub(super) fallback_client: Arc<FallbackClient>,
-    pub(super) output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
+    pub(super) output_tx: OutputTx,
     pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
     pub(super) unified_fallback_client: Arc<UnifiedFallbackClient>,
     /// Optional back-reference to the owning [`Gateway`] (weak).
@@ -202,7 +204,7 @@ impl SessionMessageHandler {
             return;
         }
         let result =
-            execute_compact(&llm_messages, &*self.fallback_client, &model, None, true).await;
+            execute_compact(&llm_messages, &self.fallback_client, &model, None, true).await;
         finalize_auto_compact(
             &self.session_manager,
             &self.compaction_service,
@@ -238,7 +240,7 @@ impl SessionMessageHandler {
                 cs_read.turn_count(),
                 cs_read.workdir().to_string_lossy().into_owned(),
                 cs_read.system_appends().to_vec(),
-                cs_read.reasoning_level().clone(),
+                cs_read.reasoning_level(),
             )
         } else {
             (
@@ -335,11 +337,11 @@ impl SessionMessageHandler {
 fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
     blocks
         .iter()
-        .filter_map(|b| match b {
-            ContentBlock::Text(t) => Some(t.as_str()),
-            ContentBlock::Thinking(t) => Some(t.as_str()),
-            ContentBlock::ToolUse { input, .. } => Some(input.as_str()),
-            ContentBlock::ToolResult { content, .. } => Some(content.as_str()),
+        .map(|b| match b {
+            ContentBlock::Text(t) => t.as_str(),
+            ContentBlock::Thinking(t) => t.as_str(),
+            ContentBlock::ToolUse { input, .. } => input.as_str(),
+            ContentBlock::ToolResult { content, .. } => content.as_str(),
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -380,10 +382,7 @@ async fn apply_compact_result(
     sm.rebuild_system_prompt(session_id).await;
 }
 
-async fn send_output(
-    output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
-    text: &str,
-) {
+async fn send_output(output_tx: &OutputTx, text: &str) {
     let guard = output_tx.read().await;
     if let Some(tx) = guard.as_ref() {
         let _ = tx.send((text.to_string(), vec![])).await;
@@ -405,14 +404,14 @@ async fn load_compact_inputs(
 async fn run_manual_compact(
     sm: Arc<SessionManager>,
     fc: Arc<FallbackClient>,
-    output_tx: Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
+    output_tx: OutputTx,
     svc: Arc<std::sync::Mutex<CompactionService>>,
     sid: String,
     model: String,
     llm_messages: Vec<ChatMessage>,
     instruction: Option<String>,
 ) {
-    let result = execute_compact(&llm_messages, &*fc, &model, instruction.as_deref(), false).await;
+    let result = execute_compact(&llm_messages, &fc, &model, instruction.as_deref(), false).await;
     match result {
         Ok(r) => {
             apply_compact_result(&sm, &sid, &r).await;

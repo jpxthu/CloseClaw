@@ -70,7 +70,7 @@ impl SessionMessageHandler {
                 cs_read.turn_count(),
                 cs_read.workdir().to_string_lossy().into_owned(),
                 cs_read.system_appends().to_vec(),
-                cs_read.reasoning_level().clone(),
+                cs_read.reasoning_level(),
             )
         } else {
             (

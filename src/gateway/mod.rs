@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 use crate::permission::approval_flow::ApprovalFlow;
 use crate::permission::engine::engine_eval::PermissionEngine;
@@ -33,6 +33,11 @@ use crate::slash::SlashDispatcher;
 pub use crate::processor_chain::ProcessorRegistry;
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::SessionManager;
+
+use crate::llm::types::ContentBlock;
+
+/// Type alias for the output channel sender used across session handler modules.
+pub(crate) type OutputTx = Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>;
 
 /// DM session scope - controls how session keys are partitioned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

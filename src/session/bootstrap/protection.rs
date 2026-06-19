@@ -103,7 +103,7 @@ impl BootstrapProtection {
     }
 
     /// Find bootstrap content in transcript by heuristic
-    fn find_bootstrap_content<'a>(&self, transcript: &'a str, file_name: &str) -> Option<String> {
+    fn find_bootstrap_content(&self, transcript: &str, file_name: &str) -> Option<String> {
         use super::types::BOOTSTRAP_REGION_START;
 
         // Try to find content between known markers first

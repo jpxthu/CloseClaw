@@ -6,19 +6,10 @@ use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-#[allow(clippy::new_without_default)]
+#[derive(Default)]
 pub struct FileOpsSkill {
     engine: Option<Arc<crate::permission::PermissionEngine>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
-}
-
-impl Default for FileOpsSkill {
-    fn default() -> Self {
-        Self {
-            engine: None,
-            approval_flow: None,
-        }
-    }
 }
 
 impl FileOpsSkill {

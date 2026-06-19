@@ -122,8 +122,9 @@ impl ConfigProvider for ModelsConfigData {
             }
 
             if let Some(ref base_url) = provider.base_url {
-                if !base_url.is_empty()
-                    && !(base_url.starts_with("http://") || base_url.starts_with("https://"))
+                if !(base_url.is_empty()
+                    || base_url.starts_with("http://")
+                    || base_url.starts_with("https://"))
                 {
                     return Err(ConfigError::ValueError {
                         field: "base_url".to_string(),

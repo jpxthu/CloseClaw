@@ -58,7 +58,7 @@ impl BootstrapRegion {
         let full_hash = Self::compute_hash(content);
         // Store first 12 hex chars for marker compactness
         let content_hash = full_hash[..12].to_string();
-        let region_id = format!("{}_{}", file_name, content_hash[..8].to_string());
+        let region_id = format!("{}_{}", file_name, &content_hash[..8]);
 
         Self {
             region_id,

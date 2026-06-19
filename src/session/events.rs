@@ -7,7 +7,7 @@ use crate::session::persistence::ReasoningMode;
 use std::sync::Arc;
 
 /// User Intent — parsed user input for reasoning
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UserIntent {
     /// Raw user input
     pub raw_input: String,
@@ -34,18 +34,8 @@ impl UserIntent {
     }
 }
 
-impl Default for UserIntent {
-    fn default() -> Self {
-        Self {
-            raw_input: String::new(),
-            parsed_goal: None,
-            entities: vec![],
-        }
-    }
-}
-
 /// Mode Switch Event — triggered when reasoning mode changes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ModeSwitchEvent {
     /// Requested mode (from user or config)
     pub requested_mode: Option<ReasoningMode>,
@@ -55,17 +45,6 @@ pub struct ModeSwitchEvent {
     pub user_intent: Option<Arc<UserIntent>>,
     /// Session ID
     pub session_id: Option<String>,
-}
-
-impl Default for ModeSwitchEvent {
-    fn default() -> Self {
-        Self {
-            requested_mode: None,
-            target_mode: None,
-            user_intent: None,
-            session_id: None,
-        }
-    }
 }
 
 impl ModeSwitchEvent {

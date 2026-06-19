@@ -253,11 +253,7 @@ impl Daemon {
                 // This fulfills the design-doc startup flow:
                 //   ConfigManager.load_agents() → AgentRegistry.populate()
                 {
-                    let configs: Vec<_> = config_manager
-                        .agents()
-                        .into_iter()
-                        .map(|(_, c)| c)
-                        .collect();
+                    let configs: Vec<_> = config_manager.agents().into_values().collect();
                     agent_registry.populate(configs).await;
                 }
 

@@ -144,7 +144,7 @@ impl ProcessorChainLoader {
                 Ok(Arc::new(processor))
             }
             ProcessorConfig::ContentNormalizer => Ok(Arc::new(ContentNormalizer::new())),
-            ProcessorConfig::DslParser => Ok(Arc::new(DslParser::default())),
+            ProcessorConfig::DslParser => Ok(Arc::new(DslParser)),
         }
     }
 }

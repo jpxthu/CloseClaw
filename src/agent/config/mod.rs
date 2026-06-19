@@ -290,7 +290,7 @@ impl AgentPermissions {
             "config_write",
         ]
         .iter()
-        .any(|&dim| self.permissions.get(dim).map_or(false, |p| p.allowed))
+        .any(|&dim| self.permissions.get(dim).is_some_and(|p| p.allowed))
     }
 }
 
