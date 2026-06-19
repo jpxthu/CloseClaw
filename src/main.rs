@@ -1,6 +1,8 @@
 //! CloseClaw Binary Entry Point
 
 mod handlers;
+#[cfg(test)]
+mod handlers_tests;
 use crate::handlers::*;
 use clap::{Parser, Subcommand};
 use closeclaw::cli::args::*;

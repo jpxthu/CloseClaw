@@ -23,7 +23,11 @@ pub fn pid_file_path() -> PathBuf {
 #[allow(dead_code)] // Used by config list / rule list in later steps
 pub fn config_dir() -> PathBuf {
     let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home).join(".closeclaw")
+    config_dir_for(home)
+}
+
+pub(crate) fn config_dir_for(home: impl AsRef<std::path::Path>) -> PathBuf {
+    PathBuf::from(home.as_ref()).join(".closeclaw")
 }
 
 pub async fn handle_agent(action: AgentAction) -> Result<()> {
@@ -43,6 +47,10 @@ pub async fn handle_agent(action: AgentAction) -> Result<()> {
 }
 
 pub async fn handle_config(action: ConfigAction) -> Result<()> {
+    handle_config_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_config_with(action: ConfigAction, config_dir: PathBuf) -> Result<()> {
     match action {
         ConfigAction::Validate { file } => {
             let path = std::path::Path::new(&file);
@@ -66,13 +74,12 @@ pub async fn handle_config(action: ConfigAction) -> Result<()> {
             }
         }
         ConfigAction::List => {
-            let dir = config_dir();
-            if !dir.is_dir() {
-                println!("No config directory found at {}", dir.display());
+            if !config_dir.is_dir() {
+                println!("No config directory found at {}", config_dir.display());
                 return Ok(());
             }
-            let mut entries: Vec<PathBuf> = std::fs::read_dir(&dir)
-                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", dir.display(), e))?
+            let mut entries: Vec<PathBuf> = std::fs::read_dir(&config_dir)
+                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", config_dir.display(), e))?
                 .filter_map(|e| e.ok())
                 .filter(|e| {
                     e.path()
@@ -84,7 +91,7 @@ pub async fn handle_config(action: ConfigAction) -> Result<()> {
                 .collect();
             entries.sort();
             if entries.is_empty() {
-                println!("No config files found in {}", dir.display());
+                println!("No config files found in {}", config_dir.display());
                 return Ok(());
             }
             println!("Config files:");
@@ -109,6 +116,10 @@ pub async fn handle_config(action: ConfigAction) -> Result<()> {
 }
 
 pub async fn handle_rule(action: RuleAction) -> Result<()> {
+    handle_rule_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_rule_with(action: RuleAction, config_dir: PathBuf) -> Result<()> {
     match action {
         RuleAction::Check { rule } => {
             use closeclaw::permission::rules::validation::validate_rule;
@@ -146,7 +157,7 @@ pub async fn handle_rule(action: RuleAction) -> Result<()> {
             println!("✅ Rule '{}': valid", r.name);
         }
         RuleAction::List => {
-            let path = config_dir().join("permissions.json");
+            let path = config_dir.join("permissions.json");
             if !path.exists() {
                 println!("No permissions file found at {}", path.display());
                 return Ok(());
