@@ -125,7 +125,7 @@ mod tests {
             Arc::clone(&cfg_mgr),
             Arc::clone(&session_manager),
         ));
-        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new(30));
+        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         (spawn_controller, session_manager, cfg_mgr, agent_registry)
     }
 

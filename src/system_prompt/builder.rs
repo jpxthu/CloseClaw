@@ -385,7 +385,7 @@ mod tests {
         use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
         use crate::session::bootstrap::loader::BootstrapMode;
 
-        let agent_reg = Arc::new(AgentRegistry::new(30));
+        let agent_reg = Arc::new(AgentRegistry::new());
         agent_reg.populate(vec![ResolvedAgentConfig {
             id: "test-agent".into(),
             name: "test-agent".into(),
@@ -431,7 +431,7 @@ mod tests {
         use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
         use crate::session::bootstrap::loader::BootstrapMode;
 
-        let agent_reg = Arc::new(AgentRegistry::new(30));
+        let agent_reg = Arc::new(AgentRegistry::new());
         agent_reg.populate(vec![ResolvedAgentConfig {
             id: "minimal-agent".into(),
             name: "minimal-agent".into(),
@@ -458,7 +458,7 @@ mod tests {
         use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
         use crate::session::bootstrap::loader::BootstrapMode;
 
-        let agent_reg = Arc::new(AgentRegistry::new(30));
+        let agent_reg = Arc::new(AgentRegistry::new());
         agent_reg.populate(vec![ResolvedAgentConfig {
             id: "full-agent".into(),
             name: "full-agent".into(),
@@ -482,7 +482,7 @@ mod tests {
     fn test_agent_registry_query_bootstrap_mode_not_found() {
         use crate::agent::registry::AgentRegistry;
 
-        let agent_reg = Arc::new(AgentRegistry::new(30));
+        let agent_reg = Arc::new(AgentRegistry::new());
         let mode = agent_reg.query_bootstrap_mode("missing-agent");
         assert_eq!(mode, None);
     }
