@@ -10,8 +10,9 @@ use std::sync::Arc;
 // ---------------------------------------------------------------------------
 // Test imports — from the library crate
 // ---------------------------------------------------------------------------
+use closeclaw::agent::config::AgentConfig;
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
-use closeclaw::config::agents::AgentsConfigProvider;
+use closeclaw::config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
 use closeclaw::permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
 use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
 use closeclaw::skills::Skill;
@@ -105,68 +106,52 @@ fn make_test_ruleset() -> RuleSet {
 }
 
 // ---------------------------------------------------------------------------
-// Integration Test 1: Agent Registry Lifecycle
-// Tests agent creation, state transitions, parent-child hierarchy, heartbeat
+// Integration Test 1: Agent Registry Config Query
+// Tests populate + get for config storage and parent_id field query
 // ---------------------------------------------------------------------------
 
-// Note: `test_agent_registry_lifecycle` was removed in Step 1.3 along with
-// the `update_state` API and the `Agent::state` field. The
-// `AgentState` machine itself still lives in `crate::agent::state` and
-// is exercised by its own unit tests; runtime state for sessions lives
-// in the session module.
+fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfig {
+    let mut cfg = AgentConfig::default();
+    cfg.id = id.to_string();
+    cfg.parent_id = parent_id.map(String::from);
+    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "<test>").unwrap()
+}
 
 #[tokio::test]
-async fn test_agent_parent_child_hierarchy() {
+async fn test_agent_registry_config_query() {
     let registry: SharedAgentRegistry = create_registry(30);
 
-    // Register parent
-    let parent = registry
-        .register("parent-agent".to_string(), None)
-        .await
-        .unwrap();
-    let parent_id = parent.id.clone();
+    // Build configs with parent-child relationships via parent_id
+    let configs = vec![
+        make_resolved_config("parent-agent", None),
+        make_resolved_config("child-agent", Some("parent-agent")),
+        make_resolved_config("grandchild-agent", Some("child-agent")),
+    ];
 
-    // Register child
-    let child = registry
-        .register("child-agent".to_string(), Some(parent_id.clone()))
-        .await
-        .unwrap();
-    let child_id = child.id.clone();
+    // Populate registry with all configs
+    registry.populate(configs).await;
 
-    // Register grandchild
-    let grandchild = registry
-        .register("grandchild-agent".to_string(), Some(child_id.clone()))
-        .await
-        .unwrap();
-    let grandchild_id = grandchild.id.clone();
+    // Verify each config is stored correctly
+    let parent = registry.get("parent-agent").await;
+    assert!(parent.is_some());
+    let parent = parent.unwrap();
+    assert_eq!(parent.id, "parent-agent");
+    assert!(parent.parent_id.is_none());
 
-    // Verify parent-child relationship
-    let children = registry.get_children(&parent_id).await;
-    assert_eq!(children.len(), 1);
-    assert_eq!(children[0].id, child_id);
+    let child = registry.get("child-agent").await;
+    assert!(child.is_some());
+    let child = child.unwrap();
+    assert_eq!(child.id, "child-agent");
+    assert_eq!(child.parent_id.as_deref(), Some("parent-agent"));
 
-    let parent_retrieved = registry.get_parent(&child_id).await;
-    assert!(parent_retrieved.is_some());
-    assert_eq!(parent_retrieved.unwrap().id, parent_id);
+    let grandchild = registry.get("grandchild-agent").await;
+    assert!(grandchild.is_some());
+    let grandchild = grandchild.unwrap();
+    assert_eq!(grandchild.id, "grandchild-agent");
+    assert_eq!(grandchild.parent_id.as_deref(), Some("child-agent"));
 
-    // Verify ancestors chain for grandchild
-    let ancestors = registry.get_ancestors(&grandchild_id).await;
-    assert_eq!(ancestors.len(), 2);
-    assert_eq!(ancestors[0].id, child_id);
-    assert_eq!(ancestors[1].id, parent_id);
-
-    // Verify ancestor checks
-    assert!(registry.is_ancestor_of(&parent_id, &grandchild_id).await);
-    assert!(registry.is_ancestor_of(&child_id, &grandchild_id).await);
-    assert!(!registry.is_ancestor_of(&grandchild_id, &parent_id).await);
-    assert!(!registry.is_ancestor_of(&parent_id, &parent_id).await);
-
-    // List all agents
-    let all = registry.list().await;
-    assert_eq!(all.len(), 3);
-
-    // Step 1.1 removed `Agent::state`; list() now returns the plain
-    // hierarchy without state filtering.
+    // Verify non-existent agent returns None
+    assert!(registry.get("unknown-agent").await.is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -186,18 +171,24 @@ async fn test_config_loading_drives_agent_creation() {
     let provider = AgentsConfigProvider::from_json_str(json).unwrap();
     provider.validate().unwrap();
 
-    // Create agents from config
+    // Create ResolvedAgentConfig from provider and populate registry
+    let configs: Vec<_> = provider
+        .agents()
+        .iter()
+        .map(|id| make_resolved_config(id, None))
+        .collect();
+    registry.populate(configs).await;
+
+    // Verify each agent is stored correctly via get
     for agent_id in provider.agents() {
-        let _agent = registry.register(agent_id.clone(), None).await.unwrap();
+        let agent = registry.get(agent_id).await;
+        assert!(
+            agent.is_some(),
+            "agent '{}' should exist in registry",
+            agent_id
+        );
+        assert_eq!(agent.unwrap().id, *agent_id);
     }
-
-    let agents = registry.list().await;
-    assert_eq!(agents.len(), 3);
-
-    let names: Vec<_> = agents.iter().map(|a| a.name.clone()).collect();
-    assert!(names.contains(&"orchestrator".to_string()));
-    assert!(names.contains(&"builder".to_string()));
-    assert!(names.contains(&"tester".to_string()));
 }
 
 #[tokio::test]
@@ -279,12 +270,12 @@ async fn test_skill_with_permission_engine_integration() {
     // Create permission skill with engine reference
     let perm_skill = closeclaw::skills::builtin::PermissionSkill::with_engine(engine.clone());
 
-    // Create a registry for agent
+    // Populate registry with a test agent config
     let registry: SharedAgentRegistry = create_registry(30);
-    let agent = registry
-        .register("test-agent".to_string(), None)
-        .await
-        .unwrap();
+    let configs = vec![make_resolved_config("test-agent", None)];
+    registry.populate(configs).await;
+
+    let agent = registry.get("test-agent").await.unwrap();
     let agent_id = agent.id.clone();
 
     // Query exec permission: should be denied (no exec rule)
