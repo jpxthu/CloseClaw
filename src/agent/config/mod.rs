@@ -46,10 +46,8 @@ pub struct AgentConfig {
     /// Disallowed tool names blacklist.
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
-    /// Inline permissions for this agent (from config.json).
-    /// When present, takes priority over external permissions.json.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub permissions: Option<AgentPermissions>,
+    // NOTE: permissions are stored in a separate permissions.json file,
+    // not inline in config.json (per design doc).
     /// Sub-agent spawn control parameters.
     #[serde(default)]
     pub subagents: SubagentsConfig,
@@ -121,7 +119,6 @@ impl Default for AgentConfig {
             skills: default_all(),
             tools: default_all(),
             disallowed_tools: Vec::new(),
-            permissions: None,
             subagents: SubagentsConfig::default(),
         }
     }

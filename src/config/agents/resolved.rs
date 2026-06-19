@@ -24,7 +24,7 @@
 
 use std::path::PathBuf;
 
-use crate::agent::config::{AgentConfig, AgentPermissions, SubagentsConfig};
+use crate::agent::config::{AgentConfig, SubagentsConfig};
 use crate::config::ConfigError;
 use crate::session::bootstrap::BootstrapMode;
 
@@ -56,9 +56,6 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
-    /// Inline permissions for this agent.
-    /// When present, takes priority over external permissions.json.
-    pub permissions: Option<AgentPermissions>,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }
@@ -102,7 +99,6 @@ impl ResolvedAgentConfig {
             tools: config.tools,
             disallowed_tools: config.disallowed_tools,
             subagents: config.subagents,
-            permissions: config.permissions,
             source,
         })
     }
@@ -172,7 +168,6 @@ impl ResolvedAgentConfig {
                 user.disallowed_tools
             },
             subagents: merge_subagents(project.subagents, user.subagents),
-            permissions: project.permissions.or(user.permissions),
             source: ConfigSource::Merged,
         })
     }
