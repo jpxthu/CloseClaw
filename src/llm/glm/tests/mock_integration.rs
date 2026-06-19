@@ -34,6 +34,7 @@ fn chat_body(model: &str) -> serde_json::Value {
     })
 }
 
+#[allow(dead_code)]
 fn assert_first_text(resp: &InternalResponse, expected: &str) {
     assert!(!resp.content_blocks.is_empty());
     match &resp.content_blocks[0] {
@@ -48,6 +49,7 @@ fn assert_first_text(resp: &InternalResponse, expected: &str) {
 }
 
 /// Helper: set up mockito server, mock POST, create provider, call send.
+#[allow(dead_code)]
 async fn send_with_mock(model: &str, fixture: &str) -> InternalResponse {
     let mut server = Server::new_async().await;
     let m = server
@@ -69,6 +71,7 @@ async fn send_with_mock(model: &str, fixture: &str) -> InternalResponse {
 }
 
 /// Helper: send and expect an error.
+#[allow(dead_code)]
 async fn send_error_with_mock(model: &str, fixture: &str) -> ProviderError {
     let mut server = Server::new_async().await;
     let m = server
