@@ -121,9 +121,7 @@ fn config_dir() -> PathBuf {
 /// - `~/.closeclaw/config/agents.json` (appends "master" if missing)
 ///
 /// Idempotent: skips files that already exist.
-fn ensure_master_agent(config_dir: &Path) -> anyhow::Result<()> {
-    let agents_dir = config_dir.parent().unwrap_or(config_dir).join("agents");
-
+fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyhow::Result<()> {
     // ── Write master agent config.json if missing ──────────────────────────────
     let master_config_path = agents_dir.join("master").join("config.json");
     if !master_config_path.exists() {
@@ -512,7 +510,8 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
     // Create initial master agent if it does not exist yet.
     // Failure here is non-fatal: the wizard config (models + credentials) is
     // already written and should not be rolled back.
-    if let Err(e) = ensure_master_agent(&config_dir()) {
+    let agents_dir = config_dir().parent().unwrap().join("agents");
+    if let Err(e) = ensure_master_agent(&config_dir(), &agents_dir) {
         eprintln!("[WARNING] Failed to create master agent: {}", e);
     }
 
