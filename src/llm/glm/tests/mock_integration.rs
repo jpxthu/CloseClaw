@@ -50,6 +50,7 @@ fn assert_first_text(resp: &InternalResponse, expected: &str) {
 }
 
 /// Helper: set up mockito server, mock POST, create provider, call send.
+// TODO(v2): Remove #[allow(dead_code)] once v2 fixture-based tests call this helper.
 #[allow(dead_code)]
 async fn send_with_mock(model: &str, fixture: &str) -> InternalResponse {
     let mut server = Server::new_async().await;
@@ -72,6 +73,7 @@ async fn send_with_mock(model: &str, fixture: &str) -> InternalResponse {
 }
 
 /// Helper: send and expect an error.
+// TODO(v2): Remove #[allow(dead_code)] once v2 fixture-based tests call this helper.
 #[allow(dead_code)]
 async fn send_error_with_mock(model: &str, fixture: &str) -> ProviderError {
     let mut server = Server::new_async().await;
