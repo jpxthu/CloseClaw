@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::llm::provider::Provider;
-use crate::llm::types::{InternalMessage, InternalRequest, RawContentBlock};
+use crate::llm::types::{InternalMessage, InternalRequest};
 use crate::session::persistence::ReasoningLevel;
 use serde_json::json;
 
