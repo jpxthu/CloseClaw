@@ -237,8 +237,11 @@ mod subject_de {
                         #[serde(alias = "agent_match", default)]
                         agent_match: MatchType,
                     }
+                    // Support both tagged format ({fields: {...}}) and
+                    // legacy flat format ({agent: ...})
+                    let inner = json.get("fields").cloned().unwrap_or(json);
                     let fields: UAFields =
-                        serde_json::from_value(json).map_err(serde::de::Error::custom)?;
+                        serde_json::from_value(inner).map_err(serde::de::Error::custom)?;
                     Ok(Subject::UserAndAgent {
                         user_id: fields.user_id,
                         agent: fields.agent,
@@ -254,8 +257,11 @@ mod subject_de {
                         #[serde(alias = "match", alias = "match_type", default)]
                         match_type: Option<MatchType>,
                     }
+                    // Support both tagged format ({fields: {...}}) and
+                    // legacy flat format ({agent: ...})
+                    let inner = json.get("fields").cloned().unwrap_or(json);
                     let fields: AOFields =
-                        serde_json::from_value(json).map_err(serde::de::Error::custom)?;
+                        serde_json::from_value(inner).map_err(serde::de::Error::custom)?;
                     Ok(Subject::AgentOnly {
                         agent: fields.agent,
                         match_type: fields.match_type.unwrap_or_default(),

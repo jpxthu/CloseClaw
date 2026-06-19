@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use closeclaw::cli::args::*;
-use closeclaw::permission::{Defaults, PermissionEngine, RuleSet};
+use closeclaw::permission::{Defaults, Effect, PermissionEngine, Rule, RuleSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,6 +18,15 @@ pub fn mask_key(key: &str) -> String {
 pub fn pid_file_path() -> PathBuf {
     let home = std::env::var("HOME").expect("HOME not set");
     PathBuf::from(home).join(".closeclaw").join("daemon.pid")
+}
+
+pub fn config_dir() -> PathBuf {
+    let home = std::env::var("HOME").expect("HOME not set");
+    config_dir_for(home)
+}
+
+pub(crate) fn config_dir_for(home: impl AsRef<std::path::Path>) -> PathBuf {
+    PathBuf::from(home.as_ref()).join(".closeclaw")
 }
 
 pub async fn handle_agent(action: AgentAction) -> Result<()> {
@@ -37,12 +46,66 @@ pub async fn handle_agent(action: AgentAction) -> Result<()> {
 }
 
 pub async fn handle_config(action: ConfigAction) -> Result<()> {
+    handle_config_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_config_with(action: ConfigAction, config_dir: PathBuf) -> Result<()> {
     match action {
         ConfigAction::Validate { file } => {
-            println!("Validating config: {}\nConfig is valid", file);
+            let path = std::path::Path::new(&file);
+            let filename = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| file.clone());
+            let contents = std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", file, e))?;
+            match serde_json::from_str::<serde_json::Value>(&contents) {
+                Ok(value) => {
+                    println!("✅ {}: valid JSON", filename);
+                    if let Some(ver) = value.get("version").and_then(|v| v.as_str()) {
+                        println!("   version: {}", ver);
+                    }
+                }
+                Err(e) => {
+                    println!("❌ {}: {}", filename, e);
+                    anyhow::bail!("Validation failed for '{}': {}", file, e);
+                }
+            }
         }
         ConfigAction::List => {
-            println!("Config files:\n  (not implemented)");
+            if !config_dir.is_dir() {
+                println!("No config directory found at {}", config_dir.display());
+                return Ok(());
+            }
+            let mut entries: Vec<PathBuf> = std::fs::read_dir(&config_dir)
+                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", config_dir.display(), e))?
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "json")
+                        .unwrap_or(false)
+                })
+                .map(|e| e.path())
+                .collect();
+            entries.sort();
+            if entries.is_empty() {
+                println!("No config files found in {}", config_dir.display());
+                return Ok(());
+            }
+            println!("Config files:");
+            for path in &entries {
+                let filename = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.display().to_string());
+                let version = std::fs::read_to_string(path)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .and_then(|v| v.get("version")?.as_str().map(String::from))
+                    .unwrap_or_else(|| "-".to_string());
+                println!("  {} | {} | {}", filename, version, path.display());
+            }
         }
         ConfigAction::Setup { yes } => {
             handle_config_setup(yes).await?;
@@ -52,12 +115,76 @@ pub async fn handle_config(action: ConfigAction) -> Result<()> {
 }
 
 pub async fn handle_rule(action: RuleAction) -> Result<()> {
+    handle_rule_with(action, config_dir()).await
+}
+
+pub(crate) async fn handle_rule_with(action: RuleAction, config_dir: PathBuf) -> Result<()> {
     match action {
         RuleAction::Check { rule } => {
-            println!("Checking rule: {}\nRule syntax OK", rule);
+            use closeclaw::permission::rules::validation::validate_rule;
+
+            let is_file_path = rule.starts_with('/')
+                || rule.starts_with("./")
+                || rule.starts_with("../")
+                || rule.ends_with(".json");
+
+            let json_str = if is_file_path {
+                let path = std::path::Path::new(&rule);
+                std::fs::read_to_string(path)
+                    .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", rule, e))?
+            } else {
+                rule.clone()
+            };
+
+            let r: Rule = serde_json::from_str(&json_str)
+                .map_err(|e| anyhow::anyhow!("Failed to parse rule JSON: {}", e))?;
+
+            // Full validation
+            let errors = validate_rule(&r);
+            if !errors.is_empty() {
+                for err in &errors {
+                    eprintln!("  ❌ {}", err);
+                }
+                anyhow::bail!("Rule '{}' has {} validation error(s)", r.name, errors.len());
+            }
+
+            println!("✅ Rule '{}': valid", r.name);
         }
         RuleAction::List => {
-            println!("Rules:\n  (not implemented)");
+            let path = config_dir.join("permissions.json");
+            if !path.exists() {
+                println!("No permissions file found at {}", path.display());
+                return Ok(());
+            }
+            let contents = std::fs::read_to_string(&path)
+                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path.display(), e))?;
+            let rule_set: RuleSet = serde_json::from_str(&contents)
+                .map_err(|e| anyhow::anyhow!("Failed to parse '{}': {}", path.display(), e))?;
+            if rule_set.rules.is_empty() {
+                println!("No rules defined in {}", path.display());
+                return Ok(());
+            }
+            println!("Rules ({}):", rule_set.rules.len());
+            for rule in &rule_set.rules {
+                let effect = match rule.effect {
+                    Effect::Allow => "allow",
+                    Effect::Deny => "deny",
+                };
+                let action_count = rule.actions.len();
+                let action_label = if action_count == 1 {
+                    "action"
+                } else {
+                    "actions"
+                };
+                println!(
+                    "  {} | {} | {} | {} {}",
+                    rule.name,
+                    rule.subject.agent_id(),
+                    effect,
+                    action_count,
+                    action_label
+                );
+            }
         }
     }
     Ok(())
