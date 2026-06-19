@@ -49,19 +49,14 @@ pub enum SkillContext {
 }
 
 /// Effort level required to execute a skill.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SkillEffort {
     Trivial,
     Small,
     Medium,
     Large,
+    #[default]
     Unknown,
-}
-
-impl Default for SkillEffort {
-    fn default() -> Self {
-        SkillEffort::Unknown
-    }
 }
 
 /// Manifest parsed from a SKILL.md frontmatter block.
