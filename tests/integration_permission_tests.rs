@@ -9,19 +9,21 @@
 use std::collections::HashMap;
 use tempfile::TempDir;
 
-use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
 use closeclaw::permission::engine::{
     Action, Caller, CommandArgs, Effect, MatchType, PermissionEngine, PermissionRequest,
     PermissionRequestBody, PermissionResponse, RuleSet,
 };
 use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
 
-/// Creates a ruleset that grants permissions to any agent (using wildcard patterns).
+/// Creates a ruleset that grants permissions to any agent.
+/// Uses both AgentOnly (glob) and UserAndAgent subjects so that the two-phase
+/// merge in `evaluate()` can produce an Allow result.
 fn make_test_ruleset() -> RuleSet {
     RuleSetBuilder::new()
+        // Agent-phase rules (Subject::AgentOnly)
         .rule(
             RuleBuilder::new()
-                .name("allow-file-read")
+                .name("allow-file-read-agent")
                 .subject_glob("*")
                 .allow()
                 .action(Action::File {
@@ -33,7 +35,7 @@ fn make_test_ruleset() -> RuleSet {
         )
         .rule(
             RuleBuilder::new()
-                .name("allow-git-command")
+                .name("allow-git-command-agent")
                 .subject_glob("*")
                 .allow()
                 .action(Action::Command {
@@ -53,7 +55,7 @@ fn make_test_ruleset() -> RuleSet {
         )
         .rule(
             RuleBuilder::new()
-                .name("deny-dangerous-git")
+                .name("deny-dangerous-git-agent")
                 .subject_glob("*")
                 .deny()
                 .action(Action::Command {
@@ -65,26 +67,49 @@ fn make_test_ruleset() -> RuleSet {
                 .build()
                 .unwrap(),
         )
+        // User-phase rules (Subject::UserAndAgent)
         .rule(
             RuleBuilder::new()
-                .name("allow-tool-call-file-ops")
-                .subject_glob("*")
+                .name("allow-file-read-user")
+                .subject_user_and_agent("*", "*", MatchType::Glob, MatchType::Glob)
                 .allow()
-                .action(Action::ToolCall {
-                    skill: "file_ops".to_string(),
-                    methods: vec!["read".to_string(), "exists".to_string()],
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["/home/**".to_string()],
                 })
                 .build()
                 .unwrap(),
         )
         .rule(
             RuleBuilder::new()
-                .name("allow-tool-call-git-ops")
-                .subject_glob("*")
+                .name("allow-git-command-user")
+                .subject_user_and_agent("*", "*", MatchType::Glob, MatchType::Glob)
                 .allow()
-                .action(Action::ToolCall {
-                    skill: "git_ops".to_string(),
-                    methods: vec!["status".to_string(), "log".to_string()],
+                .action(Action::Command {
+                    command: "git".to_string(),
+                    args: CommandArgs::Allowed {
+                        allowed: vec![
+                            "status".to_string(),
+                            "log".to_string(),
+                            "diff".to_string(),
+                            "add".to_string(),
+                            "commit".to_string(),
+                        ],
+                    },
+                })
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("deny-dangerous-git-user")
+                .subject_user_and_agent("*", "*", MatchType::Glob, MatchType::Glob)
+                .deny()
+                .action(Action::Command {
+                    command: "git".to_string(),
+                    args: CommandArgs::Blocked {
+                        blocked: vec!["reset --hard".to_string(), "push --force".to_string()],
+                    },
                 })
                 .build()
                 .unwrap(),
@@ -103,18 +128,11 @@ fn make_test_ruleset() -> RuleSet {
 // End-to-end: Permission checks for registered agents
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn test_permission_engine_with_registered_agent() {
-    let registry: SharedAgentRegistry = create_registry(30);
+#[test]
+fn test_permission_engine_with_registered_agent() {
     let rules = make_test_ruleset();
     let engine = PermissionEngine::new_with_default_data_root(rules);
-
-    // Register an agent (ID will be UUID)
-    let agent = registry
-        .register("test-agent".to_string(), None)
-        .await
-        .unwrap();
-    let agent_id = agent.id.clone();
+    let agent_id = "test-agent".to_string();
 
     // Verify file read is allowed (wildcard subject matches any agent)
     let response = engine.evaluate(
@@ -165,19 +183,43 @@ async fn test_permission_engine_with_registered_agent() {
 async fn test_permission_user_and_agent_dual_key_matching() {
     // Build ruleset with dual-key subject
     let ruleset = RuleSetBuilder::new()
+        // Agent-phase: all agents get file read and exec (base permissions)
         .rule(
             RuleBuilder::new()
-                .name("admin-full-access")
+                .name("dev-read-only-agent")
+                .subject_glob("*")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["/home/**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("allow-all-agent")
+                .subject_glob("*")
+                .allow()
+                .action(Action::All)
+                .build()
+                .unwrap(),
+        )
+        // User-phase: admin gets full access
+        .rule(
+            RuleBuilder::new()
+                .name("admin-full-access-user")
                 .subject_user_and_agent("ou_admin", "*", MatchType::Exact, MatchType::Glob)
                 .allow()
                 .action(Action::All)
                 .build()
                 .unwrap(),
         )
+        // User-phase: all users get file read
         .rule(
             RuleBuilder::new()
-                .name("dev-read-only")
-                .subject_glob("*")
+                .name("dev-read-only-user")
+                .subject_user_and_agent("*", "*", MatchType::Glob, MatchType::Glob)
                 .allow()
                 .action(Action::File {
                     operation: "read".to_string(),
@@ -256,10 +298,24 @@ async fn test_permission_engine_reload_updates_rules() {
     let tmpdir = TempDir::new().unwrap();
     let tmp_pattern = format!("{}/**", tmpdir.path().to_string_lossy());
     let initial_rules = RuleSetBuilder::new()
+        // Agent-phase rule
         .rule(
             RuleBuilder::new()
-                .name("initial-allow")
+                .name("initial-allow-agent")
                 .subject_glob("*")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec![tmp_pattern.clone()],
+                })
+                .build()
+                .unwrap(),
+        )
+        // User-phase rule
+        .rule(
+            RuleBuilder::new()
+                .name("initial-allow-user")
+                .subject_user_and_agent("*", "*", MatchType::Glob, MatchType::Glob)
                 .allow()
                 .action(Action::File {
                     operation: "read".to_string(),
@@ -275,7 +331,6 @@ async fn test_permission_engine_reload_updates_rules() {
     let mut engine = PermissionEngine::new_with_default_data_root(initial_rules);
 
     // Initial: should allow
-    let tmpdir = TempDir::new().unwrap();
     let test_file = tmpdir.path().join("file.txt");
     let test_file_str = test_file.to_str().unwrap().to_string();
     let response = engine.evaluate(
@@ -351,10 +406,21 @@ async fn test_permission_engine_template_resolution() {
     );
 
     let ruleset = RuleSetBuilder::new()
+        // Agent-phase rule
         .rule(
             RuleBuilder::new()
-                .name("developer-via-template")
+                .name("developer-via-template-agent")
                 .subject_glob("*")
+                .allow()
+                .template("developer")
+                .build()
+                .unwrap(),
+        )
+        // User-phase rule
+        .rule(
+            RuleBuilder::new()
+                .name("developer-via-template-user")
+                .subject_user_and_agent("*", "*", MatchType::Glob, MatchType::Glob)
                 .allow()
                 .template("developer")
                 .build()
