@@ -20,7 +20,6 @@ pub fn pid_file_path() -> PathBuf {
     PathBuf::from(home).join(".closeclaw").join("daemon.pid")
 }
 
-#[allow(dead_code)] // Used by config list / rule list in later steps
 pub fn config_dir() -> PathBuf {
     let home = std::env::var("HOME").expect("HOME not set");
     config_dir_for(home)
@@ -139,11 +138,6 @@ pub(crate) async fn handle_rule_with(action: RuleAction, config_dir: PathBuf) ->
 
             let r: Rule = serde_json::from_str(&json_str)
                 .map_err(|e| anyhow::anyhow!("Failed to parse rule JSON: {}", e))?;
-
-            // Check mutual exclusivity of actions/template
-            if let Err(e) = r.validate() {
-                anyhow::bail!("Rule validation failed: {}", e);
-            }
 
             // Full validation
             let errors = validate_rule(&r);
