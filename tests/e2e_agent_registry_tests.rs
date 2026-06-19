@@ -1,97 +1,151 @@
-//! E2E integration tests for Agent Registry lifecycle.
-//! Focused on hierarchy, register/get/list/remove/get_children/get_descendants
-//! after the Step 1.3 removal of the state machine and cascade APIs.
+//! E2E integration tests for Agent Registry.
+//!
+//! Exercises the public entry point `create_registry` → `populate` → `get` →
+//! `reload_config` lifecycle, simulating daemon startup fill, runtime query,
+//! and config hot-reload.
 
+use closeclaw::agent::config::SubagentsConfig;
 use closeclaw::agent::registry::create_registry;
+use closeclaw::config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw::session::bootstrap::BootstrapMode;
 
-/// Parent-child registration: root -> child -> grandchild
-#[tokio::test]
-async fn test_parent_child_registration_chain() {
-    let registry = create_registry(30);
-    let root = registry.register("root".to_string(), None).await.unwrap();
-    let child = registry
-        .register("child".to_string(), Some(root.id.clone()))
-        .await
-        .unwrap();
-    let grandchild = registry
-        .register("grandchild".to_string(), Some(child.id.clone()))
-        .await
-        .unwrap();
-
-    assert!(root.parent_id.is_none());
-    assert_eq!(child.parent_id.as_deref(), Some(root.id.as_str()));
-    assert_eq!(grandchild.parent_id.as_deref(), Some(child.id.as_str()));
-    assert_eq!(registry.get_children(&root.id).await.len(), 1);
-    assert_eq!(registry.get_children(&root.id).await[0].id, child.id);
-    assert_eq!(registry.get_children(&child.id).await.len(), 1);
-    assert_eq!(registry.get_children(&child.id).await[0].id, grandchild.id);
-    assert!(registry.get_children(&grandchild.id).await.is_empty());
+/// Helper: build a minimal `ResolvedAgentConfig` for E2E tests.
+fn make_config(id: &str) -> ResolvedAgentConfig {
+    ResolvedAgentConfig {
+        id: id.to_string(),
+        name: id.to_string(),
+        parent_id: None,
+        model: None,
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: BootstrapMode::Full,
+        skills: vec![],
+        tools: vec![],
+        disallowed_tools: vec![],
+        subagents: SubagentsConfig::default(),
+        source: ConfigSource::User,
+    }
 }
 
-/// Hierarchy queries: get_children, is_ancestor_of, get_descendants
+/// Startup fill → query hit and miss.
 #[tokio::test]
-async fn test_hierarchy_get_children() {
+async fn test_populate_then_get() {
     let registry = create_registry(30);
-    let root = registry.register("root".to_string(), None).await.unwrap();
-    let child = registry
-        .register("child".to_string(), Some(root.id.clone()))
-        .await
-        .unwrap();
-    registry
-        .register("grandchild".to_string(), Some(child.id.clone()))
-        .await
-        .unwrap();
+    let configs = vec![make_config("agent-a"), make_config("agent-b")];
 
-    let children = registry.get_children(&root.id).await;
-    assert_eq!(children.len(), 1);
-    assert_eq!(children[0].name, "child");
+    registry.populate(configs).await;
 
-    let descendants = registry.get_descendants(&root.id).await;
-    assert_eq!(descendants.len(), 2);
-    let names: Vec<_> = descendants.iter().map(|a| a.name.as_str()).collect();
-    assert!(names.contains(&"child"));
-    assert!(names.contains(&"grandchild"));
+    // Hit: agent-a should be found
+    let a = registry.get("agent-a").await;
+    assert!(a.is_some(), "agent-a should be found after populate");
+    assert_eq!(a.unwrap().id, "agent-a");
 
-    assert!(registry.is_ancestor_of(&root.id, &child.id).await);
+    // Hit: agent-b should be found
+    let b = registry.get("agent-b").await;
+    assert!(b.is_some(), "agent-b should be found after populate");
+    assert_eq!(b.unwrap().id, "agent-b");
+
+    // Miss: nonexistent agent returns None
+    let missing = registry.get("nonexistent").await;
     assert!(
-        registry
-            .is_ancestor_of(&root.id, &registry.get_children(&root.id).await[0].id)
-            .await
+        missing.is_none(),
+        "querying a missing id should return None"
     );
 }
 
-/// Hierarchy queries: get_parent, get_ancestors, count, list()
+/// Hot-reload: old data cleared, new data effective.
 #[tokio::test]
-async fn test_hierarchy_get_ancestors() {
+async fn test_hot_reload_replaces_data() {
     let registry = create_registry(30);
-    let root = registry.register("root".to_string(), None).await.unwrap();
-    let child = registry
-        .register("child".to_string(), Some(root.id.clone()))
-        .await
-        .unwrap();
-    let grandchild = registry
-        .register("grandchild".to_string(), Some(child.id.clone()))
-        .await
-        .unwrap();
 
-    let parent = registry.get_parent(&child.id).await;
-    assert_eq!(parent.unwrap().id, root.id);
-    assert!(registry.get_parent(&root.id).await.is_none());
+    // Populate with initial data.
+    registry.populate(vec![make_config("old-agent")]).await;
+    assert!(
+        registry.get("old-agent").await.is_some(),
+        "old-agent should exist before reload"
+    );
 
-    let ancestors = registry.get_ancestors(&grandchild.id).await;
-    assert_eq!(ancestors.len(), 2);
-    assert_eq!(ancestors[0].name, "child");
-    assert_eq!(ancestors[1].name, "root");
+    // Hot-reload with new set that excludes old-agent.
+    registry.reload_config(vec![make_config("new-agent")]).await;
 
-    assert_eq!(registry.count().await, 3);
-    // Step 1.1 removed `Agent::state`; list() now returns the plain
-    // hierarchy without state filtering.
-    let all = registry.list().await;
-    assert_eq!(all.len(), 3);
+    assert!(
+        registry.get("old-agent").await.is_none(),
+        "old-agent should be gone after reload"
+    );
+    let new = registry.get("new-agent").await;
+    assert!(new.is_some(), "new-agent should be present after reload");
+    assert_eq!(new.unwrap().id, "new-agent");
 }
 
-// Note: `test_state_machine_complete_transitions`, `test_cascade_stop`,
-// `test_cascade_suspend_resume`, and `test_terminal_state_rejection_and_destroy`
-// were removed in Step 1.3 along with the `update_state` / cascade APIs.
-// The `AgentState` machine itself still lives in `crate::agent::state` and
-// is exercised by its own unit tests.
+/// Hot-reload: shared agents survive, removed agents gone, added agents appear.
+#[tokio::test]
+async fn test_hot_reload_partial_overlap() {
+    let registry = create_registry(30);
+
+    registry
+        .populate(vec![make_config("keep"), make_config("drop")])
+        .await;
+
+    // Reload with "keep" retained, "drop" removed, "added" new.
+    registry
+        .reload_config(vec![make_config("keep"), make_config("added")])
+        .await;
+
+    assert!(
+        registry.get("keep").await.is_some(),
+        "'keep' should survive reload"
+    );
+    assert!(
+        registry.get("drop").await.is_none(),
+        "'drop' should be removed by reload"
+    );
+    assert!(
+        registry.get("added").await.is_some(),
+        "'added' should be present after reload"
+    );
+}
+
+/// Empty populate does not panic.
+#[tokio::test]
+async fn test_populate_empty() {
+    let registry = create_registry(30);
+
+    registry.populate(vec![]).await;
+
+    assert!(
+        registry.get("anything").await.is_none(),
+        "empty populate should leave registry empty"
+    );
+}
+
+/// Populate with duplicate IDs: the last entry wins.
+#[tokio::test]
+async fn test_populate_duplicate_id_last_wins() {
+    let registry = create_registry(30);
+
+    let mut first = make_config("dup-agent");
+    first.name = "first".to_string();
+    let mut second = make_config("dup-agent");
+    second.name = "second".to_string();
+
+    registry.populate(vec![first, second]).await;
+
+    let agent = registry.get("dup-agent").await;
+    assert!(agent.is_some(), "dup-agent should exist");
+    assert_eq!(
+        agent.unwrap().name,
+        "second",
+        "later entry should overwrite earlier one"
+    );
+}
+
+/// Registry starts empty after create_registry.
+#[tokio::test]
+async fn test_registry_starts_empty() {
+    let registry = create_registry(30);
+
+    assert!(
+        registry.get("any-id").await.is_none(),
+        "newly created registry should have no configs"
+    );
+}
