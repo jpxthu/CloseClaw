@@ -705,9 +705,10 @@ fn test_recursive_permission_intersection_three_layers() {
 // ===========================================================================
 
 /// Test: When a child agent is fully denied, `validate_spawn_permissions`
-/// returns `ToolCallError::ExecutionFailed` with the FullyDenied error.
+/// returns `ToolCallError::PermissionDenied("spawn")`.
 /// The child session is NOT created — the error short-circuits the spawn
 /// pipeline before `create_child` is reached.
+/// The error message is generic and does not expose internal agent_id details.
 #[tokio::test]
 async fn test_fully_denied_silent_return_no_session_created() {
     let tmp = TempDir::new().unwrap();
@@ -783,17 +784,17 @@ async fn test_fully_denied_silent_return_no_session_created() {
 
     assert!(result.is_err(), "spawn should fail for fully-denied child");
     let err_msg = match result.unwrap_err() {
-        ToolCallError::ExecutionFailed(msg) => msg,
-        other => panic!("expected ExecutionFailed, got: {:?}", other),
+        ToolCallError::PermissionDenied(msg) => msg,
+        other => panic!("expected PermissionDenied, got: {:?}", other),
     };
     assert!(
-        err_msg.contains("denied-child"),
-        "error should mention the denied agent_id, got: {}",
+        err_msg.contains("spawn"),
+        "error should contain 'spawn', got: {}",
         err_msg
     );
     assert!(
-        err_msg.contains("denied"),
-        "error should mention 'denied', got: {}",
+        !err_msg.contains("denied-child"),
+        "error must not expose internal agent_id, got: {}",
         err_msg
     );
 
