@@ -351,7 +351,7 @@ async fn test_kill_child_removes_from_all_tables() {
 async fn test_validate_child_ownership_by_mode() {
     clear_global_prompt_state();
 
-    // --- Run mode: should return None ---
+    // --- Run mode: should return Some with correct info ---
     {
         let tmp = tempfile::TempDir::new().unwrap();
         let mgr = make_test_mgr(Some(tmp.path()));
@@ -379,13 +379,14 @@ async fn test_validate_child_ownership_by_mode() {
         let result = mgr
             .validate_child_ownership("parent-validate-run", &child_id)
             .await;
-        assert!(
-            result.is_none(),
-            "validate_child_ownership should return None for Run mode children"
-        );
+        let info =
+            result.expect("validate_child_ownership should return Some for Run mode children");
+        assert_eq!(info.session_id, child_id);
+        assert_eq!(info.mode, SpawnMode::Run);
+        assert_eq!(info.parent_session_id, "parent-validate-run");
     }
 
-    // --- Session mode: should return Some with correct info ---
+    // --- Session mode: should still return Some with correct info ---
     {
         let tmp = tempfile::TempDir::new().unwrap();
         let mgr = make_test_mgr(Some(tmp.path()));

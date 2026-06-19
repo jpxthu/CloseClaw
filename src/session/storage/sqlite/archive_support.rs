@@ -336,6 +336,7 @@ pub fn load_checkpoint_inner(
         sender_id,
         parent_session_id,
         depth,
+        effective_max_spawn_depth: None,
     }))
 }
 
