@@ -98,7 +98,7 @@ async fn reload_agents_with_log(
     }
     // Sync the new configs into AgentRegistry (design-doc hot-reload path).
     let configs: Vec<_> = cm.agents().into_values().collect();
-    agent_registry.reload_config(configs);
+    agent_registry.reload(configs);
 }
 
 /// Handle a single changed file path: reload agents or the matching section.

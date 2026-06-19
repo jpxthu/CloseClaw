@@ -79,7 +79,7 @@ fn test_get_not_found() {
 }
 
 #[test]
-fn test_reload_config() {
+fn test_reload() {
     let registry = AgentRegistry::new(30);
 
     // Populate with old data.
@@ -90,7 +90,7 @@ fn test_reload_config() {
     );
 
     // Reload with new data that does NOT include old-agent.
-    registry.reload_config(vec![make_config("new-agent")]);
+    registry.reload(vec![make_config("new-agent")]);
 
     assert!(
         registry.get("old-agent").is_none(),
@@ -115,13 +115,13 @@ fn test_populate_empty() {
 }
 
 #[test]
-fn test_reload_config_preserves_existing() {
+fn test_reload_preserves_existing() {
     let registry = AgentRegistry::new(30);
 
     registry.populate(vec![make_config("keep"), make_config("drop")]);
 
     // Reload: only "keep" and a new agent "added" exist.
-    registry.reload_config(vec![make_config("keep"), make_config("added")]);
+    registry.reload(vec![make_config("keep"), make_config("added")]);
 
     assert!(
         registry.get("keep").is_some(),
@@ -184,7 +184,7 @@ fn test_get_reference_sees_reload_data() {
     // Reload with new config
     let mut new_cfg = make_config("old");
     new_cfg.skills = vec!["updated-skill".into()];
-    registry.reload_config(vec![new_cfg]);
+    registry.reload(vec![new_cfg]);
 
     // Reference should see updated data
     let old = registry.get("old").expect("old should exist after reload");
@@ -289,7 +289,7 @@ fn test_concurrent_get_and_reload() {
             let configs: Vec<_> = (0..10)
                 .map(|j| make_config(&format!("reload-{}-{}", i, j)))
                 .collect();
-            reg_write.reload_config(configs);
+            reg_write.reload(configs);
         }
     }));
 
