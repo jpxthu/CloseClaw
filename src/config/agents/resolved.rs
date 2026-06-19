@@ -152,12 +152,12 @@ impl ResolvedAgentConfig {
             } else {
                 user.bootstrap_mode
             },
-            skills: if !project.skills.is_empty() && project.skills != ["*"] {
+            skills: if !project.skills.is_empty() {
                 project.skills
             } else {
                 user.skills
             },
-            tools: if !project.tools.is_empty() && project.tools != ["*"] {
+            tools: if !project.tools.is_empty() {
                 project.tools
             } else {
                 user.tools
@@ -196,7 +196,7 @@ const SUBAGENT_DEFAULT_MAX_CHILDREN: u32 = 5;
 /// [`ResolvedAgentConfig::merge`].
 fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> SubagentsConfig {
     SubagentsConfig {
-        allow_agents: if !project.allow_agents.is_empty() && project.allow_agents != ["*"] {
+        allow_agents: if !project.allow_agents.is_empty() {
             project.allow_agents
         } else {
             user.allow_agents
