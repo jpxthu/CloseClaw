@@ -69,7 +69,7 @@ pub fn load_templates_from_dir(
 
     let mut file_names: Vec<_> = entries
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
         .map(|e| e.path())
         .collect();
 

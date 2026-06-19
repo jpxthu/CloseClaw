@@ -36,7 +36,7 @@ pub struct BindingEntry {
 }
 
 /// Root channels configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelsConfigData {
     #[serde(default)]
@@ -44,15 +44,6 @@ pub struct ChannelsConfigData {
 
     #[serde(default)]
     pub bindings: Vec<BindingEntry>,
-}
-
-impl Default for ChannelsConfigData {
-    fn default() -> Self {
-        Self {
-            channels: HashMap::new(),
-            bindings: Vec::new(),
-        }
-    }
 }
 
 /// Allowed channel types in the system.

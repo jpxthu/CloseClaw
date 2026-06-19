@@ -381,9 +381,9 @@ impl ModelLister for DeepSeekProvider {
                 let input_types: Vec<crate::llm::InputType> = m
                     .input_modalities
                     .iter()
-                    .filter_map(|m| match m.to_lowercase().as_str() {
-                        "image" => Some(crate::llm::InputType::Image),
-                        _ => Some(crate::llm::InputType::Text),
+                    .map(|m| match m.to_lowercase().as_str() {
+                        "image" => crate::llm::InputType::Image,
+                        _ => crate::llm::InputType::Text,
                     })
                     .collect();
                 let input_types = if input_types.is_empty() {

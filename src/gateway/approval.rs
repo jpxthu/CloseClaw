@@ -104,7 +104,7 @@ impl Gateway {
 
         // Verify sender is the owner
         match sender_id {
-            Some(id) if id == "owner" => {}
+            Some("owner") => {}
             _ => return None, // Not owner — fall through to normal message flow
         }
 
@@ -142,7 +142,7 @@ impl Gateway {
             match flow.approve_request(request_id, mode) {
                 Ok(true) => {
                     tracing::info!(session_id, request_id, ?mode, "approval request approved");
-                    return Some(HandleResult::ApprovalProcessed);
+                    Some(HandleResult::ApprovalProcessed)
                 }
                 Ok(false) => {
                     tracing::warn!(
@@ -150,7 +150,7 @@ impl Gateway {
                         request_id,
                         "approval request not found or already resolved"
                     );
-                    return Some(HandleResult::ApprovalProcessed);
+                    Some(HandleResult::ApprovalProcessed)
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -160,13 +160,13 @@ impl Gateway {
                         "approval request rejected"
                     );
                     // Still consumed the command — don't fall through to LLM
-                    return Some(HandleResult::ApprovalProcessed);
+                    Some(HandleResult::ApprovalProcessed)
                 }
             }
         } else {
             let denied = flow.deny_request(request_id);
             tracing::info!(session_id, request_id, denied, "approval request denied");
-            return Some(HandleResult::ApprovalProcessed);
+            Some(HandleResult::ApprovalProcessed)
         }
     }
 }

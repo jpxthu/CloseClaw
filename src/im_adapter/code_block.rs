@@ -31,7 +31,7 @@ pub enum ContentSegment {
 ///   everything else becomes [`Markdown`](ContentSegment::Markdown).
 /// - An unclosed fence is treated as regular markdown text.
 /// - Backtick fences nested inside a code block are preserved as content.
-/// Emit accumulated code-block lines as regular markdown (unclosed fence).
+///   Emit accumulated code-block lines as regular markdown (unclosed fence).
 fn flush_unclosed_fence(lang: &str, code_lines: &[&str], segments: &mut Vec<ContentSegment>) {
     let opening = if lang.is_empty() {
         "```".to_string()
@@ -47,8 +47,7 @@ fn flush_unclosed_fence(lang: &str, code_lines: &[&str], segments: &mut Vec<Cont
 /// Process a line outside a code block.
 fn process_outside_line(line: &str, segments: &mut Vec<ContentSegment>) -> Option<String> {
     let trimmed = line.trim_end();
-    if trimmed.starts_with("```") {
-        let after_ticks = &trimmed[3..];
+    if let Some(after_ticks) = trimmed.strip_prefix("```") {
         if after_ticks.is_empty() || !after_ticks.contains(' ') {
             return Some(after_ticks.to_string()); // opening fence
         }

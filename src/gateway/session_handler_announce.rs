@@ -18,9 +18,9 @@
 //!    constraint.
 
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
+use super::OutputTx;
 use crate::gateway::outbound::StreamResult;
 use crate::gateway::session_manager::SessionManager;
 use crate::llm::session::ChatSession;
@@ -40,7 +40,7 @@ impl SessionMessageHandler {
         session_id: &str,
         result: Result<StreamResult, crate::llm::LLMError>,
         unified_fallback_client: &Arc<UnifiedFallbackClient>,
-        output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
+        output_tx: &OutputTx,
     ) {
         Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
         Self::drain_pending_loop(
@@ -56,7 +56,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, crate::llm::LLMError>,
-        output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
+        output_tx: &OutputTx,
     ) {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             let cs = cs.write().await;
@@ -114,7 +114,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         unified_fallback_client: &Arc<UnifiedFallbackClient>,
-        output_tx: &Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>,
+        output_tx: &OutputTx,
     ) {
         // Step 1.5: drain queued announces.
         Self::drain_announce_events(session_manager, session_id).await;

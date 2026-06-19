@@ -406,9 +406,7 @@ impl SessionManager {
     /// Returns None if the session has no thread_id or the storage is not available.
     pub async fn get_thread_id(&self, session_id: &str) -> Option<String> {
         let storage = self.storage.read().await;
-        let Some(storage) = storage.as_ref() else {
-            return None;
-        };
+        let storage = storage.as_ref()?;
         match storage.load_checkpoint(session_id).await {
             Ok(Some(cp)) => cp.thread_id,
             _ => None,
@@ -418,9 +416,7 @@ impl SessionManager {
     /// Get the sender_id (user ID) for a session from its checkpoint.
     pub async fn get_sender_id(&self, session_id: &str) -> Option<String> {
         let storage = self.storage.read().await;
-        let Some(storage) = storage.as_ref() else {
-            return None;
-        };
+        let storage = storage.as_ref()?;
         match storage.load_checkpoint(session_id).await {
             Ok(Some(cp)) => cp.sender_id,
             _ => None,
