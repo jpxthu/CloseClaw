@@ -151,8 +151,9 @@ impl SessionsSpawnTool {
                         user_perms.as_ref(),
                         user_id.as_deref(),
                     )
-                    .map_err(|_| {
-                        ToolCallError::PermissionDenied("spawn permission denied".to_string())
+                    .map_err(|e| {
+                        tracing::debug!(error = %e, "spawn permission denied");
+                        ToolCallError::PermissionDenied("spawn".to_string())
                     })?;
             }
         }
