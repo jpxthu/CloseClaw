@@ -20,6 +20,12 @@ pub fn pid_file_path() -> PathBuf {
     PathBuf::from(home).join(".closeclaw").join("daemon.pid")
 }
 
+#[allow(dead_code)] // Used by config list / rule list in later steps
+pub fn config_dir() -> PathBuf {
+    let home = std::env::var("HOME").expect("HOME not set");
+    PathBuf::from(home).join(".closeclaw")
+}
+
 pub async fn handle_agent(action: AgentAction) -> Result<()> {
     match action {
         AgentAction::List => {
@@ -39,7 +45,25 @@ pub async fn handle_agent(action: AgentAction) -> Result<()> {
 pub async fn handle_config(action: ConfigAction) -> Result<()> {
     match action {
         ConfigAction::Validate { file } => {
-            println!("Validating config: {}\nConfig is valid", file);
+            let path = std::path::Path::new(&file);
+            let filename = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| file.clone());
+            let contents = std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", file, e))?;
+            match serde_json::from_str::<serde_json::Value>(&contents) {
+                Ok(value) => {
+                    println!("✅ {}: valid JSON", filename);
+                    if let Some(ver) = value.get("version").and_then(|v| v.as_str()) {
+                        println!("   version: {}", ver);
+                    }
+                }
+                Err(e) => {
+                    println!("❌ {}: {}", filename, e);
+                    anyhow::bail!("Validation failed for '{}': {}", file, e);
+                }
+            }
         }
         ConfigAction::List => {
             println!("Config files:\n  (not implemented)");
