@@ -1,6 +1,7 @@
 //! Helper functions extracted from SessionManager::find_or_create
 //! to keep the main file under the 500-line limit.
 
+use crate::agent::registry::AgentRegistry;
 use crate::gateway::Message;
 use crate::im::IMAdapter;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
@@ -42,6 +43,7 @@ pub(super) async fn build_session_system_prompt(
     skill_registry: Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>,
     agent_id: &str,
     filters: &AgentToolSkillConfig,
+    agent_registry: Option<Arc<AgentRegistry>>,
 ) -> String {
     let bootstrap_files = if let Some(ref workspace) = workspace_dir {
         load_bootstrap_files(workspace, bootstrap_mode)
@@ -76,6 +78,7 @@ pub(super) async fn build_session_system_prompt(
             agent_skills: filters.agent_skills.clone(),
             dynamic_sections: vec![],
             append_section: None,
+            agent_registry,
         },
     )
     .await

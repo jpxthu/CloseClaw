@@ -129,7 +129,7 @@ impl SessionManager {
         agent_id: &str,
     ) -> Option<crate::config::agents::ResolvedAgentConfig> {
         let guard = self.agent_registry.read().await;
-        guard.as_ref()?.get(agent_id).await
+        guard.as_ref()?.get(agent_id).map(|r| r.value().clone())
     }
 
     /// Set priority prompt overrides.

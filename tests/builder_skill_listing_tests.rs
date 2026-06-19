@@ -64,6 +64,7 @@ async fn test_build_from_workspace_skill_listing_injected() {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
+            agent_registry: None,
         },
     )
     .await;
@@ -115,6 +116,7 @@ async fn test_build_from_workspace_no_skill_info_no_section() {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
+            agent_registry: None,
         },
     )
     .await;
@@ -155,6 +157,7 @@ async fn test_build_from_workspace_empty_listing_no_section() {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
+            agent_registry: None,
         },
     )
     .await;
@@ -196,6 +199,7 @@ async fn test_build_from_workspace_skill_section_not_duplicated() {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
+            agent_registry: None,
         },
     )
     .await;

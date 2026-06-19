@@ -39,7 +39,18 @@ pub(crate) async fn init_skill_hot_reload(
     let watcher = start_skill_watcher(
         skill_dirs,
         Box::new(move || {
-            let new_registry = init_disk_skills(&watcher_config);
+            let mut new_registry = init_disk_skills(&watcher_config);
+
+            // Preserve the AgentRegistry reference from the old registry
+            // so the Skills Registry can continue querying agent configs
+            // directly after hot-reload.
+            if let Ok(guard) = registry_for_watcher.read() {
+                if let Some(ref old_reg) = *guard {
+                    if let Some(agent_reg) = old_reg.agent_registry() {
+                        new_registry.set_agent_registry(Arc::clone(agent_reg));
+                    }
+                }
+            }
 
             // Update shared state
             if let Ok(mut guard) = registry_for_watcher.write() {

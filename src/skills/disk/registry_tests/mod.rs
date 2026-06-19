@@ -425,3 +425,187 @@ fn test_find_matching_skills_priority_dedup_mixed() {
     let names3: Vec<&str> = m3.iter().map(|s| s.manifest.name.as_str()).collect();
     assert_eq!(names3, ["rs", "md"]);
 }
+
+// ---- AgentRegistry query path tests ----
+// Tests for DiskSkillRegistry's ability to query AgentRegistry directly
+// for skills whitelist configuration, per design-doc query path.
+
+use crate::agent::registry::AgentRegistry;
+use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+use crate::session::bootstrap::loader::BootstrapMode;
+use std::sync::Arc;
+
+fn make_agent_config(id: &str, skills: Vec<String>) -> ResolvedAgentConfig {
+    ResolvedAgentConfig {
+        id: id.to_string(),
+        name: id.to_string(),
+        parent_id: None,
+        model: None,
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: BootstrapMode::Full,
+        skills,
+        tools: vec![],
+        disallowed_tools: vec![],
+        subagents: Default::default(),
+        source: ConfigSource::User,
+    }
+}
+
+#[test]
+fn test_set_agent_registry_and_accessor() {
+    let mut r = DiskSkillRegistry::new(vec![]);
+    assert!(r.agent_registry().is_none());
+
+    let arc_reg = Arc::new(AgentRegistry::new(30));
+    r.set_agent_registry(Arc::clone(&arc_reg));
+    assert!(r.agent_registry().is_some());
+    // The returned Arc should point to the same registry
+    let returned = r.agent_registry().unwrap();
+    assert!(Arc::ptr_eq(returned, &arc_reg));
+}
+
+#[test]
+fn test_generate_listing_for_agent_with_whitelist() {
+    // Agent has skills whitelist ["foo", "bar"]
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config(
+        "agent-1",
+        vec!["foo".into(), "bar".into()],
+    )]);
+
+    let mut r = DiskSkillRegistry::new(vec![
+        skill("foo", SkillSource::Bundled),
+        skill("bar", SkillSource::Bundled),
+        skill("baz", SkillSource::Bundled),
+    ]);
+    r.set_agent_registry(agent_reg);
+
+    let listing = r.generate_listing_for_agent("agent-1");
+    assert!(listing.contains("**foo**"));
+    assert!(listing.contains("**bar**"));
+    assert!(!listing.contains("**baz**"));
+}
+
+#[test]
+fn test_generate_listing_for_agent_agent_not_found() {
+    // Agent not in registry — should show all skills (no whitelist)
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![]);
+
+    let mut r = DiskSkillRegistry::new(vec![
+        skill("foo", SkillSource::Bundled),
+        skill("bar", SkillSource::Bundled),
+    ]);
+    r.set_agent_registry(agent_reg);
+
+    let listing = r.generate_listing_for_agent("nonexistent");
+    assert!(listing.contains("**foo**"));
+    assert!(listing.contains("**bar**"));
+}
+
+#[test]
+fn test_generate_listing_for_agent_wildcard_whitelist() {
+    // Agent skills = ["*"] means show all
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config("agent-wild", vec!["*".into()])]);
+
+    let mut r = DiskSkillRegistry::new(vec![
+        skill("foo", SkillSource::Bundled),
+        skill("bar", SkillSource::Global),
+    ]);
+    r.set_agent_registry(agent_reg);
+
+    let listing = r.generate_listing_for_agent("agent-wild");
+    assert!(listing.contains("**foo**"));
+    assert!(listing.contains("**bar**"));
+}
+
+#[test]
+fn test_generate_listing_for_agent_empty_skills() {
+    // Agent skills = [] means show all (no filtering)
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config("agent-empty", vec![])]);
+
+    let mut r = DiskSkillRegistry::new(vec![
+        skill("foo", SkillSource::Bundled),
+        skill("bar", SkillSource::Global),
+    ]);
+    r.set_agent_registry(agent_reg);
+
+    let listing = r.generate_listing_for_agent("agent-empty");
+    assert!(listing.contains("**foo**"));
+    assert!(listing.contains("**bar**"));
+}
+
+#[test]
+fn test_generate_listing_for_agent_no_registry_set() {
+    // No agent_registry set — should show all skills
+    let r = DiskSkillRegistry::new(vec![
+        skill("foo", SkillSource::Bundled),
+        skill("bar", SkillSource::Bundled),
+    ]);
+    // Not setting agent_registry
+
+    let listing = r.generate_listing_for_agent("any-agent");
+    assert!(listing.contains("**foo**"));
+    assert!(listing.contains("**bar**"));
+}
+
+#[test]
+fn test_generate_listing_fallback_to_agent_registry() {
+    // When no explicit whitelist is passed, generate_listing should
+    // fall back to AgentRegistry lookup.
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config("agent-fb", vec!["skill-a".into()])]);
+
+    let mut r = DiskSkillRegistry::new(vec![
+        skill("skill-a", SkillSource::Bundled),
+        skill("skill-b", SkillSource::Bundled),
+    ]);
+    r.set_agent_registry(agent_reg);
+
+    // Pass None for skills_whitelist — should use AgentRegistry
+    let listing = r.generate_listing(Some("agent-fb"), None);
+    assert!(listing.contains("**skill-a**"));
+    assert!(!listing.contains("**skill-b**"));
+}
+
+#[test]
+fn test_generate_listing_explicit_whitelist_overrides_registry() {
+    // When explicit whitelist is provided, AgentRegistry is not used
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config("agent-ov", vec!["skill-a".into()])]);
+
+    let mut r = DiskSkillRegistry::new(vec![
+        skill("skill-a", SkillSource::Bundled),
+        skill("skill-b", SkillSource::Bundled),
+    ]);
+    r.set_agent_registry(agent_reg);
+
+    // Explicit whitelist allows skill-b (not in agent config)
+    let listing = r.generate_listing(Some("agent-ov"), Some(&["skill-b".into()]));
+    assert!(!listing.contains("**skill-a**"));
+    assert!(listing.contains("**skill-b**"));
+}
+
+#[test]
+fn test_generate_listing_for_agent_user_invocable_filter() {
+    // user_invocable: false skills should still be excluded
+    let agent_reg = Arc::new(AgentRegistry::new(30));
+    agent_reg.populate(vec![make_agent_config(
+        "agent-inv",
+        vec!["visible".into(), "hidden".into()],
+    )]);
+
+    let visible = skill("visible", SkillSource::Bundled);
+    let mut hidden = skill("hidden", SkillSource::Bundled);
+    hidden.manifest.user_invocable = false;
+
+    let mut r = DiskSkillRegistry::new(vec![visible, hidden]);
+    r.set_agent_registry(agent_reg);
+
+    let listing = r.generate_listing_for_agent("agent-inv");
+    assert!(listing.contains("**visible**"));
+    assert!(!listing.contains("**hidden**"));
+}
