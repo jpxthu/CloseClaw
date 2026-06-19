@@ -509,6 +509,13 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         anyhow::bail!("write_wizard_config failed: {}", e);
     }
 
+    // Create initial master agent if it does not exist yet.
+    // Failure here is non-fatal: the wizard config (models + credentials) is
+    // already written and should not be rolled back.
+    if let Err(e) = ensure_master_agent(&config_dir()) {
+        eprintln!("[WARNING] Failed to create master agent: {}", e);
+    }
+
     Ok(Some(WizardOutput {
         provider_id: out_provider_id,
         credential: out_credential,
