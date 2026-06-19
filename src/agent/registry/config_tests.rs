@@ -7,7 +7,7 @@ use crate::session::bootstrap::BootstrapMode;
 
 #[test]
 fn test_new_construction() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     // After construction the config map must be empty.
     assert!(
         registry.get("any-id").is_none(),
@@ -16,19 +16,9 @@ fn test_new_construction() {
 }
 
 #[test]
-fn test_new_with_graceful_shutdown() {
-    let registry = AgentRegistry::new_with_graceful_shutdown(30);
-    // Must construct successfully and start empty.
-    assert!(
-        registry.get("any-id").is_none(),
-        "registry created via new_with_graceful_shutdown should have no configs"
-    );
-}
-
-#[test]
 fn test_default_trait() {
     let registry = AgentRegistry::default();
-    // Default() delegates to new_with_graceful_shutdown, should be empty.
+    // Default() delegates to new(), should be empty.
     assert!(
         registry.get("any-id").is_none(),
         "default registry should have no configs"
@@ -55,7 +45,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
 
 #[test]
 fn test_populate_and_get() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     let configs = vec![make_config("agent-a"), make_config("agent-b")];
 
     registry.populate(configs);
@@ -71,7 +61,7 @@ fn test_populate_and_get() {
 
 #[test]
 fn test_get_not_found() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     registry.populate(vec![make_config("existing")]);
 
     let result = registry.get("nonexistent");
@@ -80,7 +70,7 @@ fn test_get_not_found() {
 
 #[test]
 fn test_reload() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
 
     // Populate with old data.
     registry.populate(vec![make_config("old-agent")]);
@@ -103,7 +93,7 @@ fn test_reload() {
 
 #[test]
 fn test_populate_empty() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
 
     // Should not panic on empty input.
     registry.populate(vec![]);
@@ -116,7 +106,7 @@ fn test_populate_empty() {
 
 #[test]
 fn test_reload_preserves_existing() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
 
     registry.populate(vec![make_config("keep"), make_config("drop")]);
 
@@ -141,7 +131,7 @@ fn test_reload_preserves_existing() {
 
 #[test]
 fn test_get_returns_valid_reference() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     registry.populate(vec![make_config("agent-1")]);
 
     // The DashMap Ref implements Deref<Target = ResolvedAgentConfig>,
@@ -157,7 +147,7 @@ fn test_get_returns_valid_reference() {
 
 #[test]
 fn test_get_reference_sees_populated_data() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     let mut cfg = make_config("agent-x");
     cfg.skills = vec!["skill-a".into(), "skill-b".into()];
     cfg.tools = vec!["tool-1".into()];
@@ -172,7 +162,7 @@ fn test_get_reference_sees_populated_data() {
 
 #[test]
 fn test_get_reference_sees_reload_data() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     registry.populate(vec![make_config("old")]);
 
     // Verify old data is visible through reference
@@ -195,7 +185,7 @@ fn test_get_reference_sees_reload_data() {
 
 #[test]
 fn test_query_bootstrap_mode_full() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     let mut cfg = make_config("agent-full");
     cfg.bootstrap_mode = BootstrapMode::Full;
     registry.populate(vec![cfg]);
@@ -206,7 +196,7 @@ fn test_query_bootstrap_mode_full() {
 
 #[test]
 fn test_query_bootstrap_mode_minimal() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     let mut cfg = make_config("agent-minimal");
     cfg.bootstrap_mode = BootstrapMode::Minimal;
     registry.populate(vec![cfg]);
@@ -217,7 +207,7 @@ fn test_query_bootstrap_mode_minimal() {
 
 #[test]
 fn test_query_bootstrap_mode_not_found() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     registry.populate(vec![make_config("existing")]);
 
     let mode = registry.query_bootstrap_mode("nonexistent");
@@ -226,7 +216,7 @@ fn test_query_bootstrap_mode_not_found() {
 
 #[test]
 fn test_query_bootstrap_mode_empty_registry() {
-    let registry = AgentRegistry::new(30);
+    let registry = AgentRegistry::new();
     let mode = registry.query_bootstrap_mode("any-id");
     assert_eq!(mode, None);
 }
@@ -238,7 +228,7 @@ fn test_concurrent_get_and_populate() {
     use std::sync::Arc;
     use std::thread;
 
-    let registry = Arc::new(AgentRegistry::new(30));
+    let registry = Arc::new(AgentRegistry::new());
 
     // Spawn threads that read and write concurrently
     let mut handles = vec![];
@@ -277,7 +267,7 @@ fn test_concurrent_get_and_reload() {
     use std::sync::Arc;
     use std::thread;
 
-    let registry = Arc::new(AgentRegistry::new(30));
+    let registry = Arc::new(AgentRegistry::new());
     registry.populate(vec![make_config("initial")]);
 
     let mut handles = vec![];
@@ -315,7 +305,7 @@ fn test_concurrent_query_bootstrap_mode() {
     use std::sync::Arc;
     use std::thread;
 
-    let registry = Arc::new(AgentRegistry::new(30));
+    let registry = Arc::new(AgentRegistry::new());
     let mut cfg_full = make_config("full-agent");
     cfg_full.bootstrap_mode = BootstrapMode::Full;
     let mut cfg_min = make_config("min-agent");

@@ -69,7 +69,7 @@ fn make_tool() -> SessionsSpawnTool {
     let sm = Arc::new(make_session_manager());
     let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
     let pe = Arc::new(make_permission_engine());
-    let ar = Arc::new(crate::agent::registry::AgentRegistry::new(30));
+    let ar = Arc::new(crate::agent::registry::AgentRegistry::new());
     SessionsSpawnTool::new(controller, sm, pe, cm, ar)
 }
 
