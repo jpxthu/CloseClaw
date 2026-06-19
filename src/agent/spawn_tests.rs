@@ -585,3 +585,47 @@ async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
         other => panic!("expected DepthExceeded, got {:?}", other),
     }
 }
+
+// ── Step 1.1: depth-before-agentId order verification ────────────────────
+
+/// Verify that when depth=0 AND requireAgentId=true AND no agentId is passed,
+/// the validation returns `DepthExceeded` rather than `AgentIdRequired`.
+///
+/// This is the key behavioral difference the refactoring is meant to fix:
+/// the design doc requires depth check to execute before agentId resolution.
+#[tokio::test]
+async fn test_validate_depth_before_agent_id_required() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    // max_spawn_depth=0 (depth check will reject) AND require_agent_id=true
+    // (would also reject if depth check didn't run first).
+    let mut sub = SubagentsConfig::default();
+    sub.max_spawn_depth = 0;
+    sub.require_agent_id = true;
+    sub.default_child_agent = None;
+    let parent = make_agent("parent", sub);
+    inject_agents(&cm, vec![("parent", parent)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    // Pass None for agent_id — without the refactoring this would return
+    // AgentIdRequired (because require_agent_id is checked before depth).
+    // After the refactoring, depth check runs first → DepthExceeded.
+    let err = controller
+        .validate(&parent_id, None)
+        .await
+        .expect_err("should reject when depth=0");
+
+    match err {
+        SpawnError::DepthExceeded { current, max } => {
+            assert_eq!(current, 1);
+            assert_eq!(max, 0);
+        }
+        other => panic!(
+            "expected DepthExceeded (depth checked before agentId), got {:?}",
+            other
+        ),
+    }
+}
