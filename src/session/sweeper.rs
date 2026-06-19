@@ -222,22 +222,23 @@ impl ArchiveSweeper {
         Ok(())
     }
 
-    /// Delete all descendants of `parent_session_id` (deepest first).
-    /// Uses an explicit stack to avoid recursive async boxing.
+    /// 删除 `parent_session_id` 的所有后代 session（先深后浅）。
+    /// 使用 BFS 收集所有后代，再从叶子节点向上删除。
     async fn cascade_kill_children(
         storage: &dyn PersistenceService,
         parent_session_id: &str,
     ) -> Result<(), ArchiveSweeperError> {
-        // Collect all descendant IDs via BFS, then delete from leaves upward.
+        // 通过 BFS 收集所有后代 ID，再从叶子节点向上删除。
         let mut all_descendants: Vec<String> = Vec::new();
-        let mut stack = vec![parent_session_id.to_string()];
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(parent_session_id.to_string());
 
-        // BFS to collect all descendant IDs
-        while let Some(current) = stack.pop() {
+        // BFS 收集所有后代 ID
+        while let Some(current) = queue.pop_front() {
             let children = storage.list_children_sessions(&current).await?;
             for child_id in &children {
                 all_descendants.push(child_id.clone());
-                stack.push(child_id.clone());
+                queue.push_back(child_id.clone());
             }
         }
 
