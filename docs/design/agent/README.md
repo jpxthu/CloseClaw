@@ -55,7 +55,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 |------|------|
 | `agent-config.md` | Agent JSON 配置档案：字段定义、存储位置、加载优先级、字段级合并 |
 | `agent-registry.md` | AgentRegistry 运行时配置查询入口：populate / get / reload 接口、数据流 |
-| `agent-spawn.md` | Spawn 机制、Fork 模式、Steer/Kill、Announce 回传、Depth 追踪 |
+| `agent-spawn.md` | Spawn 机制、Fork 模式、Steer/Kill、Announce 回传、Depth 追踪、Spawn 树形拓扑（存储/查询/级联 Kill/重启恢复） |
 | `agent-permissions.md` | 权限沿 spawn 链路继承、workspace 路径授权 |
 
 ## 数据流

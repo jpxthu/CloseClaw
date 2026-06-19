@@ -89,3 +89,4 @@ Daemon 触发 AgentRegistry 全量替换
 | Gateway | AgentRegistry 不参与消息路由 |
 | IM Adapter | AgentRegistry 不涉及平台通信 |
 | Processor Chain | AgentRegistry 不参与消息处理 |
+| Spawn 树形拓扑 | spawn 树的父子关系、级联 kill、重启恢复等运行时拓扑由 Session 模块的 spawn_tree 子组件管理，AgentRegistry 不持有运行时状态、不参与树形拓扑查询。AgentRegistry 仅负责根据 agent_id 查询静态配置（这个 agent 能干什么） |
