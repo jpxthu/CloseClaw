@@ -159,14 +159,24 @@ pub struct WorkspaceBuildConfig<'a> {
     pub agent_registry: Option<Arc<AgentRegistry>>,
 }
 
-/// Build a system prompt from a workspace directory.
+// --- Private helpers -------------------------------------------------------
+
+/// Build the RoleSection from bootstrap files.
 ///
-/// When `config.bootstrap_files` is empty and `config.agent_registry`
-/// and `config.agent_id` are set, the builder queries the AgentRegistry
-/// for the agent's bootstrap mode and loads files automatically
-/// (design-doc query path: System Prompt → AgentRegistry).
-/// Push the SkillListingSection into `sections` when a skill registry
-/// is available and produces a non-empty listing.
+/// Filters out `MEMORY.md` entries (handled separately by the
+/// MemorySection path), concatenates the remaining bootstrap file
+/// contents, and pushes a `RoleSection` if any content exists.
+fn build_role_section(sections: &mut Vec<Section>, bootstrap_files: &[(String, String)]) {
+    let role: String = bootstrap_files
+        .iter()
+        .filter(|(n, _)| n != "MEMORY.md")
+        .map(|(_, c)| c.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if !role.is_empty() {
+        sections.push(Section::RoleSection(role));
+    }
+}
 fn push_skill_listing_section(
     sections: &mut Vec<Section>,
     skill_registry: &Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
@@ -214,6 +224,15 @@ fn resolve_bootstrap_files(
         .unwrap_or_else(|| config.bootstrap_files.clone())
 }
 
+/// Build a system prompt from a workspace directory.
+///
+/// When `config.bootstrap_files` is empty and `config.agent_registry`
+/// and `config.agent_id` are set, the builder queries the AgentRegistry
+/// for the agent's bootstrap mode and loads files automatically
+/// (design-doc query path: System Prompt → AgentRegistry).
+///
+/// Push the SkillListingSection into `sections` when a skill registry
+/// is available and produces a non-empty listing.
 pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     config: WorkspaceBuildConfig<'_>,
@@ -222,17 +241,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     let mut sections: Vec<Section> = Vec::new();
 
     let resolved_bootstrap_files = resolve_bootstrap_files(root, &config);
-
-    // RoleSection from bootstrap files (skip MEMORY.md)
-    let role: String = resolved_bootstrap_files
-        .iter()
-        .filter(|(n, _)| n != "MEMORY.md")
-        .map(|(_, c)| c.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    if !role.is_empty() {
-        sections.push(Section::RoleSection(role));
-    }
+    build_role_section(&mut sections, &resolved_bootstrap_files);
     // MemorySection — skip if workspace_root is missing/empty
     if root.exists() && root.is_dir() {
         let memory_path = root.join("MEMORY.md");
