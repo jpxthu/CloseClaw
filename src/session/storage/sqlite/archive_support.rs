@@ -328,6 +328,8 @@ pub fn load_checkpoint_inner(
         account_id: account_id_new,
         thread_id,
         sender_id,
+        parent_session_id: None,
+        depth: 0,
     }))
 }
 

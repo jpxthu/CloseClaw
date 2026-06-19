@@ -31,6 +31,8 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         thread_id: None,
         sender_id: None,
         account_id: None,
+        parent_session_id: None,
+        depth: 0,
     }
 }
 
