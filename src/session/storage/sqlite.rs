@@ -122,6 +122,8 @@ impl SqliteStorage {
             "platform",
             "peer_id",
             "account_id",
+            "parent_session_id",
+            "depth",
         ] {
             Self::add_column_if_not_exists(conn, col)?;
         }
@@ -287,11 +289,11 @@ impl PersistenceService for SqliteStorage {
                 "INSERT OR REPLACE INTO sessions
                  (id, agent_id, role, channel, chat_id, status, title,
                   last_message_at, created_at, archived_at, message_count, metadata, thread_id,
-                  sender_id, platform, peer_id, account_id)
+                  sender_id, platform, peer_id, account_id, parent_session_id, depth)
                  VALUES (
                      ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                      ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17
+                     ?14, ?15, ?16, ?17, ?18, ?19
                  )",
                 params![
                     checkpoint.session_id,
@@ -320,6 +322,8 @@ impl PersistenceService for SqliteStorage {
                     checkpoint.platform.as_deref(),
                     checkpoint.peer_id.as_deref(),
                     checkpoint.account_id.as_deref(),
+                    checkpoint.parent_session_id.as_deref(),
+                    checkpoint.depth,
                 ],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
