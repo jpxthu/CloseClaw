@@ -12,6 +12,9 @@ pub use crate::gateway::session_manager::communication::{
 use crate::session::bootstrap::BootstrapMode;
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
+///
+/// Permissions are stored in a separate `permissions.json` file, not inline
+/// in `config.json` (per design doc).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfig {
@@ -46,8 +49,6 @@ pub struct AgentConfig {
     /// Disallowed tool names blacklist.
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
-    // NOTE: permissions are stored in a separate permissions.json file,
-    // not inline in config.json (per design doc).
     /// Sub-agent spawn control parameters.
     #[serde(default)]
     pub subagents: SubagentsConfig,

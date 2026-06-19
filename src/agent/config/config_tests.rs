@@ -526,13 +526,63 @@ fn test_agent_config_no_inline_permissions_field() {
 
 #[test]
 fn test_resolved_config_no_permissions_field() {
-    // Verify that ResolvedAgentConfig no longer carries a permissions field.
+    // Verify that ResolvedAgentConfig can be constructed without a permissions field.
     let config = AgentConfig {
         id: "test-agent".to_string(),
         ..Default::default()
     };
     let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
-    // If permissions field existed, this would fail to compile.
-    // This test serves as a compile-time check.
-    assert_eq!(resolved.id, "test-agent");
+    let value = serde_json::to_value(&resolved).unwrap();
+    assert!(
+        value.get("permissions").is_none(),
+        "permissions should not appear in serialized output"
+    );
+}
+
+#[test]
+fn test_merge_tools_empty_project_falls_back_to_user() {
+    // Project-level tools is empty vec → fall back to user-level tools.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec![],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["read".to_string(), "grep".to_string()],
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.tools,
+        vec!["read", "grep"],
+        "empty project tools should fall back to user tools"
+    );
+}
+
+#[test]
+fn test_merge_allow_agents_empty_project_falls_back_to_user() {
+    // Project-level allow_agents is empty vec → fall back to user-level.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec![],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["agent-a".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.subagents.allow_agents,
+        vec!["agent-a"],
+        "empty project allow_agents should fall back to user allow_agents"
+    );
 }

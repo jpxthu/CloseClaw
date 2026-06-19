@@ -24,12 +24,14 @@
 
 use std::path::PathBuf;
 
+use serde::Serialize;
+
 use crate::agent::config::{AgentConfig, SubagentsConfig};
 use crate::config::ConfigError;
 use crate::session::bootstrap::BootstrapMode;
 
 /// Configuration source level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ConfigSource {
     /// Loaded from user-level config only.
     User,
@@ -43,7 +45,7 @@ pub enum ConfigSource {
 ///
 /// All optional fields have been filled with defaults where neither
 /// project nor user config specified a value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ResolvedAgentConfig {
     pub id: String,
     pub name: String,
