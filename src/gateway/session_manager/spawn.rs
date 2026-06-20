@@ -481,19 +481,16 @@ impl SessionManager {
     /// table is traversed via BFS to discover all descendant session
     /// IDs before any removals, preventing lock-ordering issues.
     pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
-        // Verify the target child exists.
-        self.get_conversation_session(child_id)
-            .await
-            .ok_or_else(|| format!("child session not found: {}", child_id))?;
-
         // 1. Recursively collect all descendant session IDs via
         //    BFS on the `children` table.
         let descendant_ids = self.collect_descendant_ids(child_id).await;
 
-        // 2. Cascade-stop: cancel the token tree for the child
-        //    and all its descendants.
+        // 2. Get the child's conversation session, verify it exists,
+        //    and cascade-stop its token tree.
         if let Some(cs) = self.get_conversation_session(child_id).await {
             cs.read().await.stop(true).await;
+        } else {
+            return Err(format!("child session not found: {}", child_id));
         }
 
         // 3. Remove child + descendants from conversation_sessions.
@@ -595,8 +592,10 @@ impl SessionManager {
     /// Collect all descendant session IDs of a given session via BFS
     /// on the `children` table.
     ///
-    /// Returns session IDs in BFS order (shallowest first). The
-    /// caller is expected to process removals after calling this.
+    /// Returns session IDs in reverse BFS order (deepest first,
+    /// shallowest last) so that the caller removes leaves before
+    /// their parents — matching the design doc requirement to
+    /// "terminate from deepest to shallowest".
     async fn collect_descendant_ids(&self, session_id: &str) -> Vec<String> {
         let children = self.children.read().await;
         let mut result = Vec::new();
@@ -619,6 +618,8 @@ impl SessionManager {
             }
         }
 
+        // Reverse so deepest descendants come first.
+        result.reverse();
         result
     }
 }

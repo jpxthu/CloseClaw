@@ -287,7 +287,11 @@ impl ArchiveSweeper {
         for (child_id, _) in all_descendants {
             storage.delete_checkpoint(&child_id).await?;
             storage.invalidate_session(&child_id).await?;
-            info!(parent = %parent_session_id, child = %child_id, "child session deleted and invalidated during cascade");
+            info!(
+                parent = %parent_session_id,
+                child = %child_id,
+                "child session deleted and invalidated during cascade"
+            );
         }
 
         Ok(())

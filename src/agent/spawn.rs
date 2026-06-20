@@ -78,15 +78,22 @@ impl SpawnController {
         target_agent_id: Option<&str>,
     ) -> Result<SpawnValidationResult, SpawnError> {
         // ① Depth check.
-        let parent = self.resolve_parent_depth(parent_session_id).await?;
+        let parent_agent_id = self
+            .session_manager
+            .get_chat_id(parent_session_id)
+            .await
+            .unwrap_or_default();
+        let parent = self
+            .resolve_parent_depth(parent_session_id, &parent_agent_id)
+            .await?;
 
         // ② AgentId fallback + target config resolution.
         let resolved = self
-            .resolve_target_config(parent_session_id, target_agent_id)
+            .resolve_target_config(&parent_agent_id, target_agent_id)
             .await?;
 
         // ③ Read parent config for concurrency/whitelist/requireAgentId.
-        let parent_cfg = self.read_parent_config(parent_session_id).await?;
+        let parent_cfg = self.read_parent_config(&parent_agent_id).await?;
 
         // ④ Concurrency check.
         self.check_concurrency(parent_session_id, parent_cfg.max_children)
@@ -152,18 +159,13 @@ impl SpawnController {
     async fn resolve_parent_depth(
         &self,
         parent_session_id: &str,
+        parent_agent_id: &str,
     ) -> Result<ResolvedParentDepth, SpawnError> {
         let parent_depth = self
             .session_manager
             .get_session_depth(parent_session_id)
             .await
             .unwrap_or(0);
-
-        let parent_agent_id = self
-            .session_manager
-            .get_chat_id(parent_session_id)
-            .await
-            .unwrap_or_default();
 
         let parent_max_spawn_depth = {
             let agents = self
@@ -172,7 +174,7 @@ impl SpawnController {
                 .read()
                 .expect("RwLock for agents was poisoned");
             agents
-                .get(&parent_agent_id)
+                .get(parent_agent_id)
                 .map(|pc| pc.subagents.max_spawn_depth)
                 .unwrap_or(1u32)
         };
@@ -201,21 +203,15 @@ impl SpawnController {
     /// [`Self::resolve_target_config`].
     async fn read_parent_config(
         &self,
-        parent_session_id: &str,
+        parent_agent_id: &str,
     ) -> Result<ParentSpawnConfig, SpawnError> {
-        let parent_agent_id = self
-            .session_manager
-            .get_chat_id(parent_session_id)
-            .await
-            .unwrap_or_default();
-
         let agents = self
             .config_manager
             .agents
             .read()
             .expect("RwLock for agents was poisoned");
 
-        Ok(match agents.get(&parent_agent_id) {
+        Ok(match agents.get(parent_agent_id) {
             Some(pc) => {
                 let sc = &pc.subagents;
                 ParentSpawnConfig {
@@ -237,22 +233,16 @@ impl SpawnController {
     /// falls back to the parent config's `default_child_agent`.
     async fn resolve_target_config(
         &self,
-        parent_session_id: &str,
+        parent_agent_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<ResolvedTarget, SpawnError> {
-        let parent_agent_id = self
-            .session_manager
-            .get_chat_id(parent_session_id)
-            .await
-            .unwrap_or_default();
-
         let (target_id, target_config) = {
             let agents = self
                 .config_manager
                 .agents
                 .read()
                 .expect("RwLock for agents was poisoned");
-            let parent_config = agents.get(&parent_agent_id);
+            let parent_config = agents.get(parent_agent_id);
 
             let target_id = target_agent_id
                 .map(|s| s.to_string())

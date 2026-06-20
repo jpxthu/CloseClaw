@@ -699,7 +699,11 @@ async fn test_kill_child_cascades_removes_all_orphans_multilevel() {
     setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
     register_child!(&mgr, &tmp, parent_id, child_id, "child-agent", 1, SpawnMode::Session);
     register_child!(&mgr, &tmp, child_id, grandchild_a_id, "gc-a-agent", 2, SpawnMode::Run);
-    register_child!(&mgr, &tmp, grandchild_a_id, great_grandchild_id, "ggc-agent", 3, SpawnMode::Run);
+    register_child!(
+        &mgr, &tmp,
+        grandchild_a_id, great_grandchild_id,
+        "ggc-agent", 3, SpawnMode::Run
+    );
     register_child!(&mgr, &tmp, child_id, grandchild_b_id, "gc-b-agent", 2, SpawnMode::Session);
 
     // Verify initial state
