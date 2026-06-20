@@ -434,6 +434,8 @@ mod flush_tests;
 #[cfg(test)]
 mod model_priority_tests;
 #[cfg(test)]
+mod rebuild_spawn_tree_tests;
+#[cfg(test)]
 mod rebuild_tests;
 #[cfg(test)]
 mod resolve_tests;

@@ -191,6 +191,14 @@ impl Daemon {
             );
         }
 
+        // Rebuild spawn_tree (children table) from persisted checkpoints at startup.
+        if let Err(e) = session_manager.rebuild_spawn_tree().await {
+            tracing::warn!(
+                error = %e,
+                "failed to rebuild spawn_tree at startup — continuing"
+            );
+        }
+
         // Create and spawn ArchiveSweeper with SessionManager so it can
         // cascade-terminate children when archiving idle sessions.
         let sweeper = Arc::new(
