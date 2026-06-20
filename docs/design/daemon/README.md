@@ -127,7 +127,7 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | SpawnController | 启动时创建并注入 ToolRegistry，校验 Agent spawn 权限 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |
 | Skill Watcher | 启动时 spawn 后台任务 |
-| Memory | DreamingScheduler 定时扫描 archived 会话触发记忆挖掘与升格 |
+| Memory | DreamingScheduler 定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
 ### 无关
 

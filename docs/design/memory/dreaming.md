@@ -22,6 +22,8 @@ Deep 阶段  —— 程序化处理：多维加权评分，对每个候选条目
   │
   ▼
 MEMORY.md  —— 长期记忆精选版本，由 system_prompt 在 session 启动时直接注入
+
+> MEMORY.md 写入后的缓存刷新时机详见 README 数据流。
 ```
 
 **三阶段均为程序化处理**，不经过 LLM。

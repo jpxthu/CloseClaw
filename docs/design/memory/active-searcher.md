@@ -28,27 +28,13 @@ session 层 spawn active-searcher sub-agent（独立低开销模型）
 
 ### 注入时机
 
-摘要不随当前消息即时注入，而是排队等待下一轮：
+active-searcher 将浓缩摘要写入 session 的 `memory_injection` 槽位，由 session 在下次消息组装时消费。
 
-- **agent 消息触发**：LLM 生成消息 A → active-searcher 匹配 → 摘要 C 排队。下一次用户输入 B（或工具返回 B）到达时，C 插入 B 之前，一起发给 LLM
-- **用户消息触发**：用户消息 B → active-searcher 匹配 → 摘要 C 当场插入 B 之后，一起发给 LLM
-- **C 的形式**：tool role 消息，不占对话轮次，用户不可见
+- **agent 消息触发**：LLM 生成消息 A → active-searcher 匹配 → 写入槽位，模式 = `BeforeNext`。下次用户输入或工具返回到达时，session 组装消息时将摘要插入新消息之前
+- **用户消息触发**：用户消息 B → active-searcher 匹配 → 写入槽位，模式 = `AfterCurrent`。session 组装消息时将摘要紧随 B 之后插入
+- **摘要形式**：tool role 消息，不占对话轮次，用户不可见
 
-```
-消息序列示意（用户消息触发的场景）：
-
-  [用户消息 B]
-  [tool: memory 摘要 C]   ← 当场插入
-  → 一起发给 LLM
-
-消息序列示意（agent 消息触发的场景）：
-
-  上一轮 LLM 生成消息 A → active-searcher 匹配，摘要 C 排队
-  ...
-  [tool: memory 摘要 C]   ← 下一轮插入
-  [用户消息 B / 工具返回 B]
-  → 一起发给 LLM
-```
+槽位机制详见 [session-injection.md](docs/design/session/session-injection.md) 消息级注入。
 
 ### 去重与重置
 
@@ -70,8 +56,8 @@ session 层 spawn active-searcher sub-agent（独立低开销模型）
                         所有条目                  tool role 消息
                         去重过滤                  │
                         浓缩                      ▼
-                        │                    插入消息列表
-                        ▼                    （下一轮输入前）
+                        │                    写入 session
+                        ▼                    memory_injection 槽位
                     超时 → 放弃本轮
 ```
 
@@ -83,7 +69,7 @@ session 层 spawn active-searcher sub-agent（独立低开销模型）
   - llm 模块：提供独立低开销模型，供 searcher sub-agent 使用
 
 - **下游**：
-  - session 模块：注入消息列表，由 session 在下一轮输入组装时合并 tool role 摘要
+  - session 模块：写入 `memory_injection` 槽位（tool role 摘要 + 位置模式），由 session 在下次消息组装时消费
 
 - **无关**：
   - system_prompt 模块：active-searcher 不修改 system prompt，只插入消息列表
