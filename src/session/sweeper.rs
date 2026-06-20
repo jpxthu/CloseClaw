@@ -13,6 +13,7 @@ use tokio::time::Instant;
 use tracing::{error, info, warn};
 
 use crate::config::session::SessionConfigProvider;
+use crate::gateway::session_manager::SessionManager;
 use crate::session::persistence::{AgentRole, PersistenceError, PersistenceService};
 
 /// Errors that can occur during sweeper operations.
@@ -29,6 +30,9 @@ pub enum ArchiveSweeperError {
 pub struct ArchiveSweeper {
     storage: Arc<dyn PersistenceService>,
     config: Arc<dyn SessionConfigProvider>,
+    /// Optional runtime session manager for cleaning up child sessions
+    /// when archiving a parent (design doc §生命周期联动).
+    session_manager: Option<Arc<SessionManager>>,
 }
 
 impl ArchiveSweeper {
@@ -37,7 +41,18 @@ impl ArchiveSweeper {
         storage: Arc<dyn PersistenceService>,
         config: Arc<dyn SessionConfigProvider>,
     ) -> Self {
-        Self { storage, config }
+        Self {
+            storage,
+            config,
+            session_manager: None,
+        }
+    }
+
+    /// Attach a runtime [`SessionManager`] so the sweeper can
+    /// cascade-terminate children when archiving a parent session.
+    pub fn with_session_manager(mut self, sm: Arc<SessionManager>) -> Self {
+        self.session_manager = Some(sm);
+        self
     }
 
     /// Run the sweeper loop until `shutdown` signal is received.
@@ -97,6 +112,7 @@ impl ArchiveSweeper {
         // so panics propagate into catch_unwind.
         let storage = Arc::clone(&self.storage);
         let config = Arc::clone(&self.config);
+        let session_manager = self.session_manager.clone();
 
         let handle = tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Handle::current();
@@ -104,6 +120,7 @@ impl ArchiveSweeper {
                 runtime.block_on(Self::run_once_inner_impl(
                     Arc::clone(&storage),
                     Arc::clone(&config),
+                    session_manager,
                 ))
             }))
         });
@@ -132,6 +149,7 @@ impl ArchiveSweeper {
     async fn run_once_inner_impl(
         storage: Arc<dyn PersistenceService>,
         config: Arc<dyn SessionConfigProvider>,
+        session_manager: Option<Arc<SessionManager>>,
     ) -> Result<(), ArchiveSweeperError> {
         let agents = config.list_agents();
         if agents.is_empty() {
@@ -140,7 +158,14 @@ impl ArchiveSweeper {
 
         for agent_id in &agents {
             for role in [AgentRole::MainAgent, AgentRole::SubAgent] {
-                Self::sweep_agent_role(Arc::clone(&storage), config.as_ref(), agent_id, role).await;
+                Self::sweep_agent_role(
+                    Arc::clone(&storage),
+                    config.as_ref(),
+                    agent_id,
+                    role,
+                    session_manager.as_ref(),
+                )
+                .await;
             }
         }
 
@@ -153,6 +178,7 @@ impl ArchiveSweeper {
         config: &dyn SessionConfigProvider,
         agent_id: &str,
         role: AgentRole,
+        session_manager: Option<&Arc<SessionManager>>,
     ) {
         let cfg = config.session_config_for(agent_id, role);
 
@@ -163,7 +189,9 @@ impl ArchiveSweeper {
         {
             for sid in idle_ids {
                 let sid_err = sid.clone();
-                if let Err(e) = Self::cascade_archive_impl(Arc::clone(&storage), sid).await {
+                if let Err(e) =
+                    Self::cascade_archive_impl(Arc::clone(&storage), sid, session_manager).await
+                {
                     error!(session_id = %sid_err, %e, "failed to archive idle session");
                 }
             }
@@ -209,12 +237,24 @@ impl ArchiveSweeper {
 
     /// Cascade-terminate all descendants of `session_id` (deepest first),
     /// then archive the parent session.
+    ///
+    /// When a runtime [`SessionManager`] is available, also cleans up
+    /// child sessions from the runtime tracking tables (design doc
+    /// §生命周期联动: "父 session 超时清理: 级联终止所有子 session").
     async fn cascade_archive_impl(
         storage: Arc<dyn PersistenceService>,
         session_id: String,
+        session_manager: Option<&Arc<SessionManager>>,
     ) -> Result<(), ArchiveSweeperError> {
         // Recursively kill all descendants (deepest → shallowest)
         Self::cascade_kill_children(storage.as_ref(), &session_id).await?;
+
+        // Clean up runtime tracking tables if SessionManager is available.
+        // This terminates active child sessions and removes them from
+        // conversation_sessions / sessions / children tables.
+        if let Some(sm) = session_manager {
+            sm.cascade_kill_all_children(&session_id).await;
+        }
 
         // Now archive the parent session itself
         Self::archive_and_invalidate_impl(Arc::clone(&storage), session_id.clone()).await?;
@@ -247,7 +287,11 @@ impl ArchiveSweeper {
         for (child_id, _) in all_descendants {
             storage.delete_checkpoint(&child_id).await?;
             storage.invalidate_session(&child_id).await?;
-            info!(parent = %parent_session_id, child = %child_id, "child session deleted and invalidated during cascade");
+            info!(
+                parent = %parent_session_id,
+                child = %child_id,
+                "child session deleted and invalidated during cascade"
+            );
         }
 
         Ok(())
@@ -668,7 +712,7 @@ mod tests {
         mem.add_checkpoint(child);
 
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-        ArchiveSweeper::cascade_archive_impl(storage, "parent-archive".into())
+        ArchiveSweeper::cascade_archive_impl(storage, "parent-archive".into(), None)
             .await
             .unwrap();
 
@@ -687,7 +731,7 @@ mod tests {
         mem.add_checkpoint(SessionCheckpoint::new("solo-parent".into()));
 
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-        ArchiveSweeper::cascade_archive_impl(storage, "solo-parent".into())
+        ArchiveSweeper::cascade_archive_impl(storage, "solo-parent".into(), None)
             .await
             .unwrap();
 

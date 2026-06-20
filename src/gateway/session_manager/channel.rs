@@ -23,8 +23,18 @@ impl SessionManager {
     /// channel→session mapping. The old session is preserved in the
     /// sessions map for recovery but is no longer routed to by default.
     ///
+    /// Cascade-terminates all active children of the old session
+    /// before creating the new one (design doc §生命周期联动).
+    ///
     /// Returns the new session_id.
     pub async fn force_new_for_channel(&self, channel: &str, agent_id: &str) -> String {
+        // Cascade-kill children of the old session (if any) so they
+        // don't outlive the parent. Per design doc §生命周期联动:
+        // "父 session 正常结束: 所有仍活跃的子 session 被自动级联终止".
+        if let Some(old_id) = self.active_session_for_channel(channel).await {
+            self.cascade_kill_all_children(&old_id).await;
+        }
+
         // Generate a unique session id using the standard format
         let session_id = super::session_helpers::generate_session_id(agent_id);
         // Compute session_key for key_registry

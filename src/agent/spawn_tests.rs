@@ -585,3 +585,346 @@ async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
         other => panic!("expected DepthExceeded, got {:?}", other),
     }
 }
+
+// ── Step 1.1: depth-before-agentId order verification ────────────────────
+
+/// Verify that when depth=0 AND requireAgentId=true AND no agentId is passed,
+/// the validation returns `DepthExceeded` rather than `AgentIdRequired`.
+///
+/// This is the key behavioral difference the refactoring is meant to fix:
+/// the design doc requires depth check to execute before agentId resolution.
+#[tokio::test]
+async fn test_validate_depth_before_agent_id_required() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    // max_spawn_depth=0 (depth check will reject) AND require_agent_id=true
+    // (would also reject if depth check didn't run first).
+    let mut sub = SubagentsConfig::default();
+    sub.max_spawn_depth = 0;
+    sub.require_agent_id = true;
+    sub.default_child_agent = None;
+    let parent = make_agent("parent", sub);
+    inject_agents(&cm, vec![("parent", parent)]);
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    // Pass None for agent_id — without the refactoring this would return
+    // AgentIdRequired (because require_agent_id is checked before depth).
+    // After the refactoring, depth check runs first → DepthExceeded.
+    let err = controller
+        .validate(&parent_id, None)
+        .await
+        .expect_err("should reject when depth=0");
+
+    match err {
+        SpawnError::DepthExceeded { current, max } => {
+            assert_eq!(current, 1);
+            assert_eq!(max, 0);
+        }
+        other => panic!(
+            "expected DepthExceeded (depth checked before agentId), got {:?}",
+            other
+        ),
+    }
+}
+
+// ── Step 1.2: multi-level cascade kill — no orphan entries ────────────
+
+/// Helper to create a minimal ConversationSession + register it in a
+/// SessionManager for cascade-kill tests.
+async fn setup_kill_test_session(
+    mgr: &crate::gateway::SessionManager,
+    tmp: &tempfile::TempDir,
+    session_id: &str,
+    agent_id: &str,
+    depth: u32,
+) {
+    let cs = crate::llm::session::ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        tmp.path().to_path_buf(),
+    );
+    mgr.conversation_sessions.write().await.insert(
+        session_id.to_string(),
+        std::sync::Arc::new(tokio::sync::RwLock::new(cs)),
+    );
+    mgr.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::gateway::Session {
+            id: session_id.to_string(),
+            agent_id: agent_id.to_string(),
+            channel: "spawn".to_string(),
+            created_at: 0,
+            depth,
+        },
+    );
+}
+
+/// Macro to register a session and its parent-child relationship in one call.
+/// Each invocation stays compact (2 lines) even after `cargo fmt`.
+macro_rules! register_child {
+    ($mgr:expr, $tmp:expr, $parent:expr, $child:expr, $agent:expr, $depth:expr, $mode:expr) => {
+        setup_kill_test_session($mgr, $tmp, $child, $agent, $depth).await;
+        $mgr.register_child(
+            $parent,
+            ChildSessionInfo {
+                session_id: $child.to_string(),
+                parent_session_id: $parent.to_string(),
+                agent_id: $agent.to_string(),
+                depth: $depth,
+                mode: $mode,
+            },
+        )
+        .await;
+    };
+}
+
+/// Kill a child with multiple descendants (grandchild + great-grandchild)
+/// and verify no orphan entries remain in any tracking table.
+/// This is the key Step 1.2 multi-level cascade test.
+#[rustfmt::skip]
+#[tokio::test]
+async fn test_kill_child_cascades_removes_all_orphans_multilevel() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-kill-multi";
+    let child_id = "child-multi";
+    let grandchild_a_id = "grandchild-a-multi";
+    let grandchild_b_id = "grandchild-b-multi";
+    let great_grandchild_id = "great-grandchild-multi";
+
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+    register_child!(&mgr, &tmp, parent_id, child_id, "child-agent", 1, SpawnMode::Session);
+    register_child!(&mgr, &tmp, child_id, grandchild_a_id, "gc-a-agent", 2, SpawnMode::Run);
+    register_child!(
+        &mgr, &tmp,
+        grandchild_a_id, great_grandchild_id,
+        "ggc-agent", 3, SpawnMode::Run
+    );
+    register_child!(&mgr, &tmp, child_id, grandchild_b_id, "gc-b-agent", 2, SpawnMode::Session);
+
+    // Verify initial state
+    assert_eq!(mgr.count_active_children(parent_id).await, 1);
+    assert_eq!(mgr.count_active_children(child_id).await, 2);
+    assert_eq!(mgr.count_active_children(grandchild_a_id).await, 1);
+    assert!(mgr.has_session(child_id).await);
+    assert!(mgr.has_session(grandchild_a_id).await);
+    assert!(mgr.has_session(grandchild_b_id).await);
+    assert!(mgr.has_session(great_grandchild_id).await);
+
+    // Kill child — should recursively clean up all descendants
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    // ALL descendants removed — no orphans
+    assert!(!mgr.has_session(child_id).await);
+    assert!(!mgr.has_session(grandchild_a_id).await);
+    assert!(!mgr.has_session(grandchild_b_id).await);
+    assert!(!mgr.has_session(great_grandchild_id).await);
+    assert!(mgr.get_conversation_session(child_id).await.is_none());
+    assert!(mgr.get_conversation_session(grandchild_a_id).await.is_none());
+    assert!(mgr.get_conversation_session(grandchild_b_id).await.is_none());
+    assert!(mgr.get_conversation_session(great_grandchild_id).await.is_none());
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+    assert_eq!(mgr.count_active_children(child_id).await, 0);
+    assert_eq!(mgr.count_active_children(grandchild_a_id).await, 0);
+}
+
+/// Verify that kill_child on a child with no descendants is a clean removal.
+#[tokio::test]
+async fn test_kill_child_no_descendants_clean_removal() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-no-desc";
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+
+    let child_id = "lone-child";
+    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
+    mgr.register_child(
+        parent_id,
+        ChildSessionInfo {
+            session_id: child_id.to_string(),
+            parent_session_id: parent_id.to_string(),
+            agent_id: "child-agent".to_string(),
+            depth: 1,
+            mode: SpawnMode::Run,
+        },
+    )
+    .await;
+
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    assert!(!mgr.has_session(child_id).await);
+    assert!(mgr.get_conversation_session(child_id).await.is_none());
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+}
+
+// ── Step 1.3: children survive across parent turns ────────────────────
+
+/// When no target_agent_id is provided and default_child_agent resolves
+/// to an agent not in the allowlist, the whitelist check should reject it.
+#[tokio::test]
+async fn test_validate_default_child_agent_blocked_by_whitelist() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    // Parent has default_child_agent="fallback-child" but allowlist
+    // only allows "allowed-agent" — fallback should be blocked.
+    let mut sub = SubagentsConfig::default();
+    sub.default_child_agent = Some("fallback-child".to_string());
+    sub.allow_agents = vec!["allowed-agent".to_string()];
+    sub.max_spawn_depth = 2;
+    let parent = make_agent("parent", sub);
+    let fallback_child = make_agent("fallback-child", SubagentsConfig::default());
+    inject_agents(
+        &cm,
+        vec![("parent", parent), ("fallback-child", fallback_child)],
+    );
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let err = controller
+        .validate(&parent_id, None)
+        .await
+        .expect_err("should reject when default_child_agent not in allowlist");
+
+    match err {
+        SpawnError::AgentNotAllowed { agent_id } => {
+            assert_eq!(agent_id, "fallback-child");
+        }
+        other => panic!("expected AgentNotAllowed, got {:?}", other),
+    }
+}
+
+/// When no target_agent_id is provided and default_child_agent resolves
+/// to an agent in the allowlist, the whitelist check should pass.
+#[tokio::test]
+async fn test_validate_default_child_agent_allowed_by_whitelist() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    // Parent has default_child_agent="allowed-child" and allowlist
+    // contains "allowed-child" — should pass.
+    let mut sub = SubagentsConfig::default();
+    sub.default_child_agent = Some("allowed-child".to_string());
+    sub.allow_agents = vec!["allowed-child".to_string()];
+    sub.max_spawn_depth = 2;
+    let parent = make_agent("parent", sub);
+    let allowed_child = make_agent("allowed-child", SubagentsConfig::default());
+    inject_agents(
+        &cm,
+        vec![("parent", parent), ("allowed-child", allowed_child)],
+    );
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let result = controller
+        .validate(&parent_id, None)
+        .await
+        .expect("validate should succeed for allowed default_child_agent");
+
+    assert_eq!(result.config.id, "allowed-child");
+}
+
+/// Verify that session-mode children registered under a parent are NOT
+/// prematurely removed without an explicit kill. This test validates the
+/// Step 1.3 design invariant: cascade termination only occurs on parent
+/// session end or timeout, not on each finish_llm turn.
+#[tokio::test]
+async fn test_session_child_survives_without_explicit_kill() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-survive";
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+
+    let child_id = "surviving-child";
+    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
+    mgr.register_child(
+        parent_id,
+        ChildSessionInfo {
+            session_id: child_id.to_string(),
+            parent_session_id: parent_id.to_string(),
+            agent_id: "child-agent".to_string(),
+            depth: 1,
+            mode: SpawnMode::Session,
+        },
+    )
+    .await;
+
+    // Simulate multiple parent turns — child should remain alive
+    for turn in 0..3 {
+        assert!(
+            mgr.has_session(child_id).await,
+            "child should survive turn {}",
+            turn
+        );
+        assert!(
+            mgr.get_conversation_session(child_id).await.is_some(),
+            "child conversation session should survive turn {}",
+            turn
+        );
+        assert_eq!(
+            mgr.count_active_children(parent_id).await,
+            1,
+            "child count should remain 1 at turn {}",
+            turn
+        );
+    }
+
+    // Only after explicit kill should the child be removed
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    assert!(!mgr.has_session(child_id).await);
+    assert!(mgr.get_conversation_session(child_id).await.is_none());
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+}
+
+/// Verify that run-mode children also survive without explicit kill
+/// (cascade was removed from finish_llm, so run-mode children are only
+/// cleaned up by the sweeper or explicit kill).
+#[tokio::test]
+async fn test_run_child_survives_without_explicit_kill() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-run-survive";
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+
+    let child_id = "run-surviving-child";
+    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
+    mgr.register_child(
+        parent_id,
+        ChildSessionInfo {
+            session_id: child_id.to_string(),
+            parent_session_id: parent_id.to_string(),
+            agent_id: "child-agent".to_string(),
+            depth: 1,
+            mode: SpawnMode::Run,
+        },
+    )
+    .await;
+
+    // Verify child is alive
+    assert!(mgr.has_session(child_id).await);
+    assert_eq!(mgr.count_active_children(parent_id).await, 1);
+
+    // Explicit kill removes it
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    assert!(!mgr.has_session(child_id).await);
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+}

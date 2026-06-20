@@ -70,6 +70,7 @@ impl SessionManager {
     ///
     /// Returns a cloned snapshot so the caller does not hold the
     /// `children` lock across await points.
+    #[allow(dead_code)] // Used in spawn_budget_tests.rs for cascade simulation
     pub(crate) async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
         let children = self.children.read().await;
         children
@@ -93,9 +94,12 @@ impl SessionManager {
     ///
     /// Workflow:
     /// 1. Generate a new UUID-based session id.
-    /// 2. Resolve workspace path (3-level fallback: explicit arg → config → ensure subdir under self.workspace_dir).
+    /// 2. Resolve workspace path (3-level fallback: explicit
+    ///    arg → config → ensure subdir under parent workspace).
     /// 3. Pick bootstrap mode (Minimal if light_context, else config's mode).
-    /// 4. Build system prompt (mirrors `find_or_create` — load bootstrap files, build ToolContext, call `build_from_workspace`).
+    /// 4. Build system prompt (mirrors `find_or_create` —
+    ///    load bootstrap files, build ToolContext, call
+    ///    `build_from_workspace`).
     /// 5. Construct `ConversationSession` (with system prompt + default reasoning level).
     /// 6. Push `task` as the first pending message so the child picks it up.
     /// 7. Register the new child in `conversation_sessions` + `sessions` + `children` tables.
@@ -350,7 +354,10 @@ impl SessionManager {
              If you need to wait for sub-agent results, use the yield \
              mechanism to end your current turn.\n\
              **Behavioral constraints:**\n\
-             - Trust push-based completion notifications\n             - Do not call session query tools to check child agent status\n             - Execute the task directly; do not ask for confirmation \
+             - Trust push-based completion
+               notifications\n             - Do not call session query tools
+               to check child agent status\n             - Execute the task directly;
+               do not ask for confirmation \
                or suggest next steps — the parent agent handles that"
         );
         if depth < max_spawn_depth {
@@ -468,47 +475,151 @@ impl SessionManager {
     /// remove it from `conversation_sessions`, `sessions`, and
     /// the parent's `children` tracking table. The archive is
     /// preserved (no purge).
+    ///
+    /// All descendants are also cleaned up recursively (per design
+    /// doc §级联 Kill — from deepest to shallowest). The `children`
+    /// table is traversed via BFS to discover all descendant session
+    /// IDs before any removals, preventing lock-ordering issues.
     pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
-        let cs = self
-            .get_conversation_session(child_id)
-            .await
-            .ok_or_else(|| format!("child session not found: {}", child_id))?;
+        // 1. Recursively collect all descendant session IDs via
+        //    BFS on the `children` table.
+        let descendant_ids = self.collect_descendant_ids(child_id).await;
 
-        // Cascade-stop: cancels the token tree and cleans up tool
-        // handles / child handles.
-        cs.read().await.stop(true).await;
-
-        // Remove from conversation_sessions.
-        {
-            let mut conv_sessions = self.conversation_sessions.write().await;
-            conv_sessions.remove(child_id);
+        // 2. Get the child's conversation session, verify it exists,
+        //    and cascade-stop its token tree.
+        if let Some(cs) = self.get_conversation_session(child_id).await {
+            cs.read().await.stop(true).await;
+        } else {
+            return Err(format!("child session not found: {}", child_id));
         }
 
-        // Unregister child handle from parent's ConversationSession.
+        // 3. Remove child + descendants from conversation_sessions.
         {
-            let conv_sessions = self.conversation_sessions.read().await;
-            if let Some(parent_cs) = conv_sessions.get(parent_id) {
+            let mut cs = self.conversation_sessions.write().await;
+            cs.remove(child_id);
+            for id in &descendant_ids {
+                cs.remove(id);
+            }
+        }
+
+        // 4. Unregister child handle from parent.
+        {
+            let cs = self.conversation_sessions.read().await;
+            if let Some(parent_cs) = cs.get(parent_id) {
                 parent_cs.read().await.unregister_child_handle(child_id);
             }
         }
 
-        // Remove from sessions.
+        // 5. Remove child + descendants from sessions.
         {
             let mut sessions = self.sessions.write().await;
             sessions.remove(child_id);
+            for id in &descendant_ids {
+                sessions.remove(id);
+            }
         }
 
-        // Remove from children tracking table.
-        {
-            let mut children = self.children.write().await;
-            if let Some(list) = children.get_mut(parent_id) {
-                list.retain(|info| info.session_id != child_id);
-                if list.is_empty() {
-                    children.remove(parent_id);
+        // 6. Remove child + descendants from children table.
+        self.remove_children_entries(parent_id, child_id, &descendant_ids)
+            .await;
+
+        Ok(())
+    }
+
+    /// Cascade-kill all active children of a session.
+    ///
+    /// Called when a parent session ends (via `/new`) or is archived
+    /// by the sweeper, per design doc §生命周期联动.
+    /// Iterates direct children and calls `kill_child` for each,
+    /// which recursively handles deeper descendants.
+    pub(crate) async fn cascade_kill_all_children(&self, parent_id: &str) {
+        // Snapshot child IDs to avoid holding the lock across kill calls.
+        let child_ids: Vec<String> = {
+            let children = self.children.read().await;
+            children
+                .get(parent_id)
+                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
+                .unwrap_or_default()
+        };
+        for child_id in child_ids {
+            if let Err(e) = self.kill_child(parent_id, &child_id).await {
+                tracing::warn!(
+                    parent = %parent_id,
+                    child = %child_id,
+                    error = %e,
+                    "cascade_kill_all_children: failed to kill child"
+                );
+            }
+        }
+    }
+
+    /// Remove a direct child and all its descendants from the
+    /// `children` tracking table.
+    ///
+    /// Handles: (a) removing the direct child from `parent_id`'s
+    /// list, (b) removing each descendant from its own parent's
+    /// list, and (c) removing any entries where a descendant is
+    /// itself a parent of further descendants.
+    async fn remove_children_entries(
+        &self,
+        parent_id: &str,
+        child_id: &str,
+        descendant_ids: &[String],
+    ) {
+        let mut children = self.children.write().await;
+
+        // Remove the direct child from parent's children list.
+        if let Some(list) = children.get_mut(parent_id) {
+            list.retain(|info| info.session_id != child_id);
+            if list.is_empty() {
+                children.remove(parent_id);
+            }
+        }
+
+        // Remove each descendant from its own parent's list
+        // and clean up any sub-entries.
+        for id in descendant_ids {
+            let parent = children
+                .values_mut()
+                .find(|list| list.iter().any(|info| info.session_id == *id));
+            if let Some(list) = parent {
+                list.retain(|info| info.session_id != *id);
+            }
+            children.remove(id);
+        }
+    }
+
+    /// Collect all descendant session IDs of a given session via BFS
+    /// on the `children` table.
+    ///
+    /// Returns session IDs in reverse BFS order (deepest first,
+    /// shallowest last) so that the caller removes leaves before
+    /// their parents — matching the design doc requirement to
+    /// "terminate from deepest to shallowest".
+    async fn collect_descendant_ids(&self, session_id: &str) -> Vec<String> {
+        let children = self.children.read().await;
+        let mut result = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+
+        // Seed the queue with the direct children of session_id.
+        if let Some(list) = children.get(session_id) {
+            for info in list {
+                queue.push_back(info.session_id.clone());
+            }
+        }
+
+        while let Some(current) = queue.pop_front() {
+            result.push(current.clone());
+            // Enqueue this session's own children (grandchildren).
+            if let Some(list) = children.get(&current) {
+                for info in list {
+                    queue.push_back(info.session_id.clone());
                 }
             }
         }
 
-        Ok(())
+        // Reverse so deepest descendants come first.
+        result.reverse();
+        result
     }
 }

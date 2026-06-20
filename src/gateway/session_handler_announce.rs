@@ -51,22 +51,14 @@ impl SessionMessageHandler {
         )
         .await;
 
-        // Cascade-terminate active child sessions (design-doc §级联终止).
-        // When the parent session completes its LLM turn, any child
-        // sessions still alive in the `children` table are stopped and
-        // cleaned up. Reuses the existing `kill_child` which already
-        // performs cascade stop + table cleanup.
-        let child_ids = session_manager.list_active_child_ids(session_id).await;
-        for child_id in child_ids {
-            if let Err(e) = session_manager.kill_child(session_id, &child_id).await {
-                tracing::warn!(
-                    parent_id = session_id,
-                    child_id,
-                    error = %e,
-                    "failed to cascade-kill child session"
-                );
-            }
-        }
+        // NOTE: Cascade-termination of child sessions is NOT done here.
+        // `finish_llm` is called after every LLM turn — cascading here
+        // would prematurely kill session-mode children that are designed
+        // to survive across turns. Cascade kill is handled by:
+        // - The sweeper (idle→archive path) for normal parent session end
+        // - `sessions_kill` tool for explicit parent-initiated kills
+        // - `ArchiveSweeper::cascade_archive_impl` for timeout cleanup
+        // See design-doc §生命周期联动 for the two correct trigger points.
     }
 
     async fn clear_busy_and_send(
