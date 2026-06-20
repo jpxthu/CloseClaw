@@ -35,6 +35,8 @@ anyhow = "1.0"
 
 # Linux system APIs (seccomp, landlock)
 libc = "0.2"
+# Terminal size detection for dynamic width truncation
+terminal_size = "0.4"
 
 # HTTP client (rustls for TLS, no OpenSSL required)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

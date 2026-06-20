@@ -25,6 +25,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) const BOLD: &str = "\x1b[1m";
 /// ANSI style: dim
 pub(crate) const DIM: &str = "\x1b[2m";
+/// ANSI style: cyan
+pub(crate) const CYAN: &str = "\x1b[36m";
 /// ANSI style: italic
 pub(crate) const ITALIC: &str = "\x1b[3m";
 /// ANSI reset all styles
@@ -84,92 +86,188 @@ pub(crate) fn strip_ansi(text: &str) -> String {
 
 /// Apply inline ANSI formatting to a single line of markdown text.
 fn ansi_format_inline(line: &str) -> String {
-    let mut out = String::with_capacity(line.len() * 2);
+    if let Some(styled) = check_line_pattern(line) {
+        return styled;
+    }
     let chars: Vec<char> = line.chars().collect();
-    let len = chars.len();
+    let spans = parse_inline_spans(&chars);
+    apply_inline_styling(&spans, true)
+}
+
+/// Check line-level patterns (heading, blockquote, hr).
+/// Returns styled string if matched, None otherwise.
+fn check_line_pattern(line: &str) -> Option<String> {
+    if let Some(rest) = line.strip_prefix("# ") {
+        return Some(format!("{}{}{}", BOLD, rest, RESET));
+    }
+    if line.trim() == "---" {
+        return Some(format!("{}───{}", DIM, RESET));
+    }
+    if let Some(rest) = line.strip_prefix("> ") {
+        return Some(format!("{}│ {}{}", DIM, rest, RESET));
+    }
+    None
+}
+
+/// Generic inline styling: applies ANSI codes or strips markdown markers.
+fn apply_inline_styling(spans: &[InlineSpan], ansi: bool) -> String {
+    let mut out = String::new();
+    for span in spans {
+        match span {
+            InlineSpan::Bold(text) => {
+                if ansi {
+                    out.push_str(BOLD);
+                }
+                out.push_str(text);
+                if ansi {
+                    out.push_str(RESET);
+                }
+            }
+            InlineSpan::Italic(text) => {
+                if ansi {
+                    out.push_str(ITALIC);
+                }
+                out.push_str(text);
+                if ansi {
+                    out.push_str(RESET);
+                }
+            }
+            InlineSpan::Code(text) => {
+                if ansi {
+                    out.push_str(BOLD);
+                }
+                out.push_str(text);
+                if ansi {
+                    out.push_str(RESET);
+                }
+            }
+            InlineSpan::Link { text, url } => {
+                if ansi {
+                    out.push_str(&format!("{}{}{} ({})", BOLD, text, RESET, url));
+                } else {
+                    out.push_str(&format!("{} ({})", text, url));
+                }
+            }
+            InlineSpan::Text(text) => {
+                out.push_str(text);
+            }
+        }
+    }
+    out
+}
+
+/// Parsed inline markdown spans.
+enum InlineSpan {
+    Bold(String),
+    Italic(String),
+    Code(String),
+    Link { text: String, url: String },
+    Text(String),
+}
+
+/// Extract bold spans from chars starting at position.
+/// Returns (end_pos, Some(text)) if found, or (start, None).
+fn extract_bold(chars: &[char], start: usize) -> (usize, Option<String>) {
+    if start + 1 < chars.len() && chars[start] == '*' && chars[start + 1] == '*' {
+        if let Some(end) = find_double_star_end(chars, start + 2) {
+            let text: String = chars[start + 2..end].iter().collect();
+            return (end + 2, Some(text));
+        }
+    }
+    (start, None)
+}
+
+/// Extract italic spans from chars starting at position.
+fn extract_italic(chars: &[char], start: usize) -> (usize, Option<String>) {
+    if chars[start] == '*' && (start + 1 >= chars.len() || chars[start + 1] != '*') {
+        if let Some(end) = find_single_star_end(chars, start + 1) {
+            let text: String = chars[start + 1..end].iter().collect();
+            return (end + 1, Some(text));
+        }
+    }
+    (start, None)
+}
+
+/// Extract inline code spans from chars starting at position.
+fn extract_code(chars: &[char], start: usize) -> (usize, Option<String>) {
+    if chars[start] == '`' {
+        if let Some(end) = find_char_end(chars, start + 1, '`') {
+            let text: String = chars[start + 1..end].iter().collect();
+            return (end + 1, Some(text));
+        }
+    }
+    (start, None)
+}
+
+/// Extract link spans from chars starting at position.
+fn extract_link(chars: &[char], start: usize) -> (usize, Option<(String, String)>) {
+    if chars[start] == '[' {
+        let len = chars.len();
+        if let Some(bracket_end) = find_char_end(chars, start + 1, ']') {
+            if bracket_end + 1 < len && chars[bracket_end + 1] == '(' {
+                if let Some(paren_end) = find_char_end(chars, bracket_end + 2, ')') {
+                    let text: String = chars[start + 1..bracket_end].iter().collect();
+                    let url: String = chars[bracket_end + 2..paren_end].iter().collect();
+                    return (paren_end + 1, Some((text, url)));
+                }
+            }
+        }
+    }
+    (start, None)
+}
+
+/// Push accumulated plain text into spans if non-empty.
+fn flush_text(spans: &mut Vec<InlineSpan>, chars: &[char], start: usize, end: usize) {
+    if start < end {
+        let text: String = chars[start..end].iter().collect();
+        spans.push(InlineSpan::Text(text));
+    }
+}
+
+/// Parse inline markdown patterns into spans.
+fn parse_inline_spans(chars: &[char]) -> Vec<InlineSpan> {
+    let mut spans = Vec::new();
     let mut i = 0;
+    let mut text_start = 0;
+    let len = chars.len();
 
     while i < len {
-        // Headings: lines starting with `# `
-        if i == 0 && line.starts_with("# ") {
-            out.push_str(BOLD);
-            out.push_str(&line[2..]);
-            out.push_str(RESET);
-            return out;
+        let (new_i, bold_text) = extract_bold(chars, i);
+        if let Some(text) = bold_text {
+            flush_text(&mut spans, chars, text_start, i);
+            spans.push(InlineSpan::Bold(text));
+            i = new_i;
+            text_start = i;
+            continue;
         }
-
-        // Horizontal rule
-        if i == 0 && line.trim() == "---" {
-            return format!("{}───{}", DIM, RESET);
+        let (new_i, italic_text) = extract_italic(chars, i);
+        if let Some(text) = italic_text {
+            flush_text(&mut spans, chars, text_start, i);
+            spans.push(InlineSpan::Italic(text));
+            i = new_i;
+            text_start = i;
+            continue;
         }
-
-        // Bold: **text**
-        if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
-            if let Some(end) = find_double_star_end(&chars, i + 2) {
-                out.push_str(BOLD);
-                for c in &chars[i + 2..end] {
-                    out.push(*c);
-                }
-                out.push_str(RESET);
-                i = end + 2;
-                continue;
-            }
+        let (new_i, code_text) = extract_code(chars, i);
+        if let Some(text) = code_text {
+            flush_text(&mut spans, chars, text_start, i);
+            spans.push(InlineSpan::Code(text));
+            i = new_i;
+            text_start = i;
+            continue;
         }
-
-        // Italic: *text*
-        if chars[i] == '*' && (i + 1 >= len || chars[i + 1] != '*') {
-            if let Some(end) = find_single_star_end(&chars, i + 1) {
-                out.push_str(ITALIC);
-                for c in &chars[i + 1..end] {
-                    out.push(*c);
-                }
-                out.push_str(RESET);
-                i = end + 1;
-                continue;
-            }
+        let (new_i, link_opt) = extract_link(chars, i);
+        if let Some((text, url)) = link_opt {
+            flush_text(&mut spans, chars, text_start, i);
+            spans.push(InlineSpan::Link { text, url });
+            i = new_i;
+            text_start = i;
+            continue;
         }
-
-        // Inline code: `text`
-        if chars[i] == '`' {
-            if let Some(end) = find_char_end(&chars, i + 1, '`') {
-                let code_text: String = chars[i + 1..end].iter().collect();
-                out.push_str(BOLD);
-                out.push_str(&code_text);
-                out.push_str(RESET);
-                i = end + 1;
-                continue;
-            }
-        }
-
-        // Link: [text](url) → "text (url)"
-        if chars[i] == '[' {
-            if let Some(bracket_end) = find_char_end(&chars, i + 1, ']') {
-                if bracket_end + 1 < len && chars[bracket_end + 1] == '(' {
-                    if let Some(paren_end) = find_char_end(&chars, bracket_end + 2, ')') {
-                        let link_text: String = chars[i + 1..bracket_end].iter().collect();
-                        let link_url: String = chars[bracket_end + 2..paren_end].iter().collect();
-                        out.push_str(&format!("{}{}{} ({})", BOLD, link_text, RESET, link_url));
-                        i = paren_end + 1;
-                        continue;
-                    }
-                }
-            }
-        }
-
-        // Blockquote: > text
-        if i == 0 && line.starts_with("> ") {
-            out.push_str(DIM);
-            out.push_str("│ ");
-            out.push_str(&line[2..]);
-            out.push_str(RESET);
-            return out;
-        }
-
-        out.push(chars[i]);
         i += 1;
     }
-
-    out
+    flush_text(&mut spans, chars, text_start, len);
+    spans
 }
 
 /// Find the closing `**` for bold starting at `start`.
@@ -189,7 +287,6 @@ fn find_single_star_end(chars: &[char], start: usize) -> Option<usize> {
     let mut i = start;
     while i < chars.len() {
         if chars[i] == '*' {
-            // Skip over `**` so bold is handled elsewhere
             if i + 1 < chars.len() && chars[i + 1] == '*' {
                 i += 2;
                 continue;
@@ -220,7 +317,8 @@ fn find_char_end(chars: &[char], start: usize, ch: char) -> Option<usize> {
 // Code block rendering
 // ---------------------------------------------------------------------------
 
-/// Render a fenced code block with language annotation and line numbers.
+/// Render a fenced code block with language annotation, line numbers,
+/// and optional syntax highlighting.
 fn render_code_block(language: &str, code: &str, ansi: bool) -> String {
     let lines: Vec<&str> = code.lines().collect();
     let line_width = format!("{}", lines.len()).len();
@@ -235,7 +333,8 @@ fn render_code_block(language: &str, code: &str, ansi: bool) -> String {
     for (i, line) in lines.iter().enumerate() {
         let num = format!("{:>width$}", i + 1, width = line_width);
         if ansi {
-            out.push_str(&format!("{} {} │ {}{}", DIM, num, RESET, line));
+            let highlighted = highlight_line(line, language);
+            out.push_str(&format!("{} {} │ {}{}", DIM, num, RESET, highlighted));
         } else {
             out.push_str(&format!("  {} │ {}", num, line));
         }
@@ -243,6 +342,231 @@ fn render_code_block(language: &str, code: &str, ansi: bool) -> String {
     }
 
     out
+}
+
+/// ANSI color codes for syntax highlighting.
+const ANSI_KEYWORD: &str = "\x1b[35m";
+const ANSI_COMMENT: &str = "\x1b[90m";
+/// Highlight a string literal in source code.
+fn highlight_string(chars: &[char], start: usize, out: &mut String) -> usize {
+    let q = chars[start];
+    out.push(q);
+    let mut i = start + 1;
+    while i < chars.len() && chars[i] != q {
+        if chars[i] == '\\' {
+            out.push(chars[i]);
+            i += 1;
+            if i < chars.len() {
+                out.push(chars[i]);
+                i += 1;
+            }
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    if i < chars.len() {
+        out.push(chars[i]);
+        i += 1;
+    }
+    i
+}
+
+/// Highlight a word — check for keywords and wrap in ANSI color.
+fn highlight_word(chars: &[char], start: usize, language: &str, out: &mut String) -> usize {
+    let mut i = start;
+    while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+        i += 1;
+    }
+    let word: String = chars[start..i].iter().collect();
+    if is_keyword(&word, language) {
+        out.push_str(ANSI_KEYWORD);
+        out.push_str(&word);
+        out.push_str(RESET);
+    } else {
+        out.push_str(&word);
+    }
+    i
+}
+
+/// Highlight keywords, strings, and comments in a code line.
+fn highlight_line(line: &str, language: &str) -> String {
+    let trimmed = line.trim_start();
+    if is_comment(trimmed, language) {
+        return format!("{}{}{}", ANSI_COMMENT, line, RESET);
+    }
+    let mut out = String::with_capacity(line.len() * 2);
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        if chars[i] == '"' || chars[i] == '\'' {
+            i = highlight_string(&chars, i, &mut out);
+        } else if chars[i].is_alphabetic() || chars[i] == '_' {
+            i = highlight_word(&chars, i, language, &mut out);
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Check if a trimmed line is a comment.
+fn is_comment(trimmed: &str, language: &str) -> bool {
+    matches!(
+        language,
+        "python" | "ruby" | "bash" | "sh" | "yaml" | "toml"
+    ) && trimmed.starts_with('#')
+        || (matches!(
+            language,
+            "rust" | "go" | "javascript" | "typescript" | "c" | "cpp" | "java"
+        ) && trimmed.starts_with("//"))
+        || (matches!(language, "haskell" | "lua") && trimmed.starts_with("--"))
+        || trimmed.starts_with("/*")
+}
+
+/// Check if a word is a keyword for the given language.
+fn is_keyword(word: &str, language: &str) -> bool {
+    match language {
+        "rust" | "" => is_rust_keyword(word),
+        "python" => is_python_keyword(word),
+        "javascript" | "typescript" => is_js_keyword(word),
+        "go" => is_go_keyword(word),
+        "c" | "cpp" | "java" => is_c_keyword(word),
+        _ => false,
+    }
+}
+
+fn is_rust_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "fn" | "let"
+            | "mut"
+            | "pub"
+            | "mod"
+            | "use"
+            | "struct"
+            | "enum"
+            | "impl"
+            | "trait"
+            | "match"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "loop"
+            | "return"
+            | "self"
+            | "Self"
+            | "super"
+            | "crate"
+            | "async"
+            | "await"
+            | "move"
+            | "ref"
+            | "type"
+            | "where"
+    )
+}
+
+fn is_python_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "def"
+            | "class"
+            | "import"
+            | "from"
+            | "return"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "try"
+            | "except"
+            | "with"
+            | "as"
+            | "in"
+            | "not"
+            | "and"
+            | "or"
+            | "lambda"
+            | "yield"
+            | "print"
+    )
+}
+
+fn is_js_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "function"
+            | "const"
+            | "let"
+            | "var"
+            | "return"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "class"
+            | "new"
+            | "this"
+            | "import"
+            | "export"
+            | "default"
+            | "switch"
+            | "case"
+            | "break"
+    )
+}
+
+fn is_go_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "func"
+            | "package"
+            | "import"
+            | "return"
+            | "if"
+            | "else"
+            | "for"
+            | "range"
+            | "struct"
+            | "interface"
+            | "type"
+            | "var"
+            | "const"
+            | "defer"
+            | "go"
+            | "select"
+            | "chan"
+            | "map"
+    )
+}
+
+fn is_c_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "int"
+            | "float"
+            | "double"
+            | "char"
+            | "void"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "return"
+            | "class"
+            | "public"
+            | "private"
+            | "static"
+            | "new"
+            | "this"
+            | "switch"
+            | "case"
+            | "break"
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -303,78 +627,15 @@ fn render_markdown_plain(content: &str) -> String {
 
 /// Remove common markdown formatting markers for plain-text output.
 fn strip_markdown(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let chars: Vec<char> = line.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
-
-    while i < len {
-        // Heading markers
-        if i == 0 && line.starts_with("# ") {
-            out.push_str(&line[2..]);
-            return out;
-        }
-
-        // Bold: **text** → text
-        if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
-            if let Some(end) = find_double_star_end(&chars, i + 2) {
-                for c in &chars[i + 2..end] {
-                    out.push(*c);
-                }
-                i = end + 2;
-                continue;
-            }
-        }
-
-        // Italic: *text* → text
-        if chars[i] == '*' && (i + 1 >= len || chars[i + 1] != '*') {
-            if let Some(end) = find_single_star_end(&chars, i + 1) {
-                for c in &chars[i + 1..end] {
-                    out.push(*c);
-                }
-                i = end + 1;
-                continue;
-            }
-        }
-
-        // Inline code: `text` → text
-        if chars[i] == '`' {
-            if let Some(end) = find_char_end(&chars, i + 1, '`') {
-                for c in &chars[i + 1..end] {
-                    out.push(*c);
-                }
-                i = end + 1;
-                continue;
-            }
-        }
-
-        // Link: [text](url) → text (url)
-        if chars[i] == '[' {
-            if let Some(bracket_end) = find_char_end(&chars, i + 1, ']') {
-                if bracket_end + 1 < len && chars[bracket_end + 1] == '(' {
-                    if let Some(paren_end) = find_char_end(&chars, bracket_end + 2, ')') {
-                        let link_text: String = chars[i + 1..bracket_end].iter().collect();
-                        let link_url: String = chars[bracket_end + 2..paren_end].iter().collect();
-                        out.push_str(&format!("{} ({})", link_text, link_url));
-                        i = paren_end + 1;
-                        continue;
-                    }
-                }
-            }
-        }
-
-        // Blockquote: > text → │ text
-        if i == 0 && line.starts_with("> ") {
-            out.push_str("│ ");
-            out.push_str(&line[2..]);
-            return out;
-        }
-
-        out.push(chars[i]);
-        i += 1;
+    if let Some(rest) = line.strip_prefix("# ") {
+        return rest.to_string();
     }
-
-    out
+    if let Some(rest) = line.strip_prefix("> ") {
+        return format!("│ {}", rest);
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let spans = parse_inline_spans(&chars);
+    apply_inline_styling(&spans, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -444,8 +705,8 @@ impl TerminalRenderer {
     fn render_tool_use(&self, name: &str, input: &str) -> String {
         if self.ansi {
             format!(
-                "{}⚙ {}{}{}({}{}){}{}\n",
-                DIM, BOLD, name, RESET, DIM, input, DIM, RESET
+                "{}⚙ {}{}{}{}({}{}){}{}\n",
+                DIM, BOLD, CYAN, name, RESET, DIM, input, DIM, RESET
             )
         } else {
             format!("⚙ {}({})\n", name, input)
@@ -454,10 +715,10 @@ impl TerminalRenderer {
 
     /// Render a ToolResult block, truncating at terminal width.
     fn render_tool_result(&self, content: &str) -> String {
-        // Truncate at 120 characters with indicator
-        let max_width = 120;
-        let display = if content.len() > max_width {
-            format!("{}... (truncated)", &content[..max_width])
+        let max_width = get_terminal_width();
+        let display = if content.chars().count() > max_width {
+            let truncated: String = content.chars().take(max_width).collect();
+            format!("{}... (truncated)", truncated)
         } else {
             content.to_string()
         };
@@ -588,13 +849,22 @@ impl TerminalAdapter {
     }
 }
 
+/// Return the terminal width in columns, falling back to 120.
+fn get_terminal_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(w, _)| w.0 as usize)
+        .unwrap_or(120)
+}
+
 /// Return the current user's system UID as a string.
 ///
 /// On Unix, uses `libc::getuid()`. On other platforms, falls back to a
 /// static identifier.
-fn current_uid() -> String {
+pub(crate) fn current_uid() -> String {
     #[cfg(unix)]
     {
+        // SAFETY: libc::getuid() is always safe — it reads the calling
+        // process's real user ID without side effects.
         unsafe { libc::getuid() }.to_string()
     }
     #[cfg(not(unix))]
