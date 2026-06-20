@@ -305,3 +305,59 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
         assert_eq!(processed.content.trim(), *cmd);
     }
 }
+
+// ── build_gateway agent_id parameterization tests ─────────────────────────
+
+#[tokio::test]
+async fn test_build_gateway_config_name_contains_agent_id() {
+    let (gateway, _sm) = build_gateway("my-agent").await;
+    assert_eq!(gateway.config_name(), "closeclaw-chat-my-agent");
+}
+
+#[tokio::test]
+async fn test_build_gateway_different_agent_ids_produce_different_names() {
+    let (gw_a, _) = build_gateway("agent-alpha").await;
+    let (gw_b, _) = build_gateway("agent-beta").await;
+    assert_ne!(gw_a.config_name(), gw_b.config_name());
+}
+
+#[tokio::test]
+async fn test_build_gateway_agent_id_appears_in_name() {
+    let agent_id = "my-special-agent-123";
+    let (gateway, _sm) = build_gateway(agent_id).await;
+    let name = gateway.config_name();
+    assert!(
+        name.contains(agent_id),
+        "config name '{}' should contain agent_id '{}'",
+        name,
+        agent_id
+    );
+}
+
+#[tokio::test]
+async fn test_build_gateway_empty_agent_id() {
+    let (gateway, _sm) = build_gateway("").await;
+    assert_eq!(gateway.config_name(), "closeclaw-chat-");
+}
+
+#[tokio::test]
+async fn test_build_gateway_agent_id_with_special_characters() {
+    let agent_id = "agent/with:special@chars";
+    let (gateway, _sm) = build_gateway(agent_id).await;
+    assert_eq!(
+        gateway.config_name(),
+        format!("closeclaw-chat-{}", agent_id)
+    );
+}
+
+#[tokio::test]
+async fn test_build_gateway_agent_id_with_unicode() {
+    let agent_id = "agent-\u{4e2d}\u{6587}"; // agent-中文
+    let (gateway, _sm) = build_gateway(agent_id).await;
+    assert!(
+        gateway.config_name().contains(agent_id),
+        "config name '{}' should contain unicode agent_id '{}'",
+        gateway.config_name(),
+        agent_id
+    );
+}
