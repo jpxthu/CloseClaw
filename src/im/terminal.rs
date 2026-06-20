@@ -707,16 +707,13 @@ impl TerminalRenderer {
         }
     }
 
-    /// Render DSL instructions as plain text prompts.
-    fn render_dsl(&self, dsl_result: &DslParseResult) -> String {
-        let mut out = String::new();
-        for inst in &dsl_result.instructions {
-            let label = match inst {
-                crate::processor_chain::dsl_parser::DslInstruction::Button { label, .. } => label,
-            };
-            out.push_str(&format!("[Button: {}]\n", label));
-        }
-        out
+    /// Skip DSL rendering for the terminal channel.
+    ///
+    /// DSL instructions (e.g. buttons) are not supported on the terminal.
+    /// The instructions are still preserved in metadata for other renderers,
+    /// but the terminal does not output them as visible text.
+    fn render_dsl(&self, _dsl_result: &DslParseResult) -> String {
+        String::new()
     }
 }
 

@@ -10,6 +10,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::llm::types::ContentBlock;
 
@@ -73,6 +74,10 @@ impl DslParser {
 
         for line in content.lines() {
             if let Some(instruction) = parse_dsl_line(line) {
+                warn!(
+                    instruction = ?instruction,
+                    "Terminal does not support DSL interaction type; skipping"
+                );
                 instructions.push(instruction);
             } else {
                 clean_lines.push(line);
