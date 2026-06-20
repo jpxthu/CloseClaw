@@ -28,11 +28,15 @@ pub(crate) fn config_dir_for(home: impl AsRef<std::path::Path>) -> PathBuf {
     PathBuf::from(home.as_ref()).join(".closeclaw")
 }
 
-pub async fn handle_agent(action: AgentAction) -> Result<()> {
-    handle_agent_with(action, config_dir()).await
+pub async fn handle_agent(action: AgentAction, _json: bool) -> Result<()> {
+    handle_agent_with(action, config_dir(), _json).await
 }
 
-pub(crate) async fn handle_agent_with(action: AgentAction, cfg_dir: PathBuf) -> Result<()> {
+pub(crate) async fn handle_agent_with(
+    action: AgentAction,
+    cfg_dir: PathBuf,
+    _json: bool,
+) -> Result<()> {
     let client = closeclaw::admin::AdminClient::new(
         closeclaw::admin::client::admin_socket_path(&cfg_dir)
             .to_string_lossy()
@@ -125,11 +129,15 @@ async fn handle_agent_create_rpc(
     }
 }
 
-pub async fn handle_config(action: ConfigAction) -> Result<()> {
-    handle_config_with(action, config_dir()).await
+pub async fn handle_config(action: ConfigAction, _json: bool) -> Result<()> {
+    handle_config_with(action, config_dir(), _json).await
 }
 
-pub(crate) async fn handle_config_with(action: ConfigAction, config_dir: PathBuf) -> Result<()> {
+pub(crate) async fn handle_config_with(
+    action: ConfigAction,
+    config_dir: PathBuf,
+    _json: bool,
+) -> Result<()> {
     match action {
         ConfigAction::Validate { file } => {
             let path = std::path::Path::new(&file);
@@ -194,11 +202,15 @@ pub(crate) async fn handle_config_with(action: ConfigAction, config_dir: PathBuf
     Ok(())
 }
 
-pub async fn handle_rule(action: RuleAction) -> Result<()> {
-    handle_rule_with(action, config_dir()).await
+pub async fn handle_rule(action: RuleAction, _json: bool) -> Result<()> {
+    handle_rule_with(action, config_dir(), _json).await
 }
 
-pub(crate) async fn handle_rule_with(action: RuleAction, config_dir: PathBuf) -> Result<()> {
+pub(crate) async fn handle_rule_with(
+    action: RuleAction,
+    config_dir: PathBuf,
+    _json: bool,
+) -> Result<()> {
     match action {
         RuleAction::Check { rule } => {
             use closeclaw::permission::rules::validation::validate_rule;
@@ -270,11 +282,15 @@ pub(crate) async fn handle_rule_with(action: RuleAction, config_dir: PathBuf) ->
     Ok(())
 }
 
-pub async fn handle_skill(action: SkillAction) -> Result<()> {
-    handle_skill_with(action, config_dir()).await
+pub async fn handle_skill(action: SkillAction, _json: bool) -> Result<()> {
+    handle_skill_with(action, config_dir(), _json).await
 }
 
-pub(crate) async fn handle_skill_with(action: SkillAction, cfg_dir: PathBuf) -> Result<()> {
+pub(crate) async fn handle_skill_with(
+    action: SkillAction,
+    cfg_dir: PathBuf,
+    _json: bool,
+) -> Result<()> {
     let client = closeclaw::admin::AdminClient::new(
         closeclaw::admin::client::admin_socket_path(&cfg_dir)
             .to_string_lossy()
@@ -323,7 +339,7 @@ pub(crate) async fn handle_skill_with(action: SkillAction, cfg_dir: PathBuf) -> 
     Ok(())
 }
 
-pub async fn handle_stop(force: bool) -> Result<()> {
+pub async fn handle_stop(force: bool, _json: bool) -> Result<()> {
     let p = pid_file_path();
     let pid: u32 = if p.exists() {
         std::fs::read_to_string(&p)?

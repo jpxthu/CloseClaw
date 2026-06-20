@@ -19,9 +19,12 @@ async fn test_config_validate_valid() {
     let file = tmp.path().join("good.json");
     fs::write(&file, r#"{"version":"1.0","name":"test"}"#).unwrap();
 
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
+    let result = handle_config(
+        ConfigAction::Validate {
+            file: file.to_str().unwrap().to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_ok(), "valid JSON should succeed: {:?}", result);
 }
@@ -32,9 +35,12 @@ async fn test_config_validate_valid_no_version() {
     let file = tmp.path().join("plain.json");
     fs::write(&file, r#"{"key":"value"}"#).unwrap();
 
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
+    let result = handle_config(
+        ConfigAction::Validate {
+            file: file.to_str().unwrap().to_string(),
+        },
+        false,
+    )
     .await;
     assert!(
         result.is_ok(),
@@ -49,9 +55,12 @@ async fn test_config_validate_invalid() {
     let file = tmp.path().join("bad.json");
     fs::write(&file, "{not valid json").unwrap();
 
-    let result = handle_config(ConfigAction::Validate {
-        file: file.to_str().unwrap().to_string(),
-    })
+    let result = handle_config(
+        ConfigAction::Validate {
+            file: file.to_str().unwrap().to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_err(), "invalid JSON should return error");
     let err_msg = result.unwrap_err().to_string();
@@ -64,9 +73,12 @@ async fn test_config_validate_invalid() {
 
 #[tokio::test]
 async fn test_config_validate_not_found() {
-    let result = handle_config(ConfigAction::Validate {
-        file: "/nonexistent/path/config.json".to_string(),
-    })
+    let result = handle_config(
+        ConfigAction::Validate {
+            file: "/nonexistent/path/config.json".to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_err(), "missing file should return error");
     let err_msg = result.unwrap_err().to_string();
@@ -100,7 +112,7 @@ async fn test_config_list_with_files() {
     // Non-json file should be ignored
     fs::write(config_dir.join("readme.txt"), "hello").unwrap();
 
-    let result = handle_config_with(ConfigAction::List, config_dir).await;
+    let result = handle_config_with(ConfigAction::List, config_dir, false).await;
     assert!(result.is_ok(), "config list should succeed: {:?}", result);
 }
 
@@ -111,7 +123,7 @@ async fn test_config_list_empty_dir() {
 
     fs::create_dir_all(&config_dir).unwrap();
 
-    let result = handle_config_with(ConfigAction::List, config_dir).await;
+    let result = handle_config_with(ConfigAction::List, config_dir, false).await;
     assert!(
         result.is_ok(),
         "config list on empty dir should succeed: {:?}",
@@ -126,7 +138,7 @@ async fn test_config_list_no_dir() {
     // Ensure config dir does NOT exist
     assert!(!config_dir.exists());
 
-    let result = handle_config_with(ConfigAction::List, config_dir).await;
+    let result = handle_config_with(ConfigAction::List, config_dir, false).await;
     assert!(
         result.is_ok(),
         "config list with missing dir should succeed: {:?}",
@@ -146,9 +158,12 @@ async fn test_rule_check_valid() {
         "effect": "allow",
         "actions": [{"type": "all"}]
     }"#;
-    let result = handle_rule(RuleAction::Check {
-        rule: json.to_string(),
-    })
+    let result = handle_rule(
+        RuleAction::Check {
+            rule: json.to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_ok(), "valid rule should succeed: {:?}", result);
 }
@@ -160,9 +175,12 @@ async fn test_rule_check_missing_actions_and_template() {
         "subject": {"agent": "agent-a"},
         "effect": "deny"
     }"#;
-    let result = handle_rule(RuleAction::Check {
-        rule: json.to_string(),
-    })
+    let result = handle_rule(
+        RuleAction::Check {
+            rule: json.to_string(),
+        },
+        false,
+    )
     .await;
     assert!(
         result.is_err(),
@@ -178,9 +196,12 @@ async fn test_rule_check_empty_name() {
         "effect": "allow",
         "actions": [{"type": "all"}]
     }"#;
-    let result = handle_rule(RuleAction::Check {
-        rule: json.to_string(),
-    })
+    let result = handle_rule(
+        RuleAction::Check {
+            rule: json.to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_err(), "rule with empty name should fail");
 }
@@ -193,9 +214,12 @@ async fn test_rule_check_empty_subject_agent() {
         "effect": "allow",
         "actions": [{"type": "all"}]
     }"#;
-    let result = handle_rule(RuleAction::Check {
-        rule: json.to_string(),
-    })
+    let result = handle_rule(
+        RuleAction::Check {
+            rule: json.to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_err(), "rule with empty agent should fail");
 }
@@ -215,9 +239,12 @@ async fn test_rule_check_from_file() {
     )
     .unwrap();
 
-    let result = handle_rule(RuleAction::Check {
-        rule: file.to_str().unwrap().to_string(),
-    })
+    let result = handle_rule(
+        RuleAction::Check {
+            rule: file.to_str().unwrap().to_string(),
+        },
+        false,
+    )
     .await;
     assert!(
         result.is_ok(),
@@ -228,18 +255,24 @@ async fn test_rule_check_from_file() {
 
 #[tokio::test]
 async fn test_rule_check_invalid_json() {
-    let result = handle_rule(RuleAction::Check {
-        rule: "{bad json".to_string(),
-    })
+    let result = handle_rule(
+        RuleAction::Check {
+            rule: "{bad json".to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_err(), "invalid JSON should fail");
 }
 
 #[tokio::test]
 async fn test_rule_check_file_not_found() {
-    let result = handle_rule(RuleAction::Check {
-        rule: "/nonexistent/rule.json".to_string(),
-    })
+    let result = handle_rule(
+        RuleAction::Check {
+            rule: "/nonexistent/rule.json".to_string(),
+        },
+        false,
+    )
     .await;
     assert!(result.is_err(), "missing file should fail");
 }
@@ -281,7 +314,7 @@ async fn test_rule_list_with_rules() {
     let json = serde_json::to_string_pretty(&rule_set).unwrap();
     fs::write(config_dir.join("permissions.json"), json).unwrap();
 
-    let result = handle_rule_with(RuleAction::List, config_dir).await;
+    let result = handle_rule_with(RuleAction::List, config_dir, false).await;
     assert!(result.is_ok(), "rule list should succeed: {:?}", result);
 }
 
@@ -295,7 +328,7 @@ async fn test_rule_list_empty_rules() {
     let json = serde_json::to_string_pretty(&rule_set).unwrap();
     fs::write(config_dir.join("permissions.json"), json).unwrap();
 
-    let result = handle_rule_with(RuleAction::List, config_dir).await;
+    let result = handle_rule_with(RuleAction::List, config_dir, false).await;
     assert!(
         result.is_ok(),
         "rule list with empty rules should succeed: {:?}",
@@ -311,7 +344,7 @@ async fn test_rule_list_no_file() {
     fs::create_dir_all(&config_dir).unwrap();
     // No permissions.json created
 
-    let result = handle_rule_with(RuleAction::List, config_dir).await;
+    let result = handle_rule_with(RuleAction::List, config_dir, false).await;
     assert!(
         result.is_ok(),
         "rule list with missing file should succeed: {:?}",
@@ -369,7 +402,7 @@ async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHa
 async fn test_handle_agent_list_empty() {
     let (_tmp, config_dir) = setup_admin_config_dir();
     let (config_dir, handle) = start_mock_server(config_dir).await;
-    let result = handle_agent_with(AgentAction::List, config_dir).await;
+    let result = handle_agent_with(AgentAction::List, config_dir, false).await;
     assert!(result.is_ok(), "agent list should succeed: {:?}", result);
     handle.abort();
 }
@@ -385,6 +418,7 @@ async fn test_handle_agent_list_with_agents() {
             model: Some("gpt-4".into()),
         },
         config_dir.clone(),
+        false,
     )
     .await;
     assert!(
@@ -393,7 +427,7 @@ async fn test_handle_agent_list_with_agents() {
         create_result
     );
     // Now list agents
-    let result = handle_agent_with(AgentAction::List, config_dir).await;
+    let result = handle_agent_with(AgentAction::List, config_dir, false).await;
     assert!(result.is_ok(), "agent list should succeed: {:?}", result);
     handle.abort();
 }
@@ -409,6 +443,7 @@ async fn test_handle_agent_info_found() {
             model: None,
         },
         config_dir.clone(),
+        false,
     )
     .await
     .unwrap();
@@ -418,6 +453,7 @@ async fn test_handle_agent_info_found() {
             name: "info-agent".into(),
         },
         config_dir,
+        false,
     )
     .await;
     assert!(result.is_ok(), "agent info should succeed: {:?}", result);
@@ -433,6 +469,7 @@ async fn test_handle_agent_info_not_found() {
             name: "nonexistent".into(),
         },
         config_dir,
+        false,
     )
     .await;
     assert!(result.is_err(), "agent info for missing agent should fail");
@@ -449,6 +486,7 @@ async fn test_handle_agent_create() {
             model: Some("claude-3".into()),
         },
         config_dir,
+        false,
     )
     .await;
     assert!(result.is_ok(), "agent create should succeed: {:?}", result);
@@ -461,7 +499,7 @@ async fn test_handle_agent_create() {
 async fn test_handle_skill_list_empty() {
     let (_tmp, config_dir) = setup_admin_config_dir();
     let (config_dir, handle) = start_mock_server(config_dir).await;
-    let result = handle_skill_with(SkillAction::List, config_dir).await;
+    let result = handle_skill_with(SkillAction::List, config_dir, false).await;
     assert!(result.is_ok(), "skill list should succeed: {:?}", result);
     handle.abort();
 }
@@ -475,6 +513,7 @@ async fn test_handle_skill_install_not_found() {
             name: "missing-skill".into(),
         },
         config_dir,
+        false,
     )
     .await;
     assert!(
