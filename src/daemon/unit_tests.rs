@@ -1,7 +1,7 @@
 //! Unit tests for daemon private functions
 
 use super::*;
-use std::env::{remove_var, set_var};
+use std::collections::HashMap;
 use std::io::Write;
 use tempfile::TempDir;
 
@@ -180,107 +180,66 @@ fn test_build_permission_engine_with_templates_dir() {
 async fn test_init_llm_registry_credentials_file_priority() {
     // Arrange: temp dir with config/credentials/openai.json containing an api key
     let tmp = TempDir::new().unwrap();
-    let creds_dir = tempfile::TempDir::new_in(tmp.path()).unwrap();
+    let creds_dir = tmp.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
     std::fs::write(
-        creds_dir.path().join("openai.json"),
+        creds_dir.join("openai.json"),
         r#"{"provider":"openai","apiKey":"file-key-123"}"#,
     )
     .unwrap();
-    // Also write env var (should NOT be used since file has key)
-    let old_openai_key = std::env::var("OPENAI_API_KEY").ok();
-    set_var("OPENAI_API_KEY", "env-key-should-not-be-used");
 
-    // Act
-    let registry = Daemon::init_llm_registry(tmp.path()).await;
+    // Act: pass empty overrides — file key takes priority over env
+    let registry = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
 
     // Assert: provider registered with file key
     let provider = registry.get("openai").await;
     assert!(provider.is_some(), "openai provider should be registered");
-    // StubProvider returns "stub response"; verify it IS a stub (in test mode)
-    // The registry should contain a real OpenAIProvider or StubProvider
-    // Since we used file key, it should be registered
     let listed = registry.list().await;
     assert!(listed.contains(&"openai".to_string()));
-
-    // Restore original env var
-    if let Some(v) = old_openai_key {
-        set_var("OPENAI_API_KEY", v);
-    } else {
-        remove_var("OPENAI_API_KEY");
-    }
 }
 
 #[tokio::test]
 async fn test_init_llm_registry_env_fallback() {
-    // Arrange: temp dir with NO credentials files, env vars set
+    // Arrange: temp dir with NO credentials files, use env_overrides
     let tmp = TempDir::new().unwrap();
-    let old_openai_key = std::env::var("OPENAI_API_KEY").ok();
-    let old_anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    set_var("OPENAI_API_KEY", "env-key-456");
-    set_var("ANTHROPIC_API_KEY", "env-anthropic-key");
+    let overrides: HashMap<&str, &str> = HashMap::from([
+        ("OPENAI_API_KEY", "env-key-456"),
+        ("ANTHROPIC_API_KEY", "env-anthropic-key"),
+    ]);
 
     // Act
-    let registry = Daemon::init_llm_registry(tmp.path()).await;
+    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
 
-    // Assert: providers registered from env vars
+    // Assert: providers registered from env overrides
     let listed = registry.list().await;
     assert!(
         listed.contains(&"openai".to_string()),
-        "openai should be registered from env"
+        "openai should be registered from env override"
     );
     assert!(
         listed.contains(&"anthropic".to_string()),
-        "anthropic should be registered from env"
+        "anthropic should be registered from env override"
     );
-
-    // Restore original env vars
-    if let Some(v) = old_openai_key {
-        set_var("OPENAI_API_KEY", v);
-    } else {
-        remove_var("OPENAI_API_KEY");
-    }
-    if let Some(v) = old_anthropic_key {
-        set_var("ANTHROPIC_API_KEY", v);
-    } else {
-        remove_var("ANTHROPIC_API_KEY");
-    }
 }
 
 #[tokio::test]
 async fn test_init_llm_registry_both_absent_no_registration() {
-    // Arrange: temp dir with NO credentials files, no env vars set
+    // Arrange: temp dir with NO credentials files, empty overrides for all keys
+    // to block env fallback
     let tmp = TempDir::new().unwrap();
-    let old_openai_key = std::env::var("OPENAI_API_KEY").ok();
-    let old_anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    let old_minimax_key = std::env::var("MINIMAX_API_KEY").ok();
-    remove_var("OPENAI_API_KEY");
-    remove_var("ANTHROPIC_API_KEY");
-    remove_var("MINIMAX_API_KEY");
+    let overrides = HashMap::from([
+        ("OPENAI_API_KEY", ""),
+        ("ANTHROPIC_API_KEY", ""),
+        ("MINIMAX_API_KEY", ""),
+    ]);
 
     // Act
-    let registry = Daemon::init_llm_registry(tmp.path()).await;
+    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
 
-    // Assert: no providers registered
+    // Assert: no providers registered (empty dir, empty overrides block env fallback)
     let listed = registry.list().await;
     assert!(
         listed.is_empty(),
-        "no providers should be registered when no credentials"
+        "no provider should be registered when no credentials or env vars"
     );
-
-    // Restore original env vars
-    if let Some(v) = old_openai_key {
-        set_var("OPENAI_API_KEY", v);
-    } else {
-        remove_var("OPENAI_API_KEY");
-    }
-    if let Some(v) = old_anthropic_key {
-        set_var("ANTHROPIC_API_KEY", v);
-    } else {
-        remove_var("ANTHROPIC_API_KEY");
-    }
-    if let Some(v) = old_minimax_key {
-        set_var("MINIMAX_API_KEY", v);
-    } else {
-        remove_var("MINIMAX_API_KEY");
-    }
 }
