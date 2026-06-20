@@ -70,7 +70,7 @@ async fn test_build_processor_registry_with_raw_log() {
 
 #[tokio::test]
 async fn test_build_gateway_has_processor_registry() {
-    let (gateway, _session_manager) = build_gateway().await;
+    let (gateway, _session_manager) = build_gateway("test-agent").await;
 
     let (inbound, outbound) = gateway.processor_registry_len();
     assert!(inbound > 0, "expected inbound processors in gateway");
@@ -79,7 +79,7 @@ async fn test_build_gateway_has_processor_registry() {
 
 #[tokio::test]
 async fn test_build_gateway_has_slash_dispatcher() {
-    let (gateway, _session_manager) = build_gateway().await;
+    let (gateway, _session_manager) = build_gateway("test-agent").await;
 
     assert!(
         gateway.has_slash_dispatcher().await,
@@ -142,7 +142,7 @@ async fn test_build_gateway_slash_help_dispatchable() {
 
 #[tokio::test]
 async fn test_build_gateway_has_session_handler() {
-    let (gateway, _session_manager) = build_gateway().await;
+    let (gateway, _session_manager) = build_gateway("test-agent").await;
 
     // In test environments without LLM providers, session handler
     // should not be installed.
