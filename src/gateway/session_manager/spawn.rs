@@ -70,6 +70,7 @@ impl SessionManager {
     ///
     /// Returns a cloned snapshot so the caller does not hold the
     /// `children` lock across await points.
+    #[allow(dead_code)] // Used in spawn_budget_tests.rs for cascade simulation
     pub(crate) async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
         let children = self.children.read().await;
         children
