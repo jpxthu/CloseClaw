@@ -529,6 +529,33 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Cascade-kill all active children of a session.
+    ///
+    /// Called when a parent session ends (via `/new`) or is archived
+    /// by the sweeper, per design doc §生命周期联动.
+    /// Iterates direct children and calls `kill_child` for each,
+    /// which recursively handles deeper descendants.
+    pub(crate) async fn cascade_kill_all_children(&self, parent_id: &str) {
+        // Snapshot child IDs to avoid holding the lock across kill calls.
+        let child_ids: Vec<String> = {
+            let children = self.children.read().await;
+            children
+                .get(parent_id)
+                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
+                .unwrap_or_default()
+        };
+        for child_id in child_ids {
+            if let Err(e) = self.kill_child(parent_id, &child_id).await {
+                tracing::warn!(
+                    parent = %parent_id,
+                    child = %child_id,
+                    error = %e,
+                    "cascade_kill_all_children: failed to kill child"
+                );
+            }
+        }
+    }
+
     /// Remove a direct child and all its descendants from the
     /// `children` tracking table.
     ///

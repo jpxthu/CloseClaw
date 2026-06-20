@@ -159,17 +159,10 @@ impl Daemon {
                     )
                 }
             };
-        // Create ArchiveSweeper shutdown channel and spawn sweeper
+        // Create ArchiveSweeper shutdown channel (sweeper itself is
+        // created after SessionManager so it can cascade-terminate
+        // children on archive — design doc §生命周期联动).
         let (sweeper_tx, sweeper_rx) = watch::channel(());
-        let sweeper = Arc::new(ArchiveSweeper::new(
-            Arc::clone(&storage) as Arc<dyn PersistenceService>,
-            Arc::clone(&config_provider),
-        ));
-        let sweeper_for_task = Arc::clone(&sweeper);
-        tokio::spawn(async move {
-            sweeper_for_task.run(sweeper_rx).await;
-        });
-        info!("ArchiveSweeper spawned");
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         info!("Agent registry initialized",);
         let gateway_config = GatewayConfig {
@@ -197,6 +190,22 @@ impl Daemon {
                 "failed to rebuild key_registry at startup — continuing"
             );
         }
+
+        // Create and spawn ArchiveSweeper with SessionManager so it can
+        // cascade-terminate children when archiving idle sessions.
+        let sweeper = Arc::new(
+            ArchiveSweeper::new(
+                Arc::clone(&storage) as Arc<dyn PersistenceService>,
+                Arc::clone(&config_provider),
+            )
+            .with_session_manager(Arc::clone(&session_manager)),
+        );
+        let sweeper_for_task = Arc::clone(&sweeper);
+        tokio::spawn(async move {
+            sweeper_for_task.run(sweeper_rx).await;
+        });
+        info!("ArchiveSweeper spawned");
+
         let gateway = Arc::new(gateway);
         // Wire the self-ref so `handle_inbound_message` can pass
         // a strong `Arc<Gateway>` into the streaming LLM path.
