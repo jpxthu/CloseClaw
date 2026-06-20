@@ -33,5 +33,12 @@
     "commit_time": "2026-06-20T09:56:06+08:00",
     "confirmed_time": "2026-06-20T10:06:57.213904+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/cli/admin.md",
+    "commit": "86d1bd748fe6e027e9d769bd31bea5ddeee8b2fb",
+    "commit_time": "2026-06-20T12:30:40+08:00",
+    "confirmed_time": "2026-06-20T12:35:31.599807+08:00",
+    "comment": ""
   }
 ]
