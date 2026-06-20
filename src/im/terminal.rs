@@ -416,9 +416,8 @@ fn is_comment(trimmed: &str, language: &str) -> bool {
         || (matches!(
             language,
             "rust" | "go" | "javascript" | "typescript" | "c" | "cpp" | "java"
-        ) && trimmed.starts_with("//"))
+        ) && (trimmed.starts_with("//") || trimmed.starts_with("/*")))
         || (matches!(language, "haskell" | "lua") && trimmed.starts_with("--"))
-        || trimmed.starts_with("/*")
 }
 
 /// Check if a word is a keyword for the given language.
