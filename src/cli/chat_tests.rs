@@ -52,9 +52,10 @@ async fn test_build_processor_registry_outbound_count() {
 
 #[tokio::test]
 async fn test_build_processor_registry_with_raw_log() {
+    let tmp = tempfile::TempDir::new().unwrap();
     let config = GatewayConfig {
         name: "test".to_string(),
-        raw_log_dir: Some(std::path::PathBuf::from("/tmp/test-raw-log")),
+        raw_log_dir: Some(tmp.path().to_path_buf()),
         ..Default::default()
     };
     let registry = build_processor_registry(&config);
@@ -142,11 +143,13 @@ async fn test_build_gateway_slash_help_dispatchable() {
 async fn test_build_gateway_has_session_handler() {
     let (gateway, _session_manager) = build_gateway().await;
 
-    // Session handler depends on LLM providers being configured.
-    // In test environments, providers may not be available, so we
-    // verify the gateway was built successfully and the accessor works.
+    // In test environments without LLM providers, session handler
+    // should not be installed.
     let has = gateway.has_session_handler().await;
-    tracing::info!("session_handler present: {}", has);
+    assert!(
+        !has,
+        "session handler should not be present without LLM providers"
+    );
 }
 
 // ── TerminalAdapter / REPL quit/exit detection ──────────────────────────────
