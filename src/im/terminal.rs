@@ -7,10 +7,14 @@
 
 use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
 use crate::im_adapter::normalized::NormalizedMessage;
+use crate::im_adapter::plugin::IMPlugin;
 use crate::im_adapter::renderer::{RenderedOutput, Renderer};
+use crate::im_adapter::AdapterError;
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;
-use std::io::{self, BufRead};
+use async_trait::async_trait;
+use std::io::{self, BufRead, Write};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
@@ -605,4 +609,90 @@ fn current_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+// ---------------------------------------------------------------------------
+// TerminalPlugin
+// ---------------------------------------------------------------------------
+
+/// Unified IM plugin for the terminal (CLI) channel.
+///
+/// Wraps [`TerminalAdapter`] (stdin input) and [`TerminalRenderer`] (ANSI
+/// output) behind the [`IMPlugin`] trait so the Gateway can route messages
+/// through the terminal channel just like any other platform.
+pub struct TerminalPlugin {
+    adapter: Arc<TerminalAdapter>,
+    renderer: Arc<TerminalRenderer>,
+}
+
+impl TerminalPlugin {
+    /// Create a new terminal plugin with auto-detected ANSI capability.
+    pub fn new() -> Self {
+        Self {
+            adapter: Arc::new(TerminalAdapter::new()),
+            renderer: Arc::new(TerminalRenderer::new()),
+        }
+    }
+
+    /// Create a terminal plugin with explicit ANSI mode.
+    ///
+    /// Useful for testing or forcing a specific output mode.
+    pub fn with_ansi(ansi: bool) -> Self {
+        Self {
+            adapter: Arc::new(TerminalAdapter::new()),
+            renderer: Arc::new(TerminalRenderer::with_ansi(ansi)),
+        }
+    }
+}
+
+impl Default for TerminalPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl IMPlugin for TerminalPlugin {
+    fn platform(&self) -> &str {
+        "terminal"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        let adapter = self.adapter.clone();
+        let result = tokio::task::spawn_blocking(move || adapter.read_input())
+            .await
+            .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+        Ok(result)
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        self.renderer.render(content_blocks, dsl_result)
+    }
+
+    async fn send(
+        &self,
+        output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("");
+
+        let mut stdout = io::stdout();
+        Write::write_all(&mut stdout, text.as_bytes())
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        Write::flush(&mut stdout).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        Ok(())
+    }
 }
