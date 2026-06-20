@@ -113,6 +113,7 @@ impl ProcessorRegistry {
         let synthetic_raw = RawMessage {
             platform: String::new(),
             sender_id: String::new(),
+            peer_id: String::new(),
             content: llm_output.content.clone(),
             timestamp: chrono::Utc::now(),
             message_id: String::new(),

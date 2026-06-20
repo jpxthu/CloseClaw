@@ -130,6 +130,7 @@ mod tests {
         let raw = RawMessage {
             platform: channel.to_string(),
             sender_id: "sender_1".to_string(),
+            peer_id: String::new(),
             content: content.to_string(),
             timestamp: Utc::now(),
             message_id: message_id.to_string(),
@@ -230,6 +231,7 @@ mod tests {
         let raw = RawMessage {
             platform: "wecom".to_string(),
             sender_id: "s".to_string(),
+            peer_id: String::new(),
             content: "hello".to_string(),
             timestamp: Utc::now(),
             message_id: "msg_99".to_string(),

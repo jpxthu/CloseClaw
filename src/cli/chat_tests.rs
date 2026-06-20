@@ -34,8 +34,8 @@ async fn test_build_processor_registry_inbound_count() {
     };
     let registry = build_processor_registry(&config);
 
-    // Without raw_log_dir: 1 inbound (ContentNormalizer)
-    assert_eq!(registry.inbound_len(), 1);
+    // Without raw_log_dir: 2 inbound (ContentNormalizer + SessionRouter)
+    assert_eq!(registry.inbound_len(), 2);
 }
 
 #[tokio::test]
@@ -60,8 +60,8 @@ async fn test_build_processor_registry_with_raw_log() {
     };
     let registry = build_processor_registry(&config);
 
-    // With raw_log_dir: 2 inbound (RawLogProcessor + ContentNormalizer)
-    assert_eq!(registry.inbound_len(), 2);
+    // With raw_log_dir: 3 inbound (RawLogProcessor + SessionRouter + ContentNormalizer)
+    assert_eq!(registry.inbound_len(), 3);
     // 2 outbound (OutboundRawLogProcessor + DslParser)
     assert_eq!(registry.outbound_len(), 2);
 }

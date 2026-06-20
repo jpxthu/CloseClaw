@@ -23,6 +23,7 @@ use crate::processor_chain::content_normalizer::ContentNormalizer;
 use crate::processor_chain::dsl_parser::DslParser;
 use crate::processor_chain::outbound_raw_log::OutboundRawLogProcessor;
 use crate::processor_chain::raw_log_processor::{RawLogConfig, RawLogProcessor};
+use crate::processor_chain::session_router::SessionRouter;
 use crate::processor_chain::ProcessorRegistry;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
@@ -115,6 +116,9 @@ pub(crate) fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegis
             RawLogProcessor::new(raw_log_config).expect("RawLogProcessor initialization failed");
         registry.register(Arc::new(processor));
     }
+
+    // Inbound: SessionRouter (priority 20 — computes session_key)
+    registry.register(Arc::new(SessionRouter::new(config.dm_scope)));
 
     // Inbound: ContentNormalizer
     registry.register(Arc::new(ContentNormalizer::new()));

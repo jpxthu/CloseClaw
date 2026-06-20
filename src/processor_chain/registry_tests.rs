@@ -19,6 +19,7 @@ fn make_raw(content: &str) -> RawMessage {
     RawMessage {
         platform: "test".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: String::new(),
         content: content.to_string(),
         timestamp: Utc::now(),
         message_id: "msg_1".to_string(),

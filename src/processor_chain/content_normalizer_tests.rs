@@ -83,6 +83,7 @@ async fn test_process_plain_text() {
     let raw = RawMessage {
         platform: "terminal".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
         content: "hello world".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_1".to_string(),
@@ -100,6 +101,7 @@ async fn test_process_normalizes_empty_lines() {
     let raw = RawMessage {
         platform: "terminal".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
         content: "hello\n\n\n\nworld  ".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_2".to_string(),
@@ -115,6 +117,7 @@ async fn test_process_strips_ansi() {
     let raw = RawMessage {
         platform: "terminal".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
         content: "\x1b[31mError:\x1b[0m something went wrong".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_3".to_string(),
@@ -130,6 +133,7 @@ async fn test_process_strips_control_chars() {
     let raw = RawMessage {
         platform: "terminal".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
         content: "hello\x00\x01\x02world".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_4".to_string(),
@@ -145,6 +149,7 @@ async fn test_process_preserves_newlines_and_tabs() {
     let raw = RawMessage {
         platform: "terminal".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
         content: "line1\nline2\ttab".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_5".to_string(),
