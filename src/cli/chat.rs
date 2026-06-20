@@ -46,7 +46,7 @@ enum ExitReason {
 /// 3. Loop: read user input → route through gateway → print response.
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     let sender_id = crate::im::terminal::current_uid();
-    let (gateway, session_manager) = build_gateway().await;
+    let (gateway, session_manager) = build_gateway(agent_id).await;
     let session_id = create_session(&session_manager, agent_id, &sender_id).await?;
 
     println!("CloseClaw Chat — agent: {}", agent_id);
@@ -63,9 +63,9 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
 
 /// Build a [`Gateway`] with [`ProcessorRegistry`], [`SlashDispatcher`],
 /// and [`SessionMessageHandler`] configured.
-pub(crate) async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
+pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionManager>) {
     let gateway_config = GatewayConfig {
-        name: "closeclaw-chat".to_string(),
+        name: format!("closeclaw-chat-{}", agent_id),
         rate_limit_per_minute: 0,
         max_message_size: 16_384,
         dm_scope: DmScope::PerChannelSender,
