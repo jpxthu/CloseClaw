@@ -11,6 +11,10 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "closeclaw", version = env!("CARGO_PKG_VERSION"))]
 pub(crate) struct Cli {
+    /// Output in JSON format
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -48,10 +52,10 @@ async fn main() -> anyhow::Result<()> {
     closeclaw::init();
     let cli = Cli::parse();
     match cli.command {
-        Commands::Agent { action } => handle_agent(action).await?,
-        Commands::Config { action } => handle_config(action).await?,
-        Commands::Rule { action } => handle_rule(action).await?,
-        Commands::Skill { action } => handle_skill(action).await?,
+        Commands::Agent { action } => handle_agent(action, cli.json).await?,
+        Commands::Config { action } => handle_config(action, cli.json).await?,
+        Commands::Rule { action } => handle_rule(action, cli.json).await?,
+        Commands::Skill { action } => handle_skill(action, cli.json).await?,
         Commands::Run { config_dir } => {
             let config_dir: PathBuf = if config_dir.is_empty() {
                 dirs::home_dir()
@@ -73,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             println!("Daemon stopped.");
         }
-        Commands::Stop { force } => handle_stop(force).await?,
+        Commands::Stop { force } => handle_stop(force, cli.json).await?,
     }
     Ok(())
 }
