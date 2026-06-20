@@ -5,6 +5,7 @@ mod tests {
     use crate::im_adapter::renderer::{RenderedOutput, Renderer};
     use crate::im_adapter::NormalizedMessage;
     use crate::llm::types::ContentBlock;
+    use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
 
     #[test]
     fn test_platform() {
@@ -762,6 +763,122 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    // =========================================================================
+    // ContentBlock placeholder rendering tests (Step 1.1)
+    // =========================================================================
+
+    #[test]
+    fn test_render_image_placeholder_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Image("photo.jpg".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[image: photo.jpg]"));
+        assert!(!text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_render_image_placeholder_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Image("screenshot.png".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[image: screenshot.png]"));
+        assert!(text.contains(DIM));
+    }
+
+    #[test]
+    fn test_render_audio_placeholder_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Audio("voice.mp3".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[audio: voice.mp3]"));
+        assert!(!text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_render_audio_placeholder_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Audio("recording.wav".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[audio: recording.wav]"));
+        assert!(text.contains(DIM));
+    }
+
+    #[test]
+    fn test_render_file_placeholder_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::File("document.pdf".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[file: document.pdf]"));
+        assert!(!text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_render_file_placeholder_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::File("data.csv".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[file: data.csv]"));
+        assert!(text.contains(DIM));
+    }
+
+    #[test]
+    fn test_render_placeholder_mixed_with_text() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![
+            ContentBlock::Text("Here is an image:".into()),
+            ContentBlock::Image("chart.png".into()),
+            ContentBlock::Text("And a file:".into()),
+            ContentBlock::File("report.pdf".into()),
+        ];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Here is an image:"));
+        assert!(text.contains("[image: chart.png]"));
+        assert!(text.contains("And a file:"));
+        assert!(text.contains("[file: report.pdf]"));
+    }
+
     #[tokio::test]
     async fn test_plugin_send_with_thread_id() {
         let plugin = TerminalPlugin::with_ansi(false);
@@ -773,5 +890,110 @@ mod tests {
         };
         let result = plugin.send(&output, "cli", Some("thread_123")).await;
         assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // DSL skip rendering tests (Step 1.7)
+    // =========================================================================
+
+    /// Verify TerminalRenderer does not render DSL instructions as visible text.
+    /// Uses the public render() method which internally calls render_dsl().
+    #[test]
+    fn test_render_dsl_not_in_output() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Hello".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Button {
+                label: "Click Me".to_string(),
+                action: "navigate".to_string(),
+                value: "/home".to_string(),
+            }],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Hello"));
+        assert!(
+            !text.contains("Click Me"),
+            "DSL button should not appear in output"
+        );
+    }
+
+    /// Verify DSL is not rendered even in ANSI mode.
+    #[test]
+    fn test_render_dsl_not_in_output_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Text("Content".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Button {
+                label: "OK".to_string(),
+                action: "confirm".to_string(),
+                value: "yes".to_string(),
+            }],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Content"));
+        assert!(
+            !text.contains("OK"),
+            "DSL button should not appear in output"
+        );
+    }
+
+    /// Verify empty DSL instructions produce no visible output.
+    #[test]
+    fn test_render_empty_dsl_no_output() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Hello world".into())];
+        let dsl = DslParseResult {
+            clean_content: "Hello world".to_string(),
+            instructions: vec![],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Hello world"));
+    }
+
+    /// Verify DSL button text is NOT in the final output.
+    #[test]
+    fn test_plugin_render_dsl_not_in_output() {
+        let plugin = TerminalPlugin::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Some text".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Button {
+                label: "Click".to_string(),
+                action: "go".to_string(),
+                value: "ok".to_string(),
+            }],
+        };
+        let output = plugin.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Some text"));
+        assert!(
+            !text.contains("Click"),
+            "DSL button should not appear in output"
+        );
     }
 }

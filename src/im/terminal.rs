@@ -651,6 +651,18 @@ impl TerminalRenderer {
             ContentBlock::Thinking(text) => self.render_thinking(text),
             ContentBlock::ToolUse { name, input, .. } => self.render_tool_use(name, input),
             ContentBlock::ToolResult { content, .. } => self.render_tool_result(content),
+            ContentBlock::Image(name) => self.render_placeholder("image", name),
+            ContentBlock::Audio(name) => self.render_placeholder("audio", name),
+            ContentBlock::File(name) => self.render_placeholder("file", name),
+        }
+    }
+
+    /// Render a placeholder for unsupported content types.
+    fn render_placeholder(&self, kind: &str, name: &str) -> String {
+        if self.ansi {
+            format!("{}[{}: {}]{}\n", DIM, kind, name, RESET)
+        } else {
+            format!("[{}: {}]\n", kind, name)
         }
     }
 
@@ -695,16 +707,13 @@ impl TerminalRenderer {
         }
     }
 
-    /// Render DSL instructions as plain text prompts.
-    fn render_dsl(&self, dsl_result: &DslParseResult) -> String {
-        let mut out = String::new();
-        for inst in &dsl_result.instructions {
-            let label = match inst {
-                crate::processor_chain::dsl_parser::DslInstruction::Button { label, .. } => label,
-            };
-            out.push_str(&format!("[Button: {}]\n", label));
-        }
-        out
+    /// Skip DSL rendering for the terminal channel.
+    ///
+    /// DSL instructions (e.g. buttons) are not supported on the terminal.
+    /// The instructions are still preserved in metadata for other renderers,
+    /// but the terminal does not output them as visible text.
+    fn render_dsl(&self, _dsl_result: &DslParseResult) -> String {
+        String::new()
     }
 }
 

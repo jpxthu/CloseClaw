@@ -9,6 +9,7 @@ fn test_message_context_content_blocks_default_empty() {
     let raw = RawMessage {
         platform: "feishu".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: "chat_1".to_string(),
         content: "hello".to_string(),
         timestamp: Utc::now(),
         message_id: "msg_1".to_string(),
@@ -22,6 +23,7 @@ fn test_processed_message_content_blocks_default_empty() {
     let raw = RawMessage {
         platform: "feishu".to_string(),
         sender_id: "user_1".to_string(),
+        peer_id: "chat_1".to_string(),
         content: "hello".to_string(),
         timestamp: Utc::now(),
         message_id: "msg_1".to_string(),
