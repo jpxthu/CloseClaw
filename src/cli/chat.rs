@@ -1,16 +1,32 @@
 //! Interactive chat REPL via the terminal channel.
 //!
-//! Creates a [`TerminalPlugin`], registers it with a minimal [`Gateway`],
-//! and runs a read-eval-print loop that routes user input through the
-//! full inbound/outbound message pipeline.
+//! Creates a [`TerminalPlugin`], registers it with a [`Gateway`] configured
+//! with a [`ProcessorRegistry`], [`SlashDispatcher`], and
+//! [`SessionMessageHandler`], and runs a read-eval-print loop that routes
+//! user input through the full inbound/outbound message pipeline.
 
 use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::config::providers::{ConfigProvider, CredentialsProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::terminal::TerminalPlugin;
+use crate::llm::anthropic::AnthropicProvider;
+use crate::llm::fallback::{FallbackClient, ModelEntry};
+use crate::llm::minimax::MiniMaxProvider;
+use crate::llm::openai::OpenAIProvider;
+use crate::llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+use crate::llm::LLMRegistry;
+use crate::processor_chain::content_normalizer::ContentNormalizer;
+use crate::processor_chain::dsl_parser::DslParser;
+use crate::processor_chain::raw_log_processor::{RawLogConfig, RawLogProcessor};
+use crate::processor_chain::ProcessorRegistry;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
+use crate::slash::dispatcher::SlashDispatcher;
+use crate::slash::registry::HandlerRegistry;
+use crate::slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
 
 /// Why the REPL loop exited.
 enum ExitReason {
@@ -42,7 +58,8 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     }
 }
 
-/// Build a [`Gateway`] with a [`TerminalPlugin`] registered.
+/// Build a [`Gateway`] with [`ProcessorRegistry`], [`SlashDispatcher`],
+/// and [`SessionMessageHandler`] configured.
 async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
     let gateway_config = GatewayConfig {
         name: "closeclaw-chat".to_string(),
@@ -60,14 +77,224 @@ async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
         ReasoningLevel::default(),
     ));
 
-    let gateway = Gateway::new(gateway_config, Arc::clone(&session_manager));
+    // ── Processor Registry ─────────────────────────────────────────────
+    let processor_registry = Arc::new(build_processor_registry(&gateway_config));
+
+    let gateway = Gateway::with_processor_registry(
+        gateway_config,
+        Arc::clone(&session_manager),
+        processor_registry,
+    );
+
+    // ── Slash Dispatcher ───────────────────────────────────────────────
+    let slash_registry = Arc::new(HandlerRegistry::new());
+    slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&session_manager))));
+    let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
+    slash_registry.register(Arc::new(help_handler));
+    slash_registry.register(Arc::new(NewSessionHandler));
+    slash_registry.register(Arc::new(StopHandler));
+    slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&session_manager))));
+    let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
+
+    // ── Session Message Handler ────────────────────────────────────────
+    let session_handler = build_session_handler(Arc::clone(&session_manager)).await;
+    let gateway = if let Some(handler) = session_handler {
+        gateway.with_session_handler(Arc::new(handler))
+    } else {
+        gateway
+    };
+
     let gateway = Arc::new(gateway);
     gateway.set_self_ref(Arc::clone(&gateway));
+
+    // Inject slash dispatcher after Arc wrapping (async method).
+    gateway.set_slash_dispatcher(slash_dispatcher).await;
 
     let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
     gateway.register_plugin(plugin).await;
 
     (gateway, session_manager)
+}
+
+/// Build a [`ProcessorRegistry`] with inbound [`RawLogProcessor`] and
+/// [`ContentNormalizer`], outbound [`DslParser`].
+fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
+    let mut registry = ProcessorRegistry::default();
+
+    // Inbound: RawLogProcessor (if raw_log_dir is configured)
+    if let Some(ref dir) = config.raw_log_dir {
+        let raw_log_config = RawLogConfig {
+            enabled: true,
+            dir: dir.clone(),
+            retention_days: 7,
+        };
+        let processor =
+            RawLogProcessor::new(raw_log_config).expect("RawLogProcessor initialization failed");
+        registry.register(Arc::new(processor));
+    }
+
+    // Inbound: ContentNormalizer
+    registry.register(Arc::new(ContentNormalizer::new()));
+
+    // Outbound: DslParser
+    registry.register(Arc::new(DslParser));
+
+    registry
+}
+
+/// Initialize the LLM registry from credentials files or environment variables.
+async fn init_llm_registry() -> Arc<LLMRegistry> {
+    let registry = Arc::new(LLMRegistry::new());
+
+    // Determine config directory
+    let config_dir = dirs::home_dir()
+        .map(|h| h.join(".closeclaw"))
+        .unwrap_or_else(|| PathBuf::from(".closeclaw"));
+
+    // Load credentials from config/credentials/ directory
+    let creds_dir = config_dir.join(CredentialsProvider::config_path());
+    let creds_provider = match CredentialsProvider::load_from_dir(&creds_dir) {
+        Ok(cp) => cp,
+        Err(e) => {
+            tracing::warn!(
+                "failed to load credentials from '{}': {}",
+                creds_dir.display(),
+                e
+            );
+            CredentialsProvider::default()
+        }
+    };
+
+    // Register OpenAI provider
+    let openai_key = creds_provider
+        .get_api_key("openai")
+        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+        .filter(|k| !k.is_empty());
+    if let Some(api_key) = openai_key {
+        let provider: Arc<dyn crate::llm::provider::Provider> =
+            Arc::new(OpenAIProvider::new(api_key));
+        registry.register("openai".to_string(), provider).await;
+    }
+
+    // Register Anthropic provider
+    let anthropic_key = creds_provider
+        .get_api_key("anthropic")
+        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+        .filter(|k| !k.is_empty());
+    if let Some(api_key) = anthropic_key {
+        let provider: Arc<dyn crate::llm::provider::Provider> =
+            Arc::new(AnthropicProvider::new(api_key));
+        registry.register("anthropic".to_string(), provider).await;
+    }
+
+    // Register MiniMax provider
+    let minimax_key = creds_provider
+        .get_api_key("minimax")
+        .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
+        .filter(|k| !k.is_empty());
+    if let Some(api_key) = minimax_key {
+        let provider: Arc<dyn crate::llm::provider::Provider> =
+            Arc::new(MiniMaxProvider::new(api_key));
+        registry.register("minimax".to_string(), provider).await;
+    }
+
+    registry
+}
+
+/// Build the fallback chain from environment variables or defaults.
+///
+/// Reads `CLOSECLAW_FALLBACK_CHAIN` (comma-separated `provider/model` pairs)
+/// or falls back to a reasonable default.
+fn build_fallback_chain() -> Vec<ModelEntry> {
+    if let Ok(chain_str) = std::env::var("CLOSECLAW_FALLBACK_CHAIN") {
+        return chain_str
+            .split(',')
+            .filter_map(|s| {
+                let s = s.trim();
+                let (provider, model) = s.split_once('/')?;
+                Some(ModelEntry {
+                    provider: provider.to_string(),
+                    model: model.to_string(),
+                })
+            })
+            .collect();
+    }
+
+    // Default fallback chain
+    vec![
+        ModelEntry {
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+        },
+        ModelEntry {
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-20250514".to_string(),
+        },
+    ]
+}
+
+/// Build a [`SessionMessageHandler`] with LLM clients.
+///
+/// Returns `None` if no LLM providers are configured.
+async fn build_session_handler(
+    session_manager: Arc<SessionManager>,
+) -> Option<crate::gateway::session_handler::SessionMessageHandler> {
+    let llm_registry = init_llm_registry().await;
+    let fallback_chain = build_fallback_chain();
+
+    // Filter chain to only include providers that are registered
+    let available_providers = llm_registry.list().await;
+    let valid_chain: Vec<ModelEntry> = fallback_chain
+        .into_iter()
+        .filter(|e| available_providers.contains(&e.provider))
+        .collect();
+
+    if valid_chain.is_empty() {
+        tracing::warn!("no LLM providers configured — session handler not installed");
+        return None;
+    }
+
+    let fallback_client = Arc::new(FallbackClient::new(
+        Arc::clone(&llm_registry),
+        valid_chain.clone(),
+    ));
+
+    // Build UnifiedFallbackClient chain entries
+    let cooldown = Arc::new(crate::llm::retry::CooldownManager::new());
+    let unified_chain: Vec<ChainEntry> = valid_chain
+        .iter()
+        .filter_map(|entry| {
+            let protocol = Arc::new(crate::llm::protocol::OpenAiProtocol::default());
+            let interpreter_registry = crate::llm::interpreter::InterpreterRegistry::new(vec![]);
+            let plugin_pipeline = crate::llm::plugin::PluginPipeline::new();
+            let provider = {
+                let rt = tokio::runtime::Handle::current();
+                rt.block_on(llm_registry.get(&entry.provider))
+            }?;
+            let client = Arc::new(crate::llm::client::UnifiedChatClient::new(
+                provider,
+                protocol,
+                interpreter_registry,
+                plugin_pipeline,
+                Arc::new(crate::llm::cache_adapter::NoopCacheAdapter),
+            ));
+            Some(ChainEntry {
+                provider_id: entry.provider.clone(),
+                model_id: entry.model.clone(),
+                client,
+            })
+        })
+        .collect();
+
+    let unified_fallback_client = Arc::new(UnifiedFallbackClient::new(unified_chain, cooldown));
+
+    let (output_tx, _output_rx) = tokio::sync::mpsc::channel(64);
+    Some(crate::gateway::session_handler::SessionMessageHandler::new(
+        session_manager,
+        fallback_client,
+        output_tx,
+        unified_fallback_client,
+    ))
 }
 
 /// Create a session for the chat REPL.
