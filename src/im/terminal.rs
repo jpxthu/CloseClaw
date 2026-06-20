@@ -84,27 +84,40 @@ pub(crate) fn strip_ansi(text: &str) -> String {
 // Markdown → ANSI inline conversion
 // ---------------------------------------------------------------------------
 
-/// Apply inline ANSI formatting to a single line of markdown text.
-fn ansi_format_inline(line: &str) -> String {
-    if let Some(styled) = check_line_pattern(line) {
+/// Format a single line of markdown text.
+/// `ansi=true` applies ANSI styling; `ansi=false` strips markdown markers.
+fn format_line(line: &str, ansi: bool) -> String {
+    if let Some(styled) = check_line_pattern(line, ansi) {
         return styled;
     }
     let chars: Vec<char> = line.chars().collect();
     let spans = parse_inline_spans(&chars);
-    apply_inline_styling(&spans, true)
+    apply_inline_styling(&spans, ansi)
 }
 
 /// Check line-level patterns (heading, blockquote, hr).
-/// Returns styled string if matched, None otherwise.
-fn check_line_pattern(line: &str) -> Option<String> {
+/// Returns formatted string if matched, None otherwise.
+fn check_line_pattern(line: &str, ansi: bool) -> Option<String> {
     if let Some(rest) = line.strip_prefix("# ") {
-        return Some(format!("{}{}{}", BOLD, rest, RESET));
+        return Some(if ansi {
+            format!("{}{}{}", BOLD, rest, RESET)
+        } else {
+            rest.to_string()
+        });
     }
     if line.trim() == "---" {
-        return Some(format!("{}───{}", DIM, RESET));
+        return Some(if ansi {
+            format!("{}───{}", DIM, RESET)
+        } else {
+            "───".to_string()
+        });
     }
     if let Some(rest) = line.strip_prefix("> ") {
-        return Some(format!("{}│ {}{}", DIM, rest, RESET));
+        return Some(if ansi {
+            format!("{}│ {}{}", DIM, rest, RESET)
+        } else {
+            format!("│ {}", rest)
+        });
     }
     None
 }
@@ -567,69 +580,33 @@ fn is_c_keyword(word: &str) -> bool {
 // Markdown → ANSI block rendering
 // ---------------------------------------------------------------------------
 
-/// Convert markdown content to ANSI-formatted text.
-fn render_markdown_ansi(content: &str) -> String {
+/// Convert markdown content to text, with optional ANSI styling.
+fn render_markdown(content: &str, ansi: bool) -> String {
     let segments = parse_content_segments(content);
     let mut out = String::new();
 
     for seg in &segments {
         match seg {
             ContentSegment::Hr => {
-                out.push_str(&format!("{}───{}\n\n", DIM, RESET));
+                if ansi {
+                    out.push_str(&format!("{}───{}\n\n", DIM, RESET));
+                } else {
+                    out.push_str("───\n\n");
+                }
             }
             ContentSegment::CodeBlock { language, code } => {
                 out.push('\n');
-                out.push_str(&render_code_block(language, code, true));
+                out.push_str(&render_code_block(language, code, ansi));
                 out.push('\n');
             }
             ContentSegment::Markdown(line) => {
-                out.push_str(&ansi_format_inline(line));
+                out.push_str(&format_line(line, ansi));
                 out.push('\n');
             }
         }
     }
 
     out
-}
-
-/// Convert markdown content to plain text (no ANSI).
-fn render_markdown_plain(content: &str) -> String {
-    let segments = parse_content_segments(content);
-    let mut out = String::new();
-
-    for seg in &segments {
-        match seg {
-            ContentSegment::Hr => {
-                out.push_str("───\n\n");
-            }
-            ContentSegment::CodeBlock { language, code } => {
-                out.push('\n');
-                out.push_str(&render_code_block(language, code, false));
-                out.push('\n');
-            }
-            ContentSegment::Markdown(line) => {
-                // Strip markdown formatting markers for plain text
-                let stripped = strip_markdown(line);
-                out.push_str(&stripped);
-                out.push('\n');
-            }
-        }
-    }
-
-    out
-}
-
-/// Remove common markdown formatting markers for plain-text output.
-fn strip_markdown(line: &str) -> String {
-    if let Some(rest) = line.strip_prefix("# ") {
-        return rest.to_string();
-    }
-    if let Some(rest) = line.strip_prefix("> ") {
-        return format!("│ {}", rest);
-    }
-    let chars: Vec<char> = line.chars().collect();
-    let spans = parse_inline_spans(&chars);
-    apply_inline_styling(&spans, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -670,13 +647,7 @@ impl TerminalRenderer {
     /// Render a single [`ContentBlock`] to text.
     fn render_block(&self, block: &ContentBlock) -> String {
         match block {
-            ContentBlock::Text(text) => {
-                if self.ansi {
-                    render_markdown_ansi(text)
-                } else {
-                    render_markdown_plain(text)
-                }
-            }
+            ContentBlock::Text(text) => render_markdown(text, self.ansi),
             ContentBlock::Thinking(text) => self.render_thinking(text),
             ContentBlock::ToolUse { name, input, .. } => self.render_tool_use(name, input),
             ContentBlock::ToolResult { content, .. } => self.render_tool_result(content),
@@ -764,9 +735,14 @@ impl Renderer for TerminalRenderer {
         }
 
         // Build the payload — the text content for stdout
+        let text = if self.ansi {
+            output_text
+        } else {
+            strip_ansi(&output_text)
+        };
         let payload = serde_json::json!({
             "content": {
-                "text": if self.ansi { output_text.clone() } else { strip_ansi(&output_text) }
+                "text": text
             }
         });
 
