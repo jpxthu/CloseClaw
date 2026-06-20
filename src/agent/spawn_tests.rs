@@ -662,77 +662,45 @@ async fn setup_kill_test_session(
     );
 }
 
+/// Macro to register a session and its parent-child relationship in one call.
+/// Each invocation stays compact (2 lines) even after `cargo fmt`.
+macro_rules! register_child {
+    ($mgr:expr, $tmp:expr, $parent:expr, $child:expr, $agent:expr, $depth:expr, $mode:expr) => {
+        setup_kill_test_session($mgr, $tmp, $child, $agent, $depth).await;
+        $mgr.register_child(
+            $parent,
+            ChildSessionInfo {
+                session_id: $child.to_string(),
+                parent_session_id: $parent.to_string(),
+                agent_id: $agent.to_string(),
+                depth: $depth,
+                mode: $mode,
+            },
+        )
+        .await;
+    };
+}
+
 /// Kill a child with multiple descendants (grandchild + great-grandchild)
 /// and verify no orphan entries remain in any tracking table.
 /// This is the key Step 1.2 multi-level cascade test.
+#[rustfmt::skip]
 #[tokio::test]
 async fn test_kill_child_cascades_removes_all_orphans_multilevel() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_session_manager();
 
     let parent_id = "parent-kill-multi";
-    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
-
     let child_id = "child-multi";
     let grandchild_a_id = "grandchild-a-multi";
     let grandchild_b_id = "grandchild-b-multi";
     let great_grandchild_id = "great-grandchild-multi";
 
-    // parent → child
-    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
-    mgr.register_child(
-        parent_id,
-        ChildSessionInfo {
-            session_id: child_id.to_string(),
-            parent_session_id: parent_id.to_string(),
-            agent_id: "child-agent".to_string(),
-            depth: 1,
-            mode: SpawnMode::Session,
-        },
-    )
-    .await;
-
-    // child → grandchild_a
-    setup_kill_test_session(&mgr, &tmp, grandchild_a_id, "gc-a-agent", 2).await;
-    mgr.register_child(
-        child_id,
-        ChildSessionInfo {
-            session_id: grandchild_a_id.to_string(),
-            parent_session_id: child_id.to_string(),
-            agent_id: "gc-a-agent".to_string(),
-            depth: 2,
-            mode: SpawnMode::Run,
-        },
-    )
-    .await;
-
-    // grandchild_a → great-grandchild
-    setup_kill_test_session(&mgr, &tmp, great_grandchild_id, "ggc-agent", 3).await;
-    mgr.register_child(
-        grandchild_a_id,
-        ChildSessionInfo {
-            session_id: great_grandchild_id.to_string(),
-            parent_session_id: grandchild_a_id.to_string(),
-            agent_id: "ggc-agent".to_string(),
-            depth: 3,
-            mode: SpawnMode::Run,
-        },
-    )
-    .await;
-
-    // child → grandchild_b
-    setup_kill_test_session(&mgr, &tmp, grandchild_b_id, "gc-b-agent", 2).await;
-    mgr.register_child(
-        child_id,
-        ChildSessionInfo {
-            session_id: grandchild_b_id.to_string(),
-            parent_session_id: child_id.to_string(),
-            agent_id: "gc-b-agent".to_string(),
-            depth: 2,
-            mode: SpawnMode::Session,
-        },
-    )
-    .await;
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+    register_child!(&mgr, &tmp, parent_id, child_id, "child-agent", 1, SpawnMode::Session);
+    register_child!(&mgr, &tmp, child_id, grandchild_a_id, "gc-a-agent", 2, SpawnMode::Run);
+    register_child!(&mgr, &tmp, grandchild_a_id, great_grandchild_id, "ggc-agent", 3, SpawnMode::Run);
+    register_child!(&mgr, &tmp, child_id, grandchild_b_id, "gc-b-agent", 2, SpawnMode::Session);
 
     // Verify initial state
     assert_eq!(mgr.count_active_children(parent_id).await, 1);
@@ -754,18 +722,9 @@ async fn test_kill_child_cascades_removes_all_orphans_multilevel() {
     assert!(!mgr.has_session(grandchild_b_id).await);
     assert!(!mgr.has_session(great_grandchild_id).await);
     assert!(mgr.get_conversation_session(child_id).await.is_none());
-    assert!(mgr
-        .get_conversation_session(grandchild_a_id)
-        .await
-        .is_none());
-    assert!(mgr
-        .get_conversation_session(grandchild_b_id)
-        .await
-        .is_none());
-    assert!(mgr
-        .get_conversation_session(great_grandchild_id)
-        .await
-        .is_none());
+    assert!(mgr.get_conversation_session(grandchild_a_id).await.is_none());
+    assert!(mgr.get_conversation_session(grandchild_b_id).await.is_none());
+    assert!(mgr.get_conversation_session(great_grandchild_id).await.is_none());
     assert_eq!(mgr.count_active_children(parent_id).await, 0);
     assert_eq!(mgr.count_active_children(child_id).await, 0);
     assert_eq!(mgr.count_active_children(grandchild_a_id).await, 0);
