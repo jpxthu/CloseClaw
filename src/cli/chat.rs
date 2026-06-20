@@ -68,7 +68,7 @@ pub(crate) async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
         name: "closeclaw-chat".to_string(),
         rate_limit_per_minute: 0,
         max_message_size: 16_384,
-        dm_scope: DmScope::PerChannelPeer,
+        dm_scope: DmScope::PerChannelSender,
         ..Default::default()
     };
 
