@@ -103,20 +103,12 @@ impl SpawnController {
         }
         let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
 
-        // ⑦ Compute effective_max_spawn_depth for the child.
-        let child_max_depth = resolved
-            .target_config
-            .as_ref()
-            .map(|c| c.subagents.max_spawn_depth)
-            .unwrap_or(1);
-        let effective_max = child_max_depth.min(parent.parent_effective_budget.saturating_sub(1));
-        let child_depth = parent.parent_depth + 1;
-        if child_depth > effective_max {
-            return Err(SpawnError::DepthExceeded {
-                current: child_depth,
-                max: effective_max,
-            });
-        }
+        // ⑦ Compute effective_max_spawn_depth and validate child depth.
+        let effective_max = self.compute_effective_max_depth(
+            parent.parent_depth,
+            parent.parent_effective_budget,
+            resolved.target_config.as_ref(),
+        )?;
 
         let config = resolved
             .target_config
@@ -125,6 +117,29 @@ impl SpawnController {
             config,
             effective_max_spawn_depth: effective_max,
         })
+    }
+
+    /// Compute the effective maximum spawn depth for a child session.
+    ///
+    /// Returns `Err(DepthExceeded)` if the child would exceed the budget.
+    fn compute_effective_max_depth(
+        &self,
+        parent_depth: u32,
+        parent_effective_budget: u32,
+        target_config: Option<&ResolvedAgentConfig>,
+    ) -> Result<u32, SpawnError> {
+        let child_max_depth = target_config
+            .map(|c| c.subagents.max_spawn_depth)
+            .unwrap_or(1);
+        let effective_max = child_max_depth.min(parent_effective_budget.saturating_sub(1));
+        let child_depth = parent_depth + 1;
+        if child_depth > effective_max {
+            return Err(SpawnError::DepthExceeded {
+                current: child_depth,
+                max: effective_max,
+            });
+        }
+        Ok(effective_max)
     }
 
     // ------------------------------------------------------------------
