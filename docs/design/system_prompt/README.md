@@ -81,6 +81,7 @@ Archived session 被访问
 ### 上游
 
 - **SessionManager**：在 session 创建和恢复时触发 system prompt 构建。
+- **Memory 模块**：提供 MEMORY.md，作为 static system prompt 的长期记忆段来源。
 - **Slash 模块**：`/system` 指令向 Session 写入 system_appends，system prompt 在每次 API 请求时从 Session 读取并拼入追加区。详细交互见 [slash/system-append](docs/design/slash/system-append.md)。
 
 ### 下游
