@@ -6,15 +6,20 @@ use crate::llm::anthropic::AnthropicProvider;
 use crate::llm::minimax::MiniMaxProvider;
 use crate::llm::openai::OpenAIProvider;
 use crate::llm::LLMRegistry;
+use std::collections::HashMap;
 
 impl Daemon {
     /// Initialize the LLM registry with credentials from config_dir or env vars.
     ///
     /// For each provider (openai, anthropic, minimax):
     /// 1. Try to load api_key from `config_dir/config/credentials/<provider>.json`
-    /// 2. Fall back to the corresponding env var if the file does not have it
+    /// 2. Fall back to `env_overrides` map
+    /// 3. Fall back to the corresponding env var if neither has it
     #[allow(dead_code)] // only invoked from `#[cfg(test)] mod unit_tests`
-    pub(crate) async fn init_llm_registry(config_dir: &Path) -> Arc<LLMRegistry> {
+    pub(crate) async fn init_llm_registry(
+        config_dir: &Path,
+        env_overrides: &HashMap<&str, &str>,
+    ) -> Arc<LLMRegistry> {
         let registry = Arc::new(LLMRegistry::new());
 
         // Load credentials from config/credentials/ directory
@@ -31,9 +36,10 @@ impl Daemon {
             }
         };
 
-        // Register OpenAI provider: credentials file first, then env var fallback
+        // Register OpenAI provider: credentials file first, then env override, then env var
         let openai_key = creds_provider
             .get_api_key("openai")
+            .or_else(|| env_overrides.get("OPENAI_API_KEY").map(|s| s.to_string()))
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = openai_key {
@@ -43,9 +49,14 @@ impl Daemon {
             info!("OpenAI provider registered");
         }
 
-        // Register Anthropic provider: credentials file first, then env var fallback
+        // Register Anthropic provider: credentials file first, then env override, then env var
         let anthropic_key = creds_provider
             .get_api_key("anthropic")
+            .or_else(|| {
+                env_overrides
+                    .get("ANTHROPIC_API_KEY")
+                    .map(|s| s.to_string())
+            })
             .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = anthropic_key {
@@ -55,9 +66,10 @@ impl Daemon {
             info!("Anthropic provider registered");
         }
 
-        // Register MiniMax provider: credentials file first, then env var fallback
+        // Register MiniMax provider: credentials file first, then env override, then env var
         let minimax_key = creds_provider
             .get_api_key("minimax")
+            .or_else(|| env_overrides.get("MINIMAX_API_KEY").map(|s| s.to_string()))
             .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = minimax_key {
