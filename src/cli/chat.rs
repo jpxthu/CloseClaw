@@ -5,13 +5,14 @@
 //! [`SessionMessageHandler`], and runs a read-eval-print loop that routes
 //! user input through the full inbound/outbound message pipeline.
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::providers::{ConfigProvider, CredentialsProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::terminal::TerminalPlugin;
+use crate::im_adapter::plugin::IMPlugin;
 use crate::llm::anthropic::AnthropicProvider;
 use crate::llm::fallback::{FallbackClient, ModelEntry};
 use crate::llm::minimax::MiniMaxProvider;
@@ -325,7 +326,7 @@ async fn create_session(
 /// Returns [`ExitReason::Quit`] when the user exits normally, or
 /// [`ExitReason::Error`] on I/O failure.
 async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) -> ExitReason {
-    let stdin = io::stdin();
+    let plugin = TerminalPlugin::new();
 
     loop {
         print!("> ");
@@ -333,21 +334,26 @@ async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) ->
             return ExitReason::Error(anyhow::anyhow!("failed to flush stdout"));
         }
 
-        let content = match read_user_input(&stdin) {
-            InputResult::Message(c) => c,
-            InputResult::Quit => {
-                println!("Goodbye!");
-                return ExitReason::Quit;
-            }
-            InputResult::Empty => continue,
-            InputResult::Eof => {
-                println!("\nGoodbye!");
-                return ExitReason::Quit;
-            }
-            InputResult::IoError(e) => {
-                return ExitReason::Error(anyhow::anyhow!("read error: {}", e));
+        let message = match plugin.parse_inbound(&[]).await {
+            Ok(Some(msg)) => msg,
+            Ok(None) => continue,
+            Err(e) => {
+                return ExitReason::Error(anyhow::anyhow!("input error: {}", e));
             }
         };
+
+        let content = message.content;
+        let trimmed = content.trim();
+
+        if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
+            println!("Goodbye!");
+            return ExitReason::Quit;
+        }
+        if trimmed.eq_ignore_ascii_case("/stop") {
+            println!("Session stopped.");
+            println!("Goodbye!");
+            return ExitReason::Quit;
+        }
 
         let result = gateway
             .handle_inbound_message(session_id, content, Some(sender_id), "terminal")
@@ -360,60 +366,5 @@ async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) ->
         // Allow the streaming response to flush to stdout.
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         println!();
-    }
-}
-
-/// Result of reading one user input attempt.
-enum InputResult {
-    /// A non-empty message ready to send.
-    Message(String),
-    /// User typed quit, exit, or /stop.
-    Quit,
-    /// Blank input — prompt again.
-    Empty,
-    /// EOF reached (stdin closed).
-    Eof,
-    /// I/O error.
-    IoError(io::Error),
-}
-
-/// Read user input from stdin until a blank line (message boundary) or EOF.
-fn read_user_input(stdin: &io::Stdin) -> InputResult {
-    let mut lines = Vec::new();
-
-    for line in stdin.lock().lines() {
-        match line {
-            Ok(text) => {
-                let trimmed = text.trim();
-                if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
-                    return InputResult::Quit;
-                }
-                if trimmed.eq_ignore_ascii_case("/stop") {
-                    println!("Session stopped.");
-                    return InputResult::Quit;
-                }
-                if trimmed.is_empty() {
-                    if lines.is_empty() {
-                        print!("> ");
-                        let _ = io::stdout().flush();
-                        continue;
-                    }
-                    break;
-                }
-                lines.push(text);
-            }
-            Err(e) => return InputResult::IoError(e),
-        }
-    }
-
-    if lines.is_empty() {
-        return InputResult::Eof;
-    }
-
-    let content = lines.join("\n");
-    if content.trim().is_empty() {
-        InputResult::Empty
-    } else {
-        InputResult::Message(content)
     }
 }
