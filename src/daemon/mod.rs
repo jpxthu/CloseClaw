@@ -14,6 +14,7 @@ use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::config::ConfigManager;
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
+use crate::im::terminal::TerminalPlugin;
 use crate::renderer::feishu::FeishuRenderer;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
@@ -245,6 +246,7 @@ impl Daemon {
 
         info!("Gateway initialized");
         Self::init_feishu_plugin(config_dir, &gateway).await?;
+        Self::init_terminal_plugin(&gateway).await;
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
         // Initialize skill hot reload system
@@ -518,6 +520,16 @@ impl Daemon {
             info!("Feishu credentials not found in env — Feishu plugin not registered");
         }
         Ok(())
+    }
+
+    /// Initialize the terminal (CLI) IM plugin and register with Gateway.
+    ///
+    /// TerminalPlugin requires no credentials — it reads from stdin and writes
+    /// to stdout, so it is always registered when the daemon starts.
+    async fn init_terminal_plugin(gateway: &Arc<Gateway>) {
+        let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
+        gateway.register_plugin(plugin).await;
+        info!("Terminal plugin registered");
     }
 }
 

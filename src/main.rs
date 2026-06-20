@@ -37,6 +37,8 @@ enum Commands {
         #[command(subcommand)]
         action: SkillAction,
     },
+    /// Interactive chat with an agent via the terminal.
+    Chat(ChatArgs),
     Run {
         #[arg(short, long, default_value = "")]
         config_dir: String,
@@ -56,6 +58,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Config { action } => handle_config(action, cli.json).await?,
         Commands::Rule { action } => handle_rule(action, cli.json).await?,
         Commands::Skill { action } => handle_skill(action, cli.json).await?,
+        Commands::Chat(args) => closeclaw::cli::chat::run_chat(&args.agent_id).await?,
         Commands::Run { config_dir } => {
             let config_dir: PathBuf = if config_dir.is_empty() {
                 dirs::home_dir()

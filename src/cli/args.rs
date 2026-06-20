@@ -1,6 +1,6 @@
 //! CLI argument types for CloseClaw commands.
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub enum AgentAction {
@@ -58,4 +58,12 @@ pub enum SkillAction {
         /// Skill name
         name: String,
     },
+}
+
+/// Interactive chat with an agent via the terminal.
+#[derive(Args)]
+pub struct ChatArgs {
+    /// Agent ID to chat with.
+    #[arg(short = 'a', long = "agent-id")]
+    pub agent_id: String,
 }
