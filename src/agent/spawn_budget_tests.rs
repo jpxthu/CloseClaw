@@ -885,10 +885,19 @@ async fn test_kill_child_cascades_to_grandchild() {
     assert!(!mgr.has_session(child_id).await);
     assert!(mgr.get_conversation_session(child_id).await.is_none());
     assert_eq!(mgr.count_active_children(parent_id).await, 0);
-    // Grandchild token is cascade-stopped but remains in session tables
-    // (table cleanup is the parent's responsibility via kill_child or sweeper)
+    // Grandchild is recursively cleaned up — all tracking tables are
+    // purged (per design doc §级联 Kill: from deepest to shallowest).
     assert!(
-        mgr.has_session(grandchild_id).await,
-        "grandchild session remains in sessions table after parent kill"
+        !mgr.has_session(grandchild_id).await,
+        "grandchild session should be recursively removed after parent kill"
+    );
+    assert!(
+        mgr.get_conversation_session(grandchild_id).await.is_none(),
+        "grandchild conversation_session should be removed after parent kill"
+    );
+    assert_eq!(
+        mgr.count_active_children(child_id).await,
+        0,
+        "grandchild entry should be removed from children table"
     );
 }

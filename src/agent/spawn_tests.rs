@@ -629,3 +629,272 @@ async fn test_validate_depth_before_agent_id_required() {
         ),
     }
 }
+
+// ── Step 1.2: multi-level cascade kill — no orphan entries ────────────
+
+/// Helper to create a minimal ConversationSession + register it in a
+/// SessionManager for cascade-kill tests.
+async fn setup_kill_test_session(
+    mgr: &crate::gateway::SessionManager,
+    tmp: &tempfile::TempDir,
+    session_id: &str,
+    agent_id: &str,
+    depth: u32,
+) {
+    let cs = crate::llm::session::ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        tmp.path().to_path_buf(),
+    );
+    mgr.conversation_sessions.write().await.insert(
+        session_id.to_string(),
+        std::sync::Arc::new(tokio::sync::RwLock::new(cs)),
+    );
+    mgr.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::gateway::Session {
+            id: session_id.to_string(),
+            agent_id: agent_id.to_string(),
+            channel: "spawn".to_string(),
+            created_at: 0,
+            depth,
+        },
+    );
+}
+
+/// Kill a child with multiple descendants (grandchild + great-grandchild)
+/// and verify no orphan entries remain in any tracking table.
+/// This is the key Step 1.2 multi-level cascade test.
+#[tokio::test]
+async fn test_kill_child_cascades_removes_all_orphans_multilevel() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-kill-multi";
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+
+    let child_id = "child-multi";
+    let grandchild_a_id = "grandchild-a-multi";
+    let grandchild_b_id = "grandchild-b-multi";
+    let great_grandchild_id = "great-grandchild-multi";
+
+    // parent → child
+    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
+    mgr.register_child(
+        parent_id,
+        ChildSessionInfo {
+            session_id: child_id.to_string(),
+            parent_session_id: parent_id.to_string(),
+            agent_id: "child-agent".to_string(),
+            depth: 1,
+            mode: SpawnMode::Session,
+        },
+    )
+    .await;
+
+    // child → grandchild_a
+    setup_kill_test_session(&mgr, &tmp, grandchild_a_id, "gc-a-agent", 2).await;
+    mgr.register_child(
+        child_id,
+        ChildSessionInfo {
+            session_id: grandchild_a_id.to_string(),
+            parent_session_id: child_id.to_string(),
+            agent_id: "gc-a-agent".to_string(),
+            depth: 2,
+            mode: SpawnMode::Run,
+        },
+    )
+    .await;
+
+    // grandchild_a → great-grandchild
+    setup_kill_test_session(&mgr, &tmp, great_grandchild_id, "ggc-agent", 3).await;
+    mgr.register_child(
+        grandchild_a_id,
+        ChildSessionInfo {
+            session_id: great_grandchild_id.to_string(),
+            parent_session_id: grandchild_a_id.to_string(),
+            agent_id: "ggc-agent".to_string(),
+            depth: 3,
+            mode: SpawnMode::Run,
+        },
+    )
+    .await;
+
+    // child → grandchild_b
+    setup_kill_test_session(&mgr, &tmp, grandchild_b_id, "gc-b-agent", 2).await;
+    mgr.register_child(
+        child_id,
+        ChildSessionInfo {
+            session_id: grandchild_b_id.to_string(),
+            parent_session_id: child_id.to_string(),
+            agent_id: "gc-b-agent".to_string(),
+            depth: 2,
+            mode: SpawnMode::Session,
+        },
+    )
+    .await;
+
+    // Verify initial state
+    assert_eq!(mgr.count_active_children(parent_id).await, 1);
+    assert_eq!(mgr.count_active_children(child_id).await, 2);
+    assert_eq!(mgr.count_active_children(grandchild_a_id).await, 1);
+    assert!(mgr.has_session(child_id).await);
+    assert!(mgr.has_session(grandchild_a_id).await);
+    assert!(mgr.has_session(grandchild_b_id).await);
+    assert!(mgr.has_session(great_grandchild_id).await);
+
+    // Kill child — should recursively clean up all descendants
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    // ALL descendants removed — no orphans
+    assert!(!mgr.has_session(child_id).await);
+    assert!(!mgr.has_session(grandchild_a_id).await);
+    assert!(!mgr.has_session(grandchild_b_id).await);
+    assert!(!mgr.has_session(great_grandchild_id).await);
+    assert!(mgr.get_conversation_session(child_id).await.is_none());
+    assert!(mgr
+        .get_conversation_session(grandchild_a_id)
+        .await
+        .is_none());
+    assert!(mgr
+        .get_conversation_session(grandchild_b_id)
+        .await
+        .is_none());
+    assert!(mgr
+        .get_conversation_session(great_grandchild_id)
+        .await
+        .is_none());
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+    assert_eq!(mgr.count_active_children(child_id).await, 0);
+    assert_eq!(mgr.count_active_children(grandchild_a_id).await, 0);
+}
+
+/// Verify that kill_child on a child with no descendants is a clean removal.
+#[tokio::test]
+async fn test_kill_child_no_descendants_clean_removal() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-no-desc";
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+
+    let child_id = "lone-child";
+    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
+    mgr.register_child(
+        parent_id,
+        ChildSessionInfo {
+            session_id: child_id.to_string(),
+            parent_session_id: parent_id.to_string(),
+            agent_id: "child-agent".to_string(),
+            depth: 1,
+            mode: SpawnMode::Run,
+        },
+    )
+    .await;
+
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    assert!(!mgr.has_session(child_id).await);
+    assert!(mgr.get_conversation_session(child_id).await.is_none());
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+}
+
+// ── Step 1.3: children survive across parent turns ────────────────────
+
+/// Verify that session-mode children registered under a parent are NOT
+/// prematurely removed without an explicit kill. This test validates the
+/// Step 1.3 design invariant: cascade termination only occurs on parent
+/// session end or timeout, not on each finish_llm turn.
+#[tokio::test]
+async fn test_session_child_survives_without_explicit_kill() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-survive";
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+
+    let child_id = "surviving-child";
+    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
+    mgr.register_child(
+        parent_id,
+        ChildSessionInfo {
+            session_id: child_id.to_string(),
+            parent_session_id: parent_id.to_string(),
+            agent_id: "child-agent".to_string(),
+            depth: 1,
+            mode: SpawnMode::Session,
+        },
+    )
+    .await;
+
+    // Simulate multiple parent turns — child should remain alive
+    for turn in 0..3 {
+        assert!(
+            mgr.has_session(child_id).await,
+            "child should survive turn {}",
+            turn
+        );
+        assert!(
+            mgr.get_conversation_session(child_id).await.is_some(),
+            "child conversation session should survive turn {}",
+            turn
+        );
+        assert_eq!(
+            mgr.count_active_children(parent_id).await,
+            1,
+            "child count should remain 1 at turn {}",
+            turn
+        );
+    }
+
+    // Only after explicit kill should the child be removed
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    assert!(!mgr.has_session(child_id).await);
+    assert!(mgr.get_conversation_session(child_id).await.is_none());
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+}
+
+/// Verify that run-mode children also survive without explicit kill
+/// (cascade was removed from finish_llm, so run-mode children are only
+/// cleaned up by the sweeper or explicit kill).
+#[tokio::test]
+async fn test_run_child_survives_without_explicit_kill() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mgr = make_session_manager();
+
+    let parent_id = "parent-run-survive";
+    setup_kill_test_session(&mgr, &tmp, parent_id, "parent-agent", 0).await;
+
+    let child_id = "run-surviving-child";
+    setup_kill_test_session(&mgr, &tmp, child_id, "child-agent", 1).await;
+    mgr.register_child(
+        parent_id,
+        ChildSessionInfo {
+            session_id: child_id.to_string(),
+            parent_session_id: parent_id.to_string(),
+            agent_id: "child-agent".to_string(),
+            depth: 1,
+            mode: SpawnMode::Run,
+        },
+    )
+    .await;
+
+    // Verify child is alive
+    assert!(mgr.has_session(child_id).await);
+    assert_eq!(mgr.count_active_children(parent_id).await, 1);
+
+    // Explicit kill removes it
+    mgr.kill_child(parent_id, child_id)
+        .await
+        .expect("kill_child should succeed");
+
+    assert!(!mgr.has_session(child_id).await);
+    assert_eq!(mgr.count_active_children(parent_id).await, 0);
+}
