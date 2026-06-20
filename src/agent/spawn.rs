@@ -40,6 +40,21 @@ pub struct SpawnController {
     session_manager: Arc<SessionManager>,
 }
 
+/// Internal result from resolving parent depth and max spawn budget.
+struct ResolvedParentDepth {
+    parent_depth: u32,
+    parent_effective_budget: u32,
+}
+
+/// Internal result from resolving target agent configuration.
+struct ResolvedTarget {
+    target_id: Option<String>,
+    max_children: u32,
+    allow_agents: Vec<String>,
+    require_agent_id: bool,
+    target_config: Option<ResolvedAgentConfig>,
+}
+
 impl SpawnController {
     pub fn new(config_manager: Arc<ConfigManager>, session_manager: Arc<SessionManager>) -> Self {
         Self {
@@ -58,25 +73,77 @@ impl SpawnController {
         parent_session_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<SpawnValidationResult, SpawnError> {
-        // 1. Get parent depth — no lock needed, only reads runtime state.
+        // ① Depth check — read parent depth + config, validate budget.
+        let parent = self.resolve_parent_depth(parent_session_id).await?;
+
+        // ② AgentId fallback + config resolution (single lock block).
+        let resolved = self
+            .resolve_target_config(parent_session_id, target_agent_id)
+            .await?;
+
+        // ③ Concurrency check.
+        self.check_concurrency(parent_session_id, resolved.max_children)
+            .await?;
+
+        // ④ Whitelist check.
+        if let Some(ref tid) = resolved.target_id {
+            self.check_whitelist(tid, &resolved.allow_agents)?;
+        }
+
+        // ⑤ require_agent_id check — must come after concurrency/whitelist.
+        if resolved.require_agent_id && resolved.target_id.is_none() {
+            return Err(SpawnError::AgentIdRequired);
+        }
+        let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
+
+        // ⑥ Compute effective_max_spawn_depth for the child.
+        let child_max_spawn_depth = resolved
+            .target_config
+            .as_ref()
+            .map(|c| c.subagents.max_spawn_depth)
+            .unwrap_or(1);
+        let effective_max =
+            child_max_spawn_depth.min(parent.parent_effective_budget.saturating_sub(1));
+        let child_depth = parent.parent_depth + 1;
+        if child_depth > effective_max {
+            return Err(SpawnError::DepthExceeded {
+                current: child_depth,
+                max: effective_max,
+            });
+        }
+
+        let config = resolved
+            .target_config
+            .ok_or(SpawnError::ConfigNotFound(target_id))?;
+        Ok(SpawnValidationResult {
+            config,
+            effective_max_spawn_depth: effective_max,
+        })
+    }
+
+    // ------------------------------------------------------------------
+    // Private helpers
+    // ------------------------------------------------------------------
+
+    /// Resolve the parent session's depth and maximum spawn budget.
+    /// Reads the parent agent config to get `max_spawn_depth`, then
+    /// compares with `get_effective_max_spawn_depth` from session manager.
+    async fn resolve_parent_depth(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<ResolvedParentDepth, SpawnError> {
         let parent_depth = self
             .session_manager
             .get_session_depth(parent_session_id)
             .await
             .unwrap_or(0);
 
-        // 2. Determine parent agent_id from session manager.
         let parent_agent_id = self
             .session_manager
             .get_chat_id(parent_session_id)
             .await
             .unwrap_or_default();
 
-        // 3. Depth check FIRST — design doc requires depth to be evaluated
-        //    before agentId resolution.  We read the parent's max_spawn_depth
-        //    from the config (read lock held only for the lookup, dropped
-        //    immediately).  This ensures depth=0 always returns DepthExceeded
-        //    rather than falling through to AgentIdRequired.
         let parent_max_spawn_depth = {
             let agents = self
                 .config_manager
@@ -102,11 +169,29 @@ impl SpawnController {
             });
         }
 
-        // 4. Load parent config and resolve target_id under the lock.
-        // ConfigManager.agents uses std::sync::RwLock, whose read guard is
-        // !Send. We must not hold it across an .await, so all lock-scoped
-        // work is performed inside this block and the guard is dropped
-        // before any await below.
+        Ok(ResolvedParentDepth {
+            parent_depth,
+            parent_effective_budget,
+        })
+    }
+
+    /// Resolve the target agent configuration under a single lock block.
+    /// Handles the agentId fallback: if no `target_agent_id` is provided,
+    /// falls back to the parent config's `default_child_agent`.
+    async fn resolve_target_config(
+        &self,
+        parent_session_id: &str,
+        target_agent_id: Option<&str>,
+    ) -> Result<ResolvedTarget, SpawnError> {
+        let parent_agent_id = self
+            .session_manager
+            .get_chat_id(parent_session_id)
+            .await
+            .unwrap_or_default();
+
+        // Single lock acquisition — agentId fallback + parent config read.
+        // ConfigManager.agents uses std::sync::RwLock whose read guard is
+        // !Send. All lock-scoped work must complete before any .await.
         let (target_id, max_children, allow_agents, require_agent_id, target_config) = {
             let agents = self
                 .config_manager
@@ -127,7 +212,6 @@ impl SpawnController {
                         sc.allow_agents.clone(),
                     )
                 } else {
-                    // No parent config found — use design-doc defaults
                     (
                         target_agent_id.map(|s| s.to_string()),
                         false,
@@ -136,9 +220,6 @@ impl SpawnController {
                     )
                 };
 
-            // Pre-clone the target config so we don't need the lock after
-            // this block.  target_id may be None here (require_agent_id is
-            // checked later per the design-doc order).
             let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());
 
             (
@@ -149,9 +230,22 @@ impl SpawnController {
                 target_config,
             )
         };
-        // Lock guard dropped — safe to .await below.
 
-        // 5. Concurrency check (design doc ②)
+        Ok(ResolvedTarget {
+            target_id,
+            max_children,
+            allow_agents,
+            require_agent_id,
+            target_config,
+        })
+    }
+
+    /// Check that the parent has not reached its maximum concurrent children.
+    async fn check_concurrency(
+        &self,
+        parent_session_id: &str,
+        max_children: u32,
+    ) -> Result<(), SpawnError> {
         let active = self
             .session_manager
             .count_active_children(parent_session_id)
@@ -162,43 +256,16 @@ impl SpawnController {
                 max: max_children,
             });
         }
+        Ok(())
+    }
 
-        // 6. Whitelist check (design doc ③)
-        if let Some(ref tid) = target_id {
-            if !allow_agents.iter().any(|a| a == "*" || a == tid) {
-                return Err(SpawnError::AgentNotAllowed {
-                    agent_id: tid.clone(),
-                });
-            }
-        }
-
-        // 7. require_agent_id check (design doc ④) — must come after
-        //    concurrency and whitelist checks, not before.
-        if require_agent_id && target_id.is_none() {
-            return Err(SpawnError::AgentIdRequired);
-        }
-        let target_id = target_id.ok_or(SpawnError::AgentIdRequired)?;
-
-        // 8. Compute effective_max_spawn_depth for the child and return.
-        //    depth was already validated in step 3 (parent budget != 0);
-        //    now verify child_depth <= effective_max.
-        let child_max_spawn_depth = target_config
-            .as_ref()
-            .map(|c| c.subagents.max_spawn_depth)
-            .unwrap_or(1);
-        let effective_max = child_max_spawn_depth.min(parent_effective_budget.saturating_sub(1));
-        let child_depth = parent_depth + 1;
-        if child_depth > effective_max {
-            return Err(SpawnError::DepthExceeded {
-                current: child_depth,
-                max: effective_max,
+    /// Check that the target agent is in the parent's allowlist.
+    fn check_whitelist(&self, target_id: &str, allow_agents: &[String]) -> Result<(), SpawnError> {
+        if !allow_agents.iter().any(|a| a == "*" || a == target_id) {
+            return Err(SpawnError::AgentNotAllowed {
+                agent_id: target_id.to_string(),
             });
         }
-
-        let config = target_config.ok_or(SpawnError::ConfigNotFound(target_id))?;
-        Ok(SpawnValidationResult {
-            config,
-            effective_max_spawn_depth: effective_max,
-        })
+        Ok(())
     }
 }
