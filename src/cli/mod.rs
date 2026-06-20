@@ -3,3 +3,6 @@
 pub mod args;
 pub mod chat;
 pub mod config_wizard;
+
+#[cfg(test)]
+mod chat_tests;
