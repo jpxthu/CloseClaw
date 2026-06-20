@@ -1,5 +1,12 @@
 [
   {
+    "path": "docs/design/agent/README.md",
+    "commit": "d87e6ec429bb0825a966fd96ee4da470e11436b8",
+    "commit_time": "2026-06-20T11:14:23+08:00",
+    "confirmed_time": "2026-06-20T11:22:10.692523+08:00",
+    "comment": ""
+  },
+  {
     "path": "docs/design/agent/agent-config.md",
     "commit": "7264e812f9244b352780b446205b670e1732ec6d",
     "commit_time": "2026-06-19T21:50:32+08:00",
