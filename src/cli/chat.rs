@@ -385,6 +385,22 @@ async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) ->
         };
 
         let content = message.content;
+        let message_id = format!(
+            "cli-{}-{}",
+            sender_id,
+            chrono::Utc::now().timestamp_millis()
+        );
+
+        // Run the inbound processor chain (ContentNormalizer, RawLog, etc.).
+        let processed = gateway
+            .process_inbound_chain("terminal", sender_id, "cli", &content, &message_id)
+            .await;
+
+        if processed.suppress {
+            continue;
+        }
+
+        let content = processed.content;
         let trimmed = content.trim();
 
         if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {

@@ -204,3 +204,104 @@ fn test_stop_detection() {
     assert!(!is_stop_command("stop"));
     assert!(!is_stop_command("/stopextra"));
 }
+
+// ── Inbound Processor Chain integration tests ─────────────────────────────
+
+use crate::processor_chain::content_normalizer::ContentNormalizer;
+use crate::processor_chain::context::ProcessedMessage;
+use crate::processor_chain::{MessageContext, ProcessError, ProcessorRegistry};
+use async_trait::async_trait;
+
+/// A mock processor that suppresses messages (for testing suppress behavior).
+struct SuppressProcessor;
+
+#[async_trait]
+impl crate::processor_chain::MessageProcessor for SuppressProcessor {
+    fn name(&self) -> &str {
+        "suppress-processor"
+    }
+
+    fn phase(&self) -> crate::processor_chain::ProcessPhase {
+        crate::processor_chain::ProcessPhase::Inbound
+    }
+
+    fn priority(&self) -> u8 {
+        0
+    }
+
+    async fn process(
+        &self,
+        _ctx: &MessageContext,
+    ) -> Result<Option<ProcessedMessage>, ProcessError> {
+        Ok(Some(ProcessedMessage {
+            content: String::new(),
+            metadata: serde_json::Map::new(),
+            suppress: true,
+            content_blocks: vec![],
+        }))
+    }
+}
+
+/// Build a Gateway with the given ProcessorRegistry (shared across chat tests).
+fn make_gw_with_registry(registry: ProcessorRegistry) -> crate::gateway::Gateway {
+    let config = GatewayConfig {
+        name: "test".to_string(),
+        ..Default::default()
+    };
+    crate::gateway::Gateway::with_processor_registry(
+        config,
+        Arc::new(crate::gateway::SessionManager::new(
+            &crate::gateway::GatewayConfig {
+                name: "test".to_string(),
+                ..Default::default()
+            },
+            None,
+            None,
+            crate::session::bootstrap::BootstrapMode::Full,
+            crate::session::persistence::ReasoningLevel::default(),
+        )),
+        Arc::new(registry),
+    )
+}
+
+#[tokio::test]
+async fn test_process_inbound_chain_cleans_control_characters() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+    let gateway = make_gw_with_registry(registry);
+
+    let input = "hello\x1b[31mworld\x1b[0m";
+    let processed = gateway
+        .process_inbound_chain("terminal", "u1", "cli", input, "msg-1")
+        .await;
+
+    assert_eq!(processed.content, "helloworld");
+    assert!(!processed.suppress);
+}
+
+#[tokio::test]
+async fn test_process_inbound_chain_suppress_message() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(SuppressProcessor));
+    let gateway = make_gw_with_registry(registry);
+
+    let processed = gateway
+        .process_inbound_chain("terminal", "u1", "cli", "hello", "msg-1")
+        .await;
+
+    assert!(processed.suppress, "expected suppress flag to be set");
+}
+
+#[tokio::test]
+async fn test_process_inbound_chain_quit_exit_not_affected() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+    let gateway = make_gw_with_registry(registry);
+
+    for cmd in &["quit", "exit", "/stop"] {
+        let processed = gateway
+            .process_inbound_chain("terminal", "u1", "cli", cmd, "msg-1")
+            .await;
+        assert_eq!(processed.content.trim(), *cmd);
+    }
+}
