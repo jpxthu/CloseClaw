@@ -1,13 +1,17 @@
-//! Terminal renderer — converts LLM [`ContentBlock`]s to ANSI-formatted text.
+//! Terminal channel — renderer and adapter for CLI chat.
 //!
-//! Detects terminal ANSI capability and falls back to plain text when
-//! unsupported. Handles all block types defined in the design doc:
-//! Text, Thinking, ToolUse, ToolResult, and unsupported placeholders.
+//! - [`TerminalRenderer`]: converts LLM [`ContentBlock`]s to ANSI-formatted
+//!   text. Detects terminal ANSI capability and falls back to plain text.
+//! - [`TerminalAdapter`]: reads user input from stdin, producing
+//!   [`NormalizedMessage`]s with blank-line-delimited message boundaries.
 
 use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
+use crate::im_adapter::normalized::NormalizedMessage;
 use crate::im_adapter::renderer::{RenderedOutput, Renderer};
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;
+use std::io::{self, BufRead};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // ANSI escape codes
@@ -512,4 +516,93 @@ impl Renderer for TerminalRenderer {
             payload,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// TerminalAdapter
+// ---------------------------------------------------------------------------
+
+/// Adapter that reads user input from stdin and produces
+/// [`NormalizedMessage`]s.
+///
+/// Messages are delimited by blank lines: a sequence of non-empty lines
+/// followed by an empty line forms one message. Trailing newlines within
+/// a message are preserved.
+#[derive(Debug, Clone, Default)]
+pub struct TerminalAdapter;
+
+impl TerminalAdapter {
+    /// Create a new adapter.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Read a single message from stdin.
+    ///
+    /// Collects lines until a blank line is encountered, then returns the
+    /// joined content as a [`NormalizedMessage`]. Returns `None` when the
+    /// input is empty or stdin is exhausted (EOF).
+    pub fn read_input(&self) -> Option<NormalizedMessage> {
+        let stdin = io::stdin();
+        let mut lines = Vec::new();
+
+        for line in stdin.lock().lines() {
+            match line {
+                Ok(text) => {
+                    if text.trim().is_empty() {
+                        // Blank line → message boundary
+                        if lines.is_empty() {
+                            continue;
+                        }
+                        break;
+                    }
+                    lines.push(text);
+                }
+                Err(_) => break,
+            }
+        }
+
+        if lines.is_empty() {
+            return None;
+        }
+
+        let content = lines.join("\n");
+        Some(self.make_message(content))
+    }
+
+    /// Build a [`NormalizedMessage`] from raw text content.
+    fn make_message(&self, content: String) -> NormalizedMessage {
+        NormalizedMessage {
+            platform: "terminal".to_string(),
+            sender_id: current_uid(),
+            peer_id: "cli".to_string(),
+            content,
+            timestamp: current_timestamp(),
+            thread_id: None,
+            account_id: None,
+        }
+    }
+}
+
+/// Return the current user's system UID as a string.
+///
+/// On Unix, uses `libc::getuid()`. On other platforms, falls back to a
+/// static identifier.
+fn current_uid() -> String {
+    #[cfg(unix)]
+    {
+        unsafe { libc::getuid() }.to_string()
+    }
+    #[cfg(not(unix))]
+    {
+        "terminal-user".to_string()
+    }
+}
+
+/// Return the current Unix timestamp in seconds.
+fn current_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
