@@ -12,10 +12,13 @@ use crate::gateway::Session;
 use crate::llm::session::ChatSession;
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
-use crate::session::persistence::{PendingMessage, SessionCheckpoint, SessionStatus};
+use crate::session::persistence::{
+    PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
+};
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::ToolContext;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::warn;
 use uuid::Uuid;
@@ -621,5 +624,64 @@ impl SessionManager {
         // Reverse so deepest descendants come first.
         result.reverse();
         result
+    }
+
+    /// Rebuild the spawn tree (children table) from persisted checkpoints.
+    ///
+    /// Called at startup after all sessions are restored. Iterates all
+    /// active + archived checkpoints and registers parent-child
+    /// relationships. Sessions whose parent has been swept are
+    /// silently skipped (degraded to root).
+    pub async fn rebuild_spawn_tree(&self) -> Result<(), PersistenceError> {
+        let storage_arc = {
+            let guard = self.storage.read().await;
+            match guard.as_ref() {
+                Some(s) => std::sync::Arc::clone(s),
+                None => return Ok(()),
+            }
+        };
+
+        // Collect all session_ids from active + archived.
+        let mut all_ids: Vec<String> = {
+            let active = storage_arc.list_active_sessions().await?;
+            let archived = storage_arc.list_archived_sessions().await?;
+            let mut ids = active;
+            ids.extend(archived);
+            ids
+        };
+        all_ids.sort();
+        all_ids.dedup();
+
+        let known_ids: HashSet<&str> = all_ids.iter().map(|s| s.as_str()).collect();
+        let mut rebuilt: u32 = 0;
+
+        for session_id in &all_ids {
+            let cp = match storage_arc.load_checkpoint(session_id).await {
+                Ok(Some(cp)) => cp,
+                _ => continue,
+            };
+            let parent_id = match cp.parent_session_id.as_deref() {
+                Some(p) => p,
+                None => continue, // root node
+            };
+            if !known_ids.contains(parent_id) {
+                continue; // parent missing — orphan, degrade to root
+            }
+            self.register_child(
+                parent_id,
+                ChildSessionInfo {
+                    session_id: session_id.clone(),
+                    parent_session_id: parent_id.to_string(),
+                    agent_id: cp.agent_id.unwrap_or_default(),
+                    depth: cp.depth,
+                    mode: SpawnMode::Session,
+                },
+            )
+            .await;
+            rebuilt += 1;
+        }
+
+        tracing::info!(rebuilt, "spawn_tree rebuilt from checkpoints");
+        Ok(())
     }
 }
