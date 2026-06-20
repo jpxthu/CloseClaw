@@ -684,8 +684,7 @@ async fn test_config_validate_invalid_json() {
     let tmp = TempDir::new().unwrap();
     let file = tmp.path().join("bad.json");
     fs::write(&file, "{not valid json").unwrap();
-    // With json=true and invalid JSON, handler calls json_error which exits(1)
-    // We can't test this in-process because json_error calls process::exit
+    // With json=true and invalid JSON, handler returns an anyhow::Error via json_error
     // Just verify the handler returns Err for invalid JSON (non-json mode)
     let result = handle_config(
         ConfigAction::Validate {

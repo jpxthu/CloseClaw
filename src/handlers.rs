@@ -89,6 +89,18 @@ pub(crate) struct StopOutput {
     pub stopped: bool,
 }
 
+#[derive(Serialize)]
+pub(crate) struct AgentCreateOutput {
+    pub status: &'static str,
+    pub name: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SkillInstallOutput {
+    pub status: &'static str,
+    pub name: String,
+}
+
 #[allow(dead_code)] // pub API for masking secrets in CLI output (covered by tests)
 pub fn mask_key(key: &str) -> String {
     if key.len() <= 8 {
@@ -219,11 +231,6 @@ async fn handle_agent_create_rpc(
     match resp {
         closeclaw::admin::AdminResponse::Ok => {
             if json {
-                #[derive(Serialize)]
-                struct AgentCreateOutput {
-                    status: &'static str,
-                    name: String,
-                }
                 json_output(&AgentCreateOutput {
                     status: "created",
                     name: name.to_string(),
@@ -400,7 +407,7 @@ fn handle_rule_check(rule: &str, json: bool) -> Result<()> {
         Ok(r) => r,
         Err(e) => {
             if json {
-                json_error(&format!("Failed to parse rule JSON: {}", e));
+                return Err(json_error(&format!("Failed to parse rule JSON: {}", e)));
             }
             anyhow::bail!("Failed to parse rule JSON: {}", e);
         }
@@ -541,11 +548,6 @@ async fn handle_skill_install_rpc(
     name: &str,
     json: bool,
 ) -> Result<()> {
-    #[derive(Serialize)]
-    struct SkillInstallOutput {
-        status: &'static str,
-        name: String,
-    }
     let resp = client
         .call(&closeclaw::admin::AdminRequest::SkillInstall {
             name: name.to_string(),
