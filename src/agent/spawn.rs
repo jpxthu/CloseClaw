@@ -46,12 +46,16 @@ struct ResolvedParentDepth {
     parent_effective_budget: u32,
 }
 
-/// Internal result from resolving target agent configuration.
-struct ResolvedTarget {
-    target_id: Option<String>,
+/// Parent agent config fields needed for concurrency/whitelist checks.
+struct ParentSpawnConfig {
     max_children: u32,
     allow_agents: Vec<String>,
     require_agent_id: bool,
+}
+
+/// Result from resolving target agent configuration (agentId fallback).
+struct ResolvedTarget {
+    target_id: Option<String>,
     target_config: Option<ResolvedAgentConfig>,
 }
 
@@ -73,37 +77,39 @@ impl SpawnController {
         parent_session_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<SpawnValidationResult, SpawnError> {
-        // ① Depth check — read parent depth + config, validate budget.
+        // ① Depth check.
         let parent = self.resolve_parent_depth(parent_session_id).await?;
 
-        // ② AgentId fallback + config resolution (single lock block).
+        // ② Read parent config for concurrency/whitelist fields.
+        let parent_cfg = self.read_parent_config(parent_session_id).await?;
+
+        // ③ Concurrency check.
+        self.check_concurrency(parent_session_id, parent_cfg.max_children)
+            .await?;
+
+        // ④ Whitelist check (on raw target_agent_id, before fallback).
+        if let Some(tid) = target_agent_id {
+            self.check_whitelist(tid, &parent_cfg.allow_agents)?;
+        }
+
+        // ⑤ AgentId fallback + target config resolution.
         let resolved = self
             .resolve_target_config(parent_session_id, target_agent_id)
             .await?;
 
-        // ③ Concurrency check.
-        self.check_concurrency(parent_session_id, resolved.max_children)
-            .await?;
-
-        // ④ Whitelist check.
-        if let Some(ref tid) = resolved.target_id {
-            self.check_whitelist(tid, &resolved.allow_agents)?;
-        }
-
-        // ⑤ require_agent_id check — must come after concurrency/whitelist.
-        if resolved.require_agent_id && resolved.target_id.is_none() {
+        // ⑥ require_agent_id check — must come after concurrency/whitelist.
+        if parent_cfg.require_agent_id && resolved.target_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
         let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
 
-        // ⑥ Compute effective_max_spawn_depth for the child.
-        let child_max_spawn_depth = resolved
+        // ⑦ Compute effective_max_spawn_depth for the child.
+        let child_max_depth = resolved
             .target_config
             .as_ref()
             .map(|c| c.subagents.max_spawn_depth)
             .unwrap_or(1);
-        let effective_max =
-            child_max_spawn_depth.min(parent.parent_effective_budget.saturating_sub(1));
+        let effective_max = child_max_depth.min(parent.parent_effective_budget.saturating_sub(1));
         let child_depth = parent.parent_depth + 1;
         if child_depth > effective_max {
             return Err(SpawnError::DepthExceeded {
@@ -175,6 +181,42 @@ impl SpawnController {
         })
     }
 
+    /// Read parent agent config fields needed for concurrency/whitelist checks.
+    /// Does NOT perform agentId fallback — that happens later in
+    /// [`Self::resolve_target_config`].
+    async fn read_parent_config(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<ParentSpawnConfig, SpawnError> {
+        let parent_agent_id = self
+            .session_manager
+            .get_chat_id(parent_session_id)
+            .await
+            .unwrap_or_default();
+
+        let agents = self
+            .config_manager
+            .agents
+            .read()
+            .expect("RwLock for agents was poisoned");
+
+        Ok(match agents.get(&parent_agent_id) {
+            Some(pc) => {
+                let sc = &pc.subagents;
+                ParentSpawnConfig {
+                    max_children: sc.max_children,
+                    allow_agents: sc.allow_agents.clone(),
+                    require_agent_id: sc.require_agent_id,
+                }
+            }
+            None => ParentSpawnConfig {
+                max_children: 5u32,
+                allow_agents: vec!["*".to_string()],
+                require_agent_id: false,
+            },
+        })
+    }
+
     /// Resolve the target agent configuration under a single lock block.
     /// Handles the agentId fallback: if no `target_agent_id` is provided,
     /// falls back to the parent config's `default_child_agent`.
@@ -189,10 +231,7 @@ impl SpawnController {
             .await
             .unwrap_or_default();
 
-        // Single lock acquisition — agentId fallback + parent config read.
-        // ConfigManager.agents uses std::sync::RwLock whose read guard is
-        // !Send. All lock-scoped work must complete before any .await.
-        let (target_id, max_children, allow_agents, require_agent_id, target_config) = {
+        let (target_id, target_config) = {
             let agents = self
                 .config_manager
                 .agents
@@ -200,42 +239,17 @@ impl SpawnController {
                 .expect("RwLock for agents was poisoned");
             let parent_config = agents.get(&parent_agent_id);
 
-            let (target_id, require_agent_id, max_children, allow_agents) =
-                if let Some(pc) = parent_config {
-                    let sc = &pc.subagents;
-                    (
-                        target_agent_id
-                            .map(|s| s.to_string())
-                            .or_else(|| sc.default_child_agent.clone()),
-                        sc.require_agent_id,
-                        sc.max_children,
-                        sc.allow_agents.clone(),
-                    )
-                } else {
-                    (
-                        target_agent_id.map(|s| s.to_string()),
-                        false,
-                        5u32,
-                        vec!["*".to_string()],
-                    )
-                };
+            let target_id = target_agent_id
+                .map(|s| s.to_string())
+                .or_else(|| parent_config.and_then(|pc| pc.subagents.default_child_agent.clone()));
 
             let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());
 
-            (
-                target_id,
-                max_children,
-                allow_agents,
-                require_agent_id,
-                target_config,
-            )
+            (target_id, target_config)
         };
 
         Ok(ResolvedTarget {
             target_id,
-            max_children,
-            allow_agents,
-            require_agent_id,
             target_config,
         })
     }
