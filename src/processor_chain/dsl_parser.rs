@@ -76,7 +76,7 @@ impl DslParser {
             if let Some(instruction) = parse_dsl_line(line) {
                 warn!(
                     instruction = ?instruction,
-                    "Terminal does not support DSL interaction type; skipping"
+                    "DSL interaction type not supported by current renderer; skipping"
                 );
                 instructions.push(instruction);
             } else {

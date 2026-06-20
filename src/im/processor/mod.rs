@@ -121,9 +121,9 @@ pub struct ProcessorRegistry {
 
 impl ProcessorRegistry {
     /// Create a new registry with default processors registered:
-    /// - [`SessionRouter`] (inbound, priority 20) — resolves session IDs
-    /// - [`FeishuMessageCleaner`] (inbound, priority 30)
-    /// - [`FeishuMessageCleaner`] (inbound, priority 30)
+    /// - [`RawLogProcessor`] (inbound, priority 10) — logs raw messages
+    /// - [`SessionRouter`] (inbound, priority 20) — computes session keys
+    /// - [`FeishuMessageCleaner`] (inbound, priority 30) — cleans webhook data
     pub fn new(dm_scope: crate::gateway::DmScope, raw_log_config: Option<RawLogConfig>) -> Self {
         let mut registry = Self::default();
         match raw_log_config {

@@ -5,6 +5,7 @@ mod tests {
     use crate::im_adapter::renderer::{RenderedOutput, Renderer};
     use crate::im_adapter::NormalizedMessage;
     use crate::llm::types::ContentBlock;
+    use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
 
     #[test]
     fn test_platform() {
@@ -889,5 +890,110 @@ mod tests {
         };
         let result = plugin.send(&output, "cli", Some("thread_123")).await;
         assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // DSL skip rendering tests (Step 1.7)
+    // =========================================================================
+
+    /// Verify TerminalRenderer does not render DSL instructions as visible text.
+    /// Uses the public render() method which internally calls render_dsl().
+    #[test]
+    fn test_render_dsl_not_in_output() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Hello".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Button {
+                label: "Click Me".to_string(),
+                action: "navigate".to_string(),
+                value: "/home".to_string(),
+            }],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Hello"));
+        assert!(
+            !text.contains("Click Me"),
+            "DSL button should not appear in output"
+        );
+    }
+
+    /// Verify DSL is not rendered even in ANSI mode.
+    #[test]
+    fn test_render_dsl_not_in_output_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Text("Content".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Button {
+                label: "OK".to_string(),
+                action: "confirm".to_string(),
+                value: "yes".to_string(),
+            }],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Content"));
+        assert!(
+            !text.contains("OK"),
+            "DSL button should not appear in output"
+        );
+    }
+
+    /// Verify empty DSL instructions produce no visible output.
+    #[test]
+    fn test_render_empty_dsl_no_output() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Hello world".into())];
+        let dsl = DslParseResult {
+            clean_content: "Hello world".to_string(),
+            instructions: vec![],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Hello world"));
+    }
+
+    /// Verify DSL button text is NOT in the final output.
+    #[test]
+    fn test_plugin_render_dsl_not_in_output() {
+        let plugin = TerminalPlugin::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Some text".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Button {
+                label: "Click".to_string(),
+                action: "go".to_string(),
+                value: "ok".to_string(),
+            }],
+        };
+        let output = plugin.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Some text"));
+        assert!(
+            !text.contains("Click"),
+            "DSL button should not appear in output"
+        );
     }
 }
