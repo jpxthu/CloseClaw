@@ -5,9 +5,11 @@
 
 use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
+use crate::gateway::Session;
 use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::{PersistenceService, SessionCheckpoint};
+use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 use crate::session::ReasoningLevel;
+use chrono::Utc;
 use std::sync::Arc;
 
 /// Helper: create a `SessionManager` with the given `MemoryStorage` and
@@ -15,6 +17,17 @@ use std::sync::Arc;
 fn make_mgr_with_storage(
     storage: Arc<crate::session::storage::memory::MemoryStorage>,
 ) -> SessionManager {
+    SessionManager::new(
+        &test_config(),
+        Some(storage),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    )
+}
+
+/// Helper: create a `SessionManager` with any `PersistenceService` impl.
+fn make_mgr_with_persistence(storage: Arc<dyn PersistenceService>) -> SessionManager {
     SessionManager::new(
         &test_config(),
         Some(storage),
@@ -61,7 +74,8 @@ async fn test_rebuild_spawn_tree_basic() {
 }
 
 /// `rebuild_spawn_tree` orphan: child's parent does not exist in storage.
-/// The child should NOT be registered in the children table (degraded to root).
+/// The child should NOT be registered in the children table (degraded to root)
+/// and its depth should be reset to 0 in the sessions map.
 #[tokio::test]
 async fn test_rebuild_spawn_tree_orphan() {
     let storage = Arc::new(crate::session::storage::memory::MemoryStorage::new());
@@ -74,6 +88,20 @@ async fn test_rebuild_spawn_tree_orphan() {
     storage.save_checkpoint(&child_cp).await.unwrap();
 
     let mgr = make_mgr_with_storage(storage);
+
+    // Pre-populate the session in the sessions map with depth=2
+    // so we can verify it gets reset to 0 after rebuild.
+    mgr.sessions.write().await.insert(
+        "orphan-child".to_string(),
+        Session {
+            id: "orphan-child".to_string(),
+            agent_id: "orphan-agent".to_string(),
+            channel: "spawn".to_string(),
+            created_at: Utc::now().timestamp(),
+            depth: 2,
+        },
+    );
+
     mgr.rebuild_spawn_tree().await.unwrap();
 
     // children table should be empty — orphan degraded to root.
@@ -82,6 +110,13 @@ async fn test_rebuild_spawn_tree_orphan() {
         children.is_empty(),
         "orphan child should not appear in children table"
     );
+
+    // Depth should be reset to 0 (degraded to root).
+    let sessions = mgr.sessions.read().await;
+    let orphan = sessions
+        .get("orphan-child")
+        .expect("orphan session should exist");
+    assert_eq!(orphan.depth, 0, "orphan depth should be reset to 0");
 }
 
 /// `rebuild_spawn_tree` no storage: returns Ok and children table stays empty.
@@ -94,5 +129,84 @@ async fn test_rebuild_spawn_tree_no_storage() {
     assert!(
         children.is_empty(),
         "children table should be empty without storage"
+    );
+}
+
+/// Mock persistence service that returns an error from `load_checkpoint`.
+struct FailingCheckpointStorage;
+
+#[async_trait::async_trait]
+impl PersistenceService for FailingCheckpointStorage {
+    async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn load_checkpoint(
+        &self,
+        _: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Err(PersistenceError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "injected failure",
+        )))
+    }
+    async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(vec!["session-a".to_string()])
+    }
+    async fn restore_checkpoint(
+        &self,
+        _: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Err(PersistenceError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "injected failure",
+        )))
+    }
+    async fn archive_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(vec![])
+    }
+    async fn purge_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn invalidate_session(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_idle_sessions_for_agent(
+        &self,
+        _: &str,
+        _: crate::session::persistence::AgentRole,
+        _: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(vec![])
+    }
+    async fn list_expired_archived_sessions_for_agent(
+        &self,
+        _: &str,
+        _: crate::session::persistence::AgentRole,
+        _: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(vec![])
+    }
+}
+
+/// `rebuild_spawn_tree` checkpoint error: `load_checkpoint` returns `Err`
+/// for a session — should log a warning and skip that session without
+/// panicking.
+#[tokio::test]
+async fn test_rebuild_spawn_tree_checkpoint_error() {
+    let storage = Arc::new(FailingCheckpointStorage);
+    let mgr = make_mgr_with_persistence(storage);
+    // Should complete successfully — errors are logged and skipped.
+    mgr.rebuild_spawn_tree().await.unwrap();
+
+    let children = mgr.children.read().await;
+    assert!(
+        children.is_empty(),
+        "children table should be empty when checkpoint loading fails"
     );
 }

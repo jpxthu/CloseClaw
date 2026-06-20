@@ -654,6 +654,7 @@ impl SessionManager {
 
         let known_ids: HashSet<&str> = all_ids.iter().map(|s| s.as_str()).collect();
         let mut rebuilt: u32 = 0;
+        let mut orphan_ids: Vec<String> = Vec::new();
 
         for session_id in &all_ids {
             let cp = match storage_arc.load_checkpoint(session_id).await {
@@ -679,13 +680,10 @@ impl SessionManager {
                 None => continue, // root node
             };
             if !known_ids.contains(parent_id) {
-                // Parent missing — orphan session. Degrade to root by
-                // resetting depth to 0 so the spawn depth budget is
-                // not artificially compressed.
-                let mut sessions = self.sessions.write().await;
-                if let Some(s) = sessions.get_mut(session_id) {
-                    s.depth = 0;
-                }
+                // Parent missing — orphan session. Collect for batch
+                // depth reset after the loop to avoid acquiring the
+                // write lock per iteration.
+                orphan_ids.push(session_id.clone());
                 continue;
             }
             self.register_child(
@@ -704,6 +702,17 @@ impl SessionManager {
             )
             .await;
             rebuilt += 1;
+        }
+
+        // Batch-reset orphan session depths to 0 (degrade to root).
+        // Single write lock acquisition instead of per-orphan lock.
+        if !orphan_ids.is_empty() {
+            let mut sessions = self.sessions.write().await;
+            for orphan_id in &orphan_ids {
+                if let Some(s) = sessions.get_mut(orphan_id) {
+                    s.depth = 0;
+                }
+            }
         }
 
         tracing::info!(rebuilt, "spawn_tree rebuilt from checkpoints");
