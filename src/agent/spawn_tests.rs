@@ -764,6 +764,73 @@ async fn test_kill_child_no_descendants_clean_removal() {
 
 // ── Step 1.3: children survive across parent turns ────────────────────
 
+/// When no target_agent_id is provided and default_child_agent resolves
+/// to an agent not in the allowlist, the whitelist check should reject it.
+#[tokio::test]
+async fn test_validate_default_child_agent_blocked_by_whitelist() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    // Parent has default_child_agent="fallback-child" but allowlist
+    // only allows "allowed-agent" — fallback should be blocked.
+    let mut sub = SubagentsConfig::default();
+    sub.default_child_agent = Some("fallback-child".to_string());
+    sub.allow_agents = vec!["allowed-agent".to_string()];
+    sub.max_spawn_depth = 2;
+    let parent = make_agent("parent", sub);
+    let fallback_child = make_agent("fallback-child", SubagentsConfig::default());
+    inject_agents(
+        &cm,
+        vec![("parent", parent), ("fallback-child", fallback_child)],
+    );
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let err = controller
+        .validate(&parent_id, None)
+        .await
+        .expect_err("should reject when default_child_agent not in allowlist");
+
+    match err {
+        SpawnError::AgentNotAllowed { agent_id } => {
+            assert_eq!(agent_id, "fallback-child");
+        }
+        other => panic!("expected AgentNotAllowed, got {:?}", other),
+    }
+}
+
+/// When no target_agent_id is provided and default_child_agent resolves
+/// to an agent in the allowlist, the whitelist check should pass.
+#[tokio::test]
+async fn test_validate_default_child_agent_allowed_by_whitelist() {
+    let cm = Arc::new(make_config_manager());
+    let sm = Arc::new(make_session_manager());
+    let controller = SpawnController::new(cm.clone(), sm.clone());
+
+    // Parent has default_child_agent="allowed-child" and allowlist
+    // contains "allowed-child" — should pass.
+    let mut sub = SubagentsConfig::default();
+    sub.default_child_agent = Some("allowed-child".to_string());
+    sub.allow_agents = vec!["allowed-child".to_string()];
+    sub.max_spawn_depth = 2;
+    let parent = make_agent("parent", sub);
+    let allowed_child = make_agent("allowed-child", SubagentsConfig::default());
+    inject_agents(
+        &cm,
+        vec![("parent", parent), ("allowed-child", allowed_child)],
+    );
+
+    let parent_id = setup_parent_session(&sm, "parent").await;
+
+    let result = controller
+        .validate(&parent_id, None)
+        .await
+        .expect("validate should succeed for allowed default_child_agent");
+
+    assert_eq!(result.config.id, "allowed-child");
+}
+
 /// Verify that session-mode children registered under a parent are NOT
 /// prematurely removed without an explicit kill. This test validates the
 /// Step 1.3 design invariant: cascade termination only occurs on parent

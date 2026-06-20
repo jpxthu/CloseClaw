@@ -80,22 +80,22 @@ impl SpawnController {
         // ① Depth check.
         let parent = self.resolve_parent_depth(parent_session_id).await?;
 
-        // ② Read parent config for concurrency/whitelist fields.
-        let parent_cfg = self.read_parent_config(parent_session_id).await?;
-
-        // ③ Concurrency check.
-        self.check_concurrency(parent_session_id, parent_cfg.max_children)
-            .await?;
-
-        // ④ Whitelist check (on raw target_agent_id, before fallback).
-        if let Some(tid) = target_agent_id {
-            self.check_whitelist(tid, &parent_cfg.allow_agents)?;
-        }
-
-        // ⑤ AgentId fallback + target config resolution.
+        // ② AgentId fallback + target config resolution.
         let resolved = self
             .resolve_target_config(parent_session_id, target_agent_id)
             .await?;
+
+        // ③ Read parent config for concurrency/whitelist/requireAgentId.
+        let parent_cfg = self.read_parent_config(parent_session_id).await?;
+
+        // ④ Concurrency check.
+        self.check_concurrency(parent_session_id, parent_cfg.max_children)
+            .await?;
+
+        // ⑤ Whitelist check (on resolved target_id, after fallback).
+        if let Some(ref tid) = resolved.target_id {
+            self.check_whitelist(tid, &parent_cfg.allow_agents)?;
+        }
 
         // ⑥ require_agent_id check — must come after concurrency/whitelist.
         if parent_cfg.require_agent_id && resolved.target_id.is_none() {
