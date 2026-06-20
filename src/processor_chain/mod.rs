@@ -19,6 +19,7 @@ pub mod dsl_parser;
 mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
+pub mod outbound_raw_log;
 pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;

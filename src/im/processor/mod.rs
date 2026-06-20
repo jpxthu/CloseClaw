@@ -7,6 +7,7 @@
 //! - `session_router.rs` — `SessionRouter` (inbound, priority 20) + session routing
 
 mod cleaner;
+mod feishu_parser;
 mod raw_log_processor;
 mod session_router;
 
@@ -16,6 +17,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 pub use cleaner::FeishuMessageCleaner;
+pub use feishu_parser::FeishuParser;
 pub use raw_log_processor::{RawLogConfig, RawLogProcessor};
 use serde_json::Value;
 pub use session_router::SessionRouter;

@@ -62,7 +62,8 @@ async fn test_build_processor_registry_with_raw_log() {
 
     // With raw_log_dir: 2 inbound (RawLogProcessor + ContentNormalizer)
     assert_eq!(registry.inbound_len(), 2);
-    assert_eq!(registry.outbound_len(), 1);
+    // 2 outbound (OutboundRawLogProcessor + DslParser)
+    assert_eq!(registry.outbound_len(), 2);
 }
 
 // ── Gateway build tests ─────────────────────────────────────────────────────
