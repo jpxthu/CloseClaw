@@ -70,7 +70,7 @@ async fn test_build_processor_registry_with_raw_log() {
 
 #[tokio::test]
 async fn test_build_gateway_has_processor_registry() {
-    let (gateway, _session_manager) = build_gateway().await;
+    let (gateway, _session_manager) = build_gateway("test-agent").await;
 
     let (inbound, outbound) = gateway.processor_registry_len();
     assert!(inbound > 0, "expected inbound processors in gateway");
@@ -79,7 +79,7 @@ async fn test_build_gateway_has_processor_registry() {
 
 #[tokio::test]
 async fn test_build_gateway_has_slash_dispatcher() {
-    let (gateway, _session_manager) = build_gateway().await;
+    let (gateway, _session_manager) = build_gateway("test-agent").await;
 
     assert!(
         gateway.has_slash_dispatcher().await,
@@ -142,7 +142,7 @@ async fn test_build_gateway_slash_help_dispatchable() {
 
 #[tokio::test]
 async fn test_build_gateway_has_session_handler() {
-    let (gateway, _session_manager) = build_gateway().await;
+    let (gateway, _session_manager) = build_gateway("test-agent").await;
 
     // In test environments without LLM providers, session handler
     // should not be installed.
@@ -304,4 +304,60 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
             .await;
         assert_eq!(processed.content.trim(), *cmd);
     }
+}
+
+// ── build_gateway agent_id parameterization tests ─────────────────────────
+
+#[tokio::test]
+async fn test_build_gateway_config_name_contains_agent_id() {
+    let (gateway, _sm) = build_gateway("my-agent").await;
+    assert_eq!(gateway.config_name(), "closeclaw-chat-my-agent");
+}
+
+#[tokio::test]
+async fn test_build_gateway_different_agent_ids_produce_different_names() {
+    let (gw_a, _) = build_gateway("agent-alpha").await;
+    let (gw_b, _) = build_gateway("agent-beta").await;
+    assert_ne!(gw_a.config_name(), gw_b.config_name());
+}
+
+#[tokio::test]
+async fn test_build_gateway_agent_id_appears_in_name() {
+    let agent_id = "my-special-agent-123";
+    let (gateway, _sm) = build_gateway(agent_id).await;
+    let name = gateway.config_name();
+    assert!(
+        name.contains(agent_id),
+        "config name '{}' should contain agent_id '{}'",
+        name,
+        agent_id
+    );
+}
+
+#[tokio::test]
+async fn test_build_gateway_empty_agent_id() {
+    let (gateway, _sm) = build_gateway("").await;
+    assert_eq!(gateway.config_name(), "closeclaw-chat-");
+}
+
+#[tokio::test]
+async fn test_build_gateway_agent_id_with_special_characters() {
+    let agent_id = "agent/with:special@chars";
+    let (gateway, _sm) = build_gateway(agent_id).await;
+    assert_eq!(
+        gateway.config_name(),
+        format!("closeclaw-chat-{}", agent_id)
+    );
+}
+
+#[tokio::test]
+async fn test_build_gateway_agent_id_with_unicode() {
+    let agent_id = "agent-\u{4e2d}\u{6587}"; // agent-中文
+    let (gateway, _sm) = build_gateway(agent_id).await;
+    assert!(
+        gateway.config_name().contains(agent_id),
+        "config name '{}' should contain unicode agent_id '{}'",
+        gateway.config_name(),
+        agent_id
+    );
 }

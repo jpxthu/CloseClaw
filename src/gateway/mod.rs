@@ -257,6 +257,11 @@ impl Gateway {
         self.session_handler.is_some()
     }
 
+    #[cfg(test)]
+    pub(crate) fn config_name(&self) -> &str {
+        &self.config.name
+    }
+
     /// Handle an inbound message through the busy/pending state machine.
     ///
     /// If `sender_id` is provided and the message starts with `/approve` or
