@@ -30,6 +30,7 @@ use crate::session::checkpoint_manager::CheckpointManager;
 use crate::session::persistence::PersistenceService;
 use crate::slash::SlashDispatcher;
 
+use crate::processor_chain::context::{ProcessedMessage, RawMessage};
 pub use crate::processor_chain::ProcessorRegistry;
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::SessionManager;
@@ -431,6 +432,55 @@ impl Gateway {
     pub async fn get_agent_sessions(&self, agent_id: &str) -> Vec<Session> {
         self.session_manager.get_agent_sessions(agent_id).await
     }
+
+    /// Process an inbound message through the processor chain.
+    ///
+    /// Builds a [`RawMessage`] from the provided fields and runs it through
+    /// the inbound processor chain (if a [`ProcessorRegistry`] is configured).
+    ///
+    /// - When no registry exists, returns a bypass [`ProcessedMessage`]
+    ///   wrapping the original content.
+    /// - On processor failure, logs a warning and falls back to the
+    ///   original content.
+    pub(crate) async fn process_inbound_chain(
+        &self,
+        platform: &str,
+        sender_id: &str,
+        peer_id: &str,
+        content: &str,
+        message_id: &str,
+    ) -> ProcessedMessage {
+        let Some(registry) = &self.processor_registry else {
+            return ProcessedMessage {
+                content: content.to_string(),
+                metadata: serde_json::Map::new(),
+                suppress: false,
+                content_blocks: vec![],
+            };
+        };
+
+        let raw = RawMessage {
+            platform: platform.to_string(),
+            sender_id: sender_id.to_string(),
+            peer_id: peer_id.to_string(),
+            content: content.to_string(),
+            timestamp: chrono::Utc::now(),
+            message_id: message_id.to_string(),
+        };
+
+        match registry.process_inbound(raw).await {
+            Ok(processed) => processed,
+            Err(e) => {
+                tracing::warn!(?e, "processor chain failed, falling back to raw content");
+                ProcessedMessage {
+                    content: content.to_string(),
+                    metadata: serde_json::Map::new(),
+                    suppress: false,
+                    content_blocks: vec![],
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -474,5 +524,7 @@ mod session_handler_tests;
 mod tests;
 #[cfg(test)]
 mod tests_dmscope;
+#[cfg(test)]
+mod tests_processor_chain;
 #[cfg(test)]
 mod tests_thread;
