@@ -3,7 +3,92 @@
 use anyhow::Result;
 use closeclaw::cli::args::*;
 use closeclaw::permission::{Effect, Rule, RuleSet};
+use serde::Serialize;
 use std::path::PathBuf;
+
+// ---------------------------------------------------------------------------
+// JSON output helpers
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+/// Print a serializable value as pretty-printed JSON and exit.
+fn json_output<T: Serialize>(value: &T) {
+    match serde_json::to_string_pretty(value) {
+        Ok(s) => println!("{}", s),
+        Err(e) => {
+            eprintln!("JSON serialization error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+/// Print a JSON error object and exit with code 1.
+fn json_error(message: &str) -> ! {
+    #[derive(Serialize)]
+    struct ErrorOutput<'a> {
+        error: &'a str,
+    }
+    json_output(&ErrorOutput { error: message });
+    std::process::exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// JSON output structs
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+#[derive(Serialize)]
+pub(crate) struct ConfigValidateOutput {
+    pub file: String,
+    pub valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+#[derive(Serialize)]
+pub(crate) struct ConfigListFile {
+    pub name: String,
+    pub version: String,
+    pub path: String,
+}
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+#[derive(Serialize)]
+pub(crate) struct ConfigListOutput {
+    pub files: Vec<ConfigListFile>,
+}
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+#[derive(Serialize)]
+pub(crate) struct RuleCheckOutput {
+    pub rule_name: String,
+    pub valid: bool,
+}
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+#[derive(Serialize)]
+pub(crate) struct RuleListEntry {
+    pub name: String,
+    pub subject: String,
+    pub effect: String,
+    pub action_count: usize,
+}
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+#[derive(Serialize)]
+pub(crate) struct RuleListOutput {
+    pub rules: Vec<RuleListEntry>,
+}
+
+#[allow(dead_code)] // used in later steps (JSON output integration)
+#[derive(Serialize)]
+pub(crate) struct StopOutput {
+    pub pid: u32,
+    pub signal: String,
+    pub stopped: bool,
+}
 
 #[allow(dead_code)] // pub API for masking secrets in CLI output (covered by tests)
 pub fn mask_key(key: &str) -> String {
