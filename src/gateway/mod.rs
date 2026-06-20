@@ -228,6 +228,24 @@ impl Gateway {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn processor_registry_len(&self) -> (usize, usize) {
+        self.processor_registry
+            .as_ref()
+            .map(|r| (r.inbound_len(), r.outbound_len()))
+            .unwrap_or((0, 0))
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn has_slash_dispatcher(&self) -> bool {
+        self.slash_dispatcher.read().await.is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn has_session_handler(&self) -> bool {
+        self.session_handler.is_some()
+    }
+
     /// Handle an inbound message through the busy/pending state machine.
     ///
     /// If `sender_id` is provided and the message starts with `/approve` or

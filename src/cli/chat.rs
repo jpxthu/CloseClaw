@@ -61,7 +61,7 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
 
 /// Build a [`Gateway`] with [`ProcessorRegistry`], [`SlashDispatcher`],
 /// and [`SessionMessageHandler`] configured.
-async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
+pub(crate) async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
     let gateway_config = GatewayConfig {
         name: "closeclaw-chat".to_string(),
         rate_limit_per_minute: 0,
@@ -119,7 +119,7 @@ async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
 
 /// Build a [`ProcessorRegistry`] with inbound [`RawLogProcessor`] and
 /// [`ContentNormalizer`], outbound [`DslParser`].
-fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
+pub(crate) fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
     let mut registry = ProcessorRegistry::default();
 
     // Inbound: RawLogProcessor (if raw_log_dir is configured)
