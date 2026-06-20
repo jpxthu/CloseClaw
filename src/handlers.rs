@@ -21,14 +21,22 @@ fn json_output<T: Serialize>(value: &T) {
     }
 }
 
-/// Print a JSON error object and exit with code 1.
-fn json_error(message: &str) -> ! {
+/// Return a JSON error value suitable for propagation with `?`.
+fn json_error(message: &str) -> anyhow::Error {
     #[derive(Serialize)]
     struct ErrorOutput<'a> {
         error: &'a str,
     }
     json_output(&ErrorOutput { error: message });
-    std::process::exit(1);
+    anyhow::anyhow!(message.to_string())
+}
+
+/// Convert a permission [`Effect`] to its string representation.
+fn effect_to_str(effect: Effect) -> &'static str {
+    match effect {
+        Effect::Allow => "allow",
+        Effect::Deny => "deny",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +235,7 @@ async fn handle_agent_create_rpc(
         }
         closeclaw::admin::AdminResponse::Error { message } => {
             if json {
-                json_error(&message);
+                return Err(json_error(&message));
             }
             anyhow::bail!("{}", message);
         }
@@ -261,7 +269,7 @@ fn handle_config_validate(file: &str, json: bool) -> Result<()> {
         Ok(c) => c,
         Err(e) => {
             if json {
-                json_error(&format!("Failed to read '{}': {}", file, e));
+                return Err(json_error(&format!("Failed to read '{}': {}", file, e)));
             }
             anyhow::bail!("Failed to read '{}': {}", file, e);
         }
@@ -426,17 +434,11 @@ fn rule_list_json_output(rule_set: &RuleSet) -> Result<()> {
     let rules: Vec<RuleListEntry> = rule_set
         .rules
         .iter()
-        .map(|rule| {
-            let effect = match rule.effect {
-                Effect::Allow => "allow",
-                Effect::Deny => "deny",
-            };
-            RuleListEntry {
-                name: rule.name.clone(),
-                subject: rule.subject.agent_id().to_string(),
-                effect: effect.to_string(),
-                action_count: rule.actions.len(),
-            }
+        .map(|rule| RuleListEntry {
+            name: rule.name.clone(),
+            subject: rule.subject.agent_id().to_string(),
+            effect: effect_to_str(rule.effect).to_string(),
+            action_count: rule.actions.len(),
         })
         .collect();
     json_output(&RuleListOutput { rules });
@@ -466,10 +468,7 @@ fn handle_rule_list(config_dir: &std::path::Path, json: bool) -> Result<()> {
     }
     println!("Rules ({}):", rule_set.rules.len());
     for rule in &rule_set.rules {
-        let effect = match rule.effect {
-            Effect::Allow => "allow",
-            Effect::Deny => "deny",
-        };
+        let effect = effect_to_str(rule.effect);
         let action_count = rule.actions.len();
         let action_label = if action_count == 1 {
             "action"
@@ -503,63 +502,74 @@ pub(crate) async fn handle_skill_with(
             .into_owned(),
     );
     match action {
-        SkillAction::List => {
-            let resp = client
-                .call(&closeclaw::admin::AdminRequest::SkillList)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+        SkillAction::List => handle_skill_list_rpc(&client, json).await,
+        SkillAction::Install { name } => handle_skill_install_rpc(&client, &name, json).await,
+    }
+}
+
+async fn handle_skill_list_rpc(client: &closeclaw::admin::AdminClient, json: bool) -> Result<()> {
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::SkillList)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    if json {
+        json_output(&resp);
+        return Ok(());
+    }
+    match resp {
+        closeclaw::admin::AdminResponse::SkillListResult { skills } => {
+            if skills.is_empty() {
+                println!("Installed skills:\n  (none)");
+            } else {
+                println!("Installed skills:");
+                for s in &skills {
+                    let ver = s.version.as_deref().unwrap_or("-");
+                    println!("  {} v{}", s.name, ver);
+                }
+            }
+        }
+        closeclaw::admin::AdminResponse::Error { message } => {
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
+    Ok(())
+}
+
+async fn handle_skill_install_rpc(
+    client: &closeclaw::admin::AdminClient,
+    name: &str,
+    json: bool,
+) -> Result<()> {
+    #[derive(Serialize)]
+    struct SkillInstallOutput {
+        status: &'static str,
+        name: String,
+    }
+    let resp = client
+        .call(&closeclaw::admin::AdminRequest::SkillInstall {
+            name: name.to_string(),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    match resp {
+        closeclaw::admin::AdminResponse::Ok => {
             if json {
-                json_output(&resp);
+                json_output(&SkillInstallOutput {
+                    status: "installed",
+                    name: name.to_string(),
+                });
                 return Ok(());
             }
-            match resp {
-                closeclaw::admin::AdminResponse::SkillListResult { skills } => {
-                    if skills.is_empty() {
-                        println!("Installed skills:\n  (none)");
-                    } else {
-                        println!("Installed skills:");
-                        for s in &skills {
-                            let ver = s.version.as_deref().unwrap_or("-");
-                            println!("  {} v{}", s.name, ver);
-                        }
-                    }
-                }
-                closeclaw::admin::AdminResponse::Error { message } => {
-                    anyhow::bail!("{}", message);
-                }
-                _ => anyhow::bail!("Unexpected response from daemon"),
-            }
+            println!("Skill '{}' installed.", name);
         }
-        SkillAction::Install { name } => {
-            let resp = client
-                .call(&closeclaw::admin::AdminRequest::SkillInstall { name: name.clone() })
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
-            match resp {
-                closeclaw::admin::AdminResponse::Ok => {
-                    if json {
-                        #[derive(Serialize)]
-                        struct SkillInstallOutput {
-                            status: &'static str,
-                            name: String,
-                        }
-                        json_output(&SkillInstallOutput {
-                            status: "installed",
-                            name: name.to_string(),
-                        });
-                        return Ok(());
-                    }
-                    println!("Skill '{}' installed.", name);
-                }
-                closeclaw::admin::AdminResponse::Error { message } => {
-                    if json {
-                        json_error(&message);
-                    }
-                    anyhow::bail!("{}", message);
-                }
-                _ => anyhow::bail!("Unexpected response from daemon"),
+        closeclaw::admin::AdminResponse::Error { message } => {
+            if json {
+                return Err(json_error(&message));
             }
+            anyhow::bail!("{}", message);
         }
+        _ => anyhow::bail!("Unexpected response from daemon"),
     }
     Ok(())
 }
@@ -597,13 +607,13 @@ pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
         }
         Ok(o) => {
             if json {
-                json_error(&format!("kill returned {}", o.status));
+                return Err(json_error(&format!("kill returned {}", o.status)));
             }
             anyhow::bail!("kill returned {}", o.status);
         }
         Err(e) => {
             if json {
-                json_error(&format!("Failed to kill: {}", e));
+                return Err(json_error(&format!("Failed to kill: {}", e)));
             }
             anyhow::bail!("Failed to kill: {}", e);
         }
