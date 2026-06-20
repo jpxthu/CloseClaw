@@ -120,7 +120,7 @@ pub async fn handle_agent(action: AgentAction, _json: bool) -> Result<()> {
 pub(crate) async fn handle_agent_with(
     action: AgentAction,
     cfg_dir: PathBuf,
-    _json: bool,
+    json: bool,
 ) -> Result<()> {
     let client = closeclaw::admin::AdminClient::new(
         closeclaw::admin::client::admin_socket_path(&cfg_dir)
@@ -128,17 +128,23 @@ pub(crate) async fn handle_agent_with(
             .into_owned(),
     );
     match action {
-        AgentAction::List => handle_agent_list_rpc(&client).await,
-        AgentAction::Info { name } => handle_agent_info_rpc(&client, &name).await,
-        AgentAction::Create { name, model } => handle_agent_create_rpc(&client, &name, model).await,
+        AgentAction::List => handle_agent_list_rpc(&client, json).await,
+        AgentAction::Info { name } => handle_agent_info_rpc(&client, &name, json).await,
+        AgentAction::Create { name, model } => {
+            handle_agent_create_rpc(&client, &name, model, json).await
+        }
     }
 }
 
-async fn handle_agent_list_rpc(client: &closeclaw::admin::AdminClient) -> Result<()> {
+async fn handle_agent_list_rpc(client: &closeclaw::admin::AdminClient, json: bool) -> Result<()> {
     let resp = client
         .call(&closeclaw::admin::AdminRequest::AgentList)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    if json {
+        json_output(&resp);
+        return Ok(());
+    }
     match resp {
         closeclaw::admin::AdminResponse::AgentListResult { agents } => {
             if agents.is_empty() {
@@ -159,13 +165,21 @@ async fn handle_agent_list_rpc(client: &closeclaw::admin::AdminClient) -> Result
     }
 }
 
-async fn handle_agent_info_rpc(client: &closeclaw::admin::AdminClient, name: &str) -> Result<()> {
+async fn handle_agent_info_rpc(
+    client: &closeclaw::admin::AdminClient,
+    name: &str,
+    json: bool,
+) -> Result<()> {
     let resp = client
         .call(&closeclaw::admin::AdminRequest::AgentInfo {
             name: name.to_string(),
         })
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    if json {
+        json_output(&resp);
+        return Ok(());
+    }
     match resp {
         closeclaw::admin::AdminResponse::AgentInfoResult {
             id,
@@ -194,6 +208,7 @@ async fn handle_agent_create_rpc(
     client: &closeclaw::admin::AdminClient,
     name: &str,
     model: Option<String>,
+    json: bool,
 ) -> Result<()> {
     let resp = client
         .call(&closeclaw::admin::AdminRequest::AgentCreate {
@@ -204,10 +219,25 @@ async fn handle_agent_create_rpc(
         .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
     match resp {
         closeclaw::admin::AdminResponse::Ok => {
+            if json {
+                #[derive(Serialize)]
+                struct AgentCreateOutput {
+                    status: &'static str,
+                    name: String,
+                }
+                json_output(&AgentCreateOutput {
+                    status: "created",
+                    name: name.to_string(),
+                });
+                return Ok(());
+            }
             println!("Agent '{}' created.", name);
             Ok(())
         }
         closeclaw::admin::AdminResponse::Error { message } => {
+            if json {
+                json_error(&message);
+            }
             anyhow::bail!("{}", message);
         }
         _ => anyhow::bail!("Unexpected response from daemon"),
@@ -374,7 +404,7 @@ pub async fn handle_skill(action: SkillAction, _json: bool) -> Result<()> {
 pub(crate) async fn handle_skill_with(
     action: SkillAction,
     cfg_dir: PathBuf,
-    _json: bool,
+    json: bool,
 ) -> Result<()> {
     let client = closeclaw::admin::AdminClient::new(
         closeclaw::admin::client::admin_socket_path(&cfg_dir)
@@ -387,6 +417,10 @@ pub(crate) async fn handle_skill_with(
                 .call(&closeclaw::admin::AdminRequest::SkillList)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+            if json {
+                json_output(&resp);
+                return Ok(());
+            }
             match resp {
                 closeclaw::admin::AdminResponse::SkillListResult { skills } => {
                     if skills.is_empty() {
@@ -412,9 +446,24 @@ pub(crate) async fn handle_skill_with(
                 .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
             match resp {
                 closeclaw::admin::AdminResponse::Ok => {
+                    if json {
+                        #[derive(Serialize)]
+                        struct SkillInstallOutput {
+                            status: &'static str,
+                            name: String,
+                        }
+                        json_output(&SkillInstallOutput {
+                            status: "installed",
+                            name: name.to_string(),
+                        });
+                        return Ok(());
+                    }
                     println!("Skill '{}' installed.", name);
                 }
                 closeclaw::admin::AdminResponse::Error { message } => {
+                    if json {
+                        json_error(&message);
+                    }
                     anyhow::bail!("{}", message);
                 }
                 _ => anyhow::bail!("Unexpected response from daemon"),
