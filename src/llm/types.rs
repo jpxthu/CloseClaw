@@ -48,6 +48,12 @@ pub enum ContentBlock {
         /// Result content returned by the tool.
         content: String,
     },
+    /// Image content block (file name or identifier).
+    Image(String),
+    /// Audio content block (file name or identifier).
+    Audio(String),
+    /// File content block (file name or identifier).
+    File(String),
 }
 
 /// Unified token usage statistics.

@@ -165,6 +165,9 @@ impl ChatSession for ConversationSession {
                         vec![format!("[tool:{}] {}", name, input)]
                     }
                     ContentBlock::ToolResult { content, .. } => vec![content.clone()],
+                    ContentBlock::Image(name) => vec![format!("[image: {}]", name)],
+                    ContentBlock::Audio(name) => vec![format!("[audio: {}]", name)],
+                    ContentBlock::File(name) => vec![format!("[file: {}]", name)],
                 })
                 .collect::<Vec<_>>()
                 .join("\n");

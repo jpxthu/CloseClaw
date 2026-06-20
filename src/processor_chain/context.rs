@@ -13,10 +13,15 @@ pub type Result<T> = std::result::Result<T, super::error::ProcessError>;
 /// This is the input to the inbound processor chain.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RawMessage {
-    /// Sender platform (e.g., "feishu", "wecom").
+    /// Sender platform (e.g., "feishu", "wecom", "terminal").
     pub platform: String,
     /// Sender user ID on the platform.
     pub sender_id: String,
+    /// Peer / endpoint identifier (e.g., chat_id for DMs, "cli" for terminal).
+    ///
+    /// Participates in session key computation via [`SessionRouter`].
+    #[serde(default)]
+    pub peer_id: String,
     /// Raw message content.
     pub content: String,
     /// Timestamp when the message was received.
@@ -119,6 +124,7 @@ mod tests {
         let raw = RawMessage {
             platform: "feishu".to_string(),
             sender_id: "user_1".to_string(),
+            peer_id: "chat_1".to_string(),
             content: "hello".to_string(),
             timestamp: Utc::now(),
             message_id: "msg_1".to_string(),
@@ -136,6 +142,7 @@ mod tests {
         let raw = RawMessage {
             platform: "feishu".to_string(),
             sender_id: "user_1".to_string(),
+            peer_id: "chat_1".to_string(),
             content: "hello".to_string(),
             timestamp: Utc::now(),
             message_id: "msg_1".to_string(),

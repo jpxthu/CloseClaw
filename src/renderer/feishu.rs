@@ -282,6 +282,15 @@ impl FeishuRenderer {
                 ContentBlock::ToolResult { content, .. } => {
                     elements.push(Self::render_tool_result_block(content));
                 }
+                ContentBlock::Image(name) => {
+                    elements.extend(Self::to_elements(&format!("[image: {}]", name)));
+                }
+                ContentBlock::Audio(name) => {
+                    elements.extend(Self::to_elements(&format!("[audio: {}]", name)));
+                }
+                ContentBlock::File(name) => {
+                    elements.extend(Self::to_elements(&format!("[file: {}]", name)));
+                }
             }
         }
 

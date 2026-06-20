@@ -21,7 +21,9 @@ use crate::llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use crate::llm::LLMRegistry;
 use crate::processor_chain::content_normalizer::ContentNormalizer;
 use crate::processor_chain::dsl_parser::DslParser;
+use crate::processor_chain::outbound_raw_log::OutboundRawLogProcessor;
 use crate::processor_chain::raw_log_processor::{RawLogConfig, RawLogProcessor};
+use crate::processor_chain::session_router::SessionRouter;
 use crate::processor_chain::ProcessorRegistry;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
@@ -115,8 +117,22 @@ pub(crate) fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegis
         registry.register(Arc::new(processor));
     }
 
+    // Inbound: SessionRouter (priority 20 — computes session_key)
+    registry.register(Arc::new(SessionRouter::new(config.dm_scope)));
+
     // Inbound: ContentNormalizer
     registry.register(Arc::new(ContentNormalizer::new()));
+
+    // Outbound: RawLogProcessor (if raw_log_dir is configured)
+    if let Some(ref dir) = config.raw_log_dir {
+        let raw_log_config = RawLogConfig {
+            enabled: true,
+            dir: dir.clone(),
+            retention_days: 7,
+        };
+        let processor = OutboundRawLogProcessor::new(raw_log_config);
+        registry.register(Arc::new(processor));
+    }
 
     // Outbound: DslParser
     registry.register(Arc::new(DslParser));

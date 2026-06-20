@@ -19,15 +19,18 @@ pub mod dsl_parser;
 mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
+pub mod outbound_raw_log;
 pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
 #[cfg(test)]
 mod registry_tests;
+pub mod session_router;
 
 pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
 pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig, RendererConfig};
 pub use registry::ProcessorRegistry;
+pub use session_router::SessionRouter;
 
 pub use context::{MessageContext, ProcessedMessage, RawMessage, RawMessageLog};
 pub use error::ProcessError;

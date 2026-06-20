@@ -112,7 +112,9 @@ impl Gateway {
             .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
 
         // 2. Run processor chain (or bypass) and honor suppress.
-        let processed = self.process_or_bypass(raw_output, content_blocks).await?;
+        let processed = self
+            .process_or_bypass(raw_output, content_blocks, channel, session_id)
+            .await?;
         if processed.suppress {
             return Ok(());
         }
@@ -201,6 +203,8 @@ impl Gateway {
         &self,
         raw_output: &str,
         content_blocks: Vec<ContentBlock>,
+        channel: &str,
+        session_id: &str,
     ) -> Result<ProcessedMessage, GatewayError> {
         let Some(ref registry) = self.processor_registry else {
             return Ok(ProcessedMessage {
@@ -210,9 +214,18 @@ impl Gateway {
                 content_blocks,
             });
         };
+        let mut meta = serde_json::Map::new();
+        meta.insert(
+            "channel".to_string(),
+            serde_json::Value::String(channel.to_string()),
+        );
+        meta.insert(
+            "session_id".to_string(),
+            serde_json::Value::String(session_id.to_string()),
+        );
         let input = ProcessedMessage {
             content: raw_output.to_string(),
-            metadata: serde_json::Map::new(),
+            metadata: meta,
             suppress: false,
             content_blocks,
         };

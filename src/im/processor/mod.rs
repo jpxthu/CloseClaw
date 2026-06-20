@@ -7,6 +7,7 @@
 //! - `session_router.rs` — `SessionRouter` (inbound, priority 20) + session routing
 
 mod cleaner;
+mod feishu_parser;
 mod raw_log_processor;
 mod session_router;
 
@@ -16,6 +17,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 pub use cleaner::FeishuMessageCleaner;
+pub use feishu_parser::FeishuParser;
 pub use raw_log_processor::{RawLogConfig, RawLogProcessor};
 use serde_json::Value;
 pub use session_router::SessionRouter;
@@ -119,9 +121,9 @@ pub struct ProcessorRegistry {
 
 impl ProcessorRegistry {
     /// Create a new registry with default processors registered:
-    /// - [`SessionRouter`] (inbound, priority 20) — resolves session IDs
-    /// - [`FeishuMessageCleaner`] (inbound, priority 30)
-    /// - [`FeishuMessageCleaner`] (inbound, priority 30)
+    /// - [`RawLogProcessor`] (inbound, priority 10) — logs raw messages
+    /// - [`SessionRouter`] (inbound, priority 20) — computes session keys
+    /// - [`FeishuMessageCleaner`] (inbound, priority 30) — cleans webhook data
     pub fn new(dm_scope: crate::gateway::DmScope, raw_log_config: Option<RawLogConfig>) -> Self {
         let mut registry = Self::default();
         match raw_log_config {
