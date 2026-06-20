@@ -211,6 +211,20 @@ fn test_dm_scope_per_account_channel_peer_without_account() {
 }
 
 #[test]
+fn test_dm_scope_per_channel_sender_session_key() {
+    let key = DmScope::PerChannelSender.compute_session_key("ch_x", &msg("a", "b"), None);
+    assert_eq!(key, "ch_x:a");
+}
+
+#[test]
+fn test_dm_scope_per_channel_sender_serde_roundtrip() {
+    let json = serde_json::to_string(&DmScope::PerChannelSender).unwrap();
+    assert_eq!(json, "\"per-channel-sender\"");
+    let parsed: DmScope = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, DmScope::PerChannelSender);
+}
+
+#[test]
 fn test_dm_scope_default_is_per_channel_peer() {
     assert_eq!(DmScope::default(), DmScope::PerChannelPeer);
 }
@@ -227,6 +241,7 @@ fn test_gateway_config_dm_scope_values() {
             "\"per-account-channel-peer\"",
             DmScope::PerAccountChannelPeer,
         ),
+        ("\"per-channel-sender\"", DmScope::PerChannelSender),
     ];
     for (json_val, expected) in cases {
         let json = format!("{{\"name\":\"g\",\"dm_scope\":{}}}", json_val);

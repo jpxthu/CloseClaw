@@ -52,6 +52,13 @@ pub enum DmScope {
     PerChannelPeer,
     /// One session per account + channel + peer pair
     PerAccountChannelPeer,
+    /// One session per channel + sender (excludes `to` field).
+    ///
+    /// Used when agent-level isolation is provided by a per-agent
+    /// [`SessionManager`] — the session key is `{channel}:{from}`, so
+    /// different agents sharing the same channel naturally stay isolated
+    /// without embedding `agent_id` in the key.
+    PerChannelSender,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -78,6 +85,9 @@ impl DmScope {
             DmScope::PerAccountChannelPeer => {
                 let acc = account_id.unwrap_or("default");
                 format!("{}:{}:{}:{}", acc, channel, message.from, message.to)
+            }
+            DmScope::PerChannelSender => {
+                format!("{}:{}", channel, message.from)
             }
         }
     }
