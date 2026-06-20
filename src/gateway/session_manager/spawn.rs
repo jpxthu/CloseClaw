@@ -658,14 +658,35 @@ impl SessionManager {
         for session_id in &all_ids {
             let cp = match storage_arc.load_checkpoint(session_id).await {
                 Ok(Some(cp)) => cp,
-                _ => continue,
+                Ok(None) => {
+                    warn!(
+                        session_id = %session_id,
+                        "checkpoint returned None during spawn_tree rebuild, skipping"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    warn!(
+                        session_id = %session_id,
+                        error = %e,
+                        "failed to load checkpoint during spawn_tree rebuild, skipping"
+                    );
+                    continue;
+                }
             };
             let parent_id = match cp.parent_session_id.as_deref() {
                 Some(p) => p,
                 None => continue, // root node
             };
             if !known_ids.contains(parent_id) {
-                continue; // parent missing — orphan, degrade to root
+                // Parent missing — orphan session. Degrade to root by
+                // resetting depth to 0 so the spawn depth budget is
+                // not artificially compressed.
+                let mut sessions = self.sessions.write().await;
+                if let Some(s) = sessions.get_mut(session_id) {
+                    s.depth = 0;
+                }
+                continue;
             }
             self.register_child(
                 parent_id,
@@ -674,6 +695,10 @@ impl SessionManager {
                     parent_session_id: parent_id.to_string(),
                     agent_id: cp.agent_id.unwrap_or_default(),
                     depth: cp.depth,
+                    // All restored child sessions are treated as
+                    // persistent (Session) because run-mode sessions
+                    // that completed before shutdown are not expected
+                    // to appear in the checkpoint list.
                     mode: SpawnMode::Session,
                 },
             )
