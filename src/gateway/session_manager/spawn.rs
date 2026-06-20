@@ -94,9 +94,12 @@ impl SessionManager {
     ///
     /// Workflow:
     /// 1. Generate a new UUID-based session id.
-    /// 2. Resolve workspace path (3-level fallback: explicit arg → config → ensure subdir under self.workspace_dir).
+    /// 2. Resolve workspace path (3-level fallback: explicit
+    ///    arg → config → ensure subdir under parent workspace).
     /// 3. Pick bootstrap mode (Minimal if light_context, else config's mode).
-    /// 4. Build system prompt (mirrors `find_or_create` — load bootstrap files, build ToolContext, call `build_from_workspace`).
+    /// 4. Build system prompt (mirrors `find_or_create` —
+    ///    load bootstrap files, build ToolContext, call
+    ///    `build_from_workspace`).
     /// 5. Construct `ConversationSession` (with system prompt + default reasoning level).
     /// 6. Push `task` as the first pending message so the child picks it up.
     /// 7. Register the new child in `conversation_sessions` + `sessions` + `children` tables.
@@ -351,7 +354,10 @@ impl SessionManager {
              If you need to wait for sub-agent results, use the yield \
              mechanism to end your current turn.\n\
              **Behavioral constraints:**\n\
-             - Trust push-based completion notifications\n             - Do not call session query tools to check child agent status\n             - Execute the task directly; do not ask for confirmation \
+             - Trust push-based completion
+               notifications\n             - Do not call session query tools
+               to check child agent status\n             - Execute the task directly;
+               do not ask for confirmation \
                or suggest next steps — the parent agent handles that"
         );
         if depth < max_spawn_depth {
@@ -480,39 +486,34 @@ impl SessionManager {
             .await
             .ok_or_else(|| format!("child session not found: {}", child_id))?;
 
-        // 1. Recursively collect all descendant session IDs via BFS
-        //    on the `children` table. This must happen before any
-        //    removals so we discover every descendant while the
-        //    tracking tables are still intact.
+        // 1. Recursively collect all descendant session IDs via
+        //    BFS on the `children` table.
         let descendant_ids = self.collect_descendant_ids(child_id).await;
 
-        // 2. Cascade-stop: cancels the token tree for the child and
-        //    all its descendants.  The cancel token tree (wired in
-        //    `create_child_session`) handles runtime cancellation;
-        //    we only need to clean up the tracking tables.
+        // 2. Cascade-stop: cancel the token tree for the child
+        //    and all its descendants.
         if let Some(cs) = self.get_conversation_session(child_id).await {
             cs.read().await.stop(true).await;
         }
 
-        // 3. Remove the child and all descendants from
-        //    conversation_sessions.
+        // 3. Remove child + descendants from conversation_sessions.
         {
-            let mut conv_sessions = self.conversation_sessions.write().await;
-            conv_sessions.remove(child_id);
+            let mut cs = self.conversation_sessions.write().await;
+            cs.remove(child_id);
             for id in &descendant_ids {
-                conv_sessions.remove(id);
+                cs.remove(id);
             }
         }
 
-        // 4. Unregister child handle from parent's ConversationSession.
+        // 4. Unregister child handle from parent.
         {
-            let conv_sessions = self.conversation_sessions.read().await;
-            if let Some(parent_cs) = conv_sessions.get(parent_id) {
+            let cs = self.conversation_sessions.read().await;
+            if let Some(parent_cs) = cs.get(parent_id) {
                 parent_cs.read().await.unregister_child_handle(child_id);
             }
         }
 
-        // 5. Remove the child and all descendants from sessions.
+        // 5. Remove child + descendants from sessions.
         {
             let mut sessions = self.sessions.write().await;
             sessions.remove(child_id);
@@ -521,35 +522,47 @@ impl SessionManager {
             }
         }
 
-        // 6. Remove the child and all descendants from children
-        //    tracking table.  We also remove any entries where a
-        //    descendant acts as a parent of further descendants.
-        {
-            let mut children = self.children.write().await;
-            // Remove the direct child from parent's children list.
-            if let Some(list) = children.get_mut(parent_id) {
-                list.retain(|info| info.session_id != child_id);
-                if list.is_empty() {
-                    children.remove(parent_id);
-                }
-            }
-            // Remove each descendant from its own parent's children
-            // list (grandchildren, great-grandchildren, etc.).
-            for id in &descendant_ids {
-                // Find and remove from the parent's list.
-                let parent = children
-                    .values_mut()
-                    .find(|list| list.iter().any(|info| info.session_id == *id));
-                if let Some(list) = parent {
-                    list.retain(|info| info.session_id != *id);
-                }
-                // Also remove the descendant's own children entry
-                // (if it had spawned further children).
-                children.remove(id);
+        // 6. Remove child + descendants from children table.
+        self.remove_children_entries(parent_id, child_id, &descendant_ids)
+            .await;
+
+        Ok(())
+    }
+
+    /// Remove a direct child and all its descendants from the
+    /// `children` tracking table.
+    ///
+    /// Handles: (a) removing the direct child from `parent_id`'s
+    /// list, (b) removing each descendant from its own parent's
+    /// list, and (c) removing any entries where a descendant is
+    /// itself a parent of further descendants.
+    async fn remove_children_entries(
+        &self,
+        parent_id: &str,
+        child_id: &str,
+        descendant_ids: &[String],
+    ) {
+        let mut children = self.children.write().await;
+
+        // Remove the direct child from parent's children list.
+        if let Some(list) = children.get_mut(parent_id) {
+            list.retain(|info| info.session_id != child_id);
+            if list.is_empty() {
+                children.remove(parent_id);
             }
         }
 
-        Ok(())
+        // Remove each descendant from its own parent's list
+        // and clean up any sub-entries.
+        for id in descendant_ids {
+            let parent = children
+                .values_mut()
+                .find(|list| list.iter().any(|info| info.session_id == *id));
+            if let Some(list) = parent {
+                list.retain(|info| info.session_id != *id);
+            }
+            children.remove(id);
+        }
     }
 
     /// Collect all descendant session IDs of a given session via BFS

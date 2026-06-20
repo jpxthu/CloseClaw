@@ -102,12 +102,12 @@ impl SpawnController {
             });
         }
 
-        // 4-8. Load parent config and resolve the target id under the lock.
+        // 4. Load parent config and resolve target_id under the lock.
         // ConfigManager.agents uses std::sync::RwLock, whose read guard is
         // !Send. We must not hold it across an .await, so all lock-scoped
         // work is performed inside this block and the guard is dropped
         // before any await below.
-        let (target_id, max_children, allow_agents, target_config) = {
+        let (target_id, max_children, allow_agents, require_agent_id, target_config) = {
             let agents = self
                 .config_manager
                 .agents
@@ -136,23 +136,22 @@ impl SpawnController {
                     )
                 };
 
-            // 4a. agentId fallback already done above via or_else(default_child_agent).
+            // Pre-clone the target config so we don't need the lock after
+            // this block.  target_id may be None here (require_agent_id is
+            // checked later per the design-doc order).
+            let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());
 
-            // 5. require_agent_id check
-            if require_agent_id && target_id.is_none() {
-                return Err(SpawnError::AgentIdRequired);
-            }
-
-            let target_id = target_id.ok_or(SpawnError::AgentIdRequired)?;
-
-            // Pre-clone the target config so we don't need the lock after this block.
-            let target_config = agents.get(&target_id).cloned();
-
-            (target_id, max_children, allow_agents, target_config)
+            (
+                target_id,
+                max_children,
+                allow_agents,
+                require_agent_id,
+                target_config,
+            )
         };
+        // Lock guard dropped — safe to .await below.
 
-        // 6. Concurrency check
-        // No lock held here — safe to await.
+        // 5. Concurrency check (design doc ②)
         let active = self
             .session_manager
             .count_active_children(parent_session_id)
@@ -164,14 +163,23 @@ impl SpawnController {
             });
         }
 
-        // 7. Whitelist check
-        if !allow_agents.iter().any(|a| a == "*" || a == &target_id) {
-            return Err(SpawnError::AgentNotAllowed {
-                agent_id: target_id,
-            });
+        // 6. Whitelist check (design doc ③)
+        if let Some(ref tid) = target_id {
+            if !allow_agents.iter().any(|a| a == "*" || a == tid) {
+                return Err(SpawnError::AgentNotAllowed {
+                    agent_id: tid.clone(),
+                });
+            }
         }
 
-        // 8. Compute effective_max_spawn_depth for the child and return result.
+        // 7. require_agent_id check (design doc ④) — must come after
+        //    concurrency and whitelist checks, not before.
+        if require_agent_id && target_id.is_none() {
+            return Err(SpawnError::AgentIdRequired);
+        }
+        let target_id = target_id.ok_or(SpawnError::AgentIdRequired)?;
+
+        // 8. Compute effective_max_spawn_depth for the child and return.
         //    depth was already validated in step 3 (parent budget != 0);
         //    now verify child_depth <= effective_max.
         let child_max_spawn_depth = target_config
