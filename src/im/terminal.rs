@@ -109,37 +109,32 @@ fn check_line_pattern(line: &str) -> Option<String> {
     None
 }
 
+/// Apply ANSI code around `text` when `ansi` is true.
+fn apply_inline_styled_text(text: &str, ansi_code: &str, ansi: bool) -> String {
+    let mut out = String::new();
+    if ansi {
+        out.push_str(ansi_code);
+    }
+    out.push_str(text);
+    if ansi {
+        out.push_str(RESET);
+    }
+    out
+}
+
 /// Generic inline styling: applies ANSI codes or strips markdown markers.
 fn apply_inline_styling(spans: &[InlineSpan], ansi: bool) -> String {
     let mut out = String::new();
     for span in spans {
         match span {
             InlineSpan::Bold(text) => {
-                if ansi {
-                    out.push_str(BOLD);
-                }
-                out.push_str(text);
-                if ansi {
-                    out.push_str(RESET);
-                }
+                out.push_str(&apply_inline_styled_text(text, BOLD, ansi));
             }
             InlineSpan::Italic(text) => {
-                if ansi {
-                    out.push_str(ITALIC);
-                }
-                out.push_str(text);
-                if ansi {
-                    out.push_str(RESET);
-                }
+                out.push_str(&apply_inline_styled_text(text, ITALIC, ansi));
             }
             InlineSpan::Code(text) => {
-                if ansi {
-                    out.push_str(BOLD);
-                }
-                out.push_str(text);
-                if ansi {
-                    out.push_str(RESET);
-                }
+                out.push_str(&apply_inline_styled_text(text, BOLD, ansi));
             }
             InlineSpan::Link { text, url } => {
                 if ansi {

@@ -8,7 +8,7 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use crate::im::terminal::{current_uid, TerminalPlugin};
+use crate::im::terminal::TerminalPlugin;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 
@@ -26,8 +26,9 @@ enum ExitReason {
 /// 2. Create a session for the given `agent_id`.
 /// 3. Loop: read user input → route through gateway → print response.
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
+    let sender_id = crate::im::terminal::current_uid();
     let (gateway, session_manager) = build_gateway().await;
-    let session_id = create_session(&session_manager).await?;
+    let session_id = create_session(&session_manager, agent_id, &sender_id).await?;
 
     println!("CloseClaw Chat — agent: {}", agent_id);
     println!(
@@ -35,7 +36,7 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
          Type 'quit' or 'exit' to stop.\n"
     );
 
-    match repl_loop(&gateway, &session_id).await {
+    match repl_loop(&gateway, &session_id, &sender_id).await {
         ExitReason::Quit => Ok(()),
         ExitReason::Error(e) => Err(e),
     }
@@ -70,12 +71,15 @@ async fn build_gateway() -> (Arc<Gateway>, Arc<SessionManager>) {
 }
 
 /// Create a session for the chat REPL.
-async fn create_session(session_manager: &SessionManager) -> anyhow::Result<String> {
-    let sender_id = current_uid();
+async fn create_session(
+    session_manager: &SessionManager,
+    agent_id: &str,
+    sender_id: &str,
+) -> anyhow::Result<String> {
     let message = crate::gateway::Message {
         id: format!("chat-{}", chrono::Utc::now().timestamp()),
-        from: sender_id,
-        to: "cli".to_string(),
+        from: sender_id.to_string(),
+        to: agent_id.to_string(),
         content: String::new(),
         channel: "terminal".to_string(),
         timestamp: chrono::Utc::now().timestamp(),
@@ -93,8 +97,7 @@ async fn create_session(session_manager: &SessionManager) -> anyhow::Result<Stri
 ///
 /// Returns [`ExitReason::Quit`] when the user exits normally, or
 /// [`ExitReason::Error`] on I/O failure.
-async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str) -> ExitReason {
-    let sender_id = current_uid();
+async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) -> ExitReason {
     let stdin = io::stdin();
 
     loop {
@@ -120,7 +123,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str) -> ExitReason {
         };
 
         let result = gateway
-            .handle_inbound_message(session_id, content, Some(&sender_id), "terminal")
+            .handle_inbound_message(session_id, content, Some(sender_id), "terminal")
             .await;
 
         if result.is_none() {
