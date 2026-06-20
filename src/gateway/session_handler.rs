@@ -342,6 +342,7 @@ fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
             ContentBlock::Thinking(t) => t.as_str(),
             ContentBlock::ToolUse { input, .. } => input.as_str(),
             ContentBlock::ToolResult { content, .. } => content.as_str(),
+            _ => "",
         })
         .collect::<Vec<_>>()
         .join("\n")

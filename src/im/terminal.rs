@@ -651,6 +651,18 @@ impl TerminalRenderer {
             ContentBlock::Thinking(text) => self.render_thinking(text),
             ContentBlock::ToolUse { name, input, .. } => self.render_tool_use(name, input),
             ContentBlock::ToolResult { content, .. } => self.render_tool_result(content),
+            ContentBlock::Image(name) => self.render_placeholder("image", name),
+            ContentBlock::Audio(name) => self.render_placeholder("audio", name),
+            ContentBlock::File(name) => self.render_placeholder("file", name),
+        }
+    }
+
+    /// Render a placeholder for unsupported content types.
+    fn render_placeholder(&self, kind: &str, name: &str) -> String {
+        if self.ansi {
+            format!("{}[{}: {}]{}\n", DIM, kind, name, RESET)
+        } else {
+            format!("[{}: {}]\n", kind, name)
         }
     }
 

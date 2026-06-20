@@ -762,6 +762,122 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    // =========================================================================
+    // ContentBlock placeholder rendering tests (Step 1.1)
+    // =========================================================================
+
+    #[test]
+    fn test_render_image_placeholder_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Image("photo.jpg".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[image: photo.jpg]"));
+        assert!(!text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_render_image_placeholder_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Image("screenshot.png".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[image: screenshot.png]"));
+        assert!(text.contains(DIM));
+    }
+
+    #[test]
+    fn test_render_audio_placeholder_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Audio("voice.mp3".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[audio: voice.mp3]"));
+        assert!(!text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_render_audio_placeholder_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Audio("recording.wav".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[audio: recording.wav]"));
+        assert!(text.contains(DIM));
+    }
+
+    #[test]
+    fn test_render_file_placeholder_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::File("document.pdf".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[file: document.pdf]"));
+        assert!(!text.contains("\x1b["));
+    }
+
+    #[test]
+    fn test_render_file_placeholder_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::File("data.csv".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[file: data.csv]"));
+        assert!(text.contains(DIM));
+    }
+
+    #[test]
+    fn test_render_placeholder_mixed_with_text() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![
+            ContentBlock::Text("Here is an image:".into()),
+            ContentBlock::Image("chart.png".into()),
+            ContentBlock::Text("And a file:".into()),
+            ContentBlock::File("report.pdf".into()),
+        ];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Here is an image:"));
+        assert!(text.contains("[image: chart.png]"));
+        assert!(text.contains("And a file:"));
+        assert!(text.contains("[file: report.pdf]"));
+    }
+
     #[tokio::test]
     async fn test_plugin_send_with_thread_id() {
         let plugin = TerminalPlugin::with_ansi(false);

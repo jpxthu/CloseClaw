@@ -34,6 +34,7 @@ fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
             ContentBlock::Thinking(t) => Some(t.as_str()),
             ContentBlock::ToolUse { input, .. } => Some(input.as_str()),
             ContentBlock::ToolResult { content, .. } => Some(content.as_str()),
+            _ => Some(""),
         })
         .collect::<Vec<_>>()
         .join("\n")
