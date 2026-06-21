@@ -12,10 +12,10 @@ mod reload_tests {
 
     fn make_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
         let sections = [
-            ("models.json", r#"{"models":{}}"#),
-            ("channels.json", r#"{"channels":{}}"#),
+            ("models.json", r#"{"models":[]}"#),
+            ("channels.json", r#"{"channels":[]}"#),
             ("gateway.json", r#"{"port":8080}"#),
-            ("plugins.json", r#"{"plugins":{}}"#),
+            ("plugins.json", r#"{"plugins":[]}"#),
             ("system.json", r#"{"version":"1"}"#),
         ];
         for (name, content) in &sections {
@@ -204,7 +204,11 @@ mod reload_tests {
         mgr.set_test_completion(tx);
         let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
 
-        std::fs::write(d.path().join("plugins.json"), r#"{"plugins":{"p1":{}}}"#).unwrap();
+        std::fs::write(
+            d.path().join("plugins.json"),
+            r#"{"plugins":[{"id":"p1"}]}"#,
+        )
+        .unwrap();
 
         // Wait for the dispatch cycle to complete via signal
         rx.recv_timeout(Duration::from_secs(5))
@@ -228,7 +232,11 @@ mod reload_tests {
 
         // Write to multiple sections rapidly — all should be collected
         std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
-        std::fs::write(d.path().join("channels.json"), r#"{"channels":{"ch1":{}}}"#).unwrap();
+        std::fs::write(
+            d.path().join("channels.json"),
+            r#"{"channels":[{"id":"ch1"}]}"#,
+        )
+        .unwrap();
         std::fs::write(d.path().join("gateway.json"), r#"{"port":9999}"#).unwrap();
 
         // Wait for the debounce window to close and dispatch to fire
@@ -259,13 +267,13 @@ mod reload_tests {
             (
                 "channels.json",
                 ConfigSection::Channels,
-                r#"{"channels":{"ch1":{}}}"#,
+                r#"{"channels":[{"id":"ch1"}]}"#,
             ),
             ("gateway.json", ConfigSection::Gateway, r#"{"port":9090}"#),
             (
                 "plugins.json",
                 ConfigSection::Plugins,
-                r#"{"plugins":{"pl1":{}}}"#,
+                r#"{"plugins":[{"id":"pl1"}]}"#,
             ),
             ("system.json", ConfigSection::System, r#"{"version":"2.0"}"#),
             (
