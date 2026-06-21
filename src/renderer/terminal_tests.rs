@@ -691,4 +691,97 @@ mod tests {
             .unwrap();
         assert!(text.contains("Hello world"));
     }
+
+    // =========================================================================
+    // Code block fence tests (Step 1.1)
+    // =========================================================================
+
+    /// Unsupported language code block output contains ``` fence (ANSI mode).
+    #[test]
+    fn test_code_block_unsupported_lang_fence_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Text("```haskell\nlet x = 1\n```".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        // fence should appear (stripped ANSI sequences won't have ```)
+        assert!(
+            text.contains("```"),
+            "unsupported language block should contain ``` fence"
+        );
+    }
+
+    /// Unsupported language code block output contains ``` fence (plain text mode).
+    #[test]
+    fn test_code_block_unsupported_lang_fence_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("```ruby\nputs \"hi\"\n```".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        // plain text: ``` should be present
+        assert!(
+            text.contains("```"),
+            "unsupported language block in plain text should contain ``` fence"
+        );
+    }
+
+    /// Supported language code block output does NOT contain extra ``` fence.
+    #[test]
+    fn test_code_block_supported_lang_no_fence() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("```rust\nfn main() {}\n```".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        // supported lang should NOT have ``` fence markers
+        let trimmed_lines: Vec<&str> = text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+        // the first non-empty line should NOT be ```
+        assert_ne!(
+            trimmed_lines.first().copied(),
+            Some("```"),
+            "supported language block should not start with ``` fence"
+        );
+    }
+
+    /// Empty language code block output does NOT contain ``` fence.
+    #[test]
+    fn test_code_block_empty_lang_no_fence() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("```\nhello\n```".into())];
+        let output = r.render(&blocks, None);
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        // empty language should NOT have ``` fence (only line numbers)
+        let trimmed_lines: Vec<&str> = text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_ne!(
+            trimmed_lines.first().copied(),
+            Some("```"),
+            "empty language block should not start with ``` fence"
+        );
+    }
 }
