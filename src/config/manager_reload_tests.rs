@@ -278,3 +278,109 @@ fn test_reload_agents_success() {
     assert!(agents.contains_key("alpha"));
     assert_eq!(agents["alpha"].id, "alpha");
 }
+
+/// Test: when reload_agents() fails, snapshot_agents + restore_agents
+/// preserves the original in-memory state.
+#[test]
+fn test_reload_agents_failure_rollback_via_snapshot_restore() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+    setup_config_dir_at(&config_dir);
+
+    // Set up a valid agent: alpha
+    let agents_json = r#"{ "agents": ["alpha"] }"#;
+    let config_agents_dir = config_dir.join("config");
+    fs::create_dir_all(&config_agents_dir).unwrap();
+    fs::write(config_agents_dir.join("agents.json"), agents_json).unwrap();
+
+    let agent_dir = config_dir.join("agents").join("alpha");
+    fs::create_dir_all(&agent_dir).unwrap();
+    fs::write(
+        agent_dir.join("config.json"),
+        r#"{ "id": "alpha", "name": "Alpha" }"#,
+    )
+    .unwrap();
+
+    let manager = ConfigManager::new(config_dir.clone()).unwrap();
+    manager.load_agents(None).unwrap();
+
+    // Verify alpha is loaded
+    assert!(manager.agents().contains_key("alpha"));
+
+    // Take a snapshot
+    let (old_agents, old_permissions) = manager.snapshot_agents();
+    assert_eq!(old_agents.len(), 1);
+    assert!(old_agents.contains_key("alpha"));
+
+    // Corrupt agents.json so reload_agents() fails
+    fs::write(config_agents_dir.join("agents.json"), "not json").unwrap();
+    let result = manager.reload_agents();
+    assert!(result.is_err());
+
+    // Restore from snapshot
+    manager.restore_agents(old_agents, old_permissions);
+
+    // Verify alpha is still present (rollback succeeded)
+    let agents = manager.agents();
+    assert!(agents.contains_key("alpha"));
+    assert_eq!(agents["alpha"].id, "alpha");
+}
+
+/// Test: restore_agents correctly replaces current state with snapshot.
+#[test]
+fn test_restore_agents_replaces_current_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+    setup_config_dir_at(&config_dir);
+
+    let config_agents_dir = config_dir.join("config");
+    fs::create_dir_all(&config_agents_dir).unwrap();
+
+    // Set up agent alpha
+    fs::write(
+        config_agents_dir.join("agents.json"),
+        r#"{ "agents": ["alpha"] }"#,
+    )
+    .unwrap();
+    let alpha_dir = config_dir.join("agents").join("alpha");
+    fs::create_dir_all(&alpha_dir).unwrap();
+    fs::write(
+        alpha_dir.join("config.json"),
+        r#"{ "id": "alpha", "name": "Alpha" }"#,
+    )
+    .unwrap();
+
+    let manager = ConfigManager::new(config_dir.clone()).unwrap();
+    manager.load_agents(None).unwrap();
+
+    // Snapshot the initial state (alpha only)
+    let snapshot = manager.snapshot_agents();
+
+    // Now add agent beta manually by writing files and reloading
+    fs::write(
+        config_agents_dir.join("agents.json"),
+        r#"{ "agents": ["alpha", "beta"] }"#,
+    )
+    .unwrap();
+    let beta_dir = config_dir.join("agents").join("beta");
+    fs::create_dir_all(&beta_dir).unwrap();
+    fs::write(
+        beta_dir.join("config.json"),
+        r#"{ "id": "beta", "name": "Beta" }"#,
+    )
+    .unwrap();
+    manager.reload_agents().unwrap();
+    assert!(manager.agents().contains_key("beta"));
+
+    // Restore the snapshot (should remove beta)
+    manager.restore_agents(snapshot.0, snapshot.1);
+
+    let agents = manager.agents();
+    assert!(agents.contains_key("alpha"));
+    assert!(
+        !agents.contains_key("beta"),
+        "beta should not exist after restore"
+    );
+}
