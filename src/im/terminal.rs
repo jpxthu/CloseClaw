@@ -832,7 +832,7 @@ impl TerminalAdapter {
     fn make_message(&self, content: String) -> NormalizedMessage {
         NormalizedMessage {
             platform: "terminal".to_string(),
-            sender_id: current_uid(),
+            sender_id: crate::platform::current_uid(),
             peer_id: "cli".to_string(),
             content,
             timestamp: current_timestamp(),
@@ -847,23 +847,6 @@ fn get_terminal_width() -> usize {
     terminal_size::terminal_size()
         .map(|(w, _)| w.0 as usize)
         .unwrap_or(120)
-}
-
-/// Return the current user's system UID as a string.
-///
-/// On Unix, uses `libc::getuid()`. On other platforms, falls back to a
-/// static identifier.
-pub(crate) fn current_uid() -> String {
-    #[cfg(unix)]
-    {
-        // SAFETY: libc::getuid() is always safe — it reads the calling
-        // process's real user ID without side effects.
-        unsafe { libc::getuid() }.to_string()
-    }
-    #[cfg(not(unix))]
-    {
-        "terminal-user".to_string()
-    }
 }
 
 /// Return the current Unix timestamp in seconds.
