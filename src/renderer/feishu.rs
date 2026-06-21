@@ -319,7 +319,9 @@ impl FeishuRenderer {
         let mut seen = false;
 
         for inst in instructions {
-            let DslInstruction::Button { label, .. } = inst;
+            let DslInstruction::Button { label, .. } = inst else {
+                continue;
+            };
             let bt = if has_primary && !seen {
                 seen = true;
                 "primary"
