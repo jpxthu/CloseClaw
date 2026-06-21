@@ -210,7 +210,7 @@ pub struct ConfigManager {
     /// Base directory containing all config files.
     pub(crate) config_dir: PathBuf,
     /// Thread-safe backup manager.
-    backup_manager: SafeBackupManager,
+    pub(crate) backup_manager: SafeBackupManager,
     /// In-memory cache of all loaded config sections.
     pub(crate) sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
     /// Loaded credentials provider (from config/credentials/ directory).

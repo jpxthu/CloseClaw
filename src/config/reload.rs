@@ -1,496 +1,332 @@
 //! Config Hot Reload Manager
 //!
-//! Watches config files for changes and automatically reloads them.
-//! Validates new config before applying, maintains backup of last known good config.
+//! Watches config files for changes and automatically reloads them via
+//! `ConfigManager`. Handles debounce, file dispatch, and agent directory
+//! changes (snapshot → reload → `AgentRegistry::sync`).
 
-use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use notify::{Config as NotifyConfig, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use notify::{
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
+use tracing::{debug, info, warn};
 
-use super::backup::SafeBackupManager;
-use super::{ConfigError, ConfigProvider};
+use super::manager::{ConfigManager, ConfigSection};
+use crate::agent::registry::AgentRegistry;
 
-/// Type alias for the config parsing function.
-type ParseFn<P> = Arc<dyn Fn(&str) -> Result<P, ConfigError> + Send + Sync>;
+/// Default debounce duration for file change events.
+const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
 
-/// Event emitted when a config reload occurs
-#[derive(Debug, Clone)]
-pub enum ConfigReloadEvent {
-    /// Config was successfully reloaded
-    Reloaded { path: String },
-    /// Config reload failed, rolled back to backup
-    Rollback { path: String, error: String },
-    /// Config reload validation failed
-    ValidationFailed { path: String, error: String },
-}
-
-/// Result of a reload operation
-#[derive(Debug)]
-pub enum ReloadResult {
-    /// Success
-    Success,
-    /// Validation failed, keep using old config
-    ValidationFailed(ConfigError),
-    /// IO or parse error, rolled back
-    RolledBack(ConfigError),
-}
-
-/// ConfigReloadManager watches config files and hot-reloads on change.
+/// RAII handle that keeps the filesystem watcher alive.
 ///
-/// # Type Parameters
-/// * `P` - The ConfigProvider implementation type
-#[allow(dead_code)] // `watcher_handle` is reserved for future lifecycle management
-pub struct ConfigReloadManager<P> {
-    /// Inner provider (wrapped in Arc<Mutex> for interior mutability)
-    provider: Arc<std::sync::Mutex<P>>,
-    /// File paths being watched
-    watched_paths: Vec<PathBuf>,
-    /// Backup manager for rollback support
-    backup_manager: Arc<SafeBackupManager>,
-    /// Channel for reload events
-    event_sender: Option<mpsc::Sender<ConfigReloadEvent>>,
-    /// Debounce duration to avoid rapid reloads
-    debounce_duration: Duration,
-    /// Parsing function for the config provider
-    parse_fn: ParseFn<P>,
-    /// Watcher handle (keeps watcher alive)
-    watcher_handle: Option<WatcherHandle>,
-}
-
-impl<P> std::fmt::Debug for ConfigReloadManager<P> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ConfigReloadManager")
-            .field("watched_paths", &self.watched_paths)
-            .field("backup_manager", &self.backup_manager)
-            .field("debounce_duration", &self.debounce_duration)
-            .finish()
-    }
-}
-
-impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
-    /// Create a new ConfigReloadManager with a custom parse function.
-    pub fn new(
-        provider: P,
-        backup_manager: SafeBackupManager,
-        debounce_duration: Duration,
-        parse_fn: impl Fn(&str) -> Result<P, ConfigError> + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            provider: Arc::new(std::sync::Mutex::new(provider)),
-            watched_paths: Vec::new(),
-            backup_manager: Arc::new(backup_manager),
-            event_sender: None,
-            debounce_duration,
-            parse_fn: Arc::new(parse_fn),
-            watcher_handle: None,
-        }
-    }
-
-    /// Create a new ConfigReloadManager with an optional event channel.
-    pub fn with_events(
-        provider: P,
-        backup_manager: SafeBackupManager,
-        debounce_duration: Duration,
-        parse_fn: impl Fn(&str) -> Result<P, ConfigError> + Send + Sync + 'static,
-        event_sender: mpsc::Sender<ConfigReloadEvent>,
-    ) -> Self {
-        Self {
-            provider: Arc::new(std::sync::Mutex::new(provider)),
-            watched_paths: Vec::new(),
-            backup_manager: Arc::new(backup_manager),
-            event_sender: Some(event_sender),
-            debounce_duration,
-            parse_fn: Arc::new(parse_fn),
-            watcher_handle: None,
-        }
-    }
-
-    /// Get a clone of the inner provider.
-    pub fn provider(&self) -> Arc<std::sync::Mutex<P>> {
-        Arc::clone(&self.provider)
-    }
-
-    /// Read file content and create backup before reload.
-    fn backup_current_content(&self, path: &PathBuf) -> Result<(), ReloadResult> {
-        let current_content = fs::read(path).map_err(|e| {
-            error!("Failed to read config file {:?}: {}", path, e);
-            ReloadResult::RolledBack(ConfigError::IoError(e))
-        })?;
-
-        if let Err(e) = self
-            .backup_manager
-            .backup_with_content(path, &current_content)
-        {
-            warn!("Failed to create backup before reload: {}", e);
-        }
-        Ok(())
-    }
-
-    /// Load config from file, parse and validate. Returns the parsed provider on success.
-    fn load_and_validate(&self, path: &str, path_buf: &PathBuf) -> Result<P, ReloadResult> {
-        let new_content = fs::read_to_string(path_buf).map_err(|e| {
-            error!("Failed to read new config content: {}", e);
-            ReloadResult::RolledBack(ConfigError::IoError(e))
-        })?;
-
-        let temp_provider = (self.parse_fn)(&new_content).map_err(|e| {
-            error!("Failed to parse new config: {}", e);
-            self.emit_event(ConfigReloadEvent::ValidationFailed {
-                path: path.to_string(),
-                error: e.to_string(),
-            });
-            ReloadResult::ValidationFailed(e)
-        })?;
-
-        temp_provider.validate().map_err(|e| {
-            error!("Validation failed for new config: {}", e);
-            self.emit_event(ConfigReloadEvent::ValidationFailed {
-                path: path.to_string(),
-                error: e.to_string(),
-            });
-            ReloadResult::ValidationFailed(e)
-        })?;
-
-        Ok(temp_provider)
-    }
-}
-
-impl<P: ConfigProvider + 'static> ConfigReloadManager<P> {
-    /// Manually trigger a reload of a specific config path.
-    /// Returns the result of the reload operation.
-    pub fn reload(&self, path: &str) -> ReloadResult {
-        let path_buf = PathBuf::from(path);
-
-        // Lock provider briefly to ensure no concurrent reload
-        let _guard = self.provider.lock().unwrap();
-        drop(_guard);
-
-        if let Err(result) = self.backup_current_content(&path_buf) {
-            // Try to rollback to previous backup
-            self.try_rollback(&path_buf);
-            return result;
-        }
-        let temp_provider = match self.load_and_validate(path, &path_buf) {
-            Ok(p) => p,
-            Err(result) => {
-                // Try to rollback to previous backup
-                self.try_rollback(&path_buf);
-                return result;
-            }
-        };
-
-        // Validation passed, apply the new config
-        let mut provider_guard = self.provider.lock().unwrap();
-        *provider_guard = temp_provider;
-
-        debug!("Config reloaded successfully: {}", path);
-        self.emit_event(ConfigReloadEvent::Reloaded {
-            path: path.to_string(),
-        });
-
-        ReloadResult::Success
-    }
-
-    /// Emit a reload event to the channel if configured.
-    fn emit_event(&self, event: ConfigReloadEvent) {
-        if let Some(ref sender) = self.event_sender {
-            let _ = sender.try_send(event);
-        }
-    }
-
-    /// Try to rollback to previous backup if available.
-    fn try_rollback(&self, path: &PathBuf) {
-        if let Ok(backup_path) = self.backup_manager.find_latest_backup(path) {
-            if backup_path.exists() {
-                let _ = self.backup_manager.rollback(path);
-            }
-        }
-    }
-
-    /// Get a snapshot of the current config provider.
-    pub fn snapshot(&self) -> P
-    where
-        P: Clone,
-    {
-        self.provider.lock().unwrap().clone()
-    }
-}
-
-impl<P: ConfigProvider + Send + 'static> ConfigReloadManager<P> {
-    /// Start watching config files for changes using notify.
-    /// This spawns a background task that handles file change events.
-    /// Returns a handle that can be used to stop watching.
-    pub fn watch(&mut self, paths: Vec<PathBuf>) -> Result<WatcherHandle, ConfigError> {
-        self.watched_paths = paths.clone();
-
-        let provider = Arc::clone(&self.provider);
-        let backup_manager = Arc::clone(&self.backup_manager);
-        let debounce = self.debounce_duration;
-        let event_sender = self.event_sender.clone();
-        let parse_fn = Arc::clone(&self.parse_fn);
-
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        // Create a watcher using the callback-based API
-        let mut watcher = RecommendedWatcher::new(
-            move |res: Result<Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let _ = tx.send(event);
-                }
-            },
-            NotifyConfig::default(),
-        )
-        .map_err(|e| ConfigError::SchemaError(format!("Watcher creation failed: {}", e)))?;
-
-        for path in &paths {
-            watcher
-                .watch(path, RecursiveMode::NonRecursive)
-                .map_err(|e| {
-                    ConfigError::SchemaError(format!("Watch failed for {:?}: {}", path, e))
-                })?;
-        }
-
-        // Spawn background task to handle events
-        std::thread::spawn(move || {
-            run_watch_loop(
-                rx,
-                provider,
-                backup_manager,
-                parse_fn,
-                event_sender,
-                debounce,
-            );
-        });
-
-        Ok(WatcherHandle { watcher })
-    }
-}
-
-/// Background loop that processes file change events with debounce.
-fn run_watch_loop<P: ConfigProvider + Send + 'static>(
-    rx: std::sync::mpsc::Receiver<Event>,
-    provider: Arc<std::sync::Mutex<P>>,
-    backup_manager: Arc<SafeBackupManager>,
-    parse_fn: ParseFn<P>,
-    event_sender: Option<mpsc::Sender<ConfigReloadEvent>>,
-    debounce: Duration,
-) {
-    let mut last_event_time = std::time::Instant::now()
-        .checked_sub(debounce * 2)
-        .unwrap_or(std::time::Instant::now());
-
-    for event in rx {
-        let now = std::time::Instant::now();
-        if now.duration_since(last_event_time) < debounce {
-            debug!("Debouncing config change event");
-            continue;
-        }
-        last_event_time = now;
-
-        for path in event.paths {
-            handle_path_change(&path, &provider, &backup_manager, &parse_fn, &event_sender);
-        }
-    }
-}
-
-/// Process a single changed path: backup, parse, validate, apply.
-fn handle_path_change<P: ConfigProvider + Send + 'static>(
-    path: &PathBuf,
-    provider: &Arc<std::sync::Mutex<P>>,
-    backup_manager: &Arc<SafeBackupManager>,
-    parse_fn: &ParseFn<P>,
-    event_sender: &Option<mpsc::Sender<ConfigReloadEvent>>,
-) {
-    let path_str = path.display().to_string();
-    info!("Config file changed: {}", path_str);
-
-    let current_content = match fs::read(path) {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to read config for backup: {}", e);
-            return;
-        }
-    };
-    if let Err(e) = backup_manager.backup_with_content(path, &current_content) {
-        warn!("Failed to create backup: {}", e);
-    }
-
-    let new_content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to read changed config: {}", e);
-            return;
-        }
-    };
-
-    let temp_provider = match parse_fn(&new_content) {
-        Ok(p) => p,
-        Err(e) => {
-            error!("Failed to parse changed config: {}", e);
-            emit_watch_event(
-                event_sender,
-                ConfigReloadEvent::ValidationFailed {
-                    path: path_str.clone(),
-                    error: e.to_string(),
-                },
-            );
-            return;
-        }
-    };
-
-    if let Err(e) = temp_provider.validate() {
-        error!("Validation failed for changed config: {}", e);
-        emit_watch_event(
-            event_sender,
-            ConfigReloadEvent::ValidationFailed {
-                path: path_str.clone(),
-                error: e.to_string(),
-            },
-        );
-        return;
-    }
-
-    let mut provider_guard = provider.lock().unwrap();
-    *provider_guard = temp_provider;
-
-    emit_watch_event(event_sender, ConfigReloadEvent::Reloaded { path: path_str });
-}
-
-/// Send a watch event if a sender is available.
-fn emit_watch_event(sender: &Option<mpsc::Sender<ConfigReloadEvent>>, event: ConfigReloadEvent) {
-    if let Some(ref s) = sender {
-        let _ = s.try_send(event);
-    }
-}
-
-/// Handle to stop the watcher when dropped.
+/// Dropping this handle stops the underlying watcher.
 #[derive(Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // field is kept alive for RAII watcher lifecycle
 pub struct WatcherHandle {
     watcher: RecommendedWatcher,
 }
 
 impl WatcherHandle {
-    /// Stop watching all files.
+    /// Explicitly stop watching (same as drop, but allows manual control).
     pub fn stop(self) {
         // Watcher stops when dropped
     }
 }
 
-#[cfg(test)]
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::backup::{BackupManager, SafeBackupManager};
-    use tempfile::TempDir;
+/// Daemon-level config hot-reload manager.
+///
+/// Watches a set of config JSON files and the `agents/` directory.
+/// On change, dispatches to `ConfigManager::reload_section()` or
+/// `ConfigManager::reload_agents()` with debounce protection.
+pub struct ConfigReloadManager {
+    /// Shared config manager — provides load/reload/backup logic.
+    config_manager: Arc<ConfigManager>,
+    /// Shared agent registry — synced after agent config changes.
+    agent_registry: Arc<AgentRegistry>,
+    /// Debounce interval to avoid rapid reloads.
+    debounce_duration: Duration,
+    /// Optional channel for test completion signals.
+    #[cfg(test)]
+    test_completion_tx: Option<std::sync::mpsc::Sender<()>>,
+}
 
-    #[derive(Debug, Clone)]
-    struct Cfg(String);
-    impl ConfigProvider for Cfg {
-        fn version(&self) -> &'static str {
-            "1"
+impl ConfigReloadManager {
+    /// Create a new `ConfigReloadManager`.
+    ///
+    /// The manager holds shared references to `ConfigManager` and
+    /// `AgentRegistry`; it does not own them.
+    pub fn new(
+        config_manager: Arc<ConfigManager>,
+        agent_registry: Arc<AgentRegistry>,
+        debounce_duration: Duration,
+    ) -> Self {
+        Self {
+            config_manager,
+            agent_registry,
+            debounce_duration,
+            #[cfg(test)]
+            test_completion_tx: None,
         }
-        fn config_path() -> &'static str
-        where
-            Self: Sized,
-        {
-            "t"
-        }
-        fn is_default(&self) -> bool {
-            self.0.is_empty()
-        }
-        fn validate(&self) -> Result<(), ConfigError> {
-            if self.0.is_empty() {
-                Err(ConfigError::ValueError {
-                    field: "v".into(),
-                    message: "empty".into(),
-                })
-            } else {
-                Ok(())
-            }
-        }
     }
 
-    fn mgr(dir: &std::path::Path, val: &str) -> ConfigReloadManager<Cfg> {
-        let bm = BackupManager::new(dir.join("bak"), 3).unwrap();
-        ConfigReloadManager::new(
-            Cfg(val.into()),
-            SafeBackupManager::new(bm),
-            Duration::from_secs(1),
-            |s: &str| {
-                serde_json::from_str::<serde_json::Value>(s)
-                    .map(|v| Cfg(v["v"].as_str().unwrap_or("").into()))
-                    .map_err(|e| ConfigError::ValueError {
-                        field: "p".into(),
-                        message: e.to_string(),
-                    })
-            },
-        )
+    /// Set a completion signal channel for tests.
+    #[cfg(test)]
+    pub fn set_test_completion(&mut self, tx: std::sync::mpsc::Sender<()>) {
+        self.test_completion_tx = Some(tx);
     }
 
-    #[test]
-    fn test_new_and_snapshot() {
-        let d = TempDir::new().unwrap();
-        assert_eq!(mgr(d.path(), "hi").snapshot().0, "hi");
+    /// Create a new `ConfigReloadManager` with default debounce (500ms).
+    pub fn with_defaults(
+        config_manager: Arc<ConfigManager>,
+        agent_registry: Arc<AgentRegistry>,
+    ) -> Self {
+        Self::new(config_manager, agent_registry, DEFAULT_DEBOUNCE)
     }
 
-    #[test]
-    fn test_reload_success() {
-        let d = TempDir::new().unwrap();
-        let p = d.path().join("c.json");
-        fs::write(&p, r#"{"v":"new"}"#).unwrap();
-        let m = mgr(d.path(), "old");
-        assert!(matches!(
-            m.reload(&p.display().to_string()),
-            ReloadResult::Success
-        ));
-        assert_eq!(m.snapshot().0, "new");
-    }
-
-    #[test]
-    fn test_reload_validation_failed() {
-        let d = TempDir::new().unwrap();
-        let p = d.path().join("c.json");
-        fs::write(&p, r#"{"v":""}"#).unwrap();
-        let m = mgr(d.path(), "old");
-        assert!(matches!(
-            m.reload(&p.display().to_string()),
-            ReloadResult::ValidationFailed(_)
-        ));
-        assert_eq!(m.snapshot().0, "old");
-    }
-
-    #[test]
-    fn test_reload_nonexistent() {
-        let d = TempDir::new().unwrap();
-        assert!(matches!(
-            mgr(d.path(), "x").reload("/no/file"),
-            ReloadResult::RolledBack(_)
-        ));
-    }
-
-    #[test]
-    fn test_reload_invalid_json() {
-        let d = TempDir::new().unwrap();
-        let p = d.path().join("c.json");
-        fs::write(&p, "bad").unwrap();
-        assert!(matches!(
-            mgr(d.path(), "x").reload(&p.display().to_string()),
-            ReloadResult::ValidationFailed(_)
-        ));
-    }
-
-    #[test]
-    fn test_watcher_handle_stop() {
-        let d = TempDir::new().unwrap();
-        let p = d.path().join("c.json");
-        fs::write(&p, r#"{"v":"x"}"#).unwrap();
-        let mut m = mgr(d.path(), "old");
-        m.watch(vec![p]).unwrap().stop();
+    /// Start watching config files under `config_dir`.
+    ///
+    /// Watches the following files (if they exist):
+    /// - `models.json`, `channels.json`, `gateway.json`,
+    ///   `plugins.json`, `system.json`
+    /// - `agents.json` (treated as agent config, triggers `reload_agents`)
+    /// - `agents/` directory (recursive, triggers `reload_agents`)
+    ///
+    /// Returns a `WatcherHandle` whose drop stops the watcher.
+    pub fn watch(&mut self, config_dir: &str) -> Result<WatcherHandle, super::ConfigError> {
+        let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
+        let mut watcher = create_watcher(tx)?;
+        let config_path = Path::new(config_dir);
+        register_watched_paths(&mut watcher, config_path)?;
+        #[cfg(test)]
+        let completion_tx = self.test_completion_tx.take();
+        #[cfg(not(test))]
+        let completion_tx: Option<std::sync::mpsc::Sender<()>> = None;
+        spawn_reload_loop(
+            rx,
+            &self.config_manager,
+            &self.agent_registry,
+            self.debounce_duration,
+            completion_tx,
+        );
+        info!(config_dir = config_dir, "config hot-reload watcher started");
+        Ok(WatcherHandle { watcher })
     }
 }
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Create a `RecommendedWatcher` with an mpsc sender for file change events.
+fn create_watcher(
+    tx: std::sync::mpsc::Sender<notify::Result<Event>>,
+) -> Result<RecommendedWatcher, super::ConfigError> {
+    RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                let _ = tx.send(Ok(event));
+            }
+        },
+        NotifyConfig::default(),
+    )
+    .map_err(|e| super::ConfigError::SchemaError(format!("Failed to create watcher: {}", e)))
+}
+
+/// Register all watched paths (config files, agents.json, agents/ dir).
+fn register_watched_paths(
+    watcher: &mut RecommendedWatcher,
+    config_path: &Path,
+) -> Result<(), super::ConfigError> {
+    let config_files = [
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+    ];
+    for name in &config_files {
+        let path = config_path.join(name);
+        if path.exists() {
+            watcher
+                .watch(path.as_ref(), RecursiveMode::NonRecursive)
+                .map_err(|e| {
+                    super::ConfigError::SchemaError(format!("Failed to watch {:?}: {}", path, e))
+                })?;
+        }
+    }
+    register_agents_watch(watcher, config_path)?;
+    Ok(())
+}
+
+/// Register watchers for agents.json and agents/ directory.
+fn register_agents_watch(
+    watcher: &mut RecommendedWatcher,
+    config_path: &Path,
+) -> Result<(), super::ConfigError> {
+    let agents_json = config_path.join("agents.json");
+    if agents_json.exists() {
+        watcher
+            .watch(agents_json.as_ref(), RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                super::ConfigError::SchemaError(format!("Failed to watch agents.json: {}", e))
+            })?;
+    }
+    let agents_dir = config_path.join("agents");
+    if agents_dir.exists() {
+        watcher
+            .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
+            .map_err(|e| {
+                super::ConfigError::SchemaError(format!("Failed to watch agents/: {}", e))
+            })?;
+    }
+    Ok(())
+}
+
+/// Spawn the debounce + dispatch loop on a background thread.
+fn spawn_reload_loop(
+    rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
+    config_manager: &Arc<ConfigManager>,
+    agent_registry: &Arc<AgentRegistry>,
+    debounce: Duration,
+    completion_tx: Option<std::sync::mpsc::Sender<()>>,
+) {
+    let cm = Arc::clone(config_manager);
+    let ar = Arc::clone(agent_registry);
+    std::thread::spawn(move || {
+        run_reload_loop(rx, cm, ar, debounce, completion_tx);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Internal event loop
+// ---------------------------------------------------------------------------
+
+/// Background loop: receive file change events, debounce, and dispatch.
+fn run_reload_loop(
+    rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
+    config_manager: Arc<ConfigManager>,
+    agent_registry: Arc<AgentRegistry>,
+    debounce: Duration,
+    completion_tx: Option<std::sync::mpsc::Sender<()>>,
+) {
+    let mut last_reload = std::time::Instant::now()
+        .checked_sub(debounce * 2)
+        .unwrap_or_else(std::time::Instant::now);
+
+    for event_result in rx {
+        let event = match event_result {
+            Ok(e) => e,
+            Err(e) => {
+                warn!("config watcher event error: {}", e);
+                continue;
+            }
+        };
+
+        // Only react to create / modify / remove
+        match event.kind {
+            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
+            _ => continue,
+        }
+
+        // Debounce: skip if within the debounce window
+        let now = std::time::Instant::now();
+        if now.duration_since(last_reload) < debounce {
+            debug!("debouncing config change event");
+            continue;
+        }
+        last_reload = now;
+
+        // Dispatch each changed path
+        for path in &event.paths {
+            dispatch_change(path, &config_manager, &agent_registry);
+        }
+
+        // Signal test completion if a sender is available
+        if let Some(ref tx) = completion_tx {
+            let _ = tx.send(());
+        }
+    }
+}
+
+/// Determine whether a path belongs to the agents subsystem.
+fn is_agents_path(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    s.contains("/agents/") || s.contains("\\agents\\")
+}
+
+/// Map a config filename to its `ConfigSection`, if applicable.
+fn filename_to_section(filename: &str) -> Option<ConfigSection> {
+    match filename {
+        "models.json" => Some(ConfigSection::Models),
+        "channels.json" => Some(ConfigSection::Channels),
+        "gateway.json" => Some(ConfigSection::Gateway),
+        "plugins.json" => Some(ConfigSection::Plugins),
+        "system.json" => Some(ConfigSection::System),
+        _ => None,
+    }
+}
+
+/// Dispatch a single changed path to the appropriate reload method.
+fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: &AgentRegistry) {
+    // Agent-related changes → full agent reload + registry sync
+    if is_agents_path(path) {
+        reload_agents_with_log(path, config_manager, agent_registry);
+        return;
+    }
+
+    let filename = match path.file_name().and_then(|n| n.to_str()) {
+        Some(f) => f,
+        None => return,
+    };
+
+    // agents.json triggers the same agent reload path
+    if filename == "agents.json" {
+        reload_agents_with_log(path, config_manager, agent_registry);
+        return;
+    }
+
+    // Regular config section file
+    if let Some(section) = filename_to_section(filename) {
+        info!(
+            path = %path.display(),
+            section = %section,
+            "config file changed, reloading section"
+        );
+        if let Err(e) = config_manager.reload_section(section, None) {
+            warn!(error = %e, section = %section, "failed to reload config section");
+        }
+    }
+}
+
+/// Reload agent configs and sync the `AgentRegistry`.
+///
+/// Snapshots before reload; on failure, restores the previous in-memory
+/// state so the daemon keeps running with the last-known-good config.
+fn reload_agents_with_log(
+    path: &Path,
+    config_manager: &ConfigManager,
+    agent_registry: &AgentRegistry,
+) {
+    info!(
+        path = %path.display(),
+        "agent config change detected, reloading agents"
+    );
+
+    let (old_agents, old_permissions) = config_manager.snapshot_agents();
+
+    if let Err(e) = config_manager.reload_agents() {
+        warn!(error = %e, "failed to reload agent configs, rolling back");
+        config_manager.restore_agents(old_agents, old_permissions);
+        return;
+    }
+
+    // Sync new configs into AgentRegistry
+    let configs: Vec<_> = config_manager.agents().into_values().collect();
+    agent_registry.reload(configs);
+}
+
+#[cfg(test)]
+#[path = "reload_tests.rs"]
+mod tests;
