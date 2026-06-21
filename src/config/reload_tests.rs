@@ -214,6 +214,36 @@ mod reload_tests {
         assert!(val.get("plugins").is_some());
     }
 
+    /// Multiple file changes within the debounce window are merged and
+    /// all dispatched when the window closes.
+    #[test]
+    fn test_debounce_merges_multiple_file_changes() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(100));
+        let (tx, rx) = mpsc::channel();
+        mgr.set_test_completion(tx);
+        let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
+
+        // Write to multiple sections rapidly — all should be collected
+        std::fs::write(d.path().join("models.json"), r#"{"models":{"m1":{}}}"#).unwrap();
+        std::fs::write(d.path().join("channels.json"), r#"{"channels":{"ch1":{}}}"#).unwrap();
+        std::fs::write(d.path().join("gateway.json"), r#"{"port":9999}"#).unwrap();
+
+        // Wait for the debounce window to close and dispatch to fire
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("reload loop should have dispatched all merged changes");
+
+        // All three sections should have been reloaded
+        let md = cm.section(ConfigSection::Models).unwrap();
+        assert!(md.get("models").is_some(), "models should be reloaded");
+        let ch = cm.section(ConfigSection::Channels).unwrap();
+        assert!(ch.get("channels").is_some(), "channels should be reloaded");
+        let gw = cm.section(ConfigSection::Gateway).unwrap();
+        assert!(gw.is_object(), "gateway should be reloaded");
+    }
+
     // ------------------------------------------------------------------
     // Dispatch per-section tests
     // ------------------------------------------------------------------

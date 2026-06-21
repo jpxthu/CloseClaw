@@ -4,7 +4,8 @@
 //! `ConfigManager`. Handles debounce, file dispatch, and agent directory
 //! changes (snapshot → reload → `AgentRegistry::sync`).
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -204,6 +205,12 @@ fn spawn_reload_loop(
 // ---------------------------------------------------------------------------
 
 /// Background loop: receive file change events, debounce, and dispatch.
+///
+/// Uses a "collect-merge-execute" debounce strategy:
+/// - During the debounce window, changed paths are collected into a
+///   `HashSet<PathBuf>` (deduplicating repeated paths).
+/// - When the window expires (no new events for `debounce` duration),
+///   all collected paths are dispatched in a single batch.
 fn run_reload_loop(
     rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
     config_manager: Arc<ConfigManager>,
@@ -211,41 +218,62 @@ fn run_reload_loop(
     debounce: Duration,
     completion_tx: Option<std::sync::mpsc::Sender<()>>,
 ) {
-    let mut last_reload = std::time::Instant::now()
-        .checked_sub(debounce * 2)
-        .unwrap_or_else(std::time::Instant::now);
+    let mut pending_paths: HashSet<PathBuf> = HashSet::new();
 
-    for event_result in rx {
-        let event = match event_result {
-            Ok(e) => e,
-            Err(e) => {
-                warn!("config watcher event error: {}", e);
-                continue;
+    loop {
+        match rx.recv_timeout(debounce) {
+            Ok(event_result) => {
+                let event = match event_result {
+                    Ok(e) => e,
+                    Err(e) => {
+                        warn!("config watcher event error: {}", e);
+                        continue;
+                    }
+                };
+
+                // Only react to create / modify / remove
+                match event.kind {
+                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
+                    _ => continue,
+                }
+
+                // Collect changed paths (HashSet deduplicates)
+                for path in event.paths {
+                    pending_paths.insert(path);
+                }
+                debug!(
+                    count = pending_paths.len(),
+                    "collected config change events"
+                );
             }
-        };
-
-        // Only react to create / modify / remove
-        match event.kind {
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
-            _ => continue,
-        }
-
-        // Debounce: skip if within the debounce window
-        let now = std::time::Instant::now();
-        if now.duration_since(last_reload) < debounce {
-            debug!("debouncing config change event");
-            continue;
-        }
-        last_reload = now;
-
-        // Dispatch each changed path
-        for path in &event.paths {
-            dispatch_change(path, &config_manager, &agent_registry);
-        }
-
-        // Signal test completion if a sender is available
-        if let Some(ref tx) = completion_tx {
-            let _ = tx.send(());
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Debounce window expired — dispatch all collected paths
+                if pending_paths.is_empty() {
+                    continue;
+                }
+                let paths = std::mem::take(&mut pending_paths);
+                info!(
+                    count = paths.len(),
+                    "debounce window closed, dispatching batch"
+                );
+                for path in &paths {
+                    dispatch_change(path, &config_manager, &agent_registry);
+                }
+                // Signal test completion if a sender is available
+                if let Some(ref tx) = completion_tx {
+                    let _ = tx.send(());
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                // Channel closed — dispatch any remaining paths and exit
+                for path in &pending_paths {
+                    dispatch_change(path, &config_manager, &agent_registry);
+                }
+                if let Some(ref tx) = completion_tx {
+                    let _ = tx.send(());
+                }
+                break;
+            }
         }
     }
 }
