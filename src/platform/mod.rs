@@ -11,7 +11,9 @@ pub mod terminal;
 
 pub use config::config_dir;
 pub use fs::normalize_path;
-pub use process::{send_signal, wait_for_shutdown_signal, write_pid_file};
+pub use process::{
+    pid_file_path, read_pid_file, send_signal, wait_for_shutdown_signal, write_pid_file,
+};
 pub use terminal::{current_uid, supports_ansi};
 
 #[cfg(test)]

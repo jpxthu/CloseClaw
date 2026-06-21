@@ -30,25 +30,31 @@ pub fn read_pid_file(path: &Path) -> Option<u32> {
 
 /// Sends a termination signal to the process identified by `pid`.
 ///
-/// On Unix, sends SIGTERM. On Windows, terminates the process via API.
-pub fn send_signal(pid: u32) -> anyhow::Result<()> {
+/// On Unix, sends SIGTERM by default or SIGKILL when `force` is true.
+/// On Windows, uses `taskkill` without `/F` by default or with `/F`
+/// when `force` is true.
+pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
-        // SAFETY: kill with SIGTERM is a standard termination signal.
+        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+        // SAFETY: kill with a valid signal is a standard POSIX operation.
         // The process ID is validated by the OS kernel.
-        let ret = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        let ret = unsafe { libc::kill(pid as i32, signal) };
         if ret != 0 {
             anyhow::bail!(
-                "Failed to send SIGTERM to process {pid}: {}",
+                "Failed to send signal to process {pid}: {}",
                 std::io::Error::last_os_error()
             );
         }
     }
     #[cfg(not(unix))]
     {
-        // Windows: use taskkill to terminate the process
+        let mut args = vec!["/PID".to_string(), pid.to_string()];
+        if force {
+            args.push("/F".to_string());
+        }
         let status = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/F"])
+            .args(&args)
             .status()?;
         if !status.success() {
             anyhow::bail!("Failed to terminate process {pid}");
