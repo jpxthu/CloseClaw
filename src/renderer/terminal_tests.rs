@@ -668,6 +668,10 @@ mod tests {
             .unwrap();
         assert!(text.contains("Content"));
         assert!(
+            text.contains(DIM),
+            "DSL button should have DIM style in ANSI mode"
+        );
+        assert!(
             text.contains("[Button: OK (action: confirm, value: yes)]"),
             "DSL button should appear as plain-text hint in output"
         );
@@ -783,5 +787,121 @@ mod tests {
             Some("```"),
             "empty language block should not start with ``` fence"
         );
+    }
+
+    // =========================================================================
+    // Selector DSL rendering tests (Step 1.3)
+    // =========================================================================
+
+    /// Verify TerminalRenderer renders DSL Selector instructions as plain-text hints.
+    #[test]
+    fn test_render_selector_dsl_plain() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Pick an option".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Selector {
+                label: "Color".to_string(),
+                options: vec!["Red".to_string(), "Green".to_string(), "Blue".to_string()],
+                action: "select_color".to_string(),
+            }],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Pick an option"));
+        assert!(
+            text.contains("[Selector: Color (options: Red, Green, Blue; action: select_color)]"),
+            "DSL selector should appear as plain-text hint in output"
+        );
+    }
+
+    /// Verify DSL Selector renders with DIM style in ANSI mode.
+    #[test]
+    fn test_render_selector_dsl_ansi() {
+        let r = TerminalRenderer::with_ansi(true);
+        let blocks = vec![ContentBlock::Text("Content".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Selector {
+                label: "Size".to_string(),
+                options: vec!["S".to_string(), "M".to_string(), "L".to_string()],
+                action: "pick_size".to_string(),
+            }],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Content"));
+        assert!(text.contains(DIM));
+        assert!(
+            text.contains("[Selector: Size (options: S, M, L; action: pick_size)]"),
+            "DSL selector should appear as plain-text hint with DIM style"
+        );
+    }
+
+    /// Verify DSL Selector with empty options.
+    #[test]
+    fn test_render_selector_empty_options() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Hello".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Selector {
+                label: "Choose".to_string(),
+                options: vec![],
+                action: "pick".to_string(),
+            }],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(
+            text.contains("[Selector: Choose (options: ; action: pick)]"),
+            "Selector with empty options should render correctly"
+        );
+    }
+
+    /// Verify Button and Selector DSL instructions render together.
+    #[test]
+    fn test_render_button_and_selector_dsl() {
+        let r = TerminalRenderer::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Choose:".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![
+                DslInstruction::Button {
+                    label: "OK".to_string(),
+                    action: "confirm".to_string(),
+                    value: "yes".to_string(),
+                },
+                DslInstruction::Selector {
+                    label: "Color".to_string(),
+                    options: vec!["R".to_string(), "G".to_string()],
+                    action: "select".to_string(),
+                },
+            ],
+        };
+        let output = r.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[Button: OK (action: confirm, value: yes)]"));
+        assert!(text.contains("[Selector: Color (options: R, G; action: select)]"));
     }
 }

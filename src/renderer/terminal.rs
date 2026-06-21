@@ -703,6 +703,15 @@ impl TerminalRenderer {
         }
     }
 
+    /// Wrap `text` with DIM/RESET when ANSI is enabled, otherwise return plain text.
+    fn dim_or_plain(&self, text: &str) -> String {
+        if self.ansi {
+            format!("{}{}{}", DIM, text, RESET)
+        } else {
+            text.to_string()
+        }
+    }
+
     /// Render DSL instructions as plain-text hints for the terminal channel.
     fn render_dsl(&self, dsl_result: &DslParseResult) -> String {
         let mut out = String::new();
@@ -713,10 +722,23 @@ impl TerminalRenderer {
                     action,
                     value,
                 } => {
-                    out.push_str(&format!(
-                        "[Button: {} (action: {}, value: {})]\n",
-                        label, action, value
-                    ));
+                    let line =
+                        format!("[Button: {} (action: {}, value: {})]", label, action, value);
+                    out.push_str(&self.dim_or_plain(&line));
+                    out.push('\n');
+                }
+                crate::processor_chain::DslInstruction::Selector {
+                    label,
+                    options,
+                    action,
+                } => {
+                    let options_str = options.join(", ");
+                    let line = format!(
+                        "[Selector: {} (options: {}; action: {})]",
+                        label, options_str, action
+                    );
+                    out.push_str(&self.dim_or_plain(&line));
+                    out.push('\n');
                 }
             }
         }

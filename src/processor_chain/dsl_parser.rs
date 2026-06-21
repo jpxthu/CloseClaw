@@ -30,6 +30,12 @@ pub enum DslInstruction {
         action: String,
         value: String,
     },
+    /// A selector with a label, multiple option choices, and an action identifier.
+    Selector {
+        label: String,
+        options: Vec<String>,
+        action: String,
+    },
 }
 
 /// Result of parsing a markdown string for DSL instructions.
@@ -162,19 +168,37 @@ impl DslParser {
 /// Returns `None` if the line is not a DSL line.
 fn parse_dsl_line(line: &str) -> Option<DslInstruction> {
     let trimmed = line.trim();
-    if !trimmed.starts_with("::button[") || !trimmed.ends_with(']') {
+    if !trimmed.ends_with(']') {
         return None;
     }
 
-    // Extract content between `[` and `]`
+    if trimmed.starts_with("::button[") {
+        return parse_button(trimmed);
+    }
+    if trimmed.starts_with("::selector[") {
+        return parse_selector(trimmed);
+    }
+
+    None
+}
+
+/// Extract the bracket content from a DSL line.
+///
+/// Given `::tag[...]`, returns the trimmed inner content between `[` and `]`.
+/// Returns `None` if brackets are empty or missing.
+fn extract_bracket_content(trimmed: &str) -> Option<&str> {
     let start = trimmed.find('[')? + 1;
     let end = trimmed.len() - 1;
     if start >= end {
         return None;
     }
-    let inner = &trimmed[start..end];
+    Some(&trimmed[start..end])
+}
 
-    // Parse parameters: key:value separated by ';'
+/// Parse a `::button[...]` line into a [`DslInstruction::Button`].
+fn parse_button(trimmed: &str) -> Option<DslInstruction> {
+    let inner = extract_bracket_content(trimmed)?;
+
     let mut label: Option<String> = None;
     let mut action: Option<String> = None;
     let mut value: Option<String> = None;
@@ -201,6 +225,44 @@ fn parse_dsl_line(line: &str) -> Option<DslInstruction> {
         label,
         action,
         value,
+    })
+}
+
+/// Parse a `::selector[...]` line into a [`DslInstruction::Selector`].
+fn parse_selector(trimmed: &str) -> Option<DslInstruction> {
+    let inner = extract_bracket_content(trimmed)?;
+
+    let mut label: Option<String> = None;
+    let mut action: Option<String> = None;
+    let mut options: Vec<String> = Vec::new();
+
+    for param in inner.split(';') {
+        let param = param.trim();
+        if let Some((key, val)) = param.split_once(':') {
+            let key = key.trim();
+            let val = val.trim();
+            match key {
+                "label" => label = Some(val.to_string()),
+                "action" => action = Some(val.to_string()),
+                "options" => {
+                    options = val
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let label = label?;
+    let action = action?;
+
+    Some(DslInstruction::Selector {
+        label,
+        options,
+        action,
     })
 }
 
@@ -297,9 +359,11 @@ mod tests {
         assert_eq!(result.instructions.len(), 2);
         match &result.instructions[0] {
             DslInstruction::Button { label, .. } => assert_eq!(label, "Yes"),
+            _ => panic!("Expected Button instruction"),
         }
         match &result.instructions[1] {
             DslInstruction::Button { label, .. } => assert_eq!(label, "No"),
+            _ => panic!("Expected Button instruction"),
         }
         assert!(result.clean_content.is_empty());
     }
@@ -361,6 +425,7 @@ mod tests {
                 assert_eq!(action, "say hello");
                 assert_eq!(value, "greeting");
             }
+            _ => panic!("Expected Button instruction"),
         }
     }
 
@@ -479,6 +544,7 @@ mod tests {
                 assert_eq!(action, "go");
                 assert_eq!(value, "ok");
             }
+            _ => panic!("Expected Button instruction"),
         }
         assert_eq!(result.clean_content, "");
     }
@@ -493,5 +559,138 @@ mod tests {
         let result_convenience = DslParseResult::from_content_blocks(&blocks);
         let result_manual = DslParser::default().parse_content_blocks(&blocks);
         assert_eq!(result_convenience, result_manual);
+    }
+
+    // -----------------------------------------------------------------------
+    // Selector DSL tests (Step 1.3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_single_selector() {
+        let parser = DslParser;
+        let input = "::selector[label:Pick color;options:Red,Green,Blue;action:select_color]";
+        let result = parser.parse(input);
+
+        assert_eq!(result.instructions.len(), 1);
+        assert_eq!(
+            result.instructions[0],
+            DslInstruction::Selector {
+                label: "Pick color".to_string(),
+                options: vec!["Red".to_string(), "Green".to_string(), "Blue".to_string()],
+                action: "select_color".to_string(),
+            }
+        );
+        assert!(result.clean_content.is_empty());
+    }
+
+    #[test]
+    fn test_selector_empty_options() {
+        let parser = DslParser;
+        let input = "::selector[label:Choose;options:;action:pick]";
+        let result = parser.parse(input);
+
+        assert_eq!(result.instructions.len(), 1);
+        match &result.instructions[0] {
+            DslInstruction::Selector {
+                label,
+                options,
+                action,
+            } => {
+                assert_eq!(label, "Choose");
+                assert!(options.is_empty());
+                assert_eq!(action, "pick");
+            }
+            _ => panic!("Expected Selector instruction"),
+        }
+    }
+
+    #[test]
+    fn test_selector_with_spaces() {
+        let parser = DslParser;
+        let input = "::selector[label: Pick one ;options: A , B , C ;action: choose ]";
+        let result = parser.parse(input);
+
+        assert_eq!(result.instructions.len(), 1);
+        match &result.instructions[0] {
+            DslInstruction::Selector {
+                label,
+                options,
+                action,
+            } => {
+                assert_eq!(label, "Pick one");
+                assert_eq!(
+                    options,
+                    &vec!["A".to_string(), "B".to_string(), "C".to_string()]
+                );
+                assert_eq!(action, "choose");
+            }
+            _ => panic!("Expected Selector instruction"),
+        }
+    }
+
+    #[test]
+    fn test_selector_mixed_with_text() {
+        let parser = DslParser;
+        let input = "Hello\n::selector[label:Pick;options:X,Y;action:go]\nWorld";
+        let result = parser.parse(input);
+
+        assert_eq!(result.instructions.len(), 1);
+        assert_eq!(result.clean_content, "Hello\nWorld");
+    }
+
+    #[test]
+    fn test_selector_and_button_mixed() {
+        let parser = DslParser;
+        let input = concat!(
+            "::button[label:Yes;action:confirm;value:1]\n",
+            "::selector[label:Pick;options:A,B;action:choose]",
+        );
+        let result = parser.parse(input);
+
+        assert_eq!(result.instructions.len(), 2);
+        assert!(matches!(
+            &result.instructions[0],
+            DslInstruction::Button { .. }
+        ));
+        assert!(matches!(
+            &result.instructions[1],
+            DslInstruction::Selector { .. }
+        ));
+        assert!(result.clean_content.is_empty());
+    }
+
+    #[test]
+    fn test_selector_missing_label() {
+        let parser = DslParser;
+        let input = "::selector[options:A,B;action:go]";
+        let result = parser.parse(input);
+
+        assert!(result.instructions.is_empty());
+        assert_eq!(result.clean_content, input);
+    }
+
+    #[test]
+    fn test_selector_missing_action() {
+        let parser = DslParser;
+        let input = "::selector[label:Pick;options:A,B]";
+        let result = parser.parse(input);
+
+        assert!(result.instructions.is_empty());
+        assert_eq!(result.clean_content, input);
+    }
+
+    #[test]
+    fn test_selector_single_option() {
+        let parser = DslParser;
+        let input = "::selector[label:Only one;options:Only;action:single]";
+        let result = parser.parse(input);
+
+        assert_eq!(result.instructions.len(), 1);
+        match &result.instructions[0] {
+            DslInstruction::Selector { options, .. } => {
+                assert_eq!(options, &vec!["Only".to_string()]);
+            }
+            _ => panic!("Expected Selector instruction"),
+        }
     }
 }
