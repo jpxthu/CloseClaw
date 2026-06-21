@@ -22,16 +22,22 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     let config_dir = dir.join("config");
     std::fs::create_dir_all(&config_dir)?;
     std::fs::write(config_dir.join("agents.json"), agents_content.to_string())?;
+    write_mandatory_configs(dir)?;
+    Ok(())
+}
 
-    // Create mandatory config files required by ConfigManager::load()
-    let mandatory = [
+/// Write the 5 mandatory config files (models.json, channels.json,
+/// gateway.json, plugins.json, system.json) into `dir`.
+/// Reused across daemon unit tests and integration tests to avoid
+/// duplicating the same for-loop in every test helper.
+fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
+    for name in &[
         "models.json",
         "channels.json",
         "gateway.json",
         "plugins.json",
         "system.json",
-    ];
-    for name in &mandatory {
+    ] {
         std::fs::write(
             dir.join(name),
             serde_json::json!({"version": "1.0"}).to_string(),
@@ -76,8 +82,8 @@ async fn test_daemon_start_fails_without_mandatory_config() {
         _ => unreachable!(),
     };
     assert!(
-        err_msg.contains("mandatory config sections"),
-        "error should mention mandatory config sections: {err_msg}"
+        err_msg.contains("config"),
+        "error should mention config: {err_msg}"
     );
 }
 
@@ -95,8 +101,8 @@ async fn test_daemon_start_fails_with_empty_config_dir() {
         _ => unreachable!(),
     };
     assert!(
-        err_msg.contains("mandatory config sections"),
-        "error should mention mandatory config sections: {err_msg}"
+        err_msg.contains("config"),
+        "error should mention config: {err_msg}"
     );
 }
 

@@ -435,15 +435,15 @@ fn test_load_populates_all_five_sections_with_values() {
 
     // After load: all 5 mandatory sections should be populated
     let models = manager.section(ConfigSection::Models).unwrap();
-    assert_eq!(models["version"], "1.0");
+    assert_eq!(models, serde_json::json!({"version": "1.0"}));
     let channels = manager.section(ConfigSection::Channels).unwrap();
-    assert_eq!(channels["version"], "1.0");
+    assert_eq!(channels, serde_json::json!({"version": "1.0"}));
     let gateway = manager.section(ConfigSection::Gateway).unwrap();
-    assert_eq!(gateway["version"], "1.0");
+    assert_eq!(gateway, serde_json::json!({"version": "1.0"}));
     let plugins = manager.section(ConfigSection::Plugins).unwrap();
-    assert_eq!(plugins["version"], "1.0");
+    assert_eq!(plugins, serde_json::json!({"version": "1.0"}));
     let system = manager.section(ConfigSection::System).unwrap();
-    assert_eq!(system["version"], "1.0");
+    assert_eq!(system, serde_json::json!({"version": "1.0"}));
 }
 
 /// Test: load() fails when one mandatory file is missing, returning

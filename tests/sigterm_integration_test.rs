@@ -8,6 +8,25 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
+/// Write the 5 mandatory config files (models.json, channels.json,
+/// gateway.json, plugins.json, system.json) into `dir`.
+/// Uses `serde_json::json!` for consistent formatting with daemon tests.
+fn write_mandatory_configs(dir: &std::path::Path) {
+    for name in &[
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+    ] {
+        std::fs::write(
+            dir.join(name),
+            serde_json::json!({"version": "1.0"}).to_string(),
+        )
+        .expect("write mandatory config");
+    }
+}
+
 /// Returns the path to the `closeclaw` daemon binary (not the test binary).
 fn closeclaw_binary() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -36,17 +55,7 @@ async fn test_sigterm_triggers_graceful_shutdown() {
     )
     .expect("failed to write test agents.json");
 
-    // Create mandatory config files required by ConfigManager::load()
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-    ] {
-        std::fs::write(config_dir.join(name), r#"{"version":"1.0"}"#)
-            .expect("write mandatory config");
-    }
+    write_mandatory_configs(config_dir);
 
     // Start the daemon
     let mut daemon = Command::new(&daemon_bin)
@@ -119,17 +128,7 @@ async fn test_sigint_triggers_graceful_shutdown() {
     )
     .expect("failed to write test agents.json");
 
-    // Create mandatory config files required by ConfigManager::load()
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-    ] {
-        std::fs::write(config_dir.join(name), r#"{"version":"1.0"}"#)
-            .expect("write mandatory config");
-    }
+    write_mandatory_configs(config_dir);
 
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
