@@ -43,8 +43,7 @@ async fn test_run_specified_config_dir() {
 /// When config_dir is empty, handle_run resolves to the default platform path.
 /// Uses config_dir_for() with a temp path to avoid writing to real config dir.
 #[tokio::test]
-#[serial_test::serial]
-async fn test_run_empty_config_dir_uses_default() {
+async fn test_run_config_dir_uses_platform_path() {
     let tmp = TempDir::new().unwrap();
     let fake_home = tmp.path();
     let expected_default = config_dir_for(fake_home);
