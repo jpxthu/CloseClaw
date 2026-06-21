@@ -4,6 +4,7 @@
 //! Unix uses SIGTERM/SIGINT; Windows uses process termination API.
 
 use std::path::{Path, PathBuf};
+use tracing::info;
 
 /// Returns the platform-specific PID file path.
 ///
@@ -52,6 +53,33 @@ pub fn send_signal(pid: u32) -> anyhow::Result<()> {
         if !status.success() {
             anyhow::bail!("Failed to terminate process {pid}");
         }
+    }
+    Ok(())
+}
+
+/// Blocks until a platform-appropriate shutdown signal is received.
+///
+/// On Unix, listens for both SIGINT (Ctrl+C) and SIGTERM.
+/// On non-Unix platforms, listens for Ctrl+C only.
+pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigint = signal(SignalKind::interrupt())?;
+        let mut sigterm = signal(SignalKind::terminate())?;
+        tokio::select! {
+            _ = sigint.recv() => {
+                info!("Received Ctrl+C, initiating shutdown...");
+            }
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM, initiating graceful shutdown...");
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await?;
+        info!("Received Ctrl+C, initiating shutdown...");
     }
     Ok(())
 }
