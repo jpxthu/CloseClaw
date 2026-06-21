@@ -63,8 +63,16 @@ fn test_reload_section_invalid_json() {
         ConfigLoadError::ParseError { .. }
     ));
 
+    // In-memory cache must still be the old value
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
+
+    // File must be restored to previous content (the loaded version)
+    let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    assert!(
+        file_content.contains("1.0"),
+        "file should be restored to previous content"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -135,9 +143,16 @@ fn test_reload_section_validator_failure_keeps_old_value() {
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
     assert!(after.get("bad_field").is_none());
+
+    // File must be restored to previous content
+    let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    assert!(
+        file_content.contains("1.0"),
+        "file should be restored to previous content"
+    );
 }
 
-/// Test: reload_section parse failure keeps old value.
+/// Test: reload_section parse failure keeps old value and restores file.
 #[test]
 fn test_reload_section_parse_failure_keeps_old_value() {
     let tmp = tempfile::tempdir().unwrap();
@@ -154,6 +169,10 @@ fn test_reload_section_parse_failure_keeps_old_value() {
     // In-memory unchanged
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
+
+    // File restored to previous content
+    let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    assert!(file_content.contains("1.0"), "file should be restored");
 }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +352,294 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
     assert!(agents.contains_key("alpha"));
     assert_eq!(agents["alpha"].id, "alpha");
 }
+
+// =========================================================================
+// Step 1.2 — reload_section backup/restore edge cases
+// =========================================================================
+
+// ---------------------------------------------------------------------------
+// reload_section — IO failure edge cases
+// ---------------------------------------------------------------------------
+
+/// Test: reload_section when file doesn't exist and no previous load was done.
+/// In-memory cache should remain None and error should be returned.
+#[test]
+fn test_reload_section_io_failure_no_prior_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    // Don't call load() — sections map is empty
+
+    let result = manager.reload_section(ConfigSection::System, None);
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::IoError { .. }
+    ));
+
+    // In-memory should still be None (no prior load)
+    assert!(manager.section(ConfigSection::System).is_none());
+}
+
+/// Test: reload_section after successful load, then file is removed.
+/// In-memory cache should be unchanged.
+#[test]
+fn test_reload_section_io_failure_after_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let before = manager.section(ConfigSection::System).unwrap();
+    assert_eq!(before["version"], "1.0");
+
+    // Remove the file
+    fs::remove_file(tmp.path().join("system.json")).unwrap();
+
+    let result = manager.reload_section(ConfigSection::System, None);
+    assert!(result.is_err());
+
+    // In-memory unchanged
+    let after = manager.section(ConfigSection::System).unwrap();
+    assert_eq!(after["version"], "1.0");
+}
+
+// ---------------------------------------------------------------------------
+// reload_section — backup directory edge cases
+// ---------------------------------------------------------------------------
+
+/// Test: ConfigManager::new when backup dir path is a file returns error.
+#[test]
+fn test_config_manager_new_backup_path_is_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("cfg");
+    fs::create_dir_all(&config_dir).unwrap();
+    // Make .backups a file so create_dir_all fails
+    fs::write(config_dir.join(".backups"), "not a dir").unwrap();
+
+    let result = ConfigManager::new(config_dir);
+    assert!(result.is_err(), "should fail when .backups is a file");
+}
+
+/// Test: ConfigManager::new when config dir is a file (parent not a dir).
+#[test]
+fn test_config_manager_new_config_dir_is_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_file = tmp.path().join("config_as_file");
+    fs::write(&config_file, "not a dir").unwrap();
+
+    // Should return error, not panic
+    let result = ConfigManager::new(config_file);
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// reload_section — multiple sequential reloads
+// ---------------------------------------------------------------------------
+
+/// Test: multiple sequential reloads on the same section work correctly.
+#[test]
+fn test_reload_section_multiple_sequential_reloads() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // First reload
+    fs::write(tmp.path().join("system.json"), r#"{"version": "2.0"}"#).unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
+    assert_eq!(
+        manager.section(ConfigSection::System).unwrap()["version"],
+        "2.0"
+    );
+
+    // Second reload
+    fs::write(tmp.path().join("system.json"), r#"{"version": "3.0"}"#).unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
+    assert_eq!(
+        manager.section(ConfigSection::System).unwrap()["version"],
+        "3.0"
+    );
+
+    // Third reload with failure — should revert to 3.0
+    fs::write(tmp.path().join("system.json"), "bad json").unwrap();
+    let result = manager.reload_section(ConfigSection::System, None);
+    assert!(result.is_err());
+    assert_eq!(
+        manager.section(ConfigSection::System).unwrap()["version"],
+        "3.0"
+    );
+}
+
+/// Test: reloads on different sections are independent.
+#[test]
+fn test_reload_section_independent_sections() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Update System successfully
+    fs::write(tmp.path().join("system.json"), r#"{"version": "2.0"}"#).unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
+
+    // Corrupt Models
+    fs::write(tmp.path().join("models.json"), "bad json").unwrap();
+    let result = manager.reload_section(ConfigSection::Models, None);
+    assert!(result.is_err());
+
+    // System should still be updated
+    assert_eq!(
+        manager.section(ConfigSection::System).unwrap()["version"],
+        "2.0"
+    );
+    // Models should be unchanged
+    assert_eq!(
+        manager.section(ConfigSection::Models).unwrap()["version"],
+        "1.0"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// reload_section — file restore content correctness
+// ---------------------------------------------------------------------------
+
+/// Test: after parse failure, the restored file content is valid JSON
+/// matching the old in-memory value.
+#[test]
+fn test_reload_section_restored_file_is_valid_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Corrupt the file
+    fs::write(tmp.path().join("gateway.json"), "not json!!!").unwrap();
+    let result = manager.reload_section(ConfigSection::Gateway, None);
+    assert!(result.is_err());
+
+    // The restored file should be valid JSON
+    let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(parsed["version"], "1.0");
+}
+
+/// Test: after validation failure, the restored file content is valid JSON
+/// matching the old in-memory value.
+#[test]
+fn test_reload_section_validation_failure_restored_file_is_valid_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Write valid JSON that fails validation
+    fs::write(tmp.path().join("gateway.json"), r#"{"version": "bad"}"#).unwrap();
+
+    let validator: &SectionValidator = &|v: &serde_json::Value| {
+        if v.get("version").and_then(|v| v.as_str()) == Some("1.0") {
+            Ok(())
+        } else {
+            Err("version must be 1.0".into())
+        }
+    };
+
+    let result = manager.reload_section(ConfigSection::Gateway, Some(validator));
+    assert!(result.is_err());
+
+    // The restored file should be valid JSON with old value
+    let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(parsed["version"], "1.0");
+}
+
+/// Test: when in-memory section was never loaded (None),
+/// restore_file_to_last_known_good does not write anything to the file.
+#[test]
+fn test_reload_section_no_prior_value_no_restore_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    // Don't load — System section is not in memory
+
+    // Write invalid JSON
+    fs::write(tmp.path().join("system.json"), "bad json").unwrap();
+    let result = manager.reload_section(ConfigSection::System, None);
+    assert!(result.is_err());
+
+    // File should still contain the bad JSON (no restore possible)
+    let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    assert_eq!(file_content, "bad json");
+}
+
+// ---------------------------------------------------------------------------
+// reload_section — combined validator + file restore
+// ---------------------------------------------------------------------------
+
+/// Test: validator failure after valid parse restores file to old content.
+#[test]
+fn test_reload_section_validator_failure_restores_file_after_valid_parse() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let before = manager.section(ConfigSection::Plugins).unwrap();
+    assert_eq!(before["version"], "1.0");
+
+    // Write valid JSON that will fail validation
+    fs::write(
+        tmp.path().join("plugins.json"),
+        r#"{"version": "9.0", "banned": true}"#,
+    )
+    .unwrap();
+
+    let validator: &SectionValidator = &|v: &serde_json::Value| {
+        if v.get("banned").is_some() {
+            Err("banned field not allowed".into())
+        } else {
+            Ok(())
+        }
+    };
+
+    let result = manager.reload_section(ConfigSection::Plugins, Some(validator));
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::ValidationError { .. }
+    ));
+
+    // In-memory unchanged
+    let after = manager.section(ConfigSection::Plugins).unwrap();
+    assert_eq!(after["version"], "1.0");
+
+    // File restored
+    let file_content = fs::read_to_string(tmp.path().join("plugins.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(parsed["version"], "1.0");
+}
+
+/// Test: reload_section success does not create backup files.
+/// On success the file content stays as-is (new content).
+#[test]
+fn test_reload_section_success_file_contains_new_content() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let new_content = r#"{"version": "5.0", "extra": [1, 2, 3]}"#;
+    fs::write(tmp.path().join("system.json"), new_content).unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
+
+    // File on disk should still contain the new content (not reverted)
+    let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    assert!(file_content.contains("5.0"));
+    assert!(file_content.contains("extra"));
+}
+
+// =========================================================================
+// reload_agents (existing)
+// =========================================================================
 
 /// Test: restore_agents correctly replaces current state with snapshot.
 #[test]
