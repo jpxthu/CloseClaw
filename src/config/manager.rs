@@ -13,6 +13,7 @@ use thiserror::Error;
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use super::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use super::providers::{ConfigProvider, CredentialsProvider};
 use crate::agent::config::AgentPermissions;
 
@@ -220,6 +221,8 @@ pub struct ConfigManager {
     pub(crate) agent_permissions: RwLock<HashMap<String, AgentPermissions>>,
     /// Optional project root for loading project-level agents.json.
     pub(crate) repo_root: RwLock<Option<PathBuf>>,
+    /// Broadcast channel for config change events.
+    event_broadcaster: ConfigChangeBroadcaster,
 }
 
 impl ConfigManager {
@@ -238,6 +241,7 @@ impl ConfigManager {
             agents: RwLock::new(HashMap::new()),
             agent_permissions: RwLock::new(HashMap::new()),
             repo_root: RwLock::new(None),
+            event_broadcaster: ConfigChangeBroadcaster::new(),
         })
     }
 
@@ -438,6 +442,19 @@ impl ConfigManager {
             .read()
             .ok()
             .map(|guard| guard.clone())
+    }
+
+    /// Subscribe to config change events.
+    ///
+    /// Returns a receiver that will receive all future config change events.
+    /// Existing events published before subscription are not replayed.
+    pub fn subscribe_config_changes(&self) -> tokio::sync::broadcast::Receiver<ConfigChangeEvent> {
+        self.event_broadcaster.subscribe()
+    }
+
+    /// Publish a config change event to all active subscribers.
+    pub(crate) fn notify_change(&self, event: ConfigChangeEvent) {
+        self.event_broadcaster.send(event);
     }
 
     /// List metadata about all configuration files.

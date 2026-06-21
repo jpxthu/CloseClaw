@@ -3,6 +3,7 @@
 //! Provides `reload_section()` for updating a single config section's
 //! in-memory cache with backup, validation, and rollback support.
 
+use super::events::ConfigChangeEvent;
 use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 use tracing::{info, warn};
 
@@ -49,6 +50,10 @@ impl ConfigManager {
                     "rollback also failed after parse error"
                 );
             }
+            self.notify_change(ConfigChangeEvent::Failed {
+                section,
+                error: e.to_string(),
+            });
             ConfigLoadError::ParseError {
                 path: path.clone(),
                 error: e.to_string(),
@@ -65,6 +70,10 @@ impl ConfigManager {
                         "rollback also failed after validation error"
                     );
                 }
+                self.notify_change(ConfigChangeEvent::Failed {
+                    section,
+                    error: msg.clone(),
+                });
                 return Err(ConfigLoadError::ValidationError { path, message: msg });
             }
         }
@@ -76,6 +85,7 @@ impl ConfigManager {
             .expect("RwLock for config sections was poisoned");
         sections.insert(section, value);
         info!("reloaded config section: {}", section);
+        self.notify_change(ConfigChangeEvent::Reloaded { section });
         Ok(())
     }
 }
