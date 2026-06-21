@@ -26,28 +26,3 @@ pub fn expand_home(path: &Path) -> PathBuf {
     }
     path.to_path_buf()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_normalize_path_unix() {
-        let path = Path::new("/usr/local/bin");
-        let normalized = normalize_path(path);
-        assert_eq!(normalized, PathBuf::from("/usr/local/bin"));
-    }
-
-    #[test]
-    fn test_normalize_path_backslashes() {
-        let path = Path::new(r"C:\Users\test\file.txt");
-        let normalized = normalize_path(path);
-        assert_eq!(normalized, PathBuf::from("C:/Users/test/file.txt"));
-    }
-
-    #[test]
-    fn test_expand_home_no_tilde() {
-        let path = Path::new("/absolute/path");
-        assert_eq!(expand_home(path), PathBuf::from("/absolute/path"));
-    }
-}

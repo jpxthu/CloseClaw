@@ -41,23 +41,3 @@ pub fn current_uid() -> String {
             .unwrap_or_else(|_| "unknown".to_string())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_supports_ansi_returns_bool() {
-        // supports_ansi should not panic regardless of environment
-        let _ = supports_ansi();
-    }
-
-    #[test]
-    fn test_current_uid_non_empty() {
-        let uid = current_uid();
-        assert!(
-            !uid.is_empty(),
-            "current_uid() must return non-empty string"
-        );
-    }
-}

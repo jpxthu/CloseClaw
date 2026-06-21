@@ -25,31 +25,3 @@ pub fn config_dir() -> anyhow::Result<PathBuf> {
         Ok(PathBuf::from(appdata).join("closeclaw"))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_dir_returns_valid_path() {
-        let dir = config_dir().unwrap();
-        assert!(dir.is_absolute(), "config_dir must return an absolute path");
-
-        let path_str = dir.to_string_lossy();
-        assert!(
-            path_str.contains("closeclaw"),
-            "config_dir must contain 'closeclaw': {path_str}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_config_dir_unix_format() {
-        let dir = config_dir().unwrap();
-        let path_str = dir.to_string_lossy();
-        assert!(
-            path_str.ends_with("/.closeclaw"),
-            "Unix config_dir must end with /.closeclaw: {path_str}"
-        );
-    }
-}

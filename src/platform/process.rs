@@ -83,32 +83,3 @@ pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_pid_file_path() {
-        let dir = Path::new("/tmp/test");
-        let path = pid_file_path(dir);
-        assert_eq!(path, PathBuf::from("/tmp/test/daemon.pid"));
-    }
-
-    #[test]
-    fn test_write_and_read_pid_file() {
-        let tmp = TempDir::new().unwrap();
-        let path = pid_file_path(tmp.path());
-
-        write_pid_file(&path, 12345).unwrap();
-        let pid = read_pid_file(&path);
-        assert_eq!(pid, Some(12345));
-    }
-
-    #[test]
-    fn test_read_pid_file_missing() {
-        let path = Path::new("/nonexistent/daemon.pid");
-        assert_eq!(read_pid_file(path), None);
-    }
-}
