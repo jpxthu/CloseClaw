@@ -35,6 +35,13 @@
     "comment": ""
   },
   {
+    "path": "docs/design/cli/README.md",
+    "commit": "d4104fca2cbc250468938cca7830976a3d0a7bbe",
+    "commit_time": "2026-06-21T20:26:53+08:00",
+    "confirmed_time": "2026-06-21T20:42:28.130366+08:00",
+    "comment": ""
+  },
+  {
     "path": "docs/design/cli/admin.md",
     "commit": "86d1bd748fe6e027e9d769bd31bea5ddeee8b2fb",
     "commit_time": "2026-06-20T12:30:40+08:00",
