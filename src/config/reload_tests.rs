@@ -375,6 +375,14 @@ mod reload_tests {
         assert_eq!(old_agents.len(), 1);
         assert!(old_agents.contains_key("alpha"));
 
+        // Backup disk files before modification (as reload_agents_with_log does)
+        let _ = cm.backup_manager().backup(&agents_json_path);
+        let _ = cm.backup_manager().backup(alpha_dir.join("config.json"));
+
+        // Record original disk content for later verification
+        let original_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
+        let original_alpha_config = std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
+
         // Add a new agent (simulating a change that will be rolled back)
         let beta_dir = d.path().join("agents").join("beta");
         std::fs::create_dir_all(&beta_dir).unwrap();
@@ -393,7 +401,11 @@ mod reload_tests {
         // Simulate failure: restore from snapshot (as reload_agents_with_log does)
         cm.restore_agents(old_agents, old_permissions);
 
-        // Verify: original state recovered, beta is gone
+        // Rollback disk files to last known good state
+        let _ = cm.backup_manager().rollback(&agents_json_path);
+        let _ = cm.backup_manager().rollback(alpha_dir.join("config.json"));
+
+        // Verify: original memory state recovered, beta is gone
         assert!(
             cm.agents().contains_key("alpha"),
             "alpha should be present after rollback"
@@ -402,6 +414,19 @@ mod reload_tests {
         assert!(
             !cm.agents().contains_key("beta"),
             "beta should not exist after rollback"
+        );
+
+        // Verify: disk files rolled back to original content
+        let rolled_back_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
+        assert_eq!(
+            rolled_back_agents_json, original_agents_json,
+            "agents.json should be rolled back to original content"
+        );
+        let rolled_back_alpha_config =
+            std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
+        assert_eq!(
+            rolled_back_alpha_config, original_alpha_config,
+            "alpha config.json should be rolled back to original content"
         );
     }
 
