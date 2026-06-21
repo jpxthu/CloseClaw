@@ -668,6 +668,10 @@ mod tests {
             .unwrap();
         assert!(text.contains("Content"));
         assert!(
+            text.contains(DIM),
+            "DSL button should have DIM style in ANSI mode"
+        );
+        assert!(
             text.contains("[Button: OK (action: confirm, value: yes)]"),
             "DSL button should appear as plain-text hint in output"
         );

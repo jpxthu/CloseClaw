@@ -182,14 +182,22 @@ fn parse_dsl_line(line: &str) -> Option<DslInstruction> {
     None
 }
 
-/// Parse a `::button[...]` line into a [`DslInstruction::Button`].
-fn parse_button(trimmed: &str) -> Option<DslInstruction> {
+/// Extract the bracket content from a DSL line.
+///
+/// Given `::tag[...]`, returns the trimmed inner content between `[` and `]`.
+/// Returns `None` if brackets are empty or missing.
+fn extract_bracket_content(trimmed: &str) -> Option<&str> {
     let start = trimmed.find('[')? + 1;
     let end = trimmed.len() - 1;
     if start >= end {
         return None;
     }
-    let inner = &trimmed[start..end];
+    Some(&trimmed[start..end])
+}
+
+/// Parse a `::button[...]` line into a [`DslInstruction::Button`].
+fn parse_button(trimmed: &str) -> Option<DslInstruction> {
+    let inner = extract_bracket_content(trimmed)?;
 
     let mut label: Option<String> = None;
     let mut action: Option<String> = None;
@@ -222,12 +230,7 @@ fn parse_button(trimmed: &str) -> Option<DslInstruction> {
 
 /// Parse a `::selector[...]` line into a [`DslInstruction::Selector`].
 fn parse_selector(trimmed: &str) -> Option<DslInstruction> {
-    let start = trimmed.find('[')? + 1;
-    let end = trimmed.len() - 1;
-    if start >= end {
-        return None;
-    }
-    let inner = &trimmed[start..end];
+    let inner = extract_bracket_content(trimmed)?;
 
     let mut label: Option<String> = None;
     let mut action: Option<String> = None;
