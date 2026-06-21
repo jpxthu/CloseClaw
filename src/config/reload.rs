@@ -4,7 +4,7 @@
 //! `ConfigManager`. Handles debounce, file dispatch, and agent directory
 //! changes (snapshot → reload → `AgentRegistry::sync`).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -47,6 +47,9 @@ pub struct ConfigReloadManager {
     agent_registry: Arc<AgentRegistry>,
     /// Debounce interval to avoid rapid reloads.
     debounce_duration: Duration,
+    /// Optional channel for test completion signals.
+    #[cfg(test)]
+    test_completion_tx: Option<std::sync::mpsc::Sender<()>>,
 }
 
 impl ConfigReloadManager {
@@ -63,7 +66,15 @@ impl ConfigReloadManager {
             config_manager,
             agent_registry,
             debounce_duration,
+            #[cfg(test)]
+            test_completion_tx: None,
         }
+    }
+
+    /// Set a completion signal channel for tests.
+    #[cfg(test)]
+    pub fn set_test_completion(&mut self, tx: std::sync::mpsc::Sender<()>) {
+        self.test_completion_tx = Some(tx);
     }
 
     /// Create a new `ConfigReloadManager` with default debounce (500ms).
@@ -83,83 +94,109 @@ impl ConfigReloadManager {
     /// - `agents/` directory (recursive, triggers `reload_agents`)
     ///
     /// Returns a `WatcherHandle` whose drop stops the watcher.
-    pub fn watch(&self, config_dir: &str) -> Result<WatcherHandle, super::ConfigError> {
-        let config_path = Path::new(config_dir);
-
-        // Collect config file paths to watch
-        let config_files: Vec<PathBuf> = [
-            "models.json",
-            "channels.json",
-            "gateway.json",
-            "plugins.json",
-            "system.json",
-        ]
-        .iter()
-        .map(|f| config_path.join(f))
-        .collect();
-
-        let agents_json_path = config_path.join("agents.json");
-        let agents_dir = config_path.join("agents");
-
-        // Create the mpsc channel for file change events
+    pub fn watch(&mut self, config_dir: &str) -> Result<WatcherHandle, super::ConfigError> {
         let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
-
-        // Build the recommended watcher
-        let mut watcher = RecommendedWatcher::new(
-            move |res: Result<Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let _ = tx.send(Ok(event));
-                }
-            },
-            NotifyConfig::default(),
-        )
-        .map_err(|e| super::ConfigError::SchemaError(format!("Failed to create watcher: {}", e)))?;
-
-        // Watch individual config files
-        for path in &config_files {
-            if path.exists() {
-                watcher
-                    .watch(path.as_ref(), RecursiveMode::NonRecursive)
-                    .map_err(|e| {
-                        super::ConfigError::SchemaError(format!(
-                            "Failed to watch {:?}: {}",
-                            path, e
-                        ))
-                    })?;
-            }
-        }
-
-        // Watch agents.json (triggers reload_agents)
-        if agents_json_path.exists() {
-            watcher
-                .watch(agents_json_path.as_ref(), RecursiveMode::NonRecursive)
-                .map_err(|e| {
-                    super::ConfigError::SchemaError(format!("Failed to watch agents.json: {}", e))
-                })?;
-        }
-
-        // Watch agents/ directory recursively
-        if agents_dir.exists() {
-            watcher
-                .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
-                .map_err(|e| {
-                    super::ConfigError::SchemaError(format!("Failed to watch agents/: {}", e))
-                })?;
-        }
-
-        // Spawn the debounce + dispatch loop
-        let config_manager = Arc::clone(&self.config_manager);
-        let agent_registry = Arc::clone(&self.agent_registry);
-        let debounce = self.debounce_duration;
-
-        std::thread::spawn(move || {
-            run_reload_loop(rx, config_manager, agent_registry, debounce);
-        });
-
+        let mut watcher = create_watcher(tx)?;
+        let config_path = Path::new(config_dir);
+        register_watched_paths(&mut watcher, config_path)?;
+        #[cfg(test)]
+        let completion_tx = self.test_completion_tx.take();
+        #[cfg(not(test))]
+        let completion_tx: Option<std::sync::mpsc::Sender<()>> = None;
+        spawn_reload_loop(
+            rx,
+            &self.config_manager,
+            &self.agent_registry,
+            self.debounce_duration,
+            completion_tx,
+        );
         info!(config_dir = config_dir, "config hot-reload watcher started");
-
         Ok(WatcherHandle { watcher })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Create a `RecommendedWatcher` with an mpsc sender for file change events.
+fn create_watcher(
+    tx: std::sync::mpsc::Sender<notify::Result<Event>>,
+) -> Result<RecommendedWatcher, super::ConfigError> {
+    RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                let _ = tx.send(Ok(event));
+            }
+        },
+        NotifyConfig::default(),
+    )
+    .map_err(|e| super::ConfigError::SchemaError(format!("Failed to create watcher: {}", e)))
+}
+
+/// Register all watched paths (config files, agents.json, agents/ dir).
+fn register_watched_paths(
+    watcher: &mut RecommendedWatcher,
+    config_path: &Path,
+) -> Result<(), super::ConfigError> {
+    let config_files = [
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+    ];
+    for name in &config_files {
+        let path = config_path.join(name);
+        if path.exists() {
+            watcher
+                .watch(path.as_ref(), RecursiveMode::NonRecursive)
+                .map_err(|e| {
+                    super::ConfigError::SchemaError(format!("Failed to watch {:?}: {}", path, e))
+                })?;
+        }
+    }
+    register_agents_watch(watcher, config_path)?;
+    Ok(())
+}
+
+/// Register watchers for agents.json and agents/ directory.
+fn register_agents_watch(
+    watcher: &mut RecommendedWatcher,
+    config_path: &Path,
+) -> Result<(), super::ConfigError> {
+    let agents_json = config_path.join("agents.json");
+    if agents_json.exists() {
+        watcher
+            .watch(agents_json.as_ref(), RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                super::ConfigError::SchemaError(format!("Failed to watch agents.json: {}", e))
+            })?;
+    }
+    let agents_dir = config_path.join("agents");
+    if agents_dir.exists() {
+        watcher
+            .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
+            .map_err(|e| {
+                super::ConfigError::SchemaError(format!("Failed to watch agents/: {}", e))
+            })?;
+    }
+    Ok(())
+}
+
+/// Spawn the debounce + dispatch loop on a background thread.
+fn spawn_reload_loop(
+    rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
+    config_manager: &Arc<ConfigManager>,
+    agent_registry: &Arc<AgentRegistry>,
+    debounce: Duration,
+    completion_tx: Option<std::sync::mpsc::Sender<()>>,
+) {
+    let cm = Arc::clone(config_manager);
+    let ar = Arc::clone(agent_registry);
+    std::thread::spawn(move || {
+        run_reload_loop(rx, cm, ar, debounce, completion_tx);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +209,7 @@ fn run_reload_loop(
     config_manager: Arc<ConfigManager>,
     agent_registry: Arc<AgentRegistry>,
     debounce: Duration,
+    completion_tx: Option<std::sync::mpsc::Sender<()>>,
 ) {
     let mut last_reload = std::time::Instant::now()
         .checked_sub(debounce * 2)
@@ -203,6 +241,11 @@ fn run_reload_loop(
         // Dispatch each changed path
         for path in &event.paths {
             dispatch_change(path, &config_manager, &agent_registry);
+        }
+
+        // Signal test completion if a sender is available
+        if let Some(ref tx) = completion_tx {
+            let _ = tx.send(());
         }
     }
 }

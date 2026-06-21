@@ -10,7 +10,7 @@
 
 use super::events::ConfigChangeEvent;
 use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
-use tracing::info;
+use tracing::{info, warn};
 
 /// Validator callback type for config section reload.
 ///
@@ -51,13 +51,25 @@ impl ConfigManager {
             }
         };
 
-        // Step 2: backup current file content before any changes
-        if let Err(e) = self.backup_manager.backup(&path) {
-            tracing::warn!(
-                path = %path.display(),
-                error = %e,
-                "failed to backup config file before reload"
-            );
+        // Step 2: backup the old in-memory value before replacing it
+        let old_value = self
+            .sections
+            .read()
+            .expect("RwLock for config sections was poisoned")
+            .get(&section)
+            .cloned();
+        if let Some(ref old) = old_value {
+            let old_json = serde_json::to_string(old).unwrap_or_default();
+            if let Err(e) = self
+                .backup_manager
+                .backup_with_content(&path, old_json.as_bytes())
+            {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to backup config content before reload"
+                );
+            }
         }
 
         // Step 3: parse new content
@@ -88,7 +100,7 @@ impl ConfigManager {
             }
         }
 
-        // Step 4: success — update in-memory cache
+        // Step 5: success — update in-memory cache
         let mut sections = self
             .sections
             .write()

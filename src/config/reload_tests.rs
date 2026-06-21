@@ -6,7 +6,7 @@ mod reload_tests {
         dispatch_change, filename_to_section, is_agents_path, ConfigReloadManager, DEFAULT_DEBOUNCE,
     };
     use std::path::Path;
-    use std::sync::Arc;
+    use std::sync::{mpsc, Arc};
     use std::time::Duration;
     use tempfile::TempDir;
 
@@ -53,7 +53,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
+        let mut mgr = ConfigReloadManager::with_defaults(cm, ar);
         let handle = mgr.watch(d.path().to_str().unwrap());
         assert!(handle.is_ok());
         drop(handle.unwrap());
@@ -145,7 +145,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
+        let mut mgr = ConfigReloadManager::with_defaults(cm, ar);
         let handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
         handle.stop();
     }
@@ -162,7 +162,9 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(50));
+        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(50));
+        let (tx, rx) = mpsc::channel();
+        mgr.set_test_completion(tx);
         let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
 
         // Rapid writes across multiple sections
@@ -179,11 +181,11 @@ mod reload_tests {
             .unwrap();
         }
 
-        // Wait for the watcher thread to process events
-        std::thread::sleep(Duration::from_millis(600));
+        // Wait for at least one dispatch cycle to complete via signal
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("reload loop should have completed at least one dispatch cycle");
 
         // Verify the system is in a consistent state (no panic, no deadlock).
-        // At least one reload should have been triggered.
         let gw = cm.section(ConfigSection::Gateway).unwrap();
         assert!(gw.is_object(), "gateway section should be an object");
         let md = cm.section(ConfigSection::Models).unwrap();
@@ -197,11 +199,16 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(50));
+        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(50));
+        let (tx, rx) = mpsc::channel();
+        mgr.set_test_completion(tx);
         let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
 
         std::fs::write(d.path().join("plugins.json"), r#"{"plugins":{"p1":{}}}"#).unwrap();
-        std::thread::sleep(Duration::from_millis(300));
+
+        // Wait for the dispatch cycle to complete via signal
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("reload loop should have processed the file change");
 
         let val = cm.section(ConfigSection::Plugins).unwrap();
         assert!(val.get("plugins").is_some());
@@ -270,7 +277,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
+        let mut mgr = ConfigReloadManager::with_defaults(cm, ar);
         let handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
         drop(handle); // RAII drop — must not panic
     }

@@ -9,7 +9,7 @@ use crate::config::manager::ConfigManager;
 use crate::config::reload::{ConfigReloadManager, WatcherHandle};
 use crate::gateway::SessionManager;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 /// RAII handle for the config hot-reload system.
 ///
@@ -41,14 +41,14 @@ fn spawn_config_change_subscriber(
                     session_manager.notify_config_changed(section).await;
                 }
                 Ok(ConfigChangeEvent::Failed { section, error }) => {
-                    tracing::warn!(
+                    warn!(
                         section = %section,
                         error = %error,
                         "config change event failed, skipping session notification"
                     );
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    tracing::warn!(missed = n, "config change subscriber lagged, missed events");
+                    warn!(missed = n, "config change subscriber lagged, missed events");
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     info!("config change broadcast channel closed, subscriber exiting");
@@ -69,7 +69,7 @@ pub(crate) fn init_config_hot_reload(
     agent_registry: Arc<AgentRegistry>,
     session_manager: Arc<SessionManager>,
 ) -> anyhow::Result<ConfigWatcherHandle> {
-    let manager = ConfigReloadManager::with_defaults(
+    let mut manager = ConfigReloadManager::with_defaults(
         Arc::clone(&config_manager),
         Arc::clone(&agent_registry),
     );

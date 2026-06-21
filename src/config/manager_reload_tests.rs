@@ -64,11 +64,12 @@ fn test_reload_section_invalid_json() {
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
 
-    // File is rolled back to the state captured by backup (the corrupted content)
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
     assert_eq!(
-        file_content, "not json",
-        "file should be rolled back to the state captured by backup"
+        restored["version"], "1.0",
+        "file should be rolled back to the in-memory old value"
     );
 }
 
@@ -141,13 +142,13 @@ fn test_reload_section_validator_failure_keeps_old_value() {
     assert_eq!(after["version"], "1.0");
     assert!(after.get("bad_field").is_none());
 
-    // File is rolled back to the state captured by backup (the changed content)
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
     let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(restored["version"], "2.0");
+    assert_eq!(restored["version"], "1.0");
     assert!(
-        restored.get("bad_field").is_some(),
-        "file should contain the content that was backed up"
+        restored.get("bad_field").is_none(),
+        "file should be rolled back to the in-memory old value"
     );
 }
 
@@ -169,11 +170,12 @@ fn test_reload_section_parse_failure_keeps_old_value() {
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
 
-    // File is rolled back to the state captured by backup (the corrupted content)
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
     assert_eq!(
-        file_content, "not json",
-        "file should be rolled back to the state captured by backup"
+        restored["version"], "1.0",
+        "file should be rolled back to the in-memory old value"
     );
 }
 
@@ -519,11 +521,12 @@ fn test_reload_section_restored_file_is_valid_json() {
     let result = manager.reload_section(ConfigSection::Gateway, None);
     assert!(result.is_err());
 
-    // File is rolled back to the state captured by backup (the corrupted content)
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
     assert_eq!(
-        file_content, "not json!!!",
-        "file should be rolled back to the state captured by backup"
+        restored["version"], "1.0",
+        "file should be rolled back to the in-memory old value"
     );
 }
 
@@ -550,10 +553,10 @@ fn test_reload_section_validation_failure_restored_file_is_valid_json() {
     let result = manager.reload_section(ConfigSection::Gateway, Some(validator));
     assert!(result.is_err());
 
-    // File is rolled back to the state captured by backup (the changed content)
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
     let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(restored["version"], "bad");
+    assert_eq!(restored["version"], "1.0");
 }
 
 /// Test: when in-memory section was never loaded (None),
@@ -616,13 +619,13 @@ fn test_reload_section_validator_failure_restores_file_after_valid_parse() {
     let after = manager.section(ConfigSection::Plugins).unwrap();
     assert_eq!(after["version"], "1.0");
 
-    // File is rolled back to the state captured by backup (the changed content)
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("plugins.json")).unwrap();
     let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(restored["version"], "9.0");
+    assert_eq!(restored["version"], "1.0");
     assert!(
-        restored.get("banned").is_some(),
-        "file should contain the content that was backed up"
+        restored.get("banned").is_none(),
+        "file should be rolled back to the in-memory old value"
     );
 }
 
