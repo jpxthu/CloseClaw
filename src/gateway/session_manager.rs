@@ -425,10 +425,14 @@ impl SessionManager {
 
     /// Notify all active sessions that a configuration section has been updated.
     ///
-    /// Called by the daemon config-change subscriber when a hot-reload event
-    /// is received. Active sessions read from a shared `Arc<ConfigManager>`,
-    /// so they already see the latest values; this method provides an explicit
-    /// notification hook for any future per-session refresh logic.
+    /// **Current behavior (stub):** Logs the change notification.
+    /// Sessions already observe the latest values through the shared
+    /// `Arc<ConfigManager>`, so no explicit refresh is needed today.
+    ///
+    /// **Future extension point:** When per-session refresh logic is added
+    /// (e.g., invalidating cached system prompts or triggering re-evaluation
+    /// of tool/skill lists), this method will fan out the notification to
+    /// each active session.
     pub async fn notify_config_changed(&self, section: ConfigSection) {
         tracing::info!(
             section = %section,

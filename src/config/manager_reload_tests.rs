@@ -69,9 +69,14 @@ fn test_reload_section_invalid_json() {
 
     // File must be restored to previous content (the loaded version)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(
+        restored["version"], "1.0",
+        "restored file should contain old version"
+    );
     assert!(
-        file_content.contains("1.0"),
-        "file should be restored to previous content"
+        restored.get("updated").is_none(),
+        "restored file should not contain new fields"
     );
 }
 
@@ -146,9 +151,14 @@ fn test_reload_section_validator_failure_keeps_old_value() {
 
     // File must be restored to previous content
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(
+        restored["version"], "1.0",
+        "restored file should contain old version"
+    );
     assert!(
-        file_content.contains("1.0"),
-        "file should be restored to previous content"
+        restored.get("bad_field").is_none(),
+        "restored file should not contain bad_field"
     );
 }
 
@@ -172,7 +182,15 @@ fn test_reload_section_parse_failure_keeps_old_value() {
 
     // File restored to previous content
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
-    assert!(file_content.contains("1.0"), "file should be restored");
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(
+        restored["version"], "1.0",
+        "restored file should contain old version"
+    );
+    assert!(
+        restored.get("updated").is_none(),
+        "restored file should not contain new fields"
+    );
 }
 
 // ---------------------------------------------------------------------------

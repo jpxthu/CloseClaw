@@ -91,23 +91,31 @@ impl ConfigManager {
     }
 
     /// Restore a config file to the last known good state from the in-memory cache.
+    ///
+    /// Serializes the old value while holding the read lock, then releases
+    /// the lock before performing filesystem I/O, avoiding holding the lock
+    /// during a potentially slow write operation.
+    ///
     /// Logs a warning on failure but does not propagate errors.
     fn restore_file_to_last_known_good(&self, path: &std::path::Path, section: ConfigSection) {
-        let sections = self
-            .sections
-            .read()
-            .expect("RwLock for config sections was poisoned");
-        if let Some(old_value) = sections.get(&section) {
-            let content = match serde_json::to_string_pretty(old_value) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!("failed to serialize old config for {}: {}", section, e);
-                    return;
-                }
-            };
-            if let Err(e) = std::fs::write(path, content) {
-                tracing::warn!("failed to restore config file {}: {}", path.display(), e);
+        let content = {
+            let sections = self
+                .sections
+                .read()
+                .expect("RwLock for config sections was poisoned");
+            match sections.get(&section) {
+                Some(old_value) => match serde_json::to_string_pretty(old_value) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("failed to serialize old config for {}: {}", section, e);
+                        return;
+                    }
+                },
+                None => return,
             }
+        };
+        if let Err(e) = std::fs::write(path, content) {
+            tracing::warn!("failed to restore config file {}: {}", path.display(), e);
         }
     }
 }

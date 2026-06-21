@@ -230,30 +230,21 @@ async fn test_subscriber_handles_lagged_events() {
     }
 
     // The subscriber should handle RecvError::Lagged gracefully.
-    // Read until we either get Lagged or a valid event.
+    // Read all pending events to confirm lag actually occurred.
     let mut got_lagged = false;
-    let mut got_event = false;
     for _ in 0..12 {
         match rx.recv().await {
-            Ok(ConfigChangeEvent::Reloaded { .. }) => {
-                got_event = true;
-            }
-            Ok(ConfigChangeEvent::Failed { .. }) => {
-                got_event = true;
-            }
+            Ok(ConfigChangeEvent::Reloaded { .. }) => {}
+            Ok(ConfigChangeEvent::Failed { .. }) => {}
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                 got_lagged = true;
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
         }
-        if got_lagged && got_event {
-            break;
-        }
     }
-    // With capacity 1 and 10 sends, we should see at least one Lagged error
-    // and at least one successful receive.
+    // With capacity 1 and 10 sends, lag must have occurred.
     assert!(
-        got_lagged || got_event,
-        "expected at least one lagged or received event"
+        got_lagged,
+        "expected at least one Lagged error with buffer capacity 1 and 10 sends"
     );
 }
