@@ -305,6 +305,9 @@ fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: 
 ///
 /// Snapshots before reload; on failure, restores the previous in-memory
 /// state so the daemon keeps running with the last-known-good config.
+/// Additionally, agent config files (agents.json, agents/*.json) are
+/// backed up before reload and rolled back on failure to keep the
+/// on-disk state consistent.
 fn reload_agents_with_log(
     path: &Path,
     config_manager: &ConfigManager,
@@ -317,15 +320,64 @@ fn reload_agents_with_log(
 
     let (old_agents, old_permissions) = config_manager.snapshot_agents();
 
+    // Backup agent config files before reload so we can rollback on failure
+    let agents_json = config_manager.config_dir.join("config").join("agents.json");
+    let _ = config_manager.backup_manager().backup(&agents_json);
+
+    let agents_dir = config_manager.config_dir.join("agents");
+    if agents_dir.exists() {
+        let _ = backup_agents_dir(&agents_dir, config_manager.backup_manager());
+    }
+
     if let Err(e) = config_manager.reload_agents() {
         warn!(error = %e, "failed to reload agent configs, rolling back");
         config_manager.restore_agents(old_agents, old_permissions);
+
+        // Rollback disk files to last known good state
+        let _ = config_manager.backup_manager().rollback(&agents_json);
+        if agents_dir.exists() {
+            let _ = rollback_agents_dir(&agents_dir, config_manager.backup_manager());
+        }
         return;
     }
 
     // Sync new configs into AgentRegistry
     let configs: Vec<_> = config_manager.agents().into_values().collect();
     agent_registry.reload(configs);
+}
+
+/// Backup all agent config files under `agents/` directory.
+///
+/// Iterates `.json` files in the directory and backs each one up.
+fn backup_agents_dir(
+    agents_dir: &Path,
+    backup_manager: &super::manager::SafeBackupManager,
+) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(agents_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|e| e == "json") {
+            let _ = backup_manager.backup(&path);
+        }
+    }
+    Ok(())
+}
+
+/// Rollback all agent config files under `agents/` directory.
+///
+/// Iterates `.json` files in the directory and rolls each one back.
+fn rollback_agents_dir(
+    agents_dir: &Path,
+    backup_manager: &super::manager::SafeBackupManager,
+) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(agents_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|e| e == "json") {
+            let _ = backup_manager.rollback(&path);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
