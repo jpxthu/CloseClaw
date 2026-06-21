@@ -4,12 +4,12 @@ use super::common::{json_output, RunOutput};
 use anyhow::Result;
 use std::path::PathBuf;
 
-/// Start the daemon process.
+/// Resolve config directory and write the current PID file.
 ///
-/// Resolves the config directory, writes the current PID to disk, and
-/// launches the daemon event loop.  In JSON mode a [`RunOutput`] is
-/// printed instead of human-readable text.
-pub async fn handle_run(config_dir: String, json: bool) -> Result<()> {
+/// Returns `(config_dir_path, pid)` for callers that need them (e.g. daemon
+/// start).  Separated from [`handle_run`] so that tests can verify directory
+/// resolution and PID writing without starting a real daemon.
+pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, u32)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
         crate::platform::config::config_dir()?
     } else {
@@ -21,6 +21,17 @@ pub async fn handle_run(config_dir: String, json: bool) -> Result<()> {
     let p = crate::platform::process::pid_file_path(&config_dir);
     crate::platform::process::write_pid_file(&p, pid)?;
     println!("PID {} written to {}", pid, p.display());
+
+    Ok((config_dir, pid))
+}
+
+/// Start the daemon process.
+///
+/// Resolves the config directory, writes the current PID to disk, and
+/// launches the daemon event loop.  In JSON mode a [`RunOutput`] is
+/// printed instead of human-readable text.
+pub async fn handle_run(config_dir: String, json: bool) -> Result<()> {
+    let (config_dir, pid) = prepare_run(&config_dir)?;
 
     crate::daemon::Daemon::start(config_dir.to_string_lossy().as_ref())
         .await?
