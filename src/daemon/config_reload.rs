@@ -83,6 +83,10 @@ fn setup_watcher(
 }
 
 /// Reload all agent configs and sync the AgentRegistry.
+///
+/// Takes a snapshot before reloading; if `reload_agents()` fails,
+/// restores the previous in-memory state so the daemon keeps running
+/// with the last-known-good agent configuration.
 async fn reload_agents_with_log(
     path: &std::path::Path,
     cm: &ConfigManager,
@@ -92,8 +96,13 @@ async fn reload_agents_with_log(
         path = %path.display(),
         "agent config change detected, reloading agents"
     );
+
+    // Snapshot before reload so we can roll back on failure
+    let (old_agents, old_permissions) = cm.snapshot_agents();
+
     if let Err(e) = cm.reload_agents() {
-        tracing::warn!(error = %e, "failed to reload agent configs");
+        tracing::warn!(error = %e, "failed to reload agent configs, rolling back");
+        cm.restore_agents(old_agents, old_permissions);
         return;
     }
     // Sync the new configs into AgentRegistry (design-doc hot-reload path).
@@ -125,26 +134,16 @@ async fn handle_changed_path(
     }
 
     if let Some(section) = filename_to_section(filename) {
-        match tokio::fs::read_to_string(path).await {
-            Ok(content) => {
-                info!(
-                    path = %path.display(),
-                    section = %section,
-                    "config file changed, reloading section"
-                );
-                if let Err(e) = cm.reload_section(section, &content) {
-                    tracing::warn!(
-                        error = %e, section = %section,
-                        "failed to reload config section"
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e, path = %path.display(),
-                    "failed to read changed config file"
-                );
-            }
+        info!(
+            path = %path.display(),
+            section = %section,
+            "config file changed, reloading section"
+        );
+        if let Err(e) = cm.reload_section(section, None) {
+            tracing::warn!(
+                error = %e, section = %section,
+                "failed to reload config section"
+            );
         }
     }
 }
