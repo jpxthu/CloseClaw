@@ -40,5 +40,12 @@
     "commit_time": "2026-06-20T12:30:40+08:00",
     "confirmed_time": "2026-06-20T12:35:31.599807+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/cli/chat.md",
+    "commit": "6bc3fc05d9beee6bee24ddb047437676c05309c2",
+    "commit_time": "2026-06-21T02:42:50+08:00",
+    "confirmed_time": "2026-06-21T13:23:04.290757+08:00",
+    "comment": ""
   }
 ]
