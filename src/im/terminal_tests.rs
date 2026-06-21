@@ -896,8 +896,7 @@ mod tests {
     // DSL skip rendering tests (Step 1.7)
     // =========================================================================
 
-    /// Verify TerminalRenderer does not render DSL instructions as visible text.
-    /// Uses the public render() method which internally calls render_dsl().
+    /// Verify TerminalRenderer renders DSL Button instructions as plain-text hints.
     #[test]
     fn test_render_dsl_not_in_output() {
         let r = TerminalRenderer::with_ansi(false);
@@ -919,12 +918,12 @@ mod tests {
             .unwrap();
         assert!(text.contains("Hello"));
         assert!(
-            !text.contains("Click Me"),
-            "DSL button should not appear in output"
+            text.contains("[Button: Click Me (action: navigate, value: /home)]"),
+            "DSL button should appear as plain-text hint in output"
         );
     }
 
-    /// Verify DSL is not rendered even in ANSI mode.
+    /// Verify DSL Button renders as plain-text hint even in ANSI mode.
     #[test]
     fn test_render_dsl_not_in_output_ansi() {
         let r = TerminalRenderer::with_ansi(true);
@@ -946,8 +945,8 @@ mod tests {
             .unwrap();
         assert!(text.contains("Content"));
         assert!(
-            !text.contains("OK"),
-            "DSL button should not appear in output"
+            text.contains("[Button: OK (action: confirm, value: yes)]"),
+            "DSL button should appear as plain-text hint in output"
         );
     }
 
@@ -970,7 +969,7 @@ mod tests {
         assert!(text.contains("Hello world"));
     }
 
-    /// Verify DSL button text is NOT in the final output.
+    /// Verify DSL Button text appears in plugin-level render output.
     #[test]
     fn test_plugin_render_dsl_not_in_output() {
         let plugin = TerminalPlugin::with_ansi(false);
@@ -992,8 +991,8 @@ mod tests {
             .unwrap();
         assert!(text.contains("Some text"));
         assert!(
-            !text.contains("Click"),
-            "DSL button should not appear in output"
+            text.contains("[Button: Click (action: go, value: ok)]"),
+            "DSL button should appear as plain-text hint in output"
         );
     }
 }

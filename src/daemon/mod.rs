@@ -397,37 +397,8 @@ impl Daemon {
         })
     }
     /// Run the daemon — blocks until shutdown signal is received.
-    #[cfg(unix)]
     pub async fn run(&self) -> anyhow::Result<()> {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigint = signal(SignalKind::interrupt())?;
-        let mut sigterm = signal(SignalKind::terminate())?;
-        tokio::select! {
-            _ = sigint.recv() => {
-                info!("Received Ctrl+C, initiating shutdown...");
-            }
-            _ = sigterm.recv() => {
-                info!("Received SIGTERM, initiating graceful shutdown...");
-            }
-        }
-        self.shutdown.initiate_shutdown().await;
-        // Flush all active session checkpoints before shutdown
-        match self.gateway.flush_all_sessions().await {
-            Ok(n) => tracing::info!(count = n, "flushed session checkpoints"),
-            Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
-        }
-        // Clear all pending approval requests (denied with callbacks triggered)
-        self.approval_flow.lock().await.clear();
-        let _ = self.sweeper_shutdown_tx.send(());
-        // Clean up admin socket file
-        let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
-        Ok(())
-    }
-    /// Run the daemon on non-Unix platforms (falls back to Ctrl+C only).
-    #[cfg(not(unix))]
-    pub async fn run(&self) -> anyhow::Result<()> {
-        tokio::signal::ctrl_c().await?;
-        info!("Received Ctrl+C, initiating shutdown...");
+        crate::platform::process::wait_for_shutdown_signal().await?;
         self.shutdown.initiate_shutdown().await;
         // Flush all active session checkpoints before shutdown
         match self.gateway.flush_all_sessions().await {

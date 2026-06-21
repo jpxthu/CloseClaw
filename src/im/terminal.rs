@@ -33,31 +33,6 @@ pub(crate) const ITALIC: &str = "\x1b[3m";
 pub(crate) const RESET: &str = "\x1b[0m";
 
 // ---------------------------------------------------------------------------
-// ANSI capability detection
-// ---------------------------------------------------------------------------
-
-/// Returns `true` if the current terminal supports ANSI escape sequences.
-///
-/// Checks the `TERM` environment variable for known ANSI-capable values
-/// (`xterm`, `screen`, `ansi`, `vt100`, `color`). On Windows, detects the
-/// Windows Terminal environment via `WT_SESSION`.
-fn supports_ansi() -> bool {
-    if std::env::var("WT_SESSION").is_ok() {
-        return true;
-    }
-    std::env::var("TERM")
-        .map(|term| {
-            let t = term.to_lowercase();
-            t.contains("xterm")
-                || t.contains("screen")
-                || t.contains("ansi")
-                || t.contains("vt100")
-                || t.contains("color")
-        })
-        .unwrap_or(false)
-}
-
-// ---------------------------------------------------------------------------
 // Plain-text fallback
 // ---------------------------------------------------------------------------
 
@@ -633,7 +608,7 @@ impl TerminalRenderer {
     /// Create a new renderer that auto-detects ANSI capability.
     pub fn new() -> Self {
         Self {
-            ansi: supports_ansi(),
+            ansi: crate::platform::terminal::supports_ansi(),
         }
     }
 
@@ -707,13 +682,27 @@ impl TerminalRenderer {
         }
     }
 
-    /// Skip DSL rendering for the terminal channel.
+    /// Render DSL instructions as plain-text hints for the terminal channel.
     ///
-    /// DSL instructions (e.g. buttons) are not supported on the terminal.
-    /// The instructions are still preserved in metadata for other renderers,
-    /// but the terminal does not output them as visible text.
-    fn render_dsl(&self, _dsl_result: &DslParseResult) -> String {
-        String::new()
+    /// Buttons and selectors are rendered as `[Button: label (action: X, value: Y)]`
+    /// since the terminal has no interactive elements.
+    fn render_dsl(&self, dsl_result: &DslParseResult) -> String {
+        let mut out = String::new();
+        for inst in &dsl_result.instructions {
+            match inst {
+                crate::processor_chain::DslInstruction::Button {
+                    label,
+                    action,
+                    value,
+                } => {
+                    out.push_str(&format!(
+                        "[Button: {} (action: {}, value: {})]\n",
+                        label, action, value
+                    ));
+                }
+            }
+        }
+        out
     }
 }
 
@@ -818,7 +807,7 @@ impl TerminalAdapter {
     fn make_message(&self, content: String) -> NormalizedMessage {
         NormalizedMessage {
             platform: "terminal".to_string(),
-            sender_id: current_uid(),
+            sender_id: crate::platform::current_uid(),
             peer_id: "cli".to_string(),
             content,
             timestamp: current_timestamp(),
@@ -833,23 +822,6 @@ fn get_terminal_width() -> usize {
     terminal_size::terminal_size()
         .map(|(w, _)| w.0 as usize)
         .unwrap_or(120)
-}
-
-/// Return the current user's system UID as a string.
-///
-/// On Unix, uses `libc::getuid()`. On other platforms, falls back to a
-/// static identifier.
-pub(crate) fn current_uid() -> String {
-    #[cfg(unix)]
-    {
-        // SAFETY: libc::getuid() is always safe — it reads the calling
-        // process's real user ID without side effects.
-        unsafe { libc::getuid() }.to_string()
-    }
-    #[cfg(not(unix))]
-    {
-        "terminal-user".to_string()
-    }
 }
 
 /// Return the current Unix timestamp in seconds.

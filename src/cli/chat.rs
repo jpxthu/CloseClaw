@@ -45,7 +45,7 @@ enum ExitReason {
 /// 2. Create a session for the given `agent_id`.
 /// 3. Loop: read user input → route through gateway → print response.
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
-    let sender_id = crate::im::terminal::current_uid();
+    let sender_id = crate::platform::current_uid();
     let (gateway, session_manager) = build_gateway(agent_id).await;
     let session_id = create_session(&session_manager, agent_id, &sender_id).await?;
 
