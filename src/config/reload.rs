@@ -204,6 +204,23 @@ fn spawn_reload_loop(
 // Internal event loop
 // ---------------------------------------------------------------------------
 
+/// Collect relevant paths from a file change event into the pending set.
+/// Filters out non-create/modify/remove events. Paths are inserted into
+/// `pending_paths` (a `HashSet` ensures deduplication).
+fn collect_event_paths(event: Event, pending_paths: &mut HashSet<PathBuf>) {
+    match event.kind {
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
+        _ => return,
+    }
+    for path in event.paths {
+        pending_paths.insert(path);
+    }
+    debug!(
+        count = pending_paths.len(),
+        "collected config change events"
+    );
+}
+
 /// Background loop: receive file change events, debounce, and dispatch.
 ///
 /// Uses a "collect-merge-execute" debounce strategy:
@@ -222,59 +239,49 @@ fn run_reload_loop(
 
     loop {
         match rx.recv_timeout(debounce) {
-            Ok(event_result) => {
-                let event = match event_result {
-                    Ok(e) => e,
-                    Err(e) => {
-                        warn!("config watcher event error: {}", e);
-                        continue;
-                    }
-                };
-
-                // Only react to create / modify / remove
-                match event.kind {
-                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
-                    _ => continue,
-                }
-
-                // Collect changed paths (HashSet deduplicates)
-                for path in event.paths {
-                    pending_paths.insert(path);
-                }
-                debug!(
-                    count = pending_paths.len(),
-                    "collected config change events"
-                );
-            }
+            Ok(event_result) => match event_result {
+                Ok(event) => collect_event_paths(event, &mut pending_paths),
+                Err(e) => warn!("config watcher event error: {}", e),
+            },
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Debounce window expired — dispatch all collected paths
                 if pending_paths.is_empty() {
                     continue;
                 }
-                let paths = std::mem::take(&mut pending_paths);
-                info!(
-                    count = paths.len(),
-                    "debounce window closed, dispatching batch"
-                );
-                for path in &paths {
-                    dispatch_change(path, &config_manager, &agent_registry);
-                }
-                // Signal test completion if a sender is available
-                if let Some(ref tx) = completion_tx {
-                    let _ = tx.send(());
-                }
+                dispatch_pending_batch(&pending_paths, &config_manager, &agent_registry);
+                pending_paths.clear();
+                signal_completion(&completion_tx);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                // Channel closed — dispatch any remaining paths and exit
-                for path in &pending_paths {
-                    dispatch_change(path, &config_manager, &agent_registry);
-                }
-                if let Some(ref tx) = completion_tx {
-                    let _ = tx.send(());
-                }
+                dispatch_pending_batch(&pending_paths, &config_manager, &agent_registry);
+                signal_completion(&completion_tx);
                 break;
             }
         }
+    }
+}
+
+/// Dispatch all paths in a batch and signal test completion.
+fn dispatch_pending_batch(
+    paths: &HashSet<PathBuf>,
+    config_manager: &Arc<ConfigManager>,
+    agent_registry: &Arc<AgentRegistry>,
+) {
+    if paths.is_empty() {
+        return;
+    }
+    info!(
+        count = paths.len(),
+        "debounce window closed, dispatching batch"
+    );
+    for path in paths {
+        dispatch_change(path, config_manager, agent_registry);
+    }
+}
+
+/// Send test completion signal if a sender is available.
+fn signal_completion(tx: &Option<std::sync::mpsc::Sender<()>>) {
+    if let Some(ref tx) = tx {
+        let _ = tx.send(());
     }
 }
 
@@ -354,7 +361,9 @@ fn reload_agents_with_log(
 
     let agents_dir = config_manager.config_dir.join("agents");
     if agents_dir.exists() {
-        let _ = backup_agents_dir(&agents_dir, config_manager.backup_manager());
+        for_each_agent_json(&agents_dir, |p| {
+            let _ = config_manager.backup_manager().backup(p);
+        });
     }
 
     if let Err(e) = config_manager.reload_agents() {
@@ -364,7 +373,9 @@ fn reload_agents_with_log(
         // Rollback disk files to last known good state
         let _ = config_manager.backup_manager().rollback(&agents_json);
         if agents_dir.exists() {
-            let _ = rollback_agents_dir(&agents_dir, config_manager.backup_manager());
+            for_each_agent_json(&agents_dir, |p| {
+                let _ = config_manager.backup_manager().rollback(p);
+            });
         }
         return;
     }
@@ -374,38 +385,21 @@ fn reload_agents_with_log(
     agent_registry.reload(configs);
 }
 
-/// Backup all agent config files under `agents/` directory.
+/// Iterate over `.json` files in the agents directory and apply `f` to each.
 ///
-/// Iterates `.json` files in the directory and backs each one up.
-fn backup_agents_dir(
-    agents_dir: &Path,
-    backup_manager: &super::manager::SafeBackupManager,
-) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(agents_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|e| e == "json") {
-            let _ = backup_manager.backup(&path);
+/// Used to factor out the shared backup/rollback logic for `agents/` dir.
+fn for_each_agent_json<F>(agents_dir: &Path, f: F)
+where
+    F: Fn(&Path),
+{
+    if let Ok(entries) = std::fs::read_dir(agents_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().is_some_and(|e| e == "json") {
+                f(&path);
+            }
         }
     }
-    Ok(())
-}
-
-/// Rollback all agent config files under `agents/` directory.
-///
-/// Iterates `.json` files in the directory and rolls each one back.
-fn rollback_agents_dir(
-    agents_dir: &Path,
-    backup_manager: &super::manager::SafeBackupManager,
-) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(agents_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|e| e == "json") {
-            let _ = backup_manager.rollback(&path);
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
