@@ -1,10 +1,12 @@
 //! Daemon unit tests.
 
+use crate::common::test_helpers::write_mandatory_configs;
 use crate::daemon::Daemon;
 use crate::session::persistence::PersistenceService;
 
-/// Create a minimal agents.json in the given directory.
-fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
+/// Create only `config/agents.json` (without mandatory config files)
+/// in the given directory.
+fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     let agents_content = serde_json::json!({
         "version": "1.0",
         "agents": [
@@ -21,6 +23,81 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(&config_dir)?;
     std::fs::write(config_dir.join("agents.json"), agents_content.to_string())?;
     Ok(())
+}
+
+/// Create a minimal agents.json and all 5 mandatory config files
+/// (models.json, channels.json, gateway.json, plugins.json, system.json)
+/// in the given directory so that `ConfigManager::load()` succeeds.
+fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
+    write_agents_json(dir)?;
+    write_mandatory_configs(dir)?;
+    Ok(())
+}
+
+// =====================================================================
+// Step 1.2 — daemon startup integration: load() gating tests
+// =====================================================================
+
+/// Test: daemon fails to start when mandatory config files are missing.
+/// Step 1.1 added `config_manager.load()` before hot-reload registration;
+/// a missing mandatory file (e.g. models.json) must cause daemon startup to
+/// fail with an error mentioning "mandatory config sections".
+#[tokio::test]
+async fn test_daemon_start_fails_without_mandatory_config() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    // Create only agents.json — mandatory sections (models.json etc.) are absent
+    write_agents_json(temp_dir.path()).unwrap();
+
+    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    assert!(
+        result.is_err(),
+        "daemon should fail when mandatory config files are missing"
+    );
+    let err_msg = match result {
+        Err(e) => e.to_string(),
+        _ => unreachable!(),
+    };
+    assert!(
+        err_msg.contains("mandatory"),
+        "error should mention mandatory: {err_msg}"
+    );
+}
+
+/// Test: daemon fails to start when config directory has no config files
+/// at all (empty directory).
+#[tokio::test]
+async fn test_daemon_start_fails_with_empty_config_dir() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    // Empty directory — no config files, no agents.json
+
+    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    assert!(result.is_err(), "daemon should fail with empty config dir");
+    let err_msg = match result {
+        Err(e) => e.to_string(),
+        _ => unreachable!(),
+    };
+    assert!(
+        err_msg.contains("mandatory"),
+        "error should mention mandatory: {err_msg}"
+    );
+}
+
+/// Test: daemon starts successfully when all mandatory config files exist.
+/// This verifies the happy path: load() populates sections, then hot-reload
+/// is registered (gate passes).
+#[tokio::test]
+async fn test_daemon_start_succeeds_with_all_mandatory_configs() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    setup_agents_json(temp_dir.path()).expect("setup agents.json");
+
+    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    assert!(
+        result.is_ok(),
+        "daemon should start with all mandatory configs: {:?}",
+        result.err()
+    );
+    drop(result);
+    drop(temp_dir);
 }
 
 #[tokio::test]

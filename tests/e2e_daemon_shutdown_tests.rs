@@ -2,6 +2,7 @@
 //!
 //! Covers ShutdownHandle drain state machine scenarios.
 
+use closeclaw::common::test_helpers::write_mandatory_configs;
 use closeclaw::daemon::shutdown::ShutdownHandle;
 use std::time::Duration;
 
@@ -97,12 +98,14 @@ async fn test_drain_signal_broadcast() {
 /// Test 4: Daemon::run() triggers graceful shutdown when receiving SIGTERM.
 #[tokio::test]
 async fn test_daemon_run_sigterm_shutdown() {
-    // Create temp dir with minimal agents.json
+    // Create temp dir with minimal agents.json and mandatory config files
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let config_dir = temp_dir.path().join("config");
     std::fs::create_dir_all(&config_dir).expect("create config dir");
     let agents_path = config_dir.join("agents.json");
     std::fs::write(&agents_path, r#"{"version":"1.0.0","agents":[]}"#).expect("write agents.json");
+
+    write_mandatory_configs(temp_dir.path()).expect("write mandatory config");
 
     // Do NOT set FEISHU/LLM env vars — Daemon::start will skip those components
     let daemon = closeclaw::daemon::Daemon::start(temp_dir.path().to_str().unwrap())

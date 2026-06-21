@@ -1,5 +1,6 @@
 //! Tests for ConfigManager hot-reload methods (reload_section / reload_agents).
 
+use crate::common::test_helpers::write_mandatory_configs;
 use crate::config::events::ConfigChangeEvent;
 use crate::config::manager::*;
 use crate::config::manager_reload::SectionValidator;
@@ -7,11 +8,7 @@ use std::fs;
 
 /// Helper: set up a valid config directory with all mandatory JSON files.
 fn setup_config_dir_at(dir: &std::path::Path) {
-    fs::write(dir.join("models.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("channels.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("gateway.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("plugins.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("system.json"), r#"{"version": "1.0"}"#).unwrap();
+    write_mandatory_configs(dir).unwrap();
 }
 
 // ---------------------------------------------------------------------------

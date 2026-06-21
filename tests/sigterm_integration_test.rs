@@ -3,6 +3,7 @@
 //! Verifies that `closeclaw stop` (SIGTERM) triggers graceful shutdown
 //! instead of hard-killing the daemon.
 
+use closeclaw::common::test_helpers::write_mandatory_configs;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
@@ -35,6 +36,8 @@ async fn test_sigterm_triggers_graceful_shutdown() {
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write test agents.json");
+
+    write_mandatory_configs(config_dir).expect("write mandatory config");
 
     // Start the daemon
     let mut daemon = Command::new(&daemon_bin)
@@ -106,6 +109,8 @@ async fn test_sigint_triggers_graceful_shutdown() {
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write test agents.json");
+
+    write_mandatory_configs(config_dir).expect("write mandatory config");
 
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])

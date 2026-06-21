@@ -26,6 +26,8 @@ pub mod system_prompt;
 pub mod tasks;
 pub mod tools;
 
+pub mod common;
+
 use tracing::info;
 
 /// Initialize the CloseClaw library

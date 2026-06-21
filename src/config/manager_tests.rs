@@ -1,6 +1,7 @@
 //! Tests for ConfigManager
 
 use super::*;
+use crate::common::test_helpers::write_mandatory_configs;
 use std::fs;
 
 // ---------------------------------------------------------------------------
@@ -220,11 +221,19 @@ fn test_config_manager_load_normal_unaffected() {
     manager.load().unwrap();
 
     // All mandatory sections should be loaded successfully
-    assert!(manager.section(ConfigSection::Models).is_some());
-    assert!(manager.section(ConfigSection::Channels).is_some());
-    assert!(manager.section(ConfigSection::Gateway).is_some());
-    assert!(manager.section(ConfigSection::Plugins).is_some());
-    assert!(manager.section(ConfigSection::System).is_some());
+    for section in &[
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ] {
+        assert!(
+            manager.section(*section).is_some(),
+            "section {:?} missing",
+            section
+        );
+    }
 }
 
 /// Test: credentials directory does not exist → load still succeeds.
@@ -266,11 +275,7 @@ fn setup_config_dir(tmp: &tempfile::TempDir) {
 }
 
 fn setup_config_dir_at(dir: &std::path::Path) {
-    fs::write(dir.join("models.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("channels.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("gateway.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("plugins.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("system.json"), r#"{"version": "1.0"}"#).unwrap();
+    write_mandatory_configs(dir).unwrap();
 }
 
 #[test]
@@ -286,11 +291,19 @@ fn test_config_manager_load() {
     setup_config_dir(&tmp);
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
-    assert!(manager.section(ConfigSection::Models).is_some());
-    assert!(manager.section(ConfigSection::Channels).is_some());
-    assert!(manager.section(ConfigSection::Gateway).is_some());
-    assert!(manager.section(ConfigSection::Plugins).is_some());
-    assert!(manager.section(ConfigSection::System).is_some());
+    for section in &[
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ] {
+        assert!(
+            manager.section(*section).is_some(),
+            "section {:?} missing",
+            section
+        );
+    }
 }
 
 #[test]
@@ -410,6 +423,82 @@ fn test_config_manager_update_backup_failure() {
         result.unwrap_err(),
         ConfigWriteError::BackupFailed { .. }
     ));
+}
+
+// =====================================================================
+// Step 1.2 — ConfigManager.load() section-population tests
+// =====================================================================
+
+/// Test: load() populates memory cache with exact JSON values for all
+/// 5 mandatory sections.
+#[test]
+fn test_load_populates_all_five_sections_with_values() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+
+    let mandatory_sections = [
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ];
+
+    // Before load: all sections should be None
+    for section in &mandatory_sections {
+        assert!(
+            manager.section(*section).is_none(),
+            "section {:?} should be None before load",
+            section
+        );
+    }
+
+    manager.load().unwrap();
+
+    // After load: all 5 mandatory sections should be populated with
+    // the exact JSON value written by setup_config_dir_at.
+    let expected = serde_json::json!({"version": "1.0"});
+    for section in &mandatory_sections {
+        let value = manager.section(*section).unwrap();
+        assert_eq!(value, expected, "section {:?} mismatch", section);
+    }
+}
+
+/// Test: load() fails when one mandatory file is missing, returning
+/// ConfigFileNotFound for the first missing section.
+#[test]
+fn test_load_fails_on_missing_mandatory_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Create only models.json, missing the other 4
+    fs::write(tmp.path().join("models.json"), r#"{"version": "1.0"}"#).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    let result = manager.load();
+    assert!(result.is_err(), "load() should fail when files are missing");
+    assert!(
+        matches!(result.unwrap_err(), ConfigLoadError::ConfigFileNotFound(_)),
+        "error should be ConfigFileNotFound"
+    );
+}
+
+/// Test: load() fails with ConfigDirNotFound when the config directory
+/// does not exist at the time of the call.
+#[test]
+fn test_load_fails_on_missing_config_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("vanishing_dir");
+    let manager = ConfigManager::new(target.clone()).unwrap();
+    // Remove the directory after construction to simulate it disappearing
+    fs::remove_dir_all(&target).ok();
+    let result = manager.load();
+    assert!(
+        result.is_err(),
+        "load() should fail when config dir is gone"
+    );
+    assert!(
+        matches!(result.unwrap_err(), ConfigLoadError::ConfigDirNotFound(_)),
+        "error should be ConfigDirNotFound"
+    );
 }
 
 // =====================================================================
