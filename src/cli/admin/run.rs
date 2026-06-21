@@ -18,9 +18,6 @@ pub async fn handle_run(config_dir: String, json: bool) -> Result<()> {
     std::fs::create_dir_all(&config_dir)?;
 
     let p = crate::platform::process::pid_file_path(&config_dir);
-    if let Some(d) = p.parent() {
-        std::fs::create_dir_all(d)?;
-    }
     crate::platform::process::write_pid_file(&p, std::process::id())?;
     println!("PID {} written to {}", std::process::id(), p.display());
 
@@ -33,7 +30,7 @@ pub async fn handle_run(config_dir: String, json: bool) -> Result<()> {
         json_output(&RunOutput {
             pid: std::process::id(),
             config_dir: config_dir.to_string_lossy().to_string(),
-            started: true,
+            stopped: true,
         });
         return Ok(());
     }

@@ -91,7 +91,7 @@ pub struct StopOutput {
 pub struct RunOutput {
     pub pid: u32,
     pub config_dir: String,
-    pub started: bool,
+    pub stopped: bool,
 }
 
 #[derive(Serialize)]
@@ -117,11 +117,6 @@ pub fn mask_key(key: &str) -> String {
     } else {
         format!("{}....{}", &key[..4], &key[key.len() - 4..])
     }
-}
-
-pub fn pid_file_path() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home).join(".closeclaw").join("daemon.pid")
 }
 
 pub fn config_dir() -> PathBuf {
