@@ -1,10 +1,9 @@
 //! CloseClaw Binary Entry Point
 
-mod handlers;
 #[cfg(test)]
 mod handlers_tests;
-use crate::handlers::*;
 use clap::{Parser, Subcommand};
+use closeclaw::cli::admin::*;
 use closeclaw::cli::args::*;
 use std::path::PathBuf;
 

@@ -3,10 +3,13 @@
 //! Covers config validate, config list, rule check, rule list, and JSON output paths.
 //! All tests use tempfile::TempDir to avoid hardcoded paths.
 
-use super::*;
-use closeclaw::cli::args::{ConfigAction, RuleAction};
+use crate::Cli;
+use clap::CommandFactory;
+use closeclaw::cli::admin::*;
+use closeclaw::cli::args::{AgentAction, ConfigAction, RuleAction, SkillAction};
 use closeclaw::permission::{Rule, RuleSet};
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -388,7 +391,9 @@ async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHa
     // Poll until the socket is ready
     let sock_path = config_dir.join("admin.sock");
     for _ in 0..50 {
-        if tokio::net::UnixStream::connect(&sock_path).await.is_ok() {
+        let result: Result<tokio::net::UnixStream, _> =
+            tokio::net::UnixStream::connect(&sock_path).await;
+        if result.is_ok() {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -869,4 +874,50 @@ async fn test_stop_json() {
     // With json=true, the error path uses json_error which now returns Err.
     let result = handle_stop(false, true).await;
     assert!(result.is_err(), "stop with nonexistent pid should fail");
+}
+
+// ---------------------------------------------------------------------------
+// Tests migrated from handlers.rs inline mod tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pid() {
+    assert!(pid_file_path().to_str().unwrap().contains(".closeclaw"));
+}
+
+#[test]
+fn test_stop_f() {
+    let m = Cli::command()
+        .try_get_matches_from(["c", "stop", "-f"])
+        .unwrap();
+    assert!(m.subcommand().unwrap().1.get_flag("force"));
+}
+
+#[test]
+fn test_mask_key_short() {
+    // Keys <= 8 chars are fully masked
+    assert_eq!(mask_key("abc"), "****");
+    assert_eq!(mask_key("12345678"), "****");
+}
+
+#[test]
+fn test_mask_key_long() {
+    // Keys > 8 chars show first 4 and last 4
+    assert_eq!(mask_key("abcdefghij"), "abcd....ghij");
+    assert_eq!(mask_key("minimax-key-001"), "mini....-001");
+    assert_eq!(mask_key("sk-1234567890abcdef"), "sk-1....cdef");
+}
+
+#[test]
+fn test_env_write_uses_raw_key() {
+    // Verify the format string used in handle_config_setup writes raw key (not masked)
+    let k = "MINIMAX";
+    let v = "my-secret-key-123";
+    let line = format!("{}={}\n", k, v);
+    assert!(line.starts_with("MINIMAX=my-secret-key-123"));
+    assert!(!line.contains("****"));
+    assert!(!line.contains("...."));
+    // Also verify the key portion does NOT contain mask pattern
+    let written = format!("{}={}", k, v);
+    assert!(written.contains("my-secret-key-123"));
 }
