@@ -13,3 +13,12 @@ pub use config::config_dir;
 pub use fs::normalize_path;
 pub use process::{send_signal, wait_for_shutdown_signal, write_pid_file};
 pub use terminal::{current_uid, supports_ansi};
+
+#[cfg(test)]
+mod config_tests;
+#[cfg(test)]
+mod fs_tests;
+#[cfg(test)]
+mod process_tests;
+#[cfg(test)]
+mod terminal_tests;
