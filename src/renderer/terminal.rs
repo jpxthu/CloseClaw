@@ -718,6 +718,9 @@ impl TerminalRenderer {
                         label, action, value
                     ));
                 }
+                crate::processor_chain::DslInstruction::Selector { .. } => {
+                    // Step 1.2 will implement full Selector rendering
+                }
             }
         }
         out

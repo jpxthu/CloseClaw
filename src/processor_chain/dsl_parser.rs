@@ -30,6 +30,12 @@ pub enum DslInstruction {
         action: String,
         value: String,
     },
+    /// A selector with a label, multiple option choices, and an action identifier.
+    Selector {
+        label: String,
+        options: Vec<String>,
+        action: String,
+    },
 }
 
 /// Result of parsing a markdown string for DSL instructions.
@@ -162,11 +168,22 @@ impl DslParser {
 /// Returns `None` if the line is not a DSL line.
 fn parse_dsl_line(line: &str) -> Option<DslInstruction> {
     let trimmed = line.trim();
-    if !trimmed.starts_with("::button[") || !trimmed.ends_with(']') {
+    if !trimmed.ends_with(']') {
         return None;
     }
 
-    // Extract content between `[` and `]`
+    if trimmed.starts_with("::button[") {
+        return parse_button(trimmed);
+    }
+    if trimmed.starts_with("::selector[") {
+        return parse_selector(trimmed);
+    }
+
+    None
+}
+
+/// Parse a `::button[...]` line into a [`DslInstruction::Button`].
+fn parse_button(trimmed: &str) -> Option<DslInstruction> {
     let start = trimmed.find('[')? + 1;
     let end = trimmed.len() - 1;
     if start >= end {
@@ -174,7 +191,6 @@ fn parse_dsl_line(line: &str) -> Option<DslInstruction> {
     }
     let inner = &trimmed[start..end];
 
-    // Parse parameters: key:value separated by ';'
     let mut label: Option<String> = None;
     let mut action: Option<String> = None;
     let mut value: Option<String> = None;
@@ -201,6 +217,49 @@ fn parse_dsl_line(line: &str) -> Option<DslInstruction> {
         label,
         action,
         value,
+    })
+}
+
+/// Parse a `::selector[...]` line into a [`DslInstruction::Selector`].
+fn parse_selector(trimmed: &str) -> Option<DslInstruction> {
+    let start = trimmed.find('[')? + 1;
+    let end = trimmed.len() - 1;
+    if start >= end {
+        return None;
+    }
+    let inner = &trimmed[start..end];
+
+    let mut label: Option<String> = None;
+    let mut action: Option<String> = None;
+    let mut options: Vec<String> = Vec::new();
+
+    for param in inner.split(';') {
+        let param = param.trim();
+        if let Some((key, val)) = param.split_once(':') {
+            let key = key.trim();
+            let val = val.trim();
+            match key {
+                "label" => label = Some(val.to_string()),
+                "action" => action = Some(val.to_string()),
+                "options" => {
+                    options = val
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let label = label?;
+    let action = action?;
+
+    Some(DslInstruction::Selector {
+        label,
+        options,
+        action,
     })
 }
 
