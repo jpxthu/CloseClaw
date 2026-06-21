@@ -5,6 +5,7 @@
 
 use super::events::ConfigChangeEvent;
 use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
+use std::path::Path;
 use tracing::{info, warn};
 
 /// Validator callback type for config section reload.
@@ -14,9 +15,9 @@ use tracing::{info, warn};
 pub type SectionValidator = dyn Fn(&serde_json::Value) -> Result<(), String>;
 
 impl ConfigManager {
-    /// Hot-reload a single section from file content.
+    /// Hot-reload a single section by reading from a file path.
     ///
-    /// Flow: backup current file → parse JSON → validate →
+    /// Flow: read file → backup current file → parse JSON → validate →
     ///   success: update in-memory cache
     ///   failure: rollback file, keep old in-memory value, log error
     ///
@@ -26,10 +27,16 @@ impl ConfigManager {
     pub fn reload_section(
         &self,
         section: ConfigSection,
-        content: &str,
+        file_path: &Path,
         validator: Option<&SectionValidator>,
     ) -> Result<(), ConfigLoadError> {
         let path = section.path(&self.config_dir);
+
+        // Step 0: read file content
+        let content = std::fs::read_to_string(file_path).map_err(|e| ConfigLoadError::IoError {
+            path: file_path.to_path_buf(),
+            error: e.to_string(),
+        })?;
 
         // Step 1: backup current file before overwriting
         if path.exists() {
@@ -42,7 +49,7 @@ impl ConfigManager {
         }
 
         // Step 2: parse new content
-        let value: serde_json::Value = serde_json::from_str(content).map_err(|e| {
+        let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
             // Parse failed → rollback file
             if let Err(rb) = self.backup_manager.rollback(&path) {
                 warn!(

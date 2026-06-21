@@ -23,9 +23,11 @@ fn test_reload_section_success() {
     let before = manager.section(ConfigSection::System).unwrap();
     assert_eq!(before["version"], "1.0");
 
-    let new_json = r#"{"version": "9.9", "updated": true}"#;
+    let new_content = r#"{"version": "9.9", "updated": true}"#;
+    let new_file = tmp.path().join("new_system.json");
+    fs::write(&new_file, new_content).unwrap();
     manager
-        .reload_section(ConfigSection::System, new_json, None)
+        .reload_section(ConfigSection::System, &new_file, None)
         .unwrap();
 
     let after = manager.section(ConfigSection::System).unwrap();
@@ -44,7 +46,9 @@ fn test_reload_section_invalid_json() {
     let before = manager.section(ConfigSection::System).unwrap();
     assert_eq!(before["version"], "1.0");
 
-    let result = manager.reload_section(ConfigSection::System, "not json", None);
+    let bad_file = tmp.path().join("bad.json");
+    fs::write(&bad_file, "not json").unwrap();
+    let result = manager.reload_section(ConfigSection::System, &bad_file, None);
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),

@@ -125,26 +125,16 @@ async fn handle_changed_path(
     }
 
     if let Some(section) = filename_to_section(filename) {
-        match tokio::fs::read_to_string(path).await {
-            Ok(content) => {
-                info!(
-                    path = %path.display(),
-                    section = %section,
-                    "config file changed, reloading section"
-                );
-                if let Err(e) = cm.reload_section(section, &content, None) {
-                    tracing::warn!(
-                        error = %e, section = %section,
-                        "failed to reload config section"
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e, path = %path.display(),
-                    "failed to read changed config file"
-                );
-            }
+        info!(
+            path = %path.display(),
+            section = %section,
+            "config file changed, reloading section"
+        );
+        if let Err(e) = cm.reload_section(section, path, None) {
+            tracing::warn!(
+                error = %e, section = %section,
+                "failed to reload config section"
+            );
         }
     }
 }
