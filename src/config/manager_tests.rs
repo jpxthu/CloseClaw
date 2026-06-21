@@ -160,10 +160,18 @@ fn test_config_manager_load_corrupted_backup_also_corrupted() {
 
     // Corrupt the backup itself: find backup path and overwrite with bad JSON
     let models_path = tmp.path().join("models.json");
-    let backup_path = manager
-        .backup_manager
-        .find_latest_backup(&models_path)
-        .unwrap();
+    let backup_dir = tmp.path().join(".backups");
+    let backup_path = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with("models."))
+                .unwrap_or(false)
+        })
+        .expect("should find a models backup");
     fs::write(&backup_path, "also not valid json {{").unwrap();
 
     // Corrupt models.json

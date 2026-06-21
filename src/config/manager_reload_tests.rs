@@ -29,12 +29,13 @@ fn test_reload_section_success() {
     let before = manager.section(ConfigSection::System).unwrap();
     assert_eq!(before["version"], "1.0");
 
-    let new_content = r#"{"version": "9.9", "updated": true}"#;
-    let new_file = tmp.path().join("new_system.json");
-    fs::write(&new_file, new_content).unwrap();
-    manager
-        .reload_section(ConfigSection::System, &new_file, None)
-        .unwrap();
+    // Overwrite the canonical file with new content
+    fs::write(
+        tmp.path().join("system.json"),
+        r#"{"version": "9.9", "updated": true}"#,
+    )
+    .unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
 
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "9.9");
@@ -53,9 +54,9 @@ fn test_reload_section_invalid_json() {
     let before = manager.section(ConfigSection::System).unwrap();
     assert_eq!(before["version"], "1.0");
 
-    let bad_file = tmp.path().join("bad.json");
-    fs::write(&bad_file, "not json").unwrap();
-    let result = manager.reload_section(ConfigSection::System, &bad_file, None);
+    // Corrupt the canonical file
+    fs::write(tmp.path().join("system.json"), "not json").unwrap();
+    let result = manager.reload_section(ConfigSection::System, None);
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
@@ -78,8 +79,7 @@ fn test_reload_section_validator_success() {
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
-    let new_file = tmp.path().join("new_system.json");
-    fs::write(&new_file, r#"{"version": "2.0"}"#).unwrap();
+    fs::write(tmp.path().join("system.json"), r#"{"version": "2.0"}"#).unwrap();
 
     let validator: &SectionValidator = &|v: &serde_json::Value| {
         if v.get("version").is_some() {
@@ -90,7 +90,7 @@ fn test_reload_section_validator_success() {
     };
 
     manager
-        .reload_section(ConfigSection::System, &new_file, Some(validator))
+        .reload_section(ConfigSection::System, Some(validator))
         .unwrap();
 
     let after = manager.section(ConfigSection::System).unwrap();
@@ -98,9 +98,9 @@ fn test_reload_section_validator_success() {
 }
 
 /// Test: reload_section with failing validator rejects the reload, keeps old
-/// value in memory, and rolls back the file.
+/// value in memory.
 #[test]
-fn test_reload_section_validator_failure_rollback() {
+fn test_reload_section_validator_failure_keeps_old_value() {
     let tmp = tempfile::tempdir().unwrap();
     setup_config_dir_at(tmp.path());
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -109,11 +109,12 @@ fn test_reload_section_validator_failure_rollback() {
     let before = manager.section(ConfigSection::System).unwrap();
     assert_eq!(before["version"], "1.0");
 
-    let system_path = tmp.path().join("system.json");
-    let original_content = fs::read_to_string(&system_path).unwrap();
-
-    let new_file = tmp.path().join("new_system.json");
-    fs::write(&new_file, r#"{"version": "2.0", "bad_field": true}"#).unwrap();
+    // Write content that will fail validation
+    fs::write(
+        tmp.path().join("system.json"),
+        r#"{"version": "2.0", "bad_field": true}"#,
+    )
+    .unwrap();
 
     let validator: &SectionValidator = &|v: &serde_json::Value| {
         if v.get("bad_field").is_some() {
@@ -123,7 +124,7 @@ fn test_reload_section_validator_failure_rollback() {
         }
     };
 
-    let result = manager.reload_section(ConfigSection::System, &new_file, Some(validator));
+    let result = manager.reload_section(ConfigSection::System, Some(validator));
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
@@ -134,36 +135,25 @@ fn test_reload_section_validator_failure_rollback() {
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
     assert!(after.get("bad_field").is_none());
-
-    // File must be rolled back to original content
-    let file_after = fs::read_to_string(&system_path).unwrap();
-    assert_eq!(file_after, original_content);
 }
 
-/// Test: reload_section parse failure rolls back the file and keeps old value.
+/// Test: reload_section parse failure keeps old value.
 #[test]
-fn test_reload_section_parse_failure_rollback() {
+fn test_reload_section_parse_failure_keeps_old_value() {
     let tmp = tempfile::tempdir().unwrap();
     setup_config_dir_at(tmp.path());
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
-    let system_path = tmp.path().join("system.json");
-    let original_content = fs::read_to_string(&system_path).unwrap();
+    // Corrupt the canonical file
+    fs::write(tmp.path().join("system.json"), "not json").unwrap();
 
-    let bad_file = tmp.path().join("bad.json");
-    fs::write(&bad_file, "not json").unwrap();
-
-    let result = manager.reload_section(ConfigSection::System, &bad_file, None);
+    let result = manager.reload_section(ConfigSection::System, None);
     assert!(result.is_err());
 
     // In-memory unchanged
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
-
-    // File rolled back to original
-    let file_after = fs::read_to_string(&system_path).unwrap();
-    assert_eq!(file_after, original_content);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,11 +170,8 @@ fn test_reload_section_success_emits_reloaded_event() {
 
     let mut rx = manager.subscribe_config_changes();
 
-    let new_file = tmp.path().join("new_models.json");
-    fs::write(&new_file, r#"{"version": "3.0"}"#).unwrap();
-    manager
-        .reload_section(ConfigSection::Models, &new_file, None)
-        .unwrap();
+    fs::write(tmp.path().join("models.json"), r#"{"version": "3.0"}"#).unwrap();
+    manager.reload_section(ConfigSection::Models, None).unwrap();
 
     let event = rx.try_recv().expect("should receive a Reloaded event");
     match event {
@@ -205,11 +192,10 @@ fn test_reload_section_validation_failure_emits_failed_event() {
 
     let mut rx = manager.subscribe_config_changes();
 
-    let new_file = tmp.path().join("new_models.json");
-    fs::write(&new_file, r#"{"version": "3.0"}"#).unwrap();
+    fs::write(tmp.path().join("models.json"), r#"{"version": "3.0"}"#).unwrap();
 
     let validator: &SectionValidator = &|_: &serde_json::Value| Err("reject all".into());
-    let _ = manager.reload_section(ConfigSection::Models, &new_file, Some(validator));
+    let _ = manager.reload_section(ConfigSection::Models, Some(validator));
 
     let event = rx.try_recv().expect("should receive a Failed event");
     match event {
@@ -231,9 +217,8 @@ fn test_reload_section_parse_failure_emits_failed_event() {
 
     let mut rx = manager.subscribe_config_changes();
 
-    let bad_file = tmp.path().join("bad.json");
-    fs::write(&bad_file, "not json").unwrap();
-    let _ = manager.reload_section(ConfigSection::Gateway, &bad_file, None);
+    fs::write(tmp.path().join("gateway.json"), "not json").unwrap();
+    let _ = manager.reload_section(ConfigSection::Gateway, None);
 
     let event = rx.try_recv().expect("should receive a Failed event");
     match event {
@@ -249,14 +234,12 @@ fn test_reload_section_parse_failure_emits_failed_event() {
 #[test]
 fn test_reload_section_file_not_found_no_event() {
     let tmp = tempfile::tempdir().unwrap();
-    setup_config_dir_at(tmp.path());
+    // Don't create any config files
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
-    manager.load().unwrap();
 
     let mut rx = manager.subscribe_config_changes();
 
-    let missing = tmp.path().join("does_not_exist.json");
-    let result = manager.reload_section(ConfigSection::System, &missing, None);
+    let result = manager.reload_section(ConfigSection::System, None);
     assert!(result.is_err());
 
     // IoError path returns before any event is emitted

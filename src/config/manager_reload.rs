@@ -1,12 +1,16 @@
 //! Hot-reload extension for ConfigManager.
 //!
 //! Provides `reload_section()` for updating a single config section's
-//! in-memory cache with backup, validation, and rollback support.
+//! in-memory cache with validation support.
+//!
+//! Note: `reload_section` reads from the canonical section file path
+//! (`section.path(&self.config_dir)`). It does NOT backup/rollback the
+//! file because the file is modified externally (by an editor or tool).
+//! Backup/rollback is the responsibility of `ConfigManager::update()`.
 
 use super::events::ConfigChangeEvent;
 use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
-use std::path::Path;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Validator callback type for config section reload.
 ///
@@ -15,11 +19,15 @@ use tracing::{info, warn};
 pub type SectionValidator = dyn Fn(&serde_json::Value) -> Result<(), String>;
 
 impl ConfigManager {
-    /// Hot-reload a single section by reading from a file path.
+    /// Hot-reload a single section by reading its canonical file.
     ///
-    /// Flow: read file → backup current file → parse JSON → validate →
-    ///   success: update in-memory cache
-    ///   failure: rollback file, keep old in-memory value, log error
+    /// Flow: read canonical file → parse JSON → validate →
+    ///   success: update in-memory cache, emit Reloaded event
+    ///   failure: keep old in-memory value, emit Failed event
+    ///
+    /// This method does NOT backup or rollback the file. The file is
+    /// modified externally (editor, CLI, etc.), so ConfigManager has no
+    /// authority to revert it. Backup/rollback belongs to `update()`.
     ///
     /// The `validator` callback performs additional business validation
     /// on the parsed JSON value. Return `Ok(())` to accept, or
@@ -27,36 +35,18 @@ impl ConfigManager {
     pub fn reload_section(
         &self,
         section: ConfigSection,
-        file_path: &Path,
         validator: Option<&SectionValidator>,
     ) -> Result<(), ConfigLoadError> {
         let path = section.path(&self.config_dir);
 
-        // Step 0: read file content
-        let content = std::fs::read_to_string(file_path).map_err(|e| ConfigLoadError::IoError {
-            path: file_path.to_path_buf(),
+        // Step 1: read the canonical config file
+        let content = std::fs::read_to_string(&path).map_err(|e| ConfigLoadError::IoError {
+            path: path.clone(),
             error: e.to_string(),
         })?;
 
-        // Step 1: backup current file before overwriting
-        if path.exists() {
-            if let Err(e) = self.backup_manager.backup(&path) {
-                warn!(
-                    error = %e, section = %section,
-                    "failed to backup config before reload"
-                );
-            }
-        }
-
         // Step 2: parse new content
         let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
-            // Parse failed → rollback file
-            if let Err(rb) = self.backup_manager.rollback(&path) {
-                warn!(
-                    error = %rb, section = %section,
-                    "rollback also failed after parse error"
-                );
-            }
             self.notify_change(ConfigChangeEvent::Failed {
                 section,
                 error: e.to_string(),
@@ -70,13 +60,6 @@ impl ConfigManager {
         // Step 3: validate
         if let Some(validate_fn) = validator {
             if let Err(msg) = validate_fn(&value) {
-                // Validation failed → rollback file
-                if let Err(rb) = self.backup_manager.rollback(&path) {
-                    warn!(
-                        error = %rb, section = %section,
-                        "rollback also failed after validation error"
-                    );
-                }
                 self.notify_change(ConfigChangeEvent::Failed {
                     section,
                     error: msg.clone(),
