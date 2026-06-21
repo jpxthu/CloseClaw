@@ -294,7 +294,8 @@ fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: 
             section = %section,
             "config file changed, reloading section"
         );
-        if let Err(e) = config_manager.reload_section(section, None) {
+        let validator = section.default_validator();
+        if let Err(e) = config_manager.reload_section(section, Some(&*validator)) {
             warn!(error = %e, section = %section, "failed to reload config section");
         }
     }
