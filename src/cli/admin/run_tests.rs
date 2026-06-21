@@ -26,7 +26,7 @@ fn test_run_config_dir_uses_platform_default() {
     let written_pid: u32 = content.trim().parse().unwrap();
     assert_eq!(written_pid, std::process::id());
 
-    // Case 2: empty config_dir → fall back to tmp path (simulating default)
+    // Case 2: non-empty config_dir → use provided path
     let tmp2 = TempDir::new().unwrap();
     let empty_dir = tmp2.path().to_str().unwrap().to_string();
     let (resolved2, pid2, pid_file2) = prepare_run(&empty_dir).unwrap();
