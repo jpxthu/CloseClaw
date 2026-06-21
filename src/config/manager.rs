@@ -245,6 +245,14 @@ impl ConfigManager {
         })
     }
 
+    /// Get a reference to the shared backup manager.
+    ///
+    /// Used by `ConfigReloadManager` to backup/rollback agent config files
+    /// without creating a separate `BackupManager` instance.
+    pub(crate) fn backup_manager(&self) -> &SafeBackupManager {
+        &self.backup_manager
+    }
+
     /// Load all configuration sections from disk into memory.
     ///
     /// Returns `Ok(())` if all mandatory config files are loaded successfully.

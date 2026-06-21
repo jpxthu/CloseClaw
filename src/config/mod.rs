@@ -14,6 +14,7 @@ pub mod migration;
 pub mod providers;
 pub mod reload;
 pub mod session;
+pub mod validators;
 
 // Public re-exports from manager
 pub use events::{ConfigChangeBroadcaster, ConfigChangeEvent};
