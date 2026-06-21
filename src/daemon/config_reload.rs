@@ -132,7 +132,7 @@ async fn handle_changed_path(
                     section = %section,
                     "config file changed, reloading section"
                 );
-                if let Err(e) = cm.reload_section(section, &content) {
+                if let Err(e) = cm.reload_section(section, &content, None) {
                     tracing::warn!(
                         error = %e, section = %section,
                         "failed to reload config section"

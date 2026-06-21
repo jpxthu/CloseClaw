@@ -25,7 +25,7 @@ fn test_reload_section_success() {
 
     let new_json = r#"{"version": "9.9", "updated": true}"#;
     manager
-        .reload_section(ConfigSection::System, new_json)
+        .reload_section(ConfigSection::System, new_json, None)
         .unwrap();
 
     let after = manager.section(ConfigSection::System).unwrap();
@@ -44,7 +44,7 @@ fn test_reload_section_invalid_json() {
     let before = manager.section(ConfigSection::System).unwrap();
     assert_eq!(before["version"], "1.0");
 
-    let result = manager.reload_section(ConfigSection::System, "not json");
+    let result = manager.reload_section(ConfigSection::System, "not json", None);
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
