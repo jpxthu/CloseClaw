@@ -413,6 +413,76 @@ fn test_config_manager_update_backup_failure() {
 }
 
 // =====================================================================
+// Step 1.2 — ConfigManager.load() section-population tests
+// =====================================================================
+
+/// Test: load() populates memory cache with exact JSON values for all
+/// 5 mandatory sections.
+#[test]
+fn test_load_populates_all_five_sections_with_values() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+
+    // Before load: all sections should be None
+    assert!(manager.section(ConfigSection::Models).is_none());
+    assert!(manager.section(ConfigSection::Channels).is_none());
+    assert!(manager.section(ConfigSection::Gateway).is_none());
+    assert!(manager.section(ConfigSection::Plugins).is_none());
+    assert!(manager.section(ConfigSection::System).is_none());
+
+    manager.load().unwrap();
+
+    // After load: all 5 mandatory sections should be populated
+    let models = manager.section(ConfigSection::Models).unwrap();
+    assert_eq!(models["version"], "1.0");
+    let channels = manager.section(ConfigSection::Channels).unwrap();
+    assert_eq!(channels["version"], "1.0");
+    let gateway = manager.section(ConfigSection::Gateway).unwrap();
+    assert_eq!(gateway["version"], "1.0");
+    let plugins = manager.section(ConfigSection::Plugins).unwrap();
+    assert_eq!(plugins["version"], "1.0");
+    let system = manager.section(ConfigSection::System).unwrap();
+    assert_eq!(system["version"], "1.0");
+}
+
+/// Test: load() fails when one mandatory file is missing, returning
+/// ConfigFileNotFound for the first missing section.
+#[test]
+fn test_load_fails_on_missing_mandatory_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Create only models.json, missing the other 4
+    fs::write(tmp.path().join("models.json"), r#"{"version": "1.0"}"#).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    let result = manager.load();
+    assert!(result.is_err(), "load() should fail when files are missing");
+    assert!(
+        matches!(result.unwrap_err(), ConfigLoadError::ConfigFileNotFound(_)),
+        "error should be ConfigFileNotFound"
+    );
+}
+
+/// Test: load() fails with ConfigDirNotFound when the config directory
+/// does not exist at the time of the call.
+#[test]
+fn test_load_fails_on_missing_config_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("vanishing_dir");
+    let manager = ConfigManager::new(target.clone()).unwrap();
+    // Remove the directory after construction to simulate it disappearing
+    fs::remove_dir_all(&target).ok();
+    let result = manager.load();
+    assert!(
+        result.is_err(),
+        "load() should fail when config dir is gone"
+    );
+    assert!(
+        matches!(result.unwrap_err(), ConfigLoadError::ConfigDirNotFound(_)),
+        "error should be ConfigDirNotFound"
+    );
+}
+
+// =====================================================================
 // Step 1.5 — agent_permissions default baseline tests
 // =====================================================================
 

@@ -36,6 +36,18 @@ async fn test_sigterm_triggers_graceful_shutdown() {
     )
     .expect("failed to write test agents.json");
 
+    // Create mandatory config files required by ConfigManager::load()
+    for name in &[
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+    ] {
+        std::fs::write(config_dir.join(name), r#"{"version":"1.0"}"#)
+            .expect("write mandatory config");
+    }
+
     // Start the daemon
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
@@ -106,6 +118,18 @@ async fn test_sigint_triggers_graceful_shutdown() {
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write test agents.json");
+
+    // Create mandatory config files required by ConfigManager::load()
+    for name in &[
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+    ] {
+        std::fs::write(config_dir.join(name), r#"{"version":"1.0"}"#)
+            .expect("write mandatory config");
+    }
 
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
