@@ -7,6 +7,7 @@ pub mod agent_loader;
 mod agent_loader_tests;
 pub mod agents;
 pub mod backup;
+pub mod events;
 pub mod manager;
 pub mod manager_reload;
 pub mod migration;
@@ -15,6 +16,7 @@ pub mod reload;
 pub mod session;
 
 // Public re-exports from manager
+pub use events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 pub use manager::{
     ConfigInfo, ConfigLoadError, ConfigManager, ConfigSection, ConfigValidationError,
     ConfigWriteError, SafeBackupManager,

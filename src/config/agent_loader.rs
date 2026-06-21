@@ -153,6 +153,35 @@ impl ConfigManager {
         Ok(())
     }
 
+    /// Restore agents and permissions from a snapshot.
+    ///
+    /// Used by the daemon to roll back agent state when `reload_agents()`
+    /// fails. Call `snapshot_agents()` before reloading, then pass the
+    /// snapshot here on failure.
+    pub(crate) fn restore_agents(
+        &self,
+        agents: HashMap<String, ResolvedAgentConfig>,
+        permissions: HashMap<String, crate::agent::config::AgentPermissions>,
+    ) {
+        *self.agents.write().expect("RwLock for agents was poisoned") = agents;
+        *self
+            .agent_permissions
+            .write()
+            .expect("RwLock for agent_permissions was poisoned") = permissions;
+    }
+
+    /// Snapshot the current agents and permissions for later rollback.
+    pub(crate) fn snapshot_agents(
+        &self,
+    ) -> (
+        HashMap<String, ResolvedAgentConfig>,
+        HashMap<String, crate::agent::config::AgentPermissions>,
+    ) {
+        let agents = self.agents();
+        let permissions = self.agent_permissions();
+        (agents, permissions)
+    }
+
     /// Get all resolved agent configurations.
     pub fn agents(&self) -> HashMap<String, ResolvedAgentConfig> {
         self.agents
