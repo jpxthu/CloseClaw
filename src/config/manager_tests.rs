@@ -1,6 +1,7 @@
 //! Tests for ConfigManager
 
 use super::*;
+use crate::common::test_helpers::write_mandatory_configs;
 use std::fs;
 
 // ---------------------------------------------------------------------------
@@ -274,11 +275,7 @@ fn setup_config_dir(tmp: &tempfile::TempDir) {
 }
 
 fn setup_config_dir_at(dir: &std::path::Path) {
-    fs::write(dir.join("models.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("channels.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("gateway.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("plugins.json"), r#"{"version": "1.0"}"#).unwrap();
-    fs::write(dir.join("system.json"), r#"{"version": "1.0"}"#).unwrap();
+    write_mandatory_configs(dir).unwrap();
 }
 
 #[test]
