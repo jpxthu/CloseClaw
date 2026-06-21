@@ -1,5 +1,6 @@
 //! Daemon unit tests.
 
+use crate::common::test_helpers::write_mandatory_configs;
 use crate::daemon::Daemon;
 use crate::session::persistence::PersistenceService;
 
@@ -23,26 +24,6 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(&config_dir)?;
     std::fs::write(config_dir.join("agents.json"), agents_content.to_string())?;
     write_mandatory_configs(dir)?;
-    Ok(())
-}
-
-/// Write the 5 mandatory config files (models.json, channels.json,
-/// gateway.json, plugins.json, system.json) into `dir`.
-/// Reused across daemon unit tests and integration tests to avoid
-/// duplicating the same for-loop in every test helper.
-fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
-    }
     Ok(())
 }
 
@@ -82,8 +63,8 @@ async fn test_daemon_start_fails_without_mandatory_config() {
         _ => unreachable!(),
     };
     assert!(
-        err_msg.contains("config"),
-        "error should mention config: {err_msg}"
+        err_msg.contains("mandatory"),
+        "error should mention mandatory: {err_msg}"
     );
 }
 
@@ -101,8 +82,8 @@ async fn test_daemon_start_fails_with_empty_config_dir() {
         _ => unreachable!(),
     };
     assert!(
-        err_msg.contains("config"),
-        "error should mention config: {err_msg}"
+        err_msg.contains("mandatory"),
+        "error should mention mandatory: {err_msg}"
     );
 }
 

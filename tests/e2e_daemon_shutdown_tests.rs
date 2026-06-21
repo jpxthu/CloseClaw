@@ -2,27 +2,9 @@
 //!
 //! Covers ShutdownHandle drain state machine scenarios.
 
+use closeclaw::common::test_helpers::write_mandatory_configs;
 use closeclaw::daemon::shutdown::ShutdownHandle;
 use std::time::Duration;
-
-/// Write the 5 mandatory config files (models.json, channels.json,
-/// gateway.json, plugins.json, system.json) into `dir`.
-/// Uses `serde_json::json!` for consistent formatting with daemon tests.
-fn write_mandatory_configs(dir: &std::path::Path) {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .expect("write mandatory config");
-    }
-}
 
 /// Test 1: drain waits until busy_count reaches zero before exiting.
 #[tokio::test]
@@ -123,7 +105,7 @@ async fn test_daemon_run_sigterm_shutdown() {
     let agents_path = config_dir.join("agents.json");
     std::fs::write(&agents_path, r#"{"version":"1.0.0","agents":[]}"#).expect("write agents.json");
 
-    write_mandatory_configs(temp_dir.path());
+    write_mandatory_configs(temp_dir.path()).expect("write mandatory config");
 
     // Do NOT set FEISHU/LLM env vars — Daemon::start will skip those components
     let daemon = closeclaw::daemon::Daemon::start(temp_dir.path().to_str().unwrap())

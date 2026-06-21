@@ -220,11 +220,19 @@ fn test_config_manager_load_normal_unaffected() {
     manager.load().unwrap();
 
     // All mandatory sections should be loaded successfully
-    assert!(manager.section(ConfigSection::Models).is_some());
-    assert!(manager.section(ConfigSection::Channels).is_some());
-    assert!(manager.section(ConfigSection::Gateway).is_some());
-    assert!(manager.section(ConfigSection::Plugins).is_some());
-    assert!(manager.section(ConfigSection::System).is_some());
+    for section in &[
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ] {
+        assert!(
+            manager.section(*section).is_some(),
+            "section {:?} missing",
+            section
+        );
+    }
 }
 
 /// Test: credentials directory does not exist → load still succeeds.
@@ -286,11 +294,19 @@ fn test_config_manager_load() {
     setup_config_dir(&tmp);
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
-    assert!(manager.section(ConfigSection::Models).is_some());
-    assert!(manager.section(ConfigSection::Channels).is_some());
-    assert!(manager.section(ConfigSection::Gateway).is_some());
-    assert!(manager.section(ConfigSection::Plugins).is_some());
-    assert!(manager.section(ConfigSection::System).is_some());
+    for section in &[
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ] {
+        assert!(
+            manager.section(*section).is_some(),
+            "section {:?} missing",
+            section
+        );
+    }
 }
 
 #[test]
@@ -424,26 +440,32 @@ fn test_load_populates_all_five_sections_with_values() {
     setup_config_dir_at(tmp.path());
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
 
+    let mandatory_sections = [
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ];
+
     // Before load: all sections should be None
-    assert!(manager.section(ConfigSection::Models).is_none());
-    assert!(manager.section(ConfigSection::Channels).is_none());
-    assert!(manager.section(ConfigSection::Gateway).is_none());
-    assert!(manager.section(ConfigSection::Plugins).is_none());
-    assert!(manager.section(ConfigSection::System).is_none());
+    for section in &mandatory_sections {
+        assert!(
+            manager.section(*section).is_none(),
+            "section {:?} should be None before load",
+            section
+        );
+    }
 
     manager.load().unwrap();
 
-    // After load: all 5 mandatory sections should be populated
-    let models = manager.section(ConfigSection::Models).unwrap();
-    assert_eq!(models, serde_json::json!({"version": "1.0"}));
-    let channels = manager.section(ConfigSection::Channels).unwrap();
-    assert_eq!(channels, serde_json::json!({"version": "1.0"}));
-    let gateway = manager.section(ConfigSection::Gateway).unwrap();
-    assert_eq!(gateway, serde_json::json!({"version": "1.0"}));
-    let plugins = manager.section(ConfigSection::Plugins).unwrap();
-    assert_eq!(plugins, serde_json::json!({"version": "1.0"}));
-    let system = manager.section(ConfigSection::System).unwrap();
-    assert_eq!(system, serde_json::json!({"version": "1.0"}));
+    // After load: all 5 mandatory sections should be populated with
+    // the exact JSON value written by setup_config_dir_at.
+    let expected = serde_json::json!({"version": "1.0"});
+    for section in &mandatory_sections {
+        let value = manager.section(*section).unwrap();
+        assert_eq!(value, expected, "section {:?} mismatch", section);
+    }
 }
 
 /// Test: load() fails when one mandatory file is missing, returning

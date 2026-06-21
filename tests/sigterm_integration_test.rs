@@ -3,29 +3,11 @@
 //! Verifies that `closeclaw stop` (SIGTERM) triggers graceful shutdown
 //! instead of hard-killing the daemon.
 
+use closeclaw::common::test_helpers::write_mandatory_configs;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
-
-/// Write the 5 mandatory config files (models.json, channels.json,
-/// gateway.json, plugins.json, system.json) into `dir`.
-/// Uses `serde_json::json!` for consistent formatting with daemon tests.
-fn write_mandatory_configs(dir: &std::path::Path) {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .expect("write mandatory config");
-    }
-}
 
 /// Returns the path to the `closeclaw` daemon binary (not the test binary).
 fn closeclaw_binary() -> std::path::PathBuf {
@@ -55,7 +37,7 @@ async fn test_sigterm_triggers_graceful_shutdown() {
     )
     .expect("failed to write test agents.json");
 
-    write_mandatory_configs(config_dir);
+    write_mandatory_configs(config_dir).expect("write mandatory config");
 
     // Start the daemon
     let mut daemon = Command::new(&daemon_bin)
@@ -128,7 +110,7 @@ async fn test_sigint_triggers_graceful_shutdown() {
     )
     .expect("failed to write test agents.json");
 
-    write_mandatory_configs(config_dir);
+    write_mandatory_configs(config_dir).expect("write mandatory config");
 
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
