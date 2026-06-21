@@ -5,13 +5,23 @@
 
 /// Returns `true` if the current terminal supports ANSI escape sequences.
 ///
-/// On Unix, checks the `TERM` environment variable for known values.
-/// On Windows, detects terminal emulation environments (e.g. ConEmu, mintty).
+/// On Windows, detects the Windows Terminal environment via `WT_SESSION`.
+/// On all platforms, checks the `TERM` environment variable for known
+/// ANSI-capable values (`xterm`, `screen`, `ansi`, `vt100`, `color`).
 pub fn supports_ansi() -> bool {
-    cfg!(unix)
-        && std::env::var("TERM")
-            .map(|v| v != "dumb" && !v.is_empty())
-            .unwrap_or(false)
+    if std::env::var("WT_SESSION").is_ok() {
+        return true;
+    }
+    std::env::var("TERM")
+        .map(|term| {
+            let t = term.to_lowercase();
+            t.contains("xterm")
+                || t.contains("screen")
+                || t.contains("ansi")
+                || t.contains("vt100")
+                || t.contains("color")
+        })
+        .unwrap_or(false)
 }
 
 /// Returns the current user's UID as a string.

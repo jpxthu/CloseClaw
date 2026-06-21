@@ -33,31 +33,6 @@ pub(crate) const ITALIC: &str = "\x1b[3m";
 pub(crate) const RESET: &str = "\x1b[0m";
 
 // ---------------------------------------------------------------------------
-// ANSI capability detection
-// ---------------------------------------------------------------------------
-
-/// Returns `true` if the current terminal supports ANSI escape sequences.
-///
-/// Checks the `TERM` environment variable for known ANSI-capable values
-/// (`xterm`, `screen`, `ansi`, `vt100`, `color`). On Windows, detects the
-/// Windows Terminal environment via `WT_SESSION`.
-fn supports_ansi() -> bool {
-    if std::env::var("WT_SESSION").is_ok() {
-        return true;
-    }
-    std::env::var("TERM")
-        .map(|term| {
-            let t = term.to_lowercase();
-            t.contains("xterm")
-                || t.contains("screen")
-                || t.contains("ansi")
-                || t.contains("vt100")
-                || t.contains("color")
-        })
-        .unwrap_or(false)
-}
-
-// ---------------------------------------------------------------------------
 // Plain-text fallback
 // ---------------------------------------------------------------------------
 
@@ -633,7 +608,7 @@ impl TerminalRenderer {
     /// Create a new renderer that auto-detects ANSI capability.
     pub fn new() -> Self {
         Self {
-            ansi: supports_ansi(),
+            ansi: crate::platform::terminal::supports_ansi(),
         }
     }
 
