@@ -261,6 +261,11 @@ impl Daemon {
             ConfigManager::new(PathBuf::from(config_dir))
                 .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
         );
+        // Load mandatory config sections (Models, Channels, Gateway, Plugins, System).
+        // Design doc: "ConfigManager — 所有配置加载成功后注册热重载监听器"
+        config_manager
+            .load()
+            .map_err(|e| anyhow::anyhow!("failed to load mandatory config sections: {}", e))?;
         {
             let disk_reg_opt = {
                 let guard = skill_registry.read().unwrap();
