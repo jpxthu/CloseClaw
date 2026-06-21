@@ -40,10 +40,19 @@ impl ConfigManager {
         let path = section.path(&self.config_dir);
 
         // Step 1: read the canonical config file
-        let content = std::fs::read_to_string(&path).map_err(|e| ConfigLoadError::IoError {
-            path: path.clone(),
-            error: e.to_string(),
-        })?;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                self.notify_change(ConfigChangeEvent::Failed {
+                    section,
+                    error: e.to_string(),
+                });
+                return Err(ConfigLoadError::IoError {
+                    path,
+                    error: e.to_string(),
+                });
+            }
+        };
 
         // Step 2: parse new content
         let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| {

@@ -158,7 +158,7 @@ impl ConfigManager {
     /// Used by the daemon to roll back agent state when `reload_agents()`
     /// fails. Call `snapshot_agents()` before reloading, then pass the
     /// snapshot here on failure.
-    pub fn restore_agents(
+    pub(crate) fn restore_agents(
         &self,
         agents: HashMap<String, ResolvedAgentConfig>,
         permissions: HashMap<String, crate::agent::config::AgentPermissions>,
@@ -171,7 +171,7 @@ impl ConfigManager {
     }
 
     /// Snapshot the current agents and permissions for later rollback.
-    pub fn snapshot_agents(
+    pub(crate) fn snapshot_agents(
         &self,
     ) -> (
         HashMap<String, ResolvedAgentConfig>,

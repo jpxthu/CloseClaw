@@ -230,9 +230,9 @@ fn test_reload_section_parse_failure_emits_failed_event() {
     }
 }
 
-/// Test: no event is emitted if the file does not exist (early IoError return).
+/// Test: file not found emits a Failed event (IoError path).
 #[test]
-fn test_reload_section_file_not_found_no_event() {
+fn test_reload_section_file_not_found_emits_failed_event() {
     let tmp = tempfile::tempdir().unwrap();
     // Don't create any config files
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -242,8 +242,15 @@ fn test_reload_section_file_not_found_no_event() {
     let result = manager.reload_section(ConfigSection::System, None);
     assert!(result.is_err());
 
-    // IoError path returns before any event is emitted
-    assert!(rx.try_recv().is_err());
+    // IoError path should emit a Failed event
+    let event = rx.try_recv().expect("should receive a Failed event");
+    match event {
+        ConfigChangeEvent::Failed { section, error } => {
+            assert_eq!(section, ConfigSection::System);
+            assert!(error.contains("No such file") || error.contains("os error"));
+        }
+        other => panic!("expected Failed, got {:?}", other),
+    }
 }
 
 // ---------------------------------------------------------------------------
