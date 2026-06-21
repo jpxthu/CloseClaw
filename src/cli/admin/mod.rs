@@ -18,3 +18,6 @@ pub use rule::{handle_rule, handle_rule_with};
 pub use run::handle_run;
 pub use skill::{handle_skill, handle_skill_with};
 pub use stop::handle_stop;
+
+#[cfg(test)]
+mod run_tests;
