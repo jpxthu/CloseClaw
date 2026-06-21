@@ -24,6 +24,7 @@
 //! ```
 
 pub mod feishu;
+pub mod terminal;
 pub use crate::im_adapter::{code_block, streaming};
 
 pub use crate::im_adapter::{RenderedOutput, Renderer};

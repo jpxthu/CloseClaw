@@ -6,6 +6,7 @@ mod tests {
     use crate::im_adapter::NormalizedMessage;
     use crate::llm::types::ContentBlock;
     use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
+    use crate::renderer::terminal::{strip_ansi, TerminalRenderer, BOLD, DIM, ITALIC, RESET};
 
     #[test]
     fn test_platform() {
