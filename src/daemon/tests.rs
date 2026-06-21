@@ -4,10 +4,9 @@ use crate::common::test_helpers::write_mandatory_configs;
 use crate::daemon::Daemon;
 use crate::session::persistence::PersistenceService;
 
-/// Create a minimal agents.json and all 5 mandatory config files
-/// (models.json, channels.json, gateway.json, plugins.json, system.json)
-/// in the given directory so that `ConfigManager::load()` succeeds.
-fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
+/// Create only `config/agents.json` (without mandatory config files)
+/// in the given directory.
+fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     let agents_content = serde_json::json!({
         "version": "1.0",
         "agents": [
@@ -23,6 +22,14 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     let config_dir = dir.join("config");
     std::fs::create_dir_all(&config_dir)?;
     std::fs::write(config_dir.join("agents.json"), agents_content.to_string())?;
+    Ok(())
+}
+
+/// Create a minimal agents.json and all 5 mandatory config files
+/// (models.json, channels.json, gateway.json, plugins.json, system.json)
+/// in the given directory so that `ConfigManager::load()` succeeds.
+fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
+    write_agents_json(dir)?;
     write_mandatory_configs(dir)?;
     Ok(())
 }
@@ -39,19 +46,7 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
 async fn test_daemon_start_fails_without_mandatory_config() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     // Create only agents.json — mandatory sections (models.json etc.) are absent
-    let agents_content = serde_json::json!({
-        "version": "1.0",
-        "agents": [{
-            "name": "guide",
-            "model": "minimax/MiniMax-M2",
-            "persona": "test persona",
-            "max_iterations": 10,
-            "timeout_minutes": 5
-        }]
-    });
-    let config_dir = temp_dir.path().join("config");
-    std::fs::create_dir_all(&config_dir).unwrap();
-    std::fs::write(config_dir.join("agents.json"), agents_content.to_string()).unwrap();
+    write_agents_json(temp_dir.path()).unwrap();
 
     let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
     assert!(
