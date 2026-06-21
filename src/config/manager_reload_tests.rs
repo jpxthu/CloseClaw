@@ -709,3 +709,131 @@ fn test_restore_agents_replaces_current_state() {
         "beta should not exist after restore"
     );
 }
+
+// =========================================================================
+// Step 1.5 — validator integration tests
+// =========================================================================
+
+// ---------------------------------------------------------------------------
+// reload_section with ConfigSection default_validator
+// ---------------------------------------------------------------------------
+
+/// Test: reload_section with the default Models validator accepts valid JSON
+/// and rejects non-array `models` field.
+#[test]
+fn test_reload_section_default_validator_models() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Valid: models is an array
+    fs::write(
+        tmp.path().join("models.json"),
+        r#"{"models":[{"id":"m1"}]}"#,
+    )
+    .unwrap();
+    let v = ConfigSection::Models.default_validator();
+    manager
+        .reload_section(ConfigSection::Models, Some(&*v))
+        .unwrap();
+    assert!(
+        manager.section(ConfigSection::Models).unwrap()["models"].is_array(),
+        "models field should be an array after successful reload"
+    );
+}
+
+/// Test: reload_section with default Models validator rejects non-array.
+#[test]
+fn test_reload_section_default_validator_models_rejects_non_array() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let before = manager.section(ConfigSection::Models).unwrap();
+
+    // Invalid: models is a string, not an array
+    fs::write(tmp.path().join("models.json"), r#"{"models":"not array"}"#).unwrap();
+    let v = ConfigSection::Models.default_validator();
+    let result = manager.reload_section(ConfigSection::Models, Some(&*v));
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::ValidationError { .. }
+    ));
+
+    // In-memory unchanged
+    let after = manager.section(ConfigSection::Models).unwrap();
+    assert_eq!(
+        before, after,
+        "models should be unchanged after validation failure"
+    );
+}
+
+/// Test: reload_section with default Gateway validator accepts valid JSON.
+#[test]
+fn test_reload_section_default_validator_gateway() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    fs::write(tmp.path().join("gateway.json"), r#"{"port":3000}"#).unwrap();
+    let v = ConfigSection::Gateway.default_validator();
+    manager
+        .reload_section(ConfigSection::Gateway, Some(&*v))
+        .unwrap();
+    assert_eq!(
+        manager.section(ConfigSection::Gateway).unwrap()["port"],
+        3000
+    );
+}
+
+/// Test: reload_section with default Gateway validator rejects non-object.
+#[test]
+fn test_reload_section_default_validator_gateway_rejects_non_object() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    fs::write(tmp.path().join("gateway.json"), r#"[1,2,3]"#).unwrap();
+    let v = ConfigSection::Gateway.default_validator();
+    let result = manager.reload_section(ConfigSection::Gateway, Some(&*v));
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::ValidationError { .. }
+    ));
+}
+
+/// Test: reload_section with default System validator accepts and rejects.
+#[test]
+fn test_reload_section_default_validator_system() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Valid
+    fs::write(tmp.path().join("system.json"), r#"{"version":"2.0"}"#).unwrap();
+    let v = ConfigSection::System.default_validator();
+    manager
+        .reload_section(ConfigSection::System, Some(&*v))
+        .unwrap();
+    assert_eq!(
+        manager.section(ConfigSection::System).unwrap()["version"],
+        "2.0"
+    );
+
+    // Invalid: array at top level
+    fs::write(tmp.path().join("system.json"), r#"[1]"#).unwrap();
+    let v = ConfigSection::System.default_validator();
+    let result = manager.reload_section(ConfigSection::System, Some(&*v));
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::ValidationError { .. }
+    ));
+}
