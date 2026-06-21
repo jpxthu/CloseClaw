@@ -312,6 +312,7 @@ impl Daemon {
                     config_dir,
                     Arc::clone(&config_manager),
                     Arc::clone(&agent_registry),
+                    Arc::clone(&session_manager),
                 ) {
                     Ok(handle) => Some(handle),
                     Err(e) => {

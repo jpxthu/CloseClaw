@@ -3,7 +3,7 @@
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
-use crate::config::ConfigManager;
+use crate::config::{ConfigManager, ConfigSection};
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
@@ -421,6 +421,23 @@ impl SessionManager {
             Ok(Some(cp)) => cp.sender_id,
             _ => None,
         }
+    }
+
+    /// Notify all active sessions that a configuration section has been updated.
+    ///
+    /// **Current behavior (stub):** Logs the change notification.
+    /// Sessions already observe the latest values through the shared
+    /// `Arc<ConfigManager>`, so no explicit refresh is needed today.
+    ///
+    /// **Future extension point:** When per-session refresh logic is added
+    /// (e.g., invalidating cached system prompts or triggering re-evaluation
+    /// of tool/skill lists), this method will fan out the notification to
+    /// each active session.
+    pub async fn notify_config_changed(&self, section: ConfigSection) {
+        tracing::info!(
+            section = %section,
+            "session_manager: config change notification received"
+        );
     }
 }
 
