@@ -221,18 +221,20 @@ async fn test_subscriber_handles_lagged_events() {
     let mut rx = broadcaster.subscribe();
 
     // Send many events before the subscriber reads any — some will be lagged.
-    for i in 0..10 {
+    for _ in 0..10 {
         broadcaster.send(ConfigChangeEvent::Reloaded {
             section: ConfigSection::Models,
         });
-        // Suppress unused variable warning.
-        let _ = i;
     }
+
+    // Drop the sender so the channel closes after pending events are drained.
+    // This prevents recv() from blocking indefinitely once the buffer is empty.
+    drop(broadcaster);
 
     // The subscriber should handle RecvError::Lagged gracefully.
     // Read all pending events to confirm lag actually occurred.
     let mut got_lagged = false;
-    for _ in 0..12 {
+    loop {
         match rx.recv().await {
             Ok(ConfigChangeEvent::Reloaded { .. }) => {}
             Ok(ConfigChangeEvent::Failed { .. }) => {}
