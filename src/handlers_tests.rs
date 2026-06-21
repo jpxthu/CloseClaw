@@ -882,7 +882,8 @@ async fn test_stop_json() {
 
 #[test]
 fn test_pid() {
-    assert!(pid_file_path().to_str().unwrap().contains(".closeclaw"));
+    let path = closeclaw::platform::process::pid_file_path(std::path::Path::new("/tmp/test"));
+    assert!(path.to_str().unwrap().contains("daemon.pid"));
 }
 
 #[test]
