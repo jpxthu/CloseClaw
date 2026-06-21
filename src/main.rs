@@ -5,7 +5,6 @@ mod handlers_tests;
 use clap::{Parser, Subcommand};
 use closeclaw::cli::admin::*;
 use closeclaw::cli::args::*;
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "closeclaw", version = env!("CARGO_PKG_VERSION"))]
@@ -58,27 +57,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Rule { action } => handle_rule(action, cli.json).await?,
         Commands::Skill { action } => handle_skill(action, cli.json).await?,
         Commands::Chat(args) => closeclaw::cli::chat::run_chat(&args.agent_id).await?,
-        Commands::Run { config_dir } => {
-            let config_dir: PathBuf = if config_dir.is_empty() {
-                dirs::home_dir()
-                    .map(|h| h.join(".closeclaw"))
-                    .unwrap_or_else(|| PathBuf::from(".closeclaw"))
-            } else {
-                PathBuf::from(config_dir)
-            };
-            std::fs::create_dir_all(&config_dir).ok();
-            let p = pid_file_path();
-            if let Some(d) = p.parent() {
-                std::fs::create_dir_all(d).ok();
-            }
-            std::fs::write(&p, std::process::id().to_string())?;
-            println!("PID {} written to {}", std::process::id(), p.display());
-            closeclaw::daemon::Daemon::start(config_dir.to_string_lossy().as_ref())
-                .await?
-                .run()
-                .await?;
-            println!("Daemon stopped.");
-        }
+        Commands::Run { config_dir } => handle_run(config_dir, cli.json).await?,
         Commands::Stop { force } => handle_stop(force, cli.json).await?,
     }
     Ok(())

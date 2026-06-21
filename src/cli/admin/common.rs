@@ -88,6 +88,13 @@ pub struct StopOutput {
 }
 
 #[derive(Serialize)]
+pub struct RunOutput {
+    pub pid: u32,
+    pub config_dir: String,
+    pub started: bool,
+}
+
+#[derive(Serialize)]
 pub struct AgentCreateOutput {
     pub status: &'static str,
     pub name: String,
