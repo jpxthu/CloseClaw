@@ -718,8 +718,23 @@ impl TerminalRenderer {
                         label, action, value
                     ));
                 }
-                crate::processor_chain::DslInstruction::Selector { .. } => {
-                    // Step 1.2 will implement full Selector rendering
+                crate::processor_chain::DslInstruction::Selector {
+                    label,
+                    options,
+                    action,
+                } => {
+                    let options_str = options.join(", ");
+                    if self.ansi {
+                        out.push_str(&format!(
+                            "{}[Selector: {} (options: {}; action: {})]{}\n",
+                            DIM, label, options_str, action, RESET
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "[Selector: {} (options: {}; action: {})]\n",
+                            label, options_str, action
+                        ));
+                    }
                 }
             }
         }
