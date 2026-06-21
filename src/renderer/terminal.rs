@@ -1,7 +1,13 @@
-//! Terminal renderer — ANSI-formatted text output for CLI chat.
+//! Terminal renderer — batch text rendering for the CLI channel.
 //!
-//! Converts LLM [`ContentBlock`]s to ANSI-styled text suitable for stdout.
-//! Detects terminal ANSI capability and falls back to plain text.
+//! Converts LLM [`ContentBlock`]s into ANSI-styled or plain text. This is a
+//! **batch renderer**: `render()` returns a complete [`RenderedOutput`] and
+//! performs no I/O itself. Streaming output is handled by the Gateway layer
+//! (`send_outbound_streaming()` + `DefaultStreamingRenderer`), which drives
+//! incremental delivery via `LineBuffer` and `plugin.send()`.
+//!
+//! Detects terminal ANSI capability and falls back to plain text when
+//! unavailable.
 
 use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
 use crate::im_adapter::renderer::{RenderedOutput, Renderer};
@@ -290,12 +296,28 @@ fn find_char_end(chars: &[char], start: usize, ch: char) -> Option<usize> {
 // Code block rendering
 // ---------------------------------------------------------------------------
 
+/// Check if the language has syntax highlighting support.
+fn is_supported_language(language: &str) -> bool {
+    matches!(
+        language,
+        "rust" | "python" | "javascript" | "typescript" | "go" | "c" | "cpp" | "java"
+    )
+}
+
 /// Render a fenced code block with language annotation, line numbers,
 /// and optional syntax highlighting.
+///
+/// For unsupported languages (non-empty but not in the supported set),
+/// wraps the output with ``` fence markers.
 fn render_code_block(language: &str, code: &str, ansi: bool) -> String {
     let lines: Vec<&str> = code.lines().collect();
     let line_width = format!("{}", lines.len()).len();
     let mut out = String::new();
+    let unsupported = !language.is_empty() && !is_supported_language(language);
+
+    if unsupported {
+        out.push_str("```\n");
+    }
 
     if ansi && !language.is_empty() {
         out.push_str(&format!("{} {} {}\n", DIM, language, RESET));
@@ -312,6 +334,10 @@ fn render_code_block(language: &str, code: &str, ansi: bool) -> String {
             out.push_str(&format!("  {} │ {}", num, line));
         }
         out.push('\n');
+    }
+
+    if unsupported {
+        out.push_str("```\n");
     }
 
     out
@@ -582,8 +608,12 @@ fn render_markdown(content: &str, ansi: bool) -> String {
 /// Renderer for the terminal (CLI) channel.
 ///
 /// Converts LLM [`ContentBlock`]s into ANSI-formatted text suitable for
-/// stdout display. Detects terminal ANSI support and falls back to plain
-/// text when unavailable.
+/// stdout display. This is a **batch renderer**: `render()` returns a
+/// complete [`RenderedOutput`] without performing I/O. Streaming delivery
+/// is handled by the Gateway layer via [`DefaultStreamingRenderer`].
+///
+/// Detects terminal ANSI support and falls back to plain text when
+/// unavailable.
 #[derive(Debug, Clone)]
 pub struct TerminalRenderer {
     ansi: bool,
