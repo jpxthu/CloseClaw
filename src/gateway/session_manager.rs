@@ -425,18 +425,35 @@ impl SessionManager {
 
     /// Notify all active sessions that a configuration section has been updated.
     ///
-    /// **Current behavior (stub):** Logs the change notification.
-    /// Sessions already observe the latest values through the shared
-    /// `Arc<ConfigManager>`, so no explicit refresh is needed today.
+    /// Iterates through all active sessions and rebuilds their system prompt
+    /// so the next LLM request picks up the latest config values (tools,
+    /// skills, system-prompt sections, etc.). Sessions themselves are not
+    /// rebuilt; only the cached system prompt is invalidated.
     ///
-    /// **Future extension point:** When per-session refresh logic is added
-    /// (e.g., invalidating cached system prompts or triggering re-evaluation
-    /// of tool/skill lists), this method will fan out the notification to
-    /// each active session.
+    /// Sessions already observe the latest config values through the shared
+    /// `Arc<ConfigManager>` reference, so this notification is the only
+    /// explicit refresh needed to invalidate derived caches.
     pub async fn notify_config_changed(&self, section: ConfigSection) {
         tracing::info!(
             section = %section,
             "session_manager: config change notification received"
+        );
+        let session_ids: Vec<String> = {
+            let sessions = self.sessions.read().await;
+            sessions.keys().cloned().collect()
+        };
+        for session_id in &session_ids {
+            tracing::debug!(
+                session_id = %session_id,
+                section = %section,
+                "rebuilding system prompt for session after config change"
+            );
+            self.rebuild_system_prompt(session_id).await;
+        }
+        tracing::info!(
+            section = %section,
+            session_count = session_ids.len(),
+            "session_manager: config change notification sent to sessions"
         );
     }
 }

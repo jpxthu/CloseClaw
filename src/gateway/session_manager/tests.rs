@@ -343,6 +343,69 @@ use super::test_helpers::MockPersistService;
 
 // ── Workspace creation tests ─────────────────────────────────────────────────
 
+// =====================================================================
+// notify_config_changed tests (Step 1.5)
+// =====================================================================
+
+/// notify_config_changed with no active sessions should not panic.
+#[tokio::test]
+async fn test_notify_config_changed_no_sessions() {
+    let mgr = make_test_mgr(None);
+    // No sessions created — should complete without error
+    mgr.notify_config_changed(ConfigSection::Models).await;
+}
+
+/// notify_config_changed iterates over all active sessions and rebuilds
+/// their system prompts without error.
+#[tokio::test]
+async fn test_notify_config_changed_iterates_active_sessions() {
+    let mgr = make_test_mgr(None);
+    let msg = test_message();
+
+    // Create two sessions
+    let id1 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    let mut msg2 = test_message();
+    msg2.from = "user-c".to_string();
+    msg2.to = "agent-d".to_string();
+    let id2 = mgr.find_or_create("feishu", &msg2, None).await.unwrap();
+
+    assert_ne!(id1, id2);
+
+    // notify_config_changed should visit both sessions
+    mgr.notify_config_changed(ConfigSection::Channels).await;
+
+    // Both sessions should still exist and have conversation sessions
+    assert!(mgr.has_session(&id1).await);
+    assert!(mgr.has_session(&id2).await);
+    assert!(mgr.get_conversation_session(&id1).await.is_some());
+    assert!(mgr.get_conversation_session(&id2).await.is_some());
+}
+
+/// notify_config_changed with different sections does not interfere
+/// with session state.
+#[tokio::test]
+async fn test_notify_config_changed_multiple_sections() {
+    let mgr = make_test_mgr(None);
+    let msg = test_message();
+    let id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+
+    for section in [
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ] {
+        mgr.notify_config_changed(section).await;
+    }
+
+    // Session should still be intact
+    assert!(mgr.has_session(&id).await);
+    let cs = mgr.get_conversation_session(&id).await.unwrap();
+    let cs = cs.read().await;
+    assert!(cs.system_prompt().is_some(), "system prompt should exist");
+}
+
 #[tokio::test]
 async fn test_find_or_create_creates_workspace_directory() {
     let tmp = tempfile::TempDir::new().unwrap();

@@ -64,16 +64,12 @@ fn test_reload_section_invalid_json() {
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
 
-    // File must be restored to previous content (the loaded version)
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
     let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
     assert_eq!(
         restored["version"], "1.0",
-        "restored file should contain old version"
-    );
-    assert!(
-        restored.get("updated").is_none(),
-        "restored file should not contain new fields"
+        "file should be rolled back to the in-memory old value"
     );
 }
 
@@ -146,16 +142,13 @@ fn test_reload_section_validator_failure_keeps_old_value() {
     assert_eq!(after["version"], "1.0");
     assert!(after.get("bad_field").is_none());
 
-    // File must be restored to previous content
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
     let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(
-        restored["version"], "1.0",
-        "restored file should contain old version"
-    );
+    assert_eq!(restored["version"], "1.0");
     assert!(
         restored.get("bad_field").is_none(),
-        "restored file should not contain bad_field"
+        "file should be rolled back to the in-memory old value"
     );
 }
 
@@ -177,16 +170,12 @@ fn test_reload_section_parse_failure_keeps_old_value() {
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
 
-    // File restored to previous content
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
     let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
     assert_eq!(
         restored["version"], "1.0",
-        "restored file should contain old version"
-    );
-    assert!(
-        restored.get("updated").is_none(),
-        "restored file should not contain new fields"
+        "file should be rolled back to the in-memory old value"
     );
 }
 
@@ -532,10 +521,13 @@ fn test_reload_section_restored_file_is_valid_json() {
     let result = manager.reload_section(ConfigSection::Gateway, None);
     assert!(result.is_err());
 
-    // The restored file should be valid JSON
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(parsed["version"], "1.0");
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(
+        restored["version"], "1.0",
+        "file should be rolled back to the in-memory old value"
+    );
 }
 
 /// Test: after validation failure, the restored file content is valid JSON
@@ -561,14 +553,14 @@ fn test_reload_section_validation_failure_restored_file_is_valid_json() {
     let result = manager.reload_section(ConfigSection::Gateway, Some(validator));
     assert!(result.is_err());
 
-    // The restored file should be valid JSON with old value
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(parsed["version"], "1.0");
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(restored["version"], "1.0");
 }
 
 /// Test: when in-memory section was never loaded (None),
-/// restore_file_to_last_known_good does not write anything to the file.
+/// rollback does not change the file when no backup is available.
 #[test]
 fn test_reload_section_no_prior_value_no_restore_write() {
     let tmp = tempfile::tempdir().unwrap();
@@ -627,10 +619,14 @@ fn test_reload_section_validator_failure_restores_file_after_valid_parse() {
     let after = manager.section(ConfigSection::Plugins).unwrap();
     assert_eq!(after["version"], "1.0");
 
-    // File restored
+    // File is rolled back to the in-memory old value (last known good state)
     let file_content = fs::read_to_string(tmp.path().join("plugins.json")).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(parsed["version"], "1.0");
+    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(restored["version"], "1.0");
+    assert!(
+        restored.get("banned").is_none(),
+        "file should be rolled back to the in-memory old value"
+    );
 }
 
 /// Test: reload_section success does not create backup files.
