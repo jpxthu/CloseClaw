@@ -8,13 +8,14 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use super::providers::{ConfigProvider, CredentialsProvider};
+use super::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::agent::config::AgentPermissions;
 
 // ---------------------------------------------------------------------------
@@ -147,6 +148,7 @@ pub enum ConfigSection {
     Gateway,
     Plugins,
     System,
+    Session,
     Credentials,
 }
 
@@ -159,6 +161,7 @@ impl ConfigSection {
             ConfigSection::Gateway => "gateway.json",
             ConfigSection::Plugins => "plugins.json",
             ConfigSection::System => "system.json",
+            ConfigSection::Session => "session.json",
             ConfigSection::Credentials => "credentials.json",
         }
     }
@@ -215,6 +218,8 @@ pub struct ConfigManager {
     pub(crate) sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
     /// Loaded credentials provider (from config/credentials/ directory).
     credentials_provider: RwLock<CredentialsProvider>,
+    /// Loaded session config provider (from config/session.json).
+    pub(crate) session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// Resolved agent configurations (loaded from two-level directories).
     pub(crate) agents: RwLock<HashMap<String, super::agents::ResolvedAgentConfig>>,
     /// Per-agent raw permissions (loaded from permissions.json).
@@ -238,6 +243,7 @@ impl ConfigManager {
             backup_manager,
             sections: RwLock::new(HashMap::new()),
             credentials_provider: RwLock::new(CredentialsProvider::default()),
+            session_provider: RwLock::new(None),
             agents: RwLock::new(HashMap::new()),
             agent_permissions: RwLock::new(HashMap::new()),
             repo_root: RwLock::new(None),
@@ -263,7 +269,8 @@ impl ConfigManager {
             return Err(ConfigLoadError::ConfigDirNotFound(self.config_dir.clone()));
         }
 
-        // The 5 mandatory config files (Credentials is a directory, handled separately)
+        // The 5 mandatory config files (Credentials is a directory,
+        // Session is optional with defaults — both handled separately)
         let mandatory_sections = [
             ConfigSection::Models,
             ConfigSection::Channels,
@@ -301,6 +308,35 @@ impl ConfigManager {
 
             sections.insert(section, value);
         }
+
+        // Load session config (optional — absent file uses defaults).
+        let session_path = ConfigSection::Session.path(&self.config_dir);
+        let session_provider: Arc<dyn SessionConfigProvider> =
+            match JsonSessionConfigProvider::new(&session_path) {
+                Ok(provider) => {
+                    info!(
+                        path = %session_path.display(),
+                        "session config loaded from {}",
+                        session_path.display()
+                    );
+                    // Also store raw JSON in sections for hot-reload consistency.
+                    if let Ok(content) = fs::read_to_string(&session_path) {
+                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                            sections.insert(ConfigSection::Session, value);
+                        }
+                    }
+                    Arc::new(provider)
+                }
+                Err(e) => {
+                    warn!(
+                        path = %session_path.display(),
+                        error = %e,
+                        "failed to load session config, using defaults"
+                    );
+                    Arc::new(JsonSessionConfigProvider::new("/dev/null").unwrap())
+                }
+            };
+        *self.session_provider.write().expect("RwLock poisoned") = Some(session_provider);
 
         // Load credentials from config/credentials/ directory.
         let creds_dir = self.config_dir.join(CredentialsProvider::config_path());
@@ -452,6 +488,16 @@ impl ConfigManager {
             .map(|guard| guard.clone())
     }
 
+    /// Get the loaded session config provider.
+    ///
+    /// Returns `None` if `load()` has not been called yet.
+    pub fn session_config_provider(&self) -> Option<Arc<dyn SessionConfigProvider>> {
+        self.session_provider
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
     /// Subscribe to config change events.
     ///
     /// Returns a receiver that will receive all future config change events.
@@ -476,6 +522,7 @@ impl ConfigManager {
             ConfigSection::Gateway,
             ConfigSection::Plugins,
             ConfigSection::System,
+            ConfigSection::Session,
             ConfigSection::Credentials,
         ];
 

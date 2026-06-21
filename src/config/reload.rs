@@ -146,6 +146,7 @@ fn register_watched_paths(
         "gateway.json",
         "plugins.json",
         "system.json",
+        "session.json",
     ];
     for name in &config_files {
         let path = config_path.join(name);
@@ -299,6 +300,7 @@ fn filename_to_section(filename: &str) -> Option<ConfigSection> {
         "gateway.json" => Some(ConfigSection::Gateway),
         "plugins.json" => Some(ConfigSection::Plugins),
         "system.json" => Some(ConfigSection::System),
+        "session.json" => Some(ConfigSection::Session),
         _ => None,
     }
 }
@@ -332,6 +334,9 @@ fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: 
         let validator = section.default_validator();
         if let Err(e) = config_manager.reload_section(section, Some(&*validator)) {
             warn!(error = %e, section = %section, "failed to reload config section");
+        } else if section == ConfigSection::Session {
+            // Session section reloaded successfully — update session_provider.
+            config_manager.reload_session_provider();
         }
     }
 }

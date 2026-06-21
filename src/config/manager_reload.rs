@@ -8,8 +8,11 @@
 //! file is rolled back via `BackupManager` to keep the on-disk state
 //! consistent with the last known good version.
 
+use std::sync::Arc;
+
 use super::events::ConfigChangeEvent;
 use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
+use super::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use tracing::{info, warn};
 
 /// Validator callback type for config section reload.
@@ -109,6 +112,26 @@ impl ConfigManager {
         info!("reloaded config section: {}", section);
         self.notify_change(ConfigChangeEvent::Reloaded { section });
         Ok(())
+    }
+
+    /// Rebuild the session config provider from the current session.json content.
+    ///
+    /// Called after session.json is hot-reloaded to keep the typed provider
+    /// (used by ArchiveSweeper) in sync with the raw JSON in `sections`.
+    pub fn reload_session_provider(&self) {
+        let path = ConfigSection::Session.path(&self.config_dir);
+        let provider: Arc<dyn SessionConfigProvider> = match JsonSessionConfigProvider::new(&path) {
+            Ok(p) => Arc::new(p),
+            Err(e) => {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to rebuild session provider, using defaults"
+                );
+                Arc::new(JsonSessionConfigProvider::new("/dev/null").unwrap())
+            }
+        };
+        *self.session_provider.write().expect("RwLock poisoned") = Some(provider);
     }
 }
 

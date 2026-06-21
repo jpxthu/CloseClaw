@@ -10,7 +10,6 @@ use crate::admin::server::{AdminContext, AdminServer};
 use crate::agent::spawn::SpawnController;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
-use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::config::ConfigManager;
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
@@ -133,36 +132,10 @@ impl Daemon {
                 .map_err(|e| anyhow::anyhow!("failed to initialize SqliteStorage: {}", e))?,
         );
         info!("SqliteStorage initialized at {}", data_dir.display());
-        // Initialize session config provider — warn and use defaults if file is missing
-        let session_config_path = data_dir.join("session_config.json");
-        let config_provider: Arc<dyn SessionConfigProvider> =
-            match JsonSessionConfigProvider::new(&session_config_path) {
-                Ok(provider) => {
-                    info!(
-                        "Session config loaded from {}",
-                        session_config_path.display()
-                    );
-                    Arc::new(provider)
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        path = %session_config_path.display(),
-                        "failed to load session config, using hardcoded defaults"
-                    );
-                    // Use a non-existent path so new() returns Ok with
-                    // config=None (hardcoded defaults)
-                    Arc::new(
-                        JsonSessionConfigProvider::new(
-                            "/dev/null/closeclaw_session_config_nonexistent",
-                        )
-                        .unwrap(),
-                    )
-                }
-            };
         // Create ArchiveSweeper shutdown channel (sweeper itself is
         // created after SessionManager so it can cascade-terminate
         // children on archive — design doc §生命周期联动).
+        // Session config provider will be set after ConfigManager is loaded.
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         info!("Agent registry initialized",);
@@ -200,20 +173,8 @@ impl Daemon {
             );
         }
 
-        // Create and spawn ArchiveSweeper with SessionManager so it can
-        // cascade-terminate children when archiving idle sessions.
-        let sweeper = Arc::new(
-            ArchiveSweeper::new(
-                Arc::clone(&storage) as Arc<dyn PersistenceService>,
-                Arc::clone(&config_provider),
-            )
-            .with_session_manager(Arc::clone(&session_manager)),
-        );
-        let sweeper_for_task = Arc::clone(&sweeper);
-        tokio::spawn(async move {
-            sweeper_for_task.run(sweeper_rx).await;
-        });
-        info!("ArchiveSweeper spawned");
+        // ArchiveSweeper is created after ConfigManager loads so it gets
+        // the real session config provider (see below).
 
         let gateway = Arc::new(gateway);
         // Wire the self-ref so `handle_inbound_message` can pass
@@ -263,11 +224,32 @@ impl Daemon {
             ConfigManager::new(config_subdir.clone())
                 .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
         );
-        // Load mandatory config sections (Models, Channels, Gateway, Plugins, System).
+        // Load mandatory config sections (Models, Channels, Gateway, Plugins, System, Session).
         // Design doc: "ConfigManager — 所有配置加载成功后注册热重载监听器"
         config_manager
             .load()
             .map_err(|e| anyhow::anyhow!("failed to load mandatory config sections: {}", e))?;
+
+        // Create and spawn ArchiveSweeper with session config from ConfigManager.
+        let session_config_provider =
+            config_manager.session_config_provider().unwrap_or_else(|| {
+                tracing::warn!("session config provider not available, using defaults");
+                Arc::new(
+                    crate::config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
+                )
+            });
+        let sweeper = Arc::new(
+            ArchiveSweeper::new(
+                Arc::clone(&storage) as Arc<dyn PersistenceService>,
+                session_config_provider,
+            )
+            .with_session_manager(Arc::clone(&session_manager)),
+        );
+        let sweeper_for_task = Arc::clone(&sweeper);
+        tokio::spawn(async move {
+            sweeper_for_task.run(sweeper_rx).await;
+        });
+        info!("ArchiveSweeper spawned");
         {
             let disk_reg_opt = {
                 let guard = skill_registry.read().unwrap();
