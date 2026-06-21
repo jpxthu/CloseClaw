@@ -98,7 +98,7 @@ mod reload_tests {
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
 
-        std::fs::write(d.path().join("models.json"), r#"{"models":{"m1":{}}}"#).unwrap();
+        std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
 
         let path = d.path().join("models.json");
         dispatch_change(&path, &cm, &ar);
@@ -176,7 +176,7 @@ mod reload_tests {
             .unwrap();
             std::fs::write(
                 d.path().join("models.json"),
-                format!(r#"{{"models":{{"m{}":{{}}}}}}"#, i),
+                format!(r#"{{"models":[{{"id":"m{}"}}]}}"#, i),
             )
             .unwrap();
         }
@@ -227,7 +227,7 @@ mod reload_tests {
         let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
 
         // Write to multiple sections rapidly — all should be collected
-        std::fs::write(d.path().join("models.json"), r#"{"models":{"m1":{}}}"#).unwrap();
+        std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
         std::fs::write(d.path().join("channels.json"), r#"{"channels":{"ch1":{}}}"#).unwrap();
         std::fs::write(d.path().join("gateway.json"), r#"{"port":9999}"#).unwrap();
 
@@ -271,7 +271,7 @@ mod reload_tests {
             (
                 "models.json",
                 ConfigSection::Models,
-                r#"{"models":{"m1":{}}}"#,
+                r#"{"models":[{"id":"m1"}]}"#,
             ),
         ];
 
@@ -326,5 +326,142 @@ mod reload_tests {
         let s1 = cm.section(ConfigSection::System).unwrap();
         let s2 = cm.section(ConfigSection::System).unwrap();
         assert_eq!(s1, s2, "shared Arc should produce identical data");
+    }
+
+    // ------------------------------------------------------------------
+    // Agent rollback disk tests
+    // ------------------------------------------------------------------
+
+    /// reload_agents snapshot/restore correctly preserves agent state.
+    /// Tests the rollback mechanism used in reload_agents_with_log:
+    /// 1. Load valid agents
+    /// 2. Snapshot the valid state
+    /// 3. Modify agents (add new agent)
+    /// 4. Simulate failure → restore from snapshot
+    /// 5. Verify original state is recovered
+    #[test]
+    fn test_reload_agents_disk_rollback_on_failure() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let _ar = make_agent_registry();
+
+        // Set up valid agent files: agents.json + agents/alpha/config.json
+        let agents_json_path = d.path().join("config").join("agents.json");
+        std::fs::create_dir_all(agents_json_path.parent().unwrap()).unwrap();
+        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+
+        let alpha_dir = d.path().join("agents").join("alpha");
+        std::fs::create_dir_all(&alpha_dir).unwrap();
+        std::fs::write(
+            alpha_dir.join("config.json"),
+            r#"{ "id": "alpha", "name": "Alpha" }"#,
+        )
+        .unwrap();
+
+        // Load agents into memory
+        cm.load_agents(None).unwrap();
+        assert!(cm.agents().contains_key("alpha"));
+
+        // Snapshot valid state (as reload_agents_with_log does before reload)
+        let (old_agents, old_permissions) = cm.snapshot_agents();
+        assert_eq!(old_agents.len(), 1);
+        assert!(old_agents.contains_key("alpha"));
+
+        // Add a new agent (simulating a change that will be rolled back)
+        let beta_dir = d.path().join("agents").join("beta");
+        std::fs::create_dir_all(&beta_dir).unwrap();
+        std::fs::write(
+            beta_dir.join("config.json"),
+            r#"{ "id": "beta", "name": "Beta" }"#,
+        )
+        .unwrap();
+        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha", "beta"] }"#).unwrap();
+        cm.reload_agents().unwrap();
+        assert!(
+            cm.agents().contains_key("beta"),
+            "beta should be present after adding"
+        );
+
+        // Simulate failure: restore from snapshot (as reload_agents_with_log does)
+        cm.restore_agents(old_agents, old_permissions);
+
+        // Verify: original state recovered, beta is gone
+        assert!(
+            cm.agents().contains_key("alpha"),
+            "alpha should be present after rollback"
+        );
+        assert_eq!(cm.agents()["alpha"].id, "alpha");
+        assert!(
+            !cm.agents().contains_key("beta"),
+            "beta should not exist after rollback"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Debounce dedup tests
+    // ------------------------------------------------------------------
+
+    /// Multiple rapid writes to the same file within the debounce window
+    /// are deduplicated — only one reload fires for that path.
+    #[test]
+    fn test_debounce_dedup_same_file() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(100));
+        let (tx, rx) = mpsc::channel();
+        mgr.set_test_completion(tx);
+        let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
+
+        // Rapid writes to the SAME file — should be deduplicated
+        for i in 1..=20 {
+            std::fs::write(
+                d.path().join("gateway.json"),
+                format!(r#"{{"port":{}}}"#, 8000 + i),
+            )
+            .unwrap();
+        }
+
+        // Wait for debounce window to close
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("reload loop should have completed at least one dispatch cycle");
+
+        // The gateway section should reflect the LAST write (port 8020)
+        let gw = cm.section(ConfigSection::Gateway).unwrap();
+        assert_eq!(
+            gw["port"], 8020,
+            "gateway port should reflect the last write after dedup"
+        );
+    }
+
+    /// dispatch_change uses the default validator — reloading an invalid
+    /// config via dispatch_change is rejected and the in-memory value
+    /// is unchanged.
+    #[test]
+    fn test_dispatch_validates_with_default_validator() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+
+        // Load initial valid models.json
+        std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
+        let path = d.path().join("models.json");
+        dispatch_change(&path, &cm, &ar);
+        let before = cm.section(ConfigSection::Models).unwrap();
+        assert!(before.get("models").is_some());
+
+        // Write a valid JSON file but with a non-array "models" field.
+        // The default validator should reject this.
+        std::fs::write(d.path().join("models.json"), r#"{"models":"not an array"}"#).unwrap();
+        dispatch_change(&path, &cm, &ar);
+
+        // In-memory must still be the old value (validator rejected reload)
+        let after = cm.section(ConfigSection::Models).unwrap();
+        // The new invalid value should NOT be present
+        let models = after.get("models").unwrap();
+        assert!(
+            models.is_array(),
+            "models should still be the valid array, not replaced by the invalid value"
+        );
     }
 }

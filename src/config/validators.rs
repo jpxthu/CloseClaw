@@ -132,3 +132,7 @@ impl ConfigSection {
         for_section(*self)
     }
 }
+
+#[cfg(test)]
+#[path = "validators_tests.rs"]
+mod tests;
