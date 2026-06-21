@@ -25,6 +25,8 @@
 
 pub mod feishu;
 pub mod terminal;
+#[cfg(test)]
+pub mod terminal_tests;
 pub use crate::im_adapter::{code_block, streaming};
 
 pub use crate::im_adapter::{RenderedOutput, Renderer};
