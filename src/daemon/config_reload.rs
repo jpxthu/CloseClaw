@@ -1,164 +1,30 @@
 //! Config Hot Reload Initialization
 //!
-//! Initializes file watching for configuration changes at daemon startup.
-//! Watches individual config JSON files and the agents/ directory, triggering
-//! incremental or full reloads on the ConfigManager.
+//! Thin initialization entry point for config hot-reload at daemon startup.
+//! Delegates file watching and event dispatch to [`ConfigReloadManager`].
 
 use crate::agent::registry::AgentRegistry;
 use crate::config::events::ConfigChangeEvent;
-use crate::config::manager::{ConfigManager, ConfigSection};
+use crate::config::manager::ConfigManager;
+use crate::config::reload::{ConfigReloadManager, WatcherHandle};
 use crate::gateway::SessionManager;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 use tracing::info;
 
-/// RAII handle for the config file watcher.
+/// RAII handle for the config hot-reload system.
 ///
-/// Dropping this stops the underlying filesystem watcher.
+/// Dropping this stops the underlying filesystem watcher. The config-change
+/// subscriber task runs for the lifetime of the tokio runtime.
 pub(crate) struct ConfigWatcherHandle {
-    _watcher: RecommendedWatcher,
-}
-
-/// Map a config filename to its corresponding ConfigSection.
-///
-/// `agents.json` is NOT mapped here — it is handled separately via
-/// `ConfigManager::reload_agents()` in the event consumer.
-fn filename_to_section(filename: &str) -> Option<ConfigSection> {
-    match filename {
-        "models.json" => Some(ConfigSection::Models),
-        "channels.json" => Some(ConfigSection::Channels),
-        "gateway.json" => Some(ConfigSection::Gateway),
-        "plugins.json" => Some(ConfigSection::Plugins),
-        "system.json" => Some(ConfigSection::System),
-        _ => None,
-    }
-}
-
-/// Create a filesystem watcher and return it with the event receiver.
-///
-/// Watches individual config JSON files and the `agents/` directory.
-fn setup_watcher(
-    config_dir: &str,
-) -> anyhow::Result<(RecommendedWatcher, mpsc::Receiver<notify::Result<Event>>)> {
-    let config_path = Path::new(config_dir);
-    let agents_dir = config_path.join("agents");
-
-    let agents_json_path = config_path.join("config").join("agents.json");
-
-    let config_files: Vec<PathBuf> = [
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-    ]
-    .iter()
-    .map(|f| config_path.join(f))
-    .chain(std::iter::once(agents_json_path))
-    .collect();
-
-    let (tx, rx) = mpsc::channel::<notify::Result<Event>>(64);
-
-    let mut watcher = RecommendedWatcher::new(
-        move |res: notify::Result<Event>| {
-            if let Ok(event) = res {
-                let _ = tx.try_send(Ok(event));
-            }
-        },
-        notify::Config::default(),
-    )?;
-
-    for path in &config_files {
-        if path.exists() {
-            watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
-        }
-    }
-
-    if agents_dir.exists() {
-        watcher.watch(agents_dir.as_ref(), RecursiveMode::Recursive)?;
-    }
-
-    Ok((watcher, rx))
-}
-
-/// Reload all agent configs and sync the AgentRegistry.
-///
-/// Takes a snapshot before reloading; if `reload_agents()` fails,
-/// restores the previous in-memory state so the daemon keeps running
-/// with the last-known-good agent configuration.
-async fn reload_agents_with_log(
-    path: &std::path::Path,
-    cm: &ConfigManager,
-    agent_registry: &AgentRegistry,
-) {
-    info!(
-        path = %path.display(),
-        "agent config change detected, reloading agents"
-    );
-
-    // Snapshot before reload so we can roll back on failure
-    let (old_agents, old_permissions) = cm.snapshot_agents();
-
-    if let Err(e) = cm.reload_agents() {
-        tracing::warn!(error = %e, "failed to reload agent configs, rolling back");
-        cm.restore_agents(old_agents, old_permissions);
-        return;
-    }
-    // Sync the new configs into AgentRegistry (design-doc hot-reload path).
-    let configs: Vec<_> = cm.agents().into_values().collect();
-    agent_registry.reload(configs);
-}
-
-/// Handle a single changed file path: reload agents or the matching section.
-async fn handle_changed_path(
-    path: &std::path::Path,
-    cm: &ConfigManager,
-    agent_registry: &AgentRegistry,
-) {
-    let path_str = path.to_string_lossy();
-
-    if path_str.contains("/agents/") || path_str.contains("\\agents\\") {
-        reload_agents_with_log(path, cm, agent_registry).await;
-        return;
-    }
-
-    let filename = match path.file_name().and_then(|n| n.to_str()) {
-        Some(f) => f,
-        None => return,
-    };
-
-    if filename == "agents.json" {
-        reload_agents_with_log(path, cm, agent_registry).await;
-        return;
-    }
-
-    if let Some(section) = filename_to_section(filename) {
-        info!(
-            path = %path.display(),
-            section = %section,
-            "config file changed, reloading section"
-        );
-        if let Err(e) = cm.reload_section(section, None) {
-            tracing::warn!(
-                error = %e, section = %section,
-                "failed to reload config section"
-            );
-        }
-    }
+    _watcher: WatcherHandle,
 }
 
 /// Spawn a background task that subscribes to config change events and
-/// notifies the `SessionManager`.
+/// notifies the [`SessionManager`].
 ///
-/// When a `ConfigChangeEvent::Reloaded` arrives, the subscriber logs the
-/// event and calls `SessionManager::notify_config_changed`. `Failed` events
-/// are logged but do not trigger a session notification.
-///
-/// The task runs for the lifetime of the daemon (until the broadcast channel
-/// is closed or the tokio runtime shuts down).
+/// When a [`ConfigChangeEvent::Reloaded`] arrives, the subscriber calls
+/// [`SessionManager::notify_config_changed`]. `Failed` events are logged
+/// but do not trigger a session notification.
 fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
@@ -168,7 +34,7 @@ fn spawn_config_change_subscriber(
         loop {
             match rx.recv().await {
                 Ok(ConfigChangeEvent::Reloaded { section }) => {
-                    tracing::info!(
+                    info!(
                         section = %section,
                         "config change event received, notifying sessions"
                     );
@@ -185,7 +51,7 @@ fn spawn_config_change_subscriber(
                     tracing::warn!(missed = n, "config change subscriber lagged, missed events");
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    tracing::info!("config change broadcast channel closed, subscriber exiting");
+                    info!("config change broadcast channel closed, subscriber exiting");
                     break;
                 }
             }
@@ -193,82 +59,28 @@ fn spawn_config_change_subscriber(
     });
 }
 
-/// Spawn the background event consumer that processes file change events.
+/// Initialize config hot-reload: create a [`ConfigReloadManager`], start the
+/// file watcher, and subscribe to config change events.
 ///
-/// Applies a simple time-window debounce and dispatches reloads to the
-/// appropriate `ConfigManager` method based on the changed path.
-fn spawn_event_consumer(
-    mut rx: mpsc::Receiver<notify::Result<Event>>,
-    config_manager: Arc<ConfigManager>,
-    agent_registry: Arc<AgentRegistry>,
-) {
-    tokio::spawn(async move {
-        let debounce = Duration::from_millis(500);
-        let mut last_reload = Instant::now() - debounce * 2;
-
-        while let Some(event_result) = rx.recv().await {
-            let event = match event_result {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!(error = %e, "config watcher event error");
-                    continue;
-                }
-            };
-
-            match event.kind {
-                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
-                _ => continue,
-            }
-
-            let now = Instant::now();
-            if now.duration_since(last_reload) < debounce {
-                continue;
-            }
-            last_reload = now;
-
-            for path in &event.paths {
-                handle_changed_path(path, &config_manager, &agent_registry).await;
-            }
-        }
-    });
-}
-
-/// Initialize config hot-reload: create a file watcher and spawn the event consumer.
-///
-/// Returns the watcher handle (RAII: stops on drop). The spawned tokio task
-/// continues running in the background for the lifetime of the daemon.
+/// Returns a [`ConfigWatcherHandle`] (RAII: stops watching on drop).
 pub(crate) fn init_config_hot_reload(
     config_dir: &str,
     config_manager: Arc<ConfigManager>,
     agent_registry: Arc<AgentRegistry>,
     session_manager: Arc<SessionManager>,
 ) -> anyhow::Result<ConfigWatcherHandle> {
-    let (watcher, rx) = setup_watcher(config_dir)?;
-    spawn_event_consumer(rx, Arc::clone(&config_manager), Arc::clone(&agent_registry));
-    spawn_config_change_subscriber(Arc::clone(&config_manager), session_manager);
-
-    let config_path = Path::new(config_dir);
-    let agents_dir = config_path.join("agents");
-    let agents_json_path = config_path.join("config").join("agents.json");
-    let watch_count = [
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-    ]
-    .iter()
-    .filter(|f| config_path.join(f).exists())
-    .count()
-        + if agents_json_path.exists() { 1 } else { 0 }
-        + if agents_dir.exists() { 1 } else { 0 };
-
-    info!(
-        watch_count,
-        "config hot-reload initialized, watching {} \
-         files + agents/ directory",
-        watch_count,
+    let manager = ConfigReloadManager::with_defaults(
+        Arc::clone(&config_manager),
+        Arc::clone(&agent_registry),
     );
+
+    let watcher = manager
+        .watch(config_dir)
+        .map_err(|e| anyhow::anyhow!("failed to start config hot-reload watcher: {}", e))?;
+
+    spawn_config_change_subscriber(config_manager, session_manager);
+
+    info!("config hot-reload initialized, delegating to ConfigReloadManager");
 
     Ok(ConfigWatcherHandle { _watcher: watcher })
 }
