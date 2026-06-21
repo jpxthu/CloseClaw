@@ -257,8 +257,10 @@ impl Daemon {
         let tool_registry = Arc::new(ToolRegistry::new());
         let mut config_watcher = None;
         // Create ConfigManager early so it's available for admin RPC.
+        // Config files live in <root>/config/ (design doc directory structure).
+        let config_subdir = PathBuf::from(config_dir).join("config");
         let config_manager = Arc::new(
-            ConfigManager::new(PathBuf::from(config_dir))
+            ConfigManager::new(config_subdir.clone())
                 .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
         );
         // Load mandatory config sections (Models, Channels, Gateway, Plugins, System).
@@ -314,7 +316,7 @@ impl Daemon {
 
                 // Initialize config hot-reload: watch JSON files + agents/ dir
                 config_watcher = match config_reload::init_config_hot_reload(
-                    config_dir,
+                    &config_subdir.to_string_lossy(),
                     Arc::clone(&config_manager),
                     Arc::clone(&agent_registry),
                     Arc::clone(&session_manager),

@@ -356,7 +356,11 @@ fn reload_agents_with_log(
     let (old_agents, old_permissions) = config_manager.snapshot_agents();
 
     // Backup agent config files before reload so we can rollback on failure
-    let agents_json = config_manager.config_dir.join("config").join("agents.json");
+    let agents_json = config_manager
+        .config_dir
+        .parent()
+        .unwrap_or(&config_manager.config_dir)
+        .join("agents.json");
     let _ = config_manager.backup_manager().backup(&agents_json);
 
     let agents_dir = config_manager.config_dir.join("agents");

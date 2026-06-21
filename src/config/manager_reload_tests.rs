@@ -289,11 +289,12 @@ fn test_reload_agents_success() {
     setup_config_dir_at(&config_dir);
 
     let agents_json = r#"{ "version": "1.0", "agents": ["alpha"] }"#;
-    let agents_dir = config_dir.join("config");
-    fs::create_dir_all(&agents_dir).unwrap();
-    fs::write(agents_dir.join("agents.json"), agents_json).unwrap();
+    // agents.json lives at config_dir root (e.g. ~/.closeclaw/agents.json)
+    fs::write(config_dir.join("agents.json"), agents_json).unwrap();
 
-    let agent_dir = config_dir.join("agents").join("alpha");
+    // agents/ is at root level (parent of config_dir)
+    let root_dir = config_dir.parent().unwrap();
+    let agent_dir = root_dir.join("agents").join("alpha");
     fs::create_dir_all(&agent_dir).unwrap();
     fs::write(
         agent_dir.join("config.json"),
@@ -320,11 +321,12 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
 
     // Set up a valid agent: alpha
     let agents_json = r#"{ "agents": ["alpha"] }"#;
-    let config_agents_dir = config_dir.join("config");
-    fs::create_dir_all(&config_agents_dir).unwrap();
-    fs::write(config_agents_dir.join("agents.json"), agents_json).unwrap();
+    // agents.json lives at config_dir root
+    fs::write(config_dir.join("agents.json"), agents_json).unwrap();
 
-    let agent_dir = config_dir.join("agents").join("alpha");
+    // agents/ is at root level (parent of config_dir)
+    let root_dir = config_dir.parent().unwrap();
+    let agent_dir = root_dir.join("agents").join("alpha");
     fs::create_dir_all(&agent_dir).unwrap();
     fs::write(
         agent_dir.join("config.json"),
@@ -344,7 +346,7 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
     assert!(old_agents.contains_key("alpha"));
 
     // Corrupt agents.json so reload_agents() fails
-    fs::write(config_agents_dir.join("agents.json"), "not json").unwrap();
+    fs::write(config_dir.join("agents.json"), "not json").unwrap();
     let result = manager.reload_agents();
     assert!(result.is_err());
 
@@ -660,16 +662,11 @@ fn test_restore_agents_replaces_current_state() {
     fs::create_dir_all(&config_dir).unwrap();
     setup_config_dir_at(&config_dir);
 
-    let config_agents_dir = config_dir.join("config");
-    fs::create_dir_all(&config_agents_dir).unwrap();
-
-    // Set up agent alpha
-    fs::write(
-        config_agents_dir.join("agents.json"),
-        r#"{ "agents": ["alpha"] }"#,
-    )
-    .unwrap();
-    let alpha_dir = config_dir.join("agents").join("alpha");
+    // agents.json lives at config_dir root
+    fs::write(config_dir.join("agents.json"), r#"{ "agents": ["alpha"] }"#).unwrap();
+    // agents/ is at root level (parent of config_dir)
+    let root_dir = config_dir.parent().unwrap();
+    let alpha_dir = root_dir.join("agents").join("alpha");
     fs::create_dir_all(&alpha_dir).unwrap();
     fs::write(
         alpha_dir.join("config.json"),
@@ -685,11 +682,11 @@ fn test_restore_agents_replaces_current_state() {
 
     // Now add agent beta manually by writing files and reloading
     fs::write(
-        config_agents_dir.join("agents.json"),
+        config_dir.join("agents.json"),
         r#"{ "agents": ["alpha", "beta"] }"#,
     )
     .unwrap();
-    let beta_dir = config_dir.join("agents").join("beta");
+    let beta_dir = root_dir.join("agents").join("beta");
     fs::create_dir_all(&beta_dir).unwrap();
     fs::write(
         beta_dir.join("config.json"),

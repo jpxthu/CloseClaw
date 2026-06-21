@@ -354,11 +354,13 @@ mod reload_tests {
         let _ar = make_agent_registry();
 
         // Set up valid agent files: agents.json + agents/alpha/config.json
-        let agents_json_path = d.path().join("config").join("agents.json");
-        std::fs::create_dir_all(agents_json_path.parent().unwrap()).unwrap();
+        // agents.json is at config_dir root (e.g. ~/.closeclaw/agents.json)
+        let agents_json_path = d.path().join("agents.json");
         std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
 
-        let alpha_dir = d.path().join("agents").join("alpha");
+        // agents/ is at root level (parent of config_dir)
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let alpha_dir = root_dir.join("agents").join("alpha");
         std::fs::create_dir_all(&alpha_dir).unwrap();
         std::fs::write(
             alpha_dir.join("config.json"),
@@ -384,7 +386,7 @@ mod reload_tests {
         let original_alpha_config = std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
 
         // Add a new agent (simulating a change that will be rolled back)
-        let beta_dir = d.path().join("agents").join("beta");
+        let beta_dir = root_dir.join("agents").join("beta");
         std::fs::create_dir_all(&beta_dir).unwrap();
         std::fs::write(
             beta_dir.join("config.json"),

@@ -513,12 +513,17 @@ fn test_agent_permissions_missing_file_returns_default() {
 
     // Create agents.json with one registered agent
     let agents_json = r#"{ "version": "1.0", "agents": ["test-agent"] }"#;
-    let agents_dir = tmp.path().join("config");
-    fs::create_dir_all(&agents_dir).unwrap();
-    fs::write(agents_dir.join("agents.json"), agents_json).unwrap();
+    // agents.json lives in config_dir (where ConfigManager reads from)
+    fs::write(tmp.path().join("agents.json"), agents_json).unwrap();
 
     // Create agent directory with config.json but NO permissions.json
-    let agent_dir = tmp.path().join("agents").join("test-agent");
+    // agents/ is at root level (parent of config_dir)
+    let agent_dir = tmp
+        .path()
+        .parent()
+        .unwrap()
+        .join("agents")
+        .join("test-agent");
     fs::create_dir_all(&agent_dir).unwrap();
     let agent_config = r#"{ "id": "test-agent", "name": "Test Agent" }"#;
     fs::write(agent_dir.join("config.json"), agent_config).unwrap();
