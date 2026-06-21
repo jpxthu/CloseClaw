@@ -58,7 +58,7 @@ fn test_config_section_display() {
     assert_eq!(ConfigSection::Gateway.to_string(), "gateway.json");
     assert_eq!(ConfigSection::Plugins.to_string(), "plugins.json");
     assert_eq!(ConfigSection::System.to_string(), "system.json");
-    assert_eq!(ConfigSection::Credentials.to_string(), "credentials.json");
+    assert_eq!(ConfigSection::Credentials.to_string(), "credentials/");
 }
 
 // ---------------------------------------------------------------------------

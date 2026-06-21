@@ -162,7 +162,7 @@ impl ConfigSection {
             ConfigSection::Plugins => "plugins.json",
             ConfigSection::System => "system.json",
             ConfigSection::Session => "session.json",
-            ConfigSection::Credentials => "credentials.json",
+            ConfigSection::Credentials => "credentials/",
         }
     }
 
@@ -523,7 +523,6 @@ impl ConfigManager {
             ConfigSection::Plugins,
             ConfigSection::System,
             ConfigSection::Session,
-            ConfigSection::Credentials,
         ];
 
         let mut infos = Vec::new();
