@@ -8,43 +8,26 @@ Memory 模块为 agent 提供长期记忆能力——从会话中挖掘事件和
 
 Memory 体系由三个子功能模块 + 一个类型体系 + 两层存储组成：
 
-```
-存储层
-  SQLite    —— entity 索引、event 存储、entity_types 种子数据
-  Markdown  —— 人类可读的记忆条目正文（按来源会话组织）
+**两层存储**
+- SQLite：entity 索引、event 存储、entity_types 种子数据
+- Markdown：人类可读的记忆条目正文（按来源会话组织）
 
-────────────────────────────────────────────
+**核心组件**
+1. memory-miner：两段式挖掘
+   - Miner 1：独立 session，从清洗后的 transcript 挖掘 event + lesson
+   - Miner 2：独立 session，读取完整 entity/type 目录，为 event 分配 entity
+2. event 持久化到 SQLite events 表，entity 写入 SQLite entities 表（UNIQUE 约束自动去重）
+3. dreaming：定期触发，消费 SQL events，entity 级频次评分 + 跨条目 lesson 浓缩
+4. MEMORY.md：可执行的行为规则，由 system_prompt 直接注入
+5. active-searcher：每条消息触发，从 SQL entities 索引搜索相关 entity，匹配 event 注入消息列表
 
-memory-miner     —— 两段式挖掘
-  Miner 1：独立 session，从清洗后的 transcript 挖掘 event + lesson
-  Miner 2：独立 session，读取完整 entity/type 目录，为 event 分配 entity
-  │
-  ▼
-event 持久化到 SQLite events 表
-entity 写入 SQLite entities 表（UNIQUE 约束自动去重）
-  │
-  ▼
-dreaming         —— 定期触发，消费 SQL events，entity 级频次评分 + 跨条目 lesson 浓缩
-  │
-  ▼
-MEMORY.md        —— 可执行的行为规则，由 system_prompt 直接注入
+**触发机制**：两种互补的触发机制：
 
-active-searcher  —— 每条消息触发，从 SQL entities 索引搜索相关 entity，匹配 event 注入消息列表
-```
-
-**触发机制**：两种互补
-
-```
-触发 1：Sub-agent session 结束
-  session 结束 hook → memory-miner 即时触发
-  （生命周期明确的 session）
-
-触发 2：Daemon DreamingScheduler 定时任务
-  定时任务按顺序执行两个阶段：
-    1. dreaming：处理上轮 mining 已产出的 event（mined=true 且未 dreaming）
-    2. memory-miner：扫描 archived 且 mined=false 的会话，挖掘新 transcript
+- **触发 1**：Sub-agent session 结束 hook → memory-miner 即时触发（生命周期明确的 session）
+- **触发 2**：Daemon DreamingScheduler 定时任务，按顺序执行两个阶段
+  1. dreaming：处理上轮 mining 已产出的 event（mined=true 且未 dreaming）
+  2. memory-miner：扫描 archived 且 mined=false 的会话，挖掘新 transcript
   适用于 owner 会话等无明确结束点的会话
-```
 
 ### 两层存储
 
@@ -80,43 +63,20 @@ SQLite 提供 UNIQUE 约束保证 entity 不重复，提供索引支持高效查
 
 ### 完整路径
 
-```
-memory-miner 挖掘（两种触发）
-    │  触发 1：sub-agent session 结束 hook
-    │  触发 2：Daemon DreamingScheduler 扫描 archived 且 mined=false 的会话
-    │
-    ├─→ Miner 1（LLM session）
-    │     输入：清洗后的会话 transcript
-    │     处理：挖掘 event + lesson（不涉 entity）
-    │     输出：event 列表（标题、摘要、正文、类别、lesson）
-    │
-    ├─→ Miner 2（LLM session）
-    │     输入：Miner 1 的 event 列表 + 完整 entity/type 目录（SQL → 固定排序文本）
-    │     处理：为每个 event 分配 entity（从目录选或新建）
-    │     输出：event 附 entity 列表
-    │
-    ▼
-写入 SQLite
-    · events 表：event 持久化（标题、摘要、正文、类别、lesson、来源会话、时间戳）
-    · entities 表：新 entity 写入（UNIQUE 约束自动去重）
-    · event_entities 关联表
-    完成后：标记会话 mined=true
-    │
-    ▼
-dreaming 定时升格（Daemon DreamingScheduler 驱动）
-    │  输入：mined=true 且未 dreaming 的会话对应 event（从 SQL 读取）
-    │  处理：Light（去重分块）→ REM（entity 级聚类+频次统计）→ Deep（entity 级多维评分）
-    │       → LLM 跨条目 lesson 浓缩
-    │  输出：MEMORY.md（可执行的行为规则）
-    │
-    ▼
-MEMORY.md → system_prompt 直接注入
-    system_prompt 组装时读取 MEMORY.md → 注入 static system prompt
-
-active-searcher 搜索
-    当前消息 + 上下文 → 提取查询概念 → SQL entities 索引命中匹配 → 关联 event
-        → 浓缩摘要 → 插入消息列表（tool role）
-```
+1. memory-miner 挖掘（两种触发：sub-agent session 结束 hook 或 Daemon DreamingScheduler 定时扫描）
+   - Miner 1（LLM session）：清洗后的 transcript → 提取 event + lesson
+   - Miner 2（LLM session）：Miner 1 的 event 列表 + 完整 entity/type 目录（SQL → 固定排序文本）→ 分配 entity
+2. 写入 SQLite
+   - events 表：event 持久化（标题、摘要、正文、类别、lesson、来源会话、时间戳）
+   - entities 表：新 entity 写入（UNIQUE 约束自动去重）
+   - event_entities 关联表
+   - 标记会话 mined=true
+3. dreaming 定时升格（Daemon DreamingScheduler 驱动）
+   - 输入：mined=true 且未 dreaming 的会话对应 event（从 SQL 读取）
+   - 处理：Light（去重分块）→ REM（entity 级聚类+频次统计）→ Deep（entity 级多维评分）→ LLM 跨条目 lesson 浓缩
+   - 输出：MEMORY.md（可执行的行为规则）
+4. MEMORY.md → system_prompt 组装时读取 → 注入 static system prompt
+5. active-searcher 搜索：当前消息 + 上下文 → 提取查询概念 → SQL entities 索引命中匹配 → 关联 event → 浓缩摘要 → 插入消息列表（tool role）
 
 ## 模块关系
 

@@ -8,41 +8,21 @@
 
 ## 架构
 
-memory-miner 由两个独立的 LLM session 组成，串行执行，互不干扰。
+memory-miner 由两个独立的 LLM session，串行执行：
 
-```
-清洗后的会话 transcript
-  │
-  ▼
-Miner 1（LLM session）
-  · 职责：挖掘 event + lesson
-  · 不接触 entity
-  · 输出：event 列表（标题、摘要、正文、类别、lesson）
-  │
-  ▼
-Miner 2（LLM session）
-  · 职责：为 event 分配 entity
-  · 输入：Miner 1 的 event 列表 + 完整 entity/type 目录
-  · 输出：event 附 entity 列表（新建的 entity 立即写入 SQL）
-  │
-  ▼
-写入 SQLite：events 表 + entities 表 + event_entities 关联表
-写入 Markdown：人类可读记忆条目（按来源会话组织）
-标记会话 mined=true
-```
+1. **Miner 1（LLM session）**：挖掘 event + lesson，不接触 entity
+   - 输出：event 列表（标题、摘要、正文、类别、lesson）
+2. **Miner 2（LLM session）**：为 event 分配 entity
+   - 输入：Miner 1 的 event 列表 + 完整 entity/type 目录
+   - 输出：event 附 entity 列表（新建的 entity 立即写入 SQL）
+3. 写入 SQLite：events 表 + entities 表（UNIQUE 自动去重）+ event_entities 关联表
+4. 写入 Markdown：人类可读记忆条目（按来源会话组织）
+5. 标记会话 mined=true
 
 ### 两种触发机制
 
-```
-触发 1：Sub-agent session 结束
-  session 结束 hook → 即时触发 mining
-  适用于生命周期明确的 session（子 agent 完成/失败后）
-
-触发 2：Daemon DreamingScheduler 定时任务
-  定时扫 archived 且 mined=false 的会话 → 触发 mining
-  适用于 owner 会话等无明确结束点的会话
-  （DreamingScheduler 的整体调度顺序：先 dreaming 后 mining，详见 README）
-```
+- **触发 1**：Sub-agent session 结束 hook → 即时触发 mining。适用于生命周期明确的 session（子 agent 完成/失败后）
+- **触发 2**：Daemon DreamingScheduler 定时扫描 archived 且 mined=false 的会话 → 触发 mining。适用于 owner 会话等无明确结束点的会话。DreamingScheduler 的整体调度顺序（先 dreaming 后 mining）详见 README
 
 ### Miner 1：事件与教训挖掘
 
@@ -83,29 +63,12 @@ Miner 2 以独立 LLM session 运行。在 Miner 1 完成后触发。
 
 ## 数据流
 
-```
-输入                      处理                      输出
-─────                    ─────                    ─────
-清洗后 transcript    ─→   Miner 1（LLM session）     ─→   event 列表
-已有 event 列表      ─→   · 提取 event                    · 标题、摘要、正文
-已有 MEMORY.md       ─→   · 提炼 lesson                   · 类别、lesson
-                         │
-                         ▼
-                      Miner 2（LLM session）
-                         · 读取完整 entity/type 目录（SQL → 固定排序文本）
-                         · 为 event 分配 entity
-                         · 新建 entity → 立即写入 SQL
-                         │
-                         ▼
-                     写入 SQLite
-                         · events 表：event 持久化
-                         · entities 表：新 entity（UNIQUE 自动去重）
-                         · event_entities 表：关联
-                         │
-                         ▼
-                     标记会话 mined=true
-                     写入 Markdown（人类可读记忆条目，按来源会话组织）
-```
+1. 输入：清洗后的会话 transcript + 已有 event 列表 + 已有 MEMORY.md
+2. Miner 1（LLM session）：提取 event → 提炼 lesson
+3. Miner 2（LLM session）：读取完整 entity/type 目录（SQL → 固定排序文本）→ 为 event 分配 entity → 新建 entity 立即写入 SQL
+4. 写入 SQLite：events 表（event 持久化）+ entities 表（UNIQUE 自动去重）+ event_entities 表（关联）
+5. 写入 Markdown（人类可读记忆条目，按来源会话组织）
+6. 标记会话 mined=true
 
 ## 模块关系
 
