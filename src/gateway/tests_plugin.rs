@@ -213,13 +213,13 @@ async fn register_session_with_conv(
     sm: &SessionManager,
     session_id: &str,
     agent_id: &str,
-    chat_id: &str,
+    _chat_id: &str,
 ) {
     sm.sessions.write().await.insert(
         session_id.to_string(),
         Session {
             id: session_id.to_string(),
-            agent_id: chat_id.to_string(),
+            agent_id: agent_id.to_string(),
             channel: "test".to_string(),
             created_at: chrono::Utc::now().timestamp(),
             depth: 0,
@@ -234,7 +234,6 @@ async fn register_session_with_conv(
         .write()
         .await
         .insert(session_id.to_string(), cs);
-    let _ = agent_id;
 }
 
 /// Verify progress card has correct JSON structure in graceful mode.

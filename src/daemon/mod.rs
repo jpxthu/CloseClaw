@@ -623,8 +623,18 @@ impl Daemon {
                                 }
                             }
                         }
-                        (Some(i), None) => { let _ = i.recv().await; }
-                        (None, Some(t)) => { let _ = t.recv().await; }
+                        (Some(i), None) => {
+                            let _ = i.recv().await;
+                            if self.shutdown.escalate_to_forceful() {
+                                info!("Phase 2: escalated to forceful shutdown");
+                            }
+                        }
+                        (None, Some(t)) => {
+                            let _ = t.recv().await;
+                            if self.shutdown.escalate_to_forceful() {
+                                info!("Phase 2: escalated to forceful shutdown");
+                            }
+                        }
                         (None, None) => { std::future::pending::<()>().await; }
                     }
                 } => {
