@@ -7,8 +7,8 @@ mod tests {
     use chrono::Utc;
 
     use crate::session::persistence::{
-        PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState, SessionCheckpoint,
-        SessionStatus,
+        DreamingStatus, PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState,
+        SessionCheckpoint, SessionStatus,
     };
     use crate::session::storage::memory::MemoryStorage;
     use crate::session::CheckpointManager;
@@ -524,5 +524,89 @@ mod tests {
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.parent_session_id.as_deref(), Some("root-parent"));
         assert_eq!(parsed.depth, 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_archived_unmined_sessions() {
+        use crate::session::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+
+        // Archived and mined=false
+        let mut cp1 = create_test_checkpoint("archived-unmined");
+        cp1.status = SessionStatus::Archived;
+        cp1.mined = false;
+        storage.archive_checkpoint(&cp1).await.unwrap();
+
+        // Archived and mined=true
+        let mut cp2 = create_test_checkpoint("archived-mined");
+        cp2.status = SessionStatus::Archived;
+        cp2.mined = true;
+        storage.archive_checkpoint(&cp2).await.unwrap();
+
+        let unmined = storage.list_archived_unmined_sessions().await.unwrap();
+        assert_eq!(unmined, vec!["archived-unmined".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_mark_mined_updates_field() {
+        use crate::session::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+        let cp = create_test_checkpoint("mark-mined-test");
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        storage.mark_mined("mark-mined-test").await.unwrap();
+
+        let loaded = storage.load_checkpoint("mark-mined-test").await.unwrap();
+        assert!(loaded.is_some());
+        assert!(loaded.unwrap().mined);
+    }
+
+    #[tokio::test]
+    async fn test_list_mined_undreamt_sessions() {
+        use crate::session::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+
+        // mined=true, dreaming_status=Pending
+        let mut cp1 = create_test_checkpoint("mined-undreamt");
+        cp1.mined = true;
+        cp1.dreaming_status = DreamingStatus::Pending;
+        storage.save_checkpoint(&cp1).await.unwrap();
+
+        // mined=true, dreaming_status=Completed
+        let mut cp2 = create_test_checkpoint("mined-dreamt");
+        cp2.mined = true;
+        cp2.dreaming_status = DreamingStatus::Completed;
+        storage.save_checkpoint(&cp2).await.unwrap();
+
+        // mined=false
+        let cp3 = create_test_checkpoint("not-mined");
+        storage.save_checkpoint(&cp3).await.unwrap();
+
+        let undreamt = storage.list_mined_undreamt_sessions().await.unwrap();
+        assert_eq!(undreamt, vec!["mined-undreamt".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_update_dreaming_status() {
+        use crate::session::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+        let cp = create_test_checkpoint("dreaming-status-test");
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        storage
+            .update_dreaming_status("dreaming-status-test", DreamingStatus::InLight)
+            .await
+            .unwrap();
+
+        let loaded = storage
+            .load_checkpoint("dreaming-status-test")
+            .await
+            .unwrap();
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().dreaming_status, DreamingStatus::InLight);
     }
 }

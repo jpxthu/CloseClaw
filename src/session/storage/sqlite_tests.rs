@@ -4,8 +4,8 @@
 
 mod tests {
     use crate::session::persistence::{
-        PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState,
-        SessionCheckpoint, SessionStatus,
+        DreamingStatus, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
+        ReasoningModeState, SessionCheckpoint, SessionStatus,
     };
     use crate::session::storage::SqliteStorage;
     use chrono::Utc;
@@ -36,6 +36,8 @@ mod tests {
             parent_session_id: None,
             depth: 0,
             effective_max_spawn_depth: None,
+            mined: false,
+            dreaming_status: DreamingStatus::default(),
         }
     }
 
@@ -397,6 +399,8 @@ mod tests {
             parent_session_id: None,
             depth: 0,
             effective_max_spawn_depth: None,
+            mined: false,
+            dreaming_status: DreamingStatus::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -440,6 +444,8 @@ mod tests {
             parent_session_id: None,
             depth: 0,
             effective_max_spawn_depth: None,
+            mined: false,
+            dreaming_status: DreamingStatus::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -483,6 +489,8 @@ mod tests {
             parent_session_id: None,
             depth: 0,
             effective_max_spawn_depth: None,
+            mined: false,
+            dreaming_status: DreamingStatus::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

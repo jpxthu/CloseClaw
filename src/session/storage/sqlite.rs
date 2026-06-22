@@ -58,7 +58,15 @@ impl SqliteStorage {
         Ok(Self { data_dir })
     }
     /// Add a column to sessions table if it doesn't already exist.
-    fn add_column_if_not_exists(conn: &Connection, column: &str) -> Result<(), PersistenceError> {
+    ///
+    /// SAFETY: `column` and `col_type` are always hardcoded string literals
+    /// passed from `init_schema`, never from user input. This eliminates
+    /// SQL injection risk in the format-string `ALTER TABLE` statement.
+    fn add_column_if_not_exists(
+        conn: &Connection,
+        column: &str,
+        col_type: &str,
+    ) -> Result<(), PersistenceError> {
         let exists = {
             let mut stmt = conn
                 .prepare("PRAGMA table_info(sessions)")
@@ -71,7 +79,7 @@ impl SqliteStorage {
             cols.iter().any(|name| name == column)
         };
         if !exists {
-            let sql = format!("ALTER TABLE sessions ADD COLUMN {column} TEXT");
+            let sql = format!("ALTER TABLE sessions ADD COLUMN {column} {col_type}");
             conn.execute(&sql, [])
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
         }
@@ -116,16 +124,18 @@ impl SqliteStorage {
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
-        for col in [
-            "thread_id",
-            "sender_id",
-            "platform",
-            "peer_id",
-            "account_id",
-            "parent_session_id",
-            "depth",
+        for (col, col_type) in [
+            ("thread_id", "TEXT"),
+            ("sender_id", "TEXT"),
+            ("platform", "TEXT"),
+            ("peer_id", "TEXT"),
+            ("account_id", "TEXT"),
+            ("parent_session_id", "TEXT"),
+            ("depth", "TEXT"),
+            ("mined", "TEXT"),
+            ("dreaming_status", "TEXT"),
         ] {
-            Self::add_column_if_not_exists(conn, col)?;
+            Self::add_column_if_not_exists(conn, col, col_type)?;
         }
 
         Ok(())
@@ -285,15 +295,21 @@ impl PersistenceService for SqliteStorage {
                 .map(|dt| dt.timestamp())
                 .unwrap_or(0);
 
+            let dreaming_status_str =
+                crate::session::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
+            let mined_str = if checkpoint.mined { "1" } else { "0" };
+
             conn.execute(
                 "INSERT OR REPLACE INTO sessions
                  (id, agent_id, role, channel, chat_id, status, title,
                   last_message_at, created_at, archived_at, message_count, metadata, thread_id,
-                  sender_id, platform, peer_id, account_id, parent_session_id, depth)
+                  sender_id, platform, peer_id, account_id, parent_session_id, depth,
+                  mined, dreaming_status)
                  VALUES (
                      ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                      ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19
+                     ?14, ?15, ?16, ?17, ?18, ?19,
+                     ?20, ?21
                  )",
                 params![
                     checkpoint.session_id,
@@ -324,6 +340,8 @@ impl PersistenceService for SqliteStorage {
                     checkpoint.account_id.as_deref(),
                     checkpoint.parent_session_id.as_deref(),
                     checkpoint.depth,
+                    mined_str,
+                    dreaming_status_str,
                 ],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -343,6 +361,22 @@ impl PersistenceService for SqliteStorage {
     /// Load a session checkpoint from the database and reconstruct
     /// pending_messages from the transcript file.
     async fn load_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let session_id = session_id.to_string();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            Self::load_checkpoint_inner(&conn, &data_dir, &session_id)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn load_archived_checkpoint(
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
@@ -517,6 +551,100 @@ impl PersistenceService for SqliteStorage {
                 .collect();
 
             Ok(ids)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn list_archived_unmined_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let mut stmt = conn
+                .prepare("SELECT id FROM sessions WHERE status = 'archived' AND mined = 0")
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let ids: Vec<String> = stmt
+                .query_map([], |row| row.get(0))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            Ok(ids)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM sessions \
+                     WHERE mined = 1 AND dreaming_status != 'completed'",
+                )
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let ids: Vec<String> = stmt
+                .query_map([], |row| row.get(0))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            Ok(ids)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn mark_mined(&self, session_id: &str) -> Result<(), PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let session_id = session_id.to_string();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            conn.execute(
+                "UPDATE sessions SET mined = 1 WHERE id = ?1",
+                rusqlite::params![session_id],
+            )
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn update_dreaming_status(
+        &self,
+        session_id: &str,
+        status: crate::session::persistence::DreamingStatus,
+    ) -> Result<(), PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let session_id = session_id.to_string();
+        let status_str = crate::session::persistence::dreaming_status_to_db(&status).to_string();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            conn.execute(
+                "UPDATE sessions SET dreaming_status = ?1 WHERE id = ?2",
+                rusqlite::params![status_str, session_id],
+            )
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            Ok(())
         })
         .await
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?

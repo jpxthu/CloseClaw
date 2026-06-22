@@ -16,4 +16,6 @@ pub use redis::RedisStorage;
 pub use sqlite::SqliteStorage;
 
 #[cfg(test)]
+mod memory_tests;
+#[cfg(test)]
 mod sqlite_tests;

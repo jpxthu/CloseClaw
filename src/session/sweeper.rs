@@ -479,6 +479,10 @@ mod tests {
             *self.interval_secs.lock().unwrap()
         }
 
+        fn dreaming_interval_secs(&self) -> u64 {
+            600
+        }
+
         fn list_agents(&self) -> Vec<String> {
             self.agents.lock().unwrap().clone()
         }
