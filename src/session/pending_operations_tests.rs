@@ -406,15 +406,17 @@ async fn test_recovery_inject_calls_restore_callback_for_dirty_session() {
     let restored_clone = Arc::clone(&restored);
 
     service
-        .set_restore_callback(move |session_id, checkpoint| {
-            // The callback is called even for dirty sessions — it can
-            // inspect pending_operations to inject recovery notifications
-            restored_clone
-                .lock()
-                .unwrap()
-                .push((session_id.to_string(), checkpoint.pending_operations.len()));
-            Ok(())
-        })
+        .set_restore_callback(
+            move |session_id, checkpoint, _notification, _tool_failures| {
+                // The callback is called even for dirty sessions — it can
+                // inspect pending_operations to inject recovery notifications
+                restored_clone
+                    .lock()
+                    .unwrap()
+                    .push((session_id.to_string(), checkpoint.pending_operations.len()));
+                Ok(())
+            },
+        )
         .await;
 
     let report = service.recover().await.unwrap();
@@ -496,4 +498,68 @@ async fn test_recovery_report_dirty_sessions_count() {
     assert_eq!(report.recovered.len(), 5);
     assert_eq!(report.dirty_sessions.len(), 3);
     assert!(report.is_full_success());
+}
+
+#[tokio::test]
+async fn test_recovery_callback_receives_notification_and_tool_failures() {
+    use crate::session::persistence::{
+        PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
+    };
+    use crate::session::storage::memory::MemoryStorage;
+    use std::sync::Arc;
+
+    let storage = Arc::new(MemoryStorage::new());
+    let now = chrono::Utc::now();
+    let cp = SessionCheckpoint::new("notif_cb".into()).with_pending_operations(vec![
+        PendingOperation {
+            op_id: "tool_1".into(),
+            op_type: PendingOperationType::ToolCall,
+            name: "bash".into(),
+            args: r#"{"cmd":"ls"}"#.into(),
+            created_at: now,
+        },
+        PendingOperation {
+            op_id: "child_1".into(),
+            op_type: PendingOperationType::SubSessionSpawn,
+            name: "sub-agent".into(),
+            args: String::new(),
+            created_at: now,
+        },
+    ]);
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let service = SessionRecoveryService::new(Arc::clone(&storage));
+
+    let captured = Arc::new(std::sync::Mutex::new((
+        None::<String>,
+        Vec::<String>::new(),
+    )));
+    let captured_clone = Arc::clone(&captured);
+
+    service
+        .set_restore_callback(
+            move |_session_id, _checkpoint, notification, tool_failures| {
+                *captured_clone.lock().unwrap() =
+                    (notification.map(String::from), tool_failures.to_vec());
+                Ok(())
+            },
+        )
+        .await;
+
+    let report = service.recover().await.unwrap();
+    assert_eq!(report.recovered.len(), 1);
+
+    let (notif, failures) = captured.lock().unwrap().clone();
+    // Notification should contain the pending tool call
+    assert!(notif.is_some());
+    let notif = notif.unwrap();
+    assert!(notif.contains("网关已重启"));
+    assert!(notif.contains("工具调用: bash"));
+    assert!(notif.contains("子 Session: sub-agent"));
+
+    // Only ToolCall ops produce failure results
+    assert_eq!(failures.len(), 1);
+    assert!(failures[0].contains("进程中断：网关重启"));
+    assert!(failures[0].contains("bash"));
+    assert!(failures[0].contains("tool_1"));
 }

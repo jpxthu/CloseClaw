@@ -101,6 +101,24 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
     pub pending_operations: Vec<PendingOperation>,
+    /// Recovery notification text to inject into the conversation transcript.
+    ///
+    /// Built by the recovery service when `pending_operations` is non-empty.
+    /// The restore callback reads this field and injects it as a system message
+    /// into the session's conversation flow.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub recovery_notification: Option<String>,
+    /// Tool failure results to inject into the conversation transcript.
+    ///
+    /// For each pending ToolCall operation, a corresponding tool_result message
+    /// is built and stored here. The restore callback reads these and injects
+    /// them as tool_result entries so the LLM sees natural tool failure responses.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub pending_tool_failures: Vec<String>,
 }
 
 impl SessionCheckpoint {
@@ -134,6 +152,8 @@ impl SessionCheckpoint {
             mined: false,
             dreaming_status: DreamingStatus::Pending,
             pending_operations: Vec::new(),
+            recovery_notification: None,
+            pending_tool_failures: Vec::new(),
         }
     }
 
@@ -253,6 +273,16 @@ impl SessionCheckpoint {
     /// Update the pending operations list
     pub fn with_pending_operations(mut self, ops: Vec<PendingOperation>) -> Self {
         self.pending_operations = ops;
+        self
+    }
+    /// Set the recovery notification text
+    pub fn with_recovery_notification(mut self, text: Option<String>) -> Self {
+        self.recovery_notification = text;
+        self
+    }
+    /// Set the pending tool failure results
+    pub fn with_pending_tool_failures(mut self, failures: Vec<String>) -> Self {
+        self.pending_tool_failures = failures;
         self
     }
     /// Touch the updated_at timestamp

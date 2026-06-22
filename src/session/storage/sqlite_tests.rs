@@ -39,6 +39,8 @@ mod tests {
             mined: false,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
+            recovery_notification: None,
+            pending_tool_failures: Vec::new(),
         }
     }
 
@@ -403,6 +405,8 @@ mod tests {
             mined: false,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
+            recovery_notification: None,
+            pending_tool_failures: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -449,6 +453,8 @@ mod tests {
             mined: false,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
+            recovery_notification: None,
+            pending_tool_failures: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -495,6 +501,8 @@ mod tests {
             mined: false,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
+            recovery_notification: None,
+            pending_tool_failures: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

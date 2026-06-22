@@ -164,7 +164,7 @@ fn test_gate_check_pattern_session_spawn() {
     assert_eq!(try_spawn(&handle).unwrap_err(), "daemon is shutting down");
 }
 
-// ── Step 1.3: hard timeout removal ─────────────────────────────────────
+// ── Step 1.3: hard timeout removal — graceful waits indefinitely ──────
 
 #[tokio::test]
 async fn test_graceful_mode_waits_for_operations() {

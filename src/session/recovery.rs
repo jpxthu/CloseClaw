@@ -41,7 +41,18 @@ pub struct SessionRecoveryService<S: PersistenceService> {
     /// The closure receives the session_id and checkpoint, and should restore the session state.
     #[allow(clippy::type_complexity)]
     restore_fn: RwLock<
-        Option<Box<dyn Fn(&str, &SessionCheckpoint) -> Result<(), PersistenceError> + Send + Sync>>,
+        Option<
+            Box<
+                dyn Fn(
+                        &str,
+                        &SessionCheckpoint,
+                        Option<&str>,
+                        &[String],
+                    ) -> Result<(), PersistenceError>
+                    + Send
+                    + Sync,
+            >,
+        >,
     >,
 }
 
@@ -57,9 +68,14 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
     /// Set the restore callback
     ///
     /// The callback will be invoked for each session during recovery.
+    /// It receives the session_id, checkpoint, optional recovery notification
+    /// text, and any tool failure result strings to inject.
     pub async fn set_restore_callback<F>(&self, callback: F)
     where
-        F: Fn(&str, &SessionCheckpoint) -> Result<(), PersistenceError> + Send + Sync + 'static,
+        F: Fn(&str, &SessionCheckpoint, Option<&str>, &[String]) -> Result<(), PersistenceError>
+            + Send
+            + Sync
+            + 'static,
     {
         let mut restore_fn = self.restore_fn.write().await;
         *restore_fn = Some(Box::new(callback));
@@ -107,8 +123,21 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
 
         // Inject recovery notifications for dirty sessions
         for session_id in &dirty_sessions {
-            if let Some(cp) = checkpoints.get(session_id) {
+            if let Some(cp) = checkpoints.get_mut(session_id) {
                 self.inject_recovery_notifications(session_id, cp).await;
+            }
+        }
+
+        // Persist dirty checkpoints with injected notifications
+        for session_id in &dirty_sessions {
+            if let Some(cp) = checkpoints.get(session_id) {
+                if let Err(e) = self.storage.save_checkpoint(cp).await {
+                    tracing::error!(
+                        session_id = %session_id,
+                        "Failed to persist checkpoint with recovery notification: {}",
+                        e
+                    );
+                }
             }
         }
 
@@ -143,28 +172,53 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
             .await?
             .ok_or_else(|| PersistenceError::NotFound(session_id.to_string()))?;
 
+        // Build notification text if there are pending operations
+        let notification = if !checkpoint.pending_operations.is_empty() {
+            Some(self.build_notification_text(&checkpoint))
+        } else {
+            None
+        };
+
+        // Build tool failure results for pending tool calls
+        let tool_failures = self.build_tool_failure_results(&checkpoint);
+
         let restore_fn = self.restore_fn.read().await;
         if let Some(callback) = restore_fn.as_ref() {
-            callback(session_id, &checkpoint)?;
+            callback(
+                session_id,
+                &checkpoint,
+                notification.as_deref(),
+                &tool_failures,
+            )?;
         }
 
         Ok(())
     }
 
-    /// Inject recovery notifications and failure results for a dirty session.
-    ///
-    /// Builds a system message listing pending operations and, for tool calls,
-    /// injects corresponding failure results into the conversation flow.
+    /// Build the notification text for a dirty session.
     async fn inject_recovery_notifications(
         &self,
         session_id: &str,
-        checkpoint: &SessionCheckpoint,
+        checkpoint: &mut SessionCheckpoint,
     ) {
-        use crate::session::persistence::PendingOperationType;
-
         if checkpoint.pending_operations.is_empty() {
             return;
         }
+
+        let notification = self.build_notification_text(checkpoint);
+        checkpoint.recovery_notification = Some(notification);
+        checkpoint.pending_tool_failures = self.build_tool_failure_results(checkpoint);
+
+        tracing::info!(
+            session_id = %session_id,
+            pending_count = checkpoint.pending_operations.len(),
+            "storing recovery notification in checkpoint"
+        );
+    }
+
+    /// Build notification text listing pending operations.
+    fn build_notification_text(&self, checkpoint: &SessionCheckpoint) -> String {
+        use crate::session::persistence::PendingOperationType;
 
         let restart_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
 
@@ -215,28 +269,33 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
             sections.push(outbound_msgs.join("\n"));
         }
 
-        let notification = format!(
+        format!(
             "[系统] 网关已重启（重启时间: {restart_time}）\n\n\
 以下操作在重启前未完成：\n{ops}\n\n\
 你可以使用 sessions_list、sessions_history、process 等工具\n\
 了解当前状态，自行判断这些操作的结果，并决定后续处理。",
             restart_time = restart_time,
             ops = sections.join("\n\n"),
-        );
+        )
+    }
 
-        tracing::info!(
-            session_id = %session_id,
-            pending_count = checkpoint.pending_operations.len(),
-            "injecting recovery notification"
-        );
+    /// Build tool failure result strings for pending tool call operations.
+    fn build_tool_failure_results(&self, checkpoint: &SessionCheckpoint) -> Vec<String> {
+        use crate::session::persistence::PendingOperationType;
 
-        // Store the notification text for the restore callback to inject.
-        // The actual injection into ConversationSession happens via the
-        // restore_fn callback which is called by the gateway on startup.
-        // Here we store it in the checkpoint metadata for the gateway to pick up.
-        // Note: the restore_fn callback already has access to the checkpoint
-        // and can read pending_operations directly.
-        let _ = (session_id, notification, &checkpoint.pending_operations);
+        checkpoint
+            .pending_operations
+            .iter()
+            .filter(|op| op.op_type == PendingOperationType::ToolCall)
+            .map(|op| {
+                serde_json::json!({
+                    "error": "进程中断：网关重启",
+                    "tool": op.name,
+                    "op_id": op.op_id,
+                })
+                .to_string()
+            })
+            .collect()
     }
 
     /// 根据已恢复 session 的 checkpoint 构建 spawn_tree。
@@ -323,7 +382,8 @@ impl SpawnTree {
 mod tests {
     use super::*;
     use crate::session::persistence::{
-        DreamingStatus, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
+        DreamingStatus, PendingOperation, PendingOperationType, ReasoningLevel, ReasoningMode,
+        ReasoningModeState, SessionStatus,
     };
     use crate::session::storage::memory::MemoryStorage;
     use chrono::Utc;
@@ -361,6 +421,8 @@ mod tests {
             mined: false,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
+            recovery_notification: None,
+            pending_tool_failures: Vec::new(),
         }
     }
 
@@ -419,10 +481,12 @@ mod tests {
         let restored_clone = Arc::clone(&restored);
 
         service
-            .set_restore_callback(move |session_id, _checkpoint| {
-                restored_clone.lock().unwrap().push(session_id.to_string());
-                Ok(())
-            })
+            .set_restore_callback(
+                move |session_id, _checkpoint, _notification, _tool_failures| {
+                    restored_clone.lock().unwrap().push(session_id.to_string());
+                    Ok(())
+                },
+            )
             .await;
 
         let report = service.recover().await.unwrap();
@@ -642,5 +706,151 @@ mod tests {
         assert_eq!(tree.roots, vec!["parent".to_string()]);
         assert!(tree.children.is_empty());
         assert!(demoted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recovery_notification_stored_in_checkpoint() {
+        let storage = Arc::new(MemoryStorage::new());
+        let now = Utc::now();
+        let cp = SessionCheckpoint::new("dirty_notif".into()).with_pending_operations(vec![
+            PendingOperation {
+                op_id: "op_1".into(),
+                op_type: PendingOperationType::ToolCall,
+                name: "bash".into(),
+                args: r#"{"cmd":"ls"}"#.into(),
+                created_at: now,
+            },
+        ]);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        assert_eq!(report.recovered.len(), 1);
+        assert!(report.dirty_sessions.contains(&"dirty_notif".to_string()));
+
+        // Verify notification was stored in checkpoint
+        let loaded = storage
+            .load_checkpoint("dirty_notif")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            loaded.recovery_notification.is_some(),
+            "recovery_notification should be stored in dirty checkpoint"
+        );
+        let notif = loaded.recovery_notification.unwrap();
+        assert!(notif.contains("网关已重启"));
+        assert!(notif.contains("工具调用: bash"));
+    }
+
+    #[tokio::test]
+    async fn test_recovery_notification_not_stored_for_clean_session() {
+        let storage = Arc::new(MemoryStorage::new());
+        let cp = SessionCheckpoint::new("clean_notif".into());
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        assert_eq!(report.recovered.len(), 1);
+        assert!(report.dirty_sessions.is_empty());
+
+        let loaded = storage
+            .load_checkpoint("clean_notif")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(loaded.recovery_notification.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_recovery_tool_failures_built() {
+        let storage = Arc::new(MemoryStorage::new());
+        let now = Utc::now();
+        let cp = SessionCheckpoint::new("dirty_tools".into()).with_pending_operations(vec![
+            PendingOperation {
+                op_id: "call_1".into(),
+                op_type: PendingOperationType::ToolCall,
+                name: "exec".into(),
+                args: r#"{"command":"kubectl get pods"}"#.into(),
+                created_at: now,
+            },
+            PendingOperation {
+                op_id: "child_1".into(),
+                op_type: PendingOperationType::SubSessionSpawn,
+                name: "sub-agent".into(),
+                args: String::new(),
+                created_at: now,
+            },
+        ]);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let _report = service.recover().await.unwrap();
+
+        let loaded = storage
+            .load_checkpoint("dirty_tools")
+            .await
+            .unwrap()
+            .unwrap();
+        // Only ToolCall ops produce failure results
+        assert_eq!(loaded.pending_tool_failures.len(), 1);
+        let failure = &loaded.pending_tool_failures[0];
+        assert!(failure.contains("进程中断：网关重启"));
+        assert!(failure.contains("exec"));
+        assert!(failure.contains("call_1"));
+    }
+
+    #[tokio::test]
+    async fn test_recovery_callback_receives_notification() {
+        use crate::session::persistence::{
+            PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
+        };
+        use crate::session::storage::memory::MemoryStorage;
+        use std::sync::Arc;
+
+        let storage = Arc::new(MemoryStorage::new());
+        let now = Utc::now();
+        let cp = SessionCheckpoint::new("cb_notif".into()).with_pending_operations(vec![
+            PendingOperation {
+                op_id: "op_1".into(),
+                op_type: PendingOperationType::ToolCall,
+                name: "bash".into(),
+                args: String::new(),
+                created_at: now,
+            },
+        ]);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+
+        let captured_notification = Arc::new(std::sync::Mutex::new(None::<String>));
+        let captured_failures = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let notif_clone = Arc::clone(&captured_notification);
+        let fail_clone = Arc::clone(&captured_failures);
+
+        service
+            .set_restore_callback(
+                move |_session_id, _checkpoint, notification, tool_failures| {
+                    *notif_clone.lock().unwrap() = notification.map(String::from);
+                    *fail_clone.lock().unwrap() = tool_failures.to_vec();
+                    Ok(())
+                },
+            )
+            .await;
+
+        let report = service.recover().await.unwrap();
+        assert_eq!(report.recovered.len(), 1);
+
+        let notif = captured_notification.lock().unwrap();
+        assert!(notif.is_some(), "callback should receive notification text");
+        let notif_text = notif.as_ref().unwrap();
+        assert!(notif_text.contains("网关已重启"));
+        assert!(notif_text.contains("工具调用: bash"));
+
+        let failures = captured_failures.lock().unwrap();
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("进程中断：网关重启"));
     }
 }
