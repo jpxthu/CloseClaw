@@ -13,7 +13,9 @@ use crate::agent::spawn::SpawnController;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::ConfigManager;
-use crate::daemon::startup::{all_component_entries, topo_sort_layers, StartupError};
+use crate::daemon::startup::{
+    all_component_entries, topo_sort_layers, validate_startup_layers, StartupError,
+};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::im::terminal::TerminalPlugin;
@@ -140,15 +142,17 @@ impl Daemon {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
 
-        // ── Topological startup order ────────────────────────────────────────
-        // Resolve the deterministic initialization order from the component
-        // dependency graph.  If a cycle is detected we must refuse to start.
+        // ── Resolve & validate topological startup order ──────────────────────
+        // The dependency graph defines the required initialization order.
+        // If the topo sort result diverges from expected phases we must refuse
+        // to start — the initialization code would not match the dependencies.
         let startup_layers = Self::resolve_startup_order()?;
         Self::log_startup_order(&startup_layers);
+        validate_startup_layers(&startup_layers)
+            .map_err(|e| anyhow::anyhow!("startup layer validation failed: {}", e))?;
 
-        // ── Phase 0: foundation (no dependencies) ────────────────────────────
-        // ConfigManager and Storage are independent and must be available
-        // before any higher-layer component is created.
+        // ── Phase 1: Foundation (topo layer 1) ──────────────────────────────
+        // ConfigManager and Storage have no dependencies.
         let config_subdir = PathBuf::from(config_dir).join("config");
         let config_manager = Arc::new(
             ConfigManager::new(config_subdir.clone())
@@ -163,28 +167,18 @@ impl Daemon {
                 .map_err(|e| anyhow::anyhow!("failed to initialize SqliteStorage: {}", e))?,
         );
         info!("SqliteStorage initialized at {}", data_dir.display());
+        Self::run_config_migration(config_dir);
 
-        // Migrate legacy openclaw.json (non-fatal on error)
-        let openclaw_json_path = Path::new(config_dir).join("openclaw.json");
-        info!("Checking for legacy openclaw.json migration...");
-        match migrate_if_needed(&openclaw_json_path, config_dir) {
-            Ok(true) => info!("Legacy openclaw.json migration completed successfully"),
-            Ok(false) => info!("No migration needed — config directory is up to date"),
-            Err(e) => tracing::warn!(
-                error = %e,
-                "openclaw.json migration failed — continuing with existing config"
-            ),
-        }
-
-        // ── Phase 1: ConfigManager-dependent registries ──────────────────────
-        // AgentRegistry, SkillsRegistry, ToolsRegistry (topo layer 2)
+        // ── Phase 2: Registries (topo layer 2) ──────────────────────────────
+        // AgentRegistry, SkillsRegistry, ToolsRegistry depend on ConfigManager.
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let (skill_registry, skill_watcher) =
             skill_reload::init_skill_hot_reload(config_dir).await?;
         let tool_registry = Arc::new(ToolRegistry::new());
 
-        // ── Phase 2: SessionManager + Gateway (topo layers 3–5) ──────────────
+        // ── Phase 3: Core services (topo layer 3) ────────────────────────────
+        // SessionManager, Gateway setup, PermissionEngine, IM plugins.
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
@@ -212,17 +206,31 @@ impl Daemon {
         let gateway = Arc::new(gateway);
         gateway.set_self_ref(Arc::clone(&gateway));
 
-        // Slash Dispatcher
-        Self::init_slash_dispatcher(&gateway, &session_manager, &permission_engine).await;
-
         // IM plugins (RenderersPlugins / IMAdapters)
         Self::init_feishu_plugin(config_dir, &gateway).await?;
         Self::init_terminal_plugin(&gateway).await;
 
+        // Slash Dispatcher
+        Self::init_slash_dispatcher(&gateway, &session_manager, &permission_engine).await;
+
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
 
-        // ── Phase 3: background services (topo layer 3) ──────────────────────
+        // ── Phase 4: Wiring (topo layer 4) ──────────────────────────────────
+        // SessionManager finalization, ApprovalFlow.
+        let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+            Arc::clone(&session_manager),
+            Arc::new(|_| {}),
+            tokio::runtime::Handle::current(),
+        )));
+        gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
+        let _builtin_skills = builtin_skills_with_engine_and_approval_flow(
+            Arc::clone(&permission_engine),
+            Arc::clone(&approval_flow),
+        );
+
+        // ── Phase 5: Background & final (topo layer 5) ───────────────────────
+        // Gateway is fully wired — background services and admin RPC.
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
         let session_config_provider =
@@ -258,7 +266,7 @@ impl Daemon {
         });
         info!("DreamingScheduler spawned");
 
-        // ── Phase 4: registry population & tool wiring ───────────────────────
+        // ── Phase 5 cont: registry population & tool wiring ──────────────────
         let config_watcher = Self::populate_registries(
             &config_manager,
             &agent_registry,
@@ -274,17 +282,7 @@ impl Daemon {
             .set_skill_registry(skill_registry.clone())
             .await;
 
-        // ── Phase 5: approval flow & admin RPC (topo layer 5) ───────────────
-        let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
-            Arc::clone(&session_manager),
-            Arc::new(|_| {}),
-            tokio::runtime::Handle::current(),
-        )));
-        gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
-        let _builtin_skills = builtin_skills_with_engine_and_approval_flow(
-            Arc::clone(&permission_engine),
-            Arc::clone(&approval_flow),
-        );
+        // ── Phase 5 cont: admin RPC ─────────────────────────────────────────
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
         let admin_context = AdminContext {
             agent_registry: Arc::clone(&agent_registry),
@@ -301,7 +299,7 @@ impl Daemon {
         info!("admin RPC server started on {}", admin_sock_path.display());
 
         info!(
-            "CloseClaw daemon started successfully (v{})",
+            "Gateway initialized — CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
         );
         Ok(Self {
@@ -391,6 +389,20 @@ impl Daemon {
         info!("Permission engine initialized");
         Arc::new(engine)
     }
+
+    /// Migrate legacy openclaw.json if present (non-fatal on error).
+    fn run_config_migration(config_dir: &str) {
+        let openclaw_json_path = Path::new(config_dir).join("openclaw.json");
+        info!("Checking for legacy openclaw.json migration...");
+        match migrate_if_needed(&openclaw_json_path, config_dir) {
+            Ok(true) => info!("Legacy openclaw.json migration completed successfully"),
+            Ok(false) => info!("No migration needed — config directory is up to date"),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "openclaw.json migration failed — continuing with existing config"
+            ),
+        }
+    }
 }
 
 // --- Service init helpers ---
@@ -448,7 +460,6 @@ impl Daemon {
             .set_permission_engine(Arc::clone(permission_engine))
             .await;
         info!("Slash dispatcher installed");
-        info!("Gateway initialized");
     }
 
     /// Populate AgentRegistry, SkillRegistry, ToolRegistry, and wire them into
@@ -466,7 +477,13 @@ impl Daemon {
             let guard = skill_registry.read().unwrap();
             guard.as_ref().map(|dr| Arc::new(dr.clone()))
         };
-        let disk_reg = disk_reg_opt?;
+        let disk_reg = match disk_reg_opt {
+            Some(reg) => reg,
+            None => {
+                tracing::warn!("disk skill registry not available — registry population skipped");
+                return None;
+            }
+        };
         // Load agent configs (non-fatal if missing).
         if let Err(e) = config_manager.load_agents(None) {
             tracing::warn!(

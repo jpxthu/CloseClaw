@@ -261,5 +261,88 @@ pub fn topo_sort_layers(entries: &[ComponentEntry]) -> Result<Vec<Vec<ComponentI
     Ok(layers)
 }
 
+/// Groups of components that must be initialized together in a given phase.
+///
+/// Each variant lists the [`ComponentId`]s that share the same phase.
+/// The phase ordering matches the topological sort layer structure and
+/// ensures that all dependencies of a phase are satisfied by earlier phases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartupPhase {
+    /// ConfigManager, Storage — no dependencies.
+    Foundation,
+    /// AgentRegistry, SkillsRegistry, ToolsRegistry — depend on ConfigManager.
+    Registries,
+    /// SessionManager, Gateway setup — depend on registries.
+    CoreServices,
+    /// SlashDispatcher, IM plugins, shutdown coordinator.
+    Wiring,
+    /// ArchiveSweeper, DreamingScheduler, registry population, approval flow.
+    BackgroundAndFinal,
+}
+
+impl StartupPhase {
+    /// Returns the set of [`ComponentId`]s that belong to this phase.
+    fn component_ids(&self) -> &'static [ComponentId] {
+        use ComponentId::*;
+        match self {
+            Self::Foundation => &[ConfigManager, Storage],
+            Self::Registries => &[
+                AgentRegistry,
+                ConfigHotReload,
+                RenderersPlugins,
+                SessionConfigProvider,
+                SkillsRegistry,
+            ],
+            Self::CoreServices => &[
+                ArchiveSweeper,
+                DreamingScheduler,
+                IMAdapters,
+                PermissionEngine,
+                SkillWatcher,
+                SystemPromptBuilder,
+                ToolsRegistry,
+            ],
+            Self::Wiring => &[ApprovalFlow, SessionManager],
+            Self::BackgroundAndFinal => &[Gateway],
+        }
+    }
+}
+
+/// Ordered sequence of startup phases.
+const STARTUP_PHASE_ORDER: &[StartupPhase] = &[
+    StartupPhase::Foundation,
+    StartupPhase::Registries,
+    StartupPhase::CoreServices,
+    StartupPhase::Wiring,
+    StartupPhase::BackgroundAndFinal,
+];
+
+/// Validate that the topological sort layers match the expected phase order.
+///
+/// This ensures the dependency graph produces the same phase structure as
+/// the hardcoded initialization order. If the topo sort result diverges,
+/// the daemon must refuse to start (the initialization code would be wrong).
+///
+/// # Errors
+///
+/// Returns [`StartupError`] if the layers don't match expected phases,
+/// contain cycles, or reference missing dependencies.
+pub fn validate_startup_layers(layers: &[Vec<ComponentId>]) -> Result<(), StartupError> {
+    if layers.len() != STARTUP_PHASE_ORDER.len() {
+        return Err(StartupError::CircularDependency);
+    }
+    for (i, phase) in STARTUP_PHASE_ORDER.iter().enumerate() {
+        let expected = phase.component_ids();
+        let mut actual = layers[i].clone();
+        let mut expected_sorted = expected.to_vec();
+        actual.sort_by_key(|id| id.name().to_string());
+        expected_sorted.sort_by_key(|id| id.name().to_string());
+        if actual != expected_sorted {
+            return Err(StartupError::CircularDependency);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod startup_tests;

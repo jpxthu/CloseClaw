@@ -287,6 +287,38 @@ fn test_diamond_dependency_alphabetical_in_layer() {
 // --------------------------------------------------------------------------
 
 #[test]
+fn test_validate_startup_layers_succeeds() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    validate_startup_layers(&layers).expect("validation should succeed");
+}
+
+#[test]
+fn test_validate_startup_layers_wrong_count() {
+    // Only 2 layers instead of 5 — should fail.
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    let truncated = &layers[..2];
+    let err = validate_startup_layers(truncated).unwrap_err();
+    assert!(matches!(err, StartupError::CircularDependency));
+}
+
+#[test]
+fn test_validate_startup_layers_wrong_order() {
+    // Swap layer 1 and layer 2 — should fail.
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    let mut swapped = layers.clone();
+    swapped.swap(0, 1);
+    let err = validate_startup_layers(&swapped).unwrap_err();
+    assert!(matches!(err, StartupError::CircularDependency));
+}
+
+// --------------------------------------------------------------------------
+// Layer-internal alphabetical ordering (full sort order)
+// --------------------------------------------------------------------------
+
+#[test]
 fn test_layer_internal_alphabetical_order() {
     use ComponentId::*;
     // Three independent nodes → should all be in L0, sorted by name.
