@@ -3,7 +3,8 @@
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
-use crate::config::{ConfigManager, ConfigSection};
+use crate::config::manager::{ConfigManager, ConfigSnapshot};
+use crate::config::ConfigSection;
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
@@ -70,6 +71,9 @@ pub struct SessionManager {
     config_manager: RwLock<Option<Arc<ConfigManager>>>,
     /// Agent registry for looking up resolved agent configs (design-doc query layer).
     agent_registry: RwLock<Option<Arc<crate::agent::registry::AgentRegistry>>>,
+    /// Latest config snapshot; swapped atomically on each hot-reload.
+    /// The old snapshot is released when all Arc references are dropped.
+    config_snapshot: RwLock<Option<ConfigSnapshot>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -107,6 +111,7 @@ impl SessionManager {
             key_registry: RwLock::new(HashMap::new()),
             config_manager: RwLock::new(None),
             agent_registry: RwLock::new(None),
+            config_snapshot: RwLock::new(None),
         }
     }
 
@@ -140,6 +145,15 @@ impl SessionManager {
     /// Get the current priority prompt overrides, if set.
     pub async fn get_prompt_overrides(&self) -> Option<PromptOverrides> {
         self.prompt_overrides.read().await.clone()
+    }
+
+    /// Swap in a new config snapshot, releasing the old one.
+    ///
+    /// The old snapshot's `Arc` reference count decrements; once all
+    /// holders release it, the memory is reclaimed automatically.
+    pub async fn swap_config_snapshot(&self, snapshot: ConfigSnapshot) {
+        let mut guard = self.config_snapshot.write().await;
+        *guard = Some(snapshot);
     }
 
     /// Set the tool registry for building system prompt ToolsSection.
@@ -433,11 +447,17 @@ impl SessionManager {
     /// Sessions already observe the latest config values through the shared
     /// `Arc<ConfigManager>` reference, so this notification is the only
     /// explicit refresh needed to invalidate derived caches.
-    pub async fn notify_config_changed(&self, section: ConfigSection) {
+    ///
+    /// The `snapshot` parameter carries the latest config snapshot for
+    /// downstream reference-swap semantics (fully utilised in Step 1.3).
+    pub async fn notify_config_changed(&self, section: ConfigSection, snapshot: ConfigSnapshot) {
         tracing::info!(
             section = %section,
+            snapshot_sections = snapshot.len(),
             "session_manager: config change notification received"
         );
+        // Swap in the new config snapshot (old one auto-released).
+        self.swap_config_snapshot(snapshot).await;
         let session_ids: Vec<String> = {
             let sessions = self.sessions.read().await;
             sessions.keys().cloned().collect()
