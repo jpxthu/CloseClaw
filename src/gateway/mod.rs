@@ -355,10 +355,21 @@ impl Gateway {
         plugins.insert(key, plugin);
     }
 
+    /// Get a reference to the underlying SessionManager.
+    pub fn session_manager(&self) -> &Arc<SessionManager> {
+        &self.session_manager
+    }
+
     /// Get a registered IM plugin by platform identifier.
     pub async fn get_plugin(&self, platform: &str) -> Option<Arc<dyn super::im::IMPlugin>> {
         let plugins = self.plugins.read().await;
         plugins.get(platform).cloned()
+    }
+
+    /// Get all registered IM plugins (snapshot).
+    pub async fn get_all_plugins(&self) -> Vec<Arc<dyn super::im::IMPlugin>> {
+        let plugins = self.plugins.read().await;
+        plugins.values().cloned().collect()
     }
 
     /// Route an incoming message to the appropriate agent.

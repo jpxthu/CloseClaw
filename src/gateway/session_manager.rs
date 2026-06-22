@@ -301,6 +301,12 @@ impl SessionManager {
             .collect()
     }
 
+    /// Get all active sessions.
+    pub async fn get_all_sessions(&self) -> Vec<Session> {
+        let sessions = self.sessions.read().await;
+        sessions.values().cloned().collect()
+    }
+
     /// Check if a session with the given ID exists.
     pub async fn has_session(&self, session_id: &str) -> bool {
         let sessions = self.sessions.read().await;
