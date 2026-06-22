@@ -13,6 +13,7 @@ use crate::agent::spawn::SpawnController;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::ConfigManager;
+use crate::daemon::startup::{all_component_entries, topo_sort_layers, StartupError};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::im::terminal::TerminalPlugin;
@@ -42,6 +43,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::info;
+
 /// Parse an .env file into key-value pairs.
 /// Lines starting with # are comments. Whitespace around keys and values is trimmed.
 /// Returns only non-empty key-value pairs.
@@ -73,6 +75,7 @@ fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 mod llm_init;
+
 /// Global daemon state
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
@@ -99,6 +102,28 @@ pub struct Daemon {
     /// Path to the admin RPC socket file (cleaned up on shutdown)
     admin_socket_path: PathBuf,
 }
+
+// --- Topological startup orchestration ---
+impl Daemon {
+    /// Resolve the deterministic startup order from the component dependency graph.
+    ///
+    /// Returns the layers produced by [`topo_sort_layers`].  If the dependency
+    /// graph contains a cycle the daemon must refuse to start.
+    fn resolve_startup_order() -> Result<Vec<Vec<crate::daemon::startup::ComponentId>>, StartupError>
+    {
+        let entries = all_component_entries();
+        topo_sort_layers(&entries)
+    }
+
+    /// Log the resolved startup order at `info` level for operational visibility.
+    fn log_startup_order(layers: &[Vec<crate::daemon::startup::ComponentId>]) {
+        for (i, layer) in layers.iter().enumerate() {
+            let names: Vec<&str> = layer.iter().map(|id| id.name()).collect();
+            info!(layer = i + 1, components = ?names, "startup layer resolved");
+        }
+    }
+}
+
 // --- Lifecycle: start, run ---
 impl Daemon {
     /// Start the daemon with the given config directory.
@@ -106,6 +131,7 @@ impl Daemon {
         let permission_engine = Self::build_permission_engine(config_dir);
         Self::start_with_engine(config_dir, permission_engine).await
     }
+
     /// Start the daemon with a custom permission engine (useful for testing).
     pub async fn start_with_engine(
         config_dir: &str,
@@ -113,38 +139,52 @@ impl Daemon {
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
-        // Migrate legacy openclaw.json to config/ directory if needed
-        let openclaw_json_path = Path::new(config_dir).join("openclaw.json");
-        info!("Checking for legacy openclaw.json migration...");
-        match migrate_if_needed(&openclaw_json_path, config_dir) {
-            Ok(true) => {
-                info!("Legacy openclaw.json migration completed successfully");
-            }
-            Ok(false) => {
-                info!("No migration needed — config directory is up to date");
-            }
-            Err(e) => {
-                // Migration errors are non-fatal; log and continue
-                tracing::warn!(
-                    error = %e,
-                    "openclaw.json migration failed — continuing with existing config"
-                );
-            }
-        }
-        // Initialize SQLite storage — fail hard if this fails (no MemoryStorage fallback)
+
+        // ── Topological startup order ────────────────────────────────────────
+        // Resolve the deterministic initialization order from the component
+        // dependency graph.  If a cycle is detected we must refuse to start.
+        let startup_layers = Self::resolve_startup_order()?;
+        Self::log_startup_order(&startup_layers);
+
+        // ── Phase 0: foundation (no dependencies) ────────────────────────────
+        // ConfigManager and Storage are independent and must be available
+        // before any higher-layer component is created.
+        let config_subdir = PathBuf::from(config_dir).join("config");
+        let config_manager = Arc::new(
+            ConfigManager::new(config_subdir.clone())
+                .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
+        );
+        config_manager
+            .load()
+            .map_err(|e| anyhow::anyhow!("failed to load mandatory config sections: {}", e))?;
         let data_dir = Path::new(config_dir);
         let storage = Arc::new(
             SqliteStorage::new(data_dir)
                 .map_err(|e| anyhow::anyhow!("failed to initialize SqliteStorage: {}", e))?,
         );
         info!("SqliteStorage initialized at {}", data_dir.display());
-        // Create ArchiveSweeper shutdown channel (sweeper itself is
-        // created after SessionManager so it can cascade-terminate
-        // children on archive — design doc §生命周期联动).
-        // Session config provider will be set after ConfigManager is loaded.
-        let (sweeper_tx, sweeper_rx) = watch::channel(());
+
+        // Migrate legacy openclaw.json (non-fatal on error)
+        let openclaw_json_path = Path::new(config_dir).join("openclaw.json");
+        info!("Checking for legacy openclaw.json migration...");
+        match migrate_if_needed(&openclaw_json_path, config_dir) {
+            Ok(true) => info!("Legacy openclaw.json migration completed successfully"),
+            Ok(false) => info!("No migration needed — config directory is up to date"),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "openclaw.json migration failed — continuing with existing config"
+            ),
+        }
+
+        // ── Phase 1: ConfigManager-dependent registries ──────────────────────
+        // AgentRegistry, SkillsRegistry, ToolsRegistry (topo layer 2)
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
-        info!("Agent registry initialized",);
+        info!("Agent registry initialized");
+        let (skill_registry, skill_watcher) =
+            skill_reload::init_skill_hot_reload(config_dir).await?;
+        let tool_registry = Arc::new(ToolRegistry::new());
+
+        // ── Phase 2: SessionManager + Gateway (topo layers 3–5) ──────────────
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
@@ -163,80 +203,28 @@ impl Daemon {
         gateway
             .set_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>)
             .await;
-        // Rebuild key_registry from persisted checkpoints at startup.
         if let Err(e) = session_manager.rebuild_key_registry().await {
-            tracing::warn!(
-                error = %e,
-                "failed to rebuild key_registry at startup — continuing"
-            );
+            tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
         }
-
-        // Rebuild spawn_tree (children table) from persisted checkpoints at startup.
         if let Err(e) = session_manager.rebuild_spawn_tree().await {
-            tracing::warn!(
-                error = %e,
-                "failed to rebuild spawn_tree at startup — continuing"
-            );
+            tracing::warn!(error = %e, "failed to rebuild spawn_tree — continuing");
         }
-
-        // ArchiveSweeper is created after ConfigManager loads so it gets
-        // the real session config provider (see below).
-
         let gateway = Arc::new(gateway);
-        // Wire the self-ref so `handle_inbound_message` can pass
-        // a strong `Arc<Gateway>` into the streaming LLM path.
         gateway.set_self_ref(Arc::clone(&gateway));
 
-        // ── Slash Dispatcher ────────────────────────────────────────────────
-        let slash_registry = Arc::new(HandlerRegistry::new());
-        slash_registry.register(Arc::new(CompactHandler));
-        slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&session_manager))));
-        slash_registry.register(Arc::new(ExecHandler));
-        slash_registry.register(Arc::new(WorkdirHandler::new(Arc::clone(&session_manager))));
-        let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
-        slash_registry.register(Arc::new(help_handler));
-        slash_registry.register(Arc::new(ReasoningHandler::new(Arc::clone(
-            &session_manager,
-        ))));
-        slash_registry.register(Arc::new(SystemHandler::new(Arc::clone(&session_manager))));
-        slash_registry.register(Arc::new(NewSessionHandler));
-        slash_registry.register(Arc::new(StopHandler));
-        slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&session_manager))));
-        let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
-        gateway.set_slash_dispatcher(slash_dispatcher).await;
-        // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
-        // dispatch_slash 在 Branch 2 时能取到 engine。
-        gateway
-            .set_permission_engine(Arc::clone(&permission_engine))
-            .await;
-        info!("Slash dispatcher installed");
+        // Slash Dispatcher
+        Self::init_slash_dispatcher(&gateway, &session_manager, &permission_engine).await;
 
-        info!("Gateway initialized");
+        // IM plugins (RenderersPlugins / IMAdapters)
         Self::init_feishu_plugin(config_dir, &gateway).await?;
         Self::init_terminal_plugin(&gateway).await;
+
         let shutdown = shutdown::ShutdownHandle::new();
         info!("Shutdown coordinator initialized");
-        // Initialize skill hot reload system
-        let (skill_registry, skill_watcher) =
-            skill_reload::init_skill_hot_reload(config_dir).await?;
 
-        // Create ToolRegistry and register builtin tools
-        let tool_registry = Arc::new(ToolRegistry::new());
-        let mut config_watcher = None;
-        // Create ConfigManager early so it's available for admin RPC.
-        // Config files live in <root>/config/ (design doc directory structure).
-        let config_subdir = PathBuf::from(config_dir).join("config");
-        let config_manager = Arc::new(
-            ConfigManager::new(config_subdir.clone())
-                .map_err(|e| anyhow::anyhow!("failed to create ConfigManager: {}", e))?,
-        );
-        // Load mandatory config sections (Models, Channels, Gateway, Plugins, System, Session).
-        // Design doc: "ConfigManager — 所有配置加载成功后注册热重载监听器"
-        config_manager
-            .load()
-            .map_err(|e| anyhow::anyhow!("failed to load mandatory config sections: {}", e))?;
-
-        // Create and spawn ArchiveSweeper with session config from ConfigManager.
+        // ── Phase 3: background services (topo layer 3) ──────────────────────
+        let (sweeper_tx, sweeper_rx) = watch::channel(());
+        let (dreaming_tx, dreaming_rx) = watch::channel(());
         let session_config_provider =
             config_manager.session_config_provider().unwrap_or_else(|| {
                 tracing::warn!("session config provider not available, using defaults");
@@ -244,7 +232,6 @@ impl Daemon {
                     crate::config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
                 )
             });
-        // Clone for DreamingScheduler before sweeper takes ownership.
         let dreaming_config_provider = Arc::clone(&session_config_provider);
         let sweeper = Arc::new(
             ArchiveSweeper::new(
@@ -258,9 +245,6 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
-
-        // ── DreamingScheduler (layer 3) ────────────────────────────────
-        let (dreaming_tx, dreaming_rx) = watch::channel(());
         let dreaming_pipeline = Arc::new(DreamingPipeline::new());
         let memory_miner = Arc::new(MemoryMiner::new());
         let dreaming_scheduler = crate::daemon::dreaming_scheduler::DreamingScheduler::new(
@@ -273,108 +257,34 @@ impl Daemon {
             dreaming_scheduler.run(dreaming_rx).await;
         });
         info!("DreamingScheduler spawned");
-        {
-            let disk_reg_opt = {
-                let guard = skill_registry.read().unwrap();
-                guard.as_ref().map(|dr| Arc::new(dr.clone()))
-            };
-            if let Some(disk_reg) = disk_reg_opt {
-                // Load agent configs (non-fatal if missing).
-                if let Err(e) = config_manager.load_agents(None) {
-                    tracing::warn!(
-                        error = %e,
-                        "failed to load agent configs from ConfigManager — \
-                         spawn validation will use defaults"
-                    );
-                }
 
-                // Populate AgentRegistry with resolved configs from ConfigManager.
-                // This fulfills the design-doc startup flow:
-                //   ConfigManager.load_agents() → AgentRegistry.populate()
-                {
-                    let configs: Vec<_> = config_manager.agents().into_values().collect();
-                    agent_registry.populate(configs);
-                }
-
-                // Inject AgentRegistry into DiskSkillRegistry so the Skills
-                // Registry can query agent configs directly (design-doc query path).
-                {
-                    let mut guard = skill_registry.write().unwrap();
-                    if let Some(ref mut disk_reg) = *guard {
-                        disk_reg.set_agent_registry(Arc::clone(&agent_registry));
-                    }
-                }
-
-                // Inject AgentRegistry into ToolRegistry so the Tools
-                // Registry can query agent tools config directly (design-doc query path).
-                tool_registry.set_agent_registry(Arc::clone(&agent_registry));
-
-                // Pass config_manager to SessionManager for agent tool/skill filtering.
-                session_manager
-                    .set_config_manager(Arc::clone(&config_manager))
-                    .await;
-
-                // Pass agent_registry to SessionManager for design-doc config queries.
-                session_manager
-                    .set_agent_registry(Arc::clone(&agent_registry))
-                    .await;
-
-                // Initialize config hot-reload: watch JSON files + agents/ dir
-                config_watcher = match config_reload::init_config_hot_reload(
-                    &config_subdir.to_string_lossy(),
-                    Arc::clone(&config_manager),
-                    Arc::clone(&agent_registry),
-                    Arc::clone(&session_manager),
-                ) {
-                    Ok(handle) => Some(handle),
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "failed to initialize config hot-reload — \
-                             config changes will require restart"
-                        );
-                        None
-                    }
-                };
-                // Create SpawnController for session-based spawn validation.
-                let spawn_controller = Arc::new(SpawnController::new(
-                    Arc::clone(&config_manager),
-                    Arc::clone(&session_manager),
-                ));
-                let builtin_ctx = Arc::new(BuiltinToolContext {
-                    config_manager: Arc::clone(&config_manager),
-                    agent_registry: Arc::clone(&agent_registry),
-                    disk_registry: disk_reg,
-                    permission_engine: Arc::clone(&permission_engine),
-                    spawn_controller,
-                    session_manager: Arc::clone(&session_manager),
-                });
-                register_builtin_tools(&tool_registry, builtin_ctx).await;
-            }
-        }
-
-        // Inject ToolRegistry and SkillRegistry into SessionManager
+        // ── Phase 4: registry population & tool wiring ───────────────────────
+        let config_watcher = Self::populate_registries(
+            &config_manager,
+            &agent_registry,
+            &skill_registry,
+            &tool_registry,
+            &session_manager,
+            &permission_engine,
+            &config_subdir,
+        )
+        .await;
         session_manager.set_tool_registry(tool_registry).await;
         session_manager
             .set_skill_registry(skill_registry.clone())
             .await;
 
+        // ── Phase 5: approval flow & admin RPC (topo layer 5) ───────────────
         let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(&session_manager),
             Arc::new(|_| {}),
             tokio::runtime::Handle::current(),
         )));
-
-        // Connect approval flow to gateway
         gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
-
-        // Create builtin skills with approval flow injected
         let _builtin_skills = builtin_skills_with_engine_and_approval_flow(
             Arc::clone(&permission_engine),
             Arc::clone(&approval_flow),
         );
-
-        // ── Admin RPC Server ──────────────────────────────────────────────
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
         let admin_context = AdminContext {
             agent_registry: Arc::clone(&agent_registry),
@@ -410,6 +320,7 @@ impl Daemon {
             admin_socket_path: admin_sock_path,
         })
     }
+
     /// Run the daemon — blocks until shutdown signal is received.
     pub async fn run(&self) -> anyhow::Result<()> {
         crate::platform::process::wait_for_shutdown_signal().await?;
@@ -428,6 +339,7 @@ impl Daemon {
         Ok(())
     }
 }
+
 // --- Config loading helpers ---
 impl Daemon {
     /// Load .env file from config_dir if it exists.
@@ -450,6 +362,7 @@ impl Daemon {
             _ => BootstrapMode::Full,
         }
     }
+
     /// Build permission engine, loading templates from config_dir/templates/ if present.
     fn build_permission_engine(config_dir: &str) -> Arc<PermissionEngine> {
         let rule_set = RuleSet {
@@ -479,16 +392,10 @@ impl Daemon {
         Arc::new(engine)
     }
 }
+
 // --- Service init helpers ---
 impl Daemon {
     /// Initialize Feishu IM plugin from env or config.
-    ///
-    /// Reads `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and `FEISHU_VERIFICATION_TOKEN`
-    /// from the environment. If all three are present, builds a [`FeishuAdapter`]
-    /// and [`FeishuRenderer`], wraps them in a [`FeishuPlugin`], and registers
-    /// the plugin with the gateway via [`Gateway::register_plugin`]. When any
-    /// credential is missing the plugin is skipped and the gateway operates
-    /// without Feishu support.
     async fn init_feishu_plugin(_config_dir: &str, gateway: &Arc<Gateway>) -> anyhow::Result<()> {
         let app_id = std::env::var("FEISHU_APP_ID").ok();
         let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
@@ -509,13 +416,118 @@ impl Daemon {
     }
 
     /// Initialize the terminal (CLI) IM plugin and register with Gateway.
-    ///
-    /// TerminalPlugin requires no credentials — it reads from stdin and writes
-    /// to stdout, so it is always registered when the daemon starts.
     async fn init_terminal_plugin(gateway: &Arc<Gateway>) {
         let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
         gateway.register_plugin(plugin).await;
         info!("Terminal plugin registered");
+    }
+
+    /// Initialize the slash command dispatcher and register all handlers.
+    async fn init_slash_dispatcher(
+        gateway: &Arc<Gateway>,
+        session_manager: &Arc<SessionManager>,
+        permission_engine: &Arc<PermissionEngine>,
+    ) {
+        let slash_registry = Arc::new(HandlerRegistry::new());
+        slash_registry.register(Arc::new(CompactHandler));
+        slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(ExecHandler));
+        slash_registry.register(Arc::new(WorkdirHandler::new(Arc::clone(session_manager))));
+        let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
+        slash_registry.register(Arc::new(help_handler));
+        slash_registry.register(Arc::new(ReasoningHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(SystemHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(NewSessionHandler));
+        slash_registry.register(Arc::new(StopHandler));
+        slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(session_manager))));
+        let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
+        gateway.set_slash_dispatcher(slash_dispatcher).await;
+        // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
+        // dispatch_slash 在 Branch 2 时能取到 engine。
+        gateway
+            .set_permission_engine(Arc::clone(permission_engine))
+            .await;
+        info!("Slash dispatcher installed");
+        info!("Gateway initialized");
+    }
+
+    /// Populate AgentRegistry, SkillRegistry, ToolRegistry, and wire them into
+    /// SessionManager.  Also starts ConfigHotReload watcher.
+    async fn populate_registries(
+        config_manager: &Arc<ConfigManager>,
+        agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
+        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+        tool_registry: &Arc<ToolRegistry>,
+        session_manager: &Arc<SessionManager>,
+        permission_engine: &Arc<PermissionEngine>,
+        config_subdir: &Path,
+    ) -> Option<config_reload::ConfigWatcherHandle> {
+        let disk_reg_opt = {
+            let guard = skill_registry.read().unwrap();
+            guard.as_ref().map(|dr| Arc::new(dr.clone()))
+        };
+        let disk_reg = disk_reg_opt?;
+        // Load agent configs (non-fatal if missing).
+        if let Err(e) = config_manager.load_agents(None) {
+            tracing::warn!(
+                error = %e,
+                "failed to load agent configs from ConfigManager — \
+                 spawn validation will use defaults"
+            );
+        }
+        // Populate AgentRegistry with resolved configs from ConfigManager.
+        {
+            let configs: Vec<_> = config_manager.agents().into_values().collect();
+            agent_registry.populate(configs);
+        }
+        // Inject AgentRegistry into DiskSkillRegistry.
+        {
+            let mut guard = skill_registry.write().unwrap();
+            if let Some(ref mut disk_reg) = *guard {
+                disk_reg.set_agent_registry(Arc::clone(agent_registry));
+            }
+        }
+        // Inject AgentRegistry into ToolRegistry.
+        tool_registry.set_agent_registry(Arc::clone(agent_registry));
+        // Pass config_manager to SessionManager.
+        session_manager
+            .set_config_manager(Arc::clone(config_manager))
+            .await;
+        session_manager
+            .set_agent_registry(Arc::clone(agent_registry))
+            .await;
+        // Initialize config hot-reload.
+        let config_watcher = match config_reload::init_config_hot_reload(
+            &config_subdir.to_string_lossy(),
+            Arc::clone(config_manager),
+            Arc::clone(agent_registry),
+            Arc::clone(session_manager),
+        ) {
+            Ok(handle) => Some(handle),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "failed to initialize config hot-reload — \
+                     config changes will require restart"
+                );
+                None
+            }
+        };
+        // Create SpawnController and register builtin tools.
+        let spawn_controller = Arc::new(SpawnController::new(
+            Arc::clone(config_manager),
+            Arc::clone(session_manager),
+        ));
+        let builtin_ctx = Arc::new(BuiltinToolContext {
+            config_manager: Arc::clone(config_manager),
+            agent_registry: Arc::clone(agent_registry),
+            disk_registry: disk_reg,
+            permission_engine: Arc::clone(permission_engine),
+            spawn_controller,
+            session_manager: Arc::clone(session_manager),
+        });
+        register_builtin_tools(tool_registry, builtin_ctx).await;
+        config_watcher
     }
 }
 
