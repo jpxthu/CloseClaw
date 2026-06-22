@@ -740,6 +740,119 @@ fn test_validate_session_pass_sweeper_interval_positive() {
     assert!(validate_session(&v).is_ok());
 }
 
+// ---------------------------------------------------------------------------
+// validate_session — idleMinutes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_session_pass_idle_minutes_zero() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":0}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_pass_idle_minutes_positive() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":30}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_fail_idle_minutes_negative() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":-1}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(
+        err.contains("idleMinutes must be non-negative"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_session_fail_idle_minutes_string() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":"abc"}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(
+        err.contains("idleMinutes must be a number"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_session_pass_idle_minutes_absent() {
+    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// validate_session — purgeAfterMinutes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_session_pass_purge_after_minutes_zero() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":0}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_pass_purge_after_minutes_positive() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":1440}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_fail_purge_after_minutes_negative() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":-1}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(
+        err.contains("purgeAfterMinutes must be non-negative"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_session_fail_purge_after_minutes_string() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":"abc"}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(
+        err.contains("purgeAfterMinutes must be a number"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_session_pass_purge_after_minutes_absent() {
+    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// validate_session — combined fields
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_session_pass_all_session_fields() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"sweeperIntervalSecs":600,"idleMinutes":30,"purgeAfterMinutes":1440,"compact":{}}"#,
+    )
+    .unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_fail_multiple_invalid() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"idleMinutes":30,"purgeAfterMinutes":-1}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(
+        err.contains("purgeAfterMinutes must be non-negative"),
+        "error: {}",
+        err
+    );
+}
+
 #[test]
 fn test_default_validator_session_passes_valid_json() {
     let v: serde_json::Value =

@@ -358,11 +358,30 @@ fn validate_system(value: &serde_json::Value) -> Result<(), String> {
 ///
 /// - Top-level must be a JSON object.
 /// - If `sweeperIntervalSecs` is present, it must be a positive number.
+/// - If `idleMinutes` is present, it must be non-negative.
+/// - If `purgeAfterMinutes` is present, it must be non-negative.
 fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "session")?;
     if let Some(secs) = value.get("sweeperIntervalSecs") {
         if !secs.is_number() || secs.as_u64().unwrap_or(0) == 0 {
             return Err("session.sweeperIntervalSecs must be a positive number".to_string());
+        }
+    }
+    validate_non_negative_field(value, "idleMinutes")?;
+    validate_non_negative_field(value, "purgeAfterMinutes")?;
+    Ok(())
+}
+
+/// Validate that a numeric field, if present, is non-negative.
+fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result<(), String> {
+    if let Some(v) = value.get(field) {
+        if !v.is_number() {
+            return Err(format!("session.{} must be a number", field));
+        }
+        if let Some(n) = v.as_f64() {
+            if n < 0.0 {
+                return Err(format!("session.{} must be non-negative", field));
+            }
         }
     }
     Ok(())
