@@ -519,6 +519,8 @@ impl Daemon {
 }
 
 #[cfg(test)]
+mod dreaming_scheduler_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod unit_tests;

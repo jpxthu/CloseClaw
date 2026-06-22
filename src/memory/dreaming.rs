@@ -146,6 +146,12 @@ impl DreamingPipeline {
         }
 
         if all_entries.is_empty() {
+            // No entries to process — mark all sessions as Completed.
+            for sid in &session_ids {
+                storage
+                    .update_dreaming_status(sid, DreamingStatus::Completed)
+                    .await?;
+            }
             return Ok(());
         }
 

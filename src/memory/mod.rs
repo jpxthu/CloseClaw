@@ -5,3 +5,8 @@
 
 pub mod dreaming;
 pub mod miner;
+
+#[cfg(test)]
+mod dreaming_tests;
+#[cfg(test)]
+mod miner_tests;
