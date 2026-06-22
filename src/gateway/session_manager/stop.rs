@@ -8,7 +8,8 @@
 //!    parents last.  Same-level sessions stop concurrently.
 //! 3. Per-session behaviour depends on [`ShutdownMode`]:
 //!    - **Graceful**: wait for LLM streaming / tool execution to finish,
-//!      then persist checkpoint.  Skipped if busy timeout exceeded.
+//!      then persist checkpoint.  No hard timeout — the user decides
+//!      when to escalate to forceful mode.
 //!    - **Forceful**: stop immediately, persist checkpoint.
 
 use std::collections::{HashMap, VecDeque};
@@ -36,10 +37,6 @@ impl StopResult {
         self.succeeded + self.failed + self.skipped
     }
 }
-
-/// Default per-session grace period (seconds) in graceful mode.
-/// After this, a still-busy session is force-stopped.
-const GRACEFUL_TIMEOUT_SECS: u64 = 10;
 
 // ── public API ──────────────────────────────────────────────────────────
 
@@ -231,8 +228,9 @@ impl SessionManager {
     /// Stop a single session and persist its checkpoint.
     ///
     /// Behaviour depends on `mode`:
-    /// - Graceful: if LLM is streaming, poll for idle (up to
-    ///   [`GRACEFUL_TIMEOUT_SECS`]) before stopping.
+    /// - Graceful: wait for LLM streaming and tool execution to
+    ///   finish naturally (no hard timeout — the user decides when
+    ///   to escalate to forceful mode).
     /// - Forceful: stop immediately regardless of state.
     async fn stop_single_session(
         &self,
@@ -245,9 +243,8 @@ impl SessionManager {
             .ok_or(StopError::Skipped)?;
 
         // Graceful: wait for LLM streaming and tool execution to finish.
+        // No hard timeout — the user decides when to escalate to forceful.
         if mode == ShutdownMode::Graceful {
-            let deadline = tokio::time::Instant::now()
-                + tokio::time::Duration::from_secs(GRACEFUL_TIMEOUT_SECS);
             loop {
                 let (is_streaming, has_running_tools) = {
                     let guard = cs.read().await;
@@ -268,17 +265,12 @@ impl SessionManager {
                     break;
                 }
 
-                if tokio::time::Instant::now() >= deadline {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        streaming = is_streaming,
-                        running_tools = has_running_tools,
-                        "graceful stop: session still active after {}s, force-stopping",
-                        GRACEFUL_TIMEOUT_SECS
-                    );
-                    break;
-                }
-
+                tracing::debug!(
+                    session_id = %session_id,
+                    streaming = is_streaming,
+                    running_tools = has_running_tools,
+                    "graceful stop: session still active, waiting for completion"
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         }
