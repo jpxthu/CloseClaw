@@ -127,6 +127,20 @@ impl SessionManager {
             sh.increment_busy();
         }
 
+        // ── Shutdown gate: reject new child session creation ──────────
+        if let Some(sh) = self.get_shutdown_handle().await {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    parent_session_id = %parent_session_id,
+                    "rejecting child session creation: daemon is shutting down"
+                );
+                if let Some(sh) = self.get_shutdown_handle().await {
+                    sh.decrement_busy();
+                }
+                return Err("daemon is shutting down".into());
+            }
+        }
+
         // Apply tool whitelist override: when allowed_tools is provided,
         // replace the config's tools list so the child session only has
         // access to the specified tools.

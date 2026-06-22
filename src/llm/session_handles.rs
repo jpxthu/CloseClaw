@@ -76,6 +76,17 @@ impl ConversationSession {
         handle: Arc<dyn KillHandle>,
     ) {
         let id = call_id.into();
+
+        // ── Shutdown gate: reject new tool execution ───────────────────
+        if let Some(sh) = self.get_shutdown_handle() {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    call_id = %id,
+                    "rejecting tool execution: daemon is shutting down"
+                );
+                return;
+            }
+        }
         let mut map = self
             .tool_handles
             .write()

@@ -310,6 +310,20 @@ impl Gateway {
             sh.increment_busy();
         }
 
+        // ── Shutdown gate: reject new operations ──────────────────────
+        if let Some(sh) = self.get_shutdown_handle() {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "rejecting inbound message: daemon is shutting down"
+                );
+                if let Some(sh) = self.get_shutdown_handle() {
+                    sh.decrement_busy();
+                }
+                return None;
+            }
+        }
+
         // ── Approval command interception ──────────────────────────────
         if let Some(result) = self
             .try_handle_approval_command(session_id, &content, sender_id)
