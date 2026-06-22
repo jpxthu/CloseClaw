@@ -175,7 +175,7 @@ fn register_agents_watch(
                 super::ConfigError::SchemaError(format!("Failed to watch agents.json: {}", e))
             })?;
     }
-    let agents_dir = config_path.parent().unwrap().join("agents");
+    let agents_dir = config_path.parent().unwrap_or(config_path).join("agents");
     if agents_dir.exists() {
         watcher
             .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
