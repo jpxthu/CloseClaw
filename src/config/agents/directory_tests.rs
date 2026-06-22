@@ -470,37 +470,6 @@ fn test_both_configs_parse_error_skips_agent() {
     );
 }
 
-/// load_agent_config returns Err with file path and error detail for invalid JSON.
-/// Test through the public reload() API — agent with bad JSON gets skipped.
-#[test]
-fn test_load_agent_config_error_skips_agent_and_loads_others() {
-    let user = TempDir::new().unwrap();
-
-    // Agent with invalid JSON
-    let bad_dir = user.path().join("bad-parse");
-    std::fs::create_dir_all(&bad_dir).unwrap();
-    std::fs::write(bad_dir.join("config.json"), "{{bad").unwrap();
-
-    // Agent with valid JSON
-    write_config(user.path(), "good-parse", "Good Agent");
-
-    let provider = AgentDirectoryProvider::new(
-        vec!["bad-parse".to_string(), "good-parse".to_string()],
-        user.path().to_path_buf(),
-        None,
-    )
-    .unwrap();
-
-    assert!(
-        provider.get("bad-parse").is_none(),
-        "agent with invalid config should be skipped"
-    );
-    assert!(
-        provider.get("good-parse").is_some(),
-        "valid agent should still be loaded"
-    );
-}
-
 /// Agent directory exists but config.json is a directory (not a file) →
 /// read_to_string fails → agent is skipped.
 #[test]

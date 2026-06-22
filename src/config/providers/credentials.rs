@@ -133,7 +133,9 @@ impl CredentialsProvider {
                 return Err(ConfigError::ValueError {
                     field: format!("credentials.{}", provider_id),
                     message: format!(
-                        "provider '{}' is referenced in models.json but has no credentials",
+                        "provider '{}' is referenced in models.json but has no credentials \
+                         (create a credentials file in config/credentials/ or check the \
+                         provider ID in models.json)",
                         provider_id
                     ),
                 });

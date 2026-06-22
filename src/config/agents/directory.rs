@@ -66,8 +66,7 @@ impl AgentDirectoryProvider {
     }
 
     /// Load and merge configs for a single agent, returning `None` to
-    /// signal "skip this agent" (missing config or parse errors on
-    /// both levels).
+    /// signal "skip this agent" (no config.json found at either level).
     fn load_agent_entry(
         &self,
         id: &str,
@@ -82,7 +81,7 @@ impl AgentDirectoryProvider {
             id,
             &user_config_path,
             project_config_path.as_deref(),
-        )?;
+        );
 
         Self::inject_dirname_id(&mut project_config, id);
         Self::inject_dirname_id(&mut user_config, id);
@@ -109,27 +108,27 @@ impl AgentDirectoryProvider {
         id: &str,
         user_config_path: &std::path::Path,
         project_config_path: Option<&std::path::Path>,
-    ) -> Result<(Option<AgentConfig>, Option<AgentConfig>), ConfigError> {
+    ) -> (Option<AgentConfig>, Option<AgentConfig>) {
         let user_result = Self::load_agent_config(user_config_path);
         let project_result = project_config_path
             .map(Self::load_agent_config)
             .unwrap_or(Ok(None));
         match (user_result, project_result) {
-            (Ok(uc), Ok(pc)) => Ok((uc, pc)),
+            (Ok(uc), Ok(pc)) => (uc, pc),
             (Ok(uc), Err(e)) => {
                 warn!("Agent '{}' project config parse error: {}", id, e);
-                Ok((uc, None))
+                (uc, None)
             }
             (Err(e), Ok(pc)) => {
                 warn!("Agent '{}' user config parse error: {}", id, e);
-                Ok((None, pc))
+                (None, pc)
             }
             (Err(e1), Err(e2)) => {
                 warn!(
                     "Agent '{}' config parse errors: user: {}; project: {}",
                     id, e1, e2
                 );
-                Ok((None, None))
+                (None, None)
             }
         }
     }
