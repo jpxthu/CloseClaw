@@ -32,11 +32,11 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `storage.db_path` | string | `data/memory.db` | SQLite 数据库文件路径 |
-| `storage.markdown_path` | string | `data/memory/entries/` | Markdown 记忆条目目录 |
-| `storage.memory_md_path` | string | `data/memory/MEMORY.md` | dreaming 产出的行为规则文件路径 |
+| `storage.db_path` | string | `memory/memory.db` | SQLite 数据库文件路径 |
+| `storage.markdown_path` | string | `memory/entries/` | Markdown 记忆条目目录 |
+| `storage.memory_md_path` | string | `memory/MEMORY.md` | dreaming 产出的行为规则文件路径 |
 
-路径均相对于 CloseClaw 数据目录（`~/.closeclaw/data/`）。
+路径均相对于 CloseClaw 数据根目录（`~/.closeclaw/`，见 [platform](../platform/README.md)）。
 
 ### 挖掘（memory-miner）
 
@@ -86,7 +86,7 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `dreaming.diary.enabled` | bool | `true` | dreaming 开启后默认打开 |
-| `dreaming.diary.path` | string | `data/memory/diary/` | 日记文件目录 |
+| `dreaming.diary.path` | string | `memory/diary/` | 日记文件目录 |
 
 ### 搜索（active-searcher）
 
