@@ -176,7 +176,8 @@ pub fn load_checkpoint_inner(
         .prepare(
             "SELECT agent_id, role, channel, chat_id, status, title,
              last_message_at, created_at, archived_at, message_count, metadata, thread_id,
-             sender_id, platform, peer_id, account_id, parent_session_id, depth
+             sender_id, platform, peer_id, account_id, parent_session_id, depth,
+             mined, dreaming_status
              FROM sessions WHERE id = ?1",
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -201,6 +202,8 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<String>>(15)?,
             row.get::<_, Option<String>>(16)?,
             row.get::<_, Option<String>>(17)?,
+            row.get::<_, Option<String>>(18)?,
+            row.get::<_, Option<String>>(19)?,
         ))
     }) {
         Ok(r) => r,
@@ -227,9 +230,22 @@ pub fn load_checkpoint_inner(
         account_id_new,
         parent_session_id,
         depth_str,
+        mined_raw,
+        dreaming_status_raw,
     ) = row;
 
     let depth: u32 = depth_str.and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    // mined: handle both INTEGER (0/1) and TEXT ("0"/"1") representations
+    let mined: bool = mined_raw
+        .as_deref()
+        .map(|s| s != "0" && s != "" && s != "false")
+        .unwrap_or(false);
+
+    // dreaming_status: handle missing or empty string
+    let dreaming_status = crate::session::persistence::dreaming_status_from_db(
+        dreaming_status_raw.as_deref().unwrap_or("completed"),
+    );
 
     let status = match status_db.as_str() {
         "archived" => crate::session::persistence::SessionStatus::Archived,
@@ -336,6 +352,8 @@ pub fn load_checkpoint_inner(
         sender_id,
         parent_session_id,
         depth,
+        mined,
+        dreaming_status,
         effective_max_spawn_depth: None,
     }))
 }

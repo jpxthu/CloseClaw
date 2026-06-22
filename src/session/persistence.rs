@@ -80,6 +80,16 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON。
     #[serde(default)]
     pub effective_max_spawn_depth: Option<u32>,
+    /// 是否已被 memory-miner 挖掘
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 false）。
+    #[serde(default)]
+    pub mined: bool,
+    /// dreaming 处理状态（Light → REM → Deep → Completed）
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Completed）。
+    #[serde(default)]
+    pub dreaming_status: DreamingStatus,
 }
 
 impl SessionCheckpoint {
@@ -110,6 +120,8 @@ impl SessionCheckpoint {
             parent_session_id: None,
             depth: 0,
             effective_max_spawn_depth: None,
+            mined: false,
+            dreaming_status: DreamingStatus::default(),
         }
     }
 
@@ -216,6 +228,16 @@ impl SessionCheckpoint {
         self.effective_max_spawn_depth = depth;
         self
     }
+    /// Update the mined flag
+    pub fn with_mined(mut self, mined: bool) -> Self {
+        self.mined = mined;
+        self
+    }
+    /// Update the dreaming status
+    pub fn with_dreaming_status(mut self, status: DreamingStatus) -> Self {
+        self.dreaming_status = status;
+        self
+    }
     /// Touch the updated_at timestamp
     pub fn touch(&mut self) {
         self.updated_at = Utc::now();
@@ -310,6 +332,39 @@ impl std::fmt::Display for ReasoningMode {
     }
 }
 
+/// Dreaming Status — 会话 dreaming 处理状态
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DreamingStatus {
+    /// 未开始 dreaming（初始状态）
+    #[serde(rename = "pending")]
+    Pending,
+    /// Light 阶段处理中
+    #[serde(rename = "in_light")]
+    InLight,
+    /// REM 阶段处理中
+    #[serde(rename = "in_rem")]
+    InRem,
+    /// Deep 阶段处理中
+    #[serde(rename = "in_deep")]
+    InDeep,
+    /// dreaming 完成
+    #[default]
+    #[serde(rename = "completed")]
+    Completed,
+}
+
+impl std::fmt::Display for DreamingStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DreamingStatus::Pending => write!(f, "pending"),
+            DreamingStatus::InLight => write!(f, "in_light"),
+            DreamingStatus::InRem => write!(f, "in_rem"),
+            DreamingStatus::InDeep => write!(f, "in_deep"),
+            DreamingStatus::Completed => write!(f, "completed"),
+        }
+    }
+}
+
 /// Session Status — 会话生命周期状态
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -364,6 +419,28 @@ pub enum AgentRole {
     MainAgent,
     /// 分身智能体
     SubAgent,
+}
+
+/// Convert DreamingStatus to/from database string representation
+pub fn dreaming_status_to_db(s: &DreamingStatus) -> &'static str {
+    match s {
+        DreamingStatus::Pending => "pending",
+        DreamingStatus::InLight => "in_light",
+        DreamingStatus::InRem => "in_rem",
+        DreamingStatus::InDeep => "in_deep",
+        DreamingStatus::Completed => "completed",
+    }
+}
+
+/// Convert database string to DreamingStatus
+pub fn dreaming_status_from_db(s: &str) -> DreamingStatus {
+    match s {
+        "pending" => DreamingStatus::Pending,
+        "in_light" => DreamingStatus::InLight,
+        "in_rem" => DreamingStatus::InRem,
+        "in_deep" => DreamingStatus::InDeep,
+        _ => DreamingStatus::Completed,
+    }
 }
 
 /// Persistence errors
@@ -464,6 +541,30 @@ pub trait PersistenceService: Send + Sync {
     ) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
     }
+
+    /// 列出已归档且尚未被 memory-miner 挖掘的 session ID
+    async fn list_archived_unmined_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    /// 列出已挖掘（mined=true）但 dreaming 未完成的 session ID
+    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    /// 标记指定 session 已被 memory-miner 挖掘
+    async fn mark_mined(&self, _session_id: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    /// 更新指定 session 的 dreaming 状态
+    async fn update_dreaming_status(
+        &self,
+        _session_id: &str,
+        _status: DreamingStatus,
+    ) -> Result<(), PersistenceError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -534,5 +635,105 @@ mod tests {
         let checkpoint =
             SessionCheckpoint::new("sess_2".into()).with_reasoning_level(ReasoningLevel::Low);
         assert_eq!(checkpoint.reasoning_level, ReasoningLevel::Low);
+    }
+
+    #[test]
+    fn test_dreaming_status_default_is_completed() {
+        assert_eq!(DreamingStatus::default(), DreamingStatus::Completed);
+    }
+
+    #[test]
+    fn test_dreaming_status_display() {
+        assert_eq!(DreamingStatus::Pending.to_string(), "pending");
+        assert_eq!(DreamingStatus::InLight.to_string(), "in_light");
+        assert_eq!(DreamingStatus::InRem.to_string(), "in_rem");
+        assert_eq!(DreamingStatus::InDeep.to_string(), "in_deep");
+        assert_eq!(DreamingStatus::Completed.to_string(), "completed");
+    }
+
+    #[test]
+    fn test_dreaming_status_serde_roundtrip() {
+        for status in [
+            DreamingStatus::Pending,
+            DreamingStatus::InLight,
+            DreamingStatus::InRem,
+            DreamingStatus::InDeep,
+            DreamingStatus::Completed,
+        ] {
+            let json = serde_json::to_string(&status).unwrap();
+            let parsed: DreamingStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(status, parsed);
+        }
+    }
+
+    #[test]
+    fn test_dreaming_status_deserialize_from_string() {
+        assert_eq!(
+            serde_json::from_str::<DreamingStatus>("\"pending\"").unwrap(),
+            DreamingStatus::Pending
+        );
+        assert_eq!(
+            serde_json::from_str::<DreamingStatus>("\"in_light\"").unwrap(),
+            DreamingStatus::InLight
+        );
+        assert_eq!(
+            serde_json::from_str::<DreamingStatus>("\"completed\"").unwrap(),
+            DreamingStatus::Completed
+        );
+    }
+
+    #[test]
+    fn test_session_checkpoint_new_mined_defaults_false() {
+        let checkpoint = SessionCheckpoint::new("sess_mined".into());
+        assert!(!checkpoint.mined, "mined should default to false");
+        assert_eq!(checkpoint.dreaming_status, DreamingStatus::Completed);
+    }
+
+    #[test]
+    fn test_session_checkpoint_with_mined() {
+        let checkpoint = SessionCheckpoint::new("sess_mined".into()).with_mined(true);
+        assert!(checkpoint.mined);
+    }
+
+    #[test]
+    fn test_session_checkpoint_with_dreaming_status() {
+        let checkpoint =
+            SessionCheckpoint::new("sess_dream".into()).with_dreaming_status(DreamingStatus::InRem);
+        assert_eq!(checkpoint.dreaming_status, DreamingStatus::InRem);
+    }
+
+    #[test]
+    fn test_session_checkpoint_mined_dreaming_status_roundtrip() {
+        let cp = SessionCheckpoint::new("s-roundtrip-md".into())
+            .with_mined(true)
+            .with_dreaming_status(DreamingStatus::InLight);
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert!(parsed.mined);
+        assert_eq!(parsed.dreaming_status, DreamingStatus::InLight);
+    }
+
+    #[test]
+    fn test_session_checkpoint_mined_dreaming_status_missing_json_defaults() {
+        let cp = SessionCheckpoint::new("s-old-json-md".into())
+            .with_mined(true)
+            .with_dreaming_status(DreamingStatus::InDeep);
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        json_value.as_object_mut().unwrap().remove("mined");
+        json_value
+            .as_object_mut()
+            .unwrap()
+            .remove("dreaming_status");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            !parsed.mined,
+            "old data without mined should default to false"
+        );
+        assert_eq!(
+            parsed.dreaming_status,
+            DreamingStatus::Completed,
+            "old data without dreaming_status should default to Completed"
+        );
     }
 }

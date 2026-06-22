@@ -3,7 +3,9 @@
 //! This backend stores checkpoints in memory using a `HashMap` protected by an `RwLock`.
 //! Suitable for testing and single-instance deployments.
 
-use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::session::persistence::{
+    DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
+};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -128,13 +130,90 @@ impl PersistenceService for MemoryStorage {
             .collect();
         Ok(children)
     }
+
+    async fn list_archived_unmined_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        let archived = self
+            .archived
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        let unmined: Vec<String> = archived
+            .values()
+            .filter(|cp| !cp.mined)
+            .map(|cp| cp.session_id.clone())
+            .collect();
+        Ok(unmined)
+    }
+
+    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        let checkpoints = self
+            .checkpoints
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        let archived = self
+            .archived
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        let mut result = Vec::new();
+        for cp in checkpoints.values().chain(archived.values()) {
+            if cp.mined && cp.dreaming_status != DreamingStatus::Completed {
+                result.push(cp.session_id.clone());
+            }
+        }
+        result.sort();
+        result.dedup();
+        Ok(result)
+    }
+
+    async fn mark_mined(&self, session_id: &str) -> Result<(), PersistenceError> {
+        let mut checkpoints = self
+            .checkpoints
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        if let Some(cp) = checkpoints.get_mut(session_id) {
+            cp.mined = true;
+            return Ok(());
+        }
+        let mut archived = self
+            .archived
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        if let Some(cp) = archived.get_mut(session_id) {
+            cp.mined = true;
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    async fn update_dreaming_status(
+        &self,
+        session_id: &str,
+        status: DreamingStatus,
+    ) -> Result<(), PersistenceError> {
+        let mut checkpoints = self
+            .checkpoints
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        if let Some(cp) = checkpoints.get_mut(session_id) {
+            cp.dreaming_status = status;
+            return Ok(());
+        }
+        let mut archived = self
+            .archived
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        if let Some(cp) = archived.get_mut(session_id) {
+            cp.dreaming_status = status;
+            return Ok(());
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::session::persistence::{
-        ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
+        DreamingStatus, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
     };
     use chrono::Utc;
 
@@ -168,6 +247,8 @@ mod tests {
             parent_session_id: None,
             depth: 0,
             effective_max_spawn_depth: None,
+            mined: false,
+            dreaming_status: DreamingStatus::default(),
         }
     }
 
