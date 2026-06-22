@@ -1,4 +1,5 @@
 use super::*;
+use crate::daemon::shutdown::ShutdownMode;
 use crate::gateway::{GatewayConfig, Message};
 use crate::llm::session::ConversationSession;
 use crate::session::bootstrap::BootstrapMode;
@@ -137,7 +138,7 @@ async fn test_flush_all_no_storage() {
         BootstrapMode::Full,
         ReasoningLevel::default(),
     );
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 }
@@ -152,7 +153,7 @@ async fn test_flush_all_empty_sessions() {
         BootstrapMode::Full,
         ReasoningLevel::default(),
     );
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 }
@@ -176,7 +177,7 @@ async fn test_flush_all_saves_checkpoints() {
         }
     }
 
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 3);
 
@@ -213,7 +214,7 @@ async fn test_flush_all_partial_failure() {
         }
     }
 
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 2);
 
@@ -284,7 +285,7 @@ async fn test_flush_all_with_pending_messages() {
         conv_sessions.insert(session_id.to_string(), conv_session);
     }
 
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
 
@@ -331,7 +332,7 @@ async fn test_flush_all_without_pending_messages() {
         conv_sessions.insert(session_id.to_string(), conv_session);
     }
 
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
 
@@ -361,7 +362,7 @@ async fn test_flush_all_no_conversation_session() {
         sessions.insert(session_id.to_string(), make_test_session(session_id));
     }
 
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
 
