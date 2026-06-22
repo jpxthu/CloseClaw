@@ -135,7 +135,7 @@ impl SessionManager {
                 progress_tx,
                 &level[idx],
                 success,
-                remaining.saturating_sub(count - idx - 1),
+                remaining.saturating_sub(idx + 1),
             )
             .await;
         }
