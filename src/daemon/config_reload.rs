@@ -9,7 +9,7 @@ use crate::config::manager::ConfigManager;
 use crate::config::reload::{ConfigReloadManager, WatcherHandle};
 use crate::gateway::SessionManager;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// RAII handle for the config hot-reload system.
 ///
@@ -34,48 +34,42 @@ fn spawn_config_change_subscriber(
     let mut snapshot_rx = config_manager.subscribe_config_snapshots();
     tokio::spawn(async move {
         loop {
-            tokio::select! {
-                event = event_rx.recv() => {
-                    match event {
-                        Ok(ConfigChangeEvent::Reloaded { section }) => {
-                            info!(
-                                section = %section,
-                                "config change event received, notifying sessions"
-                            );
-                            // Block until the matching snapshot arrives.
-                            let snapshot = match snapshot_rx.recv().await {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    warn!(
-                                        section = %section,
-                                        error = %e,
-                                        "failed to receive config snapshot, skipping session notification"
-                                    );
-                                    continue;
-                                }
-                            };
-                            session_manager
-                                .notify_config_changed(section, snapshot)
-                                .await;
-                        }
-                        Ok(ConfigChangeEvent::Failed { section, error }) => {
+            let event = event_rx.recv().await;
+            match event {
+                Ok(ConfigChangeEvent::Reloaded { section }) => {
+                    info!(
+                        section = %section,
+                        "config change event received, notifying sessions"
+                    );
+                    // Block until the matching snapshot arrives.
+                    let snapshot = match snapshot_rx.recv().await {
+                        Ok(s) => s,
+                        Err(e) => {
                             warn!(
                                 section = %section,
-                                error = %error,
-                                "config change event failed, skipping session notification"
+                                error = %e,
+                                "failed to receive config snapshot, skipping session notification"
                             );
+                            continue;
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            warn!(missed = n, "config change subscriber lagged, missed events");
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            info!("config change broadcast channel closed, subscriber exiting");
-                            break;
-                        }
-                    }
+                    };
+                    session_manager
+                        .notify_config_changed(section, snapshot)
+                        .await;
                 }
-                _ = snapshot_rx.recv() => {
-                    debug!("snapshot received without paired event, ignoring");
+                Ok(ConfigChangeEvent::Failed { section, error }) => {
+                    warn!(
+                        section = %section,
+                        error = %error,
+                        "config change event failed, skipping session notification"
+                    );
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    warn!(missed = n, "config change subscriber lagged, missed events");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    info!("config change broadcast channel closed, subscriber exiting");
+                    break;
                 }
             }
         }
