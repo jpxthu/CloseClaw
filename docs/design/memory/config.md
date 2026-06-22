@@ -31,8 +31,6 @@ per-agent 覆盖（agents/<agent_id>/config.json 中的 memory 段）
 
 mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才激活。
 
-## 配置项
-
 ### 存储
 
 | 字段 | 类型 | 默认值 | 说明 |
