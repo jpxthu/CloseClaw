@@ -16,7 +16,7 @@ use crate::session::workspace;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{info, warn};
 
 impl SessionManager {
     /// Extract tool/skill filter configuration from an agent config.
@@ -106,13 +106,17 @@ impl SessionManager {
                             )
                             .await;
 
-                            let conv_session = ConversationSession::new(
+                            let mut conv_session = ConversationSession::new(
                                 session_id.clone(),
                                 "default".to_string(),
                                 workdir_path,
                             )
                             .with_system_prompt(prompt)
                             .with_reasoning_level(self.default_reasoning_level);
+                            // Wire shutdown handle for busy-count tracking.
+                            if let Some(sh) = self.get_shutdown_handle().await {
+                                conv_session.set_shutdown_handle(sh);
+                            }
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -126,6 +130,35 @@ impl SessionManager {
                                 let mut cs = cs.write().await;
                                 cs.restore_pending_messages(cp.pending_messages.clone());
                                 cs.restore_system_appends(cp.system_appends.clone());
+                            }
+                        }
+
+                        // Inject recovery notifications and tool failure results
+                        // from checkpoint (set by SessionRecoveryService during startup).
+                        if let Some(ref notification) = cp.recovery_notification {
+                            let cs = self.conversation_sessions.read().await;
+                            if let Some(cs) = cs.get(&session_id) {
+                                let mut cs = cs.write().await;
+                                cs.inject_system_message(notification.clone());
+                                for failure in &cp.pending_tool_failures {
+                                    // Extract op_id from the JSON failure string to use
+                                    // as tool_call_id.  Falls back to "recovery" if parsing
+                                    // fails (defensive — the JSON is built by the recovery
+                                    // service and always contains op_id).
+                                    let tool_call_id =
+                                        serde_json::from_str::<serde_json::Value>(failure)
+                                            .ok()
+                                            .and_then(|v| {
+                                                v.get("op_id")?.as_str().map(String::from)
+                                            })
+                                            .unwrap_or_else(|| "recovery".to_string());
+                                    cs.inject_tool_result(&tool_call_id, failure);
+                                }
+                                info!(
+                                    session_id = %session_id,
+                                    "injected recovery notification and {} tool failure(s)",
+                                    cp.pending_tool_failures.len()
+                                );
                             }
                         }
 
@@ -203,10 +236,14 @@ impl SessionManager {
         };
 
         // Create ConversationSession
-        let conv_session =
+        let mut conv_session =
             ConversationSession::new(session_id.clone(), "default".to_string(), workdir_path)
                 .with_system_prompt(prompt)
                 .with_reasoning_level(self.default_reasoning_level);
+        // Wire shutdown handle for busy-count tracking.
+        if let Some(sh) = self.get_shutdown_handle().await {
+            conv_session.set_shutdown_handle(sh);
+        }
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

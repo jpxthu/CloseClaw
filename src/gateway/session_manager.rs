@@ -5,7 +5,7 @@
 
 use crate::config::manager::{ConfigManager, ConfigSnapshot};
 use crate::config::ConfigSection;
-use crate::daemon::shutdown::ShutdownMode;
+use crate::daemon::shutdown::{ShutdownHandle, ShutdownMode};
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
@@ -76,6 +76,8 @@ pub struct SessionManager {
     /// Latest config snapshot; swapped atomically on each hot-reload.
     /// The old snapshot is released when all Arc references are dropped.
     config_snapshot: RwLock<Option<ConfigSnapshot>>,
+    /// Shutdown handle for busy-count tracking during drain.
+    shutdown_handle: RwLock<Option<Arc<ShutdownHandle>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -114,6 +116,7 @@ impl SessionManager {
             config_manager: RwLock::new(None),
             agent_registry: RwLock::new(None),
             config_snapshot: RwLock::new(None),
+            shutdown_handle: RwLock::new(None),
         }
     }
 
@@ -162,6 +165,16 @@ impl SessionManager {
     #[allow(dead_code)] // used in tests
     pub(crate) async fn get_config_snapshot(&self) -> Option<ConfigSnapshot> {
         self.config_snapshot.read().await.clone()
+    }
+
+    /// Set the shutdown handle for busy-count tracking.
+    pub async fn set_shutdown_handle(&self, handle: Arc<ShutdownHandle>) {
+        *self.shutdown_handle.write().await = Some(handle);
+    }
+
+    /// Get a clone of the shutdown handle, if set.
+    pub(crate) async fn get_shutdown_handle(&self) -> Option<Arc<ShutdownHandle>> {
+        self.shutdown_handle.read().await.clone()
     }
 
     /// Set the tool registry for building system prompt ToolsSection.

@@ -355,6 +355,9 @@ pub fn load_checkpoint_inner(
         mined,
         dreaming_status,
         effective_max_spawn_depth: None,
+        pending_operations: Vec::new(),
+        recovery_notification: None,
+        pending_tool_failures: Vec::new(),
     }))
 }
 

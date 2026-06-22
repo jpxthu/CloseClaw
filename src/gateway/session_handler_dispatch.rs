@@ -69,8 +69,16 @@ impl SessionMessageHandler {
         // fall back to the non-streaming path with a warning.
         let gw_for_task = gateway.map(Arc::clone);
         let plugin_for_task = plugin.map(Arc::clone);
+        // Clone the shutdown handle for busy-count tracking inside the
+        // spawned task. The handle is optional (tests may not set one).
+        let shutdown_handle = self.shutdown_handle.clone();
 
         tokio::spawn(async move {
+            // Increment busy count at message dequeue (start of processing).
+            if let Some(ref h) = shutdown_handle {
+                h.increment_busy();
+            }
+
             // Check if streaming is enabled for this session
             let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.stream_enabled()
@@ -106,6 +114,11 @@ impl SessionMessageHandler {
                     .map(Into::into)
             };
             Self::finish_llm(&sm, &session_id, result, &ufc, &output_tx).await;
+
+            // Decrement busy count after response sent + pending drained.
+            if let Some(ref h) = shutdown_handle {
+                h.decrement_busy();
+            }
         });
 
         HandleResult::LlmStarted

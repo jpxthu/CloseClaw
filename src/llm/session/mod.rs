@@ -120,6 +120,8 @@ pub struct ConversationSession {
     /// push or state mutation.  Used by the shutdown progress card to
     /// display accurate "elapsed since last activity" instead of session age.
     last_activity_at: i64,
+    /// Shutdown handle for busy-count tracking during tool execution.
+    shutdown_handle: Option<Arc<crate::daemon::shutdown::ShutdownHandle>>,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -157,6 +159,7 @@ impl ConversationSession {
             stopped: Arc::new(AtomicBool::new(false)),
             communication_config: None,
             last_activity_at: Utc::now().timestamp(),
+            shutdown_handle: None,
         }
     }
 
@@ -215,6 +218,18 @@ impl ConversationSession {
     /// Returns the communication configuration, if set.
     pub fn communication_config(&self) -> Option<&CommunicationConfig> {
         self.communication_config.as_ref()
+    }
+
+    /// Set the shutdown handle for busy-count tracking during tool execution.
+    pub fn set_shutdown_handle(&mut self, handle: Arc<crate::daemon::shutdown::ShutdownHandle>) {
+        self.shutdown_handle = Some(handle);
+    }
+
+    /// Get a clone of the shutdown handle, if set.
+    pub(crate) fn get_shutdown_handle(
+        &self,
+    ) -> Option<Arc<crate::daemon::shutdown::ShutdownHandle>> {
+        self.shutdown_handle.clone()
     }
 
     /// Returns the current reasoning level.
@@ -355,6 +370,89 @@ impl ConversationSession {
     /// Inject a system message into the conversation history.
     pub fn inject_system_message(&mut self, text: String) {
         self.push_message("system", vec![ContentBlock::Text(text)]);
+    }
+
+    /// Inject a tool result into the conversation history.
+    ///
+    /// Used by the recovery path to inject failure results for pending
+    /// tool calls so the LLM sees a natural tool-result response.
+    pub fn inject_tool_result(&mut self, tool_call_id: &str, content: &str) {
+        self.push_message(
+            "tool",
+            vec![ContentBlock::ToolResult {
+                tool_call_id: tool_call_id.to_string(),
+                content: content.to_string(),
+            }],
+        );
+    }
+
+    /// Collect pending operations from the current session state.
+    ///
+    /// Scans tool_states, child_states, and pending_messages to build a
+    /// list of operations that were in progress when the session stopped.
+    /// Used by the shutdown path to record what needs recovery on restart.
+    pub fn collect_pending_operations(&self) -> Vec<crate::session::persistence::PendingOperation> {
+        use crate::llm::session_state::{ChildSessionState, ToolExecState};
+        use crate::session::persistence::{PendingOperation, PendingOperationType};
+        use chrono::Utc;
+
+        let mut ops = Vec::new();
+        let now = Utc::now();
+
+        // Tool calls in progress or pending
+        {
+            let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
+            for (tool_id, state) in tool_states.iter() {
+                if matches!(
+                    state,
+                    ToolExecState::RunningForeground
+                        | ToolExecState::RunningBackground
+                        | ToolExecState::Pending
+                ) {
+                    ops.push(PendingOperation {
+                        op_id: tool_id.clone(),
+                        op_type: PendingOperationType::ToolCall,
+                        name: tool_id.clone(),
+                        args: String::new(),
+                        created_at: now,
+                    });
+                }
+            }
+        }
+
+        // Child sessions in progress
+        {
+            let child_states = self
+                .child_states
+                .read()
+                .expect("child_states lock poisoned");
+            for (child_id, state) in child_states.iter() {
+                if matches!(state, ChildSessionState::Running) {
+                    ops.push(PendingOperation {
+                        op_id: child_id.clone(),
+                        op_type: PendingOperationType::SubSessionSpawn,
+                        name: child_id.clone(),
+                        args: String::new(),
+                        created_at: now,
+                    });
+                }
+            }
+        }
+
+        // Unsold pending messages (outbound)
+        for pm in &self.pending_messages {
+            if !pm.sent {
+                ops.push(PendingOperation {
+                    op_id: pm.message_id.clone(),
+                    op_type: PendingOperationType::OutboundMessage,
+                    name: pm.message_id.clone(),
+                    args: pm.content.clone(),
+                    created_at: pm.created_at,
+                });
+            }
+        }
+
+        ops
     }
 }
 

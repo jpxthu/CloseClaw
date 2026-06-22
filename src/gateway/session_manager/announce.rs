@@ -151,6 +151,14 @@ impl SessionManager {
             );
         }
 
+        // ── Decrement busy count for drain tracking ────────────────────
+        // The child session result has been injected into the parent;
+        // decrement the parent's busy count that was incremented in
+        // `create_child_session`.
+        if let Some(sh) = self.get_shutdown_handle().await {
+            sh.decrement_busy();
+        }
+
         // Unregister child handle from parent's ConversationSession.
         // This cleans up the Weak reference so the parent's child_handles
         // map does not accumulate stale entries for completed children.

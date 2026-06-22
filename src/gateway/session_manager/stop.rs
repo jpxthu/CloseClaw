@@ -8,14 +8,17 @@
 //!    parents last.  Same-level sessions stop concurrently.
 //! 3. Per-session behaviour depends on [`ShutdownMode`]:
 //!    - **Graceful**: wait for LLM streaming / tool execution to finish,
-//!      then persist checkpoint.  Skipped if busy timeout exceeded.
+//!      then persist checkpoint.  No hard timeout — the user decides
+//!      when to escalate to forceful mode.
 //!    - **Forceful**: stop immediately, persist checkpoint.
 
 use std::collections::{HashMap, VecDeque};
 
 use crate::daemon::shutdown::ShutdownMode;
 use crate::llm::session_state::LlmState;
-use crate::session::persistence::{PersistenceError, SessionCheckpoint, SessionStatus};
+use crate::session::persistence::{
+    PendingOperation, PersistenceError, SessionCheckpoint, SessionStatus,
+};
 
 use super::SessionManager;
 
@@ -36,10 +39,6 @@ impl StopResult {
         self.succeeded + self.failed + self.skipped
     }
 }
-
-/// Default per-session grace period (seconds) in graceful mode.
-/// After this, a still-busy session is force-stopped.
-const GRACEFUL_TIMEOUT_SECS: u64 = 10;
 
 // ── public API ──────────────────────────────────────────────────────────
 
@@ -231,8 +230,9 @@ impl SessionManager {
     /// Stop a single session and persist its checkpoint.
     ///
     /// Behaviour depends on `mode`:
-    /// - Graceful: if LLM is streaming, poll for idle (up to
-    ///   [`GRACEFUL_TIMEOUT_SECS`]) before stopping.
+    /// - Graceful: wait for LLM streaming and tool execution to
+    ///   finish naturally (no hard timeout — the user decides when
+    ///   to escalate to forceful mode).
     /// - Forceful: stop immediately regardless of state.
     async fn stop_single_session(
         &self,
@@ -244,10 +244,17 @@ impl SessionManager {
             .await
             .ok_or(StopError::Skipped)?;
 
+        // Collect pending operations before stopping (for forceful mode).
+        let pending_ops: Vec<PendingOperation> = if mode == ShutdownMode::Forceful {
+            let guard = cs.read().await;
+            guard.collect_pending_operations()
+        } else {
+            Vec::new()
+        };
+
         // Graceful: wait for LLM streaming and tool execution to finish.
+        // No hard timeout — the user decides when to escalate to forceful.
         if mode == ShutdownMode::Graceful {
-            let deadline = tokio::time::Instant::now()
-                + tokio::time::Duration::from_secs(GRACEFUL_TIMEOUT_SECS);
             loop {
                 let (is_streaming, has_running_tools) = {
                     let guard = cs.read().await;
@@ -268,17 +275,12 @@ impl SessionManager {
                     break;
                 }
 
-                if tokio::time::Instant::now() >= deadline {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        streaming = is_streaming,
-                        running_tools = has_running_tools,
-                        "graceful stop: session still active after {}s, force-stopping",
-                        GRACEFUL_TIMEOUT_SECS
-                    );
-                    break;
-                }
-
+                tracing::debug!(
+                    session_id = %session_id,
+                    streaming = is_streaming,
+                    running_tools = has_running_tools,
+                    "graceful stop: session still active, waiting for completion"
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         }
@@ -287,7 +289,10 @@ impl SessionManager {
         cs.read().await.stop(false).await;
 
         // Persist checkpoint.
-        if let Err(e) = self.persist_checkpoint(session_id).await {
+        if let Err(e) = self
+            .persist_checkpoint_with_pending(session_id, pending_ops)
+            .await
+        {
             tracing::warn!(
                 session_id = %session_id,
                 error = %e,
@@ -302,12 +307,16 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Persist a session checkpoint to storage.
+    /// Persist a session checkpoint with optional pending operations.
     ///
-    /// Mirrors the persist logic in `flush_all` — loads existing
-    /// checkpoint (preserving fields like `thread_id`) or creates
-    /// a fresh one, then saves.
-    async fn persist_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
+    /// When `pending_ops` is non-empty (forceful shutdown), the operations
+    /// are recorded in the checkpoint so the recovery service can inject
+    /// failure results on restart.
+    async fn persist_checkpoint_with_pending(
+        &self,
+        session_id: &str,
+        pending_ops: Vec<PendingOperation>,
+    ) -> Result<(), PersistenceError> {
         let storage = {
             let guard = self.storage.read().await;
             match guard.as_ref() {
@@ -367,6 +376,11 @@ impl SessionManager {
                 let guard = cs.read().await;
                 cp.system_appends = guard.system_appends().to_vec();
             }
+        }
+
+        // Record pending operations from forceful shutdown.
+        if !pending_ops.is_empty() {
+            cp.pending_operations = pending_ops;
         }
 
         storage.save_checkpoint(&cp).await

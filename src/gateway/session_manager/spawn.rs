@@ -122,6 +122,23 @@ impl SessionManager {
         parent_subagents_model: Option<&str>,
         max_spawn_depth: u32,
     ) -> Result<String, String> {
+        // ── Increment busy count for drain tracking ────────────────────
+        if let Some(sh) = self.get_shutdown_handle().await {
+            sh.increment_busy();
+        }
+
+        // ── Shutdown gate: reject new child session creation ──────────
+        if let Some(sh) = self.get_shutdown_handle().await {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    parent_session_id = %parent_session_id,
+                    "rejecting child session creation: daemon is shutting down"
+                );
+                sh.decrement_busy();
+                return Err("daemon is shutting down".into());
+            }
+        }
+
         // Apply tool whitelist override: when allowed_tools is provided,
         // replace the config's tools list so the child session only has
         // access to the specified tools.
@@ -241,6 +258,11 @@ impl SessionManager {
         )
         .with_system_prompt(prompt)
         .with_reasoning_level(self.default_reasoning_level);
+
+        // Wire shutdown handle for busy-count tracking.
+        if let Some(sh) = self.get_shutdown_handle().await {
+            cs.set_shutdown_handle(sh);
+        }
 
         // 5b. Generate communication config: child may only
         //     communicate with its parent agent.

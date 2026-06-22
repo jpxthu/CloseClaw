@@ -171,6 +171,8 @@ pub struct Gateway {
     /// the slot is `None`; the handler falls back to the non-streaming
     /// path in that case.
     self_ref: std::sync::Mutex<Option<Arc<Gateway>>>,
+    /// Shutdown handle for busy-count tracking during drain.
+    shutdown_handle: std::sync::Mutex<Option<Arc<crate::daemon::shutdown::ShutdownHandle>>>,
 }
 
 impl Gateway {
@@ -187,6 +189,7 @@ impl Gateway {
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
             self_ref: std::sync::Mutex::new(None),
+            shutdown_handle: std::sync::Mutex::new(None),
         }
     }
 
@@ -207,6 +210,7 @@ impl Gateway {
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
             self_ref: std::sync::Mutex::new(None),
+            shutdown_handle: std::sync::Mutex::new(None),
         }
     }
 
@@ -237,6 +241,20 @@ impl Gateway {
         if let Ok(mut slot) = self.self_ref.lock() {
             *slot = Some(arc);
         }
+    }
+
+    /// Set the shutdown handle for busy-count tracking during drain.
+    pub fn set_shutdown_handle(&self, handle: Arc<crate::daemon::shutdown::ShutdownHandle>) {
+        if let Ok(mut slot) = self.shutdown_handle.lock() {
+            *slot = Some(handle);
+        }
+    }
+
+    /// Get a clone of the shutdown handle, if set.
+    pub(crate) fn get_shutdown_handle(
+        &self,
+    ) -> Option<Arc<crate::daemon::shutdown::ShutdownHandle>> {
+        self.shutdown_handle.lock().ok().and_then(|s| s.clone())
     }
 
     #[cfg(test)]
@@ -287,6 +305,17 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
+        // ── Shutdown gate: reject new operations ──────────────────────
+        if let Some(sh) = self.get_shutdown_handle() {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "rejecting inbound message: daemon is shutting down"
+                );
+                return None;
+            }
+        }
+
         // ── Approval command interception ──────────────────────────────
         if let Some(result) = self
             .try_handle_approval_command(session_id, &content, sender_id)
@@ -321,14 +350,18 @@ impl Gateway {
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
             };
-            return Some(
-                handler
-                    .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
-                    .await,
-            );
+            let result = handler
+                .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
+                .await;
+            // NOTE: No decrement_busy here — the handler's spawned task
+            // (finish_llm) is responsible for decrementing on async paths.
+            return Some(result);
         }
 
-        Some(handler.handle_message(session_id, content).await)
+        let result = handler.handle_message(session_id, content).await;
+        // NOTE: No decrement_busy here — the handler's spawned task
+        // (finish_llm) is responsible for decrementing on async paths.
+        Some(result)
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).
