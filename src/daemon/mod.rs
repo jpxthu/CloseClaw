@@ -24,6 +24,8 @@ use crate::slash::{
     StopHandler,
 };
 
+use crate::memory::dreaming::DreamingPipeline;
+use crate::memory::miner::MemoryMiner;
 use crate::permission::approval_flow::ApprovalFlow;
 use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use crate::session::bootstrap::BootstrapMode;
@@ -80,6 +82,8 @@ pub struct Daemon {
     pub storage: Arc<SqliteStorage>,
     /// Shutdown sender for ArchiveSweeper
     pub sweeper_shutdown_tx: watch::Sender<()>,
+    /// Shutdown sender for DreamingScheduler
+    pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
     /// Shared skill registry, updated on hot reload
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Skill file watcher handle (RAII: stops on drop)
@@ -239,6 +243,8 @@ impl Daemon {
                     crate::config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
                 )
             });
+        // Clone for DreamingScheduler before sweeper takes ownership.
+        let dreaming_config_provider = Arc::clone(&session_config_provider);
         let sweeper = Arc::new(
             ArchiveSweeper::new(
                 Arc::clone(&storage) as Arc<dyn PersistenceService>,
@@ -251,6 +257,21 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
+
+        // ── DreamingScheduler (layer 3) ────────────────────────────────
+        let (dreaming_tx, dreaming_rx) = watch::channel(());
+        let dreaming_pipeline = Arc::new(DreamingPipeline::new());
+        let memory_miner = Arc::new(MemoryMiner::new());
+        let dreaming_scheduler = crate::daemon::dreaming_scheduler::DreamingScheduler::new(
+            Arc::clone(&storage) as Arc<dyn PersistenceService>,
+            dreaming_config_provider,
+            dreaming_pipeline,
+            memory_miner,
+        );
+        tokio::spawn(async move {
+            dreaming_scheduler.run(dreaming_rx).await;
+        });
+        info!("DreamingScheduler spawned");
         {
             let disk_reg_opt = {
                 let guard = skill_registry.read().unwrap();
@@ -379,6 +400,7 @@ impl Daemon {
             shutdown,
             storage,
             sweeper_shutdown_tx: sweeper_tx,
+            dreaming_scheduler_shutdown_tx: dreaming_tx,
             skill_registry,
             _skill_watcher: Some(skill_watcher),
             _config_watcher: config_watcher,
@@ -399,6 +421,7 @@ impl Daemon {
         // Clear all pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
         let _ = self.sweeper_shutdown_tx.send(());
+        let _ = self.dreaming_scheduler_shutdown_tx.send(());
         // Clean up admin socket file
         let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
         Ok(())
