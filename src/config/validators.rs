@@ -350,8 +350,35 @@ fn validate_plugin_install(name: &str, info: &serde_json::Value) -> Result<(), S
 /// Validate the **system** config section.
 ///
 /// - Top-level must be a JSON object.
+/// - `version`, if present, must be a non-empty string.
+/// - `cron`, if present, must be a JSON object.
 fn validate_system(value: &serde_json::Value) -> Result<(), String> {
-    ensure_object(value, "system")
+    ensure_object(value, "system")?;
+
+    // version field: if present, must be a non-empty string
+    if let Some(version) = value.get("version") {
+        match version {
+            serde_json::Value::String(s) if s.is_empty() => {
+                return Err("system.version cannot be an empty string".to_string());
+            }
+            serde_json::Value::String(_) => {}
+            _ => {
+                return Err("system.version must be a string".to_string());
+            }
+        }
+    }
+
+    // cron field: if present, must be a JSON object
+    if let Some(cron) = value.get("cron") {
+        if !cron.is_object() {
+            return Err(format!(
+                "system.cron must be a JSON object, got {}",
+                type_name(cron)
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Validate the **session** config section.

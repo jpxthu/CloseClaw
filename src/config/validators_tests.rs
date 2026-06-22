@@ -568,6 +568,91 @@ fn test_validate_system_fail_not_object() {
 }
 
 // ---------------------------------------------------------------------------
+// validate_system — version
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_system_pass_version_non_empty() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"version":"1.0"}"#).unwrap();
+    assert!(validate_system(&v).is_ok());
+}
+
+#[test]
+fn test_validate_system_pass_version_absent() {
+    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(validate_system(&v).is_ok());
+}
+
+#[test]
+fn test_validate_system_fail_version_empty_string() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"version":""}"#).unwrap();
+    let err = validate_system(&v).unwrap_err();
+    assert!(
+        err.contains("version cannot be an empty string"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_system_fail_version_not_string() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"version":123}"#).unwrap();
+    let err = validate_system(&v).unwrap_err();
+    assert!(err.contains("version must be a string"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_system_fail_version_null() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"version":null}"#).unwrap();
+    let err = validate_system(&v).unwrap_err();
+    assert!(err.contains("version must be a string"), "error: {}", err);
+}
+
+// ---------------------------------------------------------------------------
+// validate_system — cron
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_system_pass_cron_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"cron":{"enabled":true}}"#).unwrap();
+    assert!(validate_system(&v).is_ok());
+}
+
+#[test]
+fn test_validate_system_pass_cron_absent() {
+    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(validate_system(&v).is_ok());
+}
+
+#[test]
+fn test_validate_system_fail_cron_not_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"cron":"bad"}"#).unwrap();
+    let err = validate_system(&v).unwrap_err();
+    assert!(err.contains("cron must be a JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_system_fail_cron_array() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"cron":[1,2]}"#).unwrap();
+    let err = validate_system(&v).unwrap_err();
+    assert!(err.contains("cron must be a JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_system_fail_cron_bool() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"cron":true}"#).unwrap();
+    let err = validate_system(&v).unwrap_err();
+    assert!(err.contains("cron must be a JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_system_pass_version_and_cron() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"version":"2.0","cron":{"enabled":false}}"#).unwrap();
+    assert!(validate_system(&v).is_ok());
+}
+
+// ---------------------------------------------------------------------------
 // ConfigSection::default_validator / for_section
 // ---------------------------------------------------------------------------
 
