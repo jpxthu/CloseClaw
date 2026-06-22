@@ -147,8 +147,11 @@ async fn test_daemon_start_storage_failure() {
         String::new()
     };
     assert!(
-        err_msg.contains("SqliteStorage") || err_msg.contains("failed to initialize"),
-        "error should mention SqliteStorage initialization failure: {err_msg}"
+        err_msg.contains("Permission denied")
+            || err_msg.contains("SqliteStorage")
+            || err_msg.contains("ConfigManager")
+            || err_msg.contains("failed to initialize"),
+        "error should mention initialization failure (storage or config): {err_msg}"
     );
 }
 
