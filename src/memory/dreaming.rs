@@ -246,7 +246,7 @@ impl DreamingPipeline {
 
         let top_words: Vec<String> = {
             let mut pairs: Vec<_> = word_freq.into_iter().collect();
-            pairs.sort_by(|a, b| b.1.cmp(&a.1));
+            pairs.sort_by_key(|a| std::cmp::Reverse(a.1));
             pairs.into_iter().take(10).map(|(w, _)| w).collect()
         };
 
