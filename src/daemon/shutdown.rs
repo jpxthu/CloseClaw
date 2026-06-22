@@ -564,4 +564,28 @@ mod tests {
         assert!(!handle.is_shutting_down());
         assert!(!handle.is_forceful());
     }
+
+    #[tokio::test]
+    async fn test_graceful_drain_no_timeout_waits_indefinitely() {
+        // After removing the drain timeout, graceful mode waits for busy_count
+        // to reach 0 with no time limit.
+        let handle = ShutdownHandle::new();
+        handle.increment_busy();
+
+        let h = handle.clone();
+        let shutdown_handle = tokio::spawn(async move {
+            h.initiate_shutdown().await;
+        });
+
+        // Wait 800ms — well beyond any reasonable test timeout,
+        // but the drain should still be waiting.
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        assert!(handle.is_shutting_down());
+        assert!(!handle.is_stopped());
+
+        // Release the busy count — drain should complete naturally.
+        handle.decrement_busy();
+        shutdown_handle.await.unwrap();
+        assert!(handle.is_stopped());
+    }
 }
