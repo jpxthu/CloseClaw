@@ -344,6 +344,58 @@ mod tests {
         assert_eq!(msg.thread_id, None);
     }
 
+    // ── lifecycle hook tests (Step 1.1) ──────────────────────────────
+
+    /// close_inbound on FeishuAdapter succeeds (clears cached token).
+    #[tokio::test]
+    async fn test_feishu_adapter_close_inbound_succeeds() {
+        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
+        // Trigger a token fetch attempt (will fail with bad creds, but
+        // that's fine — we just need close_inbound to not panic).
+        adapter.close_inbound().await.unwrap();
+    }
+
+    /// close_outbound on FeishuAdapter succeeds (clears cached token).
+    #[tokio::test]
+    async fn test_feishu_adapter_close_outbound_succeeds() {
+        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
+        adapter.close_outbound().await.unwrap();
+    }
+
+    /// close_inbound on FeishuPlugin delegates to adapter and succeeds.
+    #[tokio::test]
+    async fn test_feishu_plugin_close_inbound() {
+        let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
+        let renderer = Arc::new(FeishuRenderer::new());
+        let plugin = FeishuPlugin::new(adapter, renderer);
+        plugin.close_inbound().await.unwrap();
+    }
+
+    /// close_outbound on FeishuPlugin delegates to adapter and succeeds.
+    #[tokio::test]
+    async fn test_feishu_plugin_close_outbound() {
+        let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
+        let renderer = Arc::new(FeishuRenderer::new());
+        let plugin = FeishuPlugin::new(adapter, renderer);
+        plugin.close_outbound().await.unwrap();
+    }
+
+    /// close_inbound is idempotent — calling twice still succeeds.
+    #[tokio::test]
+    async fn test_feishu_adapter_close_inbound_idempotent() {
+        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
+        adapter.close_inbound().await.unwrap();
+        adapter.close_inbound().await.unwrap();
+    }
+
+    /// close_outbound is idempotent — calling twice still succeeds.
+    #[tokio::test]
+    async fn test_feishu_adapter_close_outbound_idempotent() {
+        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
+        adapter.close_outbound().await.unwrap();
+        adapter.close_outbound().await.unwrap();
+    }
+
     // ── root_id URL encoding test ──────────────────────────────────────
 
     #[test]

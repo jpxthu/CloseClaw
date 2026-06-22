@@ -382,6 +382,7 @@ mod tests {
         register_child_only, setup_parent_with_conv,
     };
     use crate::session::bootstrap::BootstrapMode;
+    use std::sync::Arc;
 
     fn make_test_session_manager() -> SessionManager {
         let config = crate::gateway::GatewayConfig::default();
@@ -521,5 +522,185 @@ mod tests {
         // Parent has no storage → persist_checkpoint returns Ok (no-op).
         // Parent should be stopped.
         assert!(result.succeeded >= 1);
+    }
+
+    // ── multi-layer tree ordering ─────────────────────────────────────
+
+    #[test]
+    fn test_stop_order_three_level_tree() {
+        // root → [child1, child2], child1 → [grandchild_a, grandchild_b],
+        // grandchild_a → great_grandchild
+        let mut tree = HashMap::new();
+        tree.insert(
+            "root".to_string(),
+            vec!["child1".to_string(), "child2".to_string()],
+        );
+        tree.insert(
+            "child1".to_string(),
+            vec!["grandchild_a".to_string(), "grandchild_b".to_string()],
+        );
+        tree.insert(
+            "grandchild_a".to_string(),
+            vec!["great_grandchild".to_string()],
+        );
+
+        let order = stop_order_from_tree(&tree);
+        // 4 levels: [[great_grandchild], [grandchild_a, grandchild_b],
+        //            [child1, child2], [root]]
+        assert_eq!(order.len(), 4);
+        assert_eq!(order[0], vec!["great_grandchild"]);
+        assert_eq!(order[1].len(), 2);
+        assert!(order[1].contains(&"grandchild_a".to_string()));
+        assert!(order[1].contains(&"grandchild_b".to_string()));
+        assert_eq!(order[2].len(), 2);
+        assert!(order[2].contains(&"child1".to_string()));
+        assert!(order[2].contains(&"child2".to_string()));
+        assert_eq!(order[3], vec!["root"]);
+    }
+
+    #[test]
+    fn test_stop_order_multiple_roots() {
+        // Two independent trees: root1 → child1, root2 → child2
+        let mut tree = HashMap::new();
+        tree.insert("root1".to_string(), vec!["child1".to_string()]);
+        tree.insert("root2".to_string(), vec!["child2".to_string()]);
+
+        let order = stop_order_from_tree(&tree);
+        // Leaves first: [[child1, child2], [root1, root2]]
+        assert_eq!(order.len(), 2);
+        assert_eq!(order[0].len(), 2);
+        assert!(order[0].contains(&"child1".to_string()));
+        assert!(order[0].contains(&"child2".to_string()));
+        assert_eq!(order[1].len(), 2);
+        assert!(order[1].contains(&"root1".to_string()));
+        assert!(order[1].contains(&"root2".to_string()));
+    }
+
+    // ── per-state behavior tests ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_stop_sessions_forceful_skips_streaming_wait() {
+        use crate::gateway::session_manager::test_helpers::register_child_only;
+        use crate::llm::session_state::LlmState;
+
+        let mgr = make_test_session_manager();
+        let parent_id = "parent-streaming";
+        setup_parent_with_conv(&mgr, parent_id).await;
+        let child_id = "child-streaming";
+        register_child_only(&mgr, parent_id, child_id, "worker", SpawnMode::Session).await;
+
+        // Create a ConversationSession for the child
+        let cs = Arc::new(tokio::sync::RwLock::new(
+            crate::llm::session::ConversationSession::new(
+                child_id.to_string(),
+                "test-model".to_string(),
+                std::path::PathBuf::from("/tmp"),
+            ),
+        ));
+        // Set LLM state to Receiving (streaming)
+        {
+            let guard = cs.read().await;
+            let mut state = guard.llm_state.write().expect("llm_state lock poisoned");
+            *state = LlmState::Receiving;
+        }
+        mgr.conversation_sessions
+            .write()
+            .await
+            .insert(child_id.to_string(), cs.clone());
+        mgr.sessions.write().await.insert(
+            child_id.to_string(),
+            crate::gateway::Session {
+                id: child_id.to_string(),
+                agent_id: "worker".to_string(),
+                channel: "feishu".to_string(),
+                created_at: chrono::Utc::now().timestamp(),
+                depth: 1,
+            },
+        );
+
+        // Forceful mode should not wait for streaming to finish
+        let start = tokio::time::Instant::now();
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+        let elapsed = start.elapsed();
+
+        // Should complete quickly (not waiting for the full graceful timeout)
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "forceful mode should not wait for streaming, took {:?}",
+            elapsed
+        );
+        assert!(result.succeeded >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_stop_sessions_forceful_with_tool_running() {
+        use crate::gateway::session_manager::test_helpers::register_child_only;
+        use crate::llm::session_state::ToolExecState;
+
+        let mgr = make_test_session_manager();
+        let parent_id = "parent-tool";
+        setup_parent_with_conv(&mgr, parent_id).await;
+        let child_id = "child-tool";
+        register_child_only(&mgr, parent_id, child_id, "worker", SpawnMode::Session).await;
+
+        let cs = Arc::new(tokio::sync::RwLock::new(
+            crate::llm::session::ConversationSession::new(
+                child_id.to_string(),
+                "test-model".to_string(),
+                std::path::PathBuf::from("/tmp"),
+            ),
+        ));
+        // Set a tool to RunningForeground state
+        {
+            let guard = cs.read().await;
+            let mut tool_states = guard
+                .tool_states
+                .write()
+                .expect("tool_states lock poisoned");
+            tool_states.insert("tool-1".to_string(), ToolExecState::RunningForeground);
+        }
+        mgr.conversation_sessions
+            .write()
+            .await
+            .insert(child_id.to_string(), cs.clone());
+        mgr.sessions.write().await.insert(
+            child_id.to_string(),
+            crate::gateway::Session {
+                id: child_id.to_string(),
+                agent_id: "worker".to_string(),
+                channel: "feishu".to_string(),
+                created_at: chrono::Utc::now().timestamp(),
+                depth: 1,
+            },
+        );
+
+        // Forceful mode should stop without waiting
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+        assert!(result.succeeded >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_stop_sessions_forceful_empty_sessions_map() {
+        let mgr = make_test_session_manager();
+        // No sessions registered at all
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+        assert_eq!(result.total(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_stop_result_total_various() {
+        let r = StopResult {
+            succeeded: 0,
+            failed: 0,
+            skipped: 0,
+        };
+        assert_eq!(r.total(), 0);
+
+        let r = StopResult {
+            succeeded: usize::MAX,
+            failed: 0,
+            skipped: 0,
+        };
+        assert_eq!(r.total(), usize::MAX);
     }
 }
