@@ -55,7 +55,9 @@ impl ShutdownState {
     fn is_shutting_down_state(self) -> bool {
         matches!(
             self,
-            ShutdownState::ShuttingDown | ShutdownState::ForcefulShuttingDown
+            ShutdownState::ShuttingDown
+                | ShutdownState::Draining
+                | ShutdownState::ForcefulShuttingDown
         )
     }
 
@@ -210,11 +212,7 @@ impl ShutdownHandle {
     /// Escalate a graceful shutdown to forceful.
     /// Returns true if escalation succeeded, false if not in ShuttingDown state.
     pub fn escalate_to_forceful(&self) -> bool {
-        let ok = self.coordinator.escalate_to_forceful();
-        if ok {
-            info!("Upgraded to forceful shutdown");
-        }
-        ok
+        self.coordinator.escalate_to_forceful()
     }
 
     /// Initiate graceful shutdown — called when SIGTERM/SIGINT is received.
@@ -576,6 +574,17 @@ mod tests {
         // Second escalation is a no-op (already forceful)
         assert!(!handle.escalate_to_forceful());
         assert!(handle.is_forceful());
+    }
+
+    #[test]
+    fn test_is_shutting_down_true_when_draining() {
+        let handle = ShutdownHandle::new();
+        handle.coordinator.try_start_shutdown();
+        handle.coordinator.start_drain();
+
+        // Draining is still "shutting down" — components should reject new work
+        assert!(handle.is_shutting_down());
+        assert!(!handle.is_forceful());
     }
 
     #[test]
