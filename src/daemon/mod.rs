@@ -87,7 +87,7 @@ pub struct Daemon {
     pub gateway: Arc<Gateway>,
     pub agent_registry: Arc<crate::agent::registry::AgentRegistry>,
     pub permission_engine: Arc<PermissionEngine>,
-    pub shutdown: shutdown::ShutdownHandle,
+    pub shutdown: Arc<shutdown::ShutdownHandle>,
     /// SQLite storage for session persistence
     pub storage: Arc<SqliteStorage>,
     /// Shutdown sender for ArchiveSweeper
@@ -249,6 +249,11 @@ impl Daemon {
         Self::init_terminal_plugin(&gateway).await;
         Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
         let shutdown = shutdown::ShutdownHandle::new();
+        // Wire shutdown handle into SessionManager for child-session
+        // busy-count tracking during drain.
+        session_manager
+            .set_shutdown_handle(Arc::new(shutdown.clone()))
+            .await;
         info!("Shutdown coordinator initialized");
         Ok((gateway, session_manager, shutdown))
     }
@@ -388,6 +393,15 @@ impl Daemon {
             Self::init_phase_2_registries(config_dir).await?;
         let (gateway, session_manager, shutdown) =
             Self::init_phase_3_core_services(config_dir, &storage, &permission_engine).await?;
+        let shutdown = Arc::new(shutdown);
+
+        // Wire shutdown handle into Gateway and SessionManager for
+        // busy-count tracking during drain.
+        gateway.set_shutdown_handle(Arc::clone(&shutdown));
+        session_manager
+            .set_shutdown_handle(Arc::clone(&shutdown))
+            .await;
+
         let approval_flow =
             Self::init_phase_4_wiring(&gateway, &session_manager, &permission_engine).await;
         let (sweeper_tx, dreaming_tx, config_watcher) = Self::init_phase_5_background(

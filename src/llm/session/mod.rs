@@ -120,6 +120,8 @@ pub struct ConversationSession {
     /// push or state mutation.  Used by the shutdown progress card to
     /// display accurate "elapsed since last activity" instead of session age.
     last_activity_at: i64,
+    /// Shutdown handle for busy-count tracking during tool execution.
+    shutdown_handle: Option<Arc<crate::daemon::shutdown::ShutdownHandle>>,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -157,6 +159,7 @@ impl ConversationSession {
             stopped: Arc::new(AtomicBool::new(false)),
             communication_config: None,
             last_activity_at: Utc::now().timestamp(),
+            shutdown_handle: None,
         }
     }
 
@@ -215,6 +218,18 @@ impl ConversationSession {
     /// Returns the communication configuration, if set.
     pub fn communication_config(&self) -> Option<&CommunicationConfig> {
         self.communication_config.as_ref()
+    }
+
+    /// Set the shutdown handle for busy-count tracking during tool execution.
+    pub fn set_shutdown_handle(&mut self, handle: Arc<crate::daemon::shutdown::ShutdownHandle>) {
+        self.shutdown_handle = Some(handle);
+    }
+
+    /// Get a clone of the shutdown handle, if set.
+    pub(crate) fn get_shutdown_handle(
+        &self,
+    ) -> Option<Arc<crate::daemon::shutdown::ShutdownHandle>> {
+        self.shutdown_handle.clone()
     }
 
     /// Returns the current reasoning level.

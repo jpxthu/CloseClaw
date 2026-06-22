@@ -10,6 +10,7 @@
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
+use crate::daemon::shutdown::ShutdownHandle;
 use crate::gateway::session_manager::SessionManager;
 use crate::gateway::system_prompt_inject::{
     build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
@@ -77,6 +78,12 @@ pub struct SessionMessageHandler {
     /// paths; `handle_message_with_gateway` is the only entry point that
     /// can consume a streaming session and it requires this ref.
     pub(super) gateway: Option<Arc<std::sync::Weak<Gateway>>>,
+    /// Shutdown handle for busy-count tracking across components.
+    ///
+    /// Components increment the busy count before starting async work
+    /// and decrement when complete. The shutdown drain waits for the
+    /// count to reach zero before finalizing.
+    pub(super) shutdown_handle: Option<Arc<ShutdownHandle>>,
 }
 
 // ── Construction ──
@@ -97,6 +104,7 @@ impl SessionMessageHandler {
             ))),
             unified_fallback_client,
             gateway: None,
+            shutdown_handle: None,
         }
     }
     /// Create a new handler without an output channel (used in tests).
@@ -114,6 +122,7 @@ impl SessionMessageHandler {
             ))),
             unified_fallback_client,
             gateway: None,
+            shutdown_handle: None,
         }
     }
     /// Attach a back-reference (weak) to the owning [`Gateway`].
@@ -123,6 +132,16 @@ impl SessionMessageHandler {
     /// [`Gateway::send_outbound_streaming`].
     pub fn with_gateway_ref(mut self, gateway: std::sync::Weak<Gateway>) -> Self {
         self.gateway = Some(Arc::new(gateway));
+        self
+    }
+
+    /// Set the shutdown handle for busy-count tracking.
+    ///
+    /// When set, the handler increments the busy count before starting
+    /// async work and decrements when complete. The shutdown drain
+    /// waits for the count to reach zero before finalizing.
+    pub fn with_shutdown_handle(mut self, handle: Arc<ShutdownHandle>) -> Self {
+        self.shutdown_handle = Some(handle);
         self
     }
 }

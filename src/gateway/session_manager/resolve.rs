@@ -106,13 +106,17 @@ impl SessionManager {
                             )
                             .await;
 
-                            let conv_session = ConversationSession::new(
+                            let mut conv_session = ConversationSession::new(
                                 session_id.clone(),
                                 "default".to_string(),
                                 workdir_path,
                             )
                             .with_system_prompt(prompt)
                             .with_reasoning_level(self.default_reasoning_level);
+                            // Wire shutdown handle for busy-count tracking.
+                            if let Some(sh) = self.get_shutdown_handle().await {
+                                conv_session.set_shutdown_handle(sh);
+                            }
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -203,10 +207,14 @@ impl SessionManager {
         };
 
         // Create ConversationSession
-        let conv_session =
+        let mut conv_session =
             ConversationSession::new(session_id.clone(), "default".to_string(), workdir_path)
                 .with_system_prompt(prompt)
                 .with_reasoning_level(self.default_reasoning_level);
+        // Wire shutdown handle for busy-count tracking.
+        if let Some(sh) = self.get_shutdown_handle().await {
+            conv_session.set_shutdown_handle(sh);
+        }
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

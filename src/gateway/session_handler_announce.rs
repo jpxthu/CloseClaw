@@ -51,6 +51,11 @@ impl SessionMessageHandler {
         )
         .await;
 
+        // ── Decrement busy count for drain tracking ────────────────────
+        if let Some(sh) = session_manager.get_shutdown_handle().await {
+            sh.decrement_busy();
+        }
+
         // NOTE: Cascade-termination of child sessions is NOT done here.
         // `finish_llm` is called after every LLM turn — cascading here
         // would prematurely kill session-mode children that are designed

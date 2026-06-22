@@ -81,6 +81,11 @@ impl ConversationSession {
             .write()
             .expect("tool_handles lock poisoned");
         map.insert(id, handle);
+
+        // Increment busy count for drain tracking while tool is running.
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.increment_busy();
+        }
     }
 
     /// Remove a previously-registered tool-process kill handle.
@@ -99,6 +104,11 @@ impl ConversationSession {
                 call_id = %call_id,
                 "unregister_tool_handle: call_id not registered"
             );
+        }
+
+        // Decrement busy count for drain tracking when tool exits.
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.decrement_busy();
         }
     }
 

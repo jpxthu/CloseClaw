@@ -171,6 +171,8 @@ pub struct Gateway {
     /// the slot is `None`; the handler falls back to the non-streaming
     /// path in that case.
     self_ref: std::sync::Mutex<Option<Arc<Gateway>>>,
+    /// Shutdown handle for busy-count tracking during drain.
+    shutdown_handle: std::sync::Mutex<Option<Arc<crate::daemon::shutdown::ShutdownHandle>>>,
 }
 
 impl Gateway {
@@ -187,6 +189,7 @@ impl Gateway {
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
             self_ref: std::sync::Mutex::new(None),
+            shutdown_handle: std::sync::Mutex::new(None),
         }
     }
 
@@ -207,6 +210,7 @@ impl Gateway {
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
             self_ref: std::sync::Mutex::new(None),
+            shutdown_handle: std::sync::Mutex::new(None),
         }
     }
 
@@ -237,6 +241,20 @@ impl Gateway {
         if let Ok(mut slot) = self.self_ref.lock() {
             *slot = Some(arc);
         }
+    }
+
+    /// Set the shutdown handle for busy-count tracking during drain.
+    pub fn set_shutdown_handle(&self, handle: Arc<crate::daemon::shutdown::ShutdownHandle>) {
+        if let Ok(mut slot) = self.shutdown_handle.lock() {
+            *slot = Some(handle);
+        }
+    }
+
+    /// Get a clone of the shutdown handle, if set.
+    pub(crate) fn get_shutdown_handle(
+        &self,
+    ) -> Option<Arc<crate::daemon::shutdown::ShutdownHandle>> {
+        self.shutdown_handle.lock().ok().and_then(|s| s.clone())
     }
 
     #[cfg(test)]
@@ -287,11 +305,19 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
+        // ── Increment busy count for drain tracking ────────────────────
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.increment_busy();
+        }
+
         // ── Approval command interception ──────────────────────────────
         if let Some(result) = self
             .try_handle_approval_command(session_id, &content, sender_id)
             .await
         {
+            if let Some(sh) = self.get_shutdown_handle() {
+                sh.decrement_busy();
+            }
             return Some(result);
         }
 
@@ -301,6 +327,9 @@ impl Gateway {
                 .dispatch_slash(session_id, &content, sender_id, channel)
                 .await
             {
+                if let Some(sh) = self.get_shutdown_handle() {
+                    sh.decrement_busy();
+                }
                 return Some(result);
             }
         }
