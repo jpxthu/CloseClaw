@@ -2,74 +2,101 @@
 
 ## 概述
 
-每条消息（用户消息和 agent 消息）触发独立搜索，从 memory store 中所有条目检索相关内容，浓缩为摘要后排队到下一轮消息列表注入。确保记忆召回覆盖所有消息，不依赖主 agent 判断。
+每条消息触发独立搜索，从 SQLite entities 索引中查找相关 entity，通过 entity-event 关联找到对应 event，浓缩为摘要后注入消息列表。确保记忆召回覆盖所有消息，不依赖主 agent 判断。
 
 ## 架构
 
-active-searcher 是轻量 sub-agent，每条消息异步运行，使用独立低开销模型。
+active-searcher 以独立 session 形式运行，每条消息异步触发，使用独立低开销模型。
 
 ```
 用户消息 / 主 agent 生成消息后
   │
   ▼
-session 层 spawn active-searcher sub-agent（独立低开销模型）
+session 层 spawn active-searcher 子 session（独立低开销模型）
   │
   ├── 输入：当前消息 + 最近 N 轮对话上下文
-  ├── 搜索：BM25 + 向量混合检索 memory store 中所有条目（含 miner 产出和 dreaming 产出的 MEMORY.md）
-  ├── 过滤：排除 per-session "已注入条目 ID 集合"中已有条目
-  ├── 浓缩：匹配条目 → 文本摘要
+  ├── 概念提取：LLM 从消息中提取查询概念（操作类型、涉及对象、场景特征）
+  ├── 搜索：
+  │     主路径 — entity 索引查询：查询概念 → SQL entities 表匹配 entity name/normalized_name
+  │     补量路径 — 向量检索：消息 embedding × entity embedding，补充不足条目
+  ├── event 关联：命中 entity → SQL event_entities 关联表 → 获取相关 event
+  ├── 过滤：排除 per-session "已注入 event ID 集合"中已有 event
+  ├── 浓缩：相关 event → 文本摘要
   └── 输出：浓缩摘要（≤ 可配置字符上限）
         │
         ▼
-     排队注入
+     排队注入消息列表
 ```
 
 **搜索模型**：独立配置，追求便宜 + 快，不等同于主对话模型。超时时间可配，超时则放弃本轮。
+
+### Entity 索引查询
+
+active-searcher 从消息中提取查询概念后，通过 SQL 精确查询 entities 表。
+
+**查询概念提取**：LLM 从当前消息和最近 N 轮上下文中提取查询概念。概念包括：
+- 操作类型：当前 agent 正在执行或即将执行的操作
+- 涉及对象：操作涉及的对象类型
+- 场景特征：当前语境的场景描述
+
+**SQL entity 匹配**：将查询概念与 entities 表做匹配：
+- 精确匹配 `normalized_name`
+- 模糊匹配（LIKE 或子串匹配）
+- 向量匹配（embedding 余弦距离）
+
+**entity type 加权**：匹配到的 entity 按其 type weight 加权排序（subject 1.5 > action 1.3 > person 1.2 > ... > tags 0.5）。
+
+### Event 关联
+
+命中 entity 后，通过 SQL `event_entities` 关联表找到对应 event。一个 entity 可能关联多个 event（跨 session），一个 event 也可能关联多个 entity。
+
+**排序**：entity 命中数多的 event 排在前——一个 event 关联多个命中 entity 说明与当前消息高度相关。
 
 ### 注入时机
 
 active-searcher 将浓缩摘要写入 session 的 `memory_injection` 槽位，由 session 在下次消息组装时消费。
 
-- **agent 消息触发**：LLM 生成消息 A → active-searcher 匹配 → 写入槽位，模式 = `BeforeNext`。下次用户输入或工具返回到达时，session 组装消息时将摘要插入新消息之前
-- **用户消息触发**：用户消息 B → active-searcher 匹配 → 写入槽位，模式 = `AfterCurrent`。session 组装消息时将摘要紧随 B 之后插入
-- **摘要形式**：tool role 消息，不占对话轮次，用户不可见
+**去重**：每个 session 维护一个"已注入 event ID 集合"。searcher 在输出浓缩摘要时排除该集合中已有的 event，并将本轮命中的 event ID 加入集合。
 
-槽位机制详见 [session-injection.md](docs/design/session/session-injection.md) 消息级注入。
+**更新**：每次注入时，如果有新的匹配结果，更新 `memory_injection` 槽位。如果无匹配，槽位保持为空。
 
-### 去重与重置
+### 特殊角色处理
 
-**去重**：per-session 维护"已注入条目 ID 集合"。搜索结果中的条目 ID 若已在集合中，过滤掉，不重复注入。
-
-**重置时机**（清空集合）：
-- 新 session 启动（全新 session ID）
-- 上下文压缩发生后（历史消息被压缩，之前注入的摘要已不在上下文中）
-
-**不复位时机**：同一 session idle 后恢复——上下文是接续的，之前注入的摘要还在消息列表里，集合继续沿用。
+某些 session 角色（如 memory-miner 自身、dreaming 浓缩 session）不触发 active-searcher。
 
 ## 数据流
 
 ```
-输入                      处理                    输出
-─────                    ─────                  ─────
-当前消息               ─→  BM25 + 向量混合搜索   ─→  浓缩摘要
-最近 N 轮对话上下文     ─→  搜索 memory store          ≤ 字符上限
-                        所有条目                  tool role 消息
-                        去重过滤                  │
-                        浓缩                      ▼
-                        │                    写入 session
-                        ▼                    memory_injection 槽位
-                    超时 → 放弃本轮
+输入                      处理                      输出
+─────                    ─────                    ─────
+当前消息             ─→   概念提取（LLM）           ─→   浓缩摘要
+最近 N 轮对话上下文   ─→   查询概念列表                  ≤ 字符上限
+                         │                         tool role 消息
+                         ├─→ 主路径：SQL entities 表     │
+                         │    精确/模糊/向量匹配       ▼
+                         │    type weight 加权排序   写入 session
+                         │    → event_entities     memory_injection 槽位
+                         │    → 获取相关 event
+                         │
+                         ├─→ 补量：向量检索
+                         │    补充不足条目
+                         │
+                         去重过滤（已注入 event ID）
+                         浓缩
+                         │
+                     超时 → 放弃本轮
+
+特殊角色跳过：memory-miner 自身和 dreaming 浓缩 session 不触发 active-searcher
 ```
 
 ## 模块关系
 
 - **上游**：
-  - session 模块：spawn active-searcher sub-agent，由 session 层的 sub-agent 调度能力驱动
-  - memory store：搜索所有记忆条目（含 miner 产出和 MEMORY.md）
-  - llm 模块：提供独立低开销模型，供 searcher sub-agent 使用
-
+  - session 模块：spawn active-searcher 子 session
+  - SQLite entities / event_entities / events 表：搜索数据源
 - **下游**：
-  - session 模块：写入 `memory_injection` 槽位（tool role 摘要 + 位置模式），由 session 在下次消息组装时消费
+  - session 模块：写入 `memory_injection` 槽位，由 session 在下次消息组装时消费
 
 - **无关**：
   - system_prompt 模块：active-searcher 不修改 system prompt，只插入消息列表
+  - dreaming 模块：两者无直接交互，各自独立消费 SQLite
