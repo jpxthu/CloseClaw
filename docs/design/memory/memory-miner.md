@@ -13,9 +13,9 @@ memory-miner 由两个独立的 LLM session，串行执行：
 1. **Miner 1（LLM session）**：挖掘 event + lesson，不接触 entity
    - 输出：event 列表（标题、摘要、正文、类别、lesson）
 2. **Miner 2（LLM session）**：为 event 分配 entity
-   - 输入：Miner 1 的 event 列表 + 完整 entity/type 目录
+   - 输入：Miner 1 的 event 列表 + 本 agent 的 entity/type 目录
    - 输出：event 附 entity 列表（新建的 entity 立即写入 SQL）
-3. 写入 SQLite：events 表 + entities 表（UNIQUE 自动去重）+ event_entities 关联表
+3. 写入 SQLite：events 表 + entities 表（UNIQUE 自动去重：agent_id + type + normalized_name）+ event_entities 关联表
 4. 写入 Markdown：人类可读记忆条目（按来源会话组织）
 5. 标记会话 mined=true
 
@@ -46,13 +46,13 @@ Miner 2 以独立 LLM session 运行。在 Miner 1 完成后触发。
 
 **输入**：
 - Miner 1 产出的 event 列表（每个 event 的标题、摘要、正文）
-- 完整 entity 目录：从 SQLite entities 表读取所有已有 entity + entity_types 表读取所有类型定义，合并为固定排序的文本列表。排序规则：先按 `type` 字母序，再按 `normalized_name` 字母序。固定排序旨在最大化 KV Cache 命中率
+- 本 agent 的 entity 目录：从 SQLite entities 表读取本 agent 名下所有已有 entity + entity_types 表读取类型定义，合并为文本列表。entity 作用域为 per-agent，entity 名称限制在 10 个单词以内
 
 **处理**：
 - 为每个 event 分配 entity——从已有 entity 目录中选择相关者，或在目录中没有匹配 entity 时创建新 entity
 - 每个 entity 指定 type（从 11 种 entity type 中选择）、name、description
 
-**输出**：event 附 entity 列表。新 entity 立即写入 SQLite entities 表（UNIQUE 约束自动去重：同 source + 同 type + 同 normalized_name 的 entity 合并）。
+**输出**：event 附 entity 列表。新 entity 立即写入 SQLite entities 表（UNIQUE 约束自动去重：同 agent + 同 type + 同 normalized_name 的 entity 合并，即跨 agent 同名 entity 独立存储）。
 
 ### 挖掘原则
 

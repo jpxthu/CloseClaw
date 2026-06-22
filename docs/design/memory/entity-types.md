@@ -4,7 +4,7 @@
 
 实体类型（entity type）定义了记忆系统中 entity 的分类体系。miner 在生成 entity 时为每个 entity 指定一种类型，类型决定了该 entity 在搜索时的权重和 dreaming 时的聚类行为。
 
-类型体系直接沿用 SAG 的 11 种分类，不做自创。后续根据 CloseClaw 的实际运行数据进行调整。
+类型体系直接沿用 [SAG](https://github.com/Zleap-AI/SAG)（MIT License）的 11 种分类，不做自创。
 
 ## 架构
 
