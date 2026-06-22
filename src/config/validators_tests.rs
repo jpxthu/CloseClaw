@@ -744,6 +744,41 @@ fn test_for_section_credentials_always_passes() {
 }
 
 // ---------------------------------------------------------------------------
+// Boundary / edge-case tests (Step 1.8)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_models_pass_empty_providers_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"providers":{}}"#).unwrap();
+    assert!(validate_models(&v).is_ok());
+}
+
+#[test]
+fn test_validate_models_pass_providers_with_empty_models_array() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"models":[]}}}"#).unwrap();
+    assert!(validate_models(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_pass_empty_entries_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"entries":{}}"#).unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_pass_empty_allow_array() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"allow":[]}"#).unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_pass_empty_installs_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"installs":{}}"#).unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+// ---------------------------------------------------------------------------
 // validate_session
 // ---------------------------------------------------------------------------
 

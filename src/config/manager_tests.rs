@@ -758,3 +758,236 @@ fn test_snapshot_broadcast_on_reload_failure() {
         "snapshot broadcast channel should be empty after validation failure"
     );
 }
+
+// =========================================================================
+// Step 1.8 — load() business validation integration tests
+// =========================================================================
+
+/// Helper: write a backup file for the given section.
+/// Backup naming follows BackupManager convention: `{stem}.{timestamp}.{ext}`
+fn write_backup(dir: &std::path::Path, section: ConfigSection, content: &str) {
+    let backup_dir = dir.join(".backups");
+    fs::create_dir_all(&backup_dir).unwrap();
+    let filename = section.filename();
+    let stem = filename.split('.').next().unwrap_or(filename);
+    let ext = filename.split('.').last().unwrap_or("json");
+    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S_%f");
+    let backup_name = format!("{}.{}.{}", stem, ts, ext);
+    fs::write(backup_dir.join(backup_name), content).unwrap();
+}
+
+/// Test: load() triggers rollback when models.json has business validation
+/// failure (empty provider ID). Verifies file is restored from backup.
+#[test]
+fn test_load_business_validation_failure_models_rollback() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Create a backup of the valid config, then corrupt the file
+    let valid = fs::read_to_string(tmp.path().join("models.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Models, &valid);
+    fs::write(
+        tmp.path().join("models.json"),
+        r#"{"providers":{"":{"models":[]}}}"#,
+    )
+    .unwrap();
+
+    // load() should succeed because rollback restores the valid backup
+    manager.load().unwrap();
+    // In-memory cache should be updated to the backup value
+    let section = manager.section(ConfigSection::Models).unwrap();
+    assert_eq!(section["version"], "1.0");
+}
+
+/// Test: load() triggers rollback when channels.json has business validation
+/// failure (unknown channel type).
+#[test]
+fn test_load_business_validation_failure_channels_rollback() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let valid = fs::read_to_string(tmp.path().join("channels.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Channels, &valid);
+    fs::write(
+        tmp.path().join("channels.json"),
+        r#"{"channels":{"unknown-type":{"enabled":true}}}"#,
+    )
+    .unwrap();
+
+    manager.load().unwrap();
+    let section = manager.section(ConfigSection::Channels).unwrap();
+    assert_eq!(section["version"], "1.0");
+}
+
+/// Test: load() triggers rollback when gateway.json has business validation
+/// failure (invalid port).
+#[test]
+fn test_load_business_validation_failure_gateway_rollback() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let valid = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Gateway, &valid);
+    fs::write(tmp.path().join("gateway.json"), r#"{"port":99999}"#).unwrap();
+
+    manager.load().unwrap();
+    let section = manager.section(ConfigSection::Gateway).unwrap();
+    assert_eq!(section["version"], "1.0");
+}
+
+/// Test: load() triggers rollback when plugins.json has business validation
+/// failure (empty plugin name).
+#[test]
+fn test_load_business_validation_failure_plugins_rollback() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let valid = fs::read_to_string(tmp.path().join("plugins.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Plugins, &valid);
+    fs::write(
+        tmp.path().join("plugins.json"),
+        r#"{"entries":{"":{"enabled":true}}}"#,
+    )
+    .unwrap();
+
+    manager.load().unwrap();
+    let section = manager.section(ConfigSection::Plugins).unwrap();
+    assert_eq!(section["version"], "1.0");
+}
+
+/// Test: load() triggers rollback when system.json has business validation
+/// failure (empty version string).
+#[test]
+fn test_load_business_validation_failure_system_rollback() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let valid = fs::read_to_string(tmp.path().join("system.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::System, &valid);
+    fs::write(tmp.path().join("system.json"), r#"{"version":""}"#).unwrap();
+
+    manager.load().unwrap();
+    let section = manager.section(ConfigSection::System).unwrap();
+    assert_eq!(section["version"], "1.0");
+}
+
+/// Test: load() succeeds normally when all mandatory sections have valid
+/// business values.
+#[test]
+fn test_load_business_validation_success_all_sections() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    for section in &[
+        ConfigSection::Models,
+        ConfigSection::Channels,
+        ConfigSection::Gateway,
+        ConfigSection::Plugins,
+        ConfigSection::System,
+    ] {
+        let value = manager.section(*section).unwrap();
+        assert_eq!(value["version"], "1.0", "section {:?} mismatch", section);
+    }
+}
+
+/// Test: load() with negative idleMinutes in session.json uses defaults.
+/// Session is loaded separately from mandatory sections.
+#[test]
+fn test_load_session_business_validation_failure_uses_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    // Session with negative idleMinutes in defaults — validation fails
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{"mainAgent":{"idleMinutes":-1}},"agents":{}}"#,
+    )
+    .unwrap();
+
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let session = manager.session_config_provider().unwrap();
+    assert_eq!(
+        session.sweeper_interval_secs(),
+        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+    );
+}
+
+/// Test: load() with valid session.json loads successfully.
+#[test]
+fn test_load_session_business_validation_success() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":900}"#,
+    )
+    .unwrap();
+
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let session = manager.session_config_provider().unwrap();
+    assert_eq!(session.sweeper_interval_secs(), 900);
+}
+
+/// Test: load() with multiple invalid sections triggers rollback for each.
+#[test]
+fn test_load_multiple_business_validation_failures_rollback() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    // Create backups for both sections before corruption
+    let valid_models = fs::read_to_string(tmp.path().join("models.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Models, &valid_models);
+    let valid_gw = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Gateway, &valid_gw);
+
+    // Corrupt two mandatory sections simultaneously
+    fs::write(
+        tmp.path().join("models.json"),
+        r#"{"providers":{"":{"models":[]}}}"#,
+    )
+    .unwrap();
+    fs::write(tmp.path().join("gateway.json"), r#"{"port":99999}"#).unwrap();
+
+    // load() should succeed: both sections rollback independently
+    manager.load().unwrap();
+    assert_eq!(
+        manager.section(ConfigSection::Models).unwrap()["version"],
+        "1.0"
+    );
+    assert_eq!(
+        manager.section(ConfigSection::Gateway).unwrap()["version"],
+        "1.0"
+    );
+}
+
+/// Test: load() with empty models array (no providers key) passes validation.
+#[test]
+fn test_load_models_empty_providers_passes() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    fs::write(tmp.path().join("models.json"), r#"{"providers":{}}"#).unwrap();
+
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    assert_eq!(
+        manager.section(ConfigSection::Models).unwrap()["providers"],
+        serde_json::json!({})
+    );
+}
