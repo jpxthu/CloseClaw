@@ -436,12 +436,60 @@ impl Daemon {
     }
 
     /// Run the daemon — blocks until shutdown signal is received.
+    ///
+    /// First signal triggers graceful shutdown; subsequent signals escalate to forceful.
     pub async fn run(&self) -> anyhow::Result<()> {
-        crate::platform::process::wait_for_shutdown_signal().await?;
-        self.shutdown.initiate_shutdown().await;
+        use tokio::signal::unix::{signal, SignalKind};
+
+        // Set up signal listeners for SIGTERM and SIGINT
+        let mut sigint = signal(SignalKind::interrupt())
+            .map_err(|e| anyhow::anyhow!("failed to register SIGINT handler: {}", e))?;
+        let mut sigterm = signal(SignalKind::terminate())
+            .map_err(|e| anyhow::anyhow!("failed to register SIGTERM handler: {}", e))?;
+
+        // Wait for the first shutdown signal
+        tokio::select! {
+            _ = sigint.recv() => {
+                info!("Received Ctrl+C, initiating graceful shutdown...");
+            }
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM, initiating graceful shutdown...");
+            }
+        }
+
+        // Start graceful shutdown in a background task
+        let shutdown_handle = self.shutdown.clone();
+        let mut shutdown_task = tokio::spawn(async move {
+            shutdown_handle.initiate_shutdown().await;
+        });
+
+        // Monitor for escalation signals during graceful drain
+        loop {
+            tokio::select! {
+                result = &mut shutdown_task => {
+                    // Shutdown drain completed (graceful or forceful)
+                    if let Err(e) = result {
+                        tracing::error!(error = %e, "shutdown task panicked");
+                    }
+                    break;
+                }
+                _ = sigint.recv() => {
+                    if self.shutdown.escalate_to_forceful() {
+                        info!("Received repeated Ctrl+C, escalated to forceful shutdown");
+                    }
+                }
+                _ = sigterm.recv() => {
+                    if self.shutdown.escalate_to_forceful() {
+                        info!("Received repeated SIGTERM, escalated to forceful shutdown");
+                    }
+                }
+            }
+        }
+
         // Flush all active session checkpoints before shutdown
-        match self.gateway.flush_all_sessions().await {
-            Ok(n) => tracing::info!(count = n, "flushed session checkpoints"),
+        let mode = self.shutdown.mode();
+        match self.gateway.flush_all_sessions(mode).await {
+            Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
         // Clear all pending approval requests (denied with callbacks triggered)

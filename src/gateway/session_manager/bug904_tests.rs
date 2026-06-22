@@ -1,4 +1,5 @@
 use super::*;
+use crate::daemon::shutdown::ShutdownMode;
 use crate::gateway::GatewayConfig;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::{AgentRole, PersistenceError, SessionCheckpoint};
@@ -186,7 +187,7 @@ async fn test_flush_all_preserves_existing_thread_id() {
         );
     }
 
-    let result = mgr.flush_all().await;
+    let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
 
