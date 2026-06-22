@@ -339,8 +339,9 @@ impl Gateway {
     /// Flush all active sessions to persistence (proxied to SessionManager).
     pub async fn flush_all_sessions(
         &self,
+        mode: crate::daemon::shutdown::ShutdownMode,
     ) -> Result<usize, crate::session::persistence::PersistenceError> {
-        self.session_manager.flush_all().await
+        self.session_manager.flush_all(mode).await
     }
 
     /// Register an IM plugin.

@@ -5,6 +5,7 @@
 
 use crate::config::manager::{ConfigManager, ConfigSnapshot};
 use crate::config::ConfigSection;
+use crate::daemon::shutdown::ShutdownMode;
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
 use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
@@ -315,7 +316,7 @@ impl SessionManager {
 
     /// Flush all active sessions to persistence.
     /// Returns the number of sessions successfully saved.
-    pub async fn flush_all(&self) -> Result<usize, PersistenceError> {
+    pub async fn flush_all(&self, _mode: ShutdownMode) -> Result<usize, PersistenceError> {
         let storage = self.storage.read().await;
         let Some(storage) = storage.as_ref() else {
             return Ok(0);
