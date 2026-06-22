@@ -244,25 +244,36 @@ impl SessionManager {
             .await
             .ok_or(StopError::Skipped)?;
 
-        // Graceful: wait for LLM streaming to finish.
+        // Graceful: wait for LLM streaming and tool execution to finish.
         if mode == ShutdownMode::Graceful {
             let deadline = tokio::time::Instant::now()
                 + tokio::time::Duration::from_secs(GRACEFUL_TIMEOUT_SECS);
             loop {
-                let is_streaming = {
+                let (is_streaming, has_running_tools) = {
                     let guard = cs.read().await;
                     let state = *guard.llm_state.read().expect("llm_state lock poisoned");
-                    matches!(state, LlmState::Receiving | LlmState::Requesting)
+                    let tool_states = guard.tool_states.read().expect("tool_states lock poisoned");
+                    let streaming = matches!(state, LlmState::Receiving | LlmState::Requesting);
+                    let tools = tool_states.values().any(|s| {
+                        matches!(
+                            s,
+                            crate::llm::session_state::ToolExecState::RunningForeground
+                                | crate::llm::session_state::ToolExecState::RunningBackground
+                        )
+                    });
+                    (streaming, tools)
                 };
 
-                if !is_streaming {
+                if !is_streaming && !has_running_tools {
                     break;
                 }
 
                 if tokio::time::Instant::now() >= deadline {
                     tracing::warn!(
                         session_id = %session_id,
-                        "graceful stop: LLM still streaming after {}s, force-stopping",
+                        streaming = is_streaming,
+                        running_tools = has_running_tools,
+                        "graceful stop: session still active after {}s, force-stopping",
                         GRACEFUL_TIMEOUT_SECS
                     );
                     break;

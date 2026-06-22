@@ -437,7 +437,7 @@ impl Daemon {
 
     /// Run the daemon — blocks until shutdown signal is received, then
     /// executes Phase 0–7 shutdown sequence.
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
 
         // Phase 0: Signal reception & mode determination
@@ -653,14 +653,21 @@ impl Daemon {
 
     /// Phase 3: Background task stop.
     ///
-    /// - Drops SkillWatcher and ConfigWatcher (RAII)
+    /// - Drops SkillWatcher and ConfigWatcher (RAII) via `take()`
     /// - Signals ArchiveSweeper and DreamingScheduler to stop
     /// - Clears pending approval requests
-    async fn phase_3_background_stop(&self) {
+    async fn phase_3_background_stop(&mut self) {
         // SkillWatcher and ConfigWatcher are RAII — stop on drop.
-        // They are held as Option fields; drop them explicitly for clarity.
-        // (They will be dropped when Daemon is destroyed, but we do it here
-        //  to match the design doc Phase 3 ordering.)
+        // Explicitly take() and drop here to match Phase 3 ordering
+        // in the design doc, rather than waiting for Daemon destruction.
+        if let Some(watcher) = self._skill_watcher.take() {
+            drop(watcher);
+            tracing::info!("SkillWatcher dropped in Phase 3");
+        }
+        if let Some(watcher) = self._config_watcher.take() {
+            drop(watcher);
+            tracing::info!("ConfigWatcher dropped in Phase 3");
+        }
 
         // Signal ArchiveSweeper to stop
         let _ = self.sweeper_shutdown_tx.send(());
@@ -713,12 +720,39 @@ impl Daemon {
     /// - Clean up admin socket file
     /// - Process exits when run() returns and Daemon is dropped
     async fn phase_7_exit(&self) {
-        // Check for abnormal sessions
-        let sessions = self.gateway.session_manager().get_all_sessions().await;
-        for session in &sessions {
-            tracing::warn!(
-                session_id = %session.id,
-                "session still active at exit — may need manual recovery"
+        // Check for sessions still in the active table — after
+        // stop_all_sessions, only sessions that were NOT stopped
+        // (e.g. skipped due to missing ConversationSession) remain.
+        let remaining = self.gateway.session_manager().get_all_sessions().await;
+        let mut stopped_count = 0usize;
+        for session in &remaining {
+            // Only warn about sessions that haven't been stopped yet.
+            let is_stopped = {
+                let conv = self
+                    .gateway
+                    .session_manager()
+                    .conversation_sessions
+                    .read()
+                    .await;
+                match conv.get(&session.id) {
+                    Some(cs) => cs.read().await.is_stopped(),
+                    None => false,
+                }
+            };
+            if is_stopped {
+                stopped_count += 1;
+            } else {
+                tracing::warn!(
+                    session_id = %session.id,
+                    "session still active and not stopped at exit — may need manual recovery"
+                );
+            }
+        }
+        if !remaining.is_empty() {
+            tracing::info!(
+                remaining = remaining.len(),
+                stopped = stopped_count,
+                "phase 7: session table state at exit"
             );
         }
         // Clean up admin socket file

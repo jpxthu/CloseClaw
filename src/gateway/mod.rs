@@ -477,7 +477,7 @@ impl Gateway {
             return;
         }
 
-        let conv_sessions = self.session_manager.conversation_sessions.read().await;
+        // First pass: group sessions by chat_id, drop read lock before second pass.
         let mut chats: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
         for session in &sessions {
@@ -488,33 +488,42 @@ impl Gateway {
 
         let mut session_elements: Vec<serde_json::Value> = Vec::new();
         for session in &sessions {
-            let status_text = match conv_sessions.get(&session.id) {
+            // Re-acquire conv_sessions read lock per session to avoid
+            // holding it across the entire loop (fixes E2 review item 1).
+            let conv_sessions = self.session_manager.conversation_sessions.read().await;
+            let (status_text, activity_at) = match conv_sessions.get(&session.id) {
                 Some(cs) => {
                     let guard = cs.read().await;
                     let state = *guard.llm_state.read().expect("llm_state lock poisoned");
-                    let tool_states = guard.tool_states.read().expect("tool_states lock poisoned");
-                    let has_running_tool = tool_states.values().any(|s| {
-                        matches!(
-                            s,
-                            crate::llm::session_state::ToolExecState::RunningForeground
-                                | crate::llm::session_state::ToolExecState::RunningBackground
-                        )
-                    });
-                    if has_running_tool {
-                        "\u{1f527} \u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}".to_string()
+                    let activity = guard.last_activity_at();
+                    let has_running_tool = {
+                        let tool_states =
+                            guard.tool_states.read().expect("tool_states lock poisoned");
+                        tool_states.values().any(|s| {
+                            matches!(
+                                s,
+                                crate::llm::session_state::ToolExecState::RunningForeground
+                                    | crate::llm::session_state::ToolExecState::RunningBackground
+                            )
+                        })
+                    };
+                    drop(guard);
+                    let label = if has_running_tool {
+                        "\u{1f527} \u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"
                     } else if matches!(state, LlmState::Requesting | LlmState::Receiving) {
-                        "\u{1f4ac} LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}".to_string()
+                        "\u{1f4ac} LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}"
                     } else {
-                        "\u{2705} Idle".to_string()
-                    }
+                        "\u{2705} Idle"
+                    };
+                    (label, activity)
                 }
-                None => "\u{2705} Idle".to_string(),
+                None => ("\u{2705} Idle", session.created_at),
             };
+            drop(conv_sessions);
 
             let elapsed = {
                 let now = chrono::Utc::now().timestamp();
-                let created = session.created_at;
-                let secs = (now - created).max(0) as u64;
+                let secs = (now - activity_at).max(0) as u64;
                 if secs < 60 {
                     format!("{}s", secs)
                 } else {
@@ -526,7 +535,10 @@ impl Gateway {
                 "tag": "div",
                 "text": json!({
                     "tag": "lark_md",
-                    "content": format!("\u{2022} `{}` \u{2014} {} (\u{5df2}\u{7b49}\u{5f85} {})", session.id, status_text, elapsed)
+                    "content": format!(
+                        "\u{2022} `{}` \u{2014} {} (\u{5df2}\u{7b49}\u{5f85} {})",
+                        session.id, status_text, elapsed
+                    )
                 })
             }));
         }
@@ -576,8 +588,9 @@ impl Gateway {
             "elements": elements
         });
 
+        // Send one card per chat (deduplicated by chat_id).
         let plugins = self.get_all_plugins().await;
-        for (chat_id, session_ids) in &chats {
+        for chat_id in chats.keys() {
             for plugin in &plugins {
                 let output = RenderedOutput {
                     msg_type: "interactive".into(),
@@ -592,7 +605,6 @@ impl Gateway {
                     );
                 }
             }
-            let _ = session_ids; // used for logging if needed
         }
     }
 

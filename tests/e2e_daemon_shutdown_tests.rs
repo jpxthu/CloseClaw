@@ -110,7 +110,7 @@ async fn test_daemon_run_sigterm_shutdown() {
     write_mandatory_configs(&config_dir).expect("write mandatory config");
 
     // Do NOT set FEISHU/LLM env vars — Daemon::start will skip those components
-    let daemon = closeclaw::daemon::Daemon::start(temp_dir.path().to_str().unwrap())
+    let mut daemon = closeclaw::daemon::Daemon::start(temp_dir.path().to_str().unwrap())
         .await
         .expect("daemon start");
 
