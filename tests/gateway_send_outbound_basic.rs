@@ -98,6 +98,7 @@ impl IMPlugin for TrackingPlugin {
             timestamp: 0,
             thread_id: None,
             account_id: None,
+            card_action: None,
         }))
     }
 
@@ -345,7 +346,7 @@ async fn test_feishu_adapter_send_card_json_default() {
         fn name(&self) -> &str {
             "dummy"
         }
-        async fn handle_webhook(&self, _: &[u8]) -> Result<Message, AdapterError> {
+        async fn handle_webhook(&self, _: &[u8]) -> Result<Option<Message>, AdapterError> {
             Err(AdapterError::InvalidPayload("x".into()))
         }
         async fn send_message(&self, _: &Message, _: Option<&str>) -> Result<(), AdapterError> {

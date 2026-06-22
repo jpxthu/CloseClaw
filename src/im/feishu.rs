@@ -66,6 +66,34 @@ struct FeishuSenderId {
     open_id: String,
 }
 
+/// Feishu card action event payload (card.action.trigger)
+///
+/// Fields are populated by serde during deserialization and consumed
+/// indirectly via [`FeishuAdapter::handle_card_action`]; not all fields
+/// are read directly in Rust code.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // fields used by serde deserialization, consumed indirectly
+struct FeishuCardActionEvent {
+    operator: FeishuCardOperator,
+    token: String,
+    action: FeishuCardAction,
+}
+
+/// Operator who triggered the card action.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // fields used by serde deserialization, consumed indirectly
+struct FeishuCardOperator {
+    open_id: String,
+}
+
+/// Action payload from a Feishu card button click.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // fields used by serde deserialization, consumed indirectly
+struct FeishuCardAction {
+    value: Option<serde_json::Value>,
+    tag: Option<String>,
+}
+
 /// Feishu API base URL
 const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
@@ -222,18 +250,56 @@ impl FeishuAdapter {
 
         Ok(())
     }
-}
 
-#[async_trait]
-impl IMAdapter for FeishuAdapter {
-    fn name(&self) -> &str {
-        "feishu"
+    /// Handle a card.action.trigger event.
+    ///
+    /// Returns `Some(Message)` for recognized actions (e.g. `forceful_shutdown`),
+    /// or `None` for unknown/unsupported actions.
+    fn handle_card_action(
+        &self,
+        event_id: String,
+        app_id: String,
+        card_event: &FeishuCardActionEvent,
+    ) -> Result<Option<Message>, AdapterError> {
+        let action_value = card_event
+            .action
+            .value
+            .as_ref()
+            .and_then(|v| v.get("action"))
+            .and_then(|a| a.as_str());
+
+        match action_value {
+            Some("forceful_shutdown") => {
+                let mut metadata = HashMap::from([
+                    ("account_id".to_string(), app_id),
+                    ("card_action".to_string(), "true".to_string()),
+                ]);
+                if let Some(chat_id) = card_event
+                    .action
+                    .value
+                    .as_ref()
+                    .and_then(|v| v.get("chat_id"))
+                    .and_then(|c| c.as_str())
+                {
+                    metadata.insert("chat_id".to_string(), chat_id.to_string());
+                }
+                Ok(Some(Message {
+                    id: event_id,
+                    from: card_event.operator.open_id.clone(),
+                    to: String::new(),
+                    content: "/__card_action:forceful_shutdown".to_string(),
+                    channel: "feishu".to_string(),
+                    timestamp: chrono::Utc::now().timestamp(),
+                    metadata,
+                    thread_id: None,
+                }))
+            }
+            _ => Ok(None),
+        }
     }
 
-    async fn handle_webhook(&self, payload: &[u8]) -> Result<Message, AdapterError> {
-        let event: FeishuEvent = serde_json::from_slice(payload)
-            .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-
+    /// Parse a regular message event (im.message.receive_v1) into a Message.
+    fn parse_message_event(&self, event: FeishuEvent) -> Result<Message, AdapterError> {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
@@ -265,6 +331,53 @@ impl IMAdapter for FeishuAdapter {
             metadata,
             thread_id: None,
         })
+    }
+}
+
+#[async_trait]
+impl IMAdapter for FeishuAdapter {
+    fn name(&self) -> &str {
+        "feishu"
+    }
+
+    async fn handle_webhook(&self, payload: &[u8]) -> Result<Option<Message>, AdapterError> {
+        // First, peek at the event_type to decide how to parse.
+        let raw: serde_json::Value = serde_json::from_slice(payload)
+            .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+
+        let event_type = raw
+            .get("header")
+            .and_then(|h| h.get("event_type"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("");
+
+        let event_id = raw
+            .get("header")
+            .and_then(|h| h.get("event_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let app_id = raw
+            .get("header")
+            .and_then(|h| h.get("app_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        match event_type {
+            "card.action.trigger" => {
+                let card_event: FeishuCardActionEvent = serde_json::from_value(raw)
+                    .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+                self.handle_card_action(event_id, app_id, &card_event)
+            }
+            _ => {
+                // Regular message event — parse as before.
+                let event: FeishuEvent = serde_json::from_value(raw)
+                    .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+                Ok(Some(self.parse_message_event(event)?))
+            }
+        }
     }
 
     async fn send_message(
@@ -419,7 +532,10 @@ impl IMPlugin for FeishuPlugin {
         &self,
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let message = self.adapter.handle_webhook(payload).await?;
+        let message = match self.adapter.handle_webhook(payload).await? {
+            Some(m) => m,
+            None => return Ok(None),
+        };
         Ok(Some(NormalizedMessage {
             platform: message.channel,
             sender_id: message.from,
@@ -428,6 +544,7 @@ impl IMPlugin for FeishuPlugin {
             timestamp: message.timestamp,
             thread_id: message.metadata.get("thread_id").cloned(),
             account_id: message.metadata.get("account_id").cloned(),
+            card_action: message.metadata.get("card_action").map(|v| v == "true"),
         }))
     }
 

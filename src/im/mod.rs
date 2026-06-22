@@ -22,8 +22,12 @@ pub trait IMAdapter: Send + Sync {
     /// Platform name (e.g., "feishu", "discord")
     fn name(&self) -> &str;
 
-    /// Handle incoming message from IM platform
-    async fn handle_webhook(&self, payload: &[u8]) -> Result<Message, AdapterError>;
+    /// Handle incoming event from IM platform.
+    ///
+    /// Returns `Ok(Some(message))` for recognized message events,
+    /// `Ok(None)` for events that should be silently ignored
+    /// (e.g. unknown card actions), or `Err` on parse failure.
+    async fn handle_webhook(&self, payload: &[u8]) -> Result<Option<Message>, AdapterError>;
 
     /// Send message to IM platform.
     ///

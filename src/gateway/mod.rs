@@ -305,6 +305,23 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
+        // ── Card action interception ─────────────────────────────────
+        // Must run before the approval command check so that Feishu card
+        // action callbacks (e.g. "Forceful shutdown" button) are handled
+        // even when the daemon is already shutting down.
+        if content.starts_with("/__card_action:forceful_shutdown") {
+            if let Some(sh) = self.get_shutdown_handle() {
+                if sh.is_shutting_down() {
+                    tracing::info!(
+                        session_id = %session_id,
+                        "card action: escalating to forceful shutdown"
+                    );
+                    sh.escalate_to_forceful();
+                }
+            }
+            return None;
+        }
+
         // ── Shutdown gate: reject new operations ──────────────────────
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -597,7 +614,8 @@ impl Gateway {
                             "tag": "plain_text",
                             "content": "\u{5f3a}\u{5236}\u{5173}\u{95ed}"
                         }),
-                        "type": "danger"
+                        "type": "danger",
+                        "value": {"action": "forceful_shutdown"}
                     })
                 ]
             }));

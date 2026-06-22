@@ -22,6 +22,20 @@ use crate::session::persistence::{
 
 use super::SessionManager;
 
+// ── progress reporting ──────────────────────────────────────────────────
+
+/// Progress event emitted by [`SessionManager::stop_all_sessions`]
+/// each time a single session stop completes.
+#[derive(Debug, Clone)]
+pub struct StopProgress {
+    /// ID of the session whose stop just completed.
+    pub session_id: String,
+    /// Whether the session was stopped successfully (true) or failed/skipped (false).
+    pub success: bool,
+    /// Number of sessions remaining to be stopped after this one.
+    pub remaining: usize,
+}
+
 /// Aggregated result of stopping all sessions.
 #[derive(Debug, Default)]
 pub struct StopResult {
@@ -50,7 +64,11 @@ impl SessionManager {
     /// concurrently via [`tokio::join!`].
     ///
     /// Returns a [`StopResult`] with succeeded / failed / skipped counts.
-    pub async fn stop_all_sessions(&self, mode: ShutdownMode) -> StopResult {
+    pub async fn stop_all_sessions(
+        &self,
+        mode: ShutdownMode,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
+    ) -> StopResult {
         let tree = self.build_stop_tree().await;
         let stop_order = stop_order_from_tree(&tree);
 
@@ -59,28 +77,27 @@ impl SessionManager {
             return StopResult::default();
         }
 
+        let total_sessions: usize = stop_order.iter().map(|l| l.len()).sum();
+
         tracing::info!(
-            count = stop_order.len(),
+            count = total_sessions,
             mode = ?mode,
             "stop_all_sessions: starting leaf-to-root shutdown"
         );
 
         let mut result = StopResult::default();
+        let mut processed = 0usize;
 
         for level in &stop_order {
-            let futures: Vec<_> = level
-                .iter()
-                .map(|sid| self.stop_single_session(sid, mode))
-                .collect();
-
-            let outcomes = futures::future::join_all(futures).await;
-            for outcome in outcomes {
-                match outcome {
-                    Ok(()) => result.succeeded += 1,
-                    Err(StopError::Skipped) => result.skipped += 1,
-                    Err(StopError::Failed) => result.failed += 1,
-                }
-            }
+            processed += self
+                .process_stop_level(
+                    level,
+                    mode,
+                    &mut result,
+                    progress_tx,
+                    total_sessions.saturating_sub(processed),
+                )
+                .await;
         }
 
         tracing::info!(
@@ -91,6 +108,74 @@ impl SessionManager {
         );
 
         result
+    }
+
+    /// Process a single level of sessions: stop all concurrently,
+    /// record outcomes, and send progress events.
+    ///
+    /// Returns the number of sessions processed in this level.
+    async fn process_stop_level(
+        &self,
+        level: &[String],
+        mode: ShutdownMode,
+        result: &mut StopResult,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
+        remaining: usize,
+    ) -> usize {
+        let futures: Vec<_> = level
+            .iter()
+            .map(|sid| self.stop_single_session(sid, mode))
+            .collect();
+
+        let outcomes = futures::future::join_all(futures).await;
+        let count = level.len();
+        for (idx, outcome) in outcomes.into_iter().enumerate() {
+            let success = Self::process_stop_outcome(result, outcome);
+            Self::notify_stop_progress(
+                progress_tx,
+                &level[idx],
+                success,
+                remaining.saturating_sub(count - idx - 1),
+            )
+            .await;
+        }
+        count
+    }
+
+    /// Send a stop progress event if a progress channel is provided.
+    async fn notify_stop_progress(
+        progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
+        session_id: &str,
+        success: bool,
+        remaining: usize,
+    ) {
+        if let Some(tx) = progress_tx {
+            let _ = tx
+                .send(StopProgress {
+                    session_id: session_id.to_string(),
+                    success,
+                    remaining,
+                })
+                .await;
+        }
+    }
+
+    /// Record a stop outcome and return whether the stop succeeded.
+    fn process_stop_outcome(result: &mut StopResult, outcome: Result<(), StopError>) -> bool {
+        match outcome {
+            Ok(()) => {
+                result.succeeded += 1;
+                true
+            }
+            Err(StopError::Skipped) => {
+                result.skipped += 1;
+                false
+            }
+            Err(StopError::Failed) => {
+                result.failed += 1;
+                false
+            }
+        }
     }
 }
 
@@ -528,7 +613,7 @@ mod tests {
     #[tokio::test]
     async fn test_stop_all_sessions_empty() {
         let mgr = make_test_session_manager();
-        let result = mgr.stop_all_sessions(ShutdownMode::Graceful).await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
         assert_eq!(result.total(), 0);
     }
 
@@ -563,7 +648,7 @@ mod tests {
             },
         );
 
-        let result = mgr.stop_all_sessions(ShutdownMode::Graceful).await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
         // Both parent and child have ConversationSessions → both stopped.
         assert!(result.succeeded >= 1);
     }
@@ -574,7 +659,7 @@ mod tests {
         let parent_id = "parent-2";
         setup_parent_with_conv(&mgr, parent_id).await;
 
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         // Parent has no storage → persist_checkpoint returns Ok (no-op).
         // Parent should be stopped.
         assert!(result.succeeded >= 1);
@@ -676,7 +761,7 @@ mod tests {
 
         // Forceful mode should not wait for streaming to finish
         let start = tokio::time::Instant::now();
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         let elapsed = start.elapsed();
 
         // Should complete quickly (not waiting for the full graceful timeout)
@@ -731,7 +816,7 @@ mod tests {
         );
 
         // Forceful mode should stop without waiting
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert!(result.succeeded >= 1);
     }
 
@@ -739,7 +824,7 @@ mod tests {
     async fn test_stop_sessions_forceful_empty_sessions_map() {
         let mgr = make_test_session_manager();
         // No sessions registered at all
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert_eq!(result.total(), 0);
     }
 
@@ -758,5 +843,65 @@ mod tests {
             skipped: 0,
         };
         assert_eq!(r.total(), usize::MAX);
+    }
+
+    // ── StopProgress callback tests ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_stop_all_sessions_with_progress_callback() {
+        let mgr = make_test_session_manager();
+        let parent_id = "parent-prog";
+        setup_parent_with_conv(&mgr, parent_id).await;
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<StopProgress>(16);
+
+        let result = mgr
+            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx))
+            .await;
+        assert!(result.succeeded >= 1);
+
+        // Should have received at least one progress event
+        let mut events = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+        assert!(!events.is_empty(), "should receive progress events");
+
+        // Each event should have session_id = parent-prog
+        assert!(events.iter().any(|e| e.session_id == "parent-prog"));
+    }
+
+    #[tokio::test]
+    async fn test_stop_progress_remaining_accuracy() {
+        let mgr = make_test_session_manager();
+        let parent_id = "parent-remaining";
+        setup_parent_with_conv(&mgr, parent_id).await;
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<StopProgress>(16);
+
+        let result = mgr
+            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx))
+            .await;
+        assert_eq!(result.succeeded, 1);
+
+        // Collect all events
+        let mut events = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].remaining, 0, "last event should have remaining=0");
+        assert!(events[0].success, "parent should stop successfully");
+    }
+
+    #[tokio::test]
+    async fn test_stop_all_sessions_no_progress_callback() {
+        // Passing None for progress_tx should work the same as before
+        let mgr = make_test_session_manager();
+        let parent_id = "parent-noprogress";
+        setup_parent_with_conv(&mgr, parent_id).await;
+
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
+        assert!(result.succeeded >= 1);
     }
 }

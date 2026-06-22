@@ -28,6 +28,13 @@ pub struct NormalizedMessage {
 
     /// Optional tenant/account identifier for multi-tenant session isolation.
     pub account_id: Option<String>,
+
+    /// Whether this message is a card action (e.g. button click).
+    ///
+    /// `Some(true)` when the inbound event is a card action trigger;
+    /// `None` (default) for regular text messages.
+    #[serde(default)]
+    pub card_action: Option<bool>,
 }
 
 #[cfg(test)]
@@ -44,6 +51,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: Some("omt_thread789".to_string()),
             account_id: Some("tenant_001".to_string()),
+            card_action: None,
         };
 
         let json = serde_json::to_string(&msg).expect("serialization failed");
@@ -57,6 +65,7 @@ mod tests {
         assert_eq!(deserialized.timestamp, 1700000000);
         assert_eq!(deserialized.thread_id.as_deref(), Some("omt_thread789"));
         assert_eq!(deserialized.account_id.as_deref(), Some("tenant_001"));
+        assert_eq!(deserialized.card_action, None);
     }
 
     #[test]
@@ -69,6 +78,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
 
         let json = serde_json::to_string(&msg).expect("serialization failed");
@@ -82,6 +92,7 @@ mod tests {
         assert_eq!(deserialized.timestamp, 1700000000);
         assert!(deserialized.thread_id.is_none());
         assert!(deserialized.account_id.is_none());
+        assert_eq!(deserialized.card_action, None);
     }
 
     #[test]
@@ -94,6 +105,7 @@ mod tests {
             timestamp: 42,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
 
         let json = serde_json::to_value(&msg).expect("serialization to value failed");
@@ -106,6 +118,7 @@ mod tests {
         assert!(obj.contains_key("timestamp"));
         assert!(obj.contains_key("thread_id"));
         assert!(obj.contains_key("account_id"));
-        assert_eq!(obj.len(), 7);
+        assert!(obj.contains_key("card_action"));
+        assert_eq!(obj.len(), 8);
     }
 }
