@@ -220,7 +220,10 @@ impl ShutdownHandle {
             return;
         }
 
-        info!("Graceful shutdown initiated — waiting for in-flight operations (forceful via repeated signal)");
+        info!(
+            "Graceful shutdown initiated — waiting for in-flight operations \
+                (forceful via repeated signal)"
+        );
 
         let _ = self.drain_done_tx.send(());
         self.wait_for_drain().await;
