@@ -492,6 +492,13 @@ impl ConfigManager {
     ///
     /// Returns `None` if the section has not been loaded.
     pub fn section(&self, section: ConfigSection) -> Option<serde_json::Value> {
+        self.get_section_value(section)
+    }
+
+    /// Get a single section value from the in-memory cache.
+    ///
+    /// Returns `None` if the section has not been loaded.
+    pub(crate) fn get_section_value(&self, section: ConfigSection) -> Option<serde_json::Value> {
         self.sections
             .read()
             .expect("RwLock for config sections was poisoned")

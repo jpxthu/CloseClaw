@@ -5,11 +5,11 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::config::events::ConfigChangeEvent;
-use crate::config::manager::{ConfigManager, ConfigSnapshot};
+use crate::config::manager::ConfigManager;
 use crate::config::reload::{ConfigReloadManager, WatcherHandle};
 use crate::gateway::SessionManager;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// RAII handle for the config hot-reload system.
 ///
@@ -42,14 +42,18 @@ fn spawn_config_change_subscriber(
                                 section = %section,
                                 "config change event received, notifying sessions"
                             );
-                            // Retrieve the latest snapshot (non-blocking).
-                            let snapshot = snapshot_rx
-                                .try_recv()
-                                .unwrap_or_else(|_| {
-                                    // Fallback: build an empty snapshot so
-                                    // notify_config_changed still works.
-                                    ConfigSnapshot::default()
-                                });
+                            // Block until the matching snapshot arrives.
+                            let snapshot = match snapshot_rx.recv().await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    warn!(
+                                        section = %section,
+                                        error = %e,
+                                        "failed to receive config snapshot, skipping session notification"
+                                    );
+                                    continue;
+                                }
+                            };
                             session_manager
                                 .notify_config_changed(section, snapshot)
                                 .await;
@@ -71,8 +75,7 @@ fn spawn_config_change_subscriber(
                     }
                 }
                 _ = snapshot_rx.recv() => {
-                    // Snapshot broadcast without a preceding event — ignore.
-                    // Snapshots are only forwarded when paired with a Reloaded event.
+                    debug!("snapshot received without paired event, ignoring");
                 }
             }
         }

@@ -151,13 +151,14 @@ impl SessionManager {
     ///
     /// The old snapshot's `Arc` reference count decrements; once all
     /// holders release it, the memory is reclaimed automatically.
-    pub async fn swap_config_snapshot(&self, snapshot: ConfigSnapshot) {
+    pub(crate) async fn swap_config_snapshot(&self, snapshot: ConfigSnapshot) {
         let mut guard = self.config_snapshot.write().await;
         *guard = Some(snapshot);
     }
 
     /// Get the current config snapshot, if one has been swapped in.
-    pub async fn get_config_snapshot(&self) -> Option<ConfigSnapshot> {
+    #[allow(dead_code)] // used in tests
+    pub(crate) async fn get_config_snapshot(&self) -> Option<ConfigSnapshot> {
         self.config_snapshot.read().await.clone()
     }
 

@@ -127,13 +127,7 @@ impl ConfigReloadManager {
         };
 
         // Step 2: backup old in-memory value before replacing
-        let old_value = self
-            .config_manager
-            .sections
-            .read()
-            .expect("RwLock for config sections was poisoned")
-            .get(&section)
-            .cloned();
+        let old_value = self.config_manager.get_section_value(section);
         if let Some(ref old) = old_value {
             let old_json = serde_json::to_string(old).unwrap_or_default();
             if let Err(e) = self
@@ -181,6 +175,13 @@ impl ConfigReloadManager {
         // Step 5: success — update cache and broadcast snapshot
         self.config_manager.update_section_cache(section, value);
         Ok(())
+    }
+
+    /// Reload the session config provider from disk.
+    ///
+    /// Delegates to `ConfigManager::reload_session_provider()`.
+    pub(crate) fn reload_session_provider(&self) {
+        self.config_manager.reload_session_provider();
     }
 
     /// Start watching config files under `config_dir`.
@@ -476,7 +477,7 @@ fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
             warn!(error = %e, section = %section, "failed to reload config section");
         } else if section == ConfigSection::Session {
             // Session section reloaded successfully — update session_provider.
-            manager.config_manager.reload_session_provider();
+            manager.reload_session_provider();
         }
     }
 }
