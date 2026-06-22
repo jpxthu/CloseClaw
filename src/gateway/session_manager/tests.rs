@@ -543,3 +543,57 @@ async fn test_clear_pending_empty() {
     };
     assert_eq!(count, 0);
 }
+
+// =====================================================================
+// Step 1.5 — swap_config_snapshot tests
+// =====================================================================
+
+/// swap_config_snapshot replaces the stored snapshot and subsequent reads
+/// return the new value.
+#[tokio::test]
+async fn test_swap_config_snapshot() {
+    use std::collections::HashMap;
+
+    let mgr = make_test_mgr(None);
+
+    // Initially no snapshot is stored
+    assert!(
+        mgr.get_config_snapshot().await.is_none(),
+        "no snapshot should be stored initially"
+    );
+
+    // Create and swap in a snapshot
+    let mut map = HashMap::new();
+    map.insert(ConfigSection::System, serde_json::json!({"version": "5.0"}));
+    let snapshot: ConfigSnapshot = ConfigSnapshot::new(map);
+    mgr.swap_config_snapshot(snapshot.clone()).await;
+
+    // Verify the stored snapshot is the one we swapped in
+    let stored = mgr
+        .get_config_snapshot()
+        .await
+        .expect("snapshot should exist");
+    assert!(
+        std::sync::Arc::ptr_eq(&stored, &snapshot),
+        "stored snapshot should be the same Arc as the one we swapped in"
+    );
+
+    // Swap in a different snapshot
+    let mut map2 = HashMap::new();
+    map2.insert(ConfigSection::Models, serde_json::json!({"models": []}));
+    let snapshot2: ConfigSnapshot = ConfigSnapshot::new(map2);
+    mgr.swap_config_snapshot(snapshot2.clone()).await;
+
+    let stored2 = mgr
+        .get_config_snapshot()
+        .await
+        .expect("snapshot should exist");
+    assert!(
+        std::sync::Arc::ptr_eq(&stored2, &snapshot2),
+        "stored snapshot should now be the second one"
+    );
+    assert!(
+        !std::sync::Arc::ptr_eq(&stored2, &snapshot),
+        "new snapshot should differ from the old one"
+    );
+}

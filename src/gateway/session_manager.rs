@@ -156,6 +156,11 @@ impl SessionManager {
         *guard = Some(snapshot);
     }
 
+    /// Get the current config snapshot, if one has been swapped in.
+    pub async fn get_config_snapshot(&self) -> Option<ConfigSnapshot> {
+        self.config_snapshot.read().await.clone()
+    }
+
     /// Set the tool registry for building system prompt ToolsSection.
     pub async fn set_tool_registry(&self, registry: Arc<ToolRegistry>) {
         *self.tool_registry.write().await = Some(registry);

@@ -672,3 +672,60 @@ fn test_agent_permissions_missing_file_returns_default() {
         );
     }
 }
+
+// =========================================================================
+// Step 1.5 — snapshot broadcast tests
+// =========================================================================
+
+/// After a successful reload_section, the snapshot broadcast channel delivers
+/// the updated snapshot to a subscriber.
+#[test]
+fn test_snapshot_broadcast_after_reload() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path();
+    write_mandatory_configs(config_dir).unwrap();
+    let manager = ConfigManager::new(config_dir.to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let mut rx = manager.subscribe_config_snapshots();
+
+    // Trigger a reload that calls update_section_cache internally
+    fs::write(config_dir.join("system.json"), r#"{"version":"9.0"}"#).unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
+
+    // The snapshot receiver should have the new snapshot
+    let snapshot = rx
+        .try_recv()
+        .expect("should receive a snapshot after reload");
+    assert!(
+        snapshot.contains_key(&ConfigSection::System),
+        "snapshot should contain System section"
+    );
+}
+
+/// The snapshot broadcast after reload_section contains the exact value
+/// that was reloaded.
+#[test]
+fn test_snapshot_contains_updated_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path();
+    write_mandatory_configs(config_dir).unwrap();
+    let manager = ConfigManager::new(config_dir.to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let mut rx = manager.subscribe_config_snapshots();
+
+    fs::write(config_dir.join("system.json"), r#"{"version":"42.0"}"#).unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
+
+    let snapshot = rx
+        .try_recv()
+        .expect("should receive a snapshot after reload");
+    let system_val = snapshot
+        .get(&ConfigSection::System)
+        .expect("System section missing from snapshot");
+    assert_eq!(
+        system_val["version"], "42.0",
+        "snapshot should contain the updated version"
+    );
+}
