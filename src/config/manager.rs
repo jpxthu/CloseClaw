@@ -327,6 +327,20 @@ impl ConfigManager {
                 }
             };
 
+            // Business validation: reuse the same validators used by hot-reload.
+            let validate = super::validators::for_section(section);
+            if let Err(msg) = validate(&value) {
+                warn!(
+                    section = %section,
+                    error = %msg,
+                    "config business validation failed, attempting rollback"
+                );
+                match self.try_rollback_and_retry(&path, section, &mut sections) {
+                    Ok(()) => continue,
+                    Err(e) => return Err(e),
+                }
+            }
+
             sections.insert(section, value);
         }
 
