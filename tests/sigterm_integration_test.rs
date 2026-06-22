@@ -37,7 +37,7 @@ async fn test_sigterm_triggers_graceful_shutdown() {
     )
     .expect("failed to write test agents.json");
 
-    write_mandatory_configs(config_dir).expect("write mandatory config");
+    write_mandatory_configs(&agents_dir).expect("write mandatory config");
 
     // Start the daemon
     let mut daemon = Command::new(&daemon_bin)
@@ -110,7 +110,7 @@ async fn test_sigint_triggers_graceful_shutdown() {
     )
     .expect("failed to write test agents.json");
 
-    write_mandatory_configs(config_dir).expect("write mandatory config");
+    write_mandatory_configs(&config_dir.join("config")).expect("write mandatory config");
 
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
