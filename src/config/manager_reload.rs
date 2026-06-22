@@ -128,7 +128,7 @@ impl ConfigManager {
                     error = %e,
                     "failed to rebuild session provider, using defaults"
                 );
-                Arc::new(JsonSessionConfigProvider::new("/dev/null").unwrap())
+                Arc::new(JsonSessionConfigProvider::default())
             }
         };
         *self.session_provider.write().expect("RwLock poisoned") = Some(provider);

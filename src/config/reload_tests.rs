@@ -81,6 +81,10 @@ mod reload_tests {
             filename_to_section("system.json"),
             Some(ConfigSection::System)
         );
+        assert_eq!(
+            filename_to_section("session.json"),
+            Some(ConfigSection::Session)
+        );
         assert_eq!(filename_to_section("agents.json"), None);
         assert_eq!(filename_to_section("unknown.json"), None);
     }
@@ -280,6 +284,11 @@ mod reload_tests {
                 "models.json",
                 ConfigSection::Models,
                 r#"{"models":[{"id":"m1"}]}"#,
+            ),
+            (
+                "session.json",
+                ConfigSection::Session,
+                r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":999}"#,
             ),
         ];
 
