@@ -295,6 +295,12 @@ impl ShutdownHandle {
     pub fn is_stopped(&self) -> bool {
         self.coordinator.state() == ShutdownState::Stopped
     }
+
+    /// Test-only: start shutdown without blocking (for intermediate state assertions).
+    #[cfg(test)]
+    pub fn start_shutdown_for_test(&self) {
+        self.coordinator.try_start_shutdown();
+    }
 }
 
 impl ShutdownHandle {
