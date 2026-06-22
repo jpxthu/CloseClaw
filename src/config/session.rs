@@ -107,7 +107,7 @@ pub trait SessionConfigProvider: Send + Sync {
 }
 
 /// JSON-based session configuration provider
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct JsonSessionConfigProvider {
     /// Parsed session config (None means file was absent, using hardcoded defaults)
     config: Option<SessionConfig>,

@@ -3,7 +3,7 @@
 use crate::config::manager::ConfigSection;
 use crate::config::validators::{
     for_section, validate_channels, validate_gateway, validate_models, validate_plugins,
-    validate_system,
+    validate_session, validate_system,
 };
 
 // ---------------------------------------------------------------------------
@@ -242,4 +242,110 @@ fn test_for_section_credentials_always_passes() {
     let v: serde_json::Value = serde_json::from_str(r#""anything""#).unwrap();
     let validator = for_section(ConfigSection::Credentials);
     assert!(validator(&v).is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// validate_session
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_session_pass() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"sweeperIntervalSecs":600,"compact":{}}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_pass_empty_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_pass_no_sweeper_interval() {
+    // sweeperIntervalSecs absent — should pass (optional field)
+    let v: serde_json::Value = serde_json::from_str(r#"{"compact":{}}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_validate_session_fail_not_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(err.contains("JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_session_fail_string() {
+    let v: serde_json::Value = serde_json::from_str(r#""hello""#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(err.contains("JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_session_fail_sweeper_interval_zero() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":0}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(
+        err.contains("positive number"),
+        "error should mention positive number: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_session_fail_sweeper_interval_string() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"sweeperIntervalSecs":"not a number"}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(
+        err.contains("positive number"),
+        "error should mention positive number: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_session_fail_sweeper_interval_negative() {
+    // Negative number: as_u64() returns None for negative → unwrap_or(0) == 0
+    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":-5}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(err.contains("positive number"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_session_fail_sweeper_interval_null() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":null}"#).unwrap();
+    let err = validate_session(&v).unwrap_err();
+    assert!(err.contains("positive number"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_session_pass_sweeper_interval_positive() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":1}"#).unwrap();
+    assert!(validate_session(&v).is_ok());
+}
+
+#[test]
+fn test_default_validator_session_passes_valid_json() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"sweeperIntervalSecs":300,"compact":{}}"#).unwrap();
+    let validator = ConfigSection::Session.default_validator();
+    assert!(validator(&v).is_ok());
+}
+
+#[test]
+fn test_default_validator_session_rejects_non_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
+    let validator = ConfigSection::Session.default_validator();
+    assert!(validator(&v).is_err());
+}
+
+#[test]
+fn test_for_section_session_returns_validator() {
+    let validator = for_section(ConfigSection::Session);
+    let valid: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+    let invalid: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
+    assert!(validator(&valid).is_ok());
+    assert!(validator(&invalid).is_err());
 }

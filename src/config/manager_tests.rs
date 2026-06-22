@@ -58,7 +58,8 @@ fn test_config_section_display() {
     assert_eq!(ConfigSection::Gateway.to_string(), "gateway.json");
     assert_eq!(ConfigSection::Plugins.to_string(), "plugins.json");
     assert_eq!(ConfigSection::System.to_string(), "system.json");
-    assert_eq!(ConfigSection::Credentials.to_string(), "credentials.json");
+    assert_eq!(ConfigSection::Session.to_string(), "session.json");
+    assert_eq!(ConfigSection::Credentials.to_string(), "credentials/");
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +307,117 @@ fn test_config_manager_load() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ConfigManager — Session integration
+// ---------------------------------------------------------------------------
+
+/// Test: session_config_provider returns None before load(), Some after.
+#[test]
+fn test_session_config_provider_none_before_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    assert!(manager.session_config_provider().is_none());
+}
+
+/// Test: session_config_provider returns Some after load().
+#[test]
+fn test_session_config_provider_some_after_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    assert!(manager.session_config_provider().is_some());
+}
+
+/// Test: session_config_provider provides valid config when session.json exists.
+#[test]
+fn test_session_config_provider_with_valid_session_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let provider = manager.session_config_provider().unwrap();
+    assert_eq!(provider.sweeper_interval_secs(), 600);
+}
+
+/// Test: session_config_provider uses defaults when session.json is absent.
+#[test]
+fn test_session_config_provider_defaults_when_no_session_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    // No session.json written — ConfigManager still loads successfully
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let provider = manager.session_config_provider().unwrap();
+    // Should use the DEFAULT_SWEEPER_INTERVAL_SECS (300)
+    assert_eq!(
+        provider.sweeper_interval_secs(),
+        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+    );
+}
+
+/// Test: session_config_provider uses defaults when session.json is invalid.
+#[test]
+fn test_session_config_provider_defaults_when_session_json_invalid() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    fs::write(tmp.path().join("session.json"), "not valid json").unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let provider = manager.session_config_provider().unwrap();
+    assert_eq!(
+        provider.sweeper_interval_secs(),
+        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+    );
+}
+
+/// Test: list_configs includes Session section but not Credentials.
+#[test]
+fn test_list_configs_includes_session_excludes_credentials() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir(&tmp);
+    let session_path = tmp.path().join("session.json");
+    fs::write(
+        &session_path,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    // Verify file was written correctly
+    let content = fs::read_to_string(&session_path).unwrap();
+    assert!(
+        !content.is_empty(),
+        "session.json should not be empty after write"
+    );
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let infos = manager.list_configs();
+    let section_names: Vec<&str> = infos
+        .iter()
+        .map(|i| i.path.rsplit('/').next().unwrap_or(&i.path))
+        .collect();
+
+    assert!(
+        section_names.contains(&"session.json"),
+        "list_configs should include session.json, got: {:?}",
+        section_names
+    );
+    assert!(
+        !section_names.iter().any(|n| n.contains("credentials")),
+        "list_configs should not include credentials, got: {:?}",
+        section_names
+    );
+}
+
 #[test]
 fn test_config_manager_load_missing_file() {
     let tmp = tempfile::tempdir().unwrap();
@@ -513,12 +625,17 @@ fn test_agent_permissions_missing_file_returns_default() {
 
     // Create agents.json with one registered agent
     let agents_json = r#"{ "version": "1.0", "agents": ["test-agent"] }"#;
-    let agents_dir = tmp.path().join("config");
-    fs::create_dir_all(&agents_dir).unwrap();
-    fs::write(agents_dir.join("agents.json"), agents_json).unwrap();
+    // agents.json lives in config_dir (where ConfigManager reads from)
+    fs::write(tmp.path().join("agents.json"), agents_json).unwrap();
 
     // Create agent directory with config.json but NO permissions.json
-    let agent_dir = tmp.path().join("agents").join("test-agent");
+    // agents/ is at root level (parent of config_dir)
+    let agent_dir = tmp
+        .path()
+        .parent()
+        .unwrap()
+        .join("agents")
+        .join("test-agent");
     fs::create_dir_all(&agent_dir).unwrap();
     let agent_config = r#"{ "id": "test-agent", "name": "Test Agent" }"#;
     fs::write(agent_dir.join("config.json"), agent_config).unwrap();

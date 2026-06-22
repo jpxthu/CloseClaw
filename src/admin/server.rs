@@ -204,7 +204,7 @@ async fn create_agent_dir_and_config(
 
 /// Append the new agent name to agents.json.
 async fn update_agents_json(name: &str, context: &AdminContext) -> Result<(), AdminResponse> {
-    let agents_json_path = context.config_dir.join("config").join("agents.json");
+    let agents_json_path = context.config_manager.config_dir.join("agents.json");
 
     // Load existing agents.json (blocking I/O)
     let mut agent_ids = {
@@ -396,12 +396,12 @@ mod tests {
 
     fn make_test_context() -> AdminContext {
         let config_dir = tempfile::tempdir().unwrap().keep();
-        // Create config/agents.json so ConfigManager can load
         let config_sub = config_dir.join("config");
         std::fs::create_dir_all(&config_sub).unwrap();
+        // agents.json lives in the config subdirectory
+        // (ConfigManager.config_dir = config_sub)
         std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
-        let config_manager =
-            Arc::new(crate::config::ConfigManager::new(config_dir.clone()).unwrap());
+        let config_manager = Arc::new(crate::config::ConfigManager::new(config_sub).unwrap());
         AdminContext {
             agent_registry: Arc::new(AgentRegistry::new()),
             skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),

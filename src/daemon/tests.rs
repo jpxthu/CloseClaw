@@ -30,7 +30,10 @@ fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
 /// in the given directory so that `ConfigManager::load()` succeeds.
 fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     write_agents_json(dir)?;
-    write_mandatory_configs(dir)?;
+    // Mandatory configs go into the config/ subdirectory
+    // (ConfigManager now receives <root>/config/ as config_dir)
+    let config_dir = dir.join("config");
+    write_mandatory_configs(&config_dir)?;
     Ok(())
 }
 

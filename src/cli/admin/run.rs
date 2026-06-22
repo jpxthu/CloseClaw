@@ -11,7 +11,7 @@ use std::path::PathBuf;
 /// resolution and PID writing without starting a real daemon.
 pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, u32, PathBuf)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
-        crate::platform::config::config_dir()?
+        crate::platform::config::root_dir()?
     } else {
         PathBuf::from(config_dir)
     };

@@ -111,7 +111,7 @@ impl ConfigManager {
             *self.repo_root.write().expect("RwLock poisoned") = repo_root.map(Path::to_path_buf);
         }
 
-        let agents_json_path = self.config_dir.join("config").join("agents.json");
+        let agents_json_path = self.config_dir.join("agents.json");
         let user_ids = self.load_agents_json(&agents_json_path)?;
 
         let project_ids = if let Some(repo) = repo_root {
@@ -126,7 +126,11 @@ impl ConfigManager {
             return Ok(());
         }
 
-        let user_agents_dir = self.config_dir.join("agents");
+        let user_agents_dir = self
+            .config_dir
+            .parent()
+            .unwrap_or(&self.config_dir)
+            .join("agents");
         let project_agents_dir = repo_root.map(|r| r.join(".closeclaw").join("agents"));
 
         let provider =

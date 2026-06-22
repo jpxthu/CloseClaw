@@ -289,11 +289,12 @@ fn test_reload_agents_success() {
     setup_config_dir_at(&config_dir);
 
     let agents_json = r#"{ "version": "1.0", "agents": ["alpha"] }"#;
-    let agents_dir = config_dir.join("config");
-    fs::create_dir_all(&agents_dir).unwrap();
-    fs::write(agents_dir.join("agents.json"), agents_json).unwrap();
+    // agents.json lives at config_dir root (e.g. ~/.closeclaw/agents.json)
+    fs::write(config_dir.join("agents.json"), agents_json).unwrap();
 
-    let agent_dir = config_dir.join("agents").join("alpha");
+    // agents/ is at root level (parent of config_dir)
+    let root_dir = config_dir.parent().unwrap();
+    let agent_dir = root_dir.join("agents").join("alpha");
     fs::create_dir_all(&agent_dir).unwrap();
     fs::write(
         agent_dir.join("config.json"),
@@ -320,11 +321,12 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
 
     // Set up a valid agent: alpha
     let agents_json = r#"{ "agents": ["alpha"] }"#;
-    let config_agents_dir = config_dir.join("config");
-    fs::create_dir_all(&config_agents_dir).unwrap();
-    fs::write(config_agents_dir.join("agents.json"), agents_json).unwrap();
+    // agents.json lives at config_dir root
+    fs::write(config_dir.join("agents.json"), agents_json).unwrap();
 
-    let agent_dir = config_dir.join("agents").join("alpha");
+    // agents/ is at root level (parent of config_dir)
+    let root_dir = config_dir.parent().unwrap();
+    let agent_dir = root_dir.join("agents").join("alpha");
     fs::create_dir_all(&agent_dir).unwrap();
     fs::write(
         agent_dir.join("config.json"),
@@ -344,7 +346,7 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
     assert!(old_agents.contains_key("alpha"));
 
     // Corrupt agents.json so reload_agents() fails
-    fs::write(config_agents_dir.join("agents.json"), "not json").unwrap();
+    fs::write(config_dir.join("agents.json"), "not json").unwrap();
     let result = manager.reload_agents();
     assert!(result.is_err());
 
@@ -660,16 +662,11 @@ fn test_restore_agents_replaces_current_state() {
     fs::create_dir_all(&config_dir).unwrap();
     setup_config_dir_at(&config_dir);
 
-    let config_agents_dir = config_dir.join("config");
-    fs::create_dir_all(&config_agents_dir).unwrap();
-
-    // Set up agent alpha
-    fs::write(
-        config_agents_dir.join("agents.json"),
-        r#"{ "agents": ["alpha"] }"#,
-    )
-    .unwrap();
-    let alpha_dir = config_dir.join("agents").join("alpha");
+    // agents.json lives at config_dir root
+    fs::write(config_dir.join("agents.json"), r#"{ "agents": ["alpha"] }"#).unwrap();
+    // agents/ is at root level (parent of config_dir)
+    let root_dir = config_dir.parent().unwrap();
+    let alpha_dir = root_dir.join("agents").join("alpha");
     fs::create_dir_all(&alpha_dir).unwrap();
     fs::write(
         alpha_dir.join("config.json"),
@@ -685,11 +682,11 @@ fn test_restore_agents_replaces_current_state() {
 
     // Now add agent beta manually by writing files and reloading
     fs::write(
-        config_agents_dir.join("agents.json"),
+        config_dir.join("agents.json"),
         r#"{ "agents": ["alpha", "beta"] }"#,
     )
     .unwrap();
-    let beta_dir = config_dir.join("agents").join("beta");
+    let beta_dir = root_dir.join("agents").join("beta");
     fs::create_dir_all(&beta_dir).unwrap();
     fs::write(
         beta_dir.join("config.json"),
@@ -836,4 +833,144 @@ fn test_reload_section_default_validator_system() {
         result.unwrap_err(),
         ConfigLoadError::ValidationError { .. }
     ));
+}
+/// reload_section for Session updates the in-memory cache.
+#[test]
+fn test_reload_session_section_success() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":1200}"#,
+    )
+    .unwrap();
+    manager
+        .reload_section(ConfigSection::Session, None)
+        .unwrap();
+    let section = manager.section(ConfigSection::Session).unwrap();
+    assert_eq!(section["sweeperIntervalSecs"], 1200);
+}
+
+/// reload_session_provider rebuilds provider from session.json on disk.
+#[test]
+fn test_reload_session_provider_rebuilds_from_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    let provider = manager.session_config_provider().unwrap();
+    assert_eq!(provider.sweeper_interval_secs(), 600);
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":9999}"#,
+    )
+    .unwrap();
+    manager.reload_session_provider();
+    let provider = manager.session_config_provider().unwrap();
+    assert_eq!(provider.sweeper_interval_secs(), 9999);
+}
+
+/// reload_session_provider falls back to defaults when file is missing.
+#[test]
+fn test_reload_session_provider_fallback_on_missing_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    fs::remove_file(tmp.path().join("session.json")).unwrap();
+    manager.reload_session_provider();
+    let provider = manager.session_config_provider().unwrap();
+    assert_eq!(
+        provider.sweeper_interval_secs(),
+        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+    );
+}
+
+/// reload_session_provider falls back to defaults when JSON is invalid.
+#[test]
+fn test_reload_session_provider_fallback_on_invalid_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    fs::write(tmp.path().join("session.json"), "not json").unwrap();
+    manager.reload_session_provider();
+    let provider = manager.session_config_provider().unwrap();
+    assert_eq!(
+        provider.sweeper_interval_secs(),
+        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+    );
+}
+
+/// reload_section with invalid JSON preserves old in-memory value.
+#[test]
+fn test_reload_session_section_invalid_json_preserves_old() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    let before = manager.section(ConfigSection::Session).unwrap();
+    assert_eq!(before["sweeperIntervalSecs"], 600);
+    fs::write(tmp.path().join("session.json"), "not json").unwrap();
+    let result = manager.reload_section(ConfigSection::Session, None);
+    assert!(result.is_err());
+    let after = manager.section(ConfigSection::Session).unwrap();
+    assert_eq!(after["sweeperIntervalSecs"], 600);
+}
+
+/// reload_section with failing validator preserves old value.
+#[test]
+fn test_reload_session_section_validator_failure_preserves_old() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+    let before = manager.section(ConfigSection::Session).unwrap();
+    assert_eq!(before["sweeperIntervalSecs"], 600);
+    fs::write(
+        tmp.path().join("session.json"),
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":0}"#,
+    )
+    .unwrap();
+    let v = ConfigSection::Session.default_validator();
+    let result = manager.reload_section(ConfigSection::Session, Some(&*v));
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        ConfigLoadError::ValidationError { .. }
+    ));
+    let after = manager.section(ConfigSection::Session).unwrap();
+    assert_eq!(after["sweeperIntervalSecs"], 600);
 }

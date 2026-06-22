@@ -25,7 +25,7 @@ use crate::config::ConfigManager;
 /// Write an agents.json file with the given IDs.
 ///
 /// `dir` is the directory to write agents.json into (should be the
-/// config directory, i.e. `~/.closeclaw/config/`).
+/// config directory, i.e. `~/.closeclaw/`).
 fn write_agents_json(dir: &Path, ids: &[&str]) {
     let content = serde_json::json!({ "agents": ids });
     let json_str = serde_json::to_string_pretty(&content).unwrap();
@@ -50,7 +50,7 @@ fn create_agent_config(agents_dir: &Path, id: &str) {
 }
 
 /// Build a `ConfigManager` with `config_dir = <base>/config/`.
-/// The agents directory is `<base>/config/agents/`.
+/// The agents directory is `<base>/agents/` (root level).
 fn make_config_manager(base: &Path) -> ConfigManager {
     let config_dir = base.join("config");
     fs::create_dir_all(&config_dir).unwrap();
@@ -115,10 +115,10 @@ fn test_load_agents_json_valid() {
     let tmp = tempfile::tempdir().unwrap();
     let config_dir = tmp.path().join("config");
     fs::create_dir_all(&config_dir).unwrap();
-    write_agents_json(&config_dir.join("config"), &["orchestrator", "coder"]);
+    write_agents_json(&config_dir, &["orchestrator", "coder"]);
     let cm = make_config_manager(tmp.path());
     let ids = cm
-        .load_agents_json(&config_dir.join("config").join("agents.json"))
+        .load_agents_json(&config_dir.join("agents.json"))
         .unwrap();
     assert_eq!(ids, vec!["orchestrator", "coder"]);
 }
@@ -138,12 +138,11 @@ fn test_load_agents_json_with_comments() {
     "c"
   ]
 }"#;
-    let agents_dir = config_dir.join("config");
-    fs::create_dir_all(&agents_dir).unwrap();
-    fs::write(agents_dir.join("agents.json"), json).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("agents.json"), json).unwrap();
     let cm = make_config_manager(tmp.path());
     let ids = cm
-        .load_agents_json(&config_dir.join("config").join("agents.json"))
+        .load_agents_json(&config_dir.join("agents.json"))
         .unwrap();
     assert_eq!(ids, vec!["a", "c"]);
 }
@@ -159,11 +158,12 @@ fn test_load_agents_merges_user_and_project() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
 
-    // agents.json goes into config_dir, agents go into config_dir/agents
+    // agents.json goes into config_dir, agents go into root/agents
     let config_dir = tmp.path().join("config");
-    let agents_dir = config_dir.join("agents");
+    let root_dir = tmp.path();
+    let agents_dir = root_dir.join("agents");
 
-    write_agents_json(&config_dir.join("config"), &["agent-1", "agent-2"]);
+    write_agents_json(&config_dir, &["agent-1", "agent-2"]);
     create_agent_config(&agents_dir, "agent-1");
     create_agent_config(&agents_dir, "agent-2");
 
@@ -200,9 +200,10 @@ fn test_load_agents_no_project_root() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
     let config_dir = tmp.path().join("config");
-    let agents_dir = config_dir.join("agents");
+    let root_dir = tmp.path();
+    let agents_dir = root_dir.join("agents");
 
-    write_agents_json(&config_dir.join("config"), &["user-agent"]);
+    write_agents_json(&config_dir, &["user-agent"]);
     create_agent_config(&agents_dir, "user-agent");
 
     cm.load_agents(None).expect("load_agents should succeed");
@@ -219,9 +220,10 @@ fn test_load_agents_project_json_missing() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
     let config_dir = tmp.path().join("config");
-    let agents_dir = config_dir.join("agents");
+    let root_dir = tmp.path();
+    let agents_dir = root_dir.join("agents");
 
-    write_agents_json(&config_dir.join("config"), &["only-user"]);
+    write_agents_json(&config_dir, &["only-user"]);
     create_agent_config(&agents_dir, "only-user");
 
     let repo_dir = tempfile::tempdir().unwrap();
@@ -240,16 +242,17 @@ fn test_reload_agents_reloads() {
     let tmp = tempfile::tempdir().unwrap();
     let cm = make_config_manager(tmp.path());
     let config_dir = tmp.path().join("config");
-    let agents_dir = config_dir.join("agents");
+    let root_dir = tmp.path();
+    let agents_dir = root_dir.join("agents");
 
-    write_agents_json(&config_dir.join("config"), &["a"]);
+    write_agents_json(&config_dir, &["a"]);
     create_agent_config(&agents_dir, "a");
 
     cm.load_agents(None).unwrap();
     assert!(cm.agents().contains_key("a"));
 
     // Add a new agent
-    write_agents_json(&config_dir.join("config"), &["a", "b"]);
+    write_agents_json(&config_dir, &["a", "b"]);
     create_agent_config(&agents_dir, "b");
     cm.reload_agents().unwrap();
 

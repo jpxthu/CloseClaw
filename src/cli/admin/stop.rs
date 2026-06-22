@@ -4,7 +4,7 @@ use super::common::{json_output, StopOutput};
 use anyhow::Result;
 
 pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
-    let config_dir = crate::platform::config::config_dir()?;
+    let config_dir = crate::platform::config::root_dir()?;
     let p = crate::platform::process::pid_file_path(&config_dir);
     let pid = crate::platform::process::read_pid_file(&p)
         .ok_or_else(|| anyhow::anyhow!("PID file not found at {}.", p.display()))?;
