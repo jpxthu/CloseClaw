@@ -10,7 +10,7 @@
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Shutdown mode — distinguishes graceful from forceful shutdown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,18 +68,6 @@ impl ShutdownState {
             _ => ShutdownMode::Graceful,
         }
     }
-}
-
-/// Returns the drain timeout in seconds.
-#[cfg(not(test))]
-const fn drain_timeout_secs() -> u64 {
-    30
-}
-
-/// Returns the drain timeout in seconds (test mode: 3s).
-#[cfg(test)]
-const fn drain_timeout_secs() -> u64 {
-    3
 }
 
 /// Returns the drain poll interval.
@@ -218,11 +206,11 @@ impl ShutdownHandle {
     /// Initiate graceful shutdown — called when SIGTERM/SIGINT is received.
     ///
     /// 1. Transition to ShuttingDown
-    /// 2. Wait up to DRAIN_TIMEOUT_SECS for in-flight work to complete
+    /// 2. Wait for in-flight work to complete (no timeout)
     /// 3. Transition to Draining → Stopped
     ///
     /// If already shutting down, escalates to forceful.
-    /// If timeout is exceeded, force-exit.
+    /// Only a forceful upgrade or busy_count reaching 0 can end the wait.
     pub async fn initiate_shutdown(&self) {
         if !self.coordinator.try_start_shutdown() {
             // Already shutting down — escalate to forceful on repeated signal
@@ -233,19 +221,17 @@ impl ShutdownHandle {
         }
 
         info!(
-            "Graceful shutdown initiated (timeout={}s)",
-            drain_timeout_secs()
+            "Graceful shutdown initiated — waiting for in-flight operations \
+                (forceful via repeated signal)"
         );
 
         let _ = self.drain_done_tx.send(());
         self.wait_for_drain().await;
     }
 
-    /// Wait for busy_count to reach 0 or timeout, then finalize shutdown.
-    /// In forceful mode, skip the timeout and finalize immediately.
+    /// Wait for busy_count to reach 0, then finalize shutdown.
+    /// In forceful mode, finalize immediately without waiting.
     async fn wait_for_drain(&self) {
-        let started_at = std::time::Instant::now();
-
         loop {
             // If upgraded to forceful mid-drain, finalize immediately
             if self.is_forceful() {
@@ -263,24 +249,7 @@ impl ShutdownHandle {
                 return;
             }
 
-            let elapsed = started_at.elapsed().as_secs();
-            if elapsed >= drain_timeout_secs() {
-                warn!(
-                    "Drain timeout exceeded ({}s) — forcing shutdown (busy_count={})",
-                    drain_timeout_secs(),
-                    count
-                );
-                self.coordinator.start_drain();
-                self.coordinator.mark_stopped();
-                return;
-            }
-
-            info!(
-                "Waiting for in-flight operations... ({}s / {}s, busy_count={})",
-                elapsed,
-                drain_timeout_secs(),
-                count
-            );
+            info!("Waiting for in-flight operations... (busy_count={})", count);
 
             tokio::time::sleep(drain_poll_interval()).await;
         }
@@ -505,12 +474,6 @@ mod tests {
     }
 
     #[test]
-    fn test_drain_timeout_secs_test_mode() {
-        // In test mode, drain_timeout_secs should return 3 (not 30)
-        assert_eq!(drain_timeout_secs(), 3);
-    }
-
-    #[test]
     fn test_drain_poll_interval_test_mode() {
         // In test mode, drain_poll_interval should return 100ms (not 2s)
         assert_eq!(drain_poll_interval(), std::time::Duration::from_millis(100));
@@ -603,5 +566,29 @@ mod tests {
         // Stopped is not "shutting down" — the shutdown is complete
         assert!(!handle.is_shutting_down());
         assert!(!handle.is_forceful());
+    }
+
+    #[tokio::test]
+    async fn test_graceful_drain_no_timeout_waits_indefinitely() {
+        // After removing the drain timeout, graceful mode waits for busy_count
+        // to reach 0 with no time limit.
+        let handle = ShutdownHandle::new();
+        handle.increment_busy();
+
+        let h = handle.clone();
+        let shutdown_handle = tokio::spawn(async move {
+            h.initiate_shutdown().await;
+        });
+
+        // Wait 800ms — well beyond any reasonable test timeout,
+        // but the drain should still be waiting.
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        assert!(handle.is_shutting_down());
+        assert!(!handle.is_stopped());
+
+        // Release the busy count — drain should complete naturally.
+        handle.decrement_busy();
+        shutdown_handle.await.unwrap();
+        assert!(handle.is_stopped());
     }
 }
