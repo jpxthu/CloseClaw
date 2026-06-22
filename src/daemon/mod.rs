@@ -3,6 +3,7 @@
 //! Orchestrates all components: Gateway, AgentRegistry, PermissionEngine.
 //! Handles graceful shutdown via ShutdownCoordinator.
 pub mod config_reload;
+pub mod dreaming_scheduler;
 pub mod shutdown;
 pub mod skill_reload;
 use crate::admin::client::admin_socket_path;

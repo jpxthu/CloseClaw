@@ -239,7 +239,7 @@ pub fn load_checkpoint_inner(
     // mined: handle both INTEGER (0/1) and TEXT ("0"/"1") representations
     let mined: bool = mined_raw
         .as_deref()
-        .map(|s| s != "0" && s != "" && s != "false")
+        .map(|s| s != "0" && !s.is_empty() && s != "false")
         .unwrap_or(false);
 
     // dreaming_status: handle missing or empty string
