@@ -348,7 +348,12 @@ impl Gateway {
             }
         }
 
-        let handler = self.session_handler.as_ref()?;
+        let Some(handler) = self.session_handler.as_ref() else {
+            if let Some(sh) = self.get_shutdown_handle() {
+                sh.decrement_busy();
+            }
+            return None;
+        };
 
         // Streaming path: plugin is registered for this channel AND the
         // self-ref is wired AND the handler has a back-ref. Falls back
@@ -364,14 +369,20 @@ impl Gateway {
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
             };
-            return Some(
-                handler
-                    .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
-                    .await,
-            );
+            let result = handler
+                .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
+                .await;
+            if let Some(sh) = self.get_shutdown_handle() {
+                sh.decrement_busy();
+            }
+            return Some(result);
         }
 
-        Some(handler.handle_message(session_id, content).await)
+        let result = handler.handle_message(session_id, content).await;
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.decrement_busy();
+        }
+        Some(result)
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).

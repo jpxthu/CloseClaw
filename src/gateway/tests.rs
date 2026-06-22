@@ -590,15 +590,13 @@ async fn test_inbound_message_increments_busy_count() {
     assert_eq!(sh.busy_count(), 0);
 
     // Call handle_inbound_message. The gateway increments busy_count
-    // at entry (Step 1.1). The spawned LLM task also increments,
-    // so after completion busy_count may be > 0 due to the
-    // double-increment pattern. We verify the mechanism works by
-    // checking that the shutdown gate correctly decrements on rejection.
+    // at entry and decrements it when returning, so after completion
+    // busy_count should be back to 0.
     let _ = gw
         .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
         .await;
-    // At minimum, busy_count should have been incremented during processing
-    // (the exact final value depends on the double-increment pattern)
+    // Gateway-level increment/decrement must be balanced
+    assert_eq!(sh.busy_count(), 0);
 }
 
 #[tokio::test]
