@@ -24,7 +24,8 @@ fn test_validate_models_pass_empty_object() {
 
 #[test]
 fn test_validate_models_pass_with_array() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"models":[{"id":"m1"}]}"#).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"models":[{"id":"m1"}]}}}"#).unwrap();
     assert!(validate_models(&v).is_ok());
 }
 
@@ -47,6 +48,94 @@ fn test_validate_models_fail_models_not_array() {
     let v: serde_json::Value = serde_json::from_str(r#"{"models":"not array"}"#).unwrap();
     let err = validate_models(&v).unwrap_err();
     assert!(err.contains("array"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_models_fail_empty_provider_id() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"providers":{"":{"models":[]}}}"#).unwrap();
+    let err = validate_models(&v).unwrap_err();
+    assert!(
+        err.contains("provider ID cannot be empty"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_models_fail_empty_model_id() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"models":[{"id":""}]}}}"#).unwrap();
+    let err = validate_models(&v).unwrap_err();
+    assert!(err.contains("id cannot be empty"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_models_fail_missing_model_id() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"models":[{"name":"no-id"}]}}}"#).unwrap();
+    let err = validate_models(&v).unwrap_err();
+    assert!(err.contains("id is required"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_models_fail_invalid_base_url() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"baseUrl":"ftp://bad","models":[]}}}"#).unwrap();
+    let err = validate_models(&v).unwrap_err();
+    assert!(err.contains("baseUrl must start with"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_models_pass_valid_base_url() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"providers":{"p":{"baseUrl":"https://api.example.com","models":[]}}}"#,
+    )
+    .unwrap();
+    assert!(validate_models(&v).is_ok());
+}
+
+#[test]
+fn test_validate_models_pass_empty_base_url() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"baseUrl":"","models":[]}}}"#).unwrap();
+    assert!(validate_models(&v).is_ok());
+}
+
+#[test]
+fn test_validate_models_pass_multiple_providers() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"
+        {
+            "providers": {
+                "openai": {
+                    "baseUrl": "https://api.openai.com",
+                    "models": [{"id": "gpt-4"}]
+                },
+                "anthropic": {
+                    "baseUrl": "https://api.anthropic.com",
+                    "models": [{"id": "claude-3"}]
+                }
+            }
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(validate_models(&v).is_ok());
+}
+
+#[test]
+fn test_validate_models_fail_model_not_object() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"models":["bad"]}}}"#).unwrap();
+    let err = validate_models(&v).unwrap_err();
+    assert!(err.contains("must be objects"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_models_fail_provider_not_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"providers":{"p":"not-object"}}"#).unwrap();
+    let err = validate_models(&v).unwrap_err();
+    assert!(err.contains("must be a JSON object"), "error: {}", err);
 }
 
 // ---------------------------------------------------------------------------

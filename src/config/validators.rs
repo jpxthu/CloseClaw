@@ -37,10 +37,83 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
 ///
 /// - Top-level must be a JSON object.
 /// - If a `models` key is present, it must be an array.
+/// - Each provider ID (map key) must be non-empty.
+/// - Each model ID must be non-empty.
+/// - `baseUrl`, if present, must start with `http://` or `https://` (or be
+///   empty/absent).
 fn validate_models(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "models")?;
     if let Some(arr) = value.get("models") {
         ensure_array(arr, "models.models")?;
+    }
+    // Business validation: iterate providers and models
+    if let Some(providers) = value.get("providers") {
+        if let Some(obj) = providers.as_object() {
+            for (provider_id, provider_val) in obj {
+                if provider_id.is_empty() {
+                    return Err("models provider ID cannot be empty".to_string());
+                }
+                validate_provider(provider_id, provider_val)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate a single provider entry within the models section.
+fn validate_provider(provider_id: &str, provider: &serde_json::Value) -> Result<(), String> {
+    if !provider.is_object() {
+        return Err(format!(
+            "models.providers.{} must be a JSON object",
+            provider_id
+        ));
+    }
+    // Validate base_url format if present
+    if let Some(base_url) = provider.get("baseUrl") {
+        if let Some(url) = base_url.as_str() {
+            if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err(format!(
+                    "models.providers.{}.baseUrl must start with \
+                     http:// or https://",
+                    provider_id
+                ));
+            }
+        }
+    }
+    // Validate each model entry
+    if let Some(models) = provider.get("models") {
+        if let Some(arr) = models.as_array() {
+            for model in arr {
+                validate_model(provider_id, model)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate a single model entry within a provider.
+fn validate_model(provider_id: &str, model: &serde_json::Value) -> Result<(), String> {
+    if !model.is_object() {
+        return Err(format!(
+            "models.providers.{}.models[] must be objects",
+            provider_id
+        ));
+    }
+    // Model ID is required and must be non-empty
+    match model.get("id") {
+        Some(serde_json::Value::String(id)) if id.is_empty() => {
+            return Err(format!(
+                "models.providers.{}.models[].id cannot be empty",
+                provider_id
+            ));
+        }
+        None => {
+            return Err(format!(
+                "models.providers.{}.models[].id is required",
+                provider_id
+            ));
+        }
+        _ => {}
     }
     Ok(())
 }
