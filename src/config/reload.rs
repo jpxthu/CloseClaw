@@ -146,6 +146,7 @@ fn register_watched_paths(
         "gateway.json",
         "plugins.json",
         "system.json",
+        "session.json",
     ];
     for name in &config_files {
         let path = config_path.join(name);
@@ -174,7 +175,7 @@ fn register_agents_watch(
                 super::ConfigError::SchemaError(format!("Failed to watch agents.json: {}", e))
             })?;
     }
-    let agents_dir = config_path.join("agents");
+    let agents_dir = config_path.parent().unwrap_or(config_path).join("agents");
     if agents_dir.exists() {
         watcher
             .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
@@ -299,6 +300,7 @@ fn filename_to_section(filename: &str) -> Option<ConfigSection> {
         "gateway.json" => Some(ConfigSection::Gateway),
         "plugins.json" => Some(ConfigSection::Plugins),
         "system.json" => Some(ConfigSection::System),
+        "session.json" => Some(ConfigSection::Session),
         _ => None,
     }
 }
@@ -332,6 +334,9 @@ fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: 
         let validator = section.default_validator();
         if let Err(e) = config_manager.reload_section(section, Some(&*validator)) {
             warn!(error = %e, section = %section, "failed to reload config section");
+        } else if section == ConfigSection::Session {
+            // Session section reloaded successfully — update session_provider.
+            config_manager.reload_session_provider();
         }
     }
 }
@@ -356,10 +361,14 @@ fn reload_agents_with_log(
     let (old_agents, old_permissions) = config_manager.snapshot_agents();
 
     // Backup agent config files before reload so we can rollback on failure
-    let agents_json = config_manager.config_dir.join("config").join("agents.json");
+    let agents_json = config_manager.config_dir.join("agents.json");
     let _ = config_manager.backup_manager().backup(&agents_json);
 
-    let agents_dir = config_manager.config_dir.join("agents");
+    let agents_dir = config_manager
+        .config_dir
+        .parent()
+        .unwrap_or(&config_manager.config_dir)
+        .join("agents");
     if agents_dir.exists() {
         for_each_agent_json(&agents_dir, |p| {
             let _ = config_manager.backup_manager().backup(p);

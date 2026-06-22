@@ -367,6 +367,8 @@ fn setup_admin_config_dir() -> (TempDir, PathBuf) {
     let config_dir = config_dir_for(tmp.path());
     let config_sub = config_dir.join("config");
     fs::create_dir_all(&config_sub).unwrap();
+    // agents.json lives in the config subdirectory
+    // (ConfigManager.config_dir = config_sub)
     fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
     (tmp, config_dir)
 }
@@ -374,8 +376,9 @@ fn setup_admin_config_dir() -> (TempDir, PathBuf) {
 /// Start an AdminServer in the background, return (config_dir, join_handle).
 async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHandle<()>) {
     let sock_path = config_dir.join("admin.sock");
-    let config_manager =
-        Arc::new(closeclaw::config::ConfigManager::new(config_dir.clone()).unwrap());
+    // ConfigManager receives the config subdirectory
+    let config_sub = config_dir.join("config");
+    let config_manager = Arc::new(closeclaw::config::ConfigManager::new(config_sub).unwrap());
     let context = closeclaw::admin::server::AdminContext {
         agent_registry: Arc::new(closeclaw::agent::registry::AgentRegistry::new()),
         skill_registry: Arc::new(std::sync::RwLock::new(Some(

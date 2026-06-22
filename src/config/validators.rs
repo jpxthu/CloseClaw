@@ -24,6 +24,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Plugins => Box::new(validate_plugins),
         ConfigSection::System => Box::new(validate_system),
         // Credentials is a directory, not a JSON section — no validator needed.
+        ConfigSection::Session => Box::new(validate_session),
         ConfigSection::Credentials => Box::new(|_| Ok(())),
     }
 }
@@ -80,6 +81,20 @@ fn validate_plugins(value: &serde_json::Value) -> Result<(), String> {
 /// - Top-level must be a JSON object.
 fn validate_system(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "system")
+}
+
+/// Validate the **session** config section.
+///
+/// - Top-level must be a JSON object.
+/// - If `sweeperIntervalSecs` is present, it must be a positive number.
+fn validate_session(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "session")?;
+    if let Some(secs) = value.get("sweeperIntervalSecs") {
+        if !secs.is_number() || secs.as_u64().unwrap_or(0) == 0 {
+            return Err("session.sweeperIntervalSecs must be a positive number".to_string());
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
