@@ -32,6 +32,7 @@ mod rebuild;
 mod resolve;
 mod session_helpers;
 mod spawn;
+pub mod stop;
 pub use spawn::{ChildSessionInfo, SpawnMode};
 /// SessionManager holds all session state previously belonging to Gateway.
 /// It provides find_or_create to lookup or create a session by channel + message.
@@ -298,6 +299,12 @@ impl SessionManager {
             .filter(|s| s.agent_id == agent_id)
             .cloned()
             .collect()
+    }
+
+    /// Get all active sessions.
+    pub async fn get_all_sessions(&self) -> Vec<Session> {
+        let sessions = self.sessions.read().await;
+        sessions.values().cloned().collect()
     }
 
     /// Check if a session with the given ID exists.

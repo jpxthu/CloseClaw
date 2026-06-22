@@ -479,4 +479,18 @@ impl IMPlugin for FeishuPlugin {
             _ => Err(AdapterError::UnsupportedOperation),
         }
     }
+
+    async fn close_inbound(&self) -> Result<(), AdapterError> {
+        // Feishu uses stateless HTTP webhooks — nothing to disconnect.
+        // Clear the cached tenant token to release resources.
+        *self.adapter.cached_token.lock().await = None;
+        Ok(())
+    }
+
+    async fn close_outbound(&self) -> Result<(), AdapterError> {
+        // Feishu sends via stateless HTTP — no queue to drain.
+        // Clear the cached tenant token to release resources.
+        *self.adapter.cached_token.lock().await = None;
+        Ok(())
+    }
 }
