@@ -58,11 +58,33 @@ impl AgentDirectoryProvider {
                 .as_ref()
                 .map(|d| d.join(id).join("config.json"));
 
-            // Try loading configs from both levels
-            let mut user_config = Self::load_agent_config(&user_config_path);
-            let mut project_config = project_config_path
-                .as_ref()
-                .and_then(|p| Self::load_agent_config(p));
+            // Try loading configs from both levels.
+            // Ok(Some(…)) = loaded, Ok(None) = file not found, Err(…) = parse/read error.
+            let (mut user_config, mut project_config) = {
+                let user_result = Self::load_agent_config(&user_config_path);
+                let project_result = project_config_path
+                    .as_ref()
+                    .map(|p| Self::load_agent_config(p))
+                    .unwrap_or(Ok(None));
+                match (user_result, project_result) {
+                    (Ok(uc), Ok(pc)) => (uc, pc),
+                    (Ok(uc), Err(e)) => {
+                        warn!("Agent '{}' project config parse error: {}", id, e);
+                        (uc, None)
+                    }
+                    (Err(e), Ok(pc)) => {
+                        warn!("Agent '{}' user config parse error: {}", id, e);
+                        (None, pc)
+                    }
+                    (Err(e1), Err(e2)) => {
+                        warn!(
+                            "Agent '{}' config parse errors: user: {}; project: {}",
+                            id, e1, e2
+                        );
+                        continue;
+                    }
+                }
+            };
 
             // Backfill `id` from the directory name when missing, and
             // warn on mismatch. The project layer is processed first so
@@ -108,12 +130,15 @@ impl AgentDirectoryProvider {
         Ok(())
     }
 
-    fn load_agent_config(path: &std::path::Path) -> Option<AgentConfig> {
+    fn load_agent_config(path: &std::path::Path) -> Result<Option<AgentConfig>, String> {
         if !path.exists() {
-            return None;
+            return Ok(None);
         }
-        let content = std::fs::read_to_string(path).ok()?;
-        serde_json::from_str(&content).ok()
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("failed to read '{}': {}", path.display(), e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("failed to parse '{}': {}", path.display(), e))
+            .map(Some)
     }
 
     /// Backfill the agent's `id` from the directory name when missing,
