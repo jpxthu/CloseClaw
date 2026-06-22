@@ -79,6 +79,7 @@ impl TerminalAdapter {
             timestamp: current_timestamp(),
             thread_id: None,
             account_id: None,
+            card_action: None,
         }
     }
 }

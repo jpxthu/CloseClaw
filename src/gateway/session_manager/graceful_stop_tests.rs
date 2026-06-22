@@ -148,7 +148,7 @@ async fn test_graceful_stop_streaming_with_tool_calls() {
     )
     .await;
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful).await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(
         result.succeeded >= 2,
         "expected >= 2 succeeded, got {:?}",
@@ -178,7 +178,7 @@ async fn test_graceful_stop_streaming_no_tool_calls() {
     )
     .await;
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful).await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
     assert!(!mgr.has_session(&child_id).await);
 }
@@ -193,7 +193,7 @@ async fn test_graceful_stop_idle() {
     setup_child_with_conv(&mgr, parent_id, child_id).await;
 
     // Default: LlmState::Idle, no tools running.
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful).await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
     assert!(!mgr.has_session(&child_id).await);
 }
@@ -236,7 +236,7 @@ async fn test_graceful_stop_tool_running() {
         tools.remove("tool_1");
     });
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful).await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
     assert!(!mgr.has_session(&child_id).await);
 }
@@ -255,7 +255,7 @@ async fn test_forceful_stop_unchanged() {
     set_tool_state(&mgr, child_id, "tool_f", ToolExecState::RunningForeground).await;
 
     let start = tokio::time::Instant::now();
-    let result = mgr.stop_all_sessions(ShutdownMode::Forceful).await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
     let elapsed = start.elapsed();
 
     assert!(result.succeeded >= 2);

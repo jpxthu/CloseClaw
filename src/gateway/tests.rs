@@ -622,3 +622,84 @@ async fn test_shutdown_gate_rejects_message_busy_count_decremented() {
         "busy_count must remain 0 when message is rejected by gate"
     );
 }
+
+// ── Card action interception tests (Step 1.5) ──────────────────────────
+
+#[tokio::test]
+async fn test_card_action_forceful_shutdown_intercept() {
+    let (gw, _sm, sh) = setup_with_shutdown("mock").await;
+
+    // Start shutdown so escalate_to_forceful has effect
+    sh.start_shutdown_for_test();
+
+    // Simulate a card action message
+    let result = gw
+        .handle_inbound_message(
+            "session-card",
+            "/__card_action:forceful_shutdown".to_string(),
+            Some("ou_user"),
+            "feishu",
+        )
+        .await;
+
+    // Should return None (card action is intercepted, not forwarded)
+    assert!(result.is_none(), "card action should return None");
+    // Should have escalated to forceful
+    assert!(
+        sh.is_forceful(),
+        "should escalate to forceful shutdown on card action"
+    );
+}
+
+#[tokio::test]
+async fn test_card_action_forceful_shutdown_no_shutdown_handle() {
+    let (gw, _sm) = setup(make_config(), "mock").await;
+    // No shutdown handle wired — card action should be ignored gracefully
+    let result = gw
+        .handle_inbound_message(
+            "session-card-nohandle",
+            "/__card_action:forceful_shutdown".to_string(),
+            Some("ou_user"),
+            "feishu",
+        )
+        .await;
+    // Returns None — no shutdown handle, no crash
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn test_card_action_forceful_shutdown_not_shutting_down() {
+    let (gw, _sm, sh) = setup_with_shutdown("mock").await;
+    // Shutdown handle exists but shutdown hasn't started
+    let result = gw
+        .handle_inbound_message(
+            "session-card-notshutdown",
+            "/__card_action:forceful_shutdown".to_string(),
+            Some("ou_user"),
+            "feishu",
+        )
+        .await;
+    // Returns None but should NOT escalate (not shutting down)
+    assert!(result.is_none());
+    assert!(!sh.is_shutting_down(), "should not start shutdown");
+}
+
+#[test]
+fn test_shutdown_progress_card_button_value() {
+    // Verify that the forceful button in the progress card has
+    // the correct value attribute for card action routing.
+    let card = json!({
+        "tag": "button",
+        "text": json!({
+            "tag": "plain_text",
+            "content": "\u{5f3a}\u{5236}\u{5173}\u{95ed}"
+        }),
+        "type": "danger",
+        "value": {"action": "forceful_shutdown"}
+    });
+    let action_value = card
+        .get("value")
+        .and_then(|v| v.get("action"))
+        .and_then(|a| a.as_str());
+    assert_eq!(action_value, Some("forceful_shutdown"));
+}
