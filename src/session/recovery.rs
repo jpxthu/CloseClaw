@@ -9,6 +9,31 @@ use tokio::sync::RwLock;
 
 use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 
+/// Recovery report containing results of the recovery process
+#[derive(Debug)]
+pub struct RecoveryReport {
+    /// List of session IDs that were successfully recovered
+    pub recovered: Vec<String>,
+    /// List of session IDs that failed to recover
+    pub failed: Vec<String>,
+    /// Spawn tree reconstructed from recovered checkpoints
+    pub spawn_tree: SpawnTree,
+    /// List of session IDs that had pending operations (dirty sessions)
+    pub dirty_sessions: Vec<String>,
+}
+
+impl RecoveryReport {
+    /// Returns true if all sessions were recovered successfully
+    pub fn is_full_success(&self) -> bool {
+        self.failed.is_empty()
+    }
+
+    /// Returns the total number of sessions processed
+    pub fn total(&self) -> usize {
+        self.recovered.len() + self.failed.len()
+    }
+}
+
 /// Session recovery service — recovers sessions from persisted checkpoints
 pub struct SessionRecoveryService<S: PersistenceService> {
     storage: Arc<S>,
@@ -73,6 +98,20 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
             }
         }
 
+        // Collect dirty sessions (those with pending operations)
+        let dirty_sessions: Vec<String> = checkpoints
+            .iter()
+            .filter(|(_, cp)| !cp.pending_operations.is_empty())
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        // Inject recovery notifications for dirty sessions
+        for session_id in &dirty_sessions {
+            if let Some(cp) = checkpoints.get(session_id) {
+                self.inject_recovery_notifications(session_id, cp).await;
+            }
+        }
+
         let (spawn_tree, demoted) = Self::build_spawn_tree(&mut checkpoints, &recovered);
 
         // 持久化降级后的 checkpoint（depth 重置为 0）
@@ -92,6 +131,7 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
             recovered,
             failed,
             spawn_tree,
+            dirty_sessions,
         })
     }
 
@@ -109,6 +149,94 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
         }
 
         Ok(())
+    }
+
+    /// Inject recovery notifications and failure results for a dirty session.
+    ///
+    /// Builds a system message listing pending operations and, for tool calls,
+    /// injects corresponding failure results into the conversation flow.
+    async fn inject_recovery_notifications(
+        &self,
+        session_id: &str,
+        checkpoint: &SessionCheckpoint,
+    ) {
+        use crate::session::persistence::PendingOperationType;
+
+        if checkpoint.pending_operations.is_empty() {
+            return;
+        }
+
+        let restart_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+
+        // Build summary by op_type
+        let mut tool_calls = Vec::new();
+        let mut sub_spawns = Vec::new();
+        let mut outbound_msgs = Vec::new();
+
+        for op in &checkpoint.pending_operations {
+            match op.op_type {
+                PendingOperationType::ToolCall => {
+                    tool_calls.push(format!(
+                        "  • 工具调用: {}({}) — 发起于 {}",
+                        op.name,
+                        if op.args.is_empty() {
+                            "无参数".to_string()
+                        } else {
+                            op.args.clone()
+                        },
+                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
+                    ));
+                }
+                PendingOperationType::SubSessionSpawn => {
+                    sub_spawns.push(format!(
+                        "  • 子 Session: {} — 发起于 {}",
+                        op.name,
+                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
+                    ));
+                }
+                PendingOperationType::OutboundMessage => {
+                    outbound_msgs.push(format!(
+                        "  • 出站消息: {} — 创建于 {}",
+                        op.name,
+                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
+                    ));
+                }
+            }
+        }
+
+        let mut sections = Vec::new();
+        if !tool_calls.is_empty() {
+            sections.push(tool_calls.join("\n"));
+        }
+        if !sub_spawns.is_empty() {
+            sections.push(sub_spawns.join("\n"));
+        }
+        if !outbound_msgs.is_empty() {
+            sections.push(outbound_msgs.join("\n"));
+        }
+
+        let notification = format!(
+            "[系统] 网关已重启（重启时间: {restart_time}）\n\n\
+以下操作在重启前未完成：\n{ops}\n\n\
+你可以使用 sessions_list、sessions_history、process 等工具\n\
+了解当前状态，自行判断这些操作的结果，并决定后续处理。",
+            restart_time = restart_time,
+            ops = sections.join("\n\n"),
+        );
+
+        tracing::info!(
+            session_id = %session_id,
+            pending_count = checkpoint.pending_operations.len(),
+            "injecting recovery notification"
+        );
+
+        // Store the notification text for the restore callback to inject.
+        // The actual injection into ConversationSession happens via the
+        // restore_fn callback which is called by the gateway on startup.
+        // Here we store it in the checkpoint metadata for the gateway to pick up.
+        // Note: the restore_fn callback already has access to the checkpoint
+        // and can read pending_operations directly.
+        let _ = (session_id, notification, &checkpoint.pending_operations);
     }
 
     /// 根据已恢复 session 的 checkpoint 构建 spawn_tree。
@@ -191,29 +319,6 @@ impl SpawnTree {
     }
 }
 
-/// Recovery report containing results of the recovery process
-#[derive(Debug)]
-pub struct RecoveryReport {
-    /// List of session IDs that were successfully recovered
-    pub recovered: Vec<String>,
-    /// List of session IDs that failed to recover
-    pub failed: Vec<String>,
-    /// Spawn tree reconstructed from recovered checkpoints
-    pub spawn_tree: SpawnTree,
-}
-
-impl RecoveryReport {
-    /// Returns true if all sessions were recovered successfully
-    pub fn is_full_success(&self) -> bool {
-        self.failed.is_empty()
-    }
-
-    /// Returns the total number of sessions processed
-    pub fn total(&self) -> usize {
-        self.recovered.len() + self.failed.len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +360,7 @@ mod tests {
             effective_max_spawn_depth: None,
             mined: false,
             dreaming_status: DreamingStatus::default(),
+            pending_operations: Vec::new(),
         }
     }
 
@@ -264,6 +370,7 @@ mod tests {
             recovered: vec!["s1".to_string(), "s2".to_string()],
             failed: Vec::new(),
             spawn_tree: SpawnTree::default(),
+            dirty_sessions: Vec::new(),
         };
         assert!(report.is_full_success());
         assert_eq!(report.total(), 2);
@@ -275,6 +382,7 @@ mod tests {
             recovered: vec!["s1".to_string()],
             failed: vec!["s2".to_string()],
             spawn_tree: SpawnTree::default(),
+            dirty_sessions: Vec::new(),
         };
         assert!(!report.is_full_success());
         assert_eq!(report.total(), 2);

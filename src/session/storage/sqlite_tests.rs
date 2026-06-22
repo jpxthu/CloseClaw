@@ -38,6 +38,7 @@ mod tests {
             effective_max_spawn_depth: None,
             mined: false,
             dreaming_status: DreamingStatus::default(),
+            pending_operations: Vec::new(),
         }
     }
 
@@ -401,6 +402,7 @@ mod tests {
             effective_max_spawn_depth: None,
             mined: false,
             dreaming_status: DreamingStatus::default(),
+            pending_operations: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -446,6 +448,7 @@ mod tests {
             effective_max_spawn_depth: None,
             mined: false,
             dreaming_status: DreamingStatus::default(),
+            pending_operations: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -491,6 +494,7 @@ mod tests {
             effective_max_spawn_depth: None,
             mined: false,
             dreaming_status: DreamingStatus::default(),
+            pending_operations: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

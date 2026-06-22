@@ -92,6 +92,15 @@ pub struct SessionCheckpoint {
     /// 新建 checkpoint 时默认为 Pending。
     #[serde(default)]
     pub dreaming_status: DreamingStatus,
+    /// Pending operations recorded during forceful shutdown.
+    ///
+    /// Non-empty on restart indicates the session was interrupted mid-operation.
+    /// The recovery service uses this to inject failure results and recovery
+    /// notifications into the conversation flow.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub pending_operations: Vec<PendingOperation>,
 }
 
 impl SessionCheckpoint {
@@ -124,6 +133,7 @@ impl SessionCheckpoint {
             effective_max_spawn_depth: None,
             mined: false,
             dreaming_status: DreamingStatus::Pending,
+            pending_operations: Vec::new(),
         }
     }
 
@@ -238,6 +248,11 @@ impl SessionCheckpoint {
     /// Update the dreaming status
     pub fn with_dreaming_status(mut self, status: DreamingStatus) -> Self {
         self.dreaming_status = status;
+        self
+    }
+    /// Update the pending operations list
+    pub fn with_pending_operations(mut self, ops: Vec<PendingOperation>) -> Self {
+        self.pending_operations = ops;
         self
     }
     /// Touch the updated_at timestamp
@@ -446,6 +461,38 @@ pub fn dreaming_status_from_db(s: &str) -> DreamingStatus {
             DreamingStatus::Pending
         }
     }
+}
+
+/// Type of pending operation recorded in a checkpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingOperationType {
+    /// A tool call that was in progress when the session stopped.
+    ToolCall,
+    /// A sub-session spawn that was initiated but not confirmed complete.
+    SubSessionSpawn,
+    /// An outbound message that was queued but not confirmed delivered.
+    OutboundMessage,
+}
+
+/// A pending operation recorded in a checkpoint during forceful shutdown.
+///
+/// When the daemon restarts, these entries allow the recovery service to
+/// inject failure results into the conversation flow so the LLM can
+/// decide whether to retry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingOperation {
+    /// Unique identifier for this operation (e.g. tool call id, child session id).
+    pub op_id: String,
+    /// Type of the pending operation.
+    pub op_type: PendingOperationType,
+    /// Human-readable name (tool name, session id, channel name).
+    pub name: String,
+    /// Serialized arguments (tool args JSON, session config, message content).
+    #[serde(default)]
+    pub args: String,
+    /// When this operation was initiated.
+    pub created_at: DateTime<Utc>,
 }
 
 /// Persistence errors

@@ -371,6 +371,75 @@ impl ConversationSession {
     pub fn inject_system_message(&mut self, text: String) {
         self.push_message("system", vec![ContentBlock::Text(text)]);
     }
+
+    /// Collect pending operations from the current session state.
+    ///
+    /// Scans tool_states, child_states, and pending_messages to build a
+    /// list of operations that were in progress when the session stopped.
+    /// Used by the shutdown path to record what needs recovery on restart.
+    pub fn collect_pending_operations(&self) -> Vec<crate::session::persistence::PendingOperation> {
+        use crate::llm::session_state::{ChildSessionState, ToolExecState};
+        use crate::session::persistence::{PendingOperation, PendingOperationType};
+        use chrono::Utc;
+
+        let mut ops = Vec::new();
+        let now = Utc::now();
+
+        // Tool calls in progress or pending
+        {
+            let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
+            for (tool_id, state) in tool_states.iter() {
+                if matches!(
+                    state,
+                    ToolExecState::RunningForeground
+                        | ToolExecState::RunningBackground
+                        | ToolExecState::Pending
+                ) {
+                    ops.push(PendingOperation {
+                        op_id: tool_id.clone(),
+                        op_type: PendingOperationType::ToolCall,
+                        name: tool_id.clone(),
+                        args: String::new(),
+                        created_at: now,
+                    });
+                }
+            }
+        }
+
+        // Child sessions in progress
+        {
+            let child_states = self
+                .child_states
+                .read()
+                .expect("child_states lock poisoned");
+            for (child_id, state) in child_states.iter() {
+                if matches!(state, ChildSessionState::Running) {
+                    ops.push(PendingOperation {
+                        op_id: child_id.clone(),
+                        op_type: PendingOperationType::SubSessionSpawn,
+                        name: child_id.clone(),
+                        args: String::new(),
+                        created_at: now,
+                    });
+                }
+            }
+        }
+
+        // Unsold pending messages (outbound)
+        for pm in &self.pending_messages {
+            if !pm.sent {
+                ops.push(PendingOperation {
+                    op_id: pm.message_id.clone(),
+                    op_type: PendingOperationType::OutboundMessage,
+                    name: pm.message_id.clone(),
+                    args: pm.content.clone(),
+                    created_at: pm.created_at,
+                });
+            }
+        }
+
+        ops
+    }
 }
 
 /// Per-session append-section items (managed by `/system` subcommand).

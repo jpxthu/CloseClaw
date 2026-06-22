@@ -260,6 +260,7 @@ mod tests {
             effective_max_spawn_depth: None,
             mined: false,
             dreaming_status: DreamingStatus::default(),
+            pending_operations: Vec::new(),
         }
     }
 

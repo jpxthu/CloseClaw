@@ -16,7 +16,9 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::daemon::shutdown::ShutdownMode;
 use crate::llm::session_state::LlmState;
-use crate::session::persistence::{PersistenceError, SessionCheckpoint, SessionStatus};
+use crate::session::persistence::{
+    PendingOperation, PersistenceError, SessionCheckpoint, SessionStatus,
+};
 
 use super::SessionManager;
 
@@ -242,6 +244,14 @@ impl SessionManager {
             .await
             .ok_or(StopError::Skipped)?;
 
+        // Collect pending operations before stopping (for forceful mode).
+        let pending_ops: Vec<PendingOperation> = if mode == ShutdownMode::Forceful {
+            let guard = cs.read().await;
+            guard.collect_pending_operations()
+        } else {
+            Vec::new()
+        };
+
         // Graceful: wait for LLM streaming and tool execution to finish.
         // No hard timeout — the user decides when to escalate to forceful.
         if mode == ShutdownMode::Graceful {
@@ -279,7 +289,10 @@ impl SessionManager {
         cs.read().await.stop(false).await;
 
         // Persist checkpoint.
-        if let Err(e) = self.persist_checkpoint(session_id).await {
+        if let Err(e) = self
+            .persist_checkpoint_with_pending(session_id, pending_ops)
+            .await
+        {
             tracing::warn!(
                 session_id = %session_id,
                 error = %e,
@@ -294,12 +307,16 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Persist a session checkpoint to storage.
+    /// Persist a session checkpoint with optional pending operations.
     ///
-    /// Mirrors the persist logic in `flush_all` — loads existing
-    /// checkpoint (preserving fields like `thread_id`) or creates
-    /// a fresh one, then saves.
-    async fn persist_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
+    /// When `pending_ops` is non-empty (forceful shutdown), the operations
+    /// are recorded in the checkpoint so the recovery service can inject
+    /// failure results on restart.
+    async fn persist_checkpoint_with_pending(
+        &self,
+        session_id: &str,
+        pending_ops: Vec<PendingOperation>,
+    ) -> Result<(), PersistenceError> {
         let storage = {
             let guard = self.storage.read().await;
             match guard.as_ref() {
@@ -359,6 +376,11 @@ impl SessionManager {
                 let guard = cs.read().await;
                 cp.system_appends = guard.system_appends().to_vec();
             }
+        }
+
+        // Record pending operations from forceful shutdown.
+        if !pending_ops.is_empty() {
+            cp.pending_operations = pending_ops;
         }
 
         storage.save_checkpoint(&cp).await
