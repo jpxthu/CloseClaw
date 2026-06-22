@@ -240,7 +240,7 @@ async fn test_graceful_mode_no_timeout_no_forced_termination() {
         h.initiate_shutdown().await;
     });
 
-    // Wait 1 second (less than the 3s test drain timeout)
+    // Wait 1 second — drain should still be running (no timeout)
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     assert!(handle.is_shutting_down());
     assert!(!handle.is_stopped());
