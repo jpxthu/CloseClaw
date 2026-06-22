@@ -238,8 +238,38 @@ fn validate_binding_entry(index: usize, entry: &serde_json::Value) -> Result<(),
 /// Validate the **gateway** config section.
 ///
 /// - Top-level must be a JSON object.
+/// - `port`, if present, must be a number in 1..=65535.
+/// - `timeout`, if present, must be a non-negative number.
 fn validate_gateway(value: &serde_json::Value) -> Result<(), String> {
-    ensure_object(value, "gateway")
+    ensure_object(value, "gateway")?;
+    if let Some(port) = value.get("port") {
+        match port.as_u64() {
+            Some(p) if p == 0 || p > 65535 => {
+                return Err(format!("gateway.port must be in range 1-65535, got {}", p));
+            }
+            Some(_) => {}
+            None => {
+                return Err("gateway.port must be a non-negative integer".to_string());
+            }
+        }
+    }
+    if let Some(timeout) = value.get("timeout") {
+        if !timeout.is_number() {
+            return Err("gateway.timeout must be a number".to_string());
+        }
+        // Negative values: as_f64() returns Some for valid floats,
+        // but negative numbers should be rejected.
+        match timeout.as_f64() {
+            Some(t) if t < 0.0 => {
+                return Err("gateway.timeout must be non-negative".to_string());
+            }
+            Some(_) => {}
+            None => {
+                return Err("gateway.timeout must be a number".to_string());
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Validate the **plugins** config section.

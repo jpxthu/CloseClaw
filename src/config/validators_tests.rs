@@ -328,6 +328,99 @@ fn test_validate_gateway_fail_not_object() {
     assert!(err.contains("JSON object"), "error: {}", err);
 }
 
+#[test]
+fn test_validate_gateway_fail_zero_port() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"port":0}"#).unwrap();
+    let err = validate_gateway(&v).unwrap_err();
+    assert!(
+        err.contains("range 1-65535"),
+        "error should mention port range: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_gateway_fail_port_too_high() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"port":99999}"#).unwrap();
+    let err = validate_gateway(&v).unwrap_err();
+    assert!(
+        err.contains("range 1-65535"),
+        "error should mention port range: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_gateway_fail_port_string() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"port":"abc"}"#).unwrap();
+    let err = validate_gateway(&v).unwrap_err();
+    assert!(
+        err.contains("non-negative integer"),
+        "error should mention non-negative integer: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_gateway_fail_negative_port() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"port":-1}"#).unwrap();
+    let err = validate_gateway(&v).unwrap_err();
+    assert!(
+        err.contains("non-negative integer"),
+        "error should mention non-negative integer: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_gateway_pass_valid_port_boundaries() {
+    let v1: serde_json::Value = serde_json::from_str(r#"{"port":1}"#).unwrap();
+    assert!(validate_gateway(&v1).is_ok());
+    let v2: serde_json::Value = serde_json::from_str(r#"{"port":65535}"#).unwrap();
+    assert!(validate_gateway(&v2).is_ok());
+}
+
+#[test]
+fn test_validate_gateway_fail_negative_timeout() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":-1000}"#).unwrap();
+    let err = validate_gateway(&v).unwrap_err();
+    assert!(
+        err.contains("non-negative"),
+        "error should mention non-negative: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_gateway_fail_timeout_string() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":"not-a-number"}"#).unwrap();
+    let err = validate_gateway(&v).unwrap_err();
+    assert!(
+        err.contains("must be a number"),
+        "error should mention must be a number: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_gateway_pass_valid_timeout() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":30000}"#).unwrap();
+    assert!(validate_gateway(&v).is_ok());
+}
+
+#[test]
+fn test_validate_gateway_pass_zero_timeout() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":0}"#).unwrap();
+    assert!(validate_gateway(&v).is_ok());
+}
+
+#[test]
+fn test_validate_gateway_pass_all_valid_fields() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"port":8080,"timeout":30000,"name":"gw"}"#).unwrap();
+    assert!(validate_gateway(&v).is_ok());
+}
+
 // ---------------------------------------------------------------------------
 // validate_plugins
 // ---------------------------------------------------------------------------
