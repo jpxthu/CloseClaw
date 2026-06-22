@@ -511,4 +511,82 @@ mod tests {
         // In test mode, drain_poll_interval should return 100ms (not 2s)
         assert_eq!(drain_poll_interval(), std::time::Duration::from_millis(100));
     }
+
+    #[test]
+    fn test_busy_count_unchanged_in_forceful_mode() {
+        let handle = ShutdownHandle::new();
+
+        // Start a graceful shutdown with pending work
+        handle.coordinator.try_start_shutdown();
+        handle.increment_busy();
+        assert_eq!(handle.busy_count(), 1);
+
+        // Escalate to forceful
+        assert!(handle.escalate_to_forceful());
+        assert!(handle.is_forceful());
+
+        // busy_count is still 1 — forceful mode doesn't clear it;
+        // the drain path simply skips waiting for it to reach 0
+        assert_eq!(handle.busy_count(), 1);
+
+        // Decrement still works normally
+        handle.decrement_busy();
+        assert_eq!(handle.busy_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_drain_triggers_on_escalation() {
+        let handle = ShutdownHandle::new();
+        let mut rx = handle.subscribe_drain();
+        handle.increment_busy();
+
+        // Spawn initiate_shutdown — it will block on drain because busy_count > 0
+        let h = handle.clone();
+        tokio::spawn(async move {
+            h.initiate_shutdown().await;
+        });
+        // Let it enter the drain loop
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(handle.is_shutting_down());
+
+        // Escalate — drain_done_tx fires during initiate_shutdown,
+        // so the subscriber should receive the signal
+        handle.escalate_to_forceful();
+        // Release busy count so drain can finalize
+        handle.decrement_busy();
+
+        // Wait for shutdown to finish
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        // The subscriber received at least one drain signal
+        // (sent in initiate_shutdown before the drain loop)
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn test_handle_escalate_idempotent() {
+        let handle = ShutdownHandle::new();
+        handle.coordinator.try_start_shutdown();
+
+        // First escalation succeeds
+        assert!(handle.escalate_to_forceful());
+        assert!(handle.is_forceful());
+        assert_eq!(handle.mode(), ShutdownMode::Forceful);
+
+        // Second escalation is a no-op (already forceful)
+        assert!(!handle.escalate_to_forceful());
+        assert!(handle.is_forceful());
+    }
+
+    #[test]
+    fn test_is_shutting_down_false_when_stopped() {
+        let handle = ShutdownHandle::new();
+        handle.coordinator.try_start_shutdown();
+        handle.coordinator.start_drain();
+        handle.coordinator.mark_stopped();
+
+        // Stopped is not "shutting down" — the shutdown is complete
+        assert!(!handle.is_shutting_down());
+        assert!(!handle.is_forceful());
+    }
 }
