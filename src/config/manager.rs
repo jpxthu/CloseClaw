@@ -10,10 +10,18 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
+use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
+
+/// Snapshot of all config sections at a point in time.
+///
+/// Broadcast via `ConfigManager` on every successful reload so that
+/// downstream components (e.g. `SessionManager`) can swap to the
+/// latest config without holding a lock on `ConfigManager`.
+pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
 use super::providers::{ConfigProvider, CredentialsProvider};
 use super::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::agent::config::AgentPermissions;
@@ -228,6 +236,8 @@ pub struct ConfigManager {
     pub(crate) repo_root: RwLock<Option<PathBuf>>,
     /// Broadcast channel for config change events.
     event_broadcaster: ConfigChangeBroadcaster,
+    /// Broadcast channel for config snapshots after each successful reload.
+    snapshot_tx: broadcast::Sender<ConfigSnapshot>,
 }
 
 impl ConfigManager {
@@ -248,6 +258,7 @@ impl ConfigManager {
             agent_permissions: RwLock::new(HashMap::new()),
             repo_root: RwLock::new(None),
             event_broadcaster: ConfigChangeBroadcaster::new(),
+            snapshot_tx: broadcast::channel(16).0,
         })
     }
 
@@ -257,6 +268,16 @@ impl ConfigManager {
     /// without creating a separate `BackupManager` instance.
     pub(crate) fn backup_manager(&self) -> &SafeBackupManager {
         &self.backup_manager
+    }
+
+    /// Get a reference to the config directory.
+    pub(crate) fn config_dir(&self) -> &Path {
+        &self.config_dir
+    }
+
+    /// Rollback a file to its most recent backup.
+    pub(crate) fn rollback_file(&self, path: &Path) -> Result<(), io::Error> {
+        self.backup_manager.rollback(path).map(|_| ())
     }
 
     /// Load all configuration sections from disk into memory.
@@ -471,11 +492,50 @@ impl ConfigManager {
     ///
     /// Returns `None` if the section has not been loaded.
     pub fn section(&self, section: ConfigSection) -> Option<serde_json::Value> {
+        self.get_section_value(section)
+    }
+
+    /// Get a single section value from the in-memory cache.
+    ///
+    /// Returns `None` if the section has not been loaded.
+    pub(crate) fn get_section_value(&self, section: ConfigSection) -> Option<serde_json::Value> {
         self.sections
             .read()
             .expect("RwLock for config sections was poisoned")
             .get(&section)
             .cloned()
+    }
+
+    /// Subscribe to config snapshot broadcasts.
+    ///
+    /// Returns a receiver that yields a new `ConfigSnapshot` each time
+    /// a config section is successfully reloaded. Only the most recent
+    /// snapshot is retained; lagging subscribers receive the latest one.
+    pub fn subscribe_config_snapshots(&self) -> broadcast::Receiver<ConfigSnapshot> {
+        self.snapshot_tx.subscribe()
+    }
+
+    /// Update the in-memory cache for a single section and broadcast
+    /// the resulting snapshot to all snapshot subscribers.
+    ///
+    /// This is the single write-path for section updates that should
+    /// trigger snapshot delivery. Callers that need to update the cache
+    /// (e.g. `ConfigReloadManager::reload_section`) must go through
+    /// this method instead of directly inserting into `sections`.
+    pub(crate) fn update_section_cache(&self, section: ConfigSection, value: serde_json::Value) {
+        let snapshot = {
+            let mut sections = self
+                .sections
+                .write()
+                .expect("RwLock for config sections was poisoned");
+            sections.insert(section, value);
+            ConfigSnapshot::new(sections.clone())
+        };
+        // Broadcast snapshot (ignore send errors — no active subscribers).
+        let _ = self.snapshot_tx.send(snapshot);
+        // Broadcast change event.
+        self.notify_change(ConfigChangeEvent::Reloaded { section });
+        info!(section = %section, "reloaded config section");
     }
 
     /// Get the loaded credentials provider.
