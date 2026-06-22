@@ -546,12 +546,109 @@ impl Daemon {
         }
     }
 
-    /// Phase 2: Session stop (leaf → root).
+    /// Phase 2: Session stop (leaf → root) with progress card updates.
+    ///
+    /// Sends a progress notification card at the start, monitors for
+    /// graceful → forceful escalation to update the card, and sends a
+    /// final card when all sessions have stopped.
     async fn phase_2_session_stop(
         &self,
         mode: crate::daemon::shutdown::ShutdownMode,
     ) -> crate::gateway::session_manager::stop::StopResult {
-        self.gateway.session_manager().stop_all_sessions(mode).await
+        // Send initial progress card (no-op if no active sessions)
+        self.gateway.send_shutdown_progress_card(mode).await;
+
+        // Spawn session stop as a background task
+        let sm = self.gateway.session_manager().clone();
+        let mut stop_handle = tokio::spawn(async move { sm.stop_all_sessions(mode).await });
+
+        // Spawn fresh signal handlers for escalation monitoring during Phase 2.
+        // Phase 1's handlers are consumed by its tokio::select! loop.
+        use tokio::signal::unix::{signal, SignalKind};
+        let sigint_result = signal(SignalKind::interrupt());
+        let sigterm_result = signal(SignalKind::terminate());
+        let mut sigint = match sigint_result {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register SIGINT handler for Phase 2");
+                None
+            }
+        };
+        let mut sigterm = match sigterm_result {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register SIGTERM handler for Phase 2");
+                None
+            }
+        };
+
+        // Monitor for escalation and update card
+        let mut last_mode = mode;
+        let mut stop_completed = false;
+        let mut stop_result = None;
+
+        while !stop_completed {
+            tokio::select! {
+                biased;
+
+                result = &mut stop_handle => {
+                    // Session stop complete
+                    match result {
+                        Ok(sr) => {
+                            stop_result = Some(sr);
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "session stop task panicked");
+                            stop_result = Some(
+                                crate::gateway::session_manager::stop::StopResult::default()
+                            );
+                        }
+                    }
+                    stop_completed = true;
+                }
+
+                _ = async {
+                    match (&mut sigint, &mut sigterm) {
+                        (Some(i), Some(t)) => {
+                            tokio::select! {
+                                _ = i.recv() => {
+                                    if self.shutdown.escalate_to_forceful() {
+                                        info!("Phase 2: escalated to forceful shutdown");
+                                    }
+                                }
+                                _ = t.recv() => {
+                                    if self.shutdown.escalate_to_forceful() {
+                                        info!("Phase 2: escalated to forceful shutdown");
+                                    }
+                                }
+                            }
+                        }
+                        (Some(i), None) => { let _ = i.recv().await; }
+                        (None, Some(t)) => { let _ = t.recv().await; }
+                        (None, None) => { std::future::pending::<()>().await; }
+                    }
+                } => {
+                    // Escalation signal received
+                }
+            }
+
+            // Check if mode changed and update card
+            let current_mode = self.shutdown.mode();
+            if current_mode != last_mode {
+                tracing::info!(
+                    ?last_mode,
+                    ?current_mode,
+                    "shutdown mode changed, updating progress card"
+                );
+                self.gateway.send_shutdown_progress_card(current_mode).await;
+                last_mode = current_mode;
+            }
+        }
+
+        // Session stop completed — send final card
+        let result = stop_result.unwrap_or_default();
+        self.gateway.send_shutdown_final_card(&result).await;
+        result
     }
 
     /// Phase 3: Background task stop.
