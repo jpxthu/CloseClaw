@@ -115,4 +115,20 @@ pub trait IMPlugin: Send + Sync {
         peer_id: &str,
         thread_id: Option<&str>,
     ) -> Result<(), AdapterError>;
+
+    /// Close inbound connections (e.g. unsubscribe webhook, disconnect WebSocket).
+    ///
+    /// Called during daemon Phase 1 (inbound shutdown) to stop accepting new
+    /// messages from the platform. Default implementation is a no-op.
+    async fn close_inbound(&self) -> Result<(), AdapterError> {
+        Ok(())
+    }
+
+    /// Close outbound connections (e.g. drain send queue, disconnect API client).
+    ///
+    /// Called during daemon Phase 5 (outbound shutdown) to stop sending
+    /// messages to the platform. Default implementation is a no-op.
+    async fn close_outbound(&self) -> Result<(), AdapterError> {
+        Ok(())
+    }
 }
