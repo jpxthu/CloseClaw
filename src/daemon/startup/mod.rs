@@ -187,7 +187,7 @@ pub fn topo_sort_layers(entries: &[ComponentEntry]) -> Result<Vec<Vec<ComponentI
 
     for entry in entries {
         if all_ids.contains(&entry.id) {
-            // Duplicate entry — skip (or could error; for now keep last-wins).
+            // Duplicate entry — keep first-wins (first occurrence wins).
             continue;
         }
         dep_map.insert(entry.id, entry.deps.clone());

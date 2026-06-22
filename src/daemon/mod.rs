@@ -13,9 +13,14 @@ use crate::agent::spawn::SpawnController;
 use crate::config::migration::migrate_if_needed;
 use crate::config::providers::ConfigProvider;
 use crate::config::ConfigManager;
-use crate::daemon::startup::{
-    all_component_entries, topo_sort_layers, validate_startup_layers, StartupError,
-};
+use crate::daemon::startup::{all_component_entries, topo_sort_layers, StartupError};
+
+/// Resolved startup plan: topo-sort layers plus validated phase components.
+/// Each outer element is a layer/phase; each inner element is a [`ComponentId`].
+type StartupPlan = (
+    Vec<Vec<crate::daemon::startup::ComponentId>>,
+    Vec<Vec<crate::daemon::startup::ComponentId>>,
+);
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::im::terminal::TerminalPlugin;
@@ -111,10 +116,52 @@ impl Daemon {
     ///
     /// Returns the layers produced by [`topo_sort_layers`].  If the dependency
     /// graph contains a cycle the daemon must refuse to start.
-    fn resolve_startup_order() -> Result<Vec<Vec<crate::daemon::startup::ComponentId>>, StartupError>
-    {
+    fn resolve_startup_order() -> Result<StartupPlan, StartupError> {
         let entries = all_component_entries();
-        topo_sort_layers(&entries)
+        let layers = topo_sort_layers(&entries)?;
+        let phase_components = Self::validate_phase_components(&layers)?;
+        Ok((layers, phase_components))
+    }
+
+    /// Map each [`StartupPhase`] to its resolved [`ComponentId`] set,
+    /// validated against the topo-sort result.
+    fn validate_phase_components(
+        layers: &[Vec<crate::daemon::startup::ComponentId>],
+    ) -> Result<Vec<Vec<crate::daemon::startup::ComponentId>>, StartupError> {
+        use crate::daemon::startup::ComponentId::*;
+        let expected: Vec<_> = [
+            vec![ConfigManager, Storage],
+            vec![
+                AgentRegistry,
+                ConfigHotReload,
+                RenderersPlugins,
+                SessionConfigProvider,
+                SkillsRegistry,
+            ],
+            vec![
+                ArchiveSweeper,
+                DreamingScheduler,
+                IMAdapters,
+                PermissionEngine,
+                SkillWatcher,
+                SystemPromptBuilder,
+                ToolsRegistry,
+            ],
+            vec![ApprovalFlow, SessionManager],
+            vec![Gateway],
+        ]
+        .into_iter()
+        .collect();
+        for (i, exp) in expected.iter().enumerate() {
+            let mut actual = layers.get(i).cloned().unwrap_or_default();
+            let mut exp_sorted = exp.clone();
+            actual.sort_by_key(|id| id.name().to_string());
+            exp_sorted.sort_by_key(|id| id.name().to_string());
+            if actual != exp_sorted {
+                return Err(StartupError::CircularDependency);
+            }
+        }
+        Ok(expected)
     }
 
     /// Log the resolved startup order at `info` level for operational visibility.
@@ -146,13 +193,17 @@ impl Daemon {
         // The dependency graph defines the required initialization order.
         // If the topo sort result diverges from expected phases we must refuse
         // to start — the initialization code would not match the dependencies.
-        let startup_layers = Self::resolve_startup_order()?;
+        let (startup_layers, phase_components) = Self::resolve_startup_order()?;
         Self::log_startup_order(&startup_layers);
-        validate_startup_layers(&startup_layers)
-            .map_err(|e| anyhow::anyhow!("startup layer validation failed: {}", e))?;
 
         // ── Phase 1: Foundation (topo layer 1) ──────────────────────────────
-        // ConfigManager and Storage have no dependencies.
+        // Components: ConfigManager, Storage
+        // phase_components[0] = [ConfigManager, Storage]
+        assert_eq!(
+            phase_components[0].len(),
+            2,
+            "Phase 1 must have 2 components"
+        );
         let config_subdir = PathBuf::from(config_dir).join("config");
         let config_manager = Arc::new(
             ConfigManager::new(config_subdir.clone())
@@ -170,7 +221,15 @@ impl Daemon {
         Self::run_config_migration(config_dir);
 
         // ── Phase 2: Registries (topo layer 2) ──────────────────────────────
-        // AgentRegistry, SkillsRegistry, ToolsRegistry depend on ConfigManager.
+        // Components: AgentRegistry, ConfigHotReload, RenderersPlugins,
+        //             SessionConfigProvider, SkillsRegistry
+        // phase_components[1] = [AgentRegistry, ConfigHotReload, RenderersPlugins,
+        //                        SessionConfigProvider, SkillsRegistry]
+        assert_eq!(
+            phase_components[1].len(),
+            5,
+            "Phase 2 must have 5 components"
+        );
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let (skill_registry, skill_watcher) =
@@ -178,7 +237,16 @@ impl Daemon {
         let tool_registry = Arc::new(ToolRegistry::new());
 
         // ── Phase 3: Core services (topo layer 3) ────────────────────────────
-        // SessionManager, Gateway setup, PermissionEngine, IM plugins.
+        // Components: ArchiveSweeper, DreamingScheduler, IMAdapters,
+        //             PermissionEngine, SkillWatcher, SystemPromptBuilder, ToolsRegistry
+        // phase_components[2] = [ArchiveSweeper, DreamingScheduler, IMAdapters,
+        //                        PermissionEngine, SkillWatcher, SystemPromptBuilder,
+        //                        ToolsRegistry]
+        assert_eq!(
+            phase_components[2].len(),
+            7,
+            "Phase 3 must have 7 components"
+        );
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
@@ -217,7 +285,13 @@ impl Daemon {
         info!("Shutdown coordinator initialized");
 
         // ── Phase 4: Wiring (topo layer 4) ──────────────────────────────────
-        // SessionManager finalization, ApprovalFlow.
+        // Components: ApprovalFlow, SessionManager
+        // phase_components[3] = [ApprovalFlow, SessionManager]
+        assert_eq!(
+            phase_components[3].len(),
+            2,
+            "Phase 4 must have 2 components"
+        );
         let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(&session_manager),
             Arc::new(|_| {}),
@@ -230,7 +304,13 @@ impl Daemon {
         );
 
         // ── Phase 5: Background & final (topo layer 5) ───────────────────────
-        // Gateway is fully wired — background services and admin RPC.
+        // Components: Gateway
+        // phase_components[4] = [Gateway]
+        assert_eq!(
+            phase_components[4].len(),
+            1,
+            "Phase 5 must have 1 component"
+        );
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
         let session_config_provider =
