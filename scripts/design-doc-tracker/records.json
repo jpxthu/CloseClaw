@@ -75,5 +75,12 @@
     "commit_time": "2026-06-22T10:58:53+08:00",
     "confirmed_time": "2026-06-22T11:08:19.648114+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/daemon/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-06-22T18:44:05.434607+08:00",
+    "comment": "blocked: dependency declarations place SystemPromptBuilder at Layer 3 but layer table says Layer 4"
   }
 ]
