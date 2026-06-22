@@ -13,7 +13,7 @@ use std::sync::Arc;
 use super::events::ConfigChangeEvent;
 use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 use super::session::{JsonSessionConfigProvider, SessionConfigProvider};
-use tracing::{info, warn};
+use tracing::warn;
 
 /// Validator callback type for config section reload.
 ///
@@ -103,14 +103,8 @@ impl ConfigManager {
             }
         }
 
-        // Step 5: success — update in-memory cache
-        let mut sections = self
-            .sections
-            .write()
-            .expect("RwLock for config sections was poisoned");
-        sections.insert(section, value);
-        info!("reloaded config section: {}", section);
-        self.notify_change(ConfigChangeEvent::Reloaded { section });
+        // Step 5: success — update in-memory cache and broadcast snapshot
+        self.update_section_cache(section, value);
         Ok(())
     }
 
