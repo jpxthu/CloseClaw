@@ -166,6 +166,10 @@ pub enum StartupError {
     /// A component declares a dependency on an unknown component.
     #[error("component {0:?} depends on unknown component {1:?}")]
     MissingDependency(ComponentId, ComponentId),
+
+    /// The resolved layers do not match the expected phase structure.
+    #[error("startup layers mismatch: resolved layers differ from expected phases")]
+    StartupLayersMismatch,
 }
 
 /// Topologically sort the given component entries into ordered layers.
