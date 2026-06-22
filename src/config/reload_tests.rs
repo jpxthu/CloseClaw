@@ -554,4 +554,74 @@ mod reload_tests {
         let val = cm.section(section).unwrap();
         assert!(val.get("models").is_some());
     }
+
+    // ------------------------------------------------------------------
+    // Step 1.8 — supplementary tests
+    // ------------------------------------------------------------------
+
+    /// ConfigReloadManager::reload_section uses default_validator;
+    /// a section that passes default validation is reloaded into the
+    /// in-memory cache and a snapshot is broadcast.
+    #[test]
+    fn test_reload_section_via_manager_with_validation() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        // Write valid system.json that passes the default validator
+        std::fs::write(d.path().join("system.json"), r#"{"version":"8.8"}"#).unwrap();
+        let mut snapshot_rx = cm.subscribe_config_snapshots();
+
+        mgr.reload_section(ConfigSection::System).unwrap();
+
+        // In-memory should be updated
+        let val = cm.section(ConfigSection::System).unwrap();
+        assert_eq!(val["version"], "8.8");
+
+        // Snapshot should have been broadcast
+        let snapshot = snapshot_rx
+            .try_recv()
+            .expect("should receive a snapshot after successful reload");
+        assert_eq!(
+            snapshot.get(&ConfigSection::System).unwrap()["version"],
+            "8.8"
+        );
+    }
+
+    /// ConfigReloadManager::reload_agents_with_log succeeds when agent
+    /// files are valid; the AgentRegistry is synced with the new configs.
+    #[test]
+    fn test_reload_agents_with_log_direct() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar.clone());
+
+        // Set up valid agent files: agents.json + agents/alpha/config.json
+        // agents.json is at config_dir root
+        let agents_json_path = d.path().join("agents.json");
+        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+
+        // agents/ is at root level (parent of config_dir)
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let alpha_dir = root_dir.join("agents").join("alpha");
+        std::fs::create_dir_all(&alpha_dir).unwrap();
+        std::fs::write(
+            alpha_dir.join("config.json"),
+            r#"{ "id": "alpha", "name": "Alpha" }"#,
+        )
+        .unwrap();
+
+        // Trigger reload via reload_agents_with_log
+        let path = agents_json_path.clone();
+        mgr.reload_agents_with_log(&path);
+
+        // AgentRegistry should be synced with alpha
+        let agents: Vec<_> = ar.iter().map(|e| e.key().clone()).collect();
+        assert!(
+            agents.contains(&"alpha".to_string()),
+            "AgentRegistry should contain alpha after reload"
+        );
+    }
 }

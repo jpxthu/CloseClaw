@@ -729,3 +729,32 @@ fn test_snapshot_contains_updated_section() {
         "snapshot should contain the updated version"
     );
 }
+
+/// When reload_section fails validation, no snapshot is broadcast.
+/// The snapshot broadcast channel should remain empty.
+#[test]
+fn test_snapshot_broadcast_on_reload_failure() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().unwrap();
+
+    let mut rx = manager.subscribe_config_snapshots();
+
+    // Write invalid JSON for Models section (non-array "models" field)
+    fs::write(
+        tmp.path().join("models.json"),
+        r#"{"models":"not an array"}"#,
+    )
+    .unwrap();
+
+    let v = ConfigSection::Models.default_validator();
+    let result = manager.reload_section(ConfigSection::Models, Some(&*v));
+    assert!(result.is_err());
+
+    // No snapshot should have been broadcast on validation failure
+    assert!(
+        rx.try_recv().is_err(),
+        "snapshot broadcast channel should be empty after validation failure"
+    );
+}
