@@ -32,6 +32,7 @@ mod rebuild;
 mod resolve;
 mod session_helpers;
 mod spawn;
+pub mod stop;
 pub use spawn::{ChildSessionInfo, SpawnMode};
 /// SessionManager holds all session state previously belonging to Gateway.
 /// It provides find_or_create to lookup or create a session by channel + message.
