@@ -51,10 +51,10 @@ impl SessionMessageHandler {
         )
         .await;
 
-        // ── Decrement busy count for drain tracking ────────────────────
-        if let Some(sh) = session_manager.get_shutdown_handle().await {
-            sh.decrement_busy();
-        }
+        // NOTE: Decrement is handled by the caller (spawned task in
+        // `session_handler_dispatch.rs`), NOT here. This avoids a
+        // double-decrement when both `finish_llm` and the spawned task
+        // call `decrement_busy()`.
 
         // NOTE: Cascade-termination of child sessions is NOT done here.
         // `finish_llm` is called after every LLM turn — cascading here
