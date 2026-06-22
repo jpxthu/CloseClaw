@@ -7,8 +7,9 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
-use crate::config::providers::ConfigError;
+use crate::config::providers::{ConfigError, ModelsConfigData};
 use crate::config::ConfigProvider;
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,43 @@ impl CredentialsProvider {
             AnyProviderCredentials::Feishu(f) => Some(f),
             AnyProviderCredentials::ApiKey(_) => None,
         })
+    }
+
+    /// Cross-validate that every provider referenced in models.json has
+    /// corresponding credentials defined.
+    ///
+    /// Returns `Err` if any model provider is missing credentials.
+    /// Extra credentials (providers defined in credentials but not in models)
+    /// emit a warning but do not fail validation.
+    pub fn validate_model_references(
+        &self,
+        models_provider: &ModelsConfigData,
+    ) -> Result<(), ConfigError> {
+        for provider_id in models_provider.providers.keys() {
+            if !self.providers.contains_key(provider_id) {
+                return Err(ConfigError::ValueError {
+                    field: format!("credentials.{}", provider_id),
+                    message: format!(
+                        "provider '{}' is referenced in models.json but has no credentials \
+                         (create a credentials file in config/credentials/ or check the \
+                         provider ID in models.json)",
+                        provider_id
+                    ),
+                });
+            }
+        }
+
+        for cred_id in self.providers.keys() {
+            if !models_provider.providers.contains_key(cred_id) {
+                warn!(
+                    provider = %cred_id,
+                    "credentials defined for provider '{}' but not referenced in models.json",
+                    cred_id
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -379,5 +417,103 @@ mod tests {
     fn test_version() {
         let provider = default_provider();
         assert_eq!(provider.version(), "1.0.0");
+    }
+
+    // -----------------------------------------------------------------
+    // validate_model_references tests
+    // -----------------------------------------------------------------
+
+    fn models_from_json(json: &str) -> super::ModelsConfigData {
+        super::ModelsConfigData::from_json_str(json).unwrap()
+    }
+
+    #[test]
+    fn test_validate_model_references_complete_match() {
+        let creds_json = r#"{"providers":{
+            "openai": {"provider":"openai","apiKey":"sk-test"},
+            "anthropic": {"provider":"anthropic","apiKey":"sk-ant"}
+        }}"#;
+        let creds = CredentialsProvider::from_json_str(creds_json).unwrap();
+        let models = models_from_json(
+            r#"{
+            "providers": {
+                "openai": { "models": [{"id":"gpt-4"}] },
+                "anthropic": { "models": [{"id":"claude-3"}] }
+            }
+        }"#,
+        );
+        assert!(creds.validate_model_references(&models).is_ok());
+    }
+
+    #[test]
+    fn test_validate_model_references_missing_credential() {
+        let creds_json = r#"{"providers":{
+            "openai": {"provider":"openai","apiKey":"sk-test"}
+        }}"#;
+        let creds = CredentialsProvider::from_json_str(creds_json).unwrap();
+        let models = models_from_json(
+            r#"{
+            "providers": {
+                "openai": { "models": [{"id":"gpt-4"}] },
+                "anthropic": { "models": [{"id":"claude-3"}] }
+            }
+        }"#,
+        );
+        let result = creds.validate_model_references(&models);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::ValueError { ref field, .. } if field.contains("anthropic")),
+            "error should reference the missing provider: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_model_references_extra_credentials_only_warn() {
+        let creds_json = r#"{"providers":{
+            "openai": {"provider":"openai","apiKey":"sk-test"},
+            "backup": {"provider":"backup","apiKey":"sk-backup"}
+        }}"#;
+        let creds = CredentialsProvider::from_json_str(creds_json).unwrap();
+        let models = models_from_json(
+            r#"{
+            "providers": {
+                "openai": { "models": [{"id":"gpt-4"}] }
+            }
+        }"#,
+        );
+        assert!(creds.validate_model_references(&models).is_ok());
+    }
+
+    #[test]
+    fn test_validate_model_references_empty_models() {
+        let creds_json = r#"{"providers":{
+            "openai": {"provider":"openai","apiKey":"sk-test"}
+        }}"#;
+        let creds = CredentialsProvider::from_json_str(creds_json).unwrap();
+        let models = models_from_json(r#"{"providers": {}}"#);
+        assert!(creds.validate_model_references(&models).is_ok());
+    }
+
+    #[test]
+    fn test_validate_model_references_empty_credentials_with_models() {
+        let creds = CredentialsProvider::default();
+        let models = models_from_json(
+            r#"{
+            "providers": {
+                "openai": { "models": [{"id":"gpt-4"}] }
+            }
+        }"#,
+        );
+        let result = creds.validate_model_references(&models);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_model_references_empty_both() {
+        let creds = CredentialsProvider::default();
+        let models = models_from_json(r#"{"providers": {}}"#);
+        assert!(creds.validate_model_references(&models).is_ok());
     }
 }

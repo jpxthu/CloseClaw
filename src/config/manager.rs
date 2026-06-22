@@ -22,7 +22,7 @@ use super::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 /// downstream components (e.g. `SessionManager`) can swap to the
 /// latest config without holding a lock on `ConfigManager`.
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
-use super::providers::{ConfigProvider, CredentialsProvider};
+use super::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use super::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::agent::config::AgentPermissions;
 
@@ -376,6 +376,26 @@ impl ConfigManager {
         // Store as JSON value in sections (may be empty/default if dir is absent)
         if let Ok(json) = serde_json::to_value(&creds_provider) {
             sections.insert(ConfigSection::Credentials, json);
+        }
+
+        // Cross-validate credentials against models.json references.
+        if let Some(models_value) = sections.get(&ConfigSection::Models) {
+            match serde_json::from_value::<ModelsConfigData>(models_value.clone()) {
+                Ok(models_config) => {
+                    if let Err(e) = creds_provider.validate_model_references(&models_config) {
+                        warn!(
+                            error = %e,
+                            "credentials-models cross-validation warning"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "failed to parse models.json for credentials cross-validation"
+                    );
+                }
+            }
         }
 
         drop(sections);

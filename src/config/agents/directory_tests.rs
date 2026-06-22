@@ -383,3 +383,111 @@ fn test_directory_provider_id_mismatch_warn() {
         output
     );
 }
+
+// =====================================================================
+// Step 1.4 — Tests for `load_agent_config` parse error path
+// =====================================================================
+
+/// Agent with invalid JSON in user config.json → warn and skip.
+#[test]
+fn test_user_config_parse_error_skips_agent() {
+    let user = TempDir::new().unwrap();
+    let agent_dir = user.path().join("bad-user");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::write(agent_dir.join("config.json"), "not valid json {{").unwrap();
+
+    // Also create a valid agent to ensure loading continues.
+    write_config(user.path(), "good-user", "Good Agent");
+
+    let provider = AgentDirectoryProvider::new(
+        vec!["bad-user".to_string(), "good-user".to_string()],
+        user.path().to_path_buf(),
+        None,
+    )
+    .unwrap();
+
+    assert!(
+        provider.get("bad-user").is_none(),
+        "agent with invalid config.json should be skipped"
+    );
+    assert!(
+        provider.get("good-user").is_some(),
+        "valid agent should still be loaded"
+    );
+}
+
+/// Agent with invalid JSON in project config.json → warn and skip project
+/// config, but still load user config.
+#[test]
+fn test_project_config_parse_error_falls_back_to_user() {
+    let user = TempDir::new().unwrap();
+    let project = TempDir::new().unwrap();
+
+    write_config(user.path(), "mixed", "User Name");
+
+    let project_dir = project.path().join("mixed");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    std::fs::write(project_dir.join("config.json"), "totally broken json").unwrap();
+
+    let provider = AgentDirectoryProvider::new(
+        vec!["mixed".to_string()],
+        user.path().to_path_buf(),
+        Some(project.path().to_path_buf()),
+    )
+    .unwrap();
+
+    let entry = provider
+        .get("mixed")
+        .expect("agent should load from user config");
+    assert_eq!(entry.name, "User Name");
+    assert_eq!(entry.source, ConfigSource::User);
+}
+
+/// Both user and project config.json have invalid JSON → agent skipped entirely.
+#[test]
+fn test_both_configs_parse_error_skips_agent() {
+    let user = TempDir::new().unwrap();
+    let project = TempDir::new().unwrap();
+
+    let user_dir = user.path().join("both-bad");
+    std::fs::create_dir_all(&user_dir).unwrap();
+    std::fs::write(user_dir.join("config.json"), "bad user json").unwrap();
+
+    let project_dir = project.path().join("both-bad");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    std::fs::write(project_dir.join("config.json"), "bad project json").unwrap();
+
+    let provider = AgentDirectoryProvider::new(
+        vec!["both-bad".to_string()],
+        user.path().to_path_buf(),
+        Some(project.path().to_path_buf()),
+    )
+    .unwrap();
+
+    assert!(
+        provider.get("both-bad").is_none(),
+        "agent with both configs broken should be skipped"
+    );
+}
+
+/// Agent directory exists but config.json is a directory (not a file) →
+/// read_to_string fails → agent is skipped.
+#[test]
+fn test_config_json_is_directory_skips_agent() {
+    let user = TempDir::new().unwrap();
+    let agent_dir = user.path().join("dir-agent");
+    // Create config.json as a directory instead of a file
+    std::fs::create_dir_all(agent_dir.join("config.json")).unwrap();
+
+    write_config(user.path(), "normal", "Normal Agent");
+
+    let provider = AgentDirectoryProvider::new(
+        vec!["dir-agent".to_string(), "normal".to_string()],
+        user.path().to_path_buf(),
+        None,
+    )
+    .unwrap();
+
+    assert!(provider.get("dir-agent").is_none());
+    assert!(provider.get("normal").is_some());
+}
