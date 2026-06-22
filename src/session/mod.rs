@@ -18,6 +18,8 @@ pub mod compaction_async_tests;
 #[cfg(test)]
 pub mod compaction_tests;
 pub mod events;
+#[cfg(test)]
+pub mod pending_operations_tests;
 pub mod persistence;
 #[cfg(test)]
 pub mod persistence_tests;
