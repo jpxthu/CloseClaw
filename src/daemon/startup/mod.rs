@@ -97,6 +97,65 @@ pub struct ComponentEntry {
     pub deps: Vec<ComponentId>,
 }
 
+impl ComponentDeps for ComponentId {
+    fn deps(&self) -> &[ComponentId] {
+        use ComponentId::*;
+        match self {
+            ConfigManager => &[],
+            Storage => &[],
+            SessionConfigProvider => &[ConfigManager],
+            AgentRegistry => &[ConfigManager],
+            SkillsRegistry => &[ConfigManager],
+            RenderersPlugins => &[ConfigManager],
+            IMAdapters => &[RenderersPlugins, ConfigManager],
+            PermissionEngine => &[AgentRegistry],
+            ToolsRegistry => &[SkillsRegistry],
+            ArchiveSweeper => &[Storage, SessionConfigProvider],
+            SkillWatcher => &[SkillsRegistry],
+            ConfigHotReload => &[ConfigManager],
+            DreamingScheduler => &[Storage, SessionConfigProvider],
+            SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry],
+            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry],
+            ApprovalFlow => &[PermissionEngine, AgentRegistry],
+            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
+        }
+    }
+}
+
+/// Returns [`ComponentEntry`]s for all 17 daemon components.
+///
+/// Each entry bundles the component identity, its human-readable name,
+/// and the dependencies declared via [`ComponentDeps`].
+pub fn all_component_entries() -> Vec<ComponentEntry> {
+    use ComponentId::*;
+    [
+        ConfigManager,
+        Storage,
+        SessionConfigProvider,
+        AgentRegistry,
+        SkillsRegistry,
+        RenderersPlugins,
+        IMAdapters,
+        PermissionEngine,
+        ToolsRegistry,
+        ArchiveSweeper,
+        SkillWatcher,
+        ConfigHotReload,
+        DreamingScheduler,
+        SessionManager,
+        SystemPromptBuilder,
+        ApprovalFlow,
+        Gateway,
+    ]
+    .into_iter()
+    .map(|id| ComponentEntry {
+        name: id.name(),
+        deps: id.deps().to_vec(),
+        id,
+    })
+    .collect()
+}
+
 /// Errors that can occur during startup orchestration.
 #[derive(Debug, thiserror::Error)]
 pub enum StartupError {
