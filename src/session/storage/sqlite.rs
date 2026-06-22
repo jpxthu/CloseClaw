@@ -58,6 +58,10 @@ impl SqliteStorage {
         Ok(Self { data_dir })
     }
     /// Add a column to sessions table if it doesn't already exist.
+    ///
+    /// SAFETY: `column` and `col_type` are always hardcoded string literals
+    /// passed from `init_schema`, never from user input. This eliminates
+    /// SQL injection risk in the format-string `ALTER TABLE` statement.
     fn add_column_if_not_exists(
         conn: &Connection,
         column: &str,
@@ -357,6 +361,22 @@ impl PersistenceService for SqliteStorage {
     /// Load a session checkpoint from the database and reconstruct
     /// pending_messages from the transcript file.
     async fn load_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let session_id = session_id.to_string();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            Self::load_checkpoint_inner(&conn, &data_dir, &session_id)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn load_archived_checkpoint(
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {

@@ -1,73 +1,10 @@
 //! Additional unit tests for MemoryMiner.
 //!
-//! Complements the inline tests in miner.rs with additional edge cases.
+//! Complements the inline tests in dreaming.rs with additional edge cases.
 
-use std::sync::Mutex;
-
-use async_trait::async_trait;
-
+use crate::common::test_helpers::TestStorage;
 use crate::memory::miner::MemoryMiner;
-use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
-
-// ── Test helpers ─────────────────────────────────────────────────────────
-
-/// Minimal in-memory storage for miner tests.
-#[derive(Debug, Default)]
-struct TestStorage {
-    checkpoints: Mutex<Vec<SessionCheckpoint>>,
-    mined_ids: Mutex<Vec<String>>,
-}
-
-impl TestStorage {
-    fn add_checkpoint(&self, cp: SessionCheckpoint) {
-        self.checkpoints.lock().unwrap().push(cp);
-    }
-
-    fn mined_ids(&self) -> Vec<String> {
-        self.mined_ids.lock().unwrap().clone()
-    }
-}
-
-#[async_trait]
-impl PersistenceService for TestStorage {
-    async fn save_checkpoint(
-        &self,
-        checkpoint: &SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
-        self.checkpoints.lock().unwrap().push(checkpoint.clone());
-        Ok(())
-    }
-
-    async fn load_checkpoint(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self
-            .checkpoints
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|cp| cp.session_id == session_id)
-            .cloned())
-    }
-
-    async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
-        self.checkpoints
-            .lock()
-            .unwrap()
-            .retain(|cp| cp.session_id != session_id);
-        Ok(())
-    }
-
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn mark_mined(&self, session_id: &str) -> Result<(), PersistenceError> {
-        self.mined_ids.lock().unwrap().push(session_id.into());
-        Ok(())
-    }
-}
+use crate::session::persistence::SessionCheckpoint;
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

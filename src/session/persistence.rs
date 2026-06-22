@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::warn;
 
 /// Session Checkpoint — 用于持久化恢复的核心数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +89,7 @@ pub struct SessionCheckpoint {
     /// dreaming 处理状态（Light → REM → Deep → Completed）
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Completed）。
+    /// 新建 checkpoint 时默认为 Pending。
     #[serde(default)]
     pub dreaming_status: DreamingStatus,
 }
@@ -121,7 +123,7 @@ impl SessionCheckpoint {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
-            dreaming_status: DreamingStatus::default(),
+            dreaming_status: DreamingStatus::Pending,
         }
     }
 
@@ -439,7 +441,10 @@ pub fn dreaming_status_from_db(s: &str) -> DreamingStatus {
         "in_light" => DreamingStatus::InLight,
         "in_rem" => DreamingStatus::InRem,
         "in_deep" => DreamingStatus::InDeep,
-        _ => DreamingStatus::Completed,
+        unknown => {
+            warn!(unknown_status = %unknown, "unknown dreaming_status from DB, defaulting to Pending");
+            DreamingStatus::Pending
+        }
     }
 }
 
@@ -474,6 +479,14 @@ pub trait PersistenceService: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError>;
+
+    /// 加载已归档的 Checkpoint
+    async fn load_archived_checkpoint(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(None)
+    }
 
     /// 删除 Checkpoint
     async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError>;
@@ -638,8 +651,15 @@ mod tests {
     }
 
     #[test]
-    fn test_dreaming_status_default_is_completed() {
+    fn test_dreaming_status_serde_default_is_completed() {
+        // serde default stays Completed for backward compat with old JSON data
         assert_eq!(DreamingStatus::default(), DreamingStatus::Completed);
+    }
+
+    #[test]
+    fn test_session_checkpoint_new_dreaming_status_is_pending() {
+        let checkpoint = SessionCheckpoint::new("sess_pending".into());
+        assert_eq!(checkpoint.dreaming_status, DreamingStatus::Pending);
     }
 
     #[test]
@@ -686,7 +706,7 @@ mod tests {
     fn test_session_checkpoint_new_mined_defaults_false() {
         let checkpoint = SessionCheckpoint::new("sess_mined".into());
         assert!(!checkpoint.mined, "mined should default to false");
-        assert_eq!(checkpoint.dreaming_status, DreamingStatus::Completed);
+        assert_eq!(checkpoint.dreaming_status, DreamingStatus::Pending);
     }
 
     #[test]

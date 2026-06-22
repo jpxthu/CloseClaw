@@ -58,6 +58,17 @@ impl PersistenceService for MemoryStorage {
         Ok(checkpoints.get(session_id).cloned())
     }
 
+    async fn load_archived_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        let archived = self
+            .archived
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        Ok(archived.get(session_id).cloned())
+    }
+
     async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
         let mut checkpoints = self
             .checkpoints

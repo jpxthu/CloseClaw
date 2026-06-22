@@ -2,83 +2,18 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tokio::sync::watch;
 
+use crate::common::test_helpers::TestStorage;
 use crate::config::session::SessionConfigProvider;
 use crate::config::PerAgentSessionConfig;
 use crate::daemon::dreaming_scheduler::DreamingScheduler;
 use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;
 use crate::session::compaction::CompactConfig;
-use crate::session::persistence::{
-    AgentRole, DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
-};
-use std::sync::Mutex;
+use crate::session::persistence::{AgentRole, PersistenceService, SessionCheckpoint};
 
 // ── Test helpers ─────────────────────────────────────────────────────────
-
-/// Minimal in-memory storage for scheduler tests.
-#[derive(Debug, Default)]
-struct TestStorage {
-    checkpoints: Mutex<Vec<SessionCheckpoint>>,
-}
-
-#[async_trait]
-impl PersistenceService for TestStorage {
-    async fn save_checkpoint(
-        &self,
-        checkpoint: &SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
-        self.checkpoints.lock().unwrap().push(checkpoint.clone());
-        Ok(())
-    }
-
-    async fn load_checkpoint(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self
-            .checkpoints
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|cp| cp.session_id == session_id)
-            .cloned())
-    }
-
-    async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
-        self.checkpoints
-            .lock()
-            .unwrap()
-            .retain(|cp| cp.session_id != session_id);
-        Ok(())
-    }
-
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_archived_unmined_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn mark_mined(&self, _session_id: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn update_dreaming_status(
-        &self,
-        _session_id: &str,
-        _status: DreamingStatus,
-    ) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-}
 
 /// Mock SessionConfigProvider that returns a configurable agent list.
 #[derive(Debug)]
@@ -103,6 +38,10 @@ impl SessionConfigProvider for MockConfig {
 
     fn sweeper_interval_secs(&self) -> u64 {
         60
+    }
+
+    fn dreaming_interval_secs(&self) -> u64 {
+        600
     }
 
     fn list_agents(&self) -> Vec<String> {
@@ -197,4 +136,28 @@ async fn test_dreaming_scheduler_no_agents_no_error() {
             "repeated run_once should not error: {result:?}"
         );
     }
+}
+
+/// Mining scan skips sessions whose agent_id is not in configured agents.
+#[tokio::test]
+async fn test_dreaming_scheduler_mining_skips_unconfigured_agents() {
+    let storage = TestStorage::default();
+
+    // Add an archived checkpoint for an unconfigured agent
+    let mut cp = SessionCheckpoint::new("unconfigured-session".into());
+    cp.agent_id = Some("unknown-agent".into());
+    cp.mined = false;
+    storage.add_archived(cp);
+
+    let storage: Arc<dyn PersistenceService> = Arc::new(storage);
+    let config: Arc<dyn SessionConfigProvider> =
+        Arc::new(MockConfig::new(vec!["configured-agent".to_string()]));
+    let scheduler = make_scheduler(storage, config);
+
+    // run_once should succeed; the unconfigured session should be skipped
+    let result = scheduler.run_once().await;
+    assert!(
+        result.is_ok(),
+        "run_once with unconfigured agent should succeed: {result:?}"
+    );
 }

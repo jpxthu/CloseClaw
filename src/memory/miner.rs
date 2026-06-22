@@ -60,19 +60,20 @@ impl MemoryMiner {
     /// parse the transcript and apply heuristics. Here we provide the
     /// structural skeleton.
     fn extract_entries(&self, session_id: &str) -> Vec<MemoryEntry> {
-        let _ = session_id;
-        // TODO: parse transcript and extract durable entries.
+        tracing::warn!(
+            session_id,
+            "extract_entries not yet implemented, returning empty"
+        );
         Vec::new()
     }
 
     /// Persist extracted entries to the memory store.
     async fn write_entries(
         &self,
-        entries: &[MemoryEntry],
-        storage: &dyn PersistenceService,
+        _entries: &[MemoryEntry],
+        _storage: &dyn PersistenceService,
     ) -> Result<(), MinerError> {
-        // TODO: write to Markdown files in the memory store.
-        let _ = (entries, storage);
+        tracing::warn!("write_entries not yet implemented, no-op");
         Ok(())
     }
 }
@@ -80,106 +81,5 @@ impl MemoryMiner {
 impl Default for MemoryMiner {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::session::persistence::{PersistenceError, SessionCheckpoint};
-    use async_trait::async_trait;
-    use std::sync::Mutex;
-
-    /// Minimal in-memory storage for miner tests.
-    #[derive(Debug, Default)]
-    struct TestStorage {
-        checkpoints: Mutex<Vec<SessionCheckpoint>>,
-        mined_ids: Mutex<Vec<String>>,
-    }
-
-    impl TestStorage {
-        fn add_checkpoint(&self, cp: SessionCheckpoint) {
-            self.checkpoints.lock().unwrap().push(cp);
-        }
-
-        fn mined_ids(&self) -> Vec<String> {
-            self.mined_ids.lock().unwrap().clone()
-        }
-    }
-
-    #[async_trait]
-    impl PersistenceService for TestStorage {
-        async fn save_checkpoint(
-            &self,
-            checkpoint: &SessionCheckpoint,
-        ) -> Result<(), PersistenceError> {
-            self.checkpoints.lock().unwrap().push(checkpoint.clone());
-            Ok(())
-        }
-
-        async fn load_checkpoint(
-            &self,
-            session_id: &str,
-        ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-            Ok(self
-                .checkpoints
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|cp| cp.session_id == session_id)
-                .cloned())
-        }
-
-        async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
-            self.checkpoints
-                .lock()
-                .unwrap()
-                .retain(|cp| cp.session_id != session_id);
-            Ok(())
-        }
-
-        async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-            Ok(Vec::new())
-        }
-
-        async fn mark_mined(&self, session_id: &str) -> Result<(), PersistenceError> {
-            self.mined_ids.lock().unwrap().push(session_id.into());
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    async fn test_mine_session_marks_mined() {
-        let storage = TestStorage::default();
-        let cp = SessionCheckpoint::new("sess-1".into());
-        storage.add_checkpoint(cp);
-
-        let miner = MemoryMiner::new();
-        miner.mine_session("sess-1", &storage).await.unwrap();
-
-        let mined = storage.mined_ids();
-        assert!(mined.contains(&"sess-1".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_mine_session_skips_already_mined() {
-        let storage = TestStorage::default();
-        let mut cp = SessionCheckpoint::new("sess-2".into());
-        cp.mined = true;
-        storage.add_checkpoint(cp);
-
-        let miner = MemoryMiner::new();
-        miner.mine_session("sess-2", &storage).await.unwrap();
-
-        let mined = storage.mined_ids();
-        assert!(mined.is_empty(), "should not re-mine");
-    }
-
-    #[tokio::test]
-    async fn test_mine_session_not_found_returns_error() {
-        let storage = TestStorage::default();
-        let miner = MemoryMiner::new();
-        let result = miner.mine_session("nonexistent", &storage).await;
-        assert!(result.is_err());
     }
 }

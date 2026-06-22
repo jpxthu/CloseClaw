@@ -165,7 +165,10 @@ impl DreamingPipeline {
                 .await?;
         }
 
-        let _ = deep; // Placeholder: actual MEMORY.md write happens in integration.
+        tracing::warn!(
+            entry_count = deep.len(),
+            "dreaming pipeline completed but MEMORY.md write not yet integrated"
+        );
         Ok(())
     }
 
@@ -178,8 +181,10 @@ impl DreamingPipeline {
         storage
             .update_dreaming_status(session_id, DreamingStatus::InLight)
             .await?;
-        // TODO: load actual entries from memory store
-        let _ = (storage, session_id);
+        tracing::warn!(
+            session_id,
+            "load_entries not yet implemented, returning empty"
+        );
         Ok(Vec::new())
     }
 

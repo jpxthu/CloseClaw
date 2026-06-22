@@ -3,90 +3,9 @@
 //! Complements the inline tests in dreaming.rs with tests that require
 //! mock PersistenceService interactions.
 
-use std::sync::Mutex;
-
-use async_trait::async_trait;
-
+use crate::common::test_helpers::TestStorage;
 use crate::memory::dreaming::DreamingPipeline;
-use crate::session::persistence::{
-    DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
-};
-
-// ── Test helpers ─────────────────────────────────────────────────────────
-
-/// Minimal in-memory storage for dreaming pipeline tests.
-#[derive(Debug, Default)]
-struct TestStorage {
-    checkpoints: Mutex<Vec<SessionCheckpoint>>,
-}
-
-impl TestStorage {
-    fn add_checkpoint(&self, cp: SessionCheckpoint) {
-        self.checkpoints.lock().unwrap().push(cp);
-    }
-}
-
-#[async_trait]
-impl PersistenceService for TestStorage {
-    async fn save_checkpoint(
-        &self,
-        checkpoint: &SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
-        self.checkpoints.lock().unwrap().push(checkpoint.clone());
-        Ok(())
-    }
-
-    async fn load_checkpoint(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self
-            .checkpoints
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|cp| cp.session_id == session_id)
-            .cloned())
-    }
-
-    async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
-        self.checkpoints
-            .lock()
-            .unwrap()
-            .retain(|cp| cp.session_id != session_id);
-        Ok(())
-    }
-
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        let cps = self.checkpoints.lock().unwrap();
-        let result: Vec<String> = cps
-            .iter()
-            .filter(|cp| cp.mined && cp.dreaming_status != DreamingStatus::Completed)
-            .map(|cp| cp.session_id.clone())
-            .collect();
-        Ok(result)
-    }
-
-    async fn mark_mined(&self, _session_id: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn update_dreaming_status(
-        &self,
-        session_id: &str,
-        status: DreamingStatus,
-    ) -> Result<(), PersistenceError> {
-        let mut cps = self.checkpoints.lock().unwrap();
-        if let Some(cp) = cps.iter_mut().find(|cp| cp.session_id == session_id) {
-            cp.dreaming_status = status;
-        }
-        Ok(())
-    }
-}
+use crate::session::persistence::{DreamingStatus, SessionCheckpoint};
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

@@ -17,9 +17,6 @@ use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;
 use crate::session::persistence::{PersistenceError, PersistenceService};
 
-/// Default dreaming interval in seconds (10 minutes).
-const DEFAULT_DREAMING_INTERVAL_SECS: u64 = 600;
-
 /// Errors that can occur during scheduler operations.
 #[derive(Debug, Error)]
 pub enum DreamingSchedulerError {
@@ -68,13 +65,11 @@ impl DreamingScheduler {
     /// Each cycle: first dreaming pipeline, then mining scan.
     /// Follows the `select!` pattern from [`ArchiveSweeper`].
     pub async fn run(&self, mut shutdown: watch::Receiver<()>) {
-        let interval = tokio::time::Duration::from_secs(DEFAULT_DREAMING_INTERVAL_SECS);
+        let interval_secs = self.config.dreaming_interval_secs();
+        let interval = tokio::time::Duration::from_secs(interval_secs);
         let mut next_fire = Instant::now() + interval;
 
-        info!(
-            "DreamingScheduler started with interval {}s",
-            DEFAULT_DREAMING_INTERVAL_SECS
-        );
+        info!("DreamingScheduler started with interval {}s", interval_secs);
 
         loop {
             tokio::select! {
@@ -113,6 +108,20 @@ impl DreamingScheduler {
         let unmined = self.storage.list_archived_unmined_sessions().await?;
 
         for session_id in unmined {
+            // Look up agent_id from archived checkpoint to filter by configured agents
+            let checkpoint = self.storage.load_archived_checkpoint(&session_id).await;
+            let agent_id = match checkpoint {
+                Ok(Some(cp)) => cp.agent_id,
+                _ => None,
+            };
+
+            // Skip sessions whose agent is not in the configured agent list
+            if let Some(ref aid) = agent_id {
+                if !agents.contains(aid) {
+                    continue;
+                }
+            }
+
             if let Err(e) = self
                 .memory_miner
                 .mine_session(&session_id, self.storage.as_ref())
