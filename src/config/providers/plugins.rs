@@ -118,7 +118,7 @@ impl ConfigProvider for PluginsConfigData {
     where
         Self: Sized,
     {
-        "config/plugins.json"
+        "plugins.json"
     }
 
     fn is_default(&self) -> bool {
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_config_path() {
-        assert_eq!(PluginsConfigData::config_path(), "config/plugins.json");
+        assert_eq!(PluginsConfigData::config_path(), "plugins.json");
     }
 
     #[test]
