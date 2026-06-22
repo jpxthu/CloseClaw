@@ -12,6 +12,16 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
+/// Shutdown mode — distinguishes graceful from forceful shutdown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShutdownMode {
+    /// Graceful: wait for in-flight operations to complete
+    #[default]
+    Graceful,
+    /// Forceful: immediately terminate operations
+    Forceful,
+}
+
 /// Shutdown state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShutdownState {
@@ -24,6 +34,8 @@ pub enum ShutdownState {
     Draining,
     /// Clean exit
     Stopped,
+    /// Forceful shutdown — skip drain, terminate immediately
+    ForcefulShuttingDown,
 }
 
 impl ShutdownState {
@@ -33,7 +45,25 @@ impl ShutdownState {
             1 => ShutdownState::ShuttingDown,
             2 => ShutdownState::Draining,
             3 => ShutdownState::Stopped,
+            4 => ShutdownState::ForcefulShuttingDown,
             _ => ShutdownState::Running,
+        }
+    }
+
+    /// Returns true if the state represents an active shutdown
+    /// (either graceful or forceful).
+    fn is_shutting_down_state(self) -> bool {
+        matches!(
+            self,
+            ShutdownState::ShuttingDown | ShutdownState::ForcefulShuttingDown
+        )
+    }
+
+    /// Returns the shutdown mode for an active shutdown state.
+    fn mode(self) -> ShutdownMode {
+        match self {
+            ShutdownState::ForcefulShuttingDown => ShutdownMode::Forceful,
+            _ => ShutdownMode::Graceful,
         }
     }
 }
@@ -96,6 +126,25 @@ impl ShutdownCoordinator {
             .is_ok()
     }
 
+    /// Atomically escalate from ShuttingDown → ForcefulShuttingDown.
+    /// Returns true if the escalation succeeded, false if already in a
+    /// non-ShuttingDown state.
+    pub fn escalate_to_forceful(&self) -> bool {
+        self.state
+            .compare_exchange(
+                ShutdownState::ShuttingDown as u8,
+                ShutdownState::ForcefulShuttingDown as u8,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+
+    /// Returns the current shutdown mode.
+    pub fn mode(&self) -> ShutdownMode {
+        ShutdownState::from_u8(self.state.load(Ordering::SeqCst)).mode()
+    }
+
     /// Transition to Draining state
     pub fn start_drain(&self) {
         self.state
@@ -145,7 +194,27 @@ impl ShutdownHandle {
 
     /// Returns true if shutdown has been initiated (not Running)
     pub fn is_shutting_down(&self) -> bool {
-        self.coordinator.state() != ShutdownState::Running
+        self.coordinator.state().is_shutting_down_state()
+    }
+
+    /// Returns true if the current shutdown is forceful.
+    pub fn is_forceful(&self) -> bool {
+        self.coordinator.state() == ShutdownState::ForcefulShuttingDown
+    }
+
+    /// Returns the current shutdown mode.
+    pub fn mode(&self) -> ShutdownMode {
+        self.coordinator.mode()
+    }
+
+    /// Escalate a graceful shutdown to forceful.
+    /// Returns true if escalation succeeded, false if not in ShuttingDown state.
+    pub fn escalate_to_forceful(&self) -> bool {
+        let ok = self.coordinator.escalate_to_forceful();
+        if ok {
+            info!("Upgraded to forceful shutdown");
+        }
+        ok
     }
 
     /// Initiate graceful shutdown — called when SIGTERM/SIGINT is received.
@@ -154,10 +223,14 @@ impl ShutdownHandle {
     /// 2. Wait up to DRAIN_TIMEOUT_SECS for in-flight work to complete
     /// 3. Transition to Draining → Stopped
     ///
+    /// If already shutting down, escalates to forceful.
     /// If timeout is exceeded, force-exit.
     pub async fn initiate_shutdown(&self) {
         if !self.coordinator.try_start_shutdown() {
-            info!("Shutdown already in progress");
+            // Already shutting down — escalate to forceful on repeated signal
+            if self.escalate_to_forceful() {
+                self.wait_for_drain().await;
+            }
             return;
         }
 
@@ -171,10 +244,19 @@ impl ShutdownHandle {
     }
 
     /// Wait for busy_count to reach 0 or timeout, then finalize shutdown.
+    /// In forceful mode, skip the timeout and finalize immediately.
     async fn wait_for_drain(&self) {
         let started_at = std::time::Instant::now();
 
         loop {
+            // If upgraded to forceful mid-drain, finalize immediately
+            if self.is_forceful() {
+                info!("Forceful mode — skipping drain wait");
+                self.coordinator.start_drain();
+                self.coordinator.mark_stopped();
+                return;
+            }
+
             let count = self.busy_count.load(Ordering::SeqCst);
             if count == 0 {
                 info!("All in-flight operations complete, shutting down immediately");
@@ -250,6 +332,10 @@ mod tests {
         assert_eq!(ShutdownState::from_u8(1), ShutdownState::ShuttingDown);
         assert_eq!(ShutdownState::from_u8(2), ShutdownState::Draining);
         assert_eq!(ShutdownState::from_u8(3), ShutdownState::Stopped);
+        assert_eq!(
+            ShutdownState::from_u8(4),
+            ShutdownState::ForcefulShuttingDown
+        );
         // Invalid values default to Running
         assert_eq!(ShutdownState::from_u8(99), ShutdownState::Running);
     }
@@ -288,11 +374,84 @@ mod tests {
     }
 
     #[test]
+    fn test_coordinator_escalate_to_forceful_success() {
+        let coordinator = ShutdownCoordinator::new();
+        coordinator.try_start_shutdown();
+        assert!(coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+    }
+
+    #[test]
+    fn test_coordinator_escalate_to_forceful_fails_when_running() {
+        let coordinator = ShutdownCoordinator::new();
+        assert!(!coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::Running);
+    }
+
+    #[test]
+    fn test_coordinator_escalate_to_forceful_fails_when_stopped() {
+        let coordinator = ShutdownCoordinator::new();
+        coordinator.try_start_shutdown();
+        coordinator.start_drain();
+        coordinator.mark_stopped();
+        assert!(!coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::Stopped);
+    }
+
+    #[test]
+    fn test_coordinator_escalate_to_forceful_fails_when_already_forceful() {
+        let coordinator = ShutdownCoordinator::new();
+        coordinator.try_start_shutdown();
+        assert!(coordinator.escalate_to_forceful());
+        // Second escalate should fail (already forceful, not ShuttingDown)
+        assert!(!coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+    }
+
+    #[test]
+    fn test_coordinator_mode() {
+        let coordinator = ShutdownCoordinator::new();
+        assert_eq!(coordinator.mode(), ShutdownMode::Graceful);
+
+        coordinator.try_start_shutdown();
+        assert_eq!(coordinator.mode(), ShutdownMode::Graceful);
+
+        coordinator.escalate_to_forceful();
+        assert_eq!(coordinator.mode(), ShutdownMode::Forceful);
+    }
+
+    #[test]
     fn test_shutdown_handle_initial_state() {
         let handle = ShutdownHandle::new();
         assert_eq!(handle.state(), ShutdownState::Running);
         assert!(!handle.is_shutting_down());
         assert!(!handle.is_stopped());
+        assert!(!handle.is_forceful());
+        assert_eq!(handle.mode(), ShutdownMode::Graceful);
+    }
+
+    #[test]
+    fn test_shutdown_handle_escalate_success() {
+        let handle = ShutdownHandle::new();
+        handle.coordinator.try_start_shutdown();
+        assert!(handle.escalate_to_forceful());
+        assert!(handle.is_forceful());
+        assert_eq!(handle.mode(), ShutdownMode::Forceful);
+    }
+
+    #[test]
+    fn test_shutdown_handle_escalate_fails_when_running() {
+        let handle = ShutdownHandle::new();
+        assert!(!handle.escalate_to_forceful());
+        assert!(!handle.is_forceful());
+    }
+
+    #[test]
+    fn test_shutdown_handle_is_shutting_down_in_forceful() {
+        let handle = ShutdownHandle::new();
+        handle.coordinator.try_start_shutdown();
+        handle.escalate_to_forceful();
+        assert!(handle.is_shutting_down());
     }
 
     #[test]
@@ -306,18 +465,21 @@ mod tests {
     #[tokio::test]
     async fn test_initiate_shutdown_first_caller_wins() {
         let handle = ShutdownHandle::new();
+        // Register a busy operation so drain doesn't complete immediately
+        handle.busy_count.fetch_add(1, Ordering::SeqCst);
 
         // First initiate succeeds
         let handle2 = handle.clone();
-        let (tx, _rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             handle2.initiate_shutdown().await;
-            let _ = tx.send(());
         });
 
         // Give it a moment to start
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(handle.is_shutting_down());
+
+        // Release the busy count so drain can complete
+        handle.decrement_busy();
     }
 
     #[test]
@@ -326,6 +488,16 @@ mod tests {
         assert_eq!(format!("{:?}", ShutdownState::ShuttingDown), "ShuttingDown");
         assert_eq!(format!("{:?}", ShutdownState::Draining), "Draining");
         assert_eq!(format!("{:?}", ShutdownState::Stopped), "Stopped");
+        assert_eq!(
+            format!("{:?}", ShutdownState::ForcefulShuttingDown),
+            "ForcefulShuttingDown"
+        );
+    }
+
+    #[test]
+    fn test_shutdown_mode_debug() {
+        assert_eq!(format!("{:?}", ShutdownMode::Graceful), "Graceful");
+        assert_eq!(format!("{:?}", ShutdownMode::Forceful), "Forceful");
     }
 
     #[test]
