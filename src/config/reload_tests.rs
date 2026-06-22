@@ -13,7 +13,7 @@ mod reload_tests {
     fn make_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
         let sections = [
             ("models.json", r#"{"models":[]}"#),
-            ("channels.json", r#"{"channels":[]}"#),
+            ("channels.json", r#"{"channels":{}}"#),
             ("gateway.json", r#"{"port":8080}"#),
             ("plugins.json", r#"{"plugins":[]}"#),
             ("system.json", r#"{"version":"1"}"#),
@@ -242,7 +242,7 @@ mod reload_tests {
         std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
         std::fs::write(
             d.path().join("channels.json"),
-            r#"{"channels":[{"id":"ch1"}]}"#,
+            r#"{"channels":{"type":{}}}"#,
         )
         .unwrap();
         std::fs::write(d.path().join("gateway.json"), r#"{"port":9999}"#).unwrap();
@@ -276,7 +276,7 @@ mod reload_tests {
             (
                 "channels.json",
                 ConfigSection::Channels,
-                r#"{"channels":[{"id":"ch1"}]}"#,
+                r#"{"channels":{"type":{}}}"#,
             ),
             ("gateway.json", ConfigSection::Gateway, r#"{"port":9090}"#),
             (
