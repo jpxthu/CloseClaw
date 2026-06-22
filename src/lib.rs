@@ -27,6 +27,7 @@ pub mod tasks;
 pub mod tools;
 
 pub mod common;
+pub mod memory;
 
 use tracing::info;
 

@@ -24,6 +24,8 @@ pub const DEFAULT_IDLE_MINUTES: i64 = 30;
 pub const DEFAULT_PURGE_AFTER_MINUTES: i64 = 10080; // 7 days
 /// Default sweeper interval in seconds
 pub const DEFAULT_SWEEPER_INTERVAL_SECS: u64 = 300; // 5 minutes
+/// Default dreaming interval in seconds
+pub const DEFAULT_DREAMING_INTERVAL_SECS: u64 = 600; // 10 minutes
 
 /// Per-agent per-role session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +73,9 @@ pub struct SessionConfig {
     /// Sweeper interval in seconds (default: 5 minutes)
     #[serde(default = "default_sweeper_interval")]
     pub sweeper_interval_secs: u64,
+    /// Dreaming interval in seconds (default: 10 minutes)
+    #[serde(default = "default_dreaming_interval")]
+    pub dreaming_interval_secs: u64,
     /// Compaction configuration (optional, falls back to CompactConfig::default())
     #[serde(default)]
     pub compact: Option<CompactConfig>,
@@ -80,12 +85,17 @@ fn default_sweeper_interval() -> u64 {
     DEFAULT_SWEEPER_INTERVAL_SECS
 }
 
+fn default_dreaming_interval() -> u64 {
+    DEFAULT_DREAMING_INTERVAL_SECS
+}
+
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             defaults: BTreeMap::new(),
             agents: BTreeMap::new(),
             sweeper_interval_secs: DEFAULT_SWEEPER_INTERVAL_SECS,
+            dreaming_interval_secs: DEFAULT_DREAMING_INTERVAL_SECS,
             compact: None,
         }
     }
@@ -98,6 +108,9 @@ pub trait SessionConfigProvider: Send + Sync {
 
     /// Get sweeper interval in seconds
     fn sweeper_interval_secs(&self) -> u64;
+
+    /// Get dreaming interval in seconds
+    fn dreaming_interval_secs(&self) -> u64;
 
     /// List all agent IDs that have per-agent overrides
     fn list_agents(&self) -> Vec<String>;
@@ -238,6 +251,13 @@ impl SessionConfigProvider for JsonSessionConfigProvider {
             .unwrap_or_default()
     }
 
+    fn dreaming_interval_secs(&self) -> u64 {
+        self.config
+            .as_ref()
+            .map(|c| c.dreaming_interval_secs)
+            .unwrap_or(DEFAULT_DREAMING_INTERVAL_SECS)
+    }
+
     fn compact_config(&self) -> CompactConfig {
         self.config
             .as_ref()
@@ -260,6 +280,19 @@ mod tests {
         format!(
             r#"{{"defaults":{},"agents":{},"sweeperIntervalSecs":{}}}"#,
             defaults, agents, sweeper_interval_secs
+        )
+    }
+
+    /// Config JSON with dreaming interval.
+    fn valid_config_json_with_dreaming(
+        defaults: &str,
+        agents: &str,
+        sweeper_interval_secs: u64,
+        dreaming_interval_secs: u64,
+    ) -> String {
+        format!(
+            r#"{{"defaults":{},"agents":{},"sweeperIntervalSecs":{},"dreamingIntervalSecs":{}}}"#,
+            defaults, agents, sweeper_interval_secs, dreaming_interval_secs
         )
     }
 
@@ -310,6 +343,10 @@ mod tests {
         assert_eq!(
             provider.sweeper_interval_secs(),
             DEFAULT_SWEEPER_INTERVAL_SECS
+        );
+        assert_eq!(
+            provider.dreaming_interval_secs(),
+            DEFAULT_DREAMING_INTERVAL_SECS
         );
     }
 
@@ -407,6 +444,27 @@ mod tests {
 
         let provider = JsonSessionConfigProvider::new(&path).unwrap();
         assert_eq!(provider.sweeper_interval_secs(), 720);
+    }
+
+    #[test]
+    fn test_dreaming_interval_secs() {
+        let json = valid_config_json_with_dreaming("{}", "{}", 300, 1200);
+        let (_temp, path) = write_temp_json(&json);
+
+        let provider = JsonSessionConfigProvider::new(&path).unwrap();
+        assert_eq!(provider.dreaming_interval_secs(), 1200);
+    }
+
+    #[test]
+    fn test_dreaming_interval_secs_default() {
+        let json = valid_config_json("{}", "{}", 300);
+        let (_temp, path) = write_temp_json(&json);
+
+        let provider = JsonSessionConfigProvider::new(&path).unwrap();
+        assert_eq!(
+            provider.dreaming_interval_secs(),
+            DEFAULT_DREAMING_INTERVAL_SECS
+        );
     }
 
     // -------------------------------------------------------------------------

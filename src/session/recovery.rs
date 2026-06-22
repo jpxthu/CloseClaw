@@ -218,7 +218,7 @@ impl RecoveryReport {
 mod tests {
     use super::*;
     use crate::session::persistence::{
-        ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
+        DreamingStatus, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
     };
     use crate::session::storage::memory::MemoryStorage;
     use chrono::Utc;
@@ -253,6 +253,8 @@ mod tests {
             parent_session_id: None,
             depth: 0,
             effective_max_spawn_depth: None,
+            mined: false,
+            dreaming_status: DreamingStatus::default(),
         }
     }
 
