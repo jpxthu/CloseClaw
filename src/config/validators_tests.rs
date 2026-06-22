@@ -144,7 +144,10 @@ fn test_validate_models_fail_provider_not_object() {
 
 #[test]
 fn test_validate_channels_pass() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"channels":[{"id":"ch1"}]}"#).unwrap();
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
+    )
+    .unwrap();
     assert!(validate_channels(&v).is_ok());
 }
 
@@ -165,7 +168,141 @@ fn test_validate_channels_fail_not_object() {
 fn test_validate_channels_fail_channels_not_array() {
     let v: serde_json::Value = serde_json::from_str(r#"{"channels":"bad"}"#).unwrap();
     let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_unknown_type() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"channels":{"unknown-channel":{"enabled":true}}}"#).unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("unknown channel type"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_empty_type_key() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"channels":{"":{"enabled":true}}}"#).unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("cannot be empty"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_bindings_not_array() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"bindings":"not-array"}"#).unwrap();
+    let err = validate_channels(&v).unwrap_err();
     assert!(err.contains("array"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_binding_not_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"bindings":["bad"]}"#).unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("must be a JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_binding_missing_agent_id() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"bindings":[{"match":{"channel":"feishu","accountId":"a"}}]}"#)
+            .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("agentId is required"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_binding_empty_agent_id() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"bindings":[{"agentId":"","match":{"channel":"feishu","accountId":"a"}}]}"#,
+    )
+    .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("agentId cannot be empty"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_binding_missing_match() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"bindings":[{"agentId":"a1"}]}"#).unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("match is required"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_binding_match_not_object() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"bindings":[{"agentId":"a1","match":"bad"}]}"#).unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(
+        err.contains("match must be a JSON object"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_channels_fail_binding_missing_channel() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"bindings":[{"agentId":"a1","match":{"accountId":"a"}}]}"#)
+            .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(err.contains("match.channel is required"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_channels_fail_binding_empty_channel() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"bindings":[{"agentId":"a1","match":{"channel":"","accountId":"a"}}]}"#,
+    )
+    .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(
+        err.contains("match.channel cannot be empty"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_channels_fail_binding_missing_account_id() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"bindings":[{"agentId":"a1","match":{"channel":"feishu"}}]}"#)
+            .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(
+        err.contains("match.accountId is required"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_channels_fail_binding_empty_account_id() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":""}}]}"#,
+    )
+    .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(
+        err.contains("match.accountId cannot be empty"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_channels_pass_multiple_valid() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true},"telegram":{"enabled":false}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}},{"agentId":"a2","match":{"channel":"telegram","accountId":"bot1"}}]}"#,
+    )
+    .unwrap();
+    assert!(validate_channels(&v).is_ok());
+}
+
+#[test]
+fn test_validate_channels_pass_no_bindings() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"channels":{"feishu":{"enabled":true}}}"#).unwrap();
+    assert!(validate_channels(&v).is_ok());
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +401,8 @@ fn test_default_validator_models_rejects_non_object() {
 
 #[test]
 fn test_default_validator_channels_passes_valid_json() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"channels":[{"id":"ch1"}]}"#).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"channels":{"feishu":{"enabled":true}}}"#).unwrap();
     let validator = ConfigSection::Channels.default_validator();
     assert!(validator(&v).is_ok());
 }

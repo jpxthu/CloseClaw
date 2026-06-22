@@ -7,6 +7,7 @@
 
 use super::manager::ConfigSection;
 use super::manager_reload::SectionValidator;
+use super::providers::channels::ALLOWED_CHANNEL_TYPES;
 
 // ---------------------------------------------------------------------------
 // Public helpers
@@ -121,11 +122,115 @@ fn validate_model(provider_id: &str, model: &serde_json::Value) -> Result<(), St
 /// Validate the **channels** config section.
 ///
 /// - Top-level must be a JSON object.
-/// - If a `channels` key is present, it must be an array.
+/// - `channels` key, if present, must be a JSON object whose keys are
+///   known channel types (non-empty, in the allowed list).
+/// - `bindings` key, if present, must be a JSON array.  Each entry must
+///   have non-empty `agentId`, `match.channel`, and `match.accountId`.
 fn validate_channels(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "channels")?;
-    if let Some(arr) = value.get("channels") {
-        ensure_array(arr, "channels.channels")?;
+
+    // Validate channel type keys
+    if let Some(channels) = value.get("channels") {
+        if !channels.is_object() {
+            return Err(format!(
+                "channels.channels must be a JSON object, got {}",
+                type_name(channels)
+            ));
+        }
+        if let Some(obj) = channels.as_object() {
+            for (channel_type, _) in obj {
+                if channel_type.is_empty() {
+                    return Err("channels type cannot be empty".to_string());
+                }
+                if !ALLOWED_CHANNEL_TYPES.contains(&channel_type.as_str()) {
+                    return Err(format!(
+                        "unknown channel type '{}'. Allowed: {}",
+                        channel_type,
+                        ALLOWED_CHANNEL_TYPES.join(", ")
+                    ));
+                }
+            }
+        }
+    }
+
+    // Validate bindings
+    if let Some(bindings) = value.get("bindings") {
+        ensure_array(bindings, "channels.bindings")?;
+        if let Some(arr) = bindings.as_array() {
+            for (i, entry) in arr.iter().enumerate() {
+                validate_binding_entry(i, entry)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a single binding entry within the channels section.
+fn validate_binding_entry(index: usize, entry: &serde_json::Value) -> Result<(), String> {
+    if !entry.is_object() {
+        return Err(format!(
+            "channels.bindings[{}] must be a JSON object",
+            index
+        ));
+    }
+    // agentId is required and must be non-empty
+    match entry.get("agentId") {
+        Some(serde_json::Value::String(s)) if s.is_empty() => {
+            return Err(format!(
+                "channels.bindings[{}].agentId cannot be empty",
+                index
+            ));
+        }
+        None => {
+            return Err(format!("channels.bindings[{}].agentId is required", index));
+        }
+        _ => {}
+    }
+    // match sub-object
+    let match_obj = match entry.get("match") {
+        Some(m) if m.is_object() => m,
+        Some(_) => {
+            return Err(format!(
+                "channels.bindings[{}].match must be a JSON object",
+                index
+            ));
+        }
+        None => {
+            return Err(format!("channels.bindings[{}].match is required", index));
+        }
+    };
+    // match.channel required, non-empty
+    match match_obj.get("channel") {
+        Some(serde_json::Value::String(s)) if s.is_empty() => {
+            return Err(format!(
+                "channels.bindings[{}].match.channel cannot be empty",
+                index
+            ));
+        }
+        None => {
+            return Err(format!(
+                "channels.bindings[{}].match.channel is required",
+                index
+            ));
+        }
+        _ => {}
+    }
+    // match.accountId required, non-empty
+    match match_obj.get("accountId") {
+        Some(serde_json::Value::String(s)) if s.is_empty() => {
+            return Err(format!(
+                "channels.bindings[{}].match.accountId cannot be empty",
+                index
+            ));
+        }
+        None => {
+            return Err(format!(
+                "channels.bindings[{}].match.accountId is required",
+                index
+            ));
+        }
+        _ => {}
     }
     Ok(())
 }

@@ -47,7 +47,8 @@ pub struct ChannelsConfigData {
 }
 
 /// Allowed channel types in the system.
-const ALLOWED_CHANNEL_TYPES: &[&str] = &[
+/// Known channel types accepted by the system.
+pub const ALLOWED_CHANNEL_TYPES: &[&str] = &[
     "feishu",
     "discord",
     "telegram",
