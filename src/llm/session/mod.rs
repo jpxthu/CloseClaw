@@ -386,6 +386,44 @@ impl ConversationSession {
         );
     }
 
+    /// Extract pending tool calls from the last assistant message.
+    ///
+    /// Scans `self.messages` for the most recent assistant message, then
+    /// collects every `ContentBlock::ToolUse` block into a
+    /// [`PendingOperation`] list. This is used by the graceful-shutdown
+    /// path to record tool calls that were requested but not yet executed.
+    ///
+    /// Unlike [`collect_pending_operations`](Self::collect_pending_operations)
+    /// (which inspects tool_states / child_states), this method reads
+    /// directly from the conversation history.
+    pub fn extract_pending_tool_calls(&self) -> Vec<crate::session::persistence::PendingOperation> {
+        use crate::session::persistence::{PendingOperation, PendingOperationType};
+
+        let last_assistant = self.messages.iter().rev().find(|m| m.role == "assistant");
+
+        let Some(msg) = last_assistant else {
+            return Vec::new();
+        };
+
+        let now = Utc::now();
+        msg.content_blocks
+            .iter()
+            .filter_map(|block| {
+                if let ContentBlock::ToolUse { id, name, input } = block {
+                    Some(PendingOperation {
+                        op_id: id.clone(),
+                        op_type: PendingOperationType::ToolCall,
+                        name: name.clone(),
+                        args: input.clone(),
+                        created_at: now,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// Collect pending operations from the current session state.
     ///
     /// Scans tool_states, child_states, and pending_messages to build a

@@ -513,6 +513,8 @@ mod bug904_tests;
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]
+mod graceful_stop_tests;
+#[cfg(test)]
 mod model_priority_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;
