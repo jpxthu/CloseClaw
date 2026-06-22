@@ -61,5 +61,12 @@
     "commit_time": "",
     "confirmed_time": "2026-06-21T23:56:35.870722+08:00",
     "comment": "blocked: 文档内部矛盾 - (1) 概述/数据流章节描述 TerminalRenderer 输出到 stdout 且流式输出，但代码实际为批量渲染器，I/O 由 TerminalPlugin.send 负责，流式由 DefaultStreamingRenderer 负责。(2) 数据流章节与模块关系章节对 Gateway-TerminalRenderer 调用链描述矛盾。另发现 ToolUse 参数摘要格式 must_fix：代码输出原始 JSON，文档要求 arg1=val1 arg2=val2 格式。"
+  },
+  {
+    "path": "docs/design/config/hot-reload.md",
+    "commit": "aee38ce17dd9a76fa68b6bb7def602a9abc131b8",
+    "commit_time": "2026-06-22T10:58:53+08:00",
+    "confirmed_time": "2026-06-22T11:08:19.648114+08:00",
+    "comment": ""
   }
 ]
