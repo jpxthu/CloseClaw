@@ -244,17 +244,25 @@ impl SessionManager {
             .await
             .ok_or(StopError::Skipped)?;
 
-        // Collect pending operations before stopping (for forceful mode).
-        let pending_ops: Vec<PendingOperation> = if mode == ShutdownMode::Forceful {
+        // Collect pending operations. Forceful mode collects from
+        // tool_states/child_states; graceful mode collects from the
+        // assistant message after the streaming loop below.
+        let mut pending_ops: Vec<PendingOperation> = if mode == ShutdownMode::Forceful {
             let guard = cs.read().await;
             guard.collect_pending_operations()
         } else {
             Vec::new()
         };
 
-        // Graceful: wait for LLM streaming and tool execution to finish.
+        // Graceful: state-aware loop that distinguishes three sub-states:
+        // 1. LLM streaming in progress → wait for stream to end.
+        // 2. Stream just ended → extract pending tool calls (if any);
+        //    do NOT wait for tools to execute.
+        // 3. Tools running (after stream ended) → wait for them to finish.
         // No hard timeout — the user decides when to escalate to forceful.
         if mode == ShutdownMode::Graceful {
+            let mut streaming_seen = false;
+
             loop {
                 let (is_streaming, has_running_tools) = {
                     let guard = cs.read().await;
@@ -271,8 +279,31 @@ impl SessionManager {
                     (streaming, tools)
                 };
 
-                if !is_streaming && !has_running_tools {
-                    break;
+                if is_streaming {
+                    streaming_seen = true;
+                } else if streaming_seen {
+                    // Stream just ended — extract pending tool calls
+                    // from the last assistant message.
+                    let ops = {
+                        let guard = cs.read().await;
+                        guard.extract_pending_tool_calls()
+                    };
+                    if !ops.is_empty() {
+                        pending_ops = ops;
+                        break;
+                    }
+                    // No tool calls requested — if tools are still
+                    // running, keep waiting; otherwise we are done.
+                    if !has_running_tools {
+                        break;
+                    }
+                    // Tools running but not from assistant tool_use;
+                    // fall through to next iteration.
+                } else {
+                    if has_running_tools {
+                        continue; // 工具执行中，等待完成
+                    }
+                    break; // 真正的 Idle
                 }
 
                 tracing::debug!(
