@@ -52,82 +52,99 @@ impl AgentDirectoryProvider {
         self.permissions.clear();
 
         for id in &self.registry {
-            let user_config_path = self.user_agents_dir.join(id).join("config.json");
-            let project_config_path = self
-                .project_agents_dir
-                .as_ref()
-                .map(|d| d.join(id).join("config.json"));
-
-            // Try loading configs from both levels.
-            // Ok(Some(…)) = loaded, Ok(None) = file not found, Err(…) = parse/read error.
-            let (mut user_config, mut project_config) = {
-                let user_result = Self::load_agent_config(&user_config_path);
-                let project_result = project_config_path
-                    .as_ref()
-                    .map(|p| Self::load_agent_config(p))
-                    .unwrap_or(Ok(None));
-                match (user_result, project_result) {
-                    (Ok(uc), Ok(pc)) => (uc, pc),
-                    (Ok(uc), Err(e)) => {
-                        warn!("Agent '{}' project config parse error: {}", id, e);
-                        (uc, None)
-                    }
-                    (Err(e), Ok(pc)) => {
-                        warn!("Agent '{}' user config parse error: {}", id, e);
-                        (None, pc)
-                    }
-                    (Err(e1), Err(e2)) => {
-                        warn!(
-                            "Agent '{}' config parse errors: user: {}; project: {}",
-                            id, e1, e2
-                        );
-                        continue;
-                    }
-                }
+            let entry = self.load_agent_entry(id)?;
+            let Some((resolved, perms)) = entry else {
+                continue;
             };
-
-            // Backfill `id` from the directory name when missing, and
-            // warn on mismatch. The project layer is processed first so
-            // its injected id wins when both levels have an empty id
-            // (project fields override user fields in the merge below).
-            Self::inject_dirname_id(&mut project_config, id);
-            Self::inject_dirname_id(&mut user_config, id);
-
-            let path_label = id.as_str();
-            let resolved = match (project_config, user_config) {
-                (Some(proj), Some(usr)) => ResolvedAgentConfig::merge(proj, usr, path_label)?,
-                (Some(proj), None) => {
-                    ResolvedAgentConfig::from_single(proj, ConfigSource::Project, path_label)?
-                }
-                (None, Some(usr)) => {
-                    ResolvedAgentConfig::from_single(usr, ConfigSource::User, path_label)?
-                }
-                (None, None) => {
-                    warn!("Agent '{}' in registry but no config.json found", id);
-                    continue;
-                }
-            };
-
-            // Load permissions (same priority: project > user)
-            let user_perm_path = self.user_agents_dir.join(id).join("permissions.json");
-            let project_perm_path = self
-                .project_agents_dir
-                .as_ref()
-                .map(|d| d.join(id).join("permissions.json"));
-
-            let perms = project_perm_path
-                .as_ref()
-                .and_then(|p| Self::load_permissions(p))
-                .or_else(|| Self::load_permissions(&user_perm_path));
-
             if let Some(p) = perms {
                 self.permissions.insert(id.clone(), p);
             }
-
             self.entries.insert(id.clone(), resolved);
         }
 
         Ok(())
+    }
+
+    /// Load and merge configs for a single agent, returning `None` to
+    /// signal "skip this agent" (missing config or parse errors on
+    /// both levels).
+    fn load_agent_entry(
+        &self,
+        id: &str,
+    ) -> Result<Option<(ResolvedAgentConfig, Option<AgentPermissions>)>, ConfigError> {
+        let user_config_path = self.user_agents_dir.join(id).join("config.json");
+        let project_config_path = self
+            .project_agents_dir
+            .as_ref()
+            .map(|d| d.join(id).join("config.json"));
+
+        let (mut user_config, mut project_config) = Self::load_configs_from_both_levels(
+            id,
+            &user_config_path,
+            project_config_path.as_deref(),
+        )?;
+
+        Self::inject_dirname_id(&mut project_config, id);
+        Self::inject_dirname_id(&mut user_config, id);
+
+        let resolved = match (project_config, user_config) {
+            (Some(proj), Some(usr)) => ResolvedAgentConfig::merge(proj, usr, id)?,
+            (Some(proj), None) => {
+                ResolvedAgentConfig::from_single(proj, ConfigSource::Project, id)?
+            }
+            (None, Some(usr)) => ResolvedAgentConfig::from_single(usr, ConfigSource::User, id)?,
+            (None, None) => {
+                warn!("Agent '{}' in registry but no config.json found", id);
+                return Ok(None);
+            }
+        };
+
+        let perms = self.load_permissions_for_agent(id);
+        Ok(Some((resolved, perms)))
+    }
+
+    /// Load agent config.json from both user and project levels,
+    /// handling parse errors per-level with warnings.
+    fn load_configs_from_both_levels(
+        id: &str,
+        user_config_path: &std::path::Path,
+        project_config_path: Option<&std::path::Path>,
+    ) -> Result<(Option<AgentConfig>, Option<AgentConfig>), ConfigError> {
+        let user_result = Self::load_agent_config(user_config_path);
+        let project_result = project_config_path
+            .map(Self::load_agent_config)
+            .unwrap_or(Ok(None));
+        match (user_result, project_result) {
+            (Ok(uc), Ok(pc)) => Ok((uc, pc)),
+            (Ok(uc), Err(e)) => {
+                warn!("Agent '{}' project config parse error: {}", id, e);
+                Ok((uc, None))
+            }
+            (Err(e), Ok(pc)) => {
+                warn!("Agent '{}' user config parse error: {}", id, e);
+                Ok((None, pc))
+            }
+            (Err(e1), Err(e2)) => {
+                warn!(
+                    "Agent '{}' config parse errors: user: {}; project: {}",
+                    id, e1, e2
+                );
+                Ok((None, None))
+            }
+        }
+    }
+
+    /// Load permissions for a single agent (project > user priority).
+    fn load_permissions_for_agent(&self, id: &str) -> Option<AgentPermissions> {
+        let user_perm_path = self.user_agents_dir.join(id).join("permissions.json");
+        let project_perm_path = self
+            .project_agents_dir
+            .as_ref()
+            .map(|d| d.join(id).join("permissions.json"));
+        project_perm_path
+            .as_ref()
+            .and_then(|p| Self::load_permissions(p))
+            .or_else(|| Self::load_permissions(&user_perm_path))
     }
 
     fn load_agent_config(path: &std::path::Path) -> Result<Option<AgentConfig>, String> {
