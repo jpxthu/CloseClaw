@@ -65,7 +65,8 @@ async fn test_handle_webhook_valid() {
     let msg = adapter
         .handle_webhook(&serde_json::to_vec(&payload).unwrap())
         .await
-        .unwrap();
+        .unwrap()
+        .expect("expected Some(message)");
     assert_eq!(msg.id, "evt_1");
     assert_eq!(msg.from, "ou_abc");
     assert_eq!(msg.content, "hello");
@@ -88,7 +89,8 @@ async fn test_handle_webhook_empty_text() {
     let msg = adapter
         .handle_webhook(&serde_json::to_vec(&payload).unwrap())
         .await
-        .unwrap();
+        .unwrap()
+        .expect("expected Some(message)");
     assert_eq!(msg.content, "");
     assert_eq!(msg.metadata.get("account_id"), Some(&"a".to_string()));
 }

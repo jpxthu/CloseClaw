@@ -79,7 +79,8 @@ mod tests {
         let msg = adapter
             .handle_webhook(&serde_json::to_vec(&payload).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert_eq!(msg.id, "evt_1");
         assert_eq!(msg.from, "ou_abc");
         assert_eq!(msg.content, "hello");
@@ -117,7 +118,8 @@ mod tests {
         let msg = adapter
             .handle_webhook(&serde_json::to_vec(&payload).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert_eq!(msg.content, "");
         assert_eq!(msg.metadata.get("account_id"), Some(&"a".to_string()));
     }
@@ -167,7 +169,8 @@ mod tests {
         let msg = adapter
             .handle_webhook(&serde_json::to_vec(&payload).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert_eq!(
             msg.metadata.get("thread_id"),
             Some(&"omt_thread_abc".to_string())
@@ -191,7 +194,8 @@ mod tests {
         let msg = adapter
             .handle_webhook(&serde_json::to_vec(&payload).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert_eq!(
             msg.metadata.get("thread_id"),
             Some(&"omt_root_123".to_string())
@@ -215,7 +219,8 @@ mod tests {
         let msg = adapter
             .handle_webhook(&serde_json::to_vec(&payload).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert_eq!(
             msg.metadata.get("thread_id"),
             Some(&"omt_parent_456".to_string())
@@ -238,7 +243,8 @@ mod tests {
         let msg = adapter
             .handle_webhook(&serde_json::to_vec(&payload).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert!(!msg.metadata.contains_key("thread_id"));
     }
 
@@ -262,7 +268,8 @@ mod tests {
         let msg = adapter
             .handle_webhook(&serde_json::to_vec(&payload).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert_eq!(
             msg.metadata.get("thread_id"),
             Some(&"omt_direct".to_string())
@@ -284,7 +291,8 @@ mod tests {
         let msg2 = adapter
             .handle_webhook(&serde_json::to_vec(&payload2).unwrap())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected Some(message)");
         assert_eq!(
             msg2.metadata.get("thread_id"),
             Some(&"omt_root2".to_string())
@@ -413,5 +421,129 @@ mod tests {
             "URL should contain percent-encoded root_id, got: {}",
             url
         );
+    }
+
+    // ── card.action.trigger tests ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_handle_webhook_card_action_forceful_shutdown() {
+        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
+        let payload = serde_json::json!({
+            "header": {
+                "event_id": "evt_card_1",
+                "event_type": "card.action.trigger",
+                "create_time": "0",
+                "token": "t",
+                "app_id": "a"
+            },
+            "operator": {
+                "open_id": "ou_operator_1"
+            },
+            "token": "verify_token",
+            "action": {
+                "value": {"action": "forceful_shutdown", "chat_id": "oc_chat_1"},
+                "tag": "button"
+            }
+        });
+        let msg = adapter
+            .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+            .await
+            .unwrap()
+            .expect("forceful_shutdown should return Some(message)");
+        assert_eq!(msg.content, "/__card_action:forceful_shutdown");
+        assert_eq!(msg.from, "ou_operator_1");
+        assert_eq!(msg.id, "evt_card_1");
+        assert_eq!(msg.metadata.get("card_action"), Some(&"true".to_string()));
+        assert_eq!(msg.metadata.get("chat_id"), Some(&"oc_chat_1".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_handle_webhook_card_action_unknown() {
+        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
+        let payload = serde_json::json!({
+            "header": {
+                "event_id": "evt_card_2",
+                "event_type": "card.action.trigger",
+                "create_time": "0",
+                "token": "t",
+                "app_id": "a"
+            },
+            "operator": {
+                "open_id": "ou_operator_2"
+            },
+            "token": "verify_token",
+            "action": {
+                "value": {"action": "unknown_action"},
+                "tag": "button"
+            }
+        });
+        let result = adapter
+            .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+            .await
+            .unwrap();
+        assert!(result.is_none(), "unknown card action should return None");
+    }
+
+    #[tokio::test]
+    async fn test_handle_webhook_card_action_no_value() {
+        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
+        // Card action with no value field
+        let payload = serde_json::json!({
+            "header": {
+                "event_id": "evt_card_3",
+                "event_type": "card.action.trigger",
+                "create_time": "0",
+                "token": "t",
+                "app_id": "a"
+            },
+            "operator": {
+                "open_id": "ou_operator_3"
+            },
+            "token": "verify_token",
+            "action": {
+                "tag": "button"
+            }
+        });
+        let result = adapter
+            .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+            .await
+            .unwrap();
+        assert!(
+            result.is_none(),
+            "card action without value should return None"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_parse_inbound_card_action() {
+        let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
+        let renderer = Arc::new(FeishuRenderer::new());
+        let plugin = FeishuPlugin::new(adapter, renderer);
+
+        let payload = serde_json::json!({
+            "header": {
+                "event_id": "evt_card_pi",
+                "event_type": "card.action.trigger",
+                "create_time": "0",
+                "token": "t",
+                "app_id": "a"
+            },
+            "operator": {
+                "open_id": "ou_operator_pi"
+            },
+            "token": "verify_token",
+            "action": {
+                "value": {"action": "forceful_shutdown"},
+                "tag": "button"
+            }
+        });
+        let msg = plugin
+            .parse_inbound(&serde_json::to_vec(&payload).unwrap())
+            .await
+            .unwrap()
+            .expect("card action should return Some");
+        assert_eq!(msg.content, "/__card_action:forceful_shutdown");
+        assert!(msg.card_action.unwrap_or(false));
+        assert_eq!(msg.platform, "feishu");
     }
 }

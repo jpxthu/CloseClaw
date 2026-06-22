@@ -39,7 +39,7 @@ impl IMAdapter for MockAdapter {
         "mock"
     }
 
-    async fn handle_webhook(&self, _payload: &[u8]) -> Result<Message, AdapterError> {
+    async fn handle_webhook(&self, _payload: &[u8]) -> Result<Option<Message>, AdapterError> {
         unimplemented!()
     }
 

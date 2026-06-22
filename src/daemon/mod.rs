@@ -602,9 +602,14 @@ impl Daemon {
         // Send initial progress card (no-op if no active sessions)
         self.gateway.send_shutdown_progress_card(mode).await;
 
+        // Create progress channel for real-time session stop updates
+        let (progress_tx, mut progress_rx) =
+            tokio::sync::mpsc::channel::<crate::gateway::session_manager::stop::StopProgress>(64);
+
         // Spawn session stop as a background task
         let sm = self.gateway.session_manager().clone();
-        let mut stop_handle = tokio::spawn(async move { sm.stop_all_sessions(mode).await });
+        let mut stop_handle =
+            tokio::spawn(async move { sm.stop_all_sessions(mode, Some(&progress_tx)).await });
 
         // Spawn fresh signal handlers for escalation monitoring during Phase 2.
         // Phase 1's handlers are consumed by its tokio::select! loop.
@@ -630,6 +635,8 @@ impl Daemon {
         let mut last_mode = mode;
         let mut stop_completed = false;
         let mut stop_result = None;
+        let mut last_card_update = std::time::Instant::now();
+        let throttle_interval = std::time::Duration::from_secs(2);
 
         while !stop_completed {
             tokio::select! {
@@ -649,6 +656,20 @@ impl Daemon {
                         }
                     }
                     stop_completed = true;
+                }
+
+                Some(progress) = progress_rx.recv() => {
+                    // Progress event: update card with throttle
+                    let now = std::time::Instant::now();
+                    if progress.remaining == 0
+                        || now.duration_since(last_card_update) >= throttle_interval
+                    {
+                        let current_mode = self.shutdown.mode();
+                        self.gateway
+                            .send_shutdown_progress_card(current_mode)
+                            .await;
+                        last_card_update = now;
+                    }
                 }
 
                 _ = async {
@@ -695,6 +716,7 @@ impl Daemon {
                     "shutdown mode changed, updating progress card"
                 );
                 self.gateway.send_shutdown_progress_card(current_mode).await;
+                last_card_update = std::time::Instant::now();
                 last_mode = current_mode;
             }
         }

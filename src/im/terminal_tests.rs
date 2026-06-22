@@ -41,6 +41,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
         assert_eq!(msg.platform, "terminal");
         assert_eq!(msg.peer_id, "cli");
@@ -57,6 +58,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
         assert!(msg.thread_id.is_none());
         assert!(msg.account_id.is_none());
@@ -72,6 +74,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
         // Timestamp is a valid Unix timestamp (after 2023)
         assert!(msg.timestamp > 1672531200);
@@ -87,6 +90,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let deserialized: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -104,6 +108,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
         assert!(msg.content.is_empty());
     }
@@ -118,6 +123,7 @@ mod tests {
             timestamp: 1700000000,
             thread_id: None,
             account_id: None,
+            card_action: None,
         };
         let lines: Vec<&str> = msg.content.lines().collect();
         assert_eq!(lines.len(), 3);

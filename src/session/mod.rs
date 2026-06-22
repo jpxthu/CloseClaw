@@ -26,6 +26,8 @@ pub mod persistence_tests;
 pub mod recovery;
 pub mod storage;
 pub mod sweeper;
+#[cfg(test)]
+pub mod sweeper_tests;
 pub mod workspace;
 
 // Re-export commonly used types
