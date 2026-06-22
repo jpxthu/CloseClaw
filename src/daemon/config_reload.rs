@@ -23,22 +23,39 @@ pub(crate) struct ConfigWatcherHandle {
 /// notifies the [`SessionManager`].
 ///
 /// When a [`ConfigChangeEvent::Reloaded`] arrives, the subscriber calls
-/// [`SessionManager::notify_config_changed`]. `Failed` events are logged
-/// but do not trigger a session notification.
+/// [`SessionManager::notify_config_changed`] with the section and the
+/// latest config snapshot. `Failed` events are logged but do not
+/// trigger a session notification.
 fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
 ) {
-    let mut rx = config_manager.subscribe_config_changes();
+    let mut event_rx = config_manager.subscribe_config_changes();
+    let mut snapshot_rx = config_manager.subscribe_config_snapshots();
     tokio::spawn(async move {
         loop {
-            match rx.recv().await {
+            let event = event_rx.recv().await;
+            match event {
                 Ok(ConfigChangeEvent::Reloaded { section }) => {
                     info!(
                         section = %section,
                         "config change event received, notifying sessions"
                     );
-                    session_manager.notify_config_changed(section).await;
+                    // Block until the matching snapshot arrives.
+                    let snapshot = match snapshot_rx.recv().await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!(
+                                section = %section,
+                                error = %e,
+                                "failed to receive config snapshot, skipping session notification"
+                            );
+                            continue;
+                        }
+                    };
+                    session_manager
+                        .notify_config_changed(section, snapshot)
+                        .await;
                 }
                 Ok(ConfigChangeEvent::Failed { section, error }) => {
                     warn!(
