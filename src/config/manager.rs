@@ -270,6 +270,16 @@ impl ConfigManager {
         &self.backup_manager
     }
 
+    /// Get a reference to the config directory.
+    pub(crate) fn config_dir(&self) -> &Path {
+        &self.config_dir
+    }
+
+    /// Rollback a file to its most recent backup.
+    pub(crate) fn rollback_file(&self, path: &Path) -> Result<(), io::Error> {
+        self.backup_manager.rollback(path).map(|_| ())
+    }
+
     /// Load all configuration sections from disk into memory.
     ///
     /// Returns `Ok(())` if all mandatory config files are loaded successfully.

@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::manager::ConfigSnapshot;
 use crate::gateway::{GatewayConfig, Message};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::SessionCheckpoint;
@@ -351,8 +352,10 @@ use super::test_helpers::MockPersistService;
 #[tokio::test]
 async fn test_notify_config_changed_no_sessions() {
     let mgr = make_test_mgr(None);
+    let snapshot: ConfigSnapshot = ConfigSnapshot::default();
     // No sessions created — should complete without error
-    mgr.notify_config_changed(ConfigSection::Models).await;
+    mgr.notify_config_changed(ConfigSection::Models, snapshot)
+        .await;
 }
 
 /// notify_config_changed iterates over all active sessions and rebuilds
@@ -372,7 +375,9 @@ async fn test_notify_config_changed_iterates_active_sessions() {
     assert_ne!(id1, id2);
 
     // notify_config_changed should visit both sessions
-    mgr.notify_config_changed(ConfigSection::Channels).await;
+    let snapshot: ConfigSnapshot = ConfigSnapshot::default();
+    mgr.notify_config_changed(ConfigSection::Channels, snapshot)
+        .await;
 
     // Both sessions should still exist and have conversation sessions
     assert!(mgr.has_session(&id1).await);
@@ -396,7 +401,8 @@ async fn test_notify_config_changed_multiple_sections() {
         ConfigSection::Plugins,
         ConfigSection::System,
     ] {
-        mgr.notify_config_changed(section).await;
+        mgr.notify_config_changed(section, ConfigSnapshot::default())
+            .await;
     }
 
     // Session should still be intact

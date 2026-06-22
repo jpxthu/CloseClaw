@@ -101,11 +101,12 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
 
         std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
 
         let path = d.path().join("models.json");
-        dispatch_change(&path, &cm, &ar);
+        dispatch_change(&path, &mgr);
 
         let val = cm.section(ConfigSection::Models).unwrap();
         assert!(val.get("models").is_some());
@@ -116,12 +117,13 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm, ar);
 
         std::fs::create_dir_all(d.path().join("agents")).unwrap();
         std::fs::write(d.path().join("agents.json"), r#"{"agents":{}}"#).unwrap();
 
         let path = d.path().join("agents.json");
-        dispatch_change(&path, &cm, &ar);
+        dispatch_change(&path, &mgr);
     }
 
     #[test]
@@ -129,9 +131,10 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm, ar);
 
         let path = d.path().join("unknown.json");
-        dispatch_change(&path, &cm, &ar);
+        dispatch_change(&path, &mgr);
     }
 
     #[test]
@@ -139,9 +142,10 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm, ar);
 
         let path = d.path().join("agents").join("test.json");
-        dispatch_change(&path, &cm, &ar);
+        dispatch_change(&path, &mgr);
     }
 
     #[test]
@@ -266,6 +270,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
 
         let cases = [
             (
@@ -295,7 +300,7 @@ mod reload_tests {
         for (filename, section, content) in cases {
             std::fs::write(d.path().join(filename), content).unwrap();
             let path = d.path().join(filename);
-            dispatch_change(&path, &cm, &ar);
+            dispatch_change(&path, &mgr);
             let val = cm.section(section).unwrap();
             assert!(val.is_object(), "section {:?} should be an object", section);
         }
@@ -307,13 +312,14 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm, ar);
 
         let agents_dir = d.path().join("agents");
         std::fs::create_dir_all(&agents_dir).unwrap();
         std::fs::write(agents_dir.join("test.json"), r#"{}"#).unwrap();
 
         let path = agents_dir.join("test.json");
-        dispatch_change(&path, &cm, &ar);
+        dispatch_change(&path, &mgr);
         // Should not panic; agent reload path was exercised
     }
 
@@ -486,18 +492,19 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
 
         // Load initial valid models.json
         std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
         let path = d.path().join("models.json");
-        dispatch_change(&path, &cm, &ar);
+        dispatch_change(&path, &mgr);
         let before = cm.section(ConfigSection::Models).unwrap();
         assert!(before.get("models").is_some());
 
         // Write a valid JSON file but with a non-array "models" field.
         // The default validator should reject this.
         std::fs::write(d.path().join("models.json"), r#"{"models":"not an array"}"#).unwrap();
-        dispatch_change(&path, &cm, &ar);
+        dispatch_change(&path, &mgr);
 
         // In-memory must still be the old value (validator rejected reload)
         let after = cm.section(ConfigSection::Models).unwrap();
@@ -507,5 +514,44 @@ mod reload_tests {
             models.is_array(),
             "models should still be the valid array, not replaced by the invalid value"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // ConfigReloadManager::reload_section tests
+    // ------------------------------------------------------------------
+
+    /// ConfigReloadManager::reload_section correctly reloads a config section.
+    #[test]
+    fn test_reload_section_via_manager() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        std::fs::write(d.path().join("system.json"), r#"{"version":"2.0"}"#).unwrap();
+        let section = ConfigSection::System;
+        mgr.reload_section(section).unwrap();
+
+        let val = cm.section(section).unwrap();
+        assert_eq!(val["version"], "2.0");
+    }
+
+    /// ConfigReloadManager::reload_section handles validation failure.
+    #[test]
+    fn test_reload_section_validation_failure_via_manager() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        // Write invalid JSON (non-object for Models which expects array)
+        std::fs::write(d.path().join("models.json"), r#"{"models":"not array"}"#).unwrap();
+        let section = ConfigSection::Models;
+        let result = mgr.reload_section(section);
+        assert!(result.is_err());
+
+        // In-memory should still be the old value
+        let val = cm.section(section).unwrap();
+        assert!(val.get("models").is_some());
     }
 }

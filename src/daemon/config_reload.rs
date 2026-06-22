@@ -5,7 +5,7 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::config::events::ConfigChangeEvent;
-use crate::config::manager::ConfigManager;
+use crate::config::manager::{ConfigManager, ConfigSnapshot};
 use crate::config::reload::{ConfigReloadManager, WatcherHandle};
 use crate::gateway::SessionManager;
 use std::sync::Arc;
@@ -23,36 +23,56 @@ pub(crate) struct ConfigWatcherHandle {
 /// notifies the [`SessionManager`].
 ///
 /// When a [`ConfigChangeEvent::Reloaded`] arrives, the subscriber calls
-/// [`SessionManager::notify_config_changed`]. `Failed` events are logged
-/// but do not trigger a session notification.
+/// [`SessionManager::notify_config_changed`] with the section and the
+/// latest config snapshot. `Failed` events are logged but do not
+/// trigger a session notification.
 fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
 ) {
-    let mut rx = config_manager.subscribe_config_changes();
+    let mut event_rx = config_manager.subscribe_config_changes();
+    let mut snapshot_rx = config_manager.subscribe_config_snapshots();
     tokio::spawn(async move {
         loop {
-            match rx.recv().await {
-                Ok(ConfigChangeEvent::Reloaded { section }) => {
-                    info!(
-                        section = %section,
-                        "config change event received, notifying sessions"
-                    );
-                    session_manager.notify_config_changed(section).await;
+            tokio::select! {
+                event = event_rx.recv() => {
+                    match event {
+                        Ok(ConfigChangeEvent::Reloaded { section }) => {
+                            info!(
+                                section = %section,
+                                "config change event received, notifying sessions"
+                            );
+                            // Retrieve the latest snapshot (non-blocking).
+                            let snapshot = snapshot_rx
+                                .try_recv()
+                                .unwrap_or_else(|_| {
+                                    // Fallback: build an empty snapshot so
+                                    // notify_config_changed still works.
+                                    ConfigSnapshot::default()
+                                });
+                            session_manager
+                                .notify_config_changed(section, snapshot)
+                                .await;
+                        }
+                        Ok(ConfigChangeEvent::Failed { section, error }) => {
+                            warn!(
+                                section = %section,
+                                error = %error,
+                                "config change event failed, skipping session notification"
+                            );
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(missed = n, "config change subscriber lagged, missed events");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            info!("config change broadcast channel closed, subscriber exiting");
+                            break;
+                        }
+                    }
                 }
-                Ok(ConfigChangeEvent::Failed { section, error }) => {
-                    warn!(
-                        section = %section,
-                        error = %error,
-                        "config change event failed, skipping session notification"
-                    );
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    warn!(missed = n, "config change subscriber lagged, missed events");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    info!("config change broadcast channel closed, subscriber exiting");
-                    break;
+                _ = snapshot_rx.recv() => {
+                    // Snapshot broadcast without a preceding event — ignore.
+                    // Snapshots are only forwarded when paired with a Reloaded event.
                 }
             }
         }

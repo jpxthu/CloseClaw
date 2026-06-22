@@ -14,7 +14,8 @@ use notify::{
 };
 use tracing::{debug, info, warn};
 
-use super::manager::{ConfigManager, ConfigSection};
+use super::events::ConfigChangeEvent;
+use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 use crate::agent::registry::AgentRegistry;
 
 /// Default debounce duration for file change events.
@@ -39,8 +40,8 @@ impl WatcherHandle {
 /// Daemon-level config hot-reload manager.
 ///
 /// Watches a set of config JSON files and the `agents/` directory.
-/// On change, dispatches to `ConfigManager::reload_section()` or
-/// `ConfigManager::reload_agents()` with debounce protection.
+/// On change, dispatches to `ConfigReloadManager::reload_section()` or
+/// `ConfigReloadManager::reload_agents_with_log()` with debounce protection.
 pub struct ConfigReloadManager {
     /// Shared config manager — provides load/reload/backup logic.
     config_manager: Arc<ConfigManager>,
@@ -86,6 +87,102 @@ impl ConfigReloadManager {
         Self::new(config_manager, agent_registry, DEFAULT_DEBOUNCE)
     }
 
+    /// Clone shared references for spawning a background thread.
+    ///
+    /// Clones the `Arc` references (cheap) so the background thread
+    /// can call `ConfigReloadManager` methods directly.
+    fn clone_for_thread(&self) -> ConfigReloadManager {
+        ConfigReloadManager {
+            config_manager: Arc::clone(&self.config_manager),
+            agent_registry: Arc::clone(&self.agent_registry),
+            debounce_duration: self.debounce_duration,
+            #[cfg(test)]
+            test_completion_tx: None,
+        }
+    }
+
+    /// Reload a single config section: read file → parse → validate → update cache.
+    ///
+    /// On success, updates the in-memory cache and broadcasts a snapshot.
+    /// On failure, rolls back the file and emits a Failed event.
+    /// Corresponds to the design doc data flow: ConfigReloadManager drives
+    /// the reload orchestration (read → parse → validate → update).
+    pub fn reload_section(&self, section: ConfigSection) -> Result<(), ConfigLoadError> {
+        let path = section.path(self.config_manager.config_dir());
+
+        // Step 1: read file content
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                self.config_manager
+                    .notify_change(ConfigChangeEvent::Failed {
+                        section,
+                        error: e.to_string(),
+                    });
+                return Err(ConfigLoadError::IoError {
+                    path,
+                    error: e.to_string(),
+                });
+            }
+        };
+
+        // Step 2: backup old in-memory value before replacing
+        let old_value = self
+            .config_manager
+            .sections
+            .read()
+            .expect("RwLock for config sections was poisoned")
+            .get(&section)
+            .cloned();
+        if let Some(ref old) = old_value {
+            let old_json = serde_json::to_string(old).unwrap_or_default();
+            if let Err(e) = self
+                .config_manager
+                .backup_manager()
+                .backup_with_content(&path, old_json.as_bytes())
+            {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to backup config content before reload"
+                );
+            }
+        }
+
+        // Step 3: parse JSON
+        let value: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = self.config_manager.rollback_file(&path);
+                self.config_manager
+                    .notify_change(ConfigChangeEvent::Failed {
+                        section,
+                        error: e.to_string(),
+                    });
+                return Err(ConfigLoadError::ParseError {
+                    path,
+                    error: e.to_string(),
+                });
+            }
+        };
+
+        // Step 4: validate with section's default validator
+        let validator = section.default_validator();
+        if let Err(msg) = validator(&value) {
+            let _ = self.config_manager.rollback_file(&path);
+            self.config_manager
+                .notify_change(ConfigChangeEvent::Failed {
+                    section,
+                    error: msg.clone(),
+                });
+            return Err(ConfigLoadError::ValidationError { path, message: msg });
+        }
+
+        // Step 5: success — update cache and broadcast snapshot
+        self.config_manager.update_section_cache(section, value);
+        Ok(())
+    }
+
     /// Start watching config files under `config_dir`.
     ///
     /// Watches the following files (if they exist):
@@ -104,15 +201,61 @@ impl ConfigReloadManager {
         let completion_tx = self.test_completion_tx.take();
         #[cfg(not(test))]
         let completion_tx: Option<std::sync::mpsc::Sender<()>> = None;
-        spawn_reload_loop(
-            rx,
-            &self.config_manager,
-            &self.agent_registry,
-            self.debounce_duration,
-            completion_tx,
-        );
+        let manager_clone = self.clone_for_thread();
+        spawn_reload_loop(rx, manager_clone, self.debounce_duration, completion_tx);
         info!(config_dir = config_dir, "config hot-reload watcher started");
         Ok(WatcherHandle { watcher })
+    }
+
+    /// Reload agent configs and sync the `AgentRegistry`.
+    ///
+    /// Snapshots before reload; on failure, restores the previous in-memory
+    /// state so the daemon keeps running with the last-known-good config.
+    /// Additionally, agent config files (agents.json, agents/*.json) are
+    /// backed up before reload and rolled back on failure to keep the
+    /// on-disk state consistent.
+    fn reload_agents_with_log(&self, path: &Path) {
+        info!(
+            path = %path.display(),
+            "agent config change detected, reloading agents"
+        );
+
+        let (old_agents, old_permissions) = self.config_manager.snapshot_agents();
+
+        // Backup agent config files before reload so we can rollback on failure
+        let agents_json = self.config_manager.config_dir().join("agents.json");
+        let _ = self.config_manager.backup_manager().backup(&agents_json);
+
+        let agents_dir = self
+            .config_manager
+            .config_dir()
+            .parent()
+            .unwrap_or(self.config_manager.config_dir())
+            .join("agents");
+        if agents_dir.exists() {
+            for_each_agent_json(&agents_dir, |p| {
+                let _ = self.config_manager.backup_manager().backup(p);
+            });
+        }
+
+        if let Err(e) = self.config_manager.reload_agents() {
+            warn!(error = %e, "failed to reload agent configs, rolling back");
+            self.config_manager
+                .restore_agents(old_agents, old_permissions);
+
+            // Rollback disk files to last known good state
+            let _ = self.config_manager.backup_manager().rollback(&agents_json);
+            if agents_dir.exists() {
+                for_each_agent_json(&agents_dir, |p| {
+                    let _ = self.config_manager.backup_manager().rollback(p);
+                });
+            }
+            return;
+        }
+
+        // Sync new configs into AgentRegistry
+        let configs: Vec<_> = self.config_manager.agents().into_values().collect();
+        self.agent_registry.reload(configs);
     }
 }
 
@@ -187,17 +330,17 @@ fn register_agents_watch(
 }
 
 /// Spawn the debounce + dispatch loop on a background thread.
+///
+/// The `ConfigReloadManager` is cloned (Arc refs are shared) so the
+/// background thread can call its methods directly.
 fn spawn_reload_loop(
     rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
-    config_manager: &Arc<ConfigManager>,
-    agent_registry: &Arc<AgentRegistry>,
+    manager: ConfigReloadManager,
     debounce: Duration,
     completion_tx: Option<std::sync::mpsc::Sender<()>>,
 ) {
-    let cm = Arc::clone(config_manager);
-    let ar = Arc::clone(agent_registry);
     std::thread::spawn(move || {
-        run_reload_loop(rx, cm, ar, debounce, completion_tx);
+        run_reload_loop(rx, manager, debounce, completion_tx);
     });
 }
 
@@ -231,8 +374,7 @@ fn collect_event_paths(event: Event, pending_paths: &mut HashSet<PathBuf>) {
 ///   all collected paths are dispatched in a single batch.
 fn run_reload_loop(
     rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
-    config_manager: Arc<ConfigManager>,
-    agent_registry: Arc<AgentRegistry>,
+    manager: ConfigReloadManager,
     debounce: Duration,
     completion_tx: Option<std::sync::mpsc::Sender<()>>,
 ) {
@@ -248,12 +390,12 @@ fn run_reload_loop(
                 if pending_paths.is_empty() {
                     continue;
                 }
-                dispatch_pending_batch(&pending_paths, &config_manager, &agent_registry);
+                dispatch_pending_batch(&pending_paths, &manager);
                 pending_paths.clear();
                 signal_completion(&completion_tx);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                dispatch_pending_batch(&pending_paths, &config_manager, &agent_registry);
+                dispatch_pending_batch(&pending_paths, &manager);
                 signal_completion(&completion_tx);
                 break;
             }
@@ -262,11 +404,7 @@ fn run_reload_loop(
 }
 
 /// Dispatch all paths in a batch and signal test completion.
-fn dispatch_pending_batch(
-    paths: &HashSet<PathBuf>,
-    config_manager: &Arc<ConfigManager>,
-    agent_registry: &Arc<AgentRegistry>,
-) {
+fn dispatch_pending_batch(paths: &HashSet<PathBuf>, manager: &ConfigReloadManager) {
     if paths.is_empty() {
         return;
     }
@@ -275,7 +413,7 @@ fn dispatch_pending_batch(
         "debounce window closed, dispatching batch"
     );
     for path in paths {
-        dispatch_change(path, config_manager, agent_registry);
+        dispatch_change(path, manager);
     }
 }
 
@@ -306,10 +444,13 @@ fn filename_to_section(filename: &str) -> Option<ConfigSection> {
 }
 
 /// Dispatch a single changed path to the appropriate reload method.
-fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: &AgentRegistry) {
+///
+/// This delegates to `ConfigReloadManager` methods, which drive the
+/// reload orchestration per the design doc (ConfigReloadManager → ConfigManager → SessionManager).
+fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
     // Agent-related changes → full agent reload + registry sync
     if is_agents_path(path) {
-        reload_agents_with_log(path, config_manager, agent_registry);
+        manager.reload_agents_with_log(path);
         return;
     }
 
@@ -320,7 +461,7 @@ fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: 
 
     // agents.json triggers the same agent reload path
     if filename == "agents.json" {
-        reload_agents_with_log(path, config_manager, agent_registry);
+        manager.reload_agents_with_log(path);
         return;
     }
 
@@ -331,67 +472,13 @@ fn dispatch_change(path: &Path, config_manager: &ConfigManager, agent_registry: 
             section = %section,
             "config file changed, reloading section"
         );
-        let validator = section.default_validator();
-        if let Err(e) = config_manager.reload_section(section, Some(&*validator)) {
+        if let Err(e) = manager.reload_section(section) {
             warn!(error = %e, section = %section, "failed to reload config section");
         } else if section == ConfigSection::Session {
             // Session section reloaded successfully — update session_provider.
-            config_manager.reload_session_provider();
+            manager.config_manager.reload_session_provider();
         }
     }
-}
-
-/// Reload agent configs and sync the `AgentRegistry`.
-///
-/// Snapshots before reload; on failure, restores the previous in-memory
-/// state so the daemon keeps running with the last-known-good config.
-/// Additionally, agent config files (agents.json, agents/*.json) are
-/// backed up before reload and rolled back on failure to keep the
-/// on-disk state consistent.
-fn reload_agents_with_log(
-    path: &Path,
-    config_manager: &ConfigManager,
-    agent_registry: &AgentRegistry,
-) {
-    info!(
-        path = %path.display(),
-        "agent config change detected, reloading agents"
-    );
-
-    let (old_agents, old_permissions) = config_manager.snapshot_agents();
-
-    // Backup agent config files before reload so we can rollback on failure
-    let agents_json = config_manager.config_dir.join("agents.json");
-    let _ = config_manager.backup_manager().backup(&agents_json);
-
-    let agents_dir = config_manager
-        .config_dir
-        .parent()
-        .unwrap_or(&config_manager.config_dir)
-        .join("agents");
-    if agents_dir.exists() {
-        for_each_agent_json(&agents_dir, |p| {
-            let _ = config_manager.backup_manager().backup(p);
-        });
-    }
-
-    if let Err(e) = config_manager.reload_agents() {
-        warn!(error = %e, "failed to reload agent configs, rolling back");
-        config_manager.restore_agents(old_agents, old_permissions);
-
-        // Rollback disk files to last known good state
-        let _ = config_manager.backup_manager().rollback(&agents_json);
-        if agents_dir.exists() {
-            for_each_agent_json(&agents_dir, |p| {
-                let _ = config_manager.backup_manager().rollback(p);
-            });
-        }
-        return;
-    }
-
-    // Sync new configs into AgentRegistry
-    let configs: Vec<_> = config_manager.agents().into_values().collect();
-    agent_registry.reload(configs);
 }
 
 /// Iterate over `.json` files in the agents directory and apply `f` to each.
