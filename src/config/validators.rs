@@ -275,11 +275,74 @@ fn validate_gateway(value: &serde_json::Value) -> Result<(), String> {
 /// Validate the **plugins** config section.
 ///
 /// - Top-level must be a JSON object.
-/// - If a `plugins` key is present, it must be an array.
+/// - Each plugin name in `entries` must be non-empty.
+/// - Each plugin name in `allow` must be non-empty.
+/// - For installed plugins (`installs`), the `installPath` must point to
+///   an existing file or directory if present.
 fn validate_plugins(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "plugins")?;
-    if let Some(arr) = value.get("plugins") {
-        ensure_array(arr, "plugins.plugins")?;
+
+    // Validate entries: each plugin name must be non-empty
+    if let Some(entries) = value.get("entries") {
+        if let Some(obj) = entries.as_object() {
+            for (name, _) in obj {
+                if name.is_empty() {
+                    return Err("plugins.entries plugin name cannot be empty".to_string());
+                }
+            }
+        }
+    }
+
+    // Validate allow: each plugin name must be non-empty
+    if let Some(allow) = value.get("allow") {
+        if let Some(arr) = allow.as_array() {
+            for (i, entry) in arr.iter().enumerate() {
+                match entry {
+                    serde_json::Value::String(s) if s.is_empty() => {
+                        return Err(format!("plugins.allow[{}] plugin name cannot be empty", i));
+                    }
+                    serde_json::Value::String(_) => {}
+                    _ => {
+                        return Err(format!("plugins.allow[{}] must be a string", i));
+                    }
+                }
+            }
+        }
+    }
+
+    // Validate installs: installPath must exist if present
+    if let Some(installs) = value.get("installs") {
+        if let Some(obj) = installs.as_object() {
+            for (name, info) in obj {
+                if name.is_empty() {
+                    return Err("plugins.installs plugin name cannot be empty".to_string());
+                }
+                validate_plugin_install(name, info)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a single plugin install entry.
+fn validate_plugin_install(name: &str, info: &serde_json::Value) -> Result<(), String> {
+    if !info.is_object() {
+        return Err(format!("plugins.installs.{} must be a JSON object", name));
+    }
+    // If installPath is present, verify the path exists
+    if let Some(path_val) = info.get("installPath") {
+        if let Some(path_str) = path_val.as_str() {
+            if !path_str.is_empty() {
+                let path = std::path::Path::new(path_str);
+                if !path.exists() {
+                    return Err(format!(
+                        "plugins.installs.{}.installPath '{}' does not exist",
+                        name, path_str
+                    ));
+                }
+            }
+        }
     }
     Ok(())
 }

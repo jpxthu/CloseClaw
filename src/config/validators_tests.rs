@@ -426,12 +426,6 @@ fn test_validate_gateway_pass_all_valid_fields() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_plugins_pass() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"plugins":[{"id":"p1"}]}"#).unwrap();
-    assert!(validate_plugins(&v).is_ok());
-}
-
-#[test]
 fn test_validate_plugins_pass_empty_object() {
     let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
     assert!(validate_plugins(&v).is_ok());
@@ -445,10 +439,109 @@ fn test_validate_plugins_fail_not_object() {
 }
 
 #[test]
-fn test_validate_plugins_fail_plugins_not_array() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"plugins":42}"#).unwrap();
+fn test_validate_plugins_pass_with_entries() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"entries":{"minimax":{"enabled":true},"lark":{"enabled":false}}}"#,
+    )
+    .unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_fail_empty_entry_name() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"entries":{"":{"enabled":true}}}"#).unwrap();
     let err = validate_plugins(&v).unwrap_err();
-    assert!(err.contains("array"), "error: {}", err);
+    assert!(
+        err.contains("plugin name cannot be empty"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_plugins_pass_with_allow() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"allow":["minimax","openclaw-lark"]}"#).unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_fail_empty_allow_name() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"allow":["minimax",""]}"#).unwrap();
+    let err = validate_plugins(&v).unwrap_err();
+    assert!(
+        err.contains("plugins.allow[1] plugin name cannot be empty"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_plugins_fail_allow_not_string() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"allow":[123]}"#).unwrap();
+    let err = validate_plugins(&v).unwrap_err();
+    assert!(err.contains("must be a string"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_plugins_pass_with_installs() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"installs":{"openclaw-lark":{"source":"archive"}}}"#).unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_fail_empty_install_name() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"installs":{"":{"source":"archive"}}}"#).unwrap();
+    let err = validate_plugins(&v).unwrap_err();
+    assert!(
+        err.contains("plugin name cannot be empty"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_plugins_fail_install_not_object() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"installs":{"p":"not-object"}}"#).unwrap();
+    let err = validate_plugins(&v).unwrap_err();
+    assert!(err.contains("must be a JSON object"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_plugins_fail_install_path_not_exists() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"installs":{"p":{"installPath":"/nonexistent/path/to/plugin"}}}"#)
+            .unwrap();
+    let err = validate_plugins(&v).unwrap_err();
+    assert!(err.contains("does not exist"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_plugins_pass_install_path_empty_string() {
+    // Empty installPath should be ignored
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"installs":{"p":{"installPath":""}}}"#).unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_pass_install_path_absent() {
+    // No installPath field at all
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"installs":{"p":{"source":"archive"}}}"#).unwrap();
+    assert!(validate_plugins(&v).is_ok());
+}
+
+#[test]
+fn test_validate_plugins_pass_all_fields() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"version":"1.0.0","enabled":true,"allow":["minimax"],"entries":{"minimax":{"enabled":true}},"installs":{"minimax":{"source":"archive"}}}"#,
+    )
+    .unwrap();
+    assert!(validate_plugins(&v).is_ok());
 }
 
 // ---------------------------------------------------------------------------
@@ -509,7 +602,8 @@ fn test_default_validator_gateway_passes_valid_json() {
 
 #[test]
 fn test_default_validator_plugins_passes_valid_json() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"plugins":[{"id":"p1"}]}"#).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"entries":{"p":{"enabled":true}}}"#).unwrap();
     let validator = ConfigSection::Plugins.default_validator();
     assert!(validator(&v).is_ok());
 }
