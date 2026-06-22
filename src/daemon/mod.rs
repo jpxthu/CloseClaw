@@ -237,6 +237,36 @@ impl Daemon {
         gateway
             .set_storage(Arc::clone(storage) as Arc<dyn PersistenceService>)
             .await;
+
+        // Run session recovery scan: load all active checkpoints, detect
+        // pending_operations, and persist recovery notifications/failure
+        // results into checkpoints so resolve.rs can inject them when
+        // sessions are restored.
+        {
+            use crate::session::recovery::SessionRecoveryService;
+            let recovery_svc =
+                SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
+            match recovery_svc.recover().await {
+                Ok(report) => {
+                    if !report.dirty_sessions.is_empty() {
+                        info!(
+                            dirty_count = report.dirty_sessions.len(),
+                            total = report.total(),
+                            "recovery scan found dirty sessions"
+                        );
+                    } else {
+                        info!(
+                            total = report.total(),
+                            "recovery scan complete — no dirty sessions"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "recovery scan failed — continuing without recovery");
+                }
+            }
+        }
+
         if let Err(e) = session_manager.rebuild_key_registry().await {
             tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
         }

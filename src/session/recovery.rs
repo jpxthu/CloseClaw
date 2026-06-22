@@ -35,7 +35,7 @@ impl RecoveryReport {
 }
 
 /// Session recovery service — recovers sessions from persisted checkpoints
-pub struct SessionRecoveryService<S: PersistenceService> {
+pub struct SessionRecoveryService<S: PersistenceService + ?Sized> {
     storage: Arc<S>,
     /// Callback to restore a session from checkpoint
     /// The closure receives the session_id and checkpoint, and should restore the session state.
@@ -56,7 +56,7 @@ pub struct SessionRecoveryService<S: PersistenceService> {
     >,
 }
 
-impl<S: PersistenceService> SessionRecoveryService<S> {
+impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// Create a new SessionRecoveryService
     pub fn new(storage: Arc<S>) -> Self {
         Self {
@@ -124,7 +124,7 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
         // Inject recovery notifications for dirty sessions
         for session_id in &dirty_sessions {
             if let Some(cp) = checkpoints.get_mut(session_id) {
-                self.inject_recovery_notifications(session_id, cp).await;
+                self.inject_recovery_notifications(session_id, cp);
             }
         }
 
@@ -172,15 +172,24 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
             .await?
             .ok_or_else(|| PersistenceError::NotFound(session_id.to_string()))?;
 
-        // Build notification text if there are pending operations
-        let notification = if !checkpoint.pending_operations.is_empty() {
+        // Use the pre-stored recovery_notification from the checkpoint
+        // (set by inject_recovery_notifications) when available;
+        // otherwise fall back to building it fresh.
+        let notification = if let Some(ref stored) = checkpoint.recovery_notification {
+            Some(stored.clone())
+        } else if !checkpoint.pending_operations.is_empty() {
             Some(self.build_notification_text(&checkpoint))
         } else {
             None
         };
 
-        // Build tool failure results for pending tool calls
-        let tool_failures = self.build_tool_failure_results(&checkpoint);
+        // Use pre-stored pending_tool_failures when available;
+        // otherwise build them fresh.
+        let tool_failures = if !checkpoint.pending_tool_failures.is_empty() {
+            checkpoint.pending_tool_failures.clone()
+        } else {
+            self.build_tool_failure_results(&checkpoint)
+        };
 
         let restore_fn = self.restore_fn.read().await;
         if let Some(callback) = restore_fn.as_ref() {
@@ -196,11 +205,10 @@ impl<S: PersistenceService> SessionRecoveryService<S> {
     }
 
     /// Build the notification text for a dirty session.
-    async fn inject_recovery_notifications(
-        &self,
-        session_id: &str,
-        checkpoint: &mut SessionCheckpoint,
-    ) {
+    ///
+    /// Stores the recovery notification and tool failure results in the
+    /// checkpoint so they can be read back when sessions are restored.
+    fn inject_recovery_notifications(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
         if checkpoint.pending_operations.is_empty() {
             return;
         }

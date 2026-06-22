@@ -372,6 +372,20 @@ impl ConversationSession {
         self.push_message("system", vec![ContentBlock::Text(text)]);
     }
 
+    /// Inject a tool result into the conversation history.
+    ///
+    /// Used by the recovery path to inject failure results for pending
+    /// tool calls so the LLM sees a natural tool-result response.
+    pub fn inject_tool_result(&mut self, tool_call_id: &str, content: &str) {
+        self.push_message(
+            "tool",
+            vec![ContentBlock::ToolResult {
+                tool_call_id: tool_call_id.to_string(),
+                content: content.to_string(),
+            }],
+        );
+    }
+
     /// Collect pending operations from the current session state.
     ///
     /// Scans tool_states, child_states, and pending_messages to build a
