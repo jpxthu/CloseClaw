@@ -2,7 +2,7 @@
 
 ## 概述
 
-会话 transcript 产生后，通过两段独立的 LLM session 进行记忆挖掘。Miner 1 专注于从 transcript 中提取事件和教训，Miner 2 读取完整实体目录为事件分配实体。两段分离让各自专注于一个任务，避免注意力分散。
+会话 transcript 产生后，通过两段独立的 LLM session 进行记忆挖掘。Miner 1 和 Miner 2 各负责一个阶段，串行执行。
 
 触发方式有两种：即时 hook（sub-agent session 结束）和定时任务（archived 会话扫描）。
 
@@ -21,8 +21,10 @@ memory-miner 由两个独立的 LLM session，串行执行：
 
 ### 两种触发机制
 
-- **触发 1**：Sub-agent session 结束 hook → 即时触发 mining。适用于生命周期明确的 session（子 agent 完成/失败后）
-- **触发 2**：Daemon DreamingScheduler 定时扫描 archived 且 mined=false 的会话 → 触发 mining。适用于 owner 会话等无明确结束点的会话。DreamingScheduler 的整体调度顺序（先 dreaming 后 mining）详见 README
+详见 [README](README.md) 触发机制。
+
+- **触发 1**：Sub-agent session 结束 hook → 即时触发 mining
+- **触发 2**：Daemon DreamingScheduler 定时扫描 archived 且 mined=false 的会话 → 触发 mining
 
 ### Miner 1：事件与教训挖掘
 

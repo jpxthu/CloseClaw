@@ -4,16 +4,13 @@
 
 Memory 模块的配置控制挖掘、做梦和搜索三个子系统的行为。所有功能必须显式开启，未配置则不激活。支持全局配置和 per-agent 覆盖。
 
-配置集成到 CloseClaw 的 ConfigProvider 体系，按 CloseClaw 的配置合并机制生效。
+配置集成到 CloseClaw 的 ConfigProvider 体系。
 
 ## 架构
 
 ### 配置层级
 
-CloseClaw 的 ConfigProvider 按文件一对一映射。Memory 配置作为 CloseClaw 配置体系的一部分，遵循同样的加载和合并机制。
-
-- **全局配置**：纳入 CloseClaw 全局配置（system 或 session 命名空间）
-- **per-agent 覆盖**：纳入 agent 配置文件的字段级合并
+Memory 配置作为 CloseClaw 配置体系的一部分。
 
 ### 层叠覆盖
 
@@ -35,8 +32,11 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `storage.db_path` | string | `data/memory.db` | SQLite 数据库文件路径，相对于 CloseClaw 数据目录 |
-| `storage.markdown_path` | string | `data/memory/entries/` | Markdown 记忆条目目录，相对于 CloseClaw 数据目录 |
+| `storage.db_path` | string | `data/memory.db` | SQLite 数据库文件路径 |
+| `storage.markdown_path` | string | `data/memory/entries/` | Markdown 记忆条目目录 |
+| `storage.memory_md_path` | string | `data/memory/MEMORY.md` | dreaming 产出的行为规则文件路径 |
+
+路径均相对于 CloseClaw 数据目录（`~/.closeclaw/data/`）。
 
 ### 挖掘（memory-miner）
 
@@ -60,7 +60,7 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `dreaming.enabled` | bool | `false` | 必须显式设为 `true` 才启用做梦 |
-| `dreaming.schedule` | string | `0 3 * * *` | cron 表达式。由 Daemon DreamingScheduler 消费，cron 校验归属 system 配置 |
+| `dreaming.schedule` | string | `0 3 * * *` | cron 表达式，由 Daemon DreamingScheduler 消费 |
 | `dreaming.model` | string | 继承全局默认模型 | 教训浓缩步骤使用的模型 |
 
 **评分权重**：
@@ -93,7 +93,7 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `search.enabled` | bool | `false` | 必须显式设为 `true` 才启用搜索 |
-| `search.model` | string | 继承全局默认模型 | 概念提取使用的模型 |
+| `search.model` | string | 独立低开销模型 | 概念提取使用的模型，追求便宜 + 快 |
 | `search.context_turns` | int | `5` | 提取查询概念时携带的最近对话轮数 |
 | `search.timeout_ms` | int | `3000` | 搜索超时（毫秒） |
 | `search.max_summary_chars` | int | `500` | 浓缩摘要最大字符数 |
@@ -104,18 +104,8 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 
 agent 配置文件中声明 memory 段，字段级合并覆盖全局配置。示例：
 
-```json
-{
-  "memory": {
-    "dreaming": {
-      "threshold": { "absolute": 3.0 }
-    },
-    "search": {
-      "context_turns": 8
-    }
-  }
-}
-```
+- 声明 `memory.dreaming.threshold.absolute` 为 `3.0`，覆盖全局默认值 `2.0`
+- 声明 `memory.search.context_turns` 为 `8`，覆盖全局默认值 `5`
 
 未声明的字段继承全局配置。无需覆盖的场景不声明 memory 段即可。
 
