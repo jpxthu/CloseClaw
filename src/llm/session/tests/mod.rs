@@ -4,6 +4,7 @@ use crate::session::persistence::PendingMessage;
 
 mod clone_messages_tests;
 mod exec_state_tests;
+mod extract_pending_tool_calls_tests;
 mod stop_tests;
 mod streaming_tests;
 mod system_appends_tests;
