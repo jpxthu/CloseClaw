@@ -284,6 +284,38 @@ mod tests {
     }
 
     // =========================================================================
+    // ── lifecycle hook tests (Step 1.1) ──────────────────────────────
+
+    /// TerminalPlugin close_inbound is a no-op (default from IMPlugin trait).
+    #[tokio::test]
+    async fn test_terminal_plugin_close_inbound_noop() {
+        let plugin = TerminalPlugin::new();
+        plugin.close_inbound().await.unwrap();
+    }
+
+    /// TerminalPlugin close_outbound is a no-op (default from IMPlugin trait).
+    #[tokio::test]
+    async fn test_terminal_plugin_close_outbound_noop() {
+        let plugin = TerminalPlugin::new();
+        plugin.close_outbound().await.unwrap();
+    }
+
+    /// TerminalPlugin close_inbound is idempotent.
+    #[tokio::test]
+    async fn test_terminal_plugin_close_inbound_idempotent() {
+        let plugin = TerminalPlugin::new();
+        plugin.close_inbound().await.unwrap();
+        plugin.close_inbound().await.unwrap();
+    }
+
+    /// TerminalPlugin close_outbound is idempotent.
+    #[tokio::test]
+    async fn test_terminal_plugin_close_outbound_idempotent() {
+        let plugin = TerminalPlugin::new();
+        plugin.close_outbound().await.unwrap();
+        plugin.close_outbound().await.unwrap();
+    }
+
     // DSL skip rendering tests (Step 1.7) — plugin-level
     // =========================================================================
 

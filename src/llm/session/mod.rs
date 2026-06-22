@@ -116,6 +116,10 @@ pub struct ConversationSession {
     /// Communication configuration for spawned child sessions.
     /// When set, restricts which agents the child may communicate with.
     communication_config: Option<CommunicationConfig>,
+    /// Last activity timestamp (Unix seconds) — updated on every message
+    /// push or state mutation.  Used by the shutdown progress card to
+    /// display accurate "elapsed since last activity" instead of session age.
+    last_activity_at: i64,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -152,6 +156,7 @@ impl ConversationSession {
             cancel_token: CancellationToken::new(),
             stopped: Arc::new(AtomicBool::new(false)),
             communication_config: None,
+            last_activity_at: Utc::now().timestamp(),
         }
     }
 
@@ -187,6 +192,12 @@ impl ConversationSession {
     /// Returns the Unix timestamp (seconds) when this session was created.
     pub fn session_created_at(&self) -> i64 {
         self.created_at
+    }
+
+    /// Returns the Unix timestamp (seconds) of the last activity.
+    /// Updated on every message push or significant state mutation.
+    pub fn last_activity_at(&self) -> i64 {
+        self.last_activity_at
     }
 
     /// Sets the reasoning level.
@@ -229,6 +240,7 @@ impl ConversationSession {
             content_blocks,
             timestamp: Utc::now(),
         });
+        self.last_activity_at = Utc::now().timestamp();
     }
 
     /// Sets the LLM busy state.

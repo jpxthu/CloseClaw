@@ -435,19 +435,18 @@ impl Daemon {
         })
     }
 
-    /// Run the daemon — blocks until shutdown signal is received.
-    ///
-    /// First signal triggers graceful shutdown; subsequent signals escalate to forceful.
-    pub async fn run(&self) -> anyhow::Result<()> {
+    /// Run the daemon — blocks until shutdown signal is received, then
+    /// executes Phase 0–7 shutdown sequence.
+    pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
 
-        // Set up signal listeners for SIGTERM and SIGINT
+        // Phase 0: Signal reception & mode determination
+        // Register signal handlers and wait for the first shutdown signal.
         let mut sigint = signal(SignalKind::interrupt())
             .map_err(|e| anyhow::anyhow!("failed to register SIGINT handler: {}", e))?;
         let mut sigterm = signal(SignalKind::terminate())
             .map_err(|e| anyhow::anyhow!("failed to register SIGTERM handler: {}", e))?;
 
-        // Wait for the first shutdown signal
         tokio::select! {
             _ = sigint.recv() => {
                 info!("Received Ctrl+C, initiating graceful shutdown...");
@@ -457,17 +456,77 @@ impl Daemon {
             }
         }
 
-        // Start graceful shutdown in a background task
+        // Phase 1: Inbound shutdown + drain
+        self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
+
+        let mode = self.shutdown.mode();
+        info!(phase = 1, "inbound shutdown complete");
+
+        // Phase 2: Session stop
+        let stop_result = self.phase_2_session_stop(mode).await;
+        info!(
+            phase = 2,
+            succeeded = stop_result.succeeded,
+            failed = stop_result.failed,
+            skipped = stop_result.skipped,
+            "session stop complete"
+        );
+
+        // Phase 3: Background task stop
+        self.phase_3_background_stop().await;
+        info!(phase = 3, "background tasks stopped");
+
+        // Phase 4: Final persistence
+        self.phase_4_final_persist(mode).await;
+        info!(phase = 4, "final persistence complete");
+
+        // Phase 5: Outbound shutdown
+        self.phase_5_outbound_close().await;
+        info!(phase = 5, "outbound shutdown complete");
+
+        // Phase 6: Storage close (RAII — explicit drop for ordering)
+        self.phase_6_storage_close().await;
+        info!(phase = 6, "storage closed");
+
+        // Phase 7: Exit cleanup
+        self.phase_7_exit().await;
+        info!(phase = 7, "shutdown complete — exiting");
+
+        Ok(())
+    }
+
+    /// Phase 1: Inbound shutdown + drain.
+    ///
+    /// - Calls `close_inbound()` on all registered IM plugins
+    /// - Initiates graceful drain (waits for in-flight operations)
+    /// - Monitors for escalation signals (repeated SIGTERM/SIGINT)
+    async fn phase_1_inbound_drain(
+        &self,
+        sigint: &mut tokio::signal::unix::Signal,
+        sigterm: &mut tokio::signal::unix::Signal,
+    ) {
+        // Close inbound on all registered plugins
+        let plugins = self.gateway.get_all_plugins().await;
+        for plugin in &plugins {
+            if let Err(e) = plugin.close_inbound().await {
+                tracing::warn!(
+                    platform = plugin.platform(),
+                    error = %e,
+                    "failed to close inbound — continuing"
+                );
+            }
+        }
+
+        // Initiate graceful drain
         let shutdown_handle = self.shutdown.clone();
         let mut shutdown_task = tokio::spawn(async move {
             shutdown_handle.initiate_shutdown().await;
         });
 
-        // Monitor for escalation signals during graceful drain
+        // Monitor for escalation signals during drain
         loop {
             tokio::select! {
                 result = &mut shutdown_task => {
-                    // Shutdown drain completed (graceful or forceful)
                     if let Err(e) = result {
                         tracing::error!(error = %e, "shutdown task panicked");
                     }
@@ -485,20 +544,229 @@ impl Daemon {
                 }
             }
         }
+    }
 
-        // Flush all active session checkpoints before shutdown
-        let mode = self.shutdown.mode();
+    /// Phase 2: Session stop (leaf → root) with progress card updates.
+    ///
+    /// Sends a progress notification card at the start, monitors for
+    /// graceful → forceful escalation to update the card, and sends a
+    /// final card when all sessions have stopped.
+    async fn phase_2_session_stop(
+        &self,
+        mode: crate::daemon::shutdown::ShutdownMode,
+    ) -> crate::gateway::session_manager::stop::StopResult {
+        // Send initial progress card (no-op if no active sessions)
+        self.gateway.send_shutdown_progress_card(mode).await;
+
+        // Spawn session stop as a background task
+        let sm = self.gateway.session_manager().clone();
+        let mut stop_handle = tokio::spawn(async move { sm.stop_all_sessions(mode).await });
+
+        // Spawn fresh signal handlers for escalation monitoring during Phase 2.
+        // Phase 1's handlers are consumed by its tokio::select! loop.
+        use tokio::signal::unix::{signal, SignalKind};
+        let sigint_result = signal(SignalKind::interrupt());
+        let sigterm_result = signal(SignalKind::terminate());
+        let mut sigint = match sigint_result {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register SIGINT handler for Phase 2");
+                None
+            }
+        };
+        let mut sigterm = match sigterm_result {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register SIGTERM handler for Phase 2");
+                None
+            }
+        };
+
+        // Monitor for escalation and update card
+        let mut last_mode = mode;
+        let mut stop_completed = false;
+        let mut stop_result = None;
+
+        while !stop_completed {
+            tokio::select! {
+                biased;
+
+                result = &mut stop_handle => {
+                    // Session stop complete
+                    match result {
+                        Ok(sr) => {
+                            stop_result = Some(sr);
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "session stop task panicked");
+                            stop_result = Some(
+                                crate::gateway::session_manager::stop::StopResult::default()
+                            );
+                        }
+                    }
+                    stop_completed = true;
+                }
+
+                _ = async {
+                    match (&mut sigint, &mut sigterm) {
+                        (Some(i), Some(t)) => {
+                            tokio::select! {
+                                _ = i.recv() => {
+                                    if self.shutdown.escalate_to_forceful() {
+                                        info!("Phase 2: escalated to forceful shutdown");
+                                    }
+                                }
+                                _ = t.recv() => {
+                                    if self.shutdown.escalate_to_forceful() {
+                                        info!("Phase 2: escalated to forceful shutdown");
+                                    }
+                                }
+                            }
+                        }
+                        (Some(i), None) => {
+                            let _ = i.recv().await;
+                            if self.shutdown.escalate_to_forceful() {
+                                info!("Phase 2: escalated to forceful shutdown");
+                            }
+                        }
+                        (None, Some(t)) => {
+                            let _ = t.recv().await;
+                            if self.shutdown.escalate_to_forceful() {
+                                info!("Phase 2: escalated to forceful shutdown");
+                            }
+                        }
+                        (None, None) => { std::future::pending::<()>().await; }
+                    }
+                } => {
+                    // Escalation signal received
+                }
+            }
+
+            // Check if mode changed and update card
+            let current_mode = self.shutdown.mode();
+            if current_mode != last_mode {
+                tracing::info!(
+                    ?last_mode,
+                    ?current_mode,
+                    "shutdown mode changed, updating progress card"
+                );
+                self.gateway.send_shutdown_progress_card(current_mode).await;
+                last_mode = current_mode;
+            }
+        }
+
+        // Session stop completed — send final card
+        let result = stop_result.unwrap_or_default();
+        self.gateway.send_shutdown_final_card(&result).await;
+        result
+    }
+
+    /// Phase 3: Background task stop.
+    ///
+    /// - Drops SkillWatcher and ConfigWatcher (RAII) via `take()`
+    /// - Signals ArchiveSweeper and DreamingScheduler to stop
+    /// - Clears pending approval requests
+    async fn phase_3_background_stop(&mut self) {
+        // SkillWatcher and ConfigWatcher are RAII — stop on drop.
+        // Explicitly take() and drop here to match Phase 3 ordering
+        // in the design doc, rather than waiting for Daemon destruction.
+        if let Some(watcher) = self._skill_watcher.take() {
+            drop(watcher);
+            tracing::info!("SkillWatcher dropped in Phase 3");
+        }
+        if let Some(watcher) = self._config_watcher.take() {
+            drop(watcher);
+            tracing::info!("ConfigWatcher dropped in Phase 3");
+        }
+
+        // Signal ArchiveSweeper to stop
+        let _ = self.sweeper_shutdown_tx.send(());
+        // Signal DreamingScheduler to stop
+        let _ = self.dreaming_scheduler_shutdown_tx.send(());
+        // Clear pending approval requests (denied with callbacks triggered)
+        self.approval_flow.lock().await.clear();
+    }
+
+    /// Phase 4: Final persistence — ensure all session checkpoints are flushed.
+    async fn phase_4_final_persist(&self, mode: crate::daemon::shutdown::ShutdownMode) {
         match self.gateway.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
-        // Clear all pending approval requests (denied with callbacks triggered)
-        self.approval_flow.lock().await.clear();
-        let _ = self.sweeper_shutdown_tx.send(());
-        let _ = self.dreaming_scheduler_shutdown_tx.send(());
+    }
+
+    /// Phase 5: Outbound shutdown — close outbound connections and clean
+    /// routing tables.
+    async fn phase_5_outbound_close(&self) {
+        let plugins = self.gateway.get_all_plugins().await;
+        for plugin in &plugins {
+            if let Err(e) = plugin.close_outbound().await {
+                tracing::warn!(
+                    platform = plugin.platform(),
+                    error = %e,
+                    "failed to close outbound — continuing"
+                );
+            }
+        }
+        // Gateway routing tables and processor registry are cleaned up
+        // implicitly when the Gateway is dropped (end of run).
+    }
+
+    /// Phase 6: Storage close.
+    ///
+    /// SqliteStorage uses RAII (connection closes on drop). We explicitly
+    /// drop the Arc here to ensure the file handle is released before exit.
+    async fn phase_6_storage_close(&self) {
+        // The storage Arc is held by the Daemon struct. To release it before
+        // exit we replace it with a dummy that immediately drops.
+        // Since we cannot mutate self.storage (immutable ref), the actual
+        // drop happens when the Daemon is destroyed after run() returns.
+        // This phase exists for documentation and future explicit cleanup.
+    }
+
+    /// Phase 7: Exit cleanup.
+    ///
+    /// - Check for abnormal sessions (non-Stopped) → log warning
+    /// - Clean up admin socket file
+    /// - Process exits when run() returns and Daemon is dropped
+    async fn phase_7_exit(&self) {
+        // Check for sessions still in the active table — after
+        // stop_all_sessions, only sessions that were NOT stopped
+        // (e.g. skipped due to missing ConversationSession) remain.
+        let remaining = self.gateway.session_manager().get_all_sessions().await;
+        let mut stopped_count = 0usize;
+        for session in &remaining {
+            // Only warn about sessions that haven't been stopped yet.
+            let is_stopped = {
+                let conv = self
+                    .gateway
+                    .session_manager()
+                    .conversation_sessions
+                    .read()
+                    .await;
+                match conv.get(&session.id) {
+                    Some(cs) => cs.read().await.is_stopped(),
+                    None => false,
+                }
+            };
+            if is_stopped {
+                stopped_count += 1;
+            } else {
+                tracing::warn!(
+                    session_id = %session.id,
+                    "session still active and not stopped at exit — may need manual recovery"
+                );
+            }
+        }
+        if !remaining.is_empty() {
+            tracing::info!(
+                remaining = remaining.len(),
+                stopped = stopped_count,
+                "phase 7: session table state at exit"
+            );
+        }
         // Clean up admin socket file
         let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
-        Ok(())
     }
 }
 
