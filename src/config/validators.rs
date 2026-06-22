@@ -1,9 +1,9 @@
-//! Default validators for hot-reloaded config sections.
+//! Validators for hot-reloaded config sections.
 //!
-//! Each validator performs lightweight structural checks on the parsed JSON
-//! value — verifying the top-level type and presence of expected fields.
-//! Deep business validation (e.g., model name existence) is intentionally
-//! out of scope; those checks belong in the callers.
+//! Each validator performs structural checks and lightweight business
+//! validation (field presence, range, format) on the parsed JSON value.
+//! Deep cross-section validation (e.g., credentials reference resolution)
+//! belongs in the startup path via Provider `validate()` methods.
 
 use super::manager::ConfigSection;
 use super::manager_reload::SectionValidator;
