@@ -121,3 +121,223 @@ fn test_topo_sort_five_layers_match_design_doc() {
     // Layer 5: Gateway
     assert_eq!(layers[4], vec![Gateway], "Layer 5 mismatch");
 }
+
+// --------------------------------------------------------------------------
+// Helper: build a ComponentEntry with a given id, name, and deps.
+// --------------------------------------------------------------------------
+
+fn entry(id: ComponentId, name: &'static str, deps: Vec<ComponentId>) -> ComponentEntry {
+    ComponentEntry { id, name, deps }
+}
+
+// --------------------------------------------------------------------------
+// Circular dependency detection
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_circular_dependency_a_b_c_a() {
+    // A → B → C → A  (all three present → cycle)
+    let e_a = entry(ComponentId::ConfigManager, "A", vec![ComponentId::Storage]);
+    let e_b = entry(ComponentId::Storage, "B", vec![ComponentId::Gateway]);
+    let e_c = entry(ComponentId::Gateway, "C", vec![ComponentId::ConfigManager]);
+
+    let err = topo_sort_layers(&[e_a, e_b, e_c]).unwrap_err();
+    assert!(
+        matches!(err, StartupError::CircularDependency),
+        "expected CircularDependency, got: {err:?}"
+    );
+}
+
+#[test]
+fn test_circular_dependency_self_loop() {
+    // A → A  (self-loop)
+    let e_a = entry(
+        ComponentId::ConfigManager,
+        "A",
+        vec![ComponentId::ConfigManager],
+    );
+
+    let err = topo_sort_layers(&[e_a]).unwrap_err();
+    assert!(
+        matches!(err, StartupError::CircularDependency),
+        "expected CircularDependency for self-loop, got: {err:?}"
+    );
+}
+
+// --------------------------------------------------------------------------
+// Missing dependency detection
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_missing_dependency_single() {
+    // A depends on X (X not in entries)
+    use ComponentId::*;
+    let e_a = entry(
+        AgentRegistry,
+        "A",
+        vec![DreamingScheduler], // DreamingScheduler not in this set
+    );
+
+    let err = topo_sort_layers(&[e_a]).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            StartupError::MissingDependency(AgentRegistry, DreamingScheduler)
+        ),
+        "expected MissingDependency(AgentRegistry, DreamingScheduler), got: {err:?}"
+    );
+}
+
+#[test]
+fn test_missing_dependency_multiple_unknown() {
+    // A depends on B and X; B exists, X does not
+    use ComponentId::*;
+    let e_a = entry(AgentRegistry, "A", vec![ConfigManager, DreamingScheduler]);
+    let e_b = entry(ConfigManager, "B", vec![]);
+
+    let err = topo_sort_layers(&[e_a, e_b]).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            StartupError::MissingDependency(AgentRegistry, DreamingScheduler)
+        ),
+        "expected MissingDependency, got: {err:?}"
+    );
+}
+
+// --------------------------------------------------------------------------
+// Single node, no dependencies
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_single_node_no_deps() {
+    use ComponentId::*;
+    let e = entry(ConfigManager, "Solo", vec![]);
+    let layers = topo_sort_layers(&[e]).expect("should succeed");
+
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0], vec![ConfigManager]);
+}
+
+// --------------------------------------------------------------------------
+// Empty input
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_empty_input() {
+    let layers = topo_sort_layers(&[]).expect("empty input should succeed");
+    assert!(
+        layers.len() <= 1,
+        "empty input should produce at most 1 layer"
+    );
+    if let Some(first) = layers.first() {
+        assert!(first.is_empty(), "empty input layer should be empty");
+    }
+}
+
+// --------------------------------------------------------------------------
+// Diamond dependency
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_diamond_dependency() {
+    // Diamond: A at top, B and C in middle, D at bottom.
+    // A -> nothing, B -> A, C -> A, D -> B and C
+    use ComponentId::*;
+    let e_a = entry(ConfigManager, "A", vec![]);
+    let e_b = entry(Storage, "B", vec![ConfigManager]);
+    let e_c = entry(Gateway, "C", vec![ConfigManager]);
+    let e_d = entry(AgentRegistry, "D", vec![Storage, Gateway]);
+
+    let layers = topo_sort_layers(&[e_a, e_b, e_c, e_d]).expect("diamond should succeed");
+
+    // Expected layers:
+    //   L0: [A]                       (no deps)
+    //   L1: [B, C]                    (depend only on A, sorted by name)
+    //   L2: [D]                       (depends on B and C)
+    assert_eq!(layers.len(), 3, "diamond should produce 3 layers");
+    assert_eq!(layers[0], vec![ConfigManager], "L0 should be [A]");
+    // B = Storage, C = Gateway → alphabetical by name() = Gateway, Storage
+    assert_eq!(
+        layers[1],
+        vec![Gateway, Storage],
+        "L1 should be [C, B] sorted"
+    );
+    assert_eq!(layers[2], vec![AgentRegistry], "L2 should be [D]");
+}
+
+#[test]
+fn test_diamond_dependency_alphabetical_in_layer() {
+    // Verify that within a layer, items are sorted alphabetically by name().
+    // Provide entries in reverse order to ensure sort, not insertion order.
+    use ComponentId::*;
+    let e_d = entry(AgentRegistry, "D", vec![Storage, Gateway]);
+    let e_c = entry(Gateway, "C", vec![ConfigManager]);
+    let e_b = entry(Storage, "B", vec![ConfigManager]);
+    let e_a = entry(ConfigManager, "A", vec![]);
+
+    let layers = topo_sort_layers(&[e_d, e_c, e_b, e_a]).expect("diamond should succeed");
+
+    // L1 must be sorted by name: C=Gateway < B=Storage
+    assert_eq!(layers[1], vec![Gateway, Storage]);
+}
+
+// --------------------------------------------------------------------------
+// Layer-internal alphabetical ordering (full sort order)
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_layer_internal_alphabetical_order() {
+    use ComponentId::*;
+    // Three independent nodes → should all be in L0, sorted by name.
+    let e_a = entry(AgentRegistry, "Zebra", vec![]);
+    let e_b = entry(ConfigManager, "Apple", vec![]);
+    let e_c = entry(Storage, "Mango", vec![]);
+
+    let layers = topo_sort_layers(&[e_a, e_b, e_c]).expect("should succeed");
+    // Three independent nodes → one layer, sorted by id.name()
+    // AgentRegistry < ConfigManager < Storage
+    assert_eq!(layers.len(), 1);
+    assert_eq!(layers[0], vec![AgentRegistry, ConfigManager, Storage]);
+}
+
+// --------------------------------------------------------------------------
+// Linear chain: A → B → C → D
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_linear_chain() {
+    use ComponentId::*;
+    // Each depends on the previous; should produce 4 layers.
+    let e_d = entry(AgentRegistry, "D", vec![Storage]);
+    let e_c = entry(Storage, "C", vec![Gateway]);
+    let e_b = entry(Gateway, "B", vec![ConfigManager]);
+    let e_a = entry(ConfigManager, "A", vec![]);
+
+    let layers = topo_sort_layers(&[e_d, e_c, e_b, e_a]).expect("linear chain should succeed");
+
+    assert_eq!(layers.len(), 4);
+    assert_eq!(layers[0], vec![ConfigManager]);
+    assert_eq!(layers[1], vec![Gateway]);
+    assert_eq!(layers[2], vec![Storage]);
+    assert_eq!(layers[3], vec![AgentRegistry]);
+}
+
+// --------------------------------------------------------------------------
+// All nodes in parallel (no deps between any pair)
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_all_parallel() {
+    use ComponentId::*;
+    let entries = vec![
+        entry(ConfigManager, "C", vec![]),
+        entry(AgentRegistry, "A", vec![]),
+        entry(Storage, "B", vec![]),
+    ];
+    let layers = topo_sort_layers(&entries).expect("all parallel should succeed");
+
+    assert_eq!(layers.len(), 1);
+    // A < B < C by id.name(): AgentRegistry < ConfigManager < Storage
+    assert_eq!(layers[0], vec![AgentRegistry, ConfigManager, Storage]);
+}
