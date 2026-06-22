@@ -902,10 +902,9 @@ fn test_load_business_validation_success_all_sections() {
     }
 }
 
-/// Test: load() with negative idleMinutes in session.json uses defaults.
-/// Session is loaded separately from mandatory sections.
+/// Test: load() with invalid session.json (negative idleMinutes) falls back to defaults.
 #[test]
-fn test_load_session_business_validation_failure_uses_defaults() {
+fn test_load_invalid_session_fallback_to_defaults() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory_configs(tmp.path()).unwrap();
     // Session with negative idleMinutes in defaults — validation fails

@@ -174,19 +174,11 @@ fn validate_binding_entry(index: usize, entry: &serde_json::Value) -> Result<(),
             index
         ));
     }
-    // agentId is required and must be non-empty
-    match entry.get("agentId") {
-        Some(serde_json::Value::String(s)) if s.is_empty() => {
-            return Err(format!(
-                "channels.bindings[{}].agentId cannot be empty",
-                index
-            ));
-        }
-        None => {
-            return Err(format!("channels.bindings[{}].agentId is required", index));
-        }
-        _ => {}
-    }
+    require_non_empty(
+        entry,
+        "agentId",
+        &format!("channels.bindings[{}].agentId", index),
+    )?;
     // match sub-object
     let match_obj = match entry.get("match") {
         Some(m) if m.is_object() => m,
@@ -200,38 +192,16 @@ fn validate_binding_entry(index: usize, entry: &serde_json::Value) -> Result<(),
             return Err(format!("channels.bindings[{}].match is required", index));
         }
     };
-    // match.channel required, non-empty
-    match match_obj.get("channel") {
-        Some(serde_json::Value::String(s)) if s.is_empty() => {
-            return Err(format!(
-                "channels.bindings[{}].match.channel cannot be empty",
-                index
-            ));
-        }
-        None => {
-            return Err(format!(
-                "channels.bindings[{}].match.channel is required",
-                index
-            ));
-        }
-        _ => {}
-    }
-    // match.accountId required, non-empty
-    match match_obj.get("accountId") {
-        Some(serde_json::Value::String(s)) if s.is_empty() => {
-            return Err(format!(
-                "channels.bindings[{}].match.accountId cannot be empty",
-                index
-            ));
-        }
-        None => {
-            return Err(format!(
-                "channels.bindings[{}].match.accountId is required",
-                index
-            ));
-        }
-        _ => {}
-    }
+    require_non_empty(
+        match_obj,
+        "channel",
+        &format!("channels.bindings[{}].match.channel", index),
+    )?;
+    require_non_empty(
+        match_obj,
+        "accountId",
+        &format!("channels.bindings[{}].match.accountId", index),
+    )?;
     Ok(())
 }
 
@@ -245,7 +215,10 @@ fn validate_gateway(value: &serde_json::Value) -> Result<(), String> {
     if let Some(port) = value.get("port") {
         match port.as_u64() {
             Some(p) if p == 0 || p > 65535 => {
-                return Err(format!("gateway.port must be in range 1-65535, got {}", p));
+                return Err(format!(
+                    "gateway.port must be in range 1-65535, got {} (port 0 is reserved by the OS)",
+                    p
+                ));
             }
             Some(_) => {}
             None => {
@@ -417,6 +390,21 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Ensure a field in a JSON object is a non-empty string.
+///
+/// Returns `Err` if the field is absent or is an empty string.
+/// `path` should be the full dotted path (e.g., `channels.bindings[0].match.channel`).
+fn require_non_empty(obj: &serde_json::Value, field: &str, path: &str) -> Result<(), String> {
+    match obj.get(field) {
+        Some(serde_json::Value::String(s)) if s.is_empty() => {
+            Err(format!("{} cannot be empty", path))
+        }
+        Some(serde_json::Value::String(_)) => Ok(()),
+        None => Err(format!("{} is required", path)),
+        _ => Err(format!("{} must be a string", path)),
+    }
+}
 
 /// Ensure `value` is a JSON object; returns `Err` with a descriptive
 /// message if not.
