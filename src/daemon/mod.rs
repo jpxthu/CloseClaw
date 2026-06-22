@@ -6,6 +6,7 @@ pub mod config_reload;
 pub mod dreaming_scheduler;
 pub mod shutdown;
 pub mod skill_reload;
+pub mod startup;
 use crate::admin::client::admin_socket_path;
 use crate::admin::server::{AdminContext, AdminServer};
 use crate::agent::spawn::SpawnController;

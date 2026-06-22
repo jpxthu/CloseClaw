@@ -1,0 +1,206 @@
+//! Startup orchestration: component dependency declarations and data structures.
+//!
+//! Defines [`ComponentId`] to identify each daemon component and [`ComponentDeps`]
+//! to declare startup dependencies. The topological sort engine (see
+//! [`topo_sort_layers`]) consumes these declarations to derive the deterministic
+//! initialization order.
+
+/// Identifies a daemon component for startup orchestration.
+///
+/// Each variant corresponds to a component declared in the design doc dependency
+/// table. The `name()` method provides a stable, human-readable label used for
+/// alphabetical ordering within each layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ComponentId {
+    /// Loads and merges configuration files.
+    ConfigManager,
+    /// SQLite-backed session persistence.
+    Storage,
+    /// Per-agent idle/purge thresholds from session_config.json.
+    SessionConfigProvider,
+    /// Agent configuration registry.
+    AgentRegistry,
+    /// Scanned and registered skill definitions.
+    SkillsRegistry,
+    /// Platform-specific renderers and plugins.
+    RenderersPlugins,
+    /// Platform-specific IM adapters.
+    IMAdapters,
+    /// Global and per-agent permission rules.
+    PermissionEngine,
+    /// Tool definitions from all modules.
+    ToolsRegistry,
+    /// Background idle session archiver.
+    ArchiveSweeper,
+    /// Background skill file watcher.
+    SkillWatcher,
+    /// Background config file hot-reload watcher.
+    ConfigHotReload,
+    /// Background dreaming/memory-mining scheduler.
+    DreamingScheduler,
+    /// Session lifecycle manager.
+    SessionManager,
+    /// System prompt builder.
+    SystemPromptBuilder,
+    /// High-risk slash command approval orchestrator.
+    ApprovalFlow,
+    /// Top-level message router.
+    Gateway,
+}
+
+impl ComponentId {
+    /// Stable display name for this component.
+    ///
+    /// Used as the sort key for deterministic layer-internal ordering.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::ConfigManager => "ConfigManager",
+            Self::Storage => "Storage",
+            Self::SessionConfigProvider => "SessionConfigProvider",
+            Self::AgentRegistry => "AgentRegistry",
+            Self::SkillsRegistry => "SkillsRegistry",
+            Self::RenderersPlugins => "RenderersPlugins",
+            Self::IMAdapters => "IMAdapters",
+            Self::PermissionEngine => "PermissionEngine",
+            Self::ToolsRegistry => "ToolsRegistry",
+            Self::ArchiveSweeper => "ArchiveSweeper",
+            Self::SkillWatcher => "SkillWatcher",
+            Self::ConfigHotReload => "ConfigHotReload",
+            Self::DreamingScheduler => "DreamingScheduler",
+            Self::SessionManager => "SessionManager",
+            Self::SystemPromptBuilder => "SystemPromptBuilder",
+            Self::ApprovalFlow => "ApprovalFlow",
+            Self::Gateway => "Gateway",
+        }
+    }
+}
+
+/// Declares the startup dependencies of a daemon component.
+///
+/// Implementations return the set of [`ComponentId`]s that must be fully
+/// initialized before this component can start.
+pub trait ComponentDeps {
+    /// Returns the component IDs that this component depends on.
+    fn deps(&self) -> &[ComponentId];
+}
+
+/// A component entry fed into the topological sorter.
+///
+/// Bundles the component identity, its human-readable name (for alphabetical
+/// sorting), and its declared dependencies into a single value.
+pub struct ComponentEntry {
+    /// The component identifier.
+    pub id: ComponentId,
+    /// Human-readable name, used as the sort key within a layer.
+    pub name: &'static str,
+    /// IDs of components that must be initialized before this one.
+    pub deps: Vec<ComponentId>,
+}
+
+/// Errors that can occur during startup orchestration.
+#[derive(Debug, thiserror::Error)]
+pub enum StartupError {
+    /// A cycle was detected in the dependency graph.
+    #[error("circular dependency detected in component startup order")]
+    CircularDependency,
+
+    /// A component declares a dependency on an unknown component.
+    #[error("component {0:?} depends on unknown component {1:?}")]
+    MissingDependency(ComponentId, ComponentId),
+}
+
+/// Topologically sort the given component entries into ordered layers.
+///
+/// Each layer contains components whose dependencies are all satisfied by
+/// earlier layers. Within each layer, components are sorted alphabetically
+/// by name for deterministic ordering.
+///
+/// # Errors
+///
+/// Returns [`StartupError::CircularDependency`] if a cycle is detected, or
+/// [`StartupError::MissingDependency`] if a component references an unknown
+/// dependency.
+pub fn topo_sort_layers(entries: &[ComponentEntry]) -> Result<Vec<Vec<ComponentId>>, StartupError> {
+    // Build a map from ComponentId to its dependencies for quick lookup.
+    let mut dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        std::collections::HashMap::new();
+    let mut all_ids: std::collections::HashSet<ComponentId> = std::collections::HashSet::new();
+
+    for entry in entries {
+        if all_ids.contains(&entry.id) {
+            // Duplicate entry — skip (or could error; for now keep last-wins).
+            continue;
+        }
+        dep_map.insert(entry.id, entry.deps.clone());
+        all_ids.insert(entry.id);
+    }
+
+    // Validate that all declared dependencies exist.
+    for (id, deps) in &dep_map {
+        for dep in deps {
+            if !all_ids.contains(dep) {
+                return Err(StartupError::MissingDependency(*id, *dep));
+            }
+        }
+    }
+
+    // Kahn's algorithm with layer tracking.
+    let mut in_degree: std::collections::HashMap<ComponentId, usize> =
+        std::collections::HashMap::new();
+    let mut reverse_deps: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        std::collections::HashMap::new();
+
+    for &id in &all_ids {
+        in_degree.entry(id).or_insert(0);
+        reverse_deps.entry(id).or_default();
+    }
+
+    for (id, deps) in &dep_map {
+        for dep in deps {
+            *in_degree.entry(*id).or_insert(0) += 1;
+            reverse_deps.entry(*dep).or_default().push(*id);
+        }
+    }
+
+    // Collect initial layer: nodes with in_degree == 0, sorted by name.
+    let mut layers: Vec<Vec<ComponentId>> = Vec::new();
+    let mut current_layer: Vec<ComponentId> = all_ids
+        .iter()
+        .copied()
+        .filter(|id| *in_degree.get(id).unwrap_or(&0) == 0)
+        .collect();
+    current_layer.sort_by_key(|id| id.name().to_string());
+    layers.push(current_layer);
+
+    let mut processed = layers[0].len();
+
+    while let Some(layer) = layers.last() {
+        let mut next_layer: Vec<ComponentId> = Vec::new();
+        for &id in layer {
+            if let Some(dependents) = reverse_deps.get(&id) {
+                for &dep_id in dependents {
+                    let deg = in_degree.get_mut(&dep_id).unwrap();
+                    *deg -= 1;
+                    if *deg == 0 {
+                        next_layer.push(dep_id);
+                    }
+                }
+            }
+        }
+        if next_layer.is_empty() {
+            break;
+        }
+        next_layer.sort_by_key(|id| id.name().to_string());
+        processed += next_layer.len();
+        layers.push(next_layer);
+    }
+
+    if processed != all_ids.len() {
+        return Err(StartupError::CircularDependency);
+    }
+
+    Ok(layers)
+}
+
+#[cfg(test)]
+mod startup_tests;
