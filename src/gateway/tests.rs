@@ -589,13 +589,14 @@ async fn test_inbound_message_increments_busy_count() {
     // Before calling handle_inbound_message, busy_count is 0
     assert_eq!(sh.busy_count(), 0);
 
-    // Call handle_inbound_message. The gateway increments busy_count
-    // at entry and decrements it when returning, so after completion
-    // busy_count should be back to 0.
+    // Call handle_inbound_message. The gateway no longer manages
+    // busy_count directly on async handler paths — the handler's
+    // spawned task (finish_llm) handles increment/decrement.
+    // With no handler configured, returns None with busy_count unchanged.
     let _ = gw
         .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
         .await;
-    // Gateway-level increment/decrement must be balanced
+    // No handler → no busy_count change
     assert_eq!(sh.busy_count(), 0);
 }
 
@@ -613,10 +614,11 @@ async fn test_shutdown_gate_rejects_message_busy_count_decremented() {
         .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
         .await;
 
-    // busy_count should be 0 even though the message was rejected
+    // busy_count should be 0 — the message was rejected by the gate
+    // before any busy_count tracking was needed.
     assert_eq!(
         sh.busy_count(),
         0,
-        "busy_count must be decremented when message is rejected by gate"
+        "busy_count must remain 0 when message is rejected by gate"
     );
 }

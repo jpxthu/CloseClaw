@@ -305,11 +305,6 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
-        // ── Increment busy count for drain tracking ────────────────────
-        if let Some(sh) = self.get_shutdown_handle() {
-            sh.increment_busy();
-        }
-
         // ── Shutdown gate: reject new operations ──────────────────────
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -317,9 +312,6 @@ impl Gateway {
                     session_id = %session_id,
                     "rejecting inbound message: daemon is shutting down"
                 );
-                if let Some(sh) = self.get_shutdown_handle() {
-                    sh.decrement_busy();
-                }
                 return None;
             }
         }
@@ -329,9 +321,6 @@ impl Gateway {
             .try_handle_approval_command(session_id, &content, sender_id)
             .await
         {
-            if let Some(sh) = self.get_shutdown_handle() {
-                sh.decrement_busy();
-            }
             return Some(result);
         }
 
@@ -341,19 +330,11 @@ impl Gateway {
                 .dispatch_slash(session_id, &content, sender_id, channel)
                 .await
             {
-                if let Some(sh) = self.get_shutdown_handle() {
-                    sh.decrement_busy();
-                }
                 return Some(result);
             }
         }
 
-        let Some(handler) = self.session_handler.as_ref() else {
-            if let Some(sh) = self.get_shutdown_handle() {
-                sh.decrement_busy();
-            }
-            return None;
-        };
+        let handler = self.session_handler.as_ref()?;
 
         // Streaming path: plugin is registered for this channel AND the
         // self-ref is wired AND the handler has a back-ref. Falls back
@@ -372,16 +353,14 @@ impl Gateway {
             let result = handler
                 .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
                 .await;
-            if let Some(sh) = self.get_shutdown_handle() {
-                sh.decrement_busy();
-            }
+            // NOTE: No decrement_busy here — the handler's spawned task
+            // (finish_llm) is responsible for decrementing on async paths.
             return Some(result);
         }
 
         let result = handler.handle_message(session_id, content).await;
-        if let Some(sh) = self.get_shutdown_handle() {
-            sh.decrement_busy();
-        }
+        // NOTE: No decrement_busy here — the handler's spawned task
+        // (finish_llm) is responsible for decrementing on async paths.
         Some(result)
     }
 

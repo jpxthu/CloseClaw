@@ -340,10 +340,10 @@ fn test_is_shutting_down_false_when_stopped() {
     let handle = ShutdownHandle::new();
     handle.start_shutdown_for_test();
     handle.escalate_to_forceful();
-    // After forceful escalation with no pending ops, drain completes
-    // and state becomes Stopped
-    // is_shutting_down should be false once stopped
-    // (This tests the public API; actual state transition happens via
-    // initiate_shutdown which is async)
+    // State is ForcefulShuttingDown after escalation — is_shutting_down
+    // returns true for all active shutdown states (ShuttingDown, Draining,
+    // ForcefulShuttingDown). Only the Stopped state returns false, which
+    // requires the full async initiate_shutdown → drain → mark_stopped
+    // cycle to complete.
     assert!(handle.is_shutting_down());
 }
