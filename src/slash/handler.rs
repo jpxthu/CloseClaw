@@ -12,6 +12,7 @@ pub enum SystemAppendAction {
 }
 
 /// Result of a slash command dispatch.
+#[derive(Debug)]
 pub enum SlashResult {
     /// Reply with a text message.
     Reply(String),
