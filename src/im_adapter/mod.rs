@@ -6,6 +6,7 @@
 pub mod code_block;
 pub mod error;
 pub mod normalized;
+pub mod normalized_tests;
 pub mod platforms;
 pub mod plugin;
 pub mod plugin_tests;
