@@ -448,9 +448,9 @@ async fn test_process_inbound_chain_with_session_router() {
         .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-1")
         .await;
     assert_eq!(result.content, "hi");
-    // SessionRouter injects session_key = "terminal:user1:peer1" (PerChannelPeer)
+    // SessionRouter injects session_key = "default:terminal:user1:peer1" (PerAccountChannelPeer)
     let key = result.metadata.get("session_key").and_then(|v| v.as_str());
-    assert_eq!(key, Some("terminal:user1:peer1"));
+    assert_eq!(key, Some("default:terminal:user1:peer1"));
 }
 
 /// When a processor returns an error, `process_inbound_chain` falls back to

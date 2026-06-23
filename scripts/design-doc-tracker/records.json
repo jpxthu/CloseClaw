@@ -82,5 +82,12 @@
     "commit_time": "",
     "confirmed_time": "2026-06-22T18:44:05.434607+08:00",
     "comment": "blocked: dependency declarations place SystemPromptBuilder at Layer 3 but layer table says Layer 4"
+  },
+  {
+    "path": "docs/design/daemon/shutdown.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-06-23T12:18:20.902842+08:00",
+    "comment": "blocked: Phase 1 flowchart contradicts architecture section on drain timeout semantics"
   }
 ]
