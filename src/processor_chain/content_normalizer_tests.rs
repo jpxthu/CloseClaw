@@ -247,3 +247,89 @@ fn test_add_code_block_normal_text_unchanged() {
     let out = add_code_block_language_hint(input);
     assert_eq!(out, "just some plain text");
 }
+
+// -------------------------------------------------------------------------
+// strip_platform_residue
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_strip_platform_residue_single_at_tag() {
+    let input = r#"Hello <at user_id="u123">Alice</at>, how are you?"#;
+    assert_eq!(strip_platform_residue(input), "Hello @Alice, how are you?");
+}
+
+#[test]
+fn test_strip_platform_residue_multiple_at_tags() {
+    let input = r#"<at user_id="u1">Alice</at> and <at user_id="u2">Bob</at> are here"#;
+    assert_eq!(strip_platform_residue(input), "@Alice and @Bob are here");
+}
+
+#[test]
+fn test_strip_platform_residue_adjacent_at_tags() {
+    let input = r#"<at user_id="u1">A</at><at user_id="u2">B</at>"#;
+    assert_eq!(strip_platform_residue(input), "@A@B");
+}
+
+#[test]
+fn test_strip_platform_residue_plain_text_unchanged() {
+    let input = "Hello world, no tags here.";
+    assert_eq!(strip_platform_residue(input), input);
+}
+
+#[test]
+fn test_strip_platform_residue_empty_string() {
+    assert_eq!(strip_platform_residue(""), "");
+}
+
+#[test]
+fn test_strip_platform_residue_incomplete_tag_no_close() {
+    let input = r#"Hello <at user_id="u1">Alice"#;
+    assert_eq!(strip_platform_residue(input), input);
+}
+
+#[test]
+fn test_strip_platform_residue_incomplete_tag_no_content() {
+    let input = r#"Hello <at user_id="u1"></at>world"#;
+    assert_eq!(strip_platform_residue(input), "Hello @world");
+}
+
+#[test]
+fn test_strip_platform_residue_special_chars_in_name() {
+    let input = r#"<at user_id="u1">O'Brien & Co.</at> said hi"#;
+    assert_eq!(strip_platform_residue(input), "@O'Brien & Co. said hi");
+}
+
+#[test]
+fn test_strip_platform_residue_unicode_name() {
+    let input = r#"<at user_id="u1">张三</at> posted"#;
+    assert_eq!(strip_platform_residue(input), "@张三 posted");
+}
+
+#[test]
+fn test_strip_platform_residue_emoji_name() {
+    let input = r#"<at user_id="u1">🎉 Party</at> time"#;
+    assert_eq!(strip_platform_residue(input), "@🎉 Party time");
+}
+
+#[test]
+fn test_strip_platform_residue_at_in_other_context() {
+    // An @ that is NOT inside an <at> tag should be left alone
+    let input = "email user@example.com or ping <at user_id=\"u1\">Alice</at>";
+    assert_eq!(
+        strip_platform_residue(input),
+        "email user@example.com or ping @Alice"
+    );
+}
+
+#[test]
+fn test_strip_platform_residue_only_at_tag() {
+    let input = r#"<at user_id="u1">Solo</at>"#;
+    assert_eq!(strip_platform_residue(input), "@Solo");
+}
+
+#[test]
+fn test_strip_platform_residue_nested_xml_like_surrounding() {
+    // <at> tag embedded in other XML-like text — the regex should still match
+    let input = r#"<root><at user_id="u1">Alice</at></root>"#;
+    assert_eq!(strip_platform_residue(input), "<root>@Alice</root>");
+}

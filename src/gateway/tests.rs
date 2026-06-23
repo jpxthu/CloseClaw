@@ -225,8 +225,29 @@ fn test_dm_scope_per_channel_sender_serde_roundtrip() {
 }
 
 #[test]
-fn test_dm_scope_default_is_per_channel_peer() {
-    assert_eq!(DmScope::default(), DmScope::PerChannelPeer);
+fn test_dm_scope_default_is_per_account_channel_peer() {
+    assert_eq!(DmScope::default(), DmScope::PerAccountChannelPeer);
+}
+
+#[test]
+fn test_dm_scope_default_session_key_contains_four_fields() {
+    // Verify default DmScope session_key = hash(platform, sender_id, peer_id, account_id)
+    let key = DmScope::default().compute_session_key(
+        "feishu",
+        &msg("ou_sender", "oc_peer"),
+        Some("t_account"),
+    );
+    // PerAccountChannelPeer format: {account_id}:{platform}:{sender_id}:{peer_id}
+    assert!(
+        key.contains("t_account"),
+        "key should contain account_id: {key}"
+    );
+    assert!(key.contains("feishu"), "key should contain platform: {key}");
+    assert!(
+        key.contains("ou_sender"),
+        "key should contain sender_id: {key}"
+    );
+    assert!(key.contains("oc_peer"), "key should contain peer_id: {key}");
 }
 
 // ── GatewayConfig serde: dm_scope values ─────────────────────────────────────
@@ -249,7 +270,7 @@ fn test_gateway_config_dm_scope_values() {
         assert_eq!(cfg.dm_scope, expected);
     }
     let cfg: GatewayConfig = serde_json::from_str("{\"name\":\"g\"}").unwrap();
-    assert_eq!(cfg.dm_scope, DmScope::PerChannelPeer);
+    assert_eq!(cfg.dm_scope, DmScope::PerAccountChannelPeer);
     assert_eq!(cfg.rate_limit_per_minute, 0);
     assert_eq!(cfg.max_message_size, 0);
 }

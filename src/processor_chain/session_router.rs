@@ -6,6 +6,10 @@
 //! consumers (e.g. [`Gateway::route_message`]) can resolve sessions via
 //! [`SessionManager::resolve`].
 //!
+//! By default uses [`DmScope::PerAccountChannelPeer`] mode, producing
+//! keys in the format `{account_id}:{platform}:{sender_id}:{peer_id}`.
+//! The scope can be overridden via the [`DmScope`] configuration.
+//!
 //! This processor is channel-agnostic — it works for any platform that
 //! populates `RawMessage` correctly (terminal, feishu, discord, …).
 

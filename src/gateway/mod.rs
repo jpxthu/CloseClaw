@@ -64,7 +64,7 @@ pub enum DmScope {
 #[allow(clippy::derivable_impls)]
 impl Default for DmScope {
     fn default() -> Self {
-        DmScope::PerChannelPeer
+        DmScope::PerAccountChannelPeer
     }
 }
 

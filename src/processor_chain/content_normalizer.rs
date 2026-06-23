@@ -2,12 +2,14 @@
 //! and normalizes Markdown formatting.
 //!
 //! Processing order:
-//! 1. `strip_control_chars` — remove ANSI escape sequences and invisible
+//! 1. `strip_platform_residue` — remove platform-specific XML tags (e.g.
+//!    `<at>` mentions) and convert them to plain-text equivalents
+//! 2. `strip_control_chars` — remove ANSI escape sequences and invisible
 //!    control characters (preserving `\n`, `\t`, `\r`)
-//! 2. `normalize_empty_lines` — compress consecutive blank lines
-//! 3. `trim_trailing_whitespace` — strip trailing spaces per line
-//! 4. `normalize_urls` — ensure all bare URLs have `https://` prefix
-//! 5. `add_code_block_language_hint` — annotate code fences without language
+//! 3. `normalize_empty_lines` — compress consecutive blank lines
+//! 4. `trim_trailing_whitespace` — strip trailing spaces per line
+//! 5. `normalize_urls` — ensure all bare URLs have `https://` prefix
+//! 6. `add_code_block_language_hint` — annotate code fences without language
 
 use crate::processor_chain::context::{MessageContext, ProcessedMessage};
 use crate::processor_chain::error::ProcessError;
@@ -16,6 +18,22 @@ use async_trait::async_trait;
 use std::sync::LazyLock;
 
 use regex::Regex;
+
+// ---------------------------------------------------------------------------
+// Platform residue stripping
+// ---------------------------------------------------------------------------
+
+/// Strips platform-specific XML-style tags from message text.
+///
+/// Converts `<at user_id="xxx">name</at>` to `@name`, removing the
+/// platform-specific at-mention markup while preserving the display name.
+/// Handles multiple and nested tags; non-matching text passes through
+/// unchanged.
+pub fn strip_platform_residue(text: &str) -> String {
+    static AT_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"<at\s+user_id="[^"]*">([^<]*)</at>"#).unwrap());
+    AT_RE.replace_all(text, "@$1").to_string()
+}
 
 // ---------------------------------------------------------------------------
 // Control character stripping
@@ -168,15 +186,16 @@ pub fn add_code_block_language_hint(text: &str) -> String {
 // ContentNormalizer
 // ---------------------------------------------------------------------------
 
-/// ContentNormalizer strips control characters and normalizes Markdown
-/// formatting in message content.
+/// ContentNormalizer strips platform residue, control characters, and
+/// normalizes Markdown formatting in message content.
 ///
 /// Processing order:
-/// 1. `strip_control_chars` — remove ANSI sequences and invisible characters
-/// 2. `normalize_empty_lines` — compress consecutive blank lines
-/// 3. `trim_trailing_whitespace` — strip trailing spaces per line
-/// 4. `normalize_urls` — ensure bare URLs have `https://` prefix
-/// 5. `add_code_block_language_hint` — annotate unlabeled code fences
+/// 1. `strip_platform_residue` — remove platform XML tags (e.g. `<at>`)
+/// 2. `strip_control_chars` — remove ANSI sequences and invisible characters
+/// 3. `normalize_empty_lines` — compress consecutive blank lines
+/// 4. `trim_trailing_whitespace` — strip trailing spaces per line
+/// 5. `normalize_urls` — ensure bare URLs have `https://` prefix
+/// 6. `add_code_block_language_hint` — annotate unlabeled code fences
 #[derive(Debug)]
 pub struct ContentNormalizer;
 
@@ -210,7 +229,8 @@ impl MessageProcessor for ContentNormalizer {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        let mut normalized = strip_control_chars(&ctx.content);
+        let mut normalized = strip_platform_residue(&ctx.content);
+        normalized = strip_control_chars(&normalized);
         normalized = normalize_empty_lines(&normalized);
         normalized = trim_trailing_whitespace(&normalized);
         normalized = normalize_urls(&normalized);

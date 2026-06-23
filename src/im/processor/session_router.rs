@@ -5,6 +5,9 @@
 //! `session_key` via [`DmScope::compute_session_key`] and writes it
 //! to the message metadata.
 //!
+//! By default uses [`DmScope::PerAccountChannelPeer`] mode, producing
+//! keys in the format `{account_id}:{channel}:{from}:{to}`.
+//!
 //! Runs at priority 20, before [`FeishuMessageCleaner`] (priority 30).
 
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase, ProcessedMessage};
