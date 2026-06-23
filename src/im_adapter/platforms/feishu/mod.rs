@@ -5,6 +5,8 @@
 
 pub mod adapter;
 pub mod cleaner;
+#[cfg(test)]
+mod cleaner_tests;
 pub mod renderer;
 
 use crate::gateway::Message;
