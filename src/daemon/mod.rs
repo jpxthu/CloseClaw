@@ -30,7 +30,7 @@ use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
 use crate::slash::registry::HandlerRegistry;
 use crate::slash::{
     ClearHandler, CompactHandler, ExecHandler, HelpHandler, NewSessionHandler, StatusHandler,
-    StopHandler,
+    StopHandler, VerboseHandler,
 };
 
 use crate::memory::dreaming::DreamingPipeline;
@@ -946,6 +946,7 @@ impl Daemon {
         let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
         slash_registry.register(Arc::new(help_handler));
         slash_registry.register(Arc::new(ReasoningHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(VerboseHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(SystemHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(NewSessionHandler));
         slash_registry.register(Arc::new(StopHandler));

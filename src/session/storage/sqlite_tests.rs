@@ -41,6 +41,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
+            verbosity_level: crate::common::VerbosityLevel::default(),
         }
     }
 
@@ -407,6 +408,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
+            verbosity_level: crate::common::VerbosityLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -455,6 +457,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
+            verbosity_level: crate::common::VerbosityLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -503,6 +506,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
+            verbosity_level: crate::common::VerbosityLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

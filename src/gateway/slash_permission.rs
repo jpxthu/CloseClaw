@@ -206,6 +206,23 @@ impl Gateway {
                     }
                 }
             }
+            SlashResult::SetVerbosity { level } => {
+                if let Some(cs) = self
+                    .session_manager
+                    .get_conversation_session(session_id)
+                    .await
+                {
+                    cs.write().await.set_verbosity_level(level);
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply(format!("输出详细度已设置为 {level}")).await;
+                    }
+                } else {
+                    if let Some(sh) = self.session_handler.as_ref() {
+                        sh.send_reply("当前会话未激活，无法设置输出详细度".to_owned())
+                            .await;
+                    }
+                }
+            }
             SlashResult::SystemAppend {
                 action: SystemAppendAction::Add(content),
             } => {

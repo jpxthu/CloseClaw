@@ -40,6 +40,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         pending_operations: Vec::new(),
         recovery_notification: None,
         pending_tool_failures: Vec::new(),
+        verbosity_level: crate::common::VerbosityLevel::default(),
     }
 }
 

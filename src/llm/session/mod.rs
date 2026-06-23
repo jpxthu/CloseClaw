@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::common::VerbosityLevel;
 use crate::gateway::session_manager::communication::CommunicationConfig;
 use crate::llm::session_state::{ChildSessionState, LlmState, ToolExecState};
 use crate::llm::stats::RunningStats;
@@ -122,6 +123,8 @@ pub struct ConversationSession {
     last_activity_at: i64,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<crate::daemon::shutdown::ShutdownHandle>>,
+    /// Verbosity level controlling outbound content filtering.
+    verbosity_level: VerbosityLevel,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -160,6 +163,7 @@ impl ConversationSession {
             communication_config: None,
             last_activity_at: Utc::now().timestamp(),
             shutdown_handle: None,
+            verbosity_level: VerbosityLevel::default(),
         }
     }
 
@@ -240,6 +244,16 @@ impl ConversationSession {
     /// Overrides the reasoning level at runtime.
     pub fn set_reasoning_level(&mut self, level: ReasoningLevel) {
         self.reasoning_level = level;
+    }
+
+    /// Returns the current verbosity level.
+    pub fn verbosity_level(&self) -> VerbosityLevel {
+        self.verbosity_level
+    }
+
+    /// Overrides the verbosity level at runtime.
+    pub fn set_verbosity_level(&mut self, level: VerbosityLevel) {
+        self.verbosity_level = level;
     }
 
     /// Replace the system prompt on an existing session.
@@ -591,6 +605,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("cancel_token", &"<CancelToken>")
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
             .field("communication_config", &self.communication_config)
+            .field("verbosity_level", &self.verbosity_level)
             .finish()
     }
 }

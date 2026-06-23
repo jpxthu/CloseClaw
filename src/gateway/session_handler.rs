@@ -12,9 +12,6 @@
 use super::Gateway;
 use crate::daemon::shutdown::ShutdownHandle;
 use crate::gateway::session_manager::SessionManager;
-use crate::gateway::system_prompt_inject::{
-    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
-};
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
 use crate::llm::session_state::LlmState;
@@ -26,6 +23,9 @@ use crate::session::compaction::{
     execute_compact, CompactConfig, CompactionResult, CompactionService,
 };
 use crate::session::persistence::ReasoningLevel;
+use crate::system_prompt::inject::{
+    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
+};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 

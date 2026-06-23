@@ -9,6 +9,7 @@
 //! Issue: #166
 
 pub mod builder;
+pub mod inject;
 pub mod sections;
 pub mod tools_section;
 pub mod workdir;

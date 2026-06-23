@@ -1,7 +1,4 @@
 use super::session_handler::MessageMetadata;
-use super::system_prompt_inject::{
-    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
-};
 use super::*;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::retry::CooldownManager;
@@ -9,6 +6,9 @@ use crate::llm::unified_fallback::UnifiedFallbackClient;
 use crate::llm::LLMRegistry;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
+use crate::system_prompt::inject::{
+    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
+};
 use crate::system_prompt::sections::Section;
 
 fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {

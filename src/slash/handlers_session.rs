@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::common::VerbosityLevel;
 use crate::gateway::SessionManager;
 use crate::llm::session::{ChatSession, ConversationSession};
 use crate::slash::context::SlashContext;
@@ -62,6 +63,75 @@ impl SlashHandler for StopHandler {
 
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Stop
+    }
+}
+
+// ── VerboseHandler ──────────────────────────────────────────────────────────
+
+/// `/verbose` — query or set the verbosity level for the current session.
+///
+/// - No arguments: reply with the current verbosity level.
+/// - With an argument (`full`, `normal`, `off`): update the session's verbosity
+///   level via `SlashResult::SetVerbosity`.
+pub struct VerboseHandler {
+    session_manager: Arc<SessionManager>,
+}
+
+impl VerboseHandler {
+    /// Create a new VerboseHandler operating on the given session manager.
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
+    }
+
+    /// Parse a verbosity level string. Returns `None` for invalid values.
+    fn parse_level(s: &str) -> Option<VerbosityLevel> {
+        match s.to_lowercase().as_str() {
+            "full" => Some(VerbosityLevel::Full),
+            "normal" => Some(VerbosityLevel::Normal),
+            "off" => Some(VerbosityLevel::Off),
+            _ => None,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for VerboseHandler {
+    fn commands(&self) -> &[&str] {
+        &["verbose"]
+    }
+
+    fn description(&self) -> &str {
+        "查询或设置输出详细度"
+    }
+
+    fn immediate(&self, _cmd: &str) -> bool {
+        true
+    }
+
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        let arg = args.trim();
+
+        // No arguments — return the current verbosity level.
+        if arg.is_empty() {
+            let Some(conv) = self
+                .session_manager
+                .get_conversation_session(&ctx.session_id)
+                .await
+            else {
+                return SlashResult::Reply("当前会话未激活".to_owned());
+            };
+            let cs = conv.read().await;
+            let level = cs.verbosity_level();
+            return SlashResult::Reply(format!("当前输出详细度：{level}"));
+        }
+
+        // With argument — parse and return SetVerbosity.
+        match Self::parse_level(arg) {
+            Some(level) => SlashResult::SetVerbosity { level },
+            None => SlashResult::Reply(format!(
+                "无效的输出详细度：{arg}。可选值：full, normal, off"
+            )),
+        }
     }
 }
 

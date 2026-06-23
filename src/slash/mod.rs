@@ -9,7 +9,7 @@ pub use context::SlashContext;
 pub use dispatcher::{parse_slash, SlashDispatcher};
 pub use handler::{SlashHandler, SlashResult};
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
-pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler};
+pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 
 #[cfg(test)]
 mod handlers_tests;
