@@ -135,23 +135,45 @@ fn expand_post_content(content: &serde_json::Value) -> String {
 
 #[allow(dead_code)]
 /// Expand a single post content element into plain text based on its tag.
+///
+/// Supported tags:
+/// - `text`, `a` → text content
+/// - `at` → `@name` or `@user_id`
+/// - `img` → `[图片]`
+/// - `media` → `[视频]`
+/// - `file` → `[文件]`
+/// - unknown tags → text if available, otherwise `[未知消息]`
 fn expand_element(elem: &serde_json::Value) -> String {
     let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
-    let base = match tag {
-        "text" | "a" => elem.get("text").and_then(|t| t.as_str()).unwrap_or(""),
-        _ => elem.get("text").and_then(|t| t.as_str()).unwrap_or(""),
-    };
     match tag {
+        "text" | "a" => elem
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string(),
         "at" => {
             if let Some(name) = elem.get("name").and_then(|n| n.as_str()) {
                 format!("@{}", name)
             } else if let Some(user_id) = elem.get("user_id").and_then(|u| u.as_str()) {
                 format!("@{}", user_id)
             } else {
-                base.to_string()
+                elem.get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string()
             }
         }
-        _ => base.to_string(),
+        "img" => "[图片]".to_string(),
+        "media" => "[视频]".to_string(),
+        "file" => "[文件]".to_string(),
+        _ => {
+            let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            if text.is_empty() {
+                "[未知消息]".to_string()
+            } else {
+                text.to_string()
+            }
+        }
     }
 }
 
