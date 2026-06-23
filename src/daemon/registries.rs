@@ -134,4 +134,5 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         session_manager: Arc::clone(ctx.session_manager),
     });
     register_builtin_tools(ctx.tool_registry, builtin_ctx).await;
+    crate::im_adapter::platforms::feishu::tools::register_tools(ctx.tool_registry).await;
 }
