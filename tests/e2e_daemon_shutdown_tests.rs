@@ -7,6 +7,7 @@ use closeclaw::daemon::shutdown::ShutdownHandle;
 use std::time::Duration;
 
 /// Test 1: drain waits until busy_count reaches zero before exiting.
+/// Covers multi-decrement path (3x busy → decrement one-by-one).
 #[tokio::test]
 async fn test_drain_waits_until_busy_count_zero() {
     let handle = ShutdownHandle::new();
@@ -48,29 +49,31 @@ async fn test_drain_waits_until_busy_count_zero() {
     assert!(handle.is_stopped());
 }
 
-/// Test 2: drain timeout forces exit even when busy_count > 0.
+/// Test 2: drain waits for busy_count to reach 0, then exits.
+/// (Drain timeout was removed in #1165 — graceful drain now waits indefinitely.)
 #[tokio::test]
-async fn test_drain_timeout_forces_exit() {
+async fn test_drain_waits_for_busy_count_zero() {
     let handle = ShutdownHandle::new();
     handle.increment_busy();
 
     let handle_clone = handle.clone();
-
-    // Spawn initiate_shutdown and await it directly (blocks this task,
-    // but the spawned task runs concurrently on the same runtime).
-    // The runtime drives the spawned task's sleep to completion.
-    let _ = tokio::spawn(async move {
+    let shutdown_task = tokio::spawn(async move {
         handle_clone.initiate_shutdown().await;
-    })
-    .await;
+    });
 
-    // initiate_shutdown should have completed after the 3s drain timeout
+    // Give it time to enter drain loop
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!handle.is_stopped(), "should still be draining");
+
+    // Release busy count — drain should complete
+    handle.decrement_busy();
+
+    let _ = tokio::time::timeout(Duration::from_secs(5), shutdown_task).await;
     assert!(
         handle.is_stopped(),
-        "handle should be stopped (state={:?})",
-        handle.state()
+        "handle should be stopped after busy_count reaches 0"
     );
-    assert_eq!(handle.busy_count(), 1);
+    assert_eq!(handle.busy_count(), 0);
 }
 
 /// Test 3: drain signal is broadcast to all subscribers.
