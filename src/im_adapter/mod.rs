@@ -32,7 +32,10 @@ pub trait IMAdapter: Send + Sync {
     /// Returns `Ok(Some(message))` for recognized message events,
     /// `Ok(None)` for events that should be silently ignored
     /// (e.g. unknown card actions), or `Err` on parse failure.
-    async fn handle_webhook(&self, payload: &[u8]) -> Result<Option<Message>, AdapterError>;
+    async fn handle_webhook(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError>;
 
     /// Send message to IM platform.
     ///
