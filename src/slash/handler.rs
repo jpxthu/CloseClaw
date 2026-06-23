@@ -1,3 +1,4 @@
+use crate::common::VerbosityLevel;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 
@@ -28,6 +29,8 @@ pub enum SlashResult {
     Exec { command: String },
     /// Set the reasoning level for the current session.
     SetReasoning { level: ReasoningLevel },
+    /// Set the verbosity level for the current session.
+    SetVerbosity { level: VerbosityLevel },
     /// Unknown command — no handler matched.
     Unknown(String),
 }
