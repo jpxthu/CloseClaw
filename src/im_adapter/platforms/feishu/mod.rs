@@ -8,6 +8,7 @@ pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
 pub mod renderer;
+pub mod tools;
 
 use crate::gateway::Message;
 use crate::im_adapter::error::AdapterError;
