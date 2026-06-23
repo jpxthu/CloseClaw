@@ -101,8 +101,8 @@
     "path": "docs/design/gateway/inbound-flow.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-06-23T18:31:58.281698+08:00",
-    "comment": "blocked: session_key hash vs format-string contradiction; account_id source mismatch; Immediate path distinction not implemented; rich text expansion missing"
+    "confirmed_time": "2026-06-24T04:03:00+08:00",
+    "comment": ""
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
