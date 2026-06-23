@@ -141,10 +141,9 @@ async fn test_processor_chain_bypass_empty_registry() {
         BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
-    let (registry, _renderer) = ProcessorChainLoader::load(&ProcessorChainConfig {
+    let registry = ProcessorChainLoader::load(&ProcessorChainConfig {
         inbound: vec![],
         outbound: vec![],
-        renderer: None,
     })
     .unwrap();
     let gw = crate::gateway::Gateway::with_processor_registry(
@@ -181,9 +180,8 @@ async fn test_processor_chain_applies_processors() {
             retention_days: 7,
         }],
         outbound: vec![],
-        renderer: None,
     };
-    let (registry, _renderer) = ProcessorChainLoader::load(&proc_config).unwrap();
+    let registry = ProcessorChainLoader::load(&proc_config).unwrap();
     let gw = crate::gateway::Gateway::with_processor_registry(
         config,
         Arc::clone(&sm),

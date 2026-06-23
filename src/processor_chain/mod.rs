@@ -28,7 +28,7 @@ mod registry_tests;
 pub mod session_router;
 
 pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
-pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig, RendererConfig};
+pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
 pub use registry::ProcessorRegistry;
 pub use session_router::SessionRouter;
 

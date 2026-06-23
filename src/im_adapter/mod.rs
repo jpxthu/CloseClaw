@@ -1,16 +1,15 @@
 //! im_adapter — Core types and rendering abstractions for IM adapters
 //!
-//! This module unifies IMPlugin, NormalizedMessage, AdapterError, Renderer,
+//! This module unifies IMPlugin, NormalizedMessage, AdapterError,
 //! and RenderedOutput under a single entry point.
 
 pub mod code_block;
 pub mod error;
 pub mod normalized;
 pub mod plugin;
-pub mod renderer;
+pub mod plugin_tests;
 pub mod streaming;
 
 pub use error::AdapterError;
 pub use normalized::NormalizedMessage;
-pub use plugin::IMPlugin;
-pub use renderer::{RenderedOutput, Renderer};
+pub use plugin::{IMPlugin, RenderedOutput};
