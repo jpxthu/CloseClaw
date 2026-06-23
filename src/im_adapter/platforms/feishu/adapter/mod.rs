@@ -3,6 +3,7 @@
 use crate::gateway::Message;
 use crate::im::IMAdapter;
 use crate::im_adapter::error::AdapterError;
+use crate::im_adapter::normalized::NormalizedMessage;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -314,10 +315,10 @@ impl FeishuAdapter {
     /// Handle a card.action.trigger event.
     pub(super) fn handle_card_action(
         &self,
-        event_id: String,
+        _event_id: String,
         app_id: String,
         card_event: &FeishuCardActionEvent,
-    ) -> Result<Option<Message>, AdapterError> {
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let action_value = card_event
             .action
             .value
@@ -340,15 +341,18 @@ impl FeishuAdapter {
                 {
                     metadata.insert("chat_id".to_string(), chat_id.to_string());
                 }
-                Ok(Some(Message {
-                    id: event_id,
-                    from: card_event.operator.open_id.clone(),
-                    to: String::new(),
+                Ok(Some(NormalizedMessage {
+                    platform: "feishu".to_string(),
+                    sender_id: card_event.operator.open_id.clone(),
+                    peer_id: metadata.get("chat_id").cloned().unwrap_or_default(),
                     content: "/__card_action:forceful_shutdown".to_string(),
-                    channel: "feishu".to_string(),
                     timestamp: chrono::Utc::now().timestamp(),
-                    metadata,
+                    message_type: "text".to_string(),
+                    media_refs: vec![],
+                    quoted_message: None,
                     thread_id: None,
+                    account_id: metadata.get("account_id").cloned(),
+                    card_action: Some(true),
                 }))
             }
             _ => Ok(None),
@@ -358,18 +362,24 @@ impl FeishuAdapter {
     /// Parse a regular message event into a Message.
     ///
     /// Returns `Ok(None)` for non-text message types (image, file, audio, etc.).
-    fn parse_message_event(&self, event: FeishuEvent) -> Result<Option<Message>, AdapterError> {
+    fn parse_message_event(
+        &self,
+        event: FeishuEvent,
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let text = match event.event.message_type.as_str() {
-            "text" => content
-                .get("text")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string(),
-            "post" => expand_post_content(&content),
-            _ => return Ok(None),
+        let (text, message_type) = match event.event.message_type.as_str() {
+            "text" => (
+                content
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                "text".to_string(),
+            ),
+            "post" => (expand_post_content(&content), "post".to_string()),
+            _other => return Ok(None),
         };
 
         let thread_id = event
@@ -378,23 +388,18 @@ impl FeishuAdapter {
             .or(event.event.root_id)
             .or(event.event.parent_id);
 
-        let mut metadata = HashMap::from([
-            ("account_id".to_string(), event.header.app_id.clone()),
-            ("message_type".to_string(), event.event.message_type.clone()),
-        ]);
-        if let Some(tid) = thread_id {
-            metadata.insert("thread_id".to_string(), tid);
-        }
-
-        Ok(Some(Message {
-            id: event.header.event_id,
-            from: event.event.sender.sender_id.open_id,
-            to: String::new(),
+        Ok(Some(NormalizedMessage {
+            platform: "feishu".to_string(),
+            sender_id: event.event.sender.sender_id.open_id,
+            peer_id: event.event.chat_id,
             content: text,
-            channel: "feishu".to_string(),
             timestamp: chrono::Utc::now().timestamp(),
-            metadata,
-            thread_id: None,
+            message_type,
+            media_refs: vec![],
+            quoted_message: None,
+            thread_id,
+            account_id: Some(event.header.app_id),
+            card_action: None,
         }))
     }
 }
@@ -405,7 +410,10 @@ impl IMAdapter for FeishuAdapter {
         "feishu"
     }
 
-    async fn handle_webhook(&self, payload: &[u8]) -> Result<Option<Message>, AdapterError> {
+    async fn handle_webhook(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 

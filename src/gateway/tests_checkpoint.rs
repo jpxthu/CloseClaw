@@ -5,6 +5,7 @@
 
 use crate::gateway::{DmScope, GatewayConfig, Message, SessionManager};
 use crate::im::{AdapterError, IMAdapter};
+use crate::im_adapter::NormalizedMessage;
 use crate::session::checkpoint_manager::CheckpointManager;
 use crate::session::persistence::ReasoningLevel;
 use crate::session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
@@ -39,7 +40,10 @@ impl IMAdapter for MockAdapter {
         "mock"
     }
 
-    async fn handle_webhook(&self, _payload: &[u8]) -> Result<Option<Message>, AdapterError> {
+    async fn handle_webhook(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         unimplemented!()
     }
 
