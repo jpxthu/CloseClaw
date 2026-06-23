@@ -3,7 +3,6 @@ mod tests {
     use crate::gateway::Message;
     use crate::im::feishu::{CachedToken, FeishuAdapter, FeishuPlugin};
     use crate::im::{IMAdapter, IMPlugin};
-    use crate::renderer::feishu::FeishuRenderer;
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -302,8 +301,7 @@ mod tests {
     #[tokio::test]
     async fn test_parse_inbound_thread_id() {
         let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
-        let renderer = Arc::new(FeishuRenderer::new());
-        let plugin = FeishuPlugin::new(adapter, renderer);
+        let plugin = FeishuPlugin::new(adapter);
 
         let payload = serde_json::json!({
             "schema": "2.0",
@@ -330,8 +328,7 @@ mod tests {
     #[tokio::test]
     async fn test_parse_inbound_no_thread_id() {
         let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
-        let renderer = Arc::new(FeishuRenderer::new());
-        let plugin = FeishuPlugin::new(adapter, renderer);
+        let plugin = FeishuPlugin::new(adapter);
 
         let payload = serde_json::json!({
             "schema": "2.0",
@@ -374,8 +371,7 @@ mod tests {
     #[tokio::test]
     async fn test_feishu_plugin_close_inbound() {
         let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
-        let renderer = Arc::new(FeishuRenderer::new());
-        let plugin = FeishuPlugin::new(adapter, renderer);
+        let plugin = FeishuPlugin::new(adapter);
         plugin.close_inbound().await.unwrap();
     }
 
@@ -383,8 +379,7 @@ mod tests {
     #[tokio::test]
     async fn test_feishu_plugin_close_outbound() {
         let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
-        let renderer = Arc::new(FeishuRenderer::new());
-        let plugin = FeishuPlugin::new(adapter, renderer);
+        let plugin = FeishuPlugin::new(adapter);
         plugin.close_outbound().await.unwrap();
     }
 
@@ -517,8 +512,7 @@ mod tests {
     #[tokio::test]
     async fn test_parse_inbound_card_action() {
         let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
-        let renderer = Arc::new(FeishuRenderer::new());
-        let plugin = FeishuPlugin::new(adapter, renderer);
+        let plugin = FeishuPlugin::new(adapter);
 
         let payload = serde_json::json!({
             "header": {
