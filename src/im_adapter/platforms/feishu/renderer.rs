@@ -155,25 +155,31 @@ fn to_elements(content: &str) -> Vec<CardElement> {
         .collect()
 }
 
-/// Render a Thinking block as a Feishu markdown quote block.
+/// Render a Thinking block as a Feishu collapsible panel.
+///
+/// The panel defaults to collapsed; users click the header to expand.
+/// When `content` is empty, a placeholder is shown inside the panel.
 fn render_thinking_block(content: &str) -> CardElement {
-    let quoted = content
-        .lines()
-        .map(|line| {
-            if line.is_empty() {
-                ">".to_string()
-            } else {
-                format!("> {line}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let body = if quoted.is_empty() {
-        "> 💭 Thinking".to_string()
-    } else {
-        format!("> 💭 Thinking\n{quoted}")
+    let header = CollapsiblePanelHeader {
+        title: CardText {
+            tag: "plain_text".into(),
+            content: "💭 Thinking".into(),
+        },
+        icon_tag: "down_small_with_solid_bg".into(),
     };
-    CardElement::Markdown { content: body }
+    let inner = if content.is_empty() {
+        vec![CardElement::Markdown {
+            content: "_（无思考内容）_".into(),
+        }]
+    } else {
+        vec![CardElement::Markdown {
+            content: content.to_string(),
+        }]
+    };
+    CardElement::CollapsiblePanel {
+        header,
+        elements: inner,
+    }
 }
 
 /// Render a ToolUse block as a Feishu `note` element.
