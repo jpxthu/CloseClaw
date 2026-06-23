@@ -184,6 +184,7 @@ pub struct FeishuAdapter {
     verification_token: String,
     http_client: Client,
     pub(super) cached_token: Arc<Mutex<Option<CachedToken>>>,
+    base_url: String,
 }
 
 impl FeishuAdapter {
@@ -198,6 +199,7 @@ impl FeishuAdapter {
             verification_token,
             http_client,
             cached_token: Arc::new(Mutex::new(None)),
+            base_url: FEISHU_API_BASE.to_string(),
         }
     }
 
@@ -241,7 +243,7 @@ impl FeishuAdapter {
             .http_client
             .post(format!(
                 "{}/auth/v3/tenant_access_token/internal",
-                FEISHU_API_BASE
+                self.base_url
             ))
             .json(&TokenRequest {
                 app_id: &self.app_id,
@@ -289,7 +291,7 @@ impl FeishuAdapter {
 
         let resp: UpdateResponse = self
             .http_client
-            .patch(format!("{}/im/v1/messages/{}", FEISHU_API_BASE, message_id))
+            .patch(format!("{}/im/v1/messages/{}", self.base_url, message_id))
             .header("Authorization", format!("Bearer {}", token))
             .json(&UpdateRequest { content: &content })
             .send()
@@ -467,7 +469,7 @@ impl IMAdapter for FeishuAdapter {
             content: &serde_json::json!({ "text": &message.content }).to_string(),
         };
 
-        let mut url = format!("{}/im/v1/messages?receive_id_type=open_id", FEISHU_API_BASE);
+        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", self.base_url);
         if let Some(rid) = root_id {
             let encoded_rid: String =
                 url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
@@ -523,7 +525,7 @@ impl IMAdapter for FeishuAdapter {
             content: card_json,
         };
 
-        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", FEISHU_API_BASE);
+        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", self.base_url);
         if let Some(rid) = root_id {
             let encoded_rid: String =
                 url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();

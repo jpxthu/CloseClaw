@@ -1,9 +1,13 @@
 //! Unit tests for Feishu adapter: expand_post_content, parse_message_event,
-//! and parse_inbound (message_type propagation).
+//! parse_inbound (message_type propagation), and send_message/send_card_json
+//! receive_id_type verification.
 
 use super::*;
 use crate::im_adapter::platforms::feishu::FeishuPlugin;
 use crate::im_adapter::plugin::IMPlugin;
+use axum::{extract::Query, routing::post, Json, Router};
+use std::collections::HashMap as StdHashMap;
+use tokio::net::TcpListener;
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
 fn make_test_adapter() -> FeishuAdapter {
@@ -14,7 +18,52 @@ fn make_test_adapter() -> FeishuAdapter {
         verification_token: "test_token".to_string(),
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
+        base_url: FEISHU_API_BASE.to_string(),
     }
+}
+
+/// Create a FeishuAdapter pointing at a mock server.
+fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
+    let http_client = reqwest::Client::new();
+    FeishuAdapter {
+        app_id: "test_app_id".to_string(),
+        app_secret: "test_secret".to_string(),
+        verification_token: "test_token".to_string(),
+        http_client,
+        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
+        base_url: base_url.to_string(),
+    }
+}
+
+/// Start a minimal mock Feishu API server, return its base URL.
+/// Tracks whether `receive_id_type=chat_id` was sent on `/im/v1/messages`.
+async fn start_mock_server(received_id_type: Arc<tokio::sync::Mutex<Option<String>>>) -> String {
+    let app = Router::new()
+        .route(
+            "/auth/v3/tenant_access_token/internal",
+            post(|Json(_body): Json<serde_json::Value>| async move {
+                Json(serde_json::json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "mock_token"
+                }))
+            }),
+        )
+        .route(
+            "/im/v1/messages",
+            post(
+                move |Query(params): Query<StdHashMap<String, String>>,
+                      Json(_body): Json<serde_json::Value>| async move {
+                    let rid = params.get("receive_id_type").cloned();
+                    *received_id_type.lock().await = rid;
+                    Json(serde_json::json!({"code": 0, "msg": "ok"}))
+                },
+            ),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{}", addr)
 }
 
 /// Build a minimal FeishuEvent for a message event.
@@ -233,6 +282,77 @@ fn test_parse_message_event_thread_id_from_root_id() {
     event.event.root_id = Some("om_root123".to_string());
     let msg = adapter.parse_message_event(event).unwrap().unwrap();
     assert_eq!(msg.metadata.get("thread_id").unwrap(), "om_root123");
+}
+
+// ===========================================================================
+// send_message / send_card_json receive_id_type tests
+// ===========================================================================
+
+#[tokio::test]
+async fn test_send_message_uses_chat_id_receive_id_type() {
+    let received = Arc::new(tokio::sync::Mutex::new(None));
+    let base_url = start_mock_server(Arc::clone(&received)).await;
+
+    let adapter = make_adapter_with_base(&base_url);
+    let msg = Message {
+        id: "1".into(),
+        from: "a".into(),
+        to: "oc_target_chat".into(),
+        content: "hello".into(),
+        channel: "feishu".into(),
+        timestamp: 0,
+        metadata: HashMap::new(),
+        thread_id: None,
+    };
+
+    adapter.send_message(&msg, None).await.unwrap();
+    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
+}
+
+#[tokio::test]
+async fn test_send_card_json_uses_chat_id_receive_id_type() {
+    let received = Arc::new(tokio::sync::Mutex::new(None));
+    let base_url = start_mock_server(Arc::clone(&received)).await;
+
+    let adapter = make_adapter_with_base(&base_url);
+    let card = serde_json::json!({"header": {}, "elements": []}).to_string();
+
+    adapter
+        .send_card_json("oc_target_chat", &card, None)
+        .await
+        .unwrap();
+    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
+}
+
+#[tokio::test]
+async fn test_send_message_and_card_use_consistent_receive_id_type() {
+    let received = Arc::new(tokio::sync::Mutex::new(None));
+    let base_url = start_mock_server(Arc::clone(&received)).await;
+
+    let adapter = make_adapter_with_base(&base_url);
+
+    // Send text message
+    let msg = Message {
+        id: "1".into(),
+        from: "a".into(),
+        to: "oc_chat".into(),
+        content: "hi".into(),
+        channel: "feishu".into(),
+        timestamp: 0,
+        metadata: HashMap::new(),
+        thread_id: None,
+    };
+    adapter.send_message(&msg, None).await.unwrap();
+    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
+
+    // Send card message
+    *received.lock().await = None;
+    let card = serde_json::json!({"header": {}, "elements": []}).to_string();
+    adapter
+        .send_card_json("oc_chat", &card, None)
+        .await
+        .unwrap();
+    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
 }
 
 // ===========================================================================
