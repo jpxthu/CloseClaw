@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::im::terminal::*;
+    use crate::cli::terminal::*;
     use crate::im_adapter::plugin::IMPlugin;
     use crate::im_adapter::NormalizedMessage;
     use crate::llm::types::ContentBlock;

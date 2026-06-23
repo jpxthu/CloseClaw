@@ -2,11 +2,9 @@
 //!
 //! Each adapter implements the IMAdapter trait for a specific IM platform.
 //! Feishu plugin lives under `im_adapter::platforms::feishu`.
+//! Terminal plugin lives under `cli::terminal`.
 
 pub mod processor;
-pub mod terminal;
-#[cfg(test)]
-pub mod terminal_tests;
 
 // Re-export from im_adapter for backward compatibility
 pub use crate::im_adapter::{AdapterError, IMAdapter, IMPlugin, NormalizedMessage};

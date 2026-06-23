@@ -9,9 +9,9 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::cli::terminal::TerminalPlugin;
 use crate::config::providers::{ConfigProvider, CredentialsProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use crate::im::terminal::TerminalPlugin;
 use crate::im_adapter::plugin::IMPlugin;
 use crate::llm::anthropic::AnthropicProvider;
 use crate::llm::fallback::{FallbackClient, ModelEntry};

@@ -21,8 +21,8 @@ type StartupPlan = (
     Vec<Vec<crate::daemon::startup::ComponentId>>,
     Vec<Vec<crate::daemon::startup::ComponentId>>,
 );
+use crate::cli::terminal::TerminalPlugin;
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use crate::im::terminal::TerminalPlugin;
 use crate::im_adapter::platforms::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
