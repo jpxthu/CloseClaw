@@ -7,6 +7,7 @@ pub mod code_block;
 pub mod error;
 pub mod normalized;
 pub mod plugin;
+pub mod plugin_tests;
 pub mod streaming;
 
 pub use error::AdapterError;
