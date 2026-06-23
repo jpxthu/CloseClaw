@@ -81,11 +81,18 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 Gateway 从 metadata 取出 `session_key`，调用 `SessionManager.resolve(session_key)` 获得 `session_id`。
 
 `resolve()` 内部逻辑：
-- 查 key_registry 映射表
-  - 命中 → 校验 session status 仍为 active → 是则直接返回 session_id
-  - 命中但 status 已变为 archived → 从映射表移除该条目 → 走未命中路径
-  - 未命中 → 通过会话路由字段（platform、sender_id、peer_id、account_id）查询 SQLite → 查到一条或多条 archived session → 取 last_message_at 最新的一条恢复并注册，同时 Gateway 发送「正在恢复会话...」通知 → 返回 session_id
-  - 未命中且 SQLite 无 archived → 创建新 session。创建前在串行化上下文中做碰撞检测：若目标 key 已被占用（并发创建场景），等待 100ms 后以当前时间重新计算 session_key 重试，直到 key 唯一 → 写入映射 → 返回 session_id。重试期间生成的新 key 会覆盖 metadata 中的 session_key，后续流程以新 key 为准。单元测试须覆盖串行并发创建新 session 的场景
+
+```
+1. 查 key_registry 映射表
+   ├─ 命中 → 返回 session_id
+   └─ 未命中 → 继续第 2 步
+
+2. 按路由字段（platform、sender_id、peer_id、account_id）查 SQLite
+   ├─ 查到 archived session → 取 last_message_at 最新的一条恢复并注册，Gateway 发通知，返回 session_id
+   └─ 查不到 → 创建新 session（串行化上下文做碰撞检测，冲突则等 100ms 重试），返回 session_id
+```
+
+SessionManager 对同一 agent_id 的所有操作（resolve、archive、restore）串行化，因此命中后不会出现"刚查到就被归档"的竞态。
 
 key_registry 在 daemon 启动时由 SessionManager 遍历 SQLite 中所有 status=active 的 session 重建。archived session 不加载。
 
