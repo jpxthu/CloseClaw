@@ -243,3 +243,46 @@ async fn test_multiple_pending_fifo_order() {
 
 // `/clear` tests removed — /clear is now handled by the SlashDispatcher
 // at the Gateway level, not by SessionMessageHandler. See slash_permission tests.
+
+/// Verifying that setting verbosity level on a ConversationSession persists
+/// across multiple accesses via `get_conversation_session`.
+#[tokio::test]
+async fn test_set_verbosity_persists() {
+    use crate::common::VerbosityLevel;
+
+    let config = crate::gateway::GatewayConfig {
+        name: "test".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        dm_scope: crate::gateway::DmScope::default(),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
+
+    // Verify default verbosity is Full
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    assert_eq!(cs.read().await.verbosity_level(), VerbosityLevel::Full);
+
+    // Set verbosity to Normal
+    cs.write().await.set_verbosity_level(VerbosityLevel::Normal);
+
+    // Drop the read/write guard and re-acquire to verify persistence
+    drop(cs);
+    let cs2 = sm.get_conversation_session(&sid).await.expect("session");
+    assert_eq!(cs2.read().await.verbosity_level(), VerbosityLevel::Normal);
+
+    // Set verbosity to Off
+    cs2.write().await.set_verbosity_level(VerbosityLevel::Off);
+    drop(cs2);
+
+    // Verify Off persists
+    let cs3 = sm.get_conversation_session(&sid).await.expect("session");
+    assert_eq!(cs3.read().await.verbosity_level(), VerbosityLevel::Off);
+}

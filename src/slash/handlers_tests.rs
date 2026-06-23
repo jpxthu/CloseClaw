@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::common::VerbosityLevel;
 use crate::gateway::session_manager::SessionManager;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
@@ -11,6 +12,7 @@ use crate::slash::handlers::{
     ClearHandler, CompactHandler, HelpHandler, ReasoningHandler, SystemHandler, WorkdirHandler,
 };
 use crate::slash::registry::HandlerRegistry;
+use crate::slash::VerboseHandler;
 
 // ── Mock handler ────────────────────────────────────────────────────────────
 
@@ -488,5 +490,70 @@ fn test_system_append_action_match() {
             action: SystemAppendAction::Clear,
         } => {}
         _ => panic!("Clear match failed"),
+    }
+}
+
+// ── VerboseHandler tests ─────────────────────────────────────────────────────
+
+#[test]
+fn test_verbose_handler_commands_and_description() {
+    let sm = make_workdir_session_manager();
+    let h = VerboseHandler::new(sm);
+    assert_eq!(h.commands(), &["verbose"]);
+    assert_eq!(h.description(), "查询或设置输出详细度");
+    assert!(h.immediate("verbose"));
+}
+
+#[tokio::test]
+async fn test_verbose_query_no_args() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = VerboseHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            assert!(t.contains("当前输出详细度"), "got: {t}");
+            assert!(t.contains("full"), "default should be full, got: {t}");
+        }
+        _ => panic!("expected Reply with current level"),
+    }
+}
+
+#[tokio::test]
+async fn test_verbose_set_valid_levels() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = VerboseHandler::new(Arc::clone(&sm));
+    let cases = &[
+        ("full", VerbosityLevel::Full),
+        ("normal", VerbosityLevel::Normal),
+        ("off", VerbosityLevel::Off),
+    ];
+    for (arg, expected) in cases {
+        let mut ctx = dummy_ctx();
+        ctx.session_id = sid.clone();
+        match h.handle(arg, &ctx).await {
+            SlashResult::SetVerbosity { level } => assert_eq!(level, *expected),
+            other => panic!("expected SetVerbosity for arg '{arg}', got: {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_verbose_set_invalid_arg() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = VerboseHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("banana", &ctx).await {
+        SlashResult::Reply(t) => {
+            assert!(t.contains("无效的输出详细度"), "got: {t}");
+            assert!(t.contains("full"), "should list valid options, got: {t}");
+            assert!(t.contains("normal"), "should list valid options, got: {t}");
+            assert!(t.contains("off"), "should list valid options, got: {t}");
+        }
+        other => panic!("expected Reply error, got: {other:?}"),
     }
 }
