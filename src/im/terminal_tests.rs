@@ -38,6 +38,9 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "hello".to_string(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -55,6 +58,9 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "test".to_string(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -71,6 +77,9 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "test".to_string(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -87,6 +96,9 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "hello\nworld".to_string(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -105,6 +117,9 @@ mod tests {
             peer_id: "cli".to_string(),
             content: String::new(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -120,6 +135,9 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "line1\nline2\nline3".to_string(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -289,36 +307,28 @@ mod tests {
     }
 
     // =========================================================================
-    // ── lifecycle hook tests (Step 1.1) ──────────────────────────────
+    // ── lifecycle hook tests (Step 1.2) ──────────────────────────────
 
-    /// TerminalPlugin close_inbound is a no-op (default from IMPlugin trait).
+    /// TerminalPlugin shutdown is a no-op (default from IMPlugin trait).
     #[tokio::test]
-    async fn test_terminal_plugin_close_inbound_noop() {
+    async fn test_terminal_plugin_shutdown_noop() {
         let plugin = TerminalPlugin::new();
-        plugin.close_inbound().await.unwrap();
+        plugin.shutdown().await.unwrap();
     }
 
-    /// TerminalPlugin close_outbound is a no-op (default from IMPlugin trait).
+    /// TerminalPlugin shutdown is idempotent.
     #[tokio::test]
-    async fn test_terminal_plugin_close_outbound_noop() {
+    async fn test_terminal_plugin_shutdown_idempotent() {
         let plugin = TerminalPlugin::new();
-        plugin.close_outbound().await.unwrap();
+        plugin.shutdown().await.unwrap();
+        plugin.shutdown().await.unwrap();
     }
 
-    /// TerminalPlugin close_inbound is idempotent.
+    /// TerminalPlugin init is a no-op (default from IMPlugin trait).
     #[tokio::test]
-    async fn test_terminal_plugin_close_inbound_idempotent() {
+    async fn test_terminal_plugin_init_noop() {
         let plugin = TerminalPlugin::new();
-        plugin.close_inbound().await.unwrap();
-        plugin.close_inbound().await.unwrap();
-    }
-
-    /// TerminalPlugin close_outbound is idempotent.
-    #[tokio::test]
-    async fn test_terminal_plugin_close_outbound_idempotent() {
-        let plugin = TerminalPlugin::new();
-        plugin.close_outbound().await.unwrap();
-        plugin.close_outbound().await.unwrap();
+        plugin.init().await.unwrap();
     }
 
     // DSL skip rendering tests (Step 1.7) — plugin-level

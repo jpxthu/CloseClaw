@@ -606,6 +606,9 @@ impl IMPlugin for FeishuPlugin {
             peer_id: message.to,
             content: message.content,
             timestamp: message.timestamp,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: message.metadata.get("thread_id").cloned(),
             account_id: message.metadata.get("account_id").cloned(),
             card_action: message.metadata.get("card_action").map(|v| v == "true"),
@@ -682,18 +685,34 @@ impl IMPlugin for FeishuPlugin {
         }
     }
 
-    async fn close_inbound(&self) -> Result<(), AdapterError> {
+    async fn shutdown(&self) -> Result<(), AdapterError> {
         // Feishu uses stateless HTTP webhooks — nothing to disconnect.
         // Clear the cached tenant token to release resources.
         *self.adapter.cached_token.lock().await = None;
         Ok(())
     }
 
-    async fn close_outbound(&self) -> Result<(), AdapterError> {
-        // Feishu sends via stateless HTTP — no queue to drain.
-        // Clear the cached tenant token to release resources.
-        *self.adapter.cached_token.lock().await = None;
-        Ok(())
+    fn clean_content(&self, raw: &str) -> String {
+        // Remove Feishu `<at user_id="...">name</at>` tags.
+        let mut result = raw.to_string();
+        loop {
+            let open_tag = "<at ";
+            let Some(start) = result.find(open_tag) else {
+                break;
+            };
+            let Some(gt_offset) = result[start..].find('>') else {
+                break;
+            };
+            let after_open = start + gt_offset + 1; // position after '>'
+            if let Some(close_pos) = result[after_open..].find("</at>") {
+                let end = after_open + close_pos + "</at>".len();
+                result.replace_range(start..end, "");
+            } else {
+                // No closing tag — just remove the opening tag.
+                result.replace_range(start..=start + gt_offset, "");
+            }
+        }
+        result.trim().to_string()
     }
 }
 

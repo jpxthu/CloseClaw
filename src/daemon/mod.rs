@@ -540,7 +540,7 @@ impl Daemon {
 
     /// Phase 1: Inbound shutdown + drain.
     ///
-    /// - Calls `close_inbound()` on all registered IM plugins
+    /// - Calls `shutdown()` on all registered IM plugins
     /// - Initiates graceful drain (waits for in-flight operations)
     /// - Monitors for escalation signals (repeated SIGTERM/SIGINT)
     async fn phase_1_inbound_drain(
@@ -548,14 +548,14 @@ impl Daemon {
         sigint: &mut tokio::signal::unix::Signal,
         sigterm: &mut tokio::signal::unix::Signal,
     ) {
-        // Close inbound on all registered plugins
+        // Shutdown all registered plugins
         let plugins = self.gateway.get_all_plugins().await;
         for plugin in &plugins {
-            if let Err(e) = plugin.close_inbound().await {
+            if let Err(e) = plugin.shutdown().await {
                 tracing::warn!(
                     platform = plugin.platform(),
                     error = %e,
-                    "failed to close inbound — continuing"
+                    "failed to shutdown plugin — continuing"
                 );
             }
         }
@@ -760,19 +760,8 @@ impl Daemon {
         }
     }
 
-    /// Phase 5: Outbound shutdown — close outbound connections and clean
-    /// routing tables.
+    /// Phase 5: Outbound shutdown — clean up routing tables.
     async fn phase_5_outbound_close(&self) {
-        let plugins = self.gateway.get_all_plugins().await;
-        for plugin in &plugins {
-            if let Err(e) = plugin.close_outbound().await {
-                tracing::warn!(
-                    platform = plugin.platform(),
-                    error = %e,
-                    "failed to close outbound — continuing"
-                );
-            }
-        }
         // Gateway routing tables and processor registry are cleaned up
         // implicitly when the Gateway is dropped (end of run).
     }

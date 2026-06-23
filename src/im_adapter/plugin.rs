@@ -99,6 +99,7 @@ pub struct RenderedOutput {
 ///
 /// let plugin = MockPlugin;
 /// assert_eq!(plugin.platform(), "mock");
+/// assert_eq!(plugin.clean_content("hello"), "hello");
 /// ```
 #[async_trait]
 pub trait IMPlugin: Send + Sync {
@@ -206,19 +207,29 @@ pub trait IMPlugin: Send + Sync {
         thread_id: Option<&str>,
     ) -> Result<(), AdapterError>;
 
-    /// Close inbound connections (e.g. unsubscribe webhook, disconnect WebSocket).
+    /// Clean platform-native text by removing platform-specific markers.
     ///
-    /// Called during daemon Phase 1 (inbound shutdown) to stop accepting new
-    /// messages from the platform. Default implementation is a no-op.
-    async fn close_inbound(&self) -> Result<(), AdapterError> {
+    /// Receives raw platform text (e.g. Feishu `<at>` tags, Discord mentions)
+    /// and returns cleaned plain text. Called by the Processor Chain
+    /// ContentNormalizer.
+    ///
+    /// The default implementation passes text through unchanged.
+    fn clean_content(&self, raw: &str) -> String {
+        raw.to_string()
+    }
+
+    /// Initialize the plugin on startup (connect pool, token, etc.).
+    ///
+    /// Plugins that do not need initialization can use the default no-op.
+    async fn init(&self) -> Result<(), AdapterError> {
         Ok(())
     }
 
-    /// Close outbound connections (e.g. drain send queue, disconnect API client).
+    /// Shut down the plugin and release resources.
     ///
-    /// Called during daemon Phase 5 (outbound shutdown) to stop sending
-    /// messages to the platform. Default implementation is a no-op.
-    async fn close_outbound(&self) -> Result<(), AdapterError> {
+    /// Called during daemon shutdown to clean up connections, caches, etc.
+    /// Plugins that do not need cleanup can use the default no-op.
+    async fn shutdown(&self) -> Result<(), AdapterError> {
         Ok(())
     }
 }

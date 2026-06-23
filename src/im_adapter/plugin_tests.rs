@@ -488,6 +488,38 @@ mod tests {
     }
 
     // =========================================================================
+    // clean_content tests
+    // =========================================================================
+
+    #[test]
+    fn test_default_clean_content_passthrough() {
+        let plugin = DefaultMockPlugin;
+        assert_eq!(plugin.clean_content("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_default_clean_content_empty() {
+        let plugin = DefaultMockPlugin;
+        assert_eq!(plugin.clean_content(""), "");
+    }
+
+    // =========================================================================
+    // init/shutdown default tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_default_init_noop() {
+        let plugin = DefaultMockPlugin;
+        plugin.init().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_default_shutdown_noop() {
+        let plugin = DefaultMockPlugin;
+        plugin.shutdown().await.unwrap();
+    }
+
+    // =========================================================================
     // ContentSegment integration tests
     // =========================================================================
 

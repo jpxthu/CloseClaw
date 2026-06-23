@@ -349,54 +349,50 @@ mod tests {
         assert_eq!(msg.thread_id, None);
     }
 
-    // ── lifecycle hook tests (Step 1.1) ──────────────────────────────
+    // ── lifecycle hook tests (Step 1.2) ──────────────────────────────
 
-    /// close_inbound on FeishuAdapter succeeds (clears cached token).
+    /// shutdown on FeishuPlugin clears cached token and succeeds.
     #[tokio::test]
-    async fn test_feishu_adapter_close_inbound_succeeds() {
-        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
-        // Trigger a token fetch attempt (will fail with bad creds, but
-        // that's fine — we just need close_inbound to not panic).
-        adapter.close_inbound().await.unwrap();
-    }
-
-    /// close_outbound on FeishuAdapter succeeds (clears cached token).
-    #[tokio::test]
-    async fn test_feishu_adapter_close_outbound_succeeds() {
-        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
-        adapter.close_outbound().await.unwrap();
-    }
-
-    /// close_inbound on FeishuPlugin delegates to adapter and succeeds.
-    #[tokio::test]
-    async fn test_feishu_plugin_close_inbound() {
+    async fn test_feishu_plugin_shutdown() {
         let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
         let plugin = FeishuPlugin::new(adapter);
-        plugin.close_inbound().await.unwrap();
+        plugin.shutdown().await.unwrap();
     }
 
-    /// close_outbound on FeishuPlugin delegates to adapter and succeeds.
+    /// shutdown is idempotent — calling twice still succeeds.
     #[tokio::test]
-    async fn test_feishu_plugin_close_outbound() {
+    async fn test_feishu_plugin_shutdown_idempotent() {
         let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
         let plugin = FeishuPlugin::new(adapter);
-        plugin.close_outbound().await.unwrap();
+        plugin.shutdown().await.unwrap();
+        plugin.shutdown().await.unwrap();
     }
 
-    /// close_inbound is idempotent — calling twice still succeeds.
+    /// init on FeishuPlugin is a no-op (default).
     #[tokio::test]
-    async fn test_feishu_adapter_close_inbound_idempotent() {
-        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
-        adapter.close_inbound().await.unwrap();
-        adapter.close_inbound().await.unwrap();
+    async fn test_feishu_plugin_init_noop() {
+        let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
+        let plugin = FeishuPlugin::new(adapter);
+        plugin.init().await.unwrap();
     }
 
-    /// close_outbound is idempotent — calling twice still succeeds.
-    #[tokio::test]
-    async fn test_feishu_adapter_close_outbound_idempotent() {
-        let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
-        adapter.close_outbound().await.unwrap();
-        adapter.close_outbound().await.unwrap();
+    /// clean_content removes Feishu <at> tags.
+    #[test]
+    fn test_feishu_plugin_clean_content() {
+        let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
+        let plugin = FeishuPlugin::new(adapter);
+        assert_eq!(
+            plugin.clean_content("hello <at user_id=\"ou_x\">Alice</at> world"),
+            "hello  world"
+        );
+    }
+
+    /// clean_content passes through text without <at> tags.
+    #[test]
+    fn test_feishu_plugin_clean_content_no_at() {
+        let adapter = Arc::new(FeishuAdapter::new("a".into(), "s".into(), "t".into()));
+        let plugin = FeishuPlugin::new(adapter);
+        assert_eq!(plugin.clean_content("hello world"), "hello world");
     }
 
     // ── root_id URL encoding test ──────────────────────────────────────
