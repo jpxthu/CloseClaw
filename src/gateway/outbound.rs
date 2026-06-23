@@ -4,6 +4,7 @@
 //! [`IMPlugin`](crate::im::IMPlugin) registry.
 
 use super::{Gateway, GatewayError, Message};
+use crate::common::VerbosityLevel;
 use crate::im::IMPlugin;
 use crate::llm::types::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedResponse, UnifiedUsage,
@@ -119,30 +120,42 @@ impl Gateway {
             return Ok(());
         }
 
-        // 3. Extract dsl_result (serialized as a JSON string by DslParser).
+        // 3. Apply verbosity filtering.
+        let verbosity_level = if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            cs.read().await.verbosity_level()
+        } else {
+            VerbosityLevel::default()
+        };
+        let blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
+
+        // 4. Extract dsl_result (serialized as a JSON string by DslParser).
         let dsl_result: Option<DslParseResult> = processed
             .metadata
             .get("dsl_result")
             .and_then(|v| v.as_str())
             .and_then(|s| serde_json::from_str(s).ok());
 
-        // 4. Render via the plugin; fall back to a single Text block when
+        // 5. Render via the plugin; fall back to a single Text block when
         // content_blocks is empty.
         let rendered = {
             let owned_fallback;
-            let blocks: &[ContentBlock] = if processed.content_blocks.is_empty() {
+            let render_blocks: &[ContentBlock] = if blocks.is_empty() {
                 owned_fallback = vec![ContentBlock::Text(processed.content.clone())];
                 &owned_fallback
             } else {
-                &processed.content_blocks
+                &blocks
             };
-            plugin.render(blocks, dsl_result.as_ref())
+            plugin.render(render_blocks, dsl_result.as_ref())
         };
 
-        // 5. Resolve thread_id from session checkpoint.
+        // 6. Resolve thread_id from session checkpoint.
         let thread_id = self.session_manager.get_thread_id(session_id).await;
 
-        // 6. Dispatch by msg_type and persist checkpoint on success.
+        // 7. Dispatch by msg_type and persist checkpoint on success.
         self.dispatch_and_persist(DispatchCtx {
             plugin: &plugin,
             rendered: &rendered,
@@ -317,6 +330,19 @@ impl Gateway {
                 .await?;
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
+
+        // Apply verbosity filtering on accumulated content blocks.
+        let verbosity_level = if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            cs.read().await.verbosity_level()
+        } else {
+            VerbosityLevel::default()
+        };
+        state.content_blocks = filter_by_verbosity(state.content_blocks, verbosity_level);
+
         Ok(StreamState::into_result(state))
     }
 
@@ -476,4 +502,27 @@ async fn send_dsl_lines(
     let rendered = plugin.render(&blocks, Some(&dsl_result));
     plugin.send(&rendered, chat_id, thread_id).await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Verbosity filtering
+// ---------------------------------------------------------------------------
+
+/// Filter content blocks based on the session's verbosity level.
+///
+/// - [`VerbosityLevel::Full`]: no filtering, all blocks are kept.
+/// - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks.
+/// - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks.
+fn filter_by_verbosity(blocks: Vec<ContentBlock>, level: VerbosityLevel) -> Vec<ContentBlock> {
+    match level {
+        VerbosityLevel::Full => blocks,
+        VerbosityLevel::Normal => blocks
+            .into_iter()
+            .filter(|b| !matches!(b, ContentBlock::Thinking(_)))
+            .collect(),
+        VerbosityLevel::Off => blocks
+            .into_iter()
+            .filter(|b| matches!(b, ContentBlock::Text(_)))
+            .collect(),
+    }
 }
