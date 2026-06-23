@@ -110,5 +110,12 @@
     "commit_time": "2026-06-24T00:32:37+08:00",
     "confirmed_time": "2026-06-24T00:40:07.513102+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/im_adapter/platforms/feishu.md",
+    "commit": "080d0def9922a0277ef958aa4e7103d998ce73d7",
+    "commit_time": "2026-06-24T06:34:44+08:00",
+    "confirmed_time": "2026-06-24T06:40:55.193208+08:00",
+    "comment": ""
   }
 ]
