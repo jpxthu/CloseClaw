@@ -58,7 +58,11 @@ impl IMPlugin for FeishuPlugin {
             peer_id: message.to,
             content: message.content,
             timestamp: message.timestamp,
-            message_type: "text".to_string(),
+            message_type: message
+                .metadata
+                .get("message_type")
+                .cloned()
+                .unwrap_or_else(|| "text".to_string()),
             media_refs: vec![],
             quoted_message: None,
             thread_id: message.metadata.get("thread_id").cloned(),
