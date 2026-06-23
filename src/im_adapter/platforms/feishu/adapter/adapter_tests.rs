@@ -249,6 +249,25 @@ fn test_expand_post_multiple_rows() {
     assert_eq!(expand_post_content(&content), "line1\nline2");
 }
 
+#[test]
+fn test_expand_post_title_with_mixed_elements() {
+    let content = serde_json::json!({
+        "title": "Mixed Post",
+        "content": [
+            [{"tag": "text", "text": "Hello "}, {"tag": "at", "name": "Bob"}],
+            [{"tag": "img"}],
+            [{"tag": "text", "text": "Caption"}],
+            [{"tag": "file"}],
+            [{"tag": "media"}],
+            [{"tag": "a", "text": "link", "href": "https://x.com"}]
+        ]
+    });
+    assert_eq!(
+        expand_post_content(&content),
+        "Mixed Post\nHello @Bob\n[图片]\nCaption\n[文件]\n[视频]\nlink"
+    );
+}
+
 // ===========================================================================
 // parse_message_event tests
 // ===========================================================================
