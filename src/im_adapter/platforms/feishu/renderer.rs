@@ -39,6 +39,12 @@ pub(crate) enum CardElement {
     Action { actions: Vec<CardAction> },
     #[serde(rename = "note")]
     Note { elements: Vec<CardNoteElement> },
+    #[serde(rename = "collapsible_panel")]
+    #[allow(dead_code)]
+    CollapsiblePanel {
+        header: CollapsiblePanelHeader,
+        elements: Vec<CardElement>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,8 +74,14 @@ pub(crate) struct CardAction {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CardText {
-    tag: String,
-    content: String,
+    pub(crate) tag: String,
+    pub(crate) content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CollapsiblePanelHeader {
+    pub(crate) title: CardText,
+    pub(crate) icon_tag: String,
 }
 
 // ---------------------------------------------------------------------------
