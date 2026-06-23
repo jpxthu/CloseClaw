@@ -26,14 +26,13 @@ per-agent 覆盖（agents/<agent_id>/config.json 中的 memory 段）
 
 ### 启用规则
 
-mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才激活。
+mining、dreaming、search 各有独立开关，各开关独立控制对应子功能的激活状态。
 
 ### 存储
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `storage.db_path` | string | `memory/memory.db` | SQLite 数据库文件路径 |
-| `storage.markdown_path` | string | `memory/entries/` | Markdown 记忆条目目录 |
 | `storage.memory_md_path` | string | `memory/MEMORY.md` | dreaming 产出的行为规则文件路径 |
 
 路径均相对于 CloseClaw 数据根目录（`~/.closeclaw/`，见 [platform](../platform/README.md)）。
@@ -43,8 +42,9 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `mining.enabled` | bool | `false` | 必须显式设为 `true` 才启用挖掘 |
-| `mining.model` | string | 继承全局默认模型 | Miner 1 和 Miner 2 使用的模型 |
+| `mining.model` | string | 继承全局默认模型 | Miner 1 和 Miner 2 使用的模型。当前共用同一模型；Miner 2 设计落地后若需独立模型，再扩展 `mining.miner2_model` |
 | `mining.max_events_per_session` | int | `10` | 每次挖掘最多产出的 event 数 |
+| `mining.dedup_window_days` | int | `30` | Miner 1 去重时读取近期 event 的时间窗口（天） |
 | `mining.transcript_clean_rules` | object | `{}` | transcript 清洗规则配置 |
 
 **transcript_clean_rules**：
@@ -61,9 +61,11 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 |------|------|--------|------|
 | `dreaming.enabled` | bool | `false` | 必须显式设为 `true` 才启用做梦 |
 | `dreaming.schedule` | string | `0 3 * * *` | cron 表达式，由 Daemon DreamingScheduler 消费 |
-| `dreaming.model` | string | 继承全局默认模型 | 教训浓缩步骤使用的模型 |
+| `dreaming.model` | string | 继承全局默认模型 | 教训浓缩和 Dream Diary 使用的模型 |
 
 **评分权重**：
+
+> entity type 自身权重（subject=1.5, action=1.3 等）定义在 [entity-types](entity-types.md) 中，存储在 entity_types 表，不在配置中。以下权重为 Deep 阶段在各维度上的额外乘数。
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -85,7 +87,7 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `dreaming.diary.enabled` | bool | `true` | dreaming 开启后默认打开 |
+| `dreaming.diary.enabled` | bool | `true` | 开启 dreaming 后默认打开。dreaming.enabled 为 false 时 diary 不生效 |
 | `dreaming.diary.path` | string | `memory/diary/` | 日记文件目录 |
 
 ### 搜索（active-searcher）
@@ -93,7 +95,7 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `search.enabled` | bool | `false` | 必须显式设为 `true` 才启用搜索 |
-| `search.model` | string | 独立低开销模型 | 概念提取使用的模型，追求便宜 + 快 |
+| `search.model` | string | 继承全局默认模型 | 概念提取使用的模型，追求便宜 + 快。search.enabled 为 false 时不校验
 | `search.context_turns` | int | `5` | 提取查询概念时携带的最近对话轮数 |
 | `search.timeout_ms` | int | `3000` | 搜索超时（毫秒） |
 | `search.max_summary_chars` | int | `500` | 浓缩摘要最大字符数 |
@@ -102,12 +104,15 @@ mining、dreaming、search 各有独立开关，均为 `true` 时对应功能才
 
 ### per-agent 覆盖
 
-agent 配置文件中声明 memory 段，字段级合并覆盖全局配置。示例：
+agent 配置文件中声明 memory 段，字段级合并覆盖全局配置。
 
+- per-agent 不声明 memory 段 → 继承全局全部 memory 配置（不会因为不声明段而被视为关闭）
+- 如需在 per-agent 关闭某子功能：显式声明 `memory.search.enabled = false`
+- 如需在 per-agent 调整个别参数：仅声明需覆盖的字段，其余继承全局
+
+示例：
 - 声明 `memory.dreaming.threshold.absolute` 为 `3.0`，覆盖全局默认值 `2.0`
 - 声明 `memory.search.context_turns` 为 `8`，覆盖全局默认值 `5`
-
-未声明的字段继承全局配置。无需覆盖的场景不声明 memory 段即可。
 
 ## 数据流
 
