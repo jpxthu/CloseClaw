@@ -354,15 +354,21 @@ impl FeishuAdapter {
     }
 
     /// Parse a regular message event into a Message.
-    fn parse_message_event(&self, event: FeishuEvent) -> Result<Message, AdapterError> {
+    ///
+    /// Returns `Ok(None)` for non-text message types (image, file, audio, etc.).
+    fn parse_message_event(&self, event: FeishuEvent) -> Result<Option<Message>, AdapterError> {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let text = content
-            .get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
+        let text = match event.event.message_type.as_str() {
+            "text" => content
+                .get("text")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string(),
+            "post" => expand_post_content(&content),
+            _ => return Ok(None),
+        };
 
         let thread_id = event
             .event
@@ -370,12 +376,15 @@ impl FeishuAdapter {
             .or(event.event.root_id)
             .or(event.event.parent_id);
 
-        let mut metadata = HashMap::from([("account_id".to_string(), event.header.app_id.clone())]);
+        let mut metadata = HashMap::from([
+            ("account_id".to_string(), event.header.app_id.clone()),
+            ("message_type".to_string(), event.event.message_type.clone()),
+        ]);
         if let Some(tid) = thread_id {
             metadata.insert("thread_id".to_string(), tid);
         }
 
-        Ok(Message {
+        Ok(Some(Message {
             id: event.header.event_id,
             from: event.event.sender.sender_id.open_id,
             to: String::new(),
@@ -384,7 +393,7 @@ impl FeishuAdapter {
             timestamp: chrono::Utc::now().timestamp(),
             metadata,
             thread_id: None,
-        })
+        }))
     }
 }
 
@@ -427,7 +436,7 @@ impl IMAdapter for FeishuAdapter {
             _ => {
                 let event: FeishuEvent = serde_json::from_value(raw)
                     .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-                Ok(Some(self.parse_message_event(event)?))
+                self.parse_message_event(event)
             }
         }
     }
