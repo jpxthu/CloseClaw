@@ -5,7 +5,6 @@ mod tests {
     use crate::im_adapter::NormalizedMessage;
     use crate::llm::types::ContentBlock;
     use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
-    use crate::renderer::terminal::BOLD;
     use crate::renderer::RenderedOutput;
 
     // =========================================================================

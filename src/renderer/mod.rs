@@ -1,23 +1,11 @@
 //! Renderer — rendering layer infrastructure.
 //!
-//! This module provides the core types and trait for rendering LLM output
-//! to platform-specific formats:
+//! This module re-exports core rendering types for convenience:
 //! - [`RenderedOutput`] — output type from a renderer
 //!
-//! # Example
-//! ```
-//! use closeclaw::renderer::RenderedOutput;
-//!
-//! let output = RenderedOutput {
-//!     msg_type: "text".into(),
-//!     payload: serde_json::json!("Hello"),
-//! };
-//! assert_eq!(output.msg_type, "text");
-//! ```
+//! Platform-specific rendering logic (Feishu, Terminal) now lives in the
+//! corresponding `IMPlugin` implementations under `src/im/`.
 
-pub mod terminal;
-#[cfg(test)]
-pub mod terminal_tests;
 pub use crate::im_adapter::{code_block, streaming};
 
 pub use crate::im_adapter::RenderedOutput;
