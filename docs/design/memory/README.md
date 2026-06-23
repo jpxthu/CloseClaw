@@ -2,106 +2,86 @@
 
 ## 概述
 
-Memory 模块为 agent 提供长期记忆能力——从会话中挖掘值得保留的信息，定期升格浓缩，在后续对话中适时注入，让 agent 跨 session 保持对用户偏好、历史决策和关键事实的记忆。
+Memory 模块为 agent 提供长期记忆能力——从 session 中挖掘 event 和 lesson，通过 entity 关联构建跨 session 的记忆网络，在后续对话中适时注入，让 agent 跨 session 保持对用户偏好、历史决策和行为边界的学习。
 
 ## 架构
 
-Memory 体系由三模块组成，围绕一个共享记忆存储运转，两种触发机制互补：
+Memory 体系由三个子功能模块 + 一个类型体系组成，以 SQLite 为单一存储引擎。
 
-```
-触发 1：Sub-agent session 结束
-  会话结束 hook → memory-miner 即时触发
-  （生命周期明确的 session）
+**核心组件**
+1. memory-miner：两段式挖掘
+   - Miner 1：独立 session，从清洗后的 transcript 挖掘 event + lesson
+   - Miner 2：独立 session，读取本 agent 的 entity/type 目录，为 event 分配 entity
+2. event 持久化到 SQLite events 表，entity 写入 SQLite entities 表（per-agent 隔离，UNIQUE 键：agent_id + type + normalized_name），通过 event_entities 关联表维护多对多关系
+3. dreaming：定期触发，消费 SQL events，entity 级频次评分 + 跨条目 lesson 浓缩
+4. MEMORY.md：可执行的行为规则，dreaming 升格后写入（路径通过 `storage.memory_md_path` 配置）
+5. Dream Diary（可选）：dreaming 的叙事摘要，写入独立日记文件
+6. active-searcher：每条消息触发，从本 agent 的 entity 索引搜索匹配 entity，关联 event 注入消息列表
 
-触发 2：定时 dreaming 任务（由 Daemon 层 DreamingScheduler 驱动）
-  定时扫 archived 会话 → 先 dreaming（处理上轮 mining 产出的条目）→ 再 memory-miner（挖新会话的 transcript，供下轮 dreaming 消费）
-  （owner 会话等无明确结束点的会话）
+**触发机制**：两种互补的触发机制：
 
-────────────────────────────────────────────
+- **触发 1**：Sub-agent session 结束 hook → memory-miner 即时触发（生命周期明确的 session）
+- **触发 2**：Daemon DreamingScheduler 定时触发，先执行 dreaming 再执行 mining
+  1. dreaming：处理已 mining 的 event（增量读取）
+  2. memory-miner：扫描 archived 且 mined=false 的 session，挖掘新 transcript
+  dreaming 先于 mining 执行：若尚无已 mining 的 event（初始状态），dreaming 本次为空操作，mining 产出 event 后下一轮 dreaming 即可消费。适用于 owner session 等无明确结束点的 session
 
-memory-miner     —— 独立 session 挖掘会话 transcript，产出结构化记忆条目
-  │
-  ▼
-结构化记忆条目（Markdown 多文件，按来源会话组织）
-  │
-  ▼
-dreaming         —— 定期触发，三阶段升格（Light→REM→Deep），写入 MEMORY.md
-  │
-  ▼
-MEMORY.md（浓缩版长期记忆）→ system_prompt 直接注入
+### 存储
 
-active-searcher  —— 每条消息触发搜索记忆条目，浓缩摘要插入消息列表
-```
+SQLite 存储结构化索引数据（entities 表、events 表、entity_types 表、event_entities 关联表），提供 UNIQUE 约束保证 entity 不重复（per-agent 隔离），提供索引支持高效查询。
 
-- **记忆条目 Schema**：每条条目包含类别（preference / decision / lesson / fact）、正文、时间戳、来源会话
-- **存储格式**：Markdown 多文件，按来源会话组织，人类可读
-- **搜索索引**：BM25 + 向量混合检索，支持增量更新
+dreaming 产出 MEMORY.md（可执行的行为规则）和 Dream Diary（可选叙事摘要），不作为独立的记忆存储层——原始 event 和 entity 全部在 SQLite 中。
 
-### 配置与开关
+### 实体类型
 
-记忆功能通过配置开启，不配 = 全部关闭。
+沿用 [SAG](https://github.com/Zleap-AI/SAG)（MIT License）的 11 种 entity type：time / location / person / organization / subject / product / metric / action / work / group / tags。详见 [entity-types](entity-types.md)。
 
-- **全局配置**：定时做梦时段、挖掘使用的模型、搜索模型
-- **agent 覆盖**：每个 agent 可独立覆盖全局配置
-- **不开不跑**：未配置的 agent 不触发任何记忆功能
-
-### 子功能文档
+### 子功能目录
 
 | 子功能 | 简述 |
 |--------|------|
-| [memory-miner](memory-miner.md) | 会话 transcript 产出后，独立 session 挖掘，产出结构化记忆条目 |
-| [active-searcher](active-searcher.md) | 每条消息触发搜索，浓缩摘要插入消息列表 |
-| [dreaming](dreaming.md) | 定期三阶段记忆升格，将高价值条目写入 MEMORY.md |
+| [memory-miner](memory-miner.md) | 两段式挖掘：Miner 1 产出 event + lesson → Miner 2 分配 entity |
+| [dreaming](dreaming.md) | 定期消费 SQL events，entity 级频次评分 + LLM 跨条目 lesson 浓缩，产出 MEMORY.md |
+| [active-searcher](active-searcher.md) | 每条消息触发搜索匹配 entity 并注入消息列表 |
+| [entity-types](entity-types.md) | 11 种 entity type 定义（沿用 SAG，MIT License） |
+| [config](config.md) | 配置项与默认值，global + per-agent 覆盖 |
+
+### 配置与开关
+
+记忆功能通过配置显式开启，不配 = 全部关闭。mining、dreaming、search 各有独立开关。支持 global 配置和 per-agent 覆盖。配置支持热重载（修改后无需重启）。详见 [config](config.md)。
 
 ## 数据流
 
-### 记忆挖掘与升格
+### 完整路径
 
-```
-会话 transcript
-    │
-    ▼
-memory-miner 挖掘（两种触发）
-    │  触发 1：sub-agent session 结束 hook
-    │  触发 2：Daemon DreamingScheduler 扫描 archived 且 mined=false 的会话
-    │  输入：完整会话 transcript + 已有记忆条目 + 近期日常记忆
-    │  处理：独立 session，专用挖掘 prompt
-    │  输出：结构化记忆条目（类别、正文、时间戳、来源会话）
-    │  完成后：标记 mined=true
-    │
-    ▼
-dreaming 定时升格（Daemon DreamingScheduler 驱动）
-    │  输入：结构化记忆条目（mined=true 且未 dreaming 的会话对应条目）
-    │  处理：Light（去重分块）→ REM（模式提取）→ Deep（多维加权评分）
-    │  输出：MEMORY.md（仅高价值条目）
-    │
-    ▼
-MEMORY.md → system_prompt 直接注入
-
-> MEMORY.md 的更新不会立刻反映到活跃 session 的 system prompt：system_prompt 静态层在 session 创建/恢复/compaction 时构建并缓存。dreaming 写入 MEMORY.md 后，活跃 session 读到的仍是缓存副本，直到下次 compaction 或新 session 创建才会刷新。
-```
-
-### 记忆注入（两条并行路径）
-
-```
-路径 1：Session 启动
-  system_prompt 组装时读取 MEMORY.md → 注入 static system prompt
-
-路径 2：每条消息
-  当前消息 + 上下文 → active-searcher 搜索 → 浓缩摘要 → 插入消息列表（tool role）
-  （注入时机与去重规则详见 active-searcher.md）
-```
+1. memory-miner 挖掘（两种触发：sub-agent session 结束 hook 或 Daemon DreamingScheduler 定时扫描）
+   - Miner 1（LLM session）：输入（transcript + 已有 event 列表 + 已有 MEMORY.md）→ 提取 event + lesson（类别 error/anger/decision）
+   - Miner 2（LLM session）：Miner 1 的 event 列表 + 完整 entity/type 目录（SQL → 固定排序文本）→ 分配 entity
+2. 写入 SQLite
+   - events 表：event 持久化（标题、摘要、正文、类别、lesson、来源 session、时间戳）
+   - entities 表：新 entity 写入（UNIQUE 约束自动去重）
+   - event_entities 关联表
+   - 标记 session mined=true（写入 session 模块的 sessions 表 mined、mined_at 字段）
+3. dreaming 定时升格（Daemon DreamingScheduler 驱动）
+   - 输入：mined=true 的 session 对应 event（从 SQL 增量读取）
+   - 处理：Light（增量读取+去重+分块）→ REM（entity 级聚类+频次统计+跨 agent 标记）→ Deep（entity 级多维评分+type weight 加权+三道门槛过滤）→ LLM 跨条目 lesson 浓缩
+   - 输出：MEMORY.md（可执行的行为规则，路径通过 `storage.memory_md_path` 配置）+ Dream Diary（可选叙事摘要，路径通过 `dreaming.diary.path` 配置）
+   - 防污染：dreaming 产出不写回 SQLite，后续 dreaming 增量读取时自然不会包含自身产出
+4. active-searcher 搜索：当前消息 + 上下文 → 提取查询概念 → SQL entities 索引命中匹配 → 关联 event → 去重过滤（per-session 已注入 ID 集合）→ 浓缩摘要 → 写入 `memory_injection` 槽位（tool role）
+   - 特殊角色（memory-miner 自身、dreaming 浓缩 session）不触发 active-searcher
 
 ## 模块关系
 
 - **上游**：
-  - session 模块：sub-agent session 结束时触发 memory-miner（hook 机制）
-  - daemon 模块：定时 dreaming 任务（DreamingScheduler），扫描 archived 会话触发 mining + dreaming
-
+  - session 模块：产出会话 transcript，触发 memory-miner；spawn active-searcher 子 session；消费 `memory_injection` 槽位
+  - daemon 模块：DreamingScheduler 定时触发 dreaming 和 memory-miner
+  - SQLite（entity/type 目录）：Miner 2 分配 entity 时读取
 - **下游**：
-  - system_prompt 模块：直接读取 MEMORY.md，作为 static system prompt 的长期记忆段来源
-  - session 模块：active-searcher 的 tool role 摘要写入 `memory_injection` 槽位，由 session 下次组装消息时消费
+  - session 模块：active-searcher 写入 `memory_injection` 槽位，供消息组装时消费
+  - system_prompt 模块：读取 MEMORY.md 作为 MemorySection 来源（路径通过 `storage.memory_md_path`）
+  - SQLite events/entities/event_entities 表：写入
 
 - **无关**：
   - skills 模块：Memory 是基础设施层，不直接与 skills 交互
-  - tools 模块：搜索索引的 BM25/向量检索是内部基础设施，不对 agent 暴露为 tool
+  - tools 模块：搜索索引是内部基础设施，不对 agent 暴露为 tool
+  - system_prompt 模块：memory-miner 不直接写入 system prompt
