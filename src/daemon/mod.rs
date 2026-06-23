@@ -24,7 +24,6 @@ type StartupPlan = (
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::im::terminal::TerminalPlugin;
-use crate::renderer::feishu::FeishuRenderer;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
 use crate::slash::registry::HandlerRegistry;
@@ -914,9 +913,7 @@ impl Daemon {
             (app_id, app_secret, verification_token)
         {
             let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
-            let renderer = Arc::new(FeishuRenderer::new());
-            let plugin: Arc<dyn crate::im::IMPlugin> =
-                Arc::new(FeishuPlugin::new(adapter, renderer));
+            let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(FeishuPlugin::new(adapter));
             gateway.register_plugin(plugin).await;
             info!("Feishu plugin registered");
         } else {

@@ -15,7 +15,6 @@
 //! assert_eq!(output.msg_type, "text");
 //! ```
 
-pub mod feishu;
 pub mod terminal;
 #[cfg(test)]
 pub mod terminal_tests;
