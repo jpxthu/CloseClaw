@@ -26,13 +26,13 @@ ProcessedMessage { content, metadata { session_key } }
 [Gateway]
   → SessionManager.resolve(session_key) → 获得 session_id
   → content 以 / 开头？
-    ├─ 是 → SlashDispatcher（不进入 LLM）
+    ├─ 是 → 先拦截 /approve、/deny → SlashDispatcher（不进入 LLM）
     └─ 否 → Session → LLM → ContentBlock[]（进入出站）
 ```
 
 ### 关键设计
 
-- **斜杠指令在 Gateway 层统一拦截**，不进入 LLM 对话循环。斜杠指令走完整的入站链（保证日志记录和 session_id 获取），在 Gateway 层被识别后先拦截 `/approve`、`/deny`（owner 专用），其余斜杠分派给 SlashDispatcher，不进入 Session / LLM。
+- **斜杠指令在 Gateway 层统一拦截**，不进入 LLM 对话循环。斜杠指令走完整的入站链（保证日志记录和 session_id 获取），在 Gateway 层被识别后先拦截 `/approve`、`/deny`（owner 专用，走审批流程验证），其余斜杠分派给 SlashDispatcher。斜杠指令消息不追加到对话历史。
 - **SessionRouter 不区分私聊和群聊**。会话粒度由插件控制——插件决定什么构成一个 `peer_id`。
 - **SessionRouter 是纯变换**。只计算 session_key，不创建 session、不查数据库。session_key 格式为 `{时间戳}-{哈希}`，哈希由路由字段和毫秒级时间戳共同计算。Session 的创建和查找由 Gateway 调用 SessionManager 完成。
 - **Processor Chain 是纯变换**。每个处理器输入消息、输出消息，不做副作用（除了 RawLog 写日志）。链的设计遵循"变换和决策分离"原则——变换归链，决策归 Gateway。
@@ -51,7 +51,7 @@ ProcessedMessage { content, metadata { session_key } }
 | `thread_id` | webhook payload | 话题 ID，可选。不参与 session key 计算，仅用于出站定向回复 |
 | `account_id` | 身份映射 | CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。身份映射由 IM 插件在解析阶段完成 |
 | `content` | webhook payload | 消息文本内容 |
-| `timestamp` | webhook payload | 消息发送时间 |
+| `timestamp` | IM 插件设置 | 消息到达时间（毫秒级 Unix 时间戳），用于 session_key 计算。|
 
 插件屏蔽了平台差异。Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。
 
@@ -74,33 +74,17 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 **ContentNormalizer（priority 30）**：对消息内容做平台无关的文本标准化。去除控制字符和 ANSI 转义序列，压缩连续空行，去行尾空格，为裸 URL 补全 `https://` 前缀，为无语言标签的代码块添加 `text` 标注。不负责平台格式转换——富文本到 markdown 的转换由各 IM 插件在解析阶段完成。
 
-链输出入站 `ProcessedMessage`（`content` 清洗后文本 + `metadata` 含 `session_key`）。
+链输出入站 `ProcessedMessage`（`content` 清洗后文本 + `metadata` 含 `session_key`）。ContentNormalizer 保留 metadata 不变，下游 Gateway 从 metadata 取出 session_key。
 
 ### 第三步：Gateway 路由
 
-Gateway 从 metadata 取出 `session_key`，调用 `SessionManager.resolve(session_key)` 获得 `session_id`。
+Gateway 从 metadata 取出 `session_key`。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败"，消息不进入 LLM。
 
-`resolve()` 内部逻辑：
-
-```
-1. 查 key_registry 映射表
-   ├─ 命中 → 返回 session_id
-   └─ 未命中 → 继续第 2 步
-
-2. 按路由字段（platform、sender_id、peer_id、account_id）查 SQLite
-   ├─ 查到 archived session → 取 last_message_at 最新的一条恢复并注册，Gateway 发通知，返回 session_id
-   └─ 查不到 → 创建新 session（串行化上下文做碰撞检测，冲突则等 100ms 重试），返回 session_id
-```
-
-SessionManager 对同一 agent_id 的所有操作（resolve、archive、restore）串行化，因此命中后不会出现"刚查到就被归档"的竞态。
-
-key_registry 在 daemon 启动时由 SessionManager 遍历 SQLite 中所有 status=active 的 session 重建。archived session 不加载。
-
-若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败"，消息不进入 LLM。
+非空时，调用 `SessionManager.resolve(session_key)` 获得 `session_id`。
 
 获得 session_id 后，Gateway 检查 content 第一个字符：
 
-**以 `/` 开头 → 斜杠指令**：消息不进入 LLM。Gateway 先拦截 `/approve`、`/deny`（owner 专用，走审批流程验证），其余斜杠指令分派给 SlashDispatcher，不进入 Session 或 LLM 对话循环。SlashDispatcher 匹配指令 → 执行对应 Handler → 返回 SlashResult → Gateway 执行副作用。
+**以 `/` 开头 → 斜杠指令**：消息不进入 LLM，不追加到对话历史。Gateway 将 session_id 传给 SlashDispatcher 作为执行上下文（权限校验依赖）。先拦截 `/approve`、`/deny`（owner 专用，走审批流程验证），其余斜杠指令分派给 SlashDispatcher。SlashDispatcher 匹配指令 → 执行对应 Handler → 返回 SlashResult → Gateway 执行副作用。
 
 **不以 `/` 开头 → 普通对话消息**：Gateway 通过 `session_id` 找到 Session（状态已在 `resolve()` 中处理完毕），消息追加到对话历史。Session 构建完整 LLM 请求（system prompt + 消息历史 + 工具列表 + skill 列表）。LLM 返回 `ContentBlock[]`，进入出站链路。
 
