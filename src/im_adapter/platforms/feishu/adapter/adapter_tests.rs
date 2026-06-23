@@ -177,13 +177,43 @@ fn test_expand_post_with_title() {
 }
 
 #[test]
-fn test_expand_post_unknown_tag_with_text() {
+fn test_expand_post_img_tag_with_text() {
     let content = serde_json::json!({
         "content": [[
             {"tag": "img", "text": "alt text"}
         ]]
     });
-    assert_eq!(expand_post_content(&content), "alt text");
+    assert_eq!(expand_post_content(&content), "[图片]");
+}
+
+#[test]
+fn test_expand_post_media_tag() {
+    let content = serde_json::json!({
+        "content": [[
+            {"tag": "media"}
+        ]]
+    });
+    assert_eq!(expand_post_content(&content), "[视频]");
+}
+
+#[test]
+fn test_expand_post_file_tag() {
+    let content = serde_json::json!({
+        "content": [[
+            {"tag": "file"}
+        ]]
+    });
+    assert_eq!(expand_post_content(&content), "[文件]");
+}
+
+#[test]
+fn test_expand_post_unknown_tag_with_text() {
+    let content = serde_json::json!({
+        "content": [[
+            {"tag": "some_unknown", "text": "fallback text"}
+        ]]
+    });
+    assert_eq!(expand_post_content(&content), "fallback text");
 }
 
 #[test]
@@ -193,7 +223,7 @@ fn test_expand_post_unknown_tag_without_text() {
             {"tag": "unknown"}
         ]]
     });
-    assert_eq!(expand_post_content(&content), "");
+    assert_eq!(expand_post_content(&content), "[未知消息]");
 }
 
 #[test]
