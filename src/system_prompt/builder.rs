@@ -37,7 +37,7 @@ const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
 ///
 /// This function only renders sections and appends the optional `append_section`.
 /// Priority-prompt resolution (override > agent > custom) is handled at the
-/// request stage by `build_full_system_prompt` in `gateway::system_prompt_inject`.
+/// request stage by [`build_full_system_prompt`] in this module's [`inject`].
 ///
 ///  1. Renders all provided sections
 ///  2. Falls back to DEFAULT_PROMPT when no sections produce output

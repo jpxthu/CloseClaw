@@ -3,8 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use super::session_handler::MessageMetadata;
-use super::system_prompt_inject::{build_dynamic_sections, build_full_system_prompt};
 use crate::system_prompt::builder::PromptOverrides;
+use crate::system_prompt::inject::{build_dynamic_sections, build_full_system_prompt};
 
 fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
     MessageMetadata {
