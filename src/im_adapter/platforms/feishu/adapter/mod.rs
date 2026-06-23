@@ -90,6 +90,71 @@ pub(super) struct FeishuCardAction {
 const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
 // ---------------------------------------------------------------------------
+// Post content expansion
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+/// Expand a Feishu post-type content JSON value into plain text.
+///
+/// The `content` parameter is the parsed JSON object with `title` (optional)
+/// and `content` (2D array of elements, each element has a `tag` field).
+///
+/// - `title` becomes the first line (if present).
+/// - Each sub-array in `content` becomes one line; elements are concatenated.
+/// - Supported tags: `text`, `a`, `at`, unknown tags use `text` if available.
+fn expand_post_content(content: &serde_json::Value) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    // Extract title as the first line if present.
+    if let Some(title) = content.get("title").and_then(|t| t.as_str()) {
+        if !title.is_empty() {
+            lines.push(title.to_string());
+        }
+    }
+
+    // Iterate over the 2D content array.
+    if let Some(rows) = content.get("content").and_then(|c| c.as_array()) {
+        for row in rows {
+            let row_text: String = row
+                .as_array()
+                .map(|elements| {
+                    elements
+                        .iter()
+                        .map(expand_element)
+                        .collect::<Vec<_>>()
+                        .join("")
+                })
+                .unwrap_or_default();
+            lines.push(row_text);
+        }
+    }
+
+    lines.join("\n")
+}
+
+#[allow(dead_code)]
+/// Expand a single post content element into plain text based on its tag.
+fn expand_element(elem: &serde_json::Value) -> String {
+    let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+    let base = match tag {
+        "text" | "a" => elem.get("text").and_then(|t| t.as_str()).unwrap_or(""),
+        _ => elem.get("text").and_then(|t| t.as_str()).unwrap_or(""),
+    };
+    match tag {
+        "at" => {
+            if let Some(name) = elem.get("name").and_then(|n| n.as_str()) {
+                format!("@{}", name)
+            } else if let Some(user_id) = elem.get("user_id").and_then(|u| u.as_str()) {
+                format!("@{}", user_id)
+            } else {
+                base.to_string()
+            }
+        }
+        _ => base.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CachedToken
 // ---------------------------------------------------------------------------
 
@@ -119,6 +184,7 @@ pub struct FeishuAdapter {
     verification_token: String,
     http_client: Client,
     pub(super) cached_token: Arc<Mutex<Option<CachedToken>>>,
+    base_url: String,
 }
 
 impl FeishuAdapter {
@@ -133,6 +199,7 @@ impl FeishuAdapter {
             verification_token,
             http_client,
             cached_token: Arc::new(Mutex::new(None)),
+            base_url: FEISHU_API_BASE.to_string(),
         }
     }
 
@@ -176,7 +243,7 @@ impl FeishuAdapter {
             .http_client
             .post(format!(
                 "{}/auth/v3/tenant_access_token/internal",
-                FEISHU_API_BASE
+                self.base_url
             ))
             .json(&TokenRequest {
                 app_id: &self.app_id,
@@ -224,7 +291,7 @@ impl FeishuAdapter {
 
         let resp: UpdateResponse = self
             .http_client
-            .patch(format!("{}/im/v1/messages/{}", FEISHU_API_BASE, message_id))
+            .patch(format!("{}/im/v1/messages/{}", self.base_url, message_id))
             .header("Authorization", format!("Bearer {}", token))
             .json(&UpdateRequest { content: &content })
             .send()
@@ -289,15 +356,21 @@ impl FeishuAdapter {
     }
 
     /// Parse a regular message event into a Message.
-    fn parse_message_event(&self, event: FeishuEvent) -> Result<Message, AdapterError> {
+    ///
+    /// Returns `Ok(None)` for non-text message types (image, file, audio, etc.).
+    fn parse_message_event(&self, event: FeishuEvent) -> Result<Option<Message>, AdapterError> {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let text = content
-            .get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
+        let text = match event.event.message_type.as_str() {
+            "text" => content
+                .get("text")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string(),
+            "post" => expand_post_content(&content),
+            _ => return Ok(None),
+        };
 
         let thread_id = event
             .event
@@ -305,12 +378,15 @@ impl FeishuAdapter {
             .or(event.event.root_id)
             .or(event.event.parent_id);
 
-        let mut metadata = HashMap::from([("account_id".to_string(), event.header.app_id.clone())]);
+        let mut metadata = HashMap::from([
+            ("account_id".to_string(), event.header.app_id.clone()),
+            ("message_type".to_string(), event.event.message_type.clone()),
+        ]);
         if let Some(tid) = thread_id {
             metadata.insert("thread_id".to_string(), tid);
         }
 
-        Ok(Message {
+        Ok(Some(Message {
             id: event.header.event_id,
             from: event.event.sender.sender_id.open_id,
             to: String::new(),
@@ -319,7 +395,7 @@ impl FeishuAdapter {
             timestamp: chrono::Utc::now().timestamp(),
             metadata,
             thread_id: None,
-        })
+        }))
     }
 }
 
@@ -362,7 +438,7 @@ impl IMAdapter for FeishuAdapter {
             _ => {
                 let event: FeishuEvent = serde_json::from_value(raw)
                     .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-                Ok(Some(self.parse_message_event(event)?))
+                self.parse_message_event(event)
             }
         }
     }
@@ -393,7 +469,7 @@ impl IMAdapter for FeishuAdapter {
             content: &serde_json::json!({ "text": &message.content }).to_string(),
         };
 
-        let mut url = format!("{}/im/v1/messages?receive_id_type=open_id", FEISHU_API_BASE);
+        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", self.base_url);
         if let Some(rid) = root_id {
             let encoded_rid: String =
                 url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
@@ -449,7 +525,7 @@ impl IMAdapter for FeishuAdapter {
             content: card_json,
         };
 
-        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", FEISHU_API_BASE);
+        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", self.base_url);
         if let Some(rid) = root_id {
             let encoded_rid: String =
                 url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
@@ -487,3 +563,6 @@ impl IMAdapter for FeishuAdapter {
         expected == signature
     }
 }
+
+#[cfg(test)]
+mod adapter_tests;
