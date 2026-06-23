@@ -4,6 +4,9 @@ pub mod admin;
 pub mod args;
 pub mod chat;
 pub mod config_wizard;
+pub mod terminal;
 
 #[cfg(test)]
 mod chat_tests;
+#[cfg(test)]
+mod terminal_tests;

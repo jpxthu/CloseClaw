@@ -3,8 +3,8 @@
 //! These tests were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
 
 use closeclaw::gateway::Message;
-use closeclaw::im::feishu::{CachedToken, FeishuAdapter};
-use closeclaw::im::IMAdapter;
+use closeclaw::im_adapter::platforms::feishu::{CachedToken, FeishuAdapter};
+use closeclaw::im_adapter::IMAdapter;
 use sha2::Digest;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};

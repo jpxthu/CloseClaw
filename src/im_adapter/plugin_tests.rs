@@ -9,9 +9,9 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
-    use crate::im::terminal::TerminalPlugin;
+    use crate::cli::terminal::TerminalPlugin;
     use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
+    use crate::im_adapter::platforms::feishu::{FeishuAdapter, FeishuPlugin};
     use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
     use crate::im_adapter::AdapterError;
     use crate::im_adapter::NormalizedMessage;
@@ -485,6 +485,38 @@ mod tests {
         let blocks = vec![ContentBlock::Text(text.into())];
         let output = plugin.render(&blocks, None);
         assert_eq!(output.msg_type, "interactive");
+    }
+
+    // =========================================================================
+    // clean_content tests
+    // =========================================================================
+
+    #[test]
+    fn test_default_clean_content_passthrough() {
+        let plugin = DefaultMockPlugin;
+        assert_eq!(plugin.clean_content("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_default_clean_content_empty() {
+        let plugin = DefaultMockPlugin;
+        assert_eq!(plugin.clean_content(""), "");
+    }
+
+    // =========================================================================
+    // init/shutdown default tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_default_init_noop() {
+        let plugin = DefaultMockPlugin;
+        plugin.init().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_default_shutdown_noop() {
+        let plugin = DefaultMockPlugin;
+        plugin.shutdown().await.unwrap();
     }
 
     // =========================================================================

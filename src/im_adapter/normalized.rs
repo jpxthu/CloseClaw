@@ -1,5 +1,28 @@
 use serde::{Deserialize, Serialize};
 
+/// Reference to a media attachment (image, file, audio) in a message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaRef {
+    /// Platform-specific media key for downloading the resource.
+    pub key: String,
+    /// URL pointing to the media resource.
+    pub url: String,
+}
+
+/// Quoted/replied-to message embedded in an inbound message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotedMessage {
+    /// Text content of the quoted message.
+    pub content: String,
+    /// Sender ID of the quoted message, if available.
+    pub sender_id: Option<String>,
+}
+
+/// Default message type when not specified.
+fn default_message_type() -> String {
+    "text".to_string()
+}
+
 /// Normalized inbound message produced by IM platform adapters.
 ///
 /// This is the unified intermediate structure across all messaging platforms,
@@ -21,6 +44,19 @@ pub struct NormalizedMessage {
 
     /// Message send time as a Unix timestamp (seconds since epoch).
     pub timestamp: i64,
+
+    /// Message type (`"text"`, `"image"`, `"file"`, `"audio"`, etc.).
+    ///
+    /// Defaults to `"text"` when the platform does not specify a type.
+    #[serde(default = "default_message_type")]
+    pub message_type: String,
+
+    /// Media attachment references (images, files, audio).
+    #[serde(default)]
+    pub media_refs: Vec<MediaRef>,
+
+    /// Quoted/replied-to message, if present. At most one level of nesting.
+    pub quoted_message: Option<QuotedMessage>,
 
     /// Optional thread/topic ID. Used for定向 replies on platforms that support
     /// threads; does **not** participate in session key calculation.
@@ -49,6 +85,9 @@ mod tests {
             peer_id: "oc_group456".to_string(),
             content: "Hello, world!".to_string(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: Some("omt_thread789".to_string()),
             account_id: Some("tenant_001".to_string()),
             card_action: None,
@@ -63,6 +102,9 @@ mod tests {
         assert_eq!(deserialized.peer_id, "oc_group456");
         assert_eq!(deserialized.content, "Hello, world!");
         assert_eq!(deserialized.timestamp, 1700000000);
+        assert_eq!(deserialized.message_type, "text");
+        assert!(deserialized.media_refs.is_empty());
+        assert!(deserialized.quoted_message.is_none());
         assert_eq!(deserialized.thread_id.as_deref(), Some("omt_thread789"));
         assert_eq!(deserialized.account_id.as_deref(), Some("tenant_001"));
         assert_eq!(deserialized.card_action, None);
@@ -76,6 +118,9 @@ mod tests {
             peer_id: "dm456".to_string(),
             content: "Direct message".to_string(),
             timestamp: 1700000000,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -90,6 +135,9 @@ mod tests {
         assert_eq!(deserialized.peer_id, "dm456");
         assert_eq!(deserialized.content, "Direct message");
         assert_eq!(deserialized.timestamp, 1700000000);
+        assert_eq!(deserialized.message_type, "text");
+        assert!(deserialized.media_refs.is_empty());
+        assert!(deserialized.quoted_message.is_none());
         assert!(deserialized.thread_id.is_none());
         assert!(deserialized.account_id.is_none());
         assert_eq!(deserialized.card_action, None);
@@ -103,6 +151,9 @@ mod tests {
             peer_id: "p".to_string(),
             content: "c".to_string(),
             timestamp: 42,
+            message_type: "text".to_string(),
+            media_refs: vec![],
+            quoted_message: None,
             thread_id: None,
             account_id: None,
             card_action: None,
@@ -116,9 +167,12 @@ mod tests {
         assert!(obj.contains_key("peer_id"));
         assert!(obj.contains_key("content"));
         assert!(obj.contains_key("timestamp"));
+        assert!(obj.contains_key("message_type"));
+        assert!(obj.contains_key("media_refs"));
+        assert!(obj.contains_key("quoted_message"));
         assert!(obj.contains_key("thread_id"));
         assert!(obj.contains_key("account_id"));
         assert!(obj.contains_key("card_action"));
-        assert_eq!(obj.len(), 8);
+        assert_eq!(obj.len(), 11);
     }
 }
