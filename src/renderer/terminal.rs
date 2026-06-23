@@ -10,9 +10,9 @@
 //! unavailable.
 
 use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
-use crate::im_adapter::renderer::{RenderedOutput, Renderer};
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;
+use crate::renderer::RenderedOutput;
 
 // ---------------------------------------------------------------------------
 // ANSI escape codes
@@ -746,12 +746,12 @@ impl TerminalRenderer {
     }
 }
 
-impl Renderer for TerminalRenderer {
-    fn platform(&self) -> &str {
-        "terminal"
-    }
+// TerminalRenderer — inherent render method
+// ---------------------------------------------------------------------------
 
-    fn render(
+impl TerminalRenderer {
+    /// Render content blocks into terminal (CLI) output.
+    pub fn render(
         &self,
         content_blocks: &[ContentBlock],
         dsl_result: Option<&DslParseResult>,

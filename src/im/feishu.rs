@@ -7,7 +7,7 @@ use crate::gateway::Message;
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;
 use crate::renderer::feishu::FeishuRenderer;
-use crate::renderer::{RenderedOutput, Renderer};
+use crate::renderer::RenderedOutput;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

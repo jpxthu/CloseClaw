@@ -3,24 +3,16 @@
 //! This module provides the core types and trait for rendering LLM output
 //! to platform-specific formats:
 //! - [`RenderedOutput`] — output type from a renderer
-//! - [`Renderer`] — trait for platform-specific renderers
 //!
 //! # Example
 //! ```
-//! use closeclaw::renderer::{Renderer, RenderedOutput};
-//! use closeclaw::renderer::feishu::FeishuRenderer;
-//! use closeclaw::llm::types::ContentBlock;
+//! use closeclaw::renderer::RenderedOutput;
 //!
-//! let renderer = FeishuRenderer::new();
-//! // A single Text block containing inline formatting (**) → interactive card.
-//! // With dsl_result=None there are no DSL buttons in the payload.
-//! let blocks = vec![ContentBlock::Text("Hello **world**".to_string())];
-//! let output = renderer.render(&blocks, None);
-//! assert_eq!(output.msg_type, "interactive");
-//! // No DSL → no action/button elements in the card
-//! let elements = output.payload.get("card").and_then(|c| c.get("elements")).and_then(|e| e.as_array());
-//! assert!(elements.is_some());
-//! assert!(elements.unwrap().iter().all(|e| e.get("tag").and_then(|t| t.as_str()) != Some("action")));
+//! let output = RenderedOutput {
+//!     msg_type: "text".into(),
+//!     payload: serde_json::json!("Hello"),
+//! };
+//! assert_eq!(output.msg_type, "text");
 //! ```
 
 pub mod feishu;
@@ -29,4 +21,4 @@ pub mod terminal;
 pub mod terminal_tests;
 pub use crate::im_adapter::{code_block, streaming};
 
-pub use crate::im_adapter::{RenderedOutput, Renderer};
+pub use crate::im_adapter::RenderedOutput;

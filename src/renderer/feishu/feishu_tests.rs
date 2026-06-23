@@ -15,12 +15,6 @@ fn text_block(s: &str) -> ContentBlock {
 }
 
 #[test]
-fn test_platform() {
-    let r = FeishuRenderer::new();
-    assert_eq!(r.platform(), "feishu");
-}
-
-#[test]
 fn test_empty_content() {
     let r = FeishuRenderer::new();
     let out = r.render(&[], None);

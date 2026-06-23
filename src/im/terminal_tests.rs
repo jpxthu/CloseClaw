@@ -2,11 +2,11 @@
 mod tests {
     use crate::im::terminal::*;
     use crate::im_adapter::plugin::IMPlugin;
-    use crate::im_adapter::renderer::RenderedOutput;
     use crate::im_adapter::NormalizedMessage;
     use crate::llm::types::ContentBlock;
     use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
     use crate::renderer::terminal::BOLD;
+    use crate::renderer::RenderedOutput;
 
     // =========================================================================
     // TerminalAdapter tests

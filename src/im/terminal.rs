@@ -7,8 +7,7 @@
 //! The [`TerminalRenderer`] lives in [`crate::renderer::terminal`].
 
 use crate::im_adapter::normalized::NormalizedMessage;
-use crate::im_adapter::plugin::IMPlugin;
-use crate::im_adapter::renderer::{RenderedOutput, Renderer};
+use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
 use crate::im_adapter::AdapterError;
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;

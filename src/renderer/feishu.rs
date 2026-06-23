@@ -10,7 +10,7 @@ use crate::llm::types::ContentBlock;
 use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
 
 use super::code_block::{parse_content_segments, ContentSegment};
-use super::{RenderedOutput, Renderer};
+use super::RenderedOutput;
 
 // ---------------------------------------------------------------------------
 // Card types
@@ -380,15 +380,12 @@ fn contains_inline(s: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Renderer trait impl
+// FeishuRenderer — inherent render method
 // ---------------------------------------------------------------------------
 
-impl Renderer for FeishuRenderer {
-    fn platform(&self) -> &str {
-        "feishu"
-    }
-
-    fn render(
+impl FeishuRenderer {
+    /// Render content blocks into a Feishu-specific output.
+    pub fn render(
         &self,
         content_blocks: &[ContentBlock],
         dsl_result: Option<&DslParseResult>,

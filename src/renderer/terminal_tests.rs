@@ -1,15 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::im_adapter::renderer::Renderer;
     use crate::llm::types::ContentBlock;
     use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
     use crate::renderer::terminal::{strip_ansi, TerminalRenderer, BOLD, DIM, ITALIC, RESET};
-
-    #[test]
-    fn test_platform() {
-        let r = TerminalRenderer::new();
-        assert_eq!(r.platform(), "terminal");
-    }
 
     #[test]
     fn test_render_text_plain() {
