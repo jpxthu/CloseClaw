@@ -561,3 +561,6 @@ impl IMAdapter for FeishuAdapter {
         expected == signature
     }
 }
+
+#[cfg(test)]
+mod adapter_tests;
