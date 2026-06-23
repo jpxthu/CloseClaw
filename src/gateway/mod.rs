@@ -13,6 +13,8 @@ pub mod session_manager;
 pub mod slash_permission;
 
 #[cfg(test)]
+mod outbound_tests;
+#[cfg(test)]
 mod tests_plugin;
 #[cfg(test)]
 mod tests_slash_permission;
