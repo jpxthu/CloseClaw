@@ -70,7 +70,7 @@ pub struct RenderedOutput {
 /// use closeclaw::im::{IMPlugin, AdapterError, NormalizedMessage};
 /// use closeclaw::llm::types::ContentBlock;
 /// use closeclaw::processor_chain::DslParseResult;
-/// use closeclaw::renderer::RenderedOutput;
+/// use closeclaw::im_adapter::RenderedOutput;
 ///
 /// struct MockPlugin;
 ///
