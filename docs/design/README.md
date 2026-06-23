@@ -18,6 +18,6 @@
 | [session](session/README.md) | Agent 会话生命周期管理：session_key 路由映射与解析、持久化（创建、压缩、归档、清理）、执行层（三维执行状态、级联停止、后台结果注入） |
 | [slash](slash/README.md) | 斜杠指令系统：Gateway 层拦截、统一分派、Handler 执行，不进入 LLM 对话流程 |
 | [skills](skills/README.md) | Agent 可复用能力插件体系：磁盘即插即用、五层优先级、frontmatter 配置驱动、双执行模式 |
-| [memory](memory/README.md) | Agent 长期记忆体系：会话挖掘、定期升格、实时搜索注入，让 agent 跨 session 保持用户偏好和历史决策记忆 |
+| [memory](memory/README.md) | Agent 长期记忆体系：两段式会话挖掘、实体级升格浓缩、SQLite 索引实时搜索注入，构建跨 session 概念网络 |
 | [system_prompt](system_prompt/README.md) | 每次 API 调用的固定前缀：静态/动态层划分、Section 类型、缓存策略、构建与注入入口 |
 | [tools](tools/README.md) | Agent 能力层：工具注册基础设施（ToolRegistry 注册中心、索引构建、工具发现）、文件操作工具（Read/Write/Edit）、Bash 工具、后台任务、多工具并行调度 |
