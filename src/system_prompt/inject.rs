@@ -2,6 +2,9 @@
 //!
 //! Helper functions for building dynamic sections and composing the full
 //! system prompt.
+//!
+//! Migrated from `gateway::system_prompt_inject` — these functions logically
+//! belong to the `system_prompt` module.
 
 use crate::gateway::session_handler::MessageMetadata;
 use crate::system_prompt::builder::PromptOverrides;

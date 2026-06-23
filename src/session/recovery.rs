@@ -431,6 +431,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
+            verbosity_level: crate::common::VerbosityLevel::default(),
         }
     }
 

@@ -13,9 +13,6 @@ use tokio_util::sync::CancellationToken;
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use crate::gateway::outbound::StreamResult;
 use crate::gateway::session_manager::SessionManager;
-use crate::gateway::system_prompt_inject::{
-    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
-};
 use crate::gateway::Gateway;
 use crate::im::IMPlugin;
 use crate::llm::client::UnifiedChatClient;
@@ -26,6 +23,9 @@ use crate::llm::streaming::{StreamDone, StreamingSink};
 use crate::llm::types::{ContentBlock, ContentDelta, StreamEvent};
 use crate::llm::{LLMError, Message as ChatMessage};
 use crate::session::persistence::ReasoningLevel;
+use crate::system_prompt::inject::{
+    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
+};
 
 impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's

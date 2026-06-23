@@ -119,6 +119,11 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
     pub pending_tool_failures: Vec<String>,
+    /// Verbosity level controlling outbound content filtering.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Full）。
+    #[serde(default)]
+    pub verbosity_level: crate::common::VerbosityLevel,
 }
 
 impl SessionCheckpoint {
@@ -154,6 +159,7 @@ impl SessionCheckpoint {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
+            verbosity_level: crate::common::VerbosityLevel::default(),
         }
     }
 
@@ -283,6 +289,11 @@ impl SessionCheckpoint {
     /// Set the pending tool failure results
     pub fn with_pending_tool_failures(mut self, failures: Vec<String>) -> Self {
         self.pending_tool_failures = failures;
+        self
+    }
+    /// Update the verbosity level
+    pub fn with_verbosity_level(mut self, level: crate::common::VerbosityLevel) -> Self {
+        self.verbosity_level = level;
         self
     }
     /// Touch the updated_at timestamp

@@ -485,12 +485,13 @@ impl SessionManager {
             }
         };
 
-        // Sync system_appends from ConversationSession.
+        // Sync system_appends and verbosity_level from ConversationSession.
         {
             let conv = self.conversation_sessions.read().await;
             if let Some(cs) = conv.get(session_id) {
                 let guard = cs.read().await;
                 cp.system_appends = guard.system_appends().to_vec();
+                cp.verbosity_level = guard.verbosity_level();
             }
         }
 

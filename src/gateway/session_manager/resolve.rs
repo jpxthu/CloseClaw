@@ -123,13 +123,14 @@ impl SessionManager {
                             }
                         }
 
-                        // Restore pending messages and system_appends
+                        // Restore pending messages, system_appends, and verbosity_level
                         {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs) = cs.get(&session_id) {
                                 let mut cs = cs.write().await;
                                 cs.restore_pending_messages(cp.pending_messages.clone());
                                 cs.restore_system_appends(cp.system_appends.clone());
+                                cs.set_verbosity_level(cp.verbosity_level);
                             }
                         }
 
