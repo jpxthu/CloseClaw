@@ -12,6 +12,12 @@ use serde_json::Value;
 /// capabilities for the Feishu document platform.
 pub struct FeishuDocTool;
 
+impl Default for FeishuDocTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuDocTool {
     pub fn new() -> Self {
         Self

@@ -12,6 +12,12 @@ use serde_json::Value;
 /// capabilities for the Feishu Sheet platform.
 pub struct FeishuSheetTool;
 
+impl Default for FeishuSheetTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuSheetTool {
     pub fn new() -> Self {
         Self

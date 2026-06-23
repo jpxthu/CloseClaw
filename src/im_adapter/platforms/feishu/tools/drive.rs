@@ -13,6 +13,12 @@ use serde_json::Value;
 /// capabilities for the Feishu Drive platform.
 pub struct FeishuDriveTool;
 
+impl Default for FeishuDriveTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuDriveTool {
     pub fn new() -> Self {
         Self

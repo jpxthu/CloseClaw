@@ -13,6 +13,12 @@ use serde_json::Value;
 /// for the Feishu Bitable platform.
 pub struct FeishuBitableTool;
 
+impl Default for FeishuBitableTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuBitableTool {
     pub fn new() -> Self {
         Self

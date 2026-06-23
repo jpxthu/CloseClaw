@@ -12,6 +12,12 @@ use serde_json::Value;
 /// capabilities for the Feishu task platform.
 pub struct FeishuTaskTool;
 
+impl Default for FeishuTaskTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuTaskTool {
     pub fn new() -> Self {
         Self

@@ -9,6 +9,9 @@ pub mod im;
 pub mod sheet;
 pub mod task;
 
+#[cfg(test)]
+mod tools_tests;
+
 use crate::tools::ToolRegistry;
 use bitable::FeishuBitableTool;
 use calendar::FeishuCalendarTool;

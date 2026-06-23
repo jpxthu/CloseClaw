@@ -12,6 +12,12 @@ use serde_json::Value;
 /// for the Feishu messaging platform.
 pub struct FeishuImTool;
 
+impl Default for FeishuImTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuImTool {
     pub fn new() -> Self {
         Self

@@ -12,6 +12,12 @@ use serde_json::Value;
 /// capabilities for the Feishu calendar platform.
 pub struct FeishuCalendarTool;
 
+impl Default for FeishuCalendarTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuCalendarTool {
     pub fn new() -> Self {
         Self
