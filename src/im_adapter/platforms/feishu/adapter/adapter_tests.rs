@@ -229,7 +229,7 @@ fn test_parse_message_event_text_type() {
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
     let msg = adapter.parse_message_event(event).unwrap().unwrap();
     assert_eq!(msg.content, "hello");
-    assert_eq!(msg.metadata.get("message_type").unwrap(), "text");
+    assert_eq!(msg.message_type, "text");
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn test_parse_message_event_post_type() {
     let event = make_message_event("post", &content.to_string());
     let msg = adapter.parse_message_event(event).unwrap().unwrap();
     assert_eq!(msg.content, "T\nbody");
-    assert_eq!(msg.metadata.get("message_type").unwrap(), "post");
+    assert_eq!(msg.message_type, "post");
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = adapter.parse_message_event(event).unwrap().unwrap();
-    assert_eq!(msg.metadata.get("account_id").unwrap(), "test_app_id");
+    assert_eq!(msg.account_id.as_deref(), Some("test_app_id"));
 }
 
 #[test]
@@ -281,7 +281,7 @@ fn test_parse_message_event_thread_id_from_root_id() {
     let mut event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     event.event.root_id = Some("om_root123".to_string());
     let msg = adapter.parse_message_event(event).unwrap().unwrap();
-    assert_eq!(msg.metadata.get("thread_id").unwrap(), "om_root123");
+    assert_eq!(msg.thread_id.as_deref(), Some("om_root123"));
 }
 
 // ===========================================================================
@@ -353,6 +353,104 @@ async fn test_send_message_and_card_use_consistent_receive_id_type() {
         .await
         .unwrap();
     assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
+}
+
+// ===========================================================================
+// handle_webhook card action tests
+// ===========================================================================
+
+#[tokio::test]
+async fn test_handle_webhook_card_action_forceful_shutdown() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "evt_card_1",
+            "event_type": "card.action.trigger",
+            "create_time": "1234567890",
+            "token": "tok",
+            "app_id": "test_app_id"
+        },
+        "operator": {
+            "open_id": "ou_operator"
+        },
+        "token": "card_token",
+        "action": {
+            "value": {"action": "forceful_shutdown", "chat_id": "oc_chat123"},
+            "tag": "button"
+        }
+    });
+    let result = adapter
+        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+        .await
+        .unwrap();
+    let msg = result.expect("expected Some(NormalizedMessage) for forceful_shutdown");
+    assert_eq!(msg.sender_id, "ou_operator");
+    assert_eq!(msg.content, "/__card_action:forceful_shutdown");
+    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.card_action, Some(true));
+    assert_eq!(msg.platform, "feishu");
+    assert_eq!(msg.peer_id, "oc_chat123");
+    assert_eq!(msg.account_id.as_deref(), Some("test_app_id"));
+}
+
+#[tokio::test]
+async fn test_handle_webhook_card_action_unknown_returns_none() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "evt_card_2",
+            "event_type": "card.action.trigger",
+            "create_time": "1234567890",
+            "token": "tok",
+            "app_id": "test_app_id"
+        },
+        "operator": {
+            "open_id": "ou_operator"
+        },
+        "token": "card_token",
+        "action": {
+            "value": {"action": "some_other_action"},
+            "tag": "button"
+        }
+    });
+    let result = adapter
+        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+        .await
+        .unwrap();
+    assert!(result.is_none(), "unknown card action should return None");
+}
+
+#[tokio::test]
+async fn test_handle_webhook_card_action_no_value_returns_none() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "evt_card_3",
+            "event_type": "card.action.trigger",
+            "create_time": "1234567890",
+            "token": "tok",
+            "app_id": "test_app_id"
+        },
+        "operator": {
+            "open_id": "ou_operator"
+        },
+        "token": "card_token",
+        "action": {
+            "value": null,
+            "tag": "button"
+        }
+    });
+    let result = adapter
+        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+        .await
+        .unwrap();
+    assert!(
+        result.is_none(),
+        "card action with null value should return None"
+    );
 }
 
 // ===========================================================================

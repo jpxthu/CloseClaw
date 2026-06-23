@@ -194,7 +194,7 @@ impl IMAdapter for MockAdapter {
     async fn handle_webhook(
         &self,
         _payload: &[u8],
-    ) -> Result<Option<Message>, crate::im::AdapterError> {
+    ) -> Result<Option<crate::im_adapter::NormalizedMessage>, crate::im::AdapterError> {
         unimplemented!()
     }
 

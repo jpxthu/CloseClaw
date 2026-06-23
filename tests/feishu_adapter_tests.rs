@@ -67,10 +67,10 @@ async fn test_handle_webhook_valid() {
         .await
         .unwrap()
         .expect("expected Some(message)");
-    assert_eq!(msg.id, "evt_1");
-    assert_eq!(msg.from, "ou_abc");
+    assert_eq!(msg.sender_id, "ou_abc");
     assert_eq!(msg.content, "hello");
-    assert_eq!(msg.metadata.get("account_id"), Some(&"a".to_string()));
+    assert_eq!(msg.account_id.as_deref(), Some("a"));
+    assert_eq!(msg.platform, "feishu");
 }
 
 #[tokio::test]
@@ -92,7 +92,7 @@ async fn test_handle_webhook_empty_text() {
         .unwrap()
         .expect("expected Some(message)");
     assert_eq!(msg.content, "");
-    assert_eq!(msg.metadata.get("account_id"), Some(&"a".to_string()));
+    assert_eq!(msg.account_id.as_deref(), Some("a"));
 }
 
 #[tokio::test]

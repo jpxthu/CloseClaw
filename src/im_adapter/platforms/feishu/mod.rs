@@ -48,27 +48,7 @@ impl IMPlugin for FeishuPlugin {
         &self,
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let message = match self.adapter.handle_webhook(payload).await? {
-            Some(m) => m,
-            None => return Ok(None),
-        };
-        Ok(Some(NormalizedMessage {
-            platform: message.channel,
-            sender_id: message.from,
-            peer_id: message.to,
-            content: message.content,
-            timestamp: message.timestamp,
-            message_type: message
-                .metadata
-                .get("message_type")
-                .cloned()
-                .unwrap_or_else(|| "text".to_string()),
-            media_refs: vec![],
-            quoted_message: None,
-            thread_id: message.metadata.get("thread_id").cloned(),
-            account_id: message.metadata.get("account_id").cloned(),
-            card_action: message.metadata.get("card_action").map(|v| v == "true"),
-        }))
+        self.adapter.handle_webhook(payload).await
     }
 
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
