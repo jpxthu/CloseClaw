@@ -139,26 +139,21 @@ pub trait IMPlugin: Send + Sync {
         let mut rendered = String::new();
 
         for block in content_blocks {
-            match block {
-                ContentBlock::Text(text) => {
-                    let segments = parse_content_segments(text);
-                    for segment in segments {
-                        match segment {
-                            ContentSegment::CodeBlock { language, code } => {
-                                rendered.push_str(&self.render_code_block(&language, &code));
-                            }
-                            ContentSegment::Markdown(text) => {
-                                rendered.push_str(&self.render_markdown(&text));
-                            }
-                            ContentSegment::Hr => {
-                                rendered.push_str(&self.render_hr());
-                            }
+            if let ContentBlock::Text(text) = block {
+                let segments = parse_content_segments(text);
+                for segment in segments {
+                    match segment {
+                        ContentSegment::CodeBlock { language, code } => {
+                            rendered.push_str(&self.render_code_block(&language, &code));
+                        }
+                        ContentSegment::Markdown(text) => {
+                            rendered.push_str(&self.render_markdown(&text));
+                        }
+                        ContentSegment::Hr => {
+                            rendered.push_str(&self.render_hr());
                         }
                     }
                 }
-                // Non-text blocks are ignored by the default renderer.
-                // Platform plugins can override render() to handle them.
-                _ => {}
             }
         }
 

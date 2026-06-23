@@ -9,9 +9,9 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::im::feishu::{FeishuAdapter, FeishuPlugin};
     use crate::im::terminal::TerminalPlugin;
     use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
+    use crate::im_adapter::platforms::feishu::{FeishuAdapter, FeishuPlugin};
     use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
     use crate::im_adapter::AdapterError;
     use crate::im_adapter::NormalizedMessage;
