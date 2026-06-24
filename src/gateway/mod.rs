@@ -71,24 +71,47 @@ impl Default for DmScope {
 
 impl DmScope {
     /// Compute a session key for the given context.
+    ///
+    /// Format: `{timestamp_ms}-{routing_fields}:{timestamp_ms}`
+    /// where `routing_fields` varies by scope variant.
     pub fn compute_session_key(
         &self,
         channel: &str,
         message: &Message,
         account_id: Option<&str>,
+        timestamp_ms: i64,
     ) -> String {
         match self {
-            DmScope::Main => format!("{}:{}", channel, message.to),
-            DmScope::PerPeer => format!("{}:{}", message.from, message.to),
+            DmScope::Main => {
+                format!(
+                    "{}-{}:{}:{}",
+                    timestamp_ms, channel, message.to, timestamp_ms
+                )
+            }
+            DmScope::PerPeer => {
+                format!(
+                    "{}-{}:{}:{}",
+                    timestamp_ms, message.from, message.to, timestamp_ms
+                )
+            }
             DmScope::PerChannelPeer => {
-                format!("{}:{}:{}", channel, message.from, message.to)
+                format!(
+                    "{}-{}:{}:{}:{}",
+                    timestamp_ms, channel, message.from, message.to, timestamp_ms
+                )
             }
             DmScope::PerAccountChannelPeer => {
                 let acc = account_id.unwrap_or("default");
-                format!("{}:{}:{}:{}", acc, channel, message.from, message.to)
+                format!(
+                    "{}-{}:{}:{}:{}:{}",
+                    timestamp_ms, acc, channel, message.from, message.to, timestamp_ms
+                )
             }
             DmScope::PerChannelSender => {
-                format!("{}:{}", channel, message.from)
+                format!(
+                    "{}-{}:{}:{}",
+                    timestamp_ms, channel, message.from, timestamp_ms
+                )
             }
         }
     }
