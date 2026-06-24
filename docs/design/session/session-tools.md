@@ -28,7 +28,7 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 | `task` | 任务描述，注入子 session 首条消息 | 是 | — |
 | `mode` | `"run"`（一次性）/ `"session"`（持久线程） | 否 | `"run"` |
 | `fork` | 是否 fork 父 agent 上下文 | 否 | `false` |
-| `model` | 覆盖目标 agent 的默认模型 | 否 | 目标 agent 配置 |
+| `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
 | `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 父 workspace 子目录 |
 | `label` | 子 session 简短标签 | 否 | 自动生成 |
 | `lightContext` | 是否使用 minimal bootstrap | 否 | `false` |
@@ -42,6 +42,15 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 - `validation`：注入"逐条校验并报告差异"的结构化输出要求
 
 模板不影响 agent 配置，仅在 spawn 调用时作为 prompt 前缀注入。
+
+`model` 参数解析优先级（未指定时按以下顺序回退，直到找到非空值）：
+
+1. spawn 调用中显式传入的 `model` 参数
+2. 父 agent 配置中 `subagents.model` 字段
+3. 目标 agent 配置中 `model` 字段
+4. 系统默认模型
+
+详见 [agent-config.md](../agent/agent-config.md)「模型解析优先级」。
 
 ### sessions_steer
 

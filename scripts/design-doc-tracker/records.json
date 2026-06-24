@@ -18,7 +18,7 @@
     "commit": "",
     "commit_time": "",
     "confirmed_time": "2026-06-20T01:40:16.337584+08:00",
-    "comment": "blocked: doc_problem - Tools模块无关描述与代码矛盾, Creator Rule/缓存预检/extra deny等实现未在文档描述"
+    "comment": ""
   },
   {
     "path": "docs/design/agent/agent-registry.md",
