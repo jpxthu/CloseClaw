@@ -61,12 +61,13 @@ fn test_generate_session_id_uniqueness() {
 async fn test_resolve_path1_active_hit() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None);
-    // Pre-populate key_registry and sessions
+    let session_key = mgr.compute_session_key("feishu", &msg, None, 0);
+    // resolve() strips timestamps before registry lookup — insert routing_key.
+    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
     let session_id = "active_session_1";
     {
         let mut reg = mgr.key_registry.write().await;
-        reg.insert(session_key.clone(), session_id.to_string());
+        reg.insert(routing_key.to_string(), session_id.to_string());
     }
     {
         let mut sessions = mgr.sessions.write().await;
@@ -107,11 +108,12 @@ async fn test_resolve_path2_archived_hit_restore() {
         ReasoningLevel::default(),
     );
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None);
-    // Populate key_registry
+    let session_key = mgr.compute_session_key("feishu", &msg, None, 0);
+    // resolve() strips timestamps before registry lookup — insert routing_key.
+    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
     {
         let mut reg = mgr.key_registry.write().await;
-        reg.insert(session_key.clone(), session_id.to_string());
+        reg.insert(routing_key.to_string(), session_id.to_string());
     }
     let result = mgr
         .resolve(&session_key, "feishu", &msg, None)
@@ -126,7 +128,7 @@ async fn test_resolve_path2_archived_hit_restore() {
 async fn test_resolve_path3_miss_creates_new() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None);
+    let session_key = mgr.compute_session_key("feishu", &msg, None, 0);
     // key_registry is empty → miss → create new
     let result = mgr
         .resolve(&session_key, "feishu", &msg, None)
@@ -134,9 +136,10 @@ async fn test_resolve_path3_miss_creates_new() {
         .unwrap();
     // Verify format
     assert!(result.starts_with("agent-b_"), "bad format: {}", result);
-    // Verify key_registry updated
+    // Verify key_registry updated — resolve stores routing_key (timestamps stripped)
+    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
     let reg = mgr.key_registry.read().await;
-    assert_eq!(reg.get(&session_key).unwrap(), &result);
+    assert_eq!(reg.get(routing_key).unwrap(), &result);
     // Verify session exists
     assert!(mgr.has_session(&result).await);
 }
@@ -223,10 +226,10 @@ async fn test_rebuild_key_registry() {
     mgr.rebuild_key_registry().await.unwrap();
 
     let reg = mgr.key_registry.read().await;
-    // Both sessions share the same reconstructed key:
-    // "feishu:agent-a:agent-a"
+    // Both sessions share the same reconstructed routing_key:
+    // "default:feishu:agent-a:agent-a" (PerAccountChannelPeer, no sender_id → uses agent_id)
     // The newer one (sid_new) should win
-    let key = "feishu:agent-a:agent-a";
+    let key = "default:feishu:agent-a:agent-a";
     assert_eq!(reg.get(key).unwrap(), "sid_new");
 }
 

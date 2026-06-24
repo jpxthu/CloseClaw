@@ -219,9 +219,25 @@ impl SessionManager {
         channel: &str,
         message: &Message,
         account_id: Option<&str>,
+        timestamp_ms: i64,
     ) -> String {
         self.dm_scope
-            .compute_session_key(channel, message, account_id)
+            .compute_session_key(channel, message, account_id, timestamp_ms)
+    }
+
+    /// Strip the `{timestamp_ms}-` prefix and `:{timestamp_ms}` suffix from a
+    /// session key, returning only the routing-key portion.
+    ///
+    /// Given a key in the format `{ts}-{routing_fields}:{ts}`, this returns
+    /// `{routing_fields}`.  Used by both `resolve` and `rebuild_key_registry`.
+    pub(crate) fn strip_timestamp_from_session_key(key: &str) -> &str {
+        // Strip "{timestamp_ms}-" prefix
+        let without_prefix = key.find('-').map(|i| &key[i + 1..]).unwrap_or(key);
+        // Strip ":{timestamp_ms}" suffix
+        without_prefix
+            .rfind(':')
+            .map(|i| &without_prefix[..i])
+            .unwrap_or(without_prefix)
     }
 
     /// Attempt to restore an archived session.
@@ -299,7 +315,7 @@ impl SessionManager {
             return Ok(active_id.clone());
         }
 
-        let session_key = self.compute_session_key(channel, message, account_id);
+        let session_key = self.compute_session_key(channel, message, account_id, message.timestamp);
         self.resolve(&session_key, channel, message, account_id)
             .await
     }
