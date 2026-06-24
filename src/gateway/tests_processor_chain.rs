@@ -420,7 +420,7 @@ impl MessageProcessor for SuppressTestProcessor {
 async fn test_process_inbound_chain_no_registry() {
     let (gw, _sm) = make_gw(make_config());
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "hello world", "msg-1")
+        .process_inbound_chain("terminal", "user1", "cli", "hello world", "msg-1", 0)
         .await;
     assert_eq!(result.content, "hello world");
     assert!(!result.suppress);
@@ -452,7 +452,7 @@ async fn test_process_inbound_chain_with_normalizer() {
     // Input with ANSI escape sequences and invisible control characters.
     let raw_input = "\x1b[31mhello\x1b[0m\x01world";
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-1")
+        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-1", 0)
         .await;
     // ANSI stripped, control char stripped, plain text remains.
     assert_eq!(result.content, "helloworld");
@@ -481,7 +481,7 @@ async fn test_process_inbound_chain_with_session_router() {
     );
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-1")
+        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-1", 0)
         .await;
     assert_eq!(result.content, "hi");
     // SessionRouter injects session_key with real timestamp.
@@ -542,7 +542,7 @@ async fn test_process_inbound_chain_processor_error() {
     );
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "original", "msg-1")
+        .process_inbound_chain("terminal", "user1", "cli", "original", "msg-1", 0)
         .await;
     // Fallback to original content.
     assert_eq!(result.content, "original");
@@ -568,7 +568,7 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
 
     let raw_input = "\x1b[32mhello\x1b[0m\x01world\x1b[1;34m!";
     let result = gw
-        .process_inbound_chain("terminal", "user1", "peer1", raw_input, "msg-e2e-1")
+        .process_inbound_chain("terminal", "user1", "peer1", raw_input, "msg-e2e-1", 0)
         .await;
 
     assert_eq!(result.content, "helloworld!");
@@ -601,7 +601,7 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
 
     let raw_input = "\x1b[33mwhat is the weather\x1b[0m";
     let processed = gw
-        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-e2e-2")
+        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-e2e-2", 0)
         .await;
 
     assert_eq!(processed.content, "what is the weather");
@@ -629,7 +629,7 @@ async fn test_e2e_suppress_flag_propagates_through_chain() {
     let gw = make_gw_with_registry(registry);
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "hello", "msg-e2e-4")
+        .process_inbound_chain("terminal", "user1", "cli", "hello", "msg-e2e-4", 0)
         .await;
     assert!(result.suppress, "suppress flag should propagate");
     assert_eq!(result.content, "hello");

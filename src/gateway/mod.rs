@@ -100,7 +100,7 @@ impl DmScope {
                 let acc = account_id.unwrap_or("default");
                 format!(
                     "{}:{}:{}:{}:{}",
-                    acc, channel, message.from, message.to, timestamp_ms
+                    channel, message.from, message.to, acc, timestamp_ms
                 )
             }
             DmScope::PerChannelSender => {
@@ -855,6 +855,7 @@ impl Gateway {
         peer_id: &str,
         content: &str,
         message_id: &str,
+        timestamp_ms: i64,
     ) -> ProcessedMessage {
         let Some(registry) = &self.processor_registry else {
             return ProcessedMessage {
@@ -865,12 +866,15 @@ impl Gateway {
             };
         };
 
+        let timestamp =
+            chrono::DateTime::from_timestamp_millis(timestamp_ms).unwrap_or_else(chrono::Utc::now);
+
         let raw = RawMessage {
             platform: platform.to_string(),
             sender_id: sender_id.to_string(),
             peer_id: peer_id.to_string(),
             content: content.to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp,
             message_id: message_id.to_string(),
         };
 

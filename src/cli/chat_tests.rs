@@ -272,7 +272,7 @@ async fn test_process_inbound_chain_cleans_control_characters() {
 
     let input = "hello\x1b[31mworld\x1b[0m";
     let processed = gateway
-        .process_inbound_chain("terminal", "u1", "cli", input, "msg-1")
+        .process_inbound_chain("terminal", "u1", "cli", input, "msg-1", 0)
         .await;
 
     assert_eq!(processed.content, "helloworld");
@@ -286,7 +286,7 @@ async fn test_process_inbound_chain_suppress_message() {
     let gateway = make_gw_with_registry(registry);
 
     let processed = gateway
-        .process_inbound_chain("terminal", "u1", "cli", "hello", "msg-1")
+        .process_inbound_chain("terminal", "u1", "cli", "hello", "msg-1", 0)
         .await;
 
     assert!(processed.suppress, "expected suppress flag to be set");
@@ -300,7 +300,7 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
 
     for cmd in &["quit", "exit", "/stop"] {
         let processed = gateway
-            .process_inbound_chain("terminal", "u1", "cli", cmd, "msg-1")
+            .process_inbound_chain("terminal", "u1", "cli", cmd, "msg-1", 0)
             .await;
         assert_eq!(processed.content.trim(), *cmd);
     }
