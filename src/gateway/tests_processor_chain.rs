@@ -84,7 +84,9 @@ fn make_gw(config: GatewayConfig) -> (crate::gateway::Gateway, Arc<SessionManage
     (gw, sm)
 }
 
-struct MockAdapter;
+struct MockAdapter {
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
+}
 
 #[async_trait]
 impl IMPlugin for MockAdapter {
@@ -118,13 +120,24 @@ impl IMPlugin for MockAdapter {
     ) -> Result<(), crate::im::AdapterError> {
         Ok(())
     }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
+    }
 }
 
 /// Scenario 1: No registry → Gateway behaviour unchanged (bypass).
 #[tokio::test]
 async fn test_processor_chain_bypass_no_registry() {
     let (gw, sm) = make_gw(make_config());
-    gw.register_plugin(Arc::new(MockAdapter)).await;
+    gw.register_plugin(Arc::new(MockAdapter {
+        renderer: std::sync::Mutex::new(
+            crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+        ),
+    }))
+    .await;
     let msg = msg_with_session(&sm, "mock", "agent-1", "plain text").await;
     let result = gw.route_message("mock", msg, None).await;
     assert!(result.is_ok(), "expected ok, got {result:?}");
@@ -151,12 +164,22 @@ async fn test_processor_chain_bypass_empty_registry() {
         Arc::clone(&sm),
         Arc::new(registry),
     );
-    gw.register_plugin(Arc::new(MockAdapter)).await;
+    gw.register_plugin(Arc::new(MockAdapter {
+        renderer: std::sync::Mutex::new(
+            crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+        ),
+    }))
+    .await;
     let msg = msg_with_session(&sm, "mock", "agent-1", "plain text").await;
     let content_before = msg.content.clone();
     gw.route_message("mock", msg, None).await.unwrap();
     let (gw2, sm2) = make_gw(make_config());
-    gw2.register_plugin(Arc::new(MockAdapter)).await;
+    gw2.register_plugin(Arc::new(MockAdapter {
+        renderer: std::sync::Mutex::new(
+            crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+        ),
+    }))
+    .await;
     let msg2 = msg_with_session(&sm2, "mock", "agent-1", "plain text").await;
     assert_eq!(msg2.content, content_before);
 }
@@ -187,7 +210,12 @@ async fn test_processor_chain_applies_processors() {
         Arc::clone(&sm),
         Arc::new(registry),
     );
-    gw.register_plugin(Arc::new(MockAdapter)).await;
+    gw.register_plugin(Arc::new(MockAdapter {
+        renderer: std::sync::Mutex::new(
+            crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+        ),
+    }))
+    .await;
     let msg = msg_with_session(&sm, "mock", "agent-1", "hello").await;
     let result = gw.route_message("mock", msg, None).await;
     assert!(result.is_ok(), "expected ok, got {result:?}");
@@ -221,7 +249,12 @@ async fn test_processor_chain_execution_order_by_priority() {
         Arc::clone(&sm),
         Arc::new(registry),
     );
-    gw.register_plugin(Arc::new(MockAdapter)).await;
+    gw.register_plugin(Arc::new(MockAdapter {
+        renderer: std::sync::Mutex::new(
+            crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+        ),
+    }))
+    .await;
 
     let raw_feishu = r#"{"msg_type":"text","text":{"text":"hello"}}"#;
     let mut msg = Message {
@@ -295,7 +328,12 @@ async fn test_processor_chain_metadata_merge() {
         Arc::clone(&sm),
         Arc::new(registry),
     );
-    gw.register_plugin(Arc::new(MockAdapter)).await;
+    gw.register_plugin(Arc::new(MockAdapter {
+        renderer: std::sync::Mutex::new(
+            crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+        ),
+    }))
+    .await;
 
     let mut msg = msg_with_session(&sm, "mock", "agent-1", "hello").await;
     msg.content = r#"{"msg_type":"text","text":{"text":"hello"}}"#.into();

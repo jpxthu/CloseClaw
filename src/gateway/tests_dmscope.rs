@@ -20,6 +20,7 @@ struct MockPlugin {
     platform: String,
     #[allow(dead_code)]
     should_fail: bool,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
 impl MockPlugin {
@@ -27,6 +28,9 @@ impl MockPlugin {
         Self {
             platform: platform.to_string(),
             should_fail: false,
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 }
@@ -62,6 +66,12 @@ impl IMPlugin for MockPlugin {
         _thread_id: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
+    }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
     }
 }
 

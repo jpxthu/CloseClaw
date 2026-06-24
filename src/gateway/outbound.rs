@@ -11,7 +11,7 @@ use crate::llm::types::{
 };
 use crate::processor_chain::dsl_parser::DslParser;
 use crate::processor_chain::{DslParseResult, ProcessedMessage};
-use crate::renderer::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRenderer};
+use crate::renderer::streaming::StreamingOutput;
 use crate::renderer::RenderedOutput;
 use futures::StreamExt;
 
@@ -361,10 +361,8 @@ impl Gateway {
         match event {
             StreamEvent::BlockDelta { delta, .. } => {
                 let is_text_delta = matches!(delta, ContentDelta::Text { .. });
-                // Reconstruct event for the renderer (index is unused for BlockDelta).
-                let out = state
-                    .renderer
-                    .handle_event(StreamEvent::BlockDelta { index: 0, delta });
+                // Delegate to the plugin's streaming method.
+                let out = plugin.handle_stream_event(StreamEvent::BlockDelta { index: 0, delta });
                 // For Text deltas, the renderer may emit completed text lines
                 // and dsl lines; non-Text deltas only update internal state.
                 if is_text_delta {
@@ -372,7 +370,7 @@ impl Gateway {
                 }
             }
             StreamEvent::BlockEnd { block_type, .. } => {
-                let mut out = state.renderer.handle_event(event);
+                let mut out = plugin.handle_stream_event(event);
                 if block_type != ContentBlockType::Text {
                     let render_blocks = std::mem::take(&mut out.render_blocks);
                     for block in render_blocks {
@@ -383,7 +381,7 @@ impl Gateway {
                 dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
             }
             StreamEvent::MessageEnd { usage, .. } => {
-                let mut out = state.renderer.flush();
+                let mut out = plugin.flush_stream();
                 let render_blocks = std::mem::take(&mut out.render_blocks);
                 dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
                 for block in render_blocks {
@@ -399,7 +397,7 @@ impl Gateway {
                 return Err(GatewayError::OutboundError(message));
             }
             StreamEvent::BlockStart { .. } => {
-                state.renderer.handle_event(event);
+                plugin.handle_stream_event(event);
             }
         }
         Ok(())
@@ -412,7 +410,6 @@ impl Gateway {
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
 struct StreamState {
-    renderer: DefaultStreamingRenderer,
     content_blocks: Vec<ContentBlock>,
     dsl_lines: Vec<String>,
     usage: UnifiedUsage,
@@ -421,7 +418,6 @@ struct StreamState {
 impl StreamState {
     fn new() -> Self {
         Self {
-            renderer: DefaultStreamingRenderer::new(),
             content_blocks: Vec::new(),
             dsl_lines: Vec::new(),
             usage: UnifiedUsage {

@@ -23,7 +23,6 @@ type StartupPlan = (
 );
 use crate::cli::terminal::TerminalPlugin;
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use crate::im_adapter::platforms::feishu::{FeishuAdapter, FeishuPlugin};
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
 use crate::slash::registry::HandlerRegistry;
@@ -274,7 +273,7 @@ impl Daemon {
         }
         let gateway = Arc::new(gateway);
         gateway.set_self_ref(Arc::clone(&gateway));
-        Self::init_feishu_plugin(config_dir, &gateway).await?;
+        crate::im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
         Self::init_terminal_plugin(&gateway).await;
         Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
         let shutdown = shutdown::ShutdownHandle::new();
@@ -893,24 +892,6 @@ impl Daemon {
 
 // --- Service init helpers ---
 impl Daemon {
-    /// Initialize Feishu IM plugin from env or config.
-    async fn init_feishu_plugin(_config_dir: &str, gateway: &Arc<Gateway>) -> anyhow::Result<()> {
-        let app_id = std::env::var("FEISHU_APP_ID").ok();
-        let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
-        let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
-        if let (Some(app_id), Some(app_secret), Some(verification_token)) =
-            (app_id, app_secret, verification_token)
-        {
-            let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
-            let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(FeishuPlugin::new(adapter));
-            gateway.register_plugin(plugin).await;
-            info!("Feishu plugin registered");
-        } else {
-            info!("Feishu credentials not found in env — Feishu plugin not registered");
-        }
-        Ok(())
-    }
-
     /// Initialize the terminal (CLI) IM plugin and register with Gateway.
     async fn init_terminal_plugin(gateway: &Arc<Gateway>) {
         let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());

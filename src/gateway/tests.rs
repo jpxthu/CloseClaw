@@ -22,6 +22,7 @@ use std::sync::Arc;
 struct MockPlugin {
     platform: String,
     should_fail: bool,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
 impl MockPlugin {
@@ -29,6 +30,9 @@ impl MockPlugin {
         Self {
             platform: platform.to_string(),
             should_fail: false,
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 
@@ -36,6 +40,9 @@ impl MockPlugin {
         Self {
             platform: platform.to_string(),
             should_fail: true,
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 }
@@ -74,6 +81,12 @@ impl IMPlugin for MockPlugin {
             return Err(AdapterError::SendFailed("mock error".into()));
         }
         Ok(())
+    }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
     }
 }
 
