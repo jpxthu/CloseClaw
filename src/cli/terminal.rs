@@ -674,12 +674,12 @@ impl TerminalAdapter {
     }
 }
 
-/// Return the current Unix timestamp in seconds.
+/// Return the current Unix timestamp in milliseconds.
 fn current_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as i64
+        .as_millis() as i64
 }
 
 // ---------------------------------------------------------------------------
