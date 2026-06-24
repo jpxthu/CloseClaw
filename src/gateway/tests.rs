@@ -195,38 +195,95 @@ fn msg(from: &str, to: &str) -> Message {
 #[test]
 fn test_dm_scope_main_session_key() {
     let key = DmScope::Main.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert_eq!(key, "0-ch_x:b:0");
+    assert!(
+        key.starts_with("0-"),
+        "key should start with timestamp prefix: {key}"
+    );
+    let hash_part = &key[2..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
+    // Deterministic: same input → same key
+    let key2 = DmScope::Main.compute_session_key("ch_x", &msg("a", "b"), None, 0);
+    assert_eq!(key, key2, "same input should produce same key");
 }
 
 #[test]
 fn test_dm_scope_per_peer_session_key() {
     let key = DmScope::PerPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert_eq!(key, "0-a:b:0");
+    assert!(
+        key.starts_with("0-"),
+        "key should start with timestamp prefix: {key}"
+    );
+    let hash_part = &key[2..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
 }
 
 #[test]
 fn test_dm_scope_per_channel_peer_session_key() {
     let key = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert_eq!(key, "0-ch_x:a:b:0");
+    assert!(
+        key.starts_with("0-"),
+        "key should start with timestamp prefix: {key}"
+    );
+    let hash_part = &key[2..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
 }
 
 #[test]
 fn test_dm_scope_per_account_channel_peer_with_account() {
     let key =
         DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), Some("acc1"), 0);
-    assert_eq!(key, "0-acc1:ch_x:a:b:0");
+    assert!(
+        key.starts_with("0-"),
+        "key should start with timestamp prefix: {key}"
+    );
+    let hash_part = &key[2..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
 }
 
 #[test]
 fn test_dm_scope_per_account_channel_peer_without_account() {
     let key = DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert_eq!(key, "0-default:ch_x:a:b:0");
+    assert!(
+        key.starts_with("0-"),
+        "key should start with timestamp prefix: {key}"
+    );
+    let hash_part = &key[2..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
 }
 
 #[test]
 fn test_dm_scope_per_channel_sender_session_key() {
     let key = DmScope::PerChannelSender.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert_eq!(key, "0-ch_x:a:0");
+    assert!(
+        key.starts_with("0-"),
+        "key should start with timestamp prefix: {key}"
+    );
+    let hash_part = &key[2..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
 }
 
 #[test]
@@ -251,17 +308,25 @@ fn test_dm_scope_default_session_key_contains_four_fields() {
         Some("t_account"),
         0,
     );
-    // PerAccountChannelPeer format: {timestamp_ms}-{account_id}:{platform}:{sender_id}:{peer_id}:{timestamp_ms}
+    // PerAccountChannelPeer format: {timestamp_ms}-{sha256_hex}
     assert!(
-        key.contains("t_account"),
-        "key should contain account_id: {key}"
+        key.starts_with("0-"),
+        "key should start with timestamp prefix: {key}"
     );
-    assert!(key.contains("feishu"), "key should contain platform: {key}");
+    let hash_part = &key[2..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
     assert!(
-        key.contains("ou_sender"),
-        "key should contain sender_id: {key}"
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
     );
-    assert!(key.contains("oc_peer"), "key should contain peer_id: {key}");
+    // Deterministic: same input → same key
+    let key2 = DmScope::default().compute_session_key(
+        "feishu",
+        &msg("ou_sender", "oc_peer"),
+        Some("t_account"),
+        0,
+    );
+    assert_eq!(key, key2, "same input should produce same key");
 }
 
 // ── GatewayConfig serde: dm_scope values ─────────────────────────────────────

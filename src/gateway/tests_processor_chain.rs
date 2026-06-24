@@ -485,12 +485,15 @@ async fn test_process_inbound_chain_with_session_router() {
         .await;
     assert_eq!(result.content, "hi");
     // SessionRouter injects session_key with real timestamp.
-    // Verify the routing fields are present in the key.
+    // Verify the key has the expected format: {ts_ms}-{sha256_hex}
     let key = result.metadata.get("session_key").and_then(|v| v.as_str());
     let key = key.expect("session_key should be set");
-    // Strip timestamp prefix and suffix to get routing fields
-    let routing_fields = SessionManager::strip_timestamp_from_session_key(key);
-    assert_eq!(routing_fields, "default:terminal:user1:peer1");
+    let hash_part = SessionManager::strip_timestamp_from_session_key(key);
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
 }
 
 /// When a processor returns an error, `process_inbound_chain` falls back to
@@ -571,11 +574,15 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
     assert_eq!(result.content, "helloworld!");
     assert!(!result.suppress);
 
-    // SessionRouter uses real timestamp — verify routing fields in the key.
+    // SessionRouter uses real timestamp — verify key format.
     let key = result.metadata.get("session_key").and_then(|v| v.as_str());
     let key = key.expect("session_key should be set");
-    let routing_fields = SessionManager::strip_timestamp_from_session_key(key);
-    assert_eq!(routing_fields, "default:terminal:user1:peer1");
+    let hash_part = SessionManager::strip_timestamp_from_session_key(key);
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
 }
 
 /// After processing through the inbound chain, the cleaned content is

@@ -41,8 +41,8 @@ impl SessionManager {
         message: &Message,
         account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
-        // Extract routing_key (without timestamps) for registry lookups.
-        // Format: {ts}-{routing_fields}:{ts} → {routing_fields}
+        // Extract routing_key (sha256 hash) for registry lookups.
+        // Format: {ts}-{sha256_hex} → {sha256_hex}
         let routing_key = Self::strip_timestamp_from_session_key(session_key);
 
         // Path 1: key_registry hit — check if session is active

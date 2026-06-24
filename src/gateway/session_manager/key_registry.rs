@@ -5,6 +5,7 @@
 
 use super::SessionManager;
 use crate::session::persistence::PersistenceError;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
@@ -86,16 +87,17 @@ impl SessionManager {
                 }
             };
 
-            // Reconstruct the routing_key matching `compute_session_key(PerAccountChannelPeer)`
+            // Reconstruct the routing fields matching `compute_session_key(PerAccountChannelPeer)`
             // format: "{account_id}:{platform}:{sender_id}:{peer_id}".
-            // This is the routing portion of the full session key, with timestamps
-            // stripped, so it matches what `resolve` looks up in the registry.
+            // Hash them to produce the same registry key as `resolve`.
             let account_id = cp.account_id.as_deref().unwrap_or("default");
             let from = cp
                 .sender_id
                 .as_deref()
                 .unwrap_or_else(|| cp.agent_id.as_deref().unwrap_or(peer_id));
-            let session_key = format!("{}:{}:{}:{}", account_id, platform, from, peer_id);
+            let routing_fields = format!("{}:{}:{}:{}", account_id, platform, from, peer_id);
+            let hash = Sha256::digest(routing_fields.as_bytes());
+            let session_key = format!("{:x}", hash);
 
             let created = cp.created_at;
             match key_best.get(&session_key) {
