@@ -897,4 +897,59 @@ mod tests {
         assert!(out.text_messages.is_empty());
         assert!(out.render_blocks.is_empty());
     }
+
+    // =====================================================================
+    // Auto-discovery mechanism tests (Step 1.5)
+    // =====================================================================
+
+    use crate::im_adapter::platforms::{register_platform_plugins, PlatformEntry};
+
+    /// Verify that `inventory::iter::<PlatformEntry>` collects at least one
+    /// entry with `name == "feishu"` — i.e. the feishu platform module was
+    /// discovered at compile time via `inventory::submit!`.
+    #[test]
+    fn test_platform_entry_inventory_collects_feishu() {
+        let found = inventory::iter::<PlatformEntry>().any(|entry| entry.name == "feishu");
+        assert!(
+            found,
+            "inventory must contain at least one PlatformEntry with name \"feishu\""
+        );
+    }
+
+    /// Verify that `register_platform_plugins` calls the feishu register
+    /// function so that `gateway.get_plugin("feishu")` returns `Some`.
+    /// Skipped when Feishu credentials are not available.
+    #[tokio::test]
+    async fn test_register_platform_plugins_registers_feishu() {
+        use crate::gateway::{Gateway, GatewayConfig, SessionManager};
+        use crate::session::bootstrap::BootstrapMode;
+        use crate::session::persistence::ReasoningLevel;
+
+        if std::env::var("FEISHU_APP_ID").is_err()
+            || std::env::var("FEISHU_APP_SECRET").is_err()
+            || std::env::var("FEISHU_VERIFICATION_TOKEN").is_err()
+        {
+            eprintln!("skipping: Feishu credentials not set");
+            return;
+        }
+
+        let config = GatewayConfig::default();
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Minimal,
+            ReasoningLevel::default(),
+        ));
+        let gw = Arc::new(Gateway::new(config, sm));
+        let tmp = tempfile::tempdir().unwrap();
+        register_platform_plugins(&gw, tmp.path().to_str().unwrap()).await;
+
+        let plugin = gw.get_plugin("feishu").await;
+        assert!(
+            plugin.is_some(),
+            "register_platform_plugins must register feishu so get_plugin returns Some"
+        );
+        assert_eq!(plugin.unwrap().platform(), "feishu");
+    }
 }
