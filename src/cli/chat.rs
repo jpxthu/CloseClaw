@@ -42,12 +42,10 @@ enum ExitReason {
 /// Run the interactive chat REPL.
 ///
 /// 1. Build a [`Gateway`] with a [`TerminalPlugin`] registered.
-/// 2. Create a session for the given `agent_id`.
-/// 3. Loop: read user input → route through gateway → print response.
+/// 2. Loop: read user input → route through gateway → print response.
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     let sender_id = crate::platform::current_uid();
-    let (gateway, session_manager) = build_gateway(agent_id).await;
-    let session_id = create_session(&session_manager, agent_id, &sender_id).await?;
+    let (gateway, _session_manager) = build_gateway(agent_id).await;
 
     println!("CloseClaw Chat — agent: {}", agent_id);
     println!(
@@ -55,7 +53,7 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
          Type 'quit' or 'exit' to stop.\n"
     );
 
-    match repl_loop(&gateway, &session_id, &sender_id).await {
+    match repl_loop(&gateway, agent_id, &sender_id).await {
         ExitReason::Quit => Ok(()),
         ExitReason::Error(e) => Err(e),
     }
@@ -339,35 +337,11 @@ async fn build_session_handler(
         unified_fallback_client,
     ))
 }
-
-/// Create a session for the chat REPL.
-async fn create_session(
-    session_manager: &SessionManager,
-    agent_id: &str,
-    sender_id: &str,
-) -> anyhow::Result<String> {
-    let message = crate::gateway::Message {
-        id: format!("chat-{}", chrono::Utc::now().timestamp()),
-        from: sender_id.to_string(),
-        to: agent_id.to_string(),
-        content: String::new(),
-        channel: "terminal".to_string(),
-        timestamp: chrono::Utc::now().timestamp(),
-        metadata: Default::default(),
-        thread_id: None,
-    };
-
-    session_manager
-        .find_or_create("terminal", &message, None)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to create session: {}", e))
-}
-
 /// Run the read-eval-print loop.
 ///
 /// Returns [`ExitReason::Quit`] when the user exits normally, or
 /// [`ExitReason::Error`] on I/O failure.
-async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) -> ExitReason {
+async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> ExitReason {
     let plugin = TerminalPlugin::new();
 
     loop {
@@ -393,15 +367,14 @@ async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) ->
 
         // Run the inbound processor chain (ContentNormalizer, RawLog, etc.).
         let processed = gateway
-            .process_inbound_chain("terminal", sender_id, "cli", &content, &message_id)
+            .process_inbound_chain("terminal", sender_id, agent_id, &content, &message_id)
             .await;
 
         if processed.suppress {
             continue;
         }
 
-        let content = processed.content;
-        let trimmed = content.trim();
+        let trimmed = processed.content.trim();
 
         if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
             println!("Goodbye!");
@@ -414,7 +387,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, session_id: &str, sender_id: &str) ->
         }
 
         let result = gateway
-            .handle_inbound_message(session_id, content, Some(sender_id), "terminal")
+            .handle_inbound_message(processed, Some(sender_id), "terminal")
             .await;
 
         if result.is_none() {
