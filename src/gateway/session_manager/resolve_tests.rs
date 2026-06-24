@@ -61,7 +61,7 @@ fn test_generate_session_id_uniqueness() {
 async fn test_resolve_path1_active_hit() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None, 0);
+    let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
     // resolve() strips timestamps before registry lookup — insert routing_key.
     let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
     let session_id = "active_session_1";
@@ -108,7 +108,7 @@ async fn test_resolve_path2_archived_hit_restore() {
         ReasoningLevel::default(),
     );
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None, 0);
+    let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
     // resolve() strips timestamps before registry lookup — insert routing_key.
     let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
     {
@@ -128,7 +128,7 @@ async fn test_resolve_path2_archived_hit_restore() {
 async fn test_resolve_path3_miss_creates_new() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None, 0);
+    let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
     // key_registry is empty → miss → create new
     let result = mgr
         .resolve(&session_key, "feishu", &msg, None)
