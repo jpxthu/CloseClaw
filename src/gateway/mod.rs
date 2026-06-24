@@ -301,8 +301,17 @@ impl Gateway {
 
     /// Handle an inbound message through the busy/pending state machine.
     ///
-    /// If `sender_id` is provided and the message starts with `/approve` or
-    /// `/deny`, the approval flow intercepts the command (owner-only).
+    /// Accepts a [`ProcessedMessage`] produced by the inbound processor
+    /// chain (containing cleaned `content` and `session_key` in metadata).
+    ///
+    /// Resolution flow:
+    /// 1. Extract `session_key` from `metadata`
+    /// 2. If empty → reply "会话路由失败" via plugin, return `None`
+    /// 3. Call [`SessionManager::resolve`] to obtain `session_id`
+    /// 4. Dispatch: slash commands → [`dispatch_slash`], normal → LLM
+    ///
+    /// Slash commands are intercepted at this layer and never appended
+    /// to the conversation history (design doc requirement).
     ///
     /// `channel` identifies the IM platform / channel the message originated
     /// from (e.g. `"feishu"`). It is forwarded to `dispatch_slash` so that
@@ -319,11 +328,40 @@ impl Gateway {
     /// or `None` if no handler configured.
     pub async fn handle_inbound_message(
         &self,
-        session_id: &str,
-        content: String,
+        processed: ProcessedMessage,
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
+        // ── Resolve session_key → session_id ────────────────────────
+        let session_id = match self.resolve_session_from_message(&processed, channel).await {
+            Some(id) => id,
+            None => {
+                tracing::warn!("session_key missing or resolve failed — message not processed");
+                // Reply to user with error per design doc
+                let peer_id = processed
+                    .metadata
+                    .get("peer_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !peer_id.is_empty() {
+                    let err_msg = Message {
+                        id: String::new(),
+                        from: String::new(),
+                        to: peer_id.to_string(),
+                        content: String::new(),
+                        channel: channel.to_string(),
+                        timestamp: 0,
+                        metadata: std::collections::HashMap::new(),
+                        thread_id: None,
+                    };
+                    self.send_user_error(channel, &err_msg).await;
+                }
+                return None;
+            }
+        };
+
+        let content = processed.content;
+
         // ── Card action interception ─────────────────────────────────
         // Must run before the approval command check so that Feishu card
         // action callbacks (e.g. "Forceful shutdown" button) are handled
@@ -354,16 +392,18 @@ impl Gateway {
 
         // ── Approval command interception ──────────────────────────────
         if let Some(result) = self
-            .try_handle_approval_command(session_id, &content, sender_id)
+            .try_handle_approval_command(&session_id, &content, sender_id)
             .await
         {
             return Some(result);
         }
 
         // ── Slash command dispatch ─────────────────────────────────────
+        // Slash commands are intercepted here and never appended to
+        // conversation history (design doc requirement).
         if content.starts_with('/') {
             if let Some(result) = self
-                .dispatch_slash(session_id, &content, sender_id, channel)
+                .dispatch_slash(&session_id, &content, sender_id, channel)
                 .await
             {
                 return Some(result);
@@ -387,17 +427,73 @@ impl Gateway {
                 timestamp: chrono::Utc::now().timestamp(),
             };
             let result = handler
-                .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
+                .handle_message_with_gateway(&session_id, content, meta, &gw, &plugin)
                 .await;
             // NOTE: No decrement_busy here — the handler's spawned task
             // (finish_llm) is responsible for decrementing on async paths.
             return Some(result);
         }
 
-        let result = handler.handle_message(session_id, content).await;
+        let result = handler.handle_message(&session_id, content).await;
         // NOTE: No decrement_busy here — the handler's spawned task
         // (finish_llm) is responsible for decrementing on async paths.
         Some(result)
+    }
+
+    /// Resolve a session_id from a [`ProcessedMessage`]'s `session_key`.
+    ///
+    /// Extracts `session_key` from `metadata` and calls
+    /// [`SessionManager::resolve`] to obtain the `session_id`.
+    ///
+    /// Returns `None` when:
+    /// - `session_key` is missing or empty
+    /// - [`SessionManager::resolve`] fails
+    async fn resolve_session_from_message(
+        &self,
+        processed: &ProcessedMessage,
+        channel: &str,
+    ) -> Option<String> {
+        let session_key = processed
+            .metadata
+            .get("session_key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if session_key.is_empty() {
+            tracing::warn!("session_key is empty — session routing failed");
+            return None;
+        }
+
+        // Build a partial Message for SessionManager::resolve.
+        // For existing sessions (key_registry hit), only thread_id is used.
+        // For new sessions, to/from are needed for session creation.
+        let peer_id = processed
+            .metadata
+            .get("peer_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let sender_id = processed
+            .metadata
+            .get("sender_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let message = Message {
+            id: String::new(),
+            from: sender_id,
+            to: peer_id,
+            content: processed.content.clone(),
+            channel: channel.to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            metadata: std::collections::HashMap::new(),
+            thread_id: None,
+        };
+
+        self.session_manager
+            .resolve(session_key, channel, &message, None)
+            .await
+            .ok()
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).

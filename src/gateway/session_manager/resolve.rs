@@ -9,8 +9,8 @@ use super::session_helpers::AgentToolSkillConfig;
 use super::SessionManager;
 use crate::config::agents::ResolvedAgentConfig;
 use crate::gateway::Message;
-use crate::im::processor::ProcessError;
 use crate::llm::session::ConversationSession;
+use crate::processor_chain::error::ProcessError;
 use crate::session::persistence::{SessionCheckpoint, SessionStatus};
 use crate::session::workspace;
 use std::path::PathBuf;
@@ -234,7 +234,7 @@ impl SessionManager {
         // Compute workdir
         let workdir_path = if let Some(ref workspace_dir) = self.workspace_dir {
             workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(
-                |e| ProcessError::ProcessingFailed(format!("workspace creation failed: {}", e)),
+                |e| ProcessError::ChainFailed(format!("workspace creation failed: {}", e)),
             )?
         } else {
             PathBuf::from("/tmp")

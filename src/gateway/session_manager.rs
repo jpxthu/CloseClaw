@@ -7,9 +7,9 @@ use crate::config::manager::{ConfigManager, ConfigSnapshot};
 use crate::config::ConfigSection;
 use crate::daemon::shutdown::{ShutdownHandle, ShutdownMode};
 use crate::gateway::{DmScope, GatewayConfig, Message, Session};
-use crate::im::processor::ProcessError;
 use crate::im::IMAdapter;
 use crate::llm::session::{ChatSession, ConversationSession};
+use crate::processor_chain::error::ProcessError;
 use crate::session::bootstrap::loader::BootstrapMode;
 use crate::session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,

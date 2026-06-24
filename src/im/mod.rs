@@ -4,8 +4,6 @@
 //! Feishu plugin lives under `im_adapter::platforms::feishu`.
 //! Terminal plugin lives under `cli::terminal`.
 
-pub mod processor;
-
 // Re-export from im_adapter for backward compatibility
 pub use crate::im_adapter::{AdapterError, IMAdapter, IMPlugin, NormalizedMessage};
 
