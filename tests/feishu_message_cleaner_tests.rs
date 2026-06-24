@@ -16,7 +16,7 @@
 use std::path::PathBuf;
 
 use closeclaw::processor_chain::context::RawMessage;
-use closeclaw::processor_chain::{ProcessedMessage, ProcessorRegistry};
+use closeclaw::processor_chain::ProcessorRegistry;
 
 // ---------------------------------------------------------------------------
 // Fixture loader helpers
@@ -27,11 +27,6 @@ fn feishu_fixtures_dir() -> PathBuf {
 }
 
 fn load_raw_fixture(filename: &str) -> serde_json::Value {
-    let path = feishu_fixtures_dir().join(filename);
-    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
-}
-
-fn load_expected_fixture(filename: &str) -> ProcessedMessage {
     let path = feishu_fixtures_dir().join(filename);
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
