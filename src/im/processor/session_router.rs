@@ -280,7 +280,15 @@ mod tests {
             .unwrap();
         let key = result.metadata.get("session_key").unwrap();
         assert!(!key.is_empty(), "session_key should not be empty");
-        // PerAccountChannelPeer: acc:channel:from:to
+        // Key format: {timestamp_ms}-{routing_fields}:{timestamp_ms}
+        assert!(
+            key.contains("-"),
+            "key should contain timestamp separator '-': {key}"
+        );
+        assert!(
+            key.starts_with("1777229589621-"),
+            "key should start with timestamp prefix: {key}"
+        );
         assert!(key.contains("ou_user_a"), "key should contain from: {key}");
         assert!(key.contains("oc_agent_b"), "key should contain to: {key}");
     }
@@ -338,6 +346,15 @@ mod tests {
             .unwrap()
             .clone();
         assert_ne!(k1, k2, "different DmScope should produce different keys");
+        // Both should have timestamp prefix
+        assert!(
+            k1.starts_with("1777229589621-"),
+            "PerChannelPeer key should start with timestamp prefix: {k1}"
+        );
+        assert!(
+            k2.starts_with("1777229589621-"),
+            "PerAccountChannelPeer key should start with timestamp prefix: {k2}"
+        );
     }
 
     #[tokio::test]
@@ -353,6 +370,11 @@ mod tests {
             "existing_value"
         );
         assert!(result.metadata.contains_key("session_key"));
+        let key = result.metadata.get("session_key").unwrap();
+        assert!(
+            key.starts_with("1777229589621-"),
+            "session_key should start with timestamp prefix: {key}"
+        );
         assert!(result.metadata.contains_key("from"));
         assert!(result.metadata.contains_key("to"));
         assert!(result.metadata.contains_key("channel"));
@@ -377,6 +399,10 @@ mod tests {
         assert_eq!(result.metadata.get("account_id").unwrap(), "tenant_abc");
         let key = result.metadata.get("session_key").unwrap();
         assert!(!key.is_empty());
+        assert!(
+            key.starts_with("1777229589621-"),
+            "key should start with timestamp prefix: {key}"
+        );
         assert!(key.contains("ou_user_a"));
         assert!(key.contains("oc_agent_b"));
         assert_eq!(result.content, "{\"text\":\"hello\"}");
@@ -416,6 +442,10 @@ mod tests {
         assert_eq!(result.metadata.get("account_id").unwrap(), "tenant_thread");
         let key = result.metadata.get("session_key").unwrap();
         assert!(!key.is_empty());
+        assert!(
+            key.starts_with("1777229589621-"),
+            "key should start with timestamp prefix: {key}"
+        );
         assert!(key.contains("ou_thread_user"));
         assert!(key.contains("oc_thread_chat"));
         assert_eq!(result.content, "{\"text\":\"original\"}");
@@ -434,6 +464,69 @@ mod tests {
             result.metadata.get("session_key").unwrap(),
             "",
             "missing fields should yield empty session_key"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_different_timestamps_produce_different_keys() {
+        let router = make_router();
+        let ts_a = 1777229589621_i64;
+        let ts_b = 1777229589999_i64;
+        let raw_a = serde_json::json!({
+            "sender": {
+                "sender_id": { "open_id": "ou_user_a" }
+            },
+            "message": {
+                "chat_id": "oc_agent_b",
+                "chat_type": "p2p",
+                "message_id": "om_001",
+                "message_type": "text",
+                "content": "{\"text\":\"hello\"}",
+                "create_time": ts_a.to_string()
+            },
+            "tenant_key": "tenant_abc"
+        });
+        let raw_b = serde_json::json!({
+            "sender": {
+                "sender_id": { "open_id": "ou_user_a" }
+            },
+            "message": {
+                "chat_id": "oc_agent_b",
+                "chat_type": "p2p",
+                "message_id": "om_002",
+                "message_type": "text",
+                "content": "{\"text\":\"hello\"}",
+                "create_time": ts_b.to_string()
+            },
+            "tenant_key": "tenant_abc"
+        });
+        let key_a = router
+            .process(&MessageContext::default(), &raw_a)
+            .await
+            .unwrap()
+            .metadata
+            .get("session_key")
+            .unwrap()
+            .clone();
+        let key_b = router
+            .process(&MessageContext::default(), &raw_b)
+            .await
+            .unwrap()
+            .metadata
+            .get("session_key")
+            .unwrap()
+            .clone();
+        assert_ne!(
+            key_a, key_b,
+            "different timestamps must produce different keys"
+        );
+        assert!(
+            key_a.starts_with(&format!("{ts_a}-")),
+            "key_a should start with ts_a prefix: {key_a}"
+        );
+        assert!(
+            key_b.starts_with(&format!("{ts_b}-")),
+            "key_b should start with ts_b prefix: {key_b}"
         );
     }
 }
