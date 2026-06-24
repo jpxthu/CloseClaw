@@ -290,8 +290,8 @@ fn test_action_permission_round_trip() {
 // WARN-on-mismatch behaviour.
 // =====================================================================
 
-/// `config.json` without an `id` field must have its id backfilled from
-/// the directory name (the registry id).
+/// `config.json` without an `id` field must fail to load — the agent
+/// is skipped (deserialization of the required `id` field fails).
 #[test]
 fn test_directory_provider_id_from_dirname() {
     let user = TempDir::new().unwrap();
@@ -303,16 +303,22 @@ fn test_directory_provider_id_from_dirname() {
     )
     .unwrap();
 
-    let provider =
-        AgentDirectoryProvider::new(vec!["foo".to_string()], user.path().to_path_buf(), None)
-            .unwrap();
+    // Create a valid agent to ensure loading continues after the skip.
+    write_config(user.path(), "bar", "Bar Agent");
 
-    let entry = provider.get("foo").expect("foo should be loaded");
-    // Id backfilled from the directory name.
-    assert_eq!(entry.id, "foo");
-    // Name from the config file is preserved.
-    assert_eq!(entry.name, "Foo Agent");
-    assert_eq!(entry.source, ConfigSource::User);
+    let provider = AgentDirectoryProvider::new(
+        vec!["foo".to_string(), "bar".to_string()],
+        user.path().to_path_buf(),
+        None,
+    )
+    .unwrap();
+
+    // foo has no `id` → deserialization fails → agent is skipped.
+    assert!(provider.get("foo").is_none());
+    // bar is still loaded normally.
+    let entry = provider.get("bar").expect("bar should be loaded");
+    assert_eq!(entry.id, "bar");
+    assert_eq!(entry.name, "Bar Agent");
 }
 
 /// A `config.json` `id` that disagrees with the directory name must
@@ -381,6 +387,38 @@ fn test_directory_provider_id_mismatch_warn() {
         output.contains("does not match directory name"),
         "expected WARN log, got: {}",
         output
+    );
+}
+
+/// `config.json` with `id` set to an empty string `""` must fail to
+/// load — the agent is rejected with `MissingId` because the empty id
+/// does not satisfy the required-field constraint.
+#[test]
+fn test_directory_provider_id_empty_string_skips_agent() {
+    let user = TempDir::new().unwrap();
+    let agent_dir = user.path().join("empty-id");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::write(
+        agent_dir.join("config.json"),
+        r#"{ "id": "", "name": "Empty ID Agent" }"#,
+    )
+    .unwrap();
+
+    let result = AgentDirectoryProvider::new(
+        vec!["empty-id".to_string()],
+        user.path().to_path_buf(),
+        None,
+    );
+
+    assert!(
+        result.is_err(),
+        "empty-string id should cause provider to fail"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Missing required agent id"),
+        "error should mention missing id, got: {}",
+        err_msg
     );
 }
 
