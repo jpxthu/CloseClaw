@@ -194,39 +194,39 @@ fn msg(from: &str, to: &str) -> Message {
 
 #[test]
 fn test_dm_scope_main_session_key() {
-    let key = DmScope::Main.compute_session_key("ch_x", &msg("a", "b"), None);
-    assert_eq!(key, "ch_x:b");
+    let key = DmScope::Main.compute_session_key("ch_x", &msg("a", "b"), None, 0);
+    assert_eq!(key, "0-ch_x:b:0");
 }
 
 #[test]
 fn test_dm_scope_per_peer_session_key() {
-    let key = DmScope::PerPeer.compute_session_key("ch_x", &msg("a", "b"), None);
-    assert_eq!(key, "a:b");
+    let key = DmScope::PerPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
+    assert_eq!(key, "0-a:b:0");
 }
 
 #[test]
 fn test_dm_scope_per_channel_peer_session_key() {
-    let key = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None);
-    assert_eq!(key, "ch_x:a:b");
+    let key = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
+    assert_eq!(key, "0-ch_x:a:b:0");
 }
 
 #[test]
 fn test_dm_scope_per_account_channel_peer_with_account() {
     let key =
-        DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), Some("acc1"));
-    assert_eq!(key, "acc1:ch_x:a:b");
+        DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), Some("acc1"), 0);
+    assert_eq!(key, "0-acc1:ch_x:a:b:0");
 }
 
 #[test]
 fn test_dm_scope_per_account_channel_peer_without_account() {
-    let key = DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None);
-    assert_eq!(key, "default:ch_x:a:b");
+    let key = DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
+    assert_eq!(key, "0-default:ch_x:a:b:0");
 }
 
 #[test]
 fn test_dm_scope_per_channel_sender_session_key() {
-    let key = DmScope::PerChannelSender.compute_session_key("ch_x", &msg("a", "b"), None);
-    assert_eq!(key, "ch_x:a");
+    let key = DmScope::PerChannelSender.compute_session_key("ch_x", &msg("a", "b"), None, 0);
+    assert_eq!(key, "0-ch_x:a:0");
 }
 
 #[test]
@@ -249,8 +249,9 @@ fn test_dm_scope_default_session_key_contains_four_fields() {
         "feishu",
         &msg("ou_sender", "oc_peer"),
         Some("t_account"),
+        0,
     );
-    // PerAccountChannelPeer format: {account_id}:{platform}:{sender_id}:{peer_id}
+    // PerAccountChannelPeer format: {timestamp_ms}-{account_id}:{platform}:{sender_id}:{peer_id}:{timestamp_ms}
     assert!(
         key.contains("t_account"),
         "key should contain account_id: {key}"

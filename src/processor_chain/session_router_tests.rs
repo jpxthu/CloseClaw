@@ -20,6 +20,7 @@ async fn test_terminal_session_key_computed() {
         timestamp: chrono::Utc::now(),
         message_id: "msg_1".to_string(),
     };
+    let ts_ms = raw.timestamp.timestamp_millis();
     let ctx = make_ctx(raw);
     let result = router.process(&ctx).await.unwrap().unwrap();
     let key = result
@@ -28,11 +29,21 @@ async fn test_terminal_session_key_computed() {
         .and_then(|v| v.as_str())
         .unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
+    // Key format: {timestamp_ms}-terminal:1000:cli:{timestamp_ms}
+    assert!(
+        key.starts_with(&format!("{ts_ms}-")),
+        "key should start with timestamp prefix: {key}"
+    );
     assert!(key.contains("1000"), "key should contain sender_id: {key}");
     assert!(key.contains("cli"), "key should contain peer_id: {key}");
     assert!(
         key.contains("terminal"),
         "key should contain platform: {key}"
+    );
+    // Should end with :{timestamp_ms}
+    assert!(
+        key.ends_with(&format!(":{ts_ms}")),
+        "key should end with timestamp suffix: {key}"
     );
 }
 
@@ -155,4 +166,118 @@ async fn test_fallback_when_no_initial_raw() {
         !result.metadata.contains_key("session_key"),
         "no key when raw is absent"
     );
+}
+
+#[tokio::test]
+async fn test_different_timestamps_produce_different_keys() {
+    // Concurrency scenario: same routing fields, different timestamps → different keys
+    let router = make_router(DmScope::PerChannelPeer);
+
+    let ts1 = chrono::Utc::now();
+    let ts2 = ts1 + chrono::Duration::milliseconds(1);
+
+    let raw1 = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_abc".to_string(),
+        peer_id: "oc_xyz".to_string(),
+        content: "msg1".to_string(),
+        timestamp: ts1,
+        message_id: "msg_c1".to_string(),
+    };
+    let raw2 = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_abc".to_string(),
+        peer_id: "oc_xyz".to_string(),
+        content: "msg2".to_string(),
+        timestamp: ts2,
+        message_id: "msg_c2".to_string(),
+    };
+
+    let ctx1 = make_ctx(raw1);
+    let ctx2 = make_ctx(raw2);
+
+    let k1 = router
+        .process(&ctx1)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let k2 = router
+        .process(&ctx2)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+
+    assert_ne!(k1, k2, "different timestamps must produce different keys");
+    // Verify each key starts with its own timestamp
+    assert!(
+        k1.starts_with(&format!("{}-", ts1.timestamp_millis())),
+        "k1 should start with ts1: {k1}"
+    );
+    assert!(
+        k2.starts_with(&format!("{}-", ts2.timestamp_millis())),
+        "k2 should start with ts2: {k2}"
+    );
+}
+
+#[tokio::test]
+async fn test_same_routing_different_timestamps_different_keys() {
+    // Verifies that PerAccountChannelPeer also differentiates by timestamp
+    let router = make_router(DmScope::PerAccountChannelPeer);
+
+    let base = chrono::Utc::now();
+    let ts_a = base;
+    let ts_b = base + chrono::Duration::milliseconds(5);
+
+    let make_raw = |ts: chrono::DateTime<chrono::Utc>| RawMessage {
+        platform: "discord".to_string(),
+        sender_id: "user_99".to_string(),
+        peer_id: "dm_1".to_string(),
+        content: "test".to_string(),
+        timestamp: ts,
+        message_id: "msg_s1".to_string(),
+    };
+
+    let ctx_a = make_ctx(make_raw(ts_a));
+    let ctx_b = make_ctx(make_raw(ts_b));
+
+    let ka = router
+        .process(&ctx_a)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let kb = router
+        .process(&ctx_b)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+
+    assert_ne!(
+        ka, kb,
+        "same routing fields with different timestamps must differ"
+    );
+    // Both should contain the routing fields
+    assert!(ka.contains("user_99"), "ka should contain sender: {ka}");
+    assert!(ka.contains("dm_1"), "ka should contain peer: {ka}");
+    assert!(kb.contains("user_99"), "kb should contain sender: {kb}");
+    assert!(kb.contains("dm_1"), "kb should contain peer: {kb}");
 }

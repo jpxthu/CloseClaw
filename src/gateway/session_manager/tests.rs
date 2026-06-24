@@ -79,11 +79,13 @@ async fn test_archived_session_restoration() {
         ReasoningLevel::default(),
     );
     let msg = test_message();
-    // Populate key_registry so resolve can look up the session
-    let session_key = mgr.compute_session_key("feishu", &msg, None);
+    // Populate key_registry so resolve can look up the session.
+    // resolve() strips timestamps before registry lookup — insert routing_key.
+    let session_key = mgr.compute_session_key("feishu", &msg, None, 0);
+    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
     {
         let mut reg = mgr.key_registry.write().await;
-        reg.insert(session_key, "test_sid".to_string());
+        reg.insert(routing_key.to_string(), "test_sid".to_string());
     }
     let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(result, "test_sid");

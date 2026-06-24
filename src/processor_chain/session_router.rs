@@ -41,7 +41,14 @@ impl SessionRouter {
     /// Compute a deterministic session key from routing fields.
     ///
     /// Returns an empty string when `from` or `to` is missing.
-    fn compute_key(&self, from: &str, to: &str, channel: &str, account_id: Option<&str>) -> String {
+    fn compute_key(
+        &self,
+        from: &str,
+        to: &str,
+        channel: &str,
+        account_id: Option<&str>,
+        timestamp_ms: i64,
+    ) -> String {
         if from.is_empty() || to.is_empty() {
             return String::new();
         }
@@ -55,7 +62,8 @@ impl SessionRouter {
             metadata: std::collections::HashMap::new(),
             thread_id: None,
         };
-        self.dm_scope.compute_session_key(channel, &msg, account_id)
+        self.dm_scope
+            .compute_session_key(channel, &msg, account_id, timestamp_ms)
     }
 }
 
@@ -97,7 +105,14 @@ impl MessageProcessor for SessionRouter {
             .get("account_id")
             .and_then(|v| v.as_str().map(String::from));
 
-        let session_key = self.compute_key(&sender_id, &peer_id, &platform, account_id.as_deref());
+        let timestamp_ms = raw.timestamp.timestamp_millis();
+        let session_key = self.compute_key(
+            &sender_id,
+            &peer_id,
+            &platform,
+            account_id.as_deref(),
+            timestamp_ms,
+        );
 
         let mut metadata = ctx.metadata.clone();
         if !session_key.is_empty() {

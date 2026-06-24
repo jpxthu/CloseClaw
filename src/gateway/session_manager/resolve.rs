@@ -39,12 +39,16 @@ impl SessionManager {
         session_key: &str,
         channel: &str,
         message: &Message,
-        _account_id: Option<&str>, // used by key_registry rebuild
+        account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
+        // Extract routing_key (without timestamps) for registry lookups.
+        // Format: {ts}-{routing_fields}:{ts} → {routing_fields}
+        let routing_key = Self::strip_timestamp_from_session_key(session_key);
+
         // Path 1: key_registry hit — check if session is active
         let registry_hit = {
             let registry = self.key_registry.read().await;
-            registry.get(session_key).cloned()
+            registry.get(routing_key).cloned()
         };
 
         if let Some(session_id) = registry_hit {
@@ -200,10 +204,10 @@ impl SessionManager {
         // Path 3: key_registry miss — create a brand-new session
         let session_id = session_helpers::generate_session_id(&message.to);
 
-        // Write to key_registry
+        // Write to key_registry using routing_key (no timestamps)
         {
             let mut registry = self.key_registry.write().await;
-            registry.insert(session_key.to_string(), session_id.clone());
+            registry.insert(routing_key.to_string(), session_id.clone());
         }
 
         // Build system prompt
@@ -268,9 +272,10 @@ impl SessionManager {
         if let Some(ref thread_id) = message.thread_id {
             cp = cp.with_thread_id(thread_id.clone());
         }
-        // Persist sender (message.from) so rebuild_key_registry can reconstruct
-        // the correct session_key format "{channel}:{from}:{to}".
+        // Persist routing fields so rebuild_key_registry can reconstruct
+        // the correct routing_key format "{account_id}:{channel}:{from}:{to}".
         cp.sender_id = Some(message.from.clone());
+        cp.account_id = account_id.map(String::from);
         if let Some(storage) = self.storage.read().await.as_ref() {
             if let Err(e) = storage.save_checkpoint(&cp).await {
                 warn!(

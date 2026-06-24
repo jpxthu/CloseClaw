@@ -86,15 +86,16 @@ impl SessionManager {
                 }
             };
 
-            // Reconstruct the session_key matching `compute_session_key(PerChannelPeer)`
-            // format: "{platform}:{from}:{peer_id}".
-            // Prefer the persisted `sender_id` (message.from); fall back to
-            // `agent_id` for checkpoints created before this field existed.
+            // Reconstruct the routing_key matching `compute_session_key(PerAccountChannelPeer)`
+            // format: "{account_id}:{platform}:{sender_id}:{peer_id}".
+            // This is the routing portion of the full session key, with timestamps
+            // stripped, so it matches what `resolve` looks up in the registry.
+            let account_id = cp.account_id.as_deref().unwrap_or("default");
             let from = cp
                 .sender_id
                 .as_deref()
                 .unwrap_or_else(|| cp.agent_id.as_deref().unwrap_or(peer_id));
-            let session_key = format!("{}:{}:{}", platform, from, peer_id);
+            let session_key = format!("{}:{}:{}:{}", account_id, platform, from, peer_id);
 
             let created = cp.created_at;
             match key_best.get(&session_key) {
