@@ -496,6 +496,78 @@ async fn test_process_inbound_chain_with_session_router() {
     );
 }
 
+/// Verifies that `process_inbound_chain` uses the provided `timestamp_ms`
+/// parameter for the session key, not `Utc::now()`.
+#[tokio::test]
+async fn test_process_inbound_chain_uses_provided_timestamp() {
+    let config = make_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    let mut registry = crate::processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(crate::processor_chain::SessionRouter::new(
+        DmScope::default(),
+    )));
+    let gw = crate::gateway::Gateway::with_processor_registry(
+        config,
+        Arc::clone(&sm),
+        Arc::new(registry),
+    );
+
+    let ts_ms: i64 = 1_700_000_000_123;
+    let result = gw
+        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-ts", ts_ms)
+        .await;
+
+    let key = result
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .expect("session_key should be set");
+
+    // Key must start with the exact timestamp we passed in
+    assert!(
+        key.starts_with(&format!("{ts_ms}-")),
+        "session_key should start with provided timestamp {ts_ms}, got: {key}"
+    );
+    let hash_part = &key[key.find('-').unwrap() + 1..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
+}
+
+/// Verifies that `ContentNormalizer` does NOT call `strip_platform_residue`
+/// during processing — platform format conversion is handled by adapters.
+#[tokio::test]
+async fn test_content_normalizer_does_not_strip_platform_residue() {
+    use crate::processor_chain::processor::MessageProcessor;
+
+    let processor = crate::processor_chain::content_normalizer::ContentNormalizer::new();
+    let raw = crate::processor_chain::context::RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "user1".to_string(),
+        peer_id: "chat1".to_string(),
+        // Content with platform-specific <at> tags
+        content: r#"Hello <at user_id="u123">Alice</at>, welcome!"#.to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_at".to_string(),
+    };
+    let ctx = crate::processor_chain::context::MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // <at> tags should be preserved (not converted to @Alice)
+    assert!(
+        result.content.contains("<at user_id="),
+        "ContentNormalizer should not strip platform residue, got: {}",
+        result.content
+    );
+}
+
 /// When a processor returns an error, `process_inbound_chain` falls back to
 /// the original content and logs a warning.
 #[tokio::test]
