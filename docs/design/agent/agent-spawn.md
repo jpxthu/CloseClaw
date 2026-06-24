@@ -21,7 +21,6 @@ Session 模块读取父 agent 配置中的 subagents 参数（注意：下文「
   ③ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
   ③a agentId 回退（先于 ③ 执行）：spawn 未传 agentId 时自动回退到父 agent 配置的 `defaultChildAgent`
   ④ requireAgentId 检查：回退值也为空 → 拒绝
-  ④a 模型覆盖：按优先级链选择子 agent 模型（详见 agent-config.md「模型解析优先级」），无匹配时回退系统默认，不拒绝 spawn
   ⑤ 权限检查：子 agent 经权限继承计算后无任何执行权限 → 拒绝（见 agent-permissions.md）
   ↓
 全部检查通过 → 创建 child session：
@@ -35,13 +34,41 @@ Session 模块读取父 agent 配置中的 subagents 参数（注意：下文「
   ↓
 子 session 注册到父 session 的子 session 跟踪表
   ↓
-通信配置生成：子 agent 默认仅允许与父 agent 通信（outbound 允许父 + inbound 接受父）。双向白名单机制确保子 agent 不会与无关 agent 交互
+通信配置生成（详见下方「通信配置」小节）
   ↓
 子 session 启动执行
   ↓
 mode="run"：子 session 完成后触发 announce
 mode="session"：子 session 保持存活，等待父 agent 后续 steer
 ```
+
+> 模型覆盖（按优先级链选择子 agent 模型，详见 agent-config.md「模型解析优先级」）不在 SpawnController 内执行，由 sessions_spawn 工具在整体流程末端完成，无匹配时回退系统默认，不拒绝 spawn。
+
+### 通信配置（CommunicationConfig）
+
+Spawn 子 agent 时生成通信白名单，控制子 agent 可以向谁发消息、可以接收谁的消息。默认仅允许与父 agent 通信，防止子 agent 与无关 agent 交互。
+
+通信配置包含两个方向的白名单：
+
+- **outbound**：允许发送消息的目标 agent ID 列表。`"*"` 表示不限制
+- **inbound**：允许接收消息的来源 agent ID 列表。`"*"` 表示不限制
+
+生成规则：每次 spawn 时调用 `default_with_parent(父 agent ID)`，outbound 和 inbound 均设置为仅含父 agent ID。
+
+通信检查为双向校验：
+
+```
+Agent A 向 Agent B 发送消息
+  ↓
+检查 A 的 outbound 是否包含 B（或 "*"）
+  ↓
+检查 B 的 inbound 是否包含 A（或 "*"）
+  ↓
+任意一方不满足 → 拒绝通信
+两者都满足 → 允许
+```
+
+此配置注入子 session 的 LLM 会话上下文，在消息路由和跨 agent 交互时由 Session 模块校验。如需扩展通信范围（如兄弟 agent 之间通信），需显式配置额外 agent ID。
 
 ### Depth 追踪
 
@@ -56,7 +83,7 @@ spawn 时，有效预算在 spawn 链上逐层递传。根 agent 的初始预算
 
 子 agent 的 `maxSpawnDepth` 仅用于额外加严约束——即使父 agent 允许更多层级，子 agent 可收窄自己的子树范围，但不能放大。最终取 min 值。
 
-有效预算 ≤ 0 时禁止该 agent 继续 spawn。
+有效预算 ≤ 0 时禁止该 agent 继续 spawn。session 构造时检测到当前 depth 已达有效预算上限，不向该 agent 注入 sessions_spawn 工具——子 agent 感知不到 spawn 的存在，自然不会尝试调用。
 
 多层示例：
 

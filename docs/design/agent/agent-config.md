@@ -53,6 +53,16 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 
 每个 Agent 的配置存放在独立的目录中，注册由 `config/agents.json`（用户级）和 `<repo>/.closeclaw/agents.json`（项目级）两个清单文件显式控制。只有清单中列出的 Agent ID 才会被加载，不在清单中的目录即使存在也忽略。
 
+注册清单格式（JSONC，支持 `//` 单行注释）：
+
+```jsonc
+{
+  "agents": ["agent-id-1", "agent-id-2"]
+}
+```
+
+清单仅包含 agent ID 列表，不包含内联配置（如模型名称、工具列表等）。每个 agent 的详细配置存储在独立目录 `agents/<id>/config.json` 中。被注释掉的 ID 视为未注册，对应的配置目录会被跳过。
+
 采用字段级覆盖合并：高优先级配置中未指定的字段回退到低优先级配置的值。
 
 ```

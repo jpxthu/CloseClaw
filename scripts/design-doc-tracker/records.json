@@ -8,17 +8,17 @@
   },
   {
     "path": "docs/design/agent/agent-config.md",
-    "commit": "7264e812f9244b352780b446205b670e1732ec6d",
-    "commit_time": "2026-06-19T21:50:32+08:00",
-    "confirmed_time": "2026-06-19T21:58:08.208839+08:00",
+    "commit": "ad8615ff5413512e99a8d7638e214df5bdfeb941",
+    "commit_time": "2026-06-24T11:52:12+08:00",
+    "confirmed_time": "2026-06-24T21:05:48.130766+08:00",
     "comment": ""
   },
   {
     "path": "docs/design/agent/agent-permissions.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-06-20T01:40:16.337584+08:00",
-    "comment": "blocked: doc_problem - Tools模块无关描述与代码矛盾, Creator Rule/缓存预检/extra deny等实现未在文档描述"
+    "commit": "ad8615ff5413512e99a8d7638e214df5bdfeb941",
+    "commit_time": "2026-06-24T11:52:12+08:00",
+    "confirmed_time": "2026-06-24T21:05:48.228416+08:00",
+    "comment": ""
   },
   {
     "path": "docs/design/agent/agent-registry.md",
@@ -29,9 +29,9 @@
   },
   {
     "path": "docs/design/agent/agent-spawn.md",
-    "commit": "1d4ab6eea160db1563b3221e427ee11e7615fc0b",
-    "commit_time": "2026-06-20T09:56:06+08:00",
-    "confirmed_time": "2026-06-20T10:06:57.213904+08:00",
+    "commit": "ad8615ff5413512e99a8d7638e214df5bdfeb941",
+    "commit_time": "2026-06-24T11:52:12+08:00",
+    "confirmed_time": "2026-06-24T21:05:39.176721+08:00",
     "comment": ""
   },
   {
@@ -116,6 +116,13 @@
     "commit": "080d0def9922a0277ef958aa4e7103d998ce73d7",
     "commit_time": "2026-06-24T06:34:44+08:00",
     "confirmed_time": "2026-06-24T06:40:55.193208+08:00",
+    "comment": ""
+  },
+  {
+    "path": "docs/design/session/session-tools.md",
+    "commit": "ad8615ff5413512e99a8d7638e214df5bdfeb941",
+    "commit_time": "2026-06-24T11:52:12+08:00",
+    "confirmed_time": "2026-06-24T21:05:48.329334+08:00",
     "comment": ""
   }
 ]
