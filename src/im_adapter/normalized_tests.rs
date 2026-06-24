@@ -246,7 +246,7 @@ fn test_roundtrip_all_new_fields_populated() {
         sender_id: "ou_user".into(),
         peer_id: "oc_group".into(),
         content: "replied with image".into(),
-        timestamp: 1_700_000_000,
+        timestamp: 1_700_000_000_000,
         message_type: "image".into(),
         media_refs: vec![MediaRef {
             key: "img_key_001".into(),
