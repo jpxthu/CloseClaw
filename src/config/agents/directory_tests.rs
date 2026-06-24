@@ -390,11 +390,11 @@ fn test_directory_provider_id_mismatch_warn() {
     );
 }
 
-/// `config.json` with `id` set to an empty string `""` must fail to
-/// load — the agent is rejected with `MissingId` because the empty id
-/// does not satisfy the required-field constraint.
+/// `config.json` with `id` set to an empty string `""` must cause
+/// provider construction to fail — the empty id does not satisfy the
+/// required-field constraint, so `new()` returns an error.
 #[test]
-fn test_directory_provider_id_empty_string_skips_agent() {
+fn test_directory_provider_empty_string_id_fails_construction() {
     let user = TempDir::new().unwrap();
     let agent_dir = user.path().join("empty-id");
     std::fs::create_dir_all(&agent_dir).unwrap();
