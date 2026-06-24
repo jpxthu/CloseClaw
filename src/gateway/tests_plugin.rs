@@ -15,6 +15,7 @@ use std::sync::Arc;
 struct MockPlugin {
     platform_name: String,
     fail: bool,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
 impl MockPlugin {
@@ -22,12 +23,18 @@ impl MockPlugin {
         Self {
             platform_name: platform.to_string(),
             fail: false,
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
     fn failing(platform: &str) -> Self {
         Self {
             platform_name: platform.to_string(),
             fail: true,
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 }
@@ -64,6 +71,12 @@ impl IMPlugin for MockPlugin {
         } else {
             Ok(())
         }
+    }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
     }
 }
 
@@ -156,6 +169,7 @@ use tokio::sync::RwLock;
 struct CapturingPlugin {
     platform_name: String,
     last_card: RwLock<Option<serde_json::Value>>,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
 impl CapturingPlugin {
@@ -163,6 +177,9 @@ impl CapturingPlugin {
         Self {
             platform_name: platform.to_string(),
             last_card: RwLock::new(None),
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 
@@ -205,6 +222,12 @@ impl IMPlugin for CapturingPlugin {
             *self.last_card.write().await = Some(output.payload.clone());
         }
         Ok(())
+    }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
     }
 }
 

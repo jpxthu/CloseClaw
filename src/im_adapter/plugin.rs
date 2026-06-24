@@ -12,10 +12,12 @@
 use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
 use crate::im_adapter::error::AdapterError;
 use crate::im_adapter::normalized::NormalizedMessage;
-use crate::llm::types::ContentBlock;
+use crate::im_adapter::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRenderer};
+use crate::llm::types::{ContentBlock, StreamEvent};
 use crate::processor_chain::DslParseResult;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 
 // ---------------------------------------------------------------------------
 // Output type
@@ -226,5 +228,40 @@ pub trait IMPlugin: Send + Sync {
     /// Plugins that do not need cleanup can use the default no-op.
     async fn shutdown(&self) -> Result<(), AdapterError> {
         Ok(())
+    }
+
+    /// Process a single streaming [`StreamEvent`] and return incremental
+    /// output.
+    ///
+    /// The default implementation delegates to a [`DefaultStreamingRenderer`]
+    /// stored in a [`Mutex`] inside the implementor. Plugins that need
+    /// different rendering logic should override this method.
+    ///
+    /// [`Mutex`] is used because [`IMPlugin`] requires `Send + Sync`.
+    fn handle_stream_event(&self, event: StreamEvent) -> StreamingOutput {
+        self.streaming_renderer()
+            .lock()
+            .unwrap()
+            .handle_event(event)
+    }
+
+    /// Flush the streaming renderer and return any remaining buffered content.
+    ///
+    /// Called at stream end (e.g. `MessageEnd`) to drain partial lines and
+    /// accumulated blocks.
+    fn flush_stream(&self) -> StreamingOutput {
+        self.streaming_renderer().lock().unwrap().flush()
+    }
+
+    /// Access the plugin's streaming renderer.
+    ///
+    /// The default implementation panics — implementors must override this
+    /// to return a [`Mutex<DefaultStreamingRenderer>`] (or a custom renderer
+    /// wrapped in one).
+    fn streaming_renderer(&self) -> &Mutex<DefaultStreamingRenderer> {
+        panic!(
+            "IMPlugin::streaming_renderer() not implemented; \
+             override handle_stream_event / flush_stream or provide streaming_renderer"
+        )
     }
 }

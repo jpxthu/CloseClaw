@@ -6,6 +6,8 @@
 //! - Mock plugin verifying plain-text fallback path
 //! - Edge cases: empty blocks, single/multi blocks, unclosed code fences,
 //!   no language annotation
+//! - `register_platform_plugins` auto-discovery (Step 1.1)
+//! - IMPlugin streaming default methods (Step 1.2)
 
 #[cfg(test)]
 mod tests {
@@ -13,9 +15,10 @@ mod tests {
     use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
     use crate::im_adapter::platforms::feishu::{FeishuAdapter, FeishuPlugin};
     use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
+    use crate::im_adapter::streaming::DefaultStreamingRenderer;
     use crate::im_adapter::AdapterError;
     use crate::im_adapter::NormalizedMessage;
-    use crate::llm::types::ContentBlock;
+    use crate::llm::types::{ContentBlock, ContentDelta, StreamEvent};
     use async_trait::async_trait;
     use std::sync::Arc;
 
@@ -627,5 +630,271 @@ mod tests {
         let cloned = output.clone();
         assert_eq!(cloned.msg_type, output.msg_type);
         assert_eq!(cloned.payload, output.payload);
+    }
+
+    // =========================================================================
+    // IMPlugin streaming default method tests (Step 1.2)
+    // =========================================================================
+
+    /// Mock plugin with a real streaming renderer for testing default methods.
+    struct StreamingMockPlugin {
+        renderer: std::sync::Mutex<DefaultStreamingRenderer>,
+    }
+
+    impl StreamingMockPlugin {
+        fn new() -> Self {
+            Self {
+                renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl IMPlugin for StreamingMockPlugin {
+        fn platform(&self) -> &str {
+            "streaming-mock"
+        }
+
+        async fn parse_inbound(
+            &self,
+            _payload: &[u8],
+        ) -> Result<Option<NormalizedMessage>, AdapterError> {
+            Ok(None)
+        }
+
+        async fn send(
+            &self,
+            _output: &RenderedOutput,
+            _peer_id: &str,
+            _thread_id: Option<&str>,
+        ) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        fn streaming_renderer(&self) -> &std::sync::Mutex<DefaultStreamingRenderer> {
+            &self.renderer
+        }
+    }
+
+    #[test]
+    fn test_streaming_text_delta_completes_line() {
+        let plugin = StreamingMockPlugin::new();
+
+        // BlockStart + delta with a sentence terminator → should emit a complete line.
+        let out = plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Text,
+        });
+        assert!(out.text_messages.is_empty());
+
+        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "Hello world.".to_string(),
+            },
+        });
+        assert_eq!(out.text_messages, vec!["Hello world."]);
+        assert!(out.render_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_streaming_text_delta_buffered_no_terminator() {
+        let plugin = StreamingMockPlugin::new();
+
+        plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Text,
+        });
+
+        // No terminator → nothing emitted yet.
+        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "partial text".to_string(),
+            },
+        });
+        assert!(out.text_messages.is_empty());
+
+        // Flush should return the buffered content.
+        let out = plugin.flush_stream();
+        assert_eq!(out.text_messages, vec!["partial text"]);
+    }
+
+    #[test]
+    fn test_streaming_non_text_block_emits_render_block() {
+        let plugin = StreamingMockPlugin::new();
+
+        // Thinking block → accumulates and emits on BlockEnd.
+        plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Thinking,
+        });
+        plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Thinking {
+                thinking: "reasoning...".to_string(),
+            },
+        });
+        let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Thinking,
+        });
+        assert!(out.text_messages.is_empty());
+        assert_eq!(out.render_blocks.len(), 1);
+        assert_eq!(
+            out.render_blocks[0],
+            ContentBlock::Thinking("reasoning...".to_string())
+        );
+    }
+
+    #[test]
+    fn test_streaming_tool_use_block_emits_render_block() {
+        let plugin = StreamingMockPlugin::new();
+
+        plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::ToolUse,
+        });
+        plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::ToolUseId {
+                id: "call_1".to_string(),
+            },
+        });
+        plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::ToolUseName {
+                name: "exec".to_string(),
+            },
+        });
+        plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::ToolUseInputChunk {
+                input: r#"{"cmd":"ls"}"#.to_string(),
+            },
+        });
+        let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::ToolUse,
+        });
+        assert_eq!(out.render_blocks.len(), 1);
+        assert_eq!(
+            out.render_blocks[0],
+            ContentBlock::ToolUse {
+                id: "call_1".to_string(),
+                name: "exec".to_string(),
+                input: r#"{"cmd":"ls"}"#.to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_streaming_flush_empty_buffer() {
+        let plugin = StreamingMockPlugin::new();
+        let out = plugin.flush_stream();
+        assert!(out.text_messages.is_empty());
+        assert!(out.render_blocks.is_empty());
+        assert!(out.dsl_lines.is_empty());
+    }
+
+    #[test]
+    fn test_streaming_end_to_end_text_only() {
+        let plugin = StreamingMockPlugin::new();
+
+        // Full lifecycle: start → delta → delta → end → flush.
+        plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Text,
+        });
+        plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "First line. ".to_string(),
+            },
+        });
+        // The trailing space after '.' stays in the line buffer;
+        // the second delta appends to it.
+        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "Second line.".to_string(),
+            },
+        });
+        // " " + "Second line." → emitted on '.' terminator.
+        assert_eq!(out.text_messages, vec![" Second line."]);
+
+        // BlockEnd drains remaining buffer (empty here).
+        plugin.handle_stream_event(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Text,
+        });
+
+        // Flush after BlockEnd should be empty.
+        let out = plugin.flush_stream();
+        assert!(out.text_messages.is_empty());
+    }
+
+    #[test]
+    fn test_streaming_end_to_end_mixed_blocks() {
+        let plugin = StreamingMockPlugin::new();
+
+        // Text block — first delta emits on terminator, second continues.
+        plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Text,
+        });
+        plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "Hello.".to_string(),
+            },
+        });
+
+        // Thinking block in between.
+        plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 1,
+            block_type: crate::llm::types::ContentBlockType::Thinking,
+        });
+        plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::Thinking {
+                thinking: "hmm".to_string(),
+            },
+        });
+        let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
+            index: 1,
+            block_type: crate::llm::types::ContentBlockType::Thinking,
+        });
+        assert_eq!(out.render_blocks.len(), 1);
+
+        // Another text block.
+        plugin.handle_stream_event(StreamEvent::BlockStart {
+            index: 2,
+            block_type: crate::llm::types::ContentBlockType::Text,
+        });
+        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
+            index: 2,
+            delta: ContentDelta::Text {
+                text: "World.".to_string(),
+            },
+        });
+        assert_eq!(out.text_messages, vec!["World."]);
+
+        // End first text block.
+        plugin.handle_stream_event(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: crate::llm::types::ContentBlockType::Text,
+        });
+    }
+
+    #[test]
+    fn test_streaming_message_end_is_noop() {
+        let plugin = StreamingMockPlugin::new();
+        let out = plugin.handle_stream_event(StreamEvent::MessageEnd {
+            usage: None,
+            finish_reason: Some("end_turn".to_string()),
+        });
+        assert!(out.text_messages.is_empty());
+        assert!(out.render_blocks.is_empty());
     }
 }
