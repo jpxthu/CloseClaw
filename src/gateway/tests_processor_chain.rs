@@ -608,7 +608,7 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
     assert!(!processed.suppress);
 
     let handle_result = gw
-        .handle_inbound_message("sess-1", processed.content, Some("user1"), "terminal")
+        .handle_inbound_message(processed, Some("user1"), "terminal")
         .await;
     assert!(
         handle_result.is_none(),

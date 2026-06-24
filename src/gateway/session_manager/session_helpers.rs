@@ -91,7 +91,7 @@ pub(super) async fn compute_session_workdir(
     message: &Message,
     workspace_dir: &Option<PathBuf>,
     storage: &Arc<dyn crate::session::persistence::PersistenceService>,
-) -> Result<PathBuf, crate::im::processor::ProcessError> {
+) -> Result<PathBuf, crate::processor_chain::error::ProcessError> {
     if restored {
         let checkpoint_agent_id = {
             match storage
@@ -114,7 +114,7 @@ pub(super) async fn compute_session_workdir(
         }
     } else if let Some(ref workspace_dir) = workspace_dir {
         workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(|e| {
-            crate::im::processor::ProcessError::ProcessingFailed(format!(
+            crate::processor_chain::error::ProcessError::ChainFailed(format!(
                 "workspace creation failed: {}",
                 e
             ))

@@ -6,6 +6,7 @@ use crate::gateway::{DmScope, GatewayConfig, GatewayError, Message, SessionManag
 use crate::im::{AdapterError, IMPlugin, NormalizedMessage};
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;
+use crate::processor_chain::ProcessedMessage;
 use crate::renderer::RenderedOutput;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
@@ -91,6 +92,26 @@ impl IMPlugin for MockPlugin {
 }
 
 // ── Test helpers ────────────────────────────────────────────────────────────
+
+/// Build a `ProcessedMessage` from a `Message` for use with `handle_inbound_message`.
+/// Computes the same session_key that `SessionManager::find_or_create` would use,
+/// ensuring `resolve_session_from_message` can match the existing session.
+fn make_processed_msg(msg: &Message, channel: &str) -> ProcessedMessage {
+    let session_key = DmScope::default().compute_session_key(channel, msg, None, msg.timestamp);
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("session_key".into(), serde_json::Value::String(session_key));
+    metadata.insert("peer_id".into(), serde_json::Value::String(msg.to.clone()));
+    metadata.insert(
+        "sender_id".into(),
+        serde_json::Value::String(msg.from.clone()),
+    );
+    ProcessedMessage {
+        content: msg.content.clone(),
+        metadata,
+        suppress: false,
+        content_blocks: vec![],
+    }
+}
 
 fn make_config() -> GatewayConfig {
     GatewayConfig {
@@ -627,7 +648,7 @@ async fn test_shutdown_gate_rejects_inbound_message() {
 
     // handle_inbound_message should return None (rejected) when shutting down
     let result = gw
-        .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
+        .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     assert!(
         result.is_none(),
@@ -648,7 +669,7 @@ async fn test_shutdown_gate_rejects_inbound_message_forceful() {
     msg.metadata.insert("session_id".into(), sid.clone());
 
     let result = gw
-        .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
+        .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     assert!(
         result.is_none(),
@@ -668,7 +689,7 @@ async fn test_shutdown_gate_allows_inbound_message_when_running() {
     // Without a SessionMessageHandler configured, this returns None.
     // The key assertion is that it does NOT early-return due to gate.
     let result = gw
-        .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
+        .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     // Result is None (no handler configured) — that's expected.
     // The gate check did NOT block the message.
@@ -694,7 +715,7 @@ async fn test_inbound_message_increments_busy_count() {
     // spawned task (finish_llm) handles increment/decrement.
     // With no handler configured, returns None with busy_count unchanged.
     let _ = gw
-        .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
+        .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     // No handler → no busy_count change
     assert_eq!(sh.busy_count(), 0);
@@ -711,7 +732,7 @@ async fn test_shutdown_gate_rejects_message_busy_count_decremented() {
     msg.metadata.insert("session_id".into(), sid.clone());
 
     let _ = gw
-        .handle_inbound_message(&sid, "hello".into(), Some("sender"), "mock")
+        .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
 
     // busy_count should be 0 — the message was rejected by the gate
@@ -727,19 +748,21 @@ async fn test_shutdown_gate_rejects_message_busy_count_decremented() {
 
 #[tokio::test]
 async fn test_card_action_forceful_shutdown_intercept() {
-    let (gw, _sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, sh) = setup_with_shutdown("mock").await;
 
     // Start shutdown so escalate_to_forceful has effect
     sh.start_shutdown_for_test();
 
+    // Create a session so session resolution succeeds
+    let msg = make_message("agent-1", "test");
+    let _sid = sm.find_or_create("mock", &msg, None).await.unwrap();
+
     // Simulate a card action message
+    let mut processed = make_processed_msg(&msg, "mock");
+    processed.content = "/__card_action:forceful_shutdown".to_string();
+
     let result = gw
-        .handle_inbound_message(
-            "session-card",
-            "/__card_action:forceful_shutdown".to_string(),
-            Some("ou_user"),
-            "feishu",
-        )
+        .handle_inbound_message(processed, Some("ou_user"), "feishu")
         .await;
 
     // Should return None (card action is intercepted, not forwarded)
@@ -753,15 +776,18 @@ async fn test_card_action_forceful_shutdown_intercept() {
 
 #[tokio::test]
 async fn test_card_action_forceful_shutdown_no_shutdown_handle() {
-    let (gw, _sm) = setup(make_config(), "mock").await;
+    let (gw, sm) = setup(make_config(), "mock").await;
+
+    // Create a session so session resolution succeeds
+    let msg = make_message("agent-1", "test");
+    let _sid = sm.find_or_create("mock", &msg, None).await.unwrap();
+
     // No shutdown handle wired — card action should be ignored gracefully
+    let mut processed = make_processed_msg(&msg, "mock");
+    processed.content = "/__card_action:forceful_shutdown".to_string();
+
     let result = gw
-        .handle_inbound_message(
-            "session-card-nohandle",
-            "/__card_action:forceful_shutdown".to_string(),
-            Some("ou_user"),
-            "feishu",
-        )
+        .handle_inbound_message(processed, Some("ou_user"), "feishu")
         .await;
     // Returns None — no shutdown handle, no crash
     assert!(result.is_none());
@@ -769,15 +795,18 @@ async fn test_card_action_forceful_shutdown_no_shutdown_handle() {
 
 #[tokio::test]
 async fn test_card_action_forceful_shutdown_not_shutting_down() {
-    let (gw, _sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, sh) = setup_with_shutdown("mock").await;
+
+    // Create a session so session resolution succeeds
+    let msg = make_message("agent-1", "test");
+    let _sid = sm.find_or_create("mock", &msg, None).await.unwrap();
+
     // Shutdown handle exists but shutdown hasn't started
+    let mut processed = make_processed_msg(&msg, "mock");
+    processed.content = "/__card_action:forceful_shutdown".to_string();
+
     let result = gw
-        .handle_inbound_message(
-            "session-card-notshutdown",
-            "/__card_action:forceful_shutdown".to_string(),
-            Some("ou_user"),
-            "feishu",
-        )
+        .handle_inbound_message(processed, Some("ou_user"), "feishu")
         .await;
     // Returns None but should NOT escalate (not shutting down)
     assert!(result.is_none());
