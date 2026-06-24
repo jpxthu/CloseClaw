@@ -280,7 +280,7 @@ mod tests {
             .unwrap();
         let key = result.metadata.get("session_key").unwrap();
         assert!(!key.is_empty(), "session_key should not be empty");
-        // Key format: {timestamp_ms}-{routing_fields}:{timestamp_ms}
+        // Key format: {timestamp_ms}-{sha256_hex}
         assert!(
             key.contains("-"),
             "key should contain timestamp separator '-': {key}"
@@ -289,8 +289,12 @@ mod tests {
             key.starts_with("1777229589621-"),
             "key should start with timestamp prefix: {key}"
         );
-        assert!(key.contains("ou_user_a"), "key should contain from: {key}");
-        assert!(key.contains("oc_agent_b"), "key should contain to: {key}");
+        let hash_part = &key[key.find('-').unwrap() + 1..];
+        assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+        assert!(
+            hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "hash should be hex: {key}"
+        );
     }
 
     #[tokio::test]
@@ -403,8 +407,12 @@ mod tests {
             key.starts_with("1777229589621-"),
             "key should start with timestamp prefix: {key}"
         );
-        assert!(key.contains("ou_user_a"));
-        assert!(key.contains("oc_agent_b"));
+        let hash_part = &key[key.find('-').unwrap() + 1..];
+        assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+        assert!(
+            hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "hash should be hex: {key}"
+        );
         assert_eq!(result.content, "{\"text\":\"hello\"}");
     }
 
@@ -446,8 +454,12 @@ mod tests {
             key.starts_with("1777229589621-"),
             "key should start with timestamp prefix: {key}"
         );
-        assert!(key.contains("ou_thread_user"));
-        assert!(key.contains("oc_thread_chat"));
+        let hash_part = &key[key.find('-').unwrap() + 1..];
+        assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+        assert!(
+            hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "hash should be hex: {key}"
+        );
         assert_eq!(result.content, "{\"text\":\"original\"}");
     }
 

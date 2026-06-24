@@ -226,11 +226,15 @@ async fn test_rebuild_key_registry() {
     mgr.rebuild_key_registry().await.unwrap();
 
     let reg = mgr.key_registry.read().await;
-    // Both sessions share the same reconstructed routing_key:
+    // Both sessions share the same reconstructed routing fields:
     // "default:feishu:agent-a:agent-a" (PerAccountChannelPeer, no sender_id → uses agent_id)
-    // The newer one (sid_new) should win
-    let key = "default:feishu:agent-a:agent-a";
-    assert_eq!(reg.get(key).unwrap(), "sid_new");
+    // The registry key is now the sha256 hash of the routing fields.
+    // The newer one (sid_new) should win.
+    use sha2::{Digest, Sha256};
+    let routing_fields = "default:feishu:agent-a:agent-a";
+    let hash = Sha256::digest(routing_fields.as_bytes());
+    let key = format!("{:x}", hash);
+    assert_eq!(reg.get(&key).unwrap(), "sid_new");
 }
 
 // ── find_or_create delegates to resolve ──────────────────────────────────────

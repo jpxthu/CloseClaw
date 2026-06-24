@@ -36,6 +36,8 @@ pub use crate::processor_chain::ProcessorRegistry;
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::SessionManager;
 
+use sha2::{Digest, Sha256};
+
 use crate::llm::types::ContentBlock;
 
 /// Type alias for the output channel sender used across session handler modules.
@@ -72,7 +74,7 @@ impl Default for DmScope {
 impl DmScope {
     /// Compute a session key for the given context.
     ///
-    /// Format: `{timestamp_ms}-{routing_fields}:{timestamp_ms}`
+    /// Format: `{timestamp_ms}-{sha256_hex(routing_fields)}`
     /// where `routing_fields` varies by scope variant.
     pub fn compute_session_key(
         &self,
@@ -81,39 +83,32 @@ impl DmScope {
         account_id: Option<&str>,
         timestamp_ms: i64,
     ) -> String {
-        match self {
+        let routing_fields = match self {
             DmScope::Main => {
-                format!(
-                    "{}-{}:{}:{}",
-                    timestamp_ms, channel, message.to, timestamp_ms
-                )
+                format!("{}:{}:{}", channel, message.to, timestamp_ms)
             }
             DmScope::PerPeer => {
-                format!(
-                    "{}-{}:{}:{}",
-                    timestamp_ms, message.from, message.to, timestamp_ms
-                )
+                format!("{}:{}:{}", message.from, message.to, timestamp_ms)
             }
             DmScope::PerChannelPeer => {
                 format!(
-                    "{}-{}:{}:{}:{}",
-                    timestamp_ms, channel, message.from, message.to, timestamp_ms
+                    "{}:{}:{}:{}",
+                    channel, message.from, message.to, timestamp_ms
                 )
             }
             DmScope::PerAccountChannelPeer => {
                 let acc = account_id.unwrap_or("default");
                 format!(
-                    "{}-{}:{}:{}:{}:{}",
-                    timestamp_ms, acc, channel, message.from, message.to, timestamp_ms
+                    "{}:{}:{}:{}:{}",
+                    acc, channel, message.from, message.to, timestamp_ms
                 )
             }
             DmScope::PerChannelSender => {
-                format!(
-                    "{}-{}:{}:{}",
-                    timestamp_ms, channel, message.from, timestamp_ms
-                )
+                format!("{}:{}:{}", channel, message.from, timestamp_ms)
             }
-        }
+        };
+        let hash = Sha256::digest(routing_fields.as_bytes());
+        format!("{}-{:x}", timestamp_ms, hash)
     }
 }
 

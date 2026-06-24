@@ -29,21 +29,16 @@ async fn test_terminal_session_key_computed() {
         .and_then(|v| v.as_str())
         .unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
-    // Key format: {timestamp_ms}-terminal:1000:cli:{timestamp_ms}
+    // Key format: {timestamp_ms}-{sha256_hex}
     assert!(
         key.starts_with(&format!("{ts_ms}-")),
         "key should start with timestamp prefix: {key}"
     );
-    assert!(key.contains("1000"), "key should contain sender_id: {key}");
-    assert!(key.contains("cli"), "key should contain peer_id: {key}");
+    let hash_part = &key[key.find('-').unwrap() + 1..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
     assert!(
-        key.contains("terminal"),
-        "key should contain platform: {key}"
-    );
-    // Should end with :{timestamp_ms}
-    assert!(
-        key.ends_with(&format!(":{ts_ms}")),
-        "key should end with timestamp suffix: {key}"
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
     );
 }
 
@@ -218,7 +213,7 @@ async fn test_different_timestamps_produce_different_keys() {
         .to_string();
 
     assert_ne!(k1, k2, "different timestamps must produce different keys");
-    // Verify each key starts with its own timestamp
+    // Verify each key starts with its own timestamp and has 64-hex-char hash
     assert!(
         k1.starts_with(&format!("{}-", ts1.timestamp_millis())),
         "k1 should start with ts1: {k1}"
@@ -226,6 +221,18 @@ async fn test_different_timestamps_produce_different_keys() {
     assert!(
         k2.starts_with(&format!("{}-", ts2.timestamp_millis())),
         "k2 should start with ts2: {k2}"
+    );
+    let h1 = &k1[k1.find('-').unwrap() + 1..];
+    let h2 = &k2[k2.find('-').unwrap() + 1..];
+    assert_eq!(h1.len(), 64, "k1 hash should be 64 hex chars: {k1}");
+    assert_eq!(h2.len(), 64, "k2 hash should be 64 hex chars: {k2}");
+    assert!(
+        h1.chars().all(|c| c.is_ascii_hexdigit()),
+        "k1 hash should be hex: {k1}"
+    );
+    assert!(
+        h2.chars().all(|c| c.is_ascii_hexdigit()),
+        "k2 hash should be hex: {k2}"
     );
 }
 
@@ -275,9 +282,25 @@ async fn test_same_routing_different_timestamps_different_keys() {
         ka, kb,
         "same routing fields with different timestamps must differ"
     );
-    // Both should contain the routing fields
-    assert!(ka.contains("user_99"), "ka should contain sender: {ka}");
-    assert!(ka.contains("dm_1"), "ka should contain peer: {ka}");
-    assert!(kb.contains("user_99"), "kb should contain sender: {kb}");
-    assert!(kb.contains("dm_1"), "kb should contain peer: {kb}");
+    // Both should have timestamp prefix and 64-hex-char hash
+    assert!(
+        ka.starts_with(&format!("{}-", ts_a.timestamp_millis())),
+        "ka should start with ts_a: {ka}"
+    );
+    assert!(
+        kb.starts_with(&format!("{}-", ts_b.timestamp_millis())),
+        "kb should start with ts_b: {kb}"
+    );
+    let ha = &ka[ka.find('-').unwrap() + 1..];
+    let hb = &kb[kb.find('-').unwrap() + 1..];
+    assert_eq!(ha.len(), 64, "ka hash should be 64 hex chars: {ka}");
+    assert_eq!(hb.len(), 64, "kb hash should be 64 hex chars: {kb}");
+    assert!(
+        ha.chars().all(|c| c.is_ascii_hexdigit()),
+        "ka hash should be hex: {ka}"
+    );
+    assert!(
+        hb.chars().all(|c| c.is_ascii_hexdigit()),
+        "kb hash should be hex: {kb}"
+    );
 }
