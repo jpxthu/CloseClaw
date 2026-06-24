@@ -157,21 +157,15 @@ impl AgentDirectoryProvider {
             .map(Some)
     }
 
-    /// Backfill the agent's `id` from the directory name when missing,
-    /// and warn when the file's `id` disagrees with the directory name.
+    /// Warn when the file's `id` disagrees with the directory name.
     ///
-    /// `AgentConfig.id` deserializes as an empty string by default, so a
-    /// config.json that omits `id` is not an error here — the directory
-    /// name from the registration list is the canonical id. A non-empty
-    /// `id` that differs from the directory name is almost always a
-    /// misconfiguration, so we log it at WARN level and keep the file's
-    /// value (the downstream merge / `from_single` will use whatever
-    /// `id` is on the config object).
+    /// The `id` field in config.json is now required. If it differs from
+    /// the directory name we log a WARN but keep the file's value (the
+    /// downstream merge / `from_single` will use whatever `id` is on the
+    /// config object).
     fn inject_dirname_id(config: &mut Option<AgentConfig>, dirname: &str) {
         if let Some(cfg) = config.as_mut() {
-            if cfg.id.is_empty() {
-                cfg.id = dirname.to_string();
-            } else if cfg.id != dirname {
+            if cfg.id != dirname {
                 warn!(
                     agent_id = %cfg.id,
                     dirname = %dirname,
