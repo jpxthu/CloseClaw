@@ -20,12 +20,33 @@ use crate::processor_chain::DslParseResult;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::info;
 
 pub use adapter::CachedToken;
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
 pub use renderer::build_text;
 pub use renderer::should_use_card_for_blocks;
+
+/// Register the Feishu plugin with the Gateway.
+///
+/// Reads credentials from environment variables.  If any required
+/// variable is missing the plugin is silently not registered.
+pub async fn register(gateway: &Arc<crate::gateway::Gateway>, _config_dir: &str) {
+    let app_id = std::env::var("FEISHU_APP_ID").ok();
+    let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
+    let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
+    if let (Some(app_id), Some(app_secret), Some(verification_token)) =
+        (app_id, app_secret, verification_token)
+    {
+        let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
+        let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(FeishuPlugin::new(adapter));
+        gateway.register_plugin(plugin).await;
+        info!("Feishu plugin registered");
+    } else {
+        info!("Feishu credentials not found in env — Feishu plugin not registered");
+    }
+}
 
 /// Unified IM plugin for Feishu.
 pub struct FeishuPlugin {
