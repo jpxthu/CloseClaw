@@ -14,6 +14,7 @@ use crate::gateway::Message;
 use crate::im_adapter::error::AdapterError;
 use crate::im_adapter::normalized::NormalizedMessage;
 use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
+use crate::im_adapter::streaming::DefaultStreamingRenderer;
 use crate::im_adapter::IMAdapter;
 use crate::llm::types::ContentBlock;
 use crate::processor_chain::DslParseResult;
@@ -51,11 +52,15 @@ pub async fn register(gateway: &Arc<crate::gateway::Gateway>, _config_dir: &str)
 /// Unified IM plugin for Feishu.
 pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
+    renderer: std::sync::Mutex<DefaultStreamingRenderer>,
 }
 
 impl FeishuPlugin {
     pub(crate) fn new(adapter: Arc<FeishuAdapter>) -> Self {
-        Self { adapter }
+        Self {
+            adapter,
+            renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+        }
     }
 }
 
@@ -149,5 +154,9 @@ impl IMPlugin for FeishuPlugin {
 
     fn clean_content(&self, raw: &str) -> String {
         cleaner::clean_feishu_content(raw)
+    }
+
+    fn streaming_renderer(&self) -> &std::sync::Mutex<DefaultStreamingRenderer> {
+        &self.renderer
     }
 }

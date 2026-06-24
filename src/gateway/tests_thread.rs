@@ -44,6 +44,7 @@ fn make_message(to: &str, content: &str) -> Message {
 struct CapturingPlugin {
     platform: String,
     captured_thread_id: std::sync::Mutex<Option<String>>,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
 impl CapturingPlugin {
@@ -51,6 +52,9 @@ impl CapturingPlugin {
         Self {
             platform: platform.to_string(),
             captured_thread_id: std::sync::Mutex::new(None),
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 
@@ -91,6 +95,12 @@ impl IMPlugin for CapturingPlugin {
     ) -> Result<(), AdapterError> {
         *self.captured_thread_id.lock().unwrap() = thread_id.map(|s| s.to_string());
         Ok(())
+    }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
     }
 }
 

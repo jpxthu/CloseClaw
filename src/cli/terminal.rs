@@ -695,6 +695,7 @@ fn current_timestamp() -> i64 {
 pub struct TerminalPlugin {
     adapter: TerminalAdapter,
     ansi: bool,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
 impl TerminalPlugin {
@@ -703,6 +704,9 @@ impl TerminalPlugin {
         Self {
             adapter: TerminalAdapter::new(),
             ansi: crate::platform::terminal::supports_ansi(),
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 
@@ -713,6 +717,9 @@ impl TerminalPlugin {
         Self {
             adapter: TerminalAdapter::new(),
             ansi,
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
         }
     }
 
@@ -926,5 +933,11 @@ impl IMPlugin for TerminalPlugin {
             .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
         Write::flush(&mut stdout).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
         Ok(())
+    }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
     }
 }
