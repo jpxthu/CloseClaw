@@ -23,11 +23,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 
+use super::PlatformEntry;
+
 pub use adapter::CachedToken;
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
 pub use renderer::build_text;
 pub use renderer::should_use_card_for_blocks;
+
+inventory::submit!(PlatformEntry {
+    name: "feishu",
+    register: |gw, cfg| {
+        let gw = gw.clone();
+        let cfg = cfg.to_string();
+        Box::pin(async move { register(&gw, &cfg).await })
+    },
+});
 
 /// Register the Feishu plugin with the Gateway.
 ///
