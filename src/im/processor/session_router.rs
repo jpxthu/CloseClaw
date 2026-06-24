@@ -135,6 +135,7 @@ impl SessionRouter {
         channel: &str,
         account_id: Option<&str>,
         thread_id: Option<String>,
+        timestamp_ms: i64,
     ) -> String {
         if from.is_empty() || to.is_empty() {
             return String::new();
@@ -149,7 +150,8 @@ impl SessionRouter {
             metadata: std::collections::HashMap::new(),
             thread_id,
         };
-        self.dm_scope.compute_session_key(channel, &msg, account_id)
+        self.dm_scope
+            .compute_session_key(channel, &msg, account_id, timestamp_ms)
     }
 }
 
@@ -189,7 +191,20 @@ impl MessageProcessor for SessionRouter {
         let account_id = Self::extract_account_id(&webhook);
         let thread_id = Self::extract_thread_id(&webhook);
 
-        let session_key = self.compute_key(&from, &to, &channel, account_id.as_deref(), thread_id);
+        let timestamp_ms = webhook
+            .get("message")
+            .and_then(|m| m.get("create_time"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
+        let session_key = self.compute_key(
+            &from,
+            &to,
+            &channel,
+            account_id.as_deref(),
+            thread_id,
+            timestamp_ms,
+        );
 
         let mut metadata = ctx.metadata.clone();
         let acc_id = account_id.unwrap_or_else(|| "default".to_string());
