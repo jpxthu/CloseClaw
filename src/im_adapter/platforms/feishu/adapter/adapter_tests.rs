@@ -321,7 +321,7 @@ fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = adapter.parse_message_event(event).unwrap().unwrap();
-    assert_eq!(msg.account_id.as_deref(), Some("test_app_id"));
+    assert_eq!(msg.account_id.as_deref(), Some("ou_sender"));
 }
 
 #[test]
@@ -440,7 +440,7 @@ async fn test_handle_webhook_card_action_forceful_shutdown() {
     assert_eq!(msg.card_action, Some(true));
     assert_eq!(msg.platform, "feishu");
     assert_eq!(msg.peer_id, "oc_chat123");
-    assert_eq!(msg.account_id.as_deref(), Some("test_app_id"));
+    assert_eq!(msg.account_id.as_deref(), Some("ou_operator"));
 }
 
 #[tokio::test]

@@ -367,7 +367,14 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> E
 
         // Run the inbound processor chain (ContentNormalizer, RawLog, etc.).
         let processed = gateway
-            .process_inbound_chain("terminal", sender_id, agent_id, &content, &message_id)
+            .process_inbound_chain(
+                "terminal",
+                sender_id,
+                agent_id,
+                &content,
+                &message_id,
+                chrono::Utc::now().timestamp_millis(),
+            )
             .await;
 
         if processed.suppress {

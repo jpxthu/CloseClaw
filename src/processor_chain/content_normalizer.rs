@@ -2,14 +2,15 @@
 //! and normalizes Markdown formatting.
 //!
 //! Processing order:
-//! 1. `strip_platform_residue` — remove platform-specific XML tags (e.g.
-//!    `<at>` mentions) and convert them to plain-text equivalents
-//! 2. `strip_control_chars` — remove ANSI escape sequences and invisible
+//! 1. `strip_control_chars` — remove ANSI escape sequences and invisible
 //!    control characters (preserving `\n`, `\t`, `\r`)
-//! 3. `normalize_empty_lines` — compress consecutive blank lines
-//! 4. `trim_trailing_whitespace` — strip trailing spaces per line
-//! 5. `normalize_urls` — ensure all bare URLs have `https://` prefix
-//! 6. `add_code_block_language_hint` — annotate code fences without language
+//! 2. `normalize_empty_lines` — compress consecutive blank lines
+//! 3. `trim_trailing_whitespace` — strip trailing spaces per line
+//! 4. `normalize_urls` — ensure all bare URLs have `https://` prefix
+//! 5. `add_code_block_language_hint` — annotate code fences without language
+//!
+//! Note: Platform-specific format conversion (e.g. rich-text → Markdown)
+//! is handled by each IM plugin during parsing, not by this processor.
 
 use crate::processor_chain::context::{MessageContext, ProcessedMessage};
 use crate::processor_chain::error::ProcessError;
@@ -186,16 +187,18 @@ pub fn add_code_block_language_hint(text: &str) -> String {
 // ContentNormalizer
 // ---------------------------------------------------------------------------
 
-/// ContentNormalizer strips platform residue, control characters, and
-/// normalizes Markdown formatting in message content.
+/// ContentNormalizer strips control characters and normalizes Markdown
+/// formatting in message content.
 ///
 /// Processing order:
-/// 1. `strip_platform_residue` — remove platform XML tags (e.g. `<at>`)
-/// 2. `strip_control_chars` — remove ANSI sequences and invisible characters
-/// 3. `normalize_empty_lines` — compress consecutive blank lines
-/// 4. `trim_trailing_whitespace` — strip trailing spaces per line
-/// 5. `normalize_urls` — ensure bare URLs have `https://` prefix
-/// 6. `add_code_block_language_hint` — annotate unlabeled code fences
+/// 1. `strip_control_chars` — remove ANSI sequences and invisible characters
+/// 2. `normalize_empty_lines` — compress consecutive blank lines
+/// 3. `trim_trailing_whitespace` — strip trailing spaces per line
+/// 4. `normalize_urls` — ensure bare URLs have `https://` prefix
+/// 5. `add_code_block_language_hint` — annotate unlabeled code fences
+///
+/// Note: Platform-specific format conversion is handled by each IM plugin
+/// during parsing, not by this processor.
 #[derive(Debug)]
 pub struct ContentNormalizer;
 
@@ -229,8 +232,7 @@ impl MessageProcessor for ContentNormalizer {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        let mut normalized = strip_platform_residue(&ctx.content);
-        normalized = strip_control_chars(&normalized);
+        let mut normalized = strip_control_chars(&ctx.content);
         normalized = normalize_empty_lines(&normalized);
         normalized = trim_trailing_whitespace(&normalized);
         normalized = normalize_urls(&normalized);

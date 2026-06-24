@@ -420,7 +420,7 @@ impl MessageProcessor for SuppressTestProcessor {
 async fn test_process_inbound_chain_no_registry() {
     let (gw, _sm) = make_gw(make_config());
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "hello world", "msg-1")
+        .process_inbound_chain("terminal", "user1", "cli", "hello world", "msg-1", 0)
         .await;
     assert_eq!(result.content, "hello world");
     assert!(!result.suppress);
@@ -452,7 +452,7 @@ async fn test_process_inbound_chain_with_normalizer() {
     // Input with ANSI escape sequences and invisible control characters.
     let raw_input = "\x1b[31mhello\x1b[0m\x01world";
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-1")
+        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-1", 0)
         .await;
     // ANSI stripped, control char stripped, plain text remains.
     assert_eq!(result.content, "helloworld");
@@ -481,7 +481,7 @@ async fn test_process_inbound_chain_with_session_router() {
     );
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-1")
+        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-1", 0)
         .await;
     assert_eq!(result.content, "hi");
     // SessionRouter injects session_key with real timestamp.
@@ -493,6 +493,78 @@ async fn test_process_inbound_chain_with_session_router() {
     assert!(
         hash_part.chars().all(|c| c.is_ascii_hexdigit()),
         "hash should be hex: {key}"
+    );
+}
+
+/// Verifies that `process_inbound_chain` uses the provided `timestamp_ms`
+/// parameter for the session key, not `Utc::now()`.
+#[tokio::test]
+async fn test_process_inbound_chain_uses_provided_timestamp() {
+    let config = make_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    let mut registry = crate::processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(crate::processor_chain::SessionRouter::new(
+        DmScope::default(),
+    )));
+    let gw = crate::gateway::Gateway::with_processor_registry(
+        config,
+        Arc::clone(&sm),
+        Arc::new(registry),
+    );
+
+    let ts_ms: i64 = 1_700_000_000_123;
+    let result = gw
+        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-ts", ts_ms)
+        .await;
+
+    let key = result
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .expect("session_key should be set");
+
+    // Key must start with the exact timestamp we passed in
+    assert!(
+        key.starts_with(&format!("{ts_ms}-")),
+        "session_key should start with provided timestamp {ts_ms}, got: {key}"
+    );
+    let hash_part = &key[key.find('-').unwrap() + 1..];
+    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
+    assert!(
+        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash should be hex: {key}"
+    );
+}
+
+/// Verifies that `ContentNormalizer` does NOT call `strip_platform_residue`
+/// during processing — platform format conversion is handled by adapters.
+#[tokio::test]
+async fn test_content_normalizer_does_not_strip_platform_residue() {
+    use crate::processor_chain::processor::MessageProcessor;
+
+    let processor = crate::processor_chain::content_normalizer::ContentNormalizer::new();
+    let raw = crate::processor_chain::context::RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "user1".to_string(),
+        peer_id: "chat1".to_string(),
+        // Content with platform-specific <at> tags
+        content: r#"Hello <at user_id="u123">Alice</at>, welcome!"#.to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_at".to_string(),
+    };
+    let ctx = crate::processor_chain::context::MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // <at> tags should be preserved (not converted to @Alice)
+    assert!(
+        result.content.contains("<at user_id="),
+        "ContentNormalizer should not strip platform residue, got: {}",
+        result.content
     );
 }
 
@@ -542,7 +614,7 @@ async fn test_process_inbound_chain_processor_error() {
     );
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "original", "msg-1")
+        .process_inbound_chain("terminal", "user1", "cli", "original", "msg-1", 0)
         .await;
     // Fallback to original content.
     assert_eq!(result.content, "original");
@@ -568,7 +640,7 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
 
     let raw_input = "\x1b[32mhello\x1b[0m\x01world\x1b[1;34m!";
     let result = gw
-        .process_inbound_chain("terminal", "user1", "peer1", raw_input, "msg-e2e-1")
+        .process_inbound_chain("terminal", "user1", "peer1", raw_input, "msg-e2e-1", 0)
         .await;
 
     assert_eq!(result.content, "helloworld!");
@@ -601,7 +673,7 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
 
     let raw_input = "\x1b[33mwhat is the weather\x1b[0m";
     let processed = gw
-        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-e2e-2")
+        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-e2e-2", 0)
         .await;
 
     assert_eq!(processed.content, "what is the weather");
@@ -629,7 +701,7 @@ async fn test_e2e_suppress_flag_propagates_through_chain() {
     let gw = make_gw_with_registry(registry);
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "hello", "msg-e2e-4")
+        .process_inbound_chain("terminal", "user1", "cli", "hello", "msg-e2e-4", 0)
         .await;
     assert!(result.suppress, "suppress flag should propagate");
     assert_eq!(result.content, "hello");

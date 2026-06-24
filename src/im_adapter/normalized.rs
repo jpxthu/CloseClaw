@@ -42,7 +42,7 @@ pub struct NormalizedMessage {
     /// Message text content.
     pub content: String,
 
-    /// Message send time as a Unix timestamp (seconds since epoch).
+    /// Message send time as a Unix timestamp (milliseconds since epoch).
     pub timestamp: i64,
 
     /// Message type (`"text"`, `"image"`, `"file"`, `"audio"`, etc.).
@@ -84,7 +84,7 @@ mod tests {
             sender_id: "ou_abc123".to_string(),
             peer_id: "oc_group456".to_string(),
             content: "Hello, world!".to_string(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
@@ -101,7 +101,7 @@ mod tests {
         assert_eq!(deserialized.sender_id, "ou_abc123");
         assert_eq!(deserialized.peer_id, "oc_group456");
         assert_eq!(deserialized.content, "Hello, world!");
-        assert_eq!(deserialized.timestamp, 1700000000);
+        assert_eq!(deserialized.timestamp, 1_700_000_000_000);
         assert_eq!(deserialized.message_type, "text");
         assert!(deserialized.media_refs.is_empty());
         assert!(deserialized.quoted_message.is_none());
@@ -117,7 +117,7 @@ mod tests {
             sender_id: "user123".to_string(),
             peer_id: "dm456".to_string(),
             content: "Direct message".to_string(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
@@ -134,7 +134,7 @@ mod tests {
         assert_eq!(deserialized.sender_id, "user123");
         assert_eq!(deserialized.peer_id, "dm456");
         assert_eq!(deserialized.content, "Direct message");
-        assert_eq!(deserialized.timestamp, 1700000000);
+        assert_eq!(deserialized.timestamp, 1_700_000_000_000);
         assert_eq!(deserialized.message_type, "text");
         assert!(deserialized.media_refs.is_empty());
         assert!(deserialized.quoted_message.is_none());

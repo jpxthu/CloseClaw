@@ -37,7 +37,7 @@ mod tests {
             sender_id: "1000".to_string(),
             peer_id: "cli".to_string(),
             content: "hello".to_string(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
@@ -57,7 +57,7 @@ mod tests {
             sender_id: "1000".to_string(),
             peer_id: "cli".to_string(),
             content: "test".to_string(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
@@ -76,7 +76,7 @@ mod tests {
             sender_id: "1000".to_string(),
             peer_id: "cli".to_string(),
             content: "test".to_string(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
@@ -85,7 +85,7 @@ mod tests {
             card_action: None,
         };
         // Timestamp is a valid Unix timestamp (after 2023)
-        assert!(msg.timestamp > 1672531200);
+        assert!(msg.timestamp > 1_672_531_200_000);
     }
 
     #[test]
@@ -95,7 +95,7 @@ mod tests {
             sender_id: "1000".to_string(),
             peer_id: "cli".to_string(),
             content: "hello\nworld".to_string(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
@@ -116,7 +116,7 @@ mod tests {
             sender_id: "1000".to_string(),
             peer_id: "cli".to_string(),
             content: String::new(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
@@ -134,7 +134,7 @@ mod tests {
             sender_id: "1000".to_string(),
             peer_id: "cli".to_string(),
             content: "line1\nline2\nline3".to_string(),
-            timestamp: 1700000000,
+            timestamp: 1_700_000_000_000,
             message_type: "text".to_string(),
             media_refs: vec![],
             quoted_message: None,
