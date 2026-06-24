@@ -16,6 +16,12 @@ use std::sync::Arc;
 // Auto-generated module declarations (from build.rs).
 include!(concat!(env!("OUT_DIR"), "/platforms_gen.rs"));
 
+/// Registration function type for platform plugins.
+///
+/// Receives the Gateway handle and the configuration directory path.
+pub type RegisterFn =
+    fn(&Arc<crate::gateway::Gateway>, &str) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
 /// A platform plugin entry discovered at compile time via [`inventory`].
 ///
 /// Each platform module calls [`inventory::submit!`] with a `PlatformEntry`
@@ -26,8 +32,7 @@ pub struct PlatformEntry {
     pub name: &'static str,
     /// Registration function.  Receives the Gateway handle and the
     /// configuration directory path.
-    pub register:
-        fn(&Arc<crate::gateway::Gateway>, &str) -> Pin<Box<dyn Future<Output = ()> + Send>>,
+    pub register: RegisterFn,
 }
 
 inventory::collect!(PlatformEntry);
