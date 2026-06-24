@@ -19,7 +19,6 @@ use crate::session::bootstrap::BootstrapMode;
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfig {
     /// Unique identifier for this agent.
-    #[serde(default)]
     pub id: String,
     /// Human-readable name.
     #[serde(default)]
