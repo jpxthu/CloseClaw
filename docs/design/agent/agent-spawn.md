@@ -18,17 +18,17 @@ LLM 调用 sessions_spawn(agentId, task, ...)
 Session 模块读取父 agent 配置中的 subagents 参数（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
   ① depth 检查：父 agent.maxSpawnDepth = 0 → 拒绝（配置级硬禁止。子 agent 实际能力见 Depth 追踪）
   ② 并发检查：活跃子 session 数 >= 父 agent.subagents.maxChildren → 拒绝
-  ③ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
-  ③a agentId 回退（先于 ③ 执行）：spawn 未传 agentId 时自动回退到父 agent 配置的 `defaultChildAgent`
-  ④ requireAgentId 检查：回退值也为空 → 拒绝
-  ⑤ 权限检查：子 agent 经权限继承计算后无任何执行权限 → 拒绝（见 agent-permissions.md）
+  ③ agentId 解析：spawn 未传 agentId 时自动回退到父 agent 配置的 `defaultChildAgent`
+  ④ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
+  ⑤ requireAgentId 检查：回退值也为空 → 拒绝
+  ⑥ 权限检查：子 agent 经权限继承计算后无任何执行权限 → 拒绝（见 agent-permissions.md）
   ↓
 全部检查通过 → 创建 child session：
   - 加载目标 agent 的配置档案（config.json + permissions.json）
   - workspace：spawn 参数指定 → 目标 agent.workspace → 父 workspace 子目录
   - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode
   - 注入 task 作为首条用户消息
-  - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单
+  - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
   - skills：按 agent 配置的 skills 白名单过滤
   - 注入 spawn 角色标记（parent_session_id, depth, spawn_mode, fork）
   ↓
@@ -42,11 +42,11 @@ mode="run"：子 session 完成后触发 announce
 mode="session"：子 session 保持存活，等待父 agent 后续 steer
 ```
 
-> 模型覆盖（按优先级链选择子 agent 模型，详见 agent-config.md「模型解析优先级」）不在 SpawnController 内执行，由 sessions_spawn 工具在整体流程末端完成，无匹配时回退系统默认，不拒绝 spawn。
+> 模型覆盖（按优先级链选择子 agent 模型，详见 agent-config.md「模型解析优先级」）不在上述编号步骤内执行，由 sessions_spawn 工具在子 session 创建阶段单独完成，无匹配时回退系统默认，不拒绝 spawn。
 
 ### 通信配置（CommunicationConfig）
 
-Spawn 子 agent 时生成通信白名单，控制子 agent 可以向谁发消息、可以接收谁的消息。默认仅允许与父 agent 通信，防止子 agent 与无关 agent 交互。
+Spawn 子 agent 时生成通信白名单，控制子 agent 可以向哪些 agent（以 agent ID 标识）发消息、接收哪些 agent 的消息。默认仅允许与父 agent 通信，防止子 agent 与无关 agent 交互。
 
 通信配置包含两个方向的白名单：
 
@@ -83,7 +83,7 @@ spawn 时，有效预算在 spawn 链上逐层递传。根 agent 的初始预算
 
 子 agent 的 `maxSpawnDepth` 仅用于额外加严约束——即使父 agent 允许更多层级，子 agent 可收窄自己的子树范围，但不能放大。最终取 min 值。
 
-有效预算 ≤ 0 时禁止该 agent 继续 spawn。session 构造时检测到当前 depth 已达有效预算上限，不向该 agent 注入 sessions_spawn 工具——子 agent 感知不到 spawn 的存在，自然不会尝试调用。
+有效预算 ≤ 0 时禁止该 agent 继续 spawn：session 创建时不注入 sessions_spawn 工具（工具层面拦截），同时步骤 ① 的 depth 检查在调用入口做校验——即使工具被注入，spawn 请求也会在入口被拒。两层防护互不冲突。
 
 多层示例：
 
@@ -282,6 +282,7 @@ spawn_tree 重建：
   bootstrap = 按 lightContext 决定
   tools = 目标 agent 配置白名单
   permissions = 继承计算结果（见 agent-permissions.md）
+  model = 按优先级链解析（显式 model > 父.subagents.model > 目标.model > 系统默认），不拒绝 spawn
   first_message = task 内容
   ↓
 子 session 注册到父 session 的子 session 跟踪表
