@@ -1,6 +1,23 @@
 //! Raw message logger processor.
 //!
-//! Writes incoming [`RawMessage`] to a JSON file when enabled or in Debug mode.
+//! Writes incoming [`RawMessage`] to a JSON file for audit and debugging purposes.
+//!
+//! # Conditional execution
+//!
+//! Log files are only written when **either** of the following conditions is met:
+//!
+//! - [`RawLogConfig::enabled`] is `true`, **or**
+//! - the current log level is `DEBUG` or more verbose (`level_enabled!(tracing::Level::DEBUG)`).
+//!
+//! When neither condition holds the processor silently skips writing and passes
+//! the message through unchanged. This design keeps production logging quiet by
+//! default while allowing developers to opt-in via the `enabled` flag or by
+//! setting the log level to `DEBUG`.
+//!
+//! # Lifecycle
+//!
+//! On construction ([`RawLogProcessor::new`]) stale log files older than
+//! `config.retention_days` are automatically purged.
 
 use std::path::{Path, PathBuf};
 
