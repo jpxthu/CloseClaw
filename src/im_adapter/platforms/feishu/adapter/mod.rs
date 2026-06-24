@@ -338,7 +338,7 @@ impl FeishuAdapter {
     pub(super) fn handle_card_action(
         &self,
         _event_id: String,
-        app_id: String,
+        _app_id: String,
         card_event: &FeishuCardActionEvent,
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let action_value = card_event
@@ -351,7 +351,10 @@ impl FeishuAdapter {
         match action_value {
             Some("forceful_shutdown") => {
                 let mut metadata = HashMap::from([
-                    ("account_id".to_string(), app_id),
+                    (
+                        "account_id".to_string(),
+                        card_event.operator.open_id.clone(),
+                    ),
                     ("card_action".to_string(), "true".to_string()),
                 ]);
                 if let Some(chat_id) = card_event
@@ -410,9 +413,11 @@ impl FeishuAdapter {
             .or(event.event.root_id)
             .or(event.event.parent_id);
 
+        let sender_open_id = event.event.sender.sender_id.open_id;
+
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
-            sender_id: event.event.sender.sender_id.open_id,
+            sender_id: sender_open_id.clone(),
             peer_id: event.event.chat_id,
             content: text,
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -420,7 +425,7 @@ impl FeishuAdapter {
             media_refs: vec![],
             quoted_message: None,
             thread_id,
-            account_id: Some(event.header.app_id),
+            account_id: Some(sender_open_id),
             card_action: None,
         }))
     }
