@@ -337,6 +337,25 @@ impl Gateway {
             Some(id) => id,
             None => {
                 tracing::warn!("session_key missing or resolve failed — message not processed");
+                // Reply to user with error per design doc
+                let peer_id = processed
+                    .metadata
+                    .get("peer_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !peer_id.is_empty() {
+                    let err_msg = Message {
+                        id: String::new(),
+                        from: String::new(),
+                        to: peer_id.to_string(),
+                        content: String::new(),
+                        channel: channel.to_string(),
+                        timestamp: 0,
+                        metadata: std::collections::HashMap::new(),
+                        thread_id: None,
+                    };
+                    self.send_user_error(channel, &err_msg).await;
+                }
                 return None;
             }
         };
