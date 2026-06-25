@@ -188,7 +188,8 @@ impl SpawnController {
                 .cloned();
             if let Some(parent_perms) = parent_perms {
                 let user_id = self.session_manager.get_sender_id(parent_session_id).await;
-                // Owner skips User dimension — design doc: "Owner（User ID = 'owner'）→ 跳过 User 维度，仅评估 Agent 维度"
+                // Owner skips User dimension — design doc:
+                // "Owner(User ID = 'owner') → skip User dim, only Agent"
                 let user_perms = if user_id.as_deref() == Some("owner") {
                     None
                 } else {
