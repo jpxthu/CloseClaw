@@ -13,7 +13,7 @@ Gateway 由五个职责组成：
 - **IM 插件管理**：注册和维护各平台插件。入站方向将平台原始格式归一化为统一结构，出站方向调用插件完成渲染和发送。
 - **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息归一化和清洗，出站链完成 DSL 解析和日志记录。
 - **Verbosity 过滤**：出站方向 ContentBlock[] 进入 Processor Chain 之前，按当前 Session 的 Verbosity 等级过滤信息块（详见 [slash 模块 verbose 指令](../slash/verbose.md)）。
-- **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给 SlashDispatcher，否则路由到 Session 进入 LLM 对话流程。
+- **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给 SlashDispatcher（其中 Immediate 指令绕过 Session 队列立即执行），否则路由到 Session 进入 LLM 对话流程。
 - **IM 插件选择**：根据目标平台选择对应 IM 插件，插件内部完成 ContentBlock[] 到平台原生格式的渲染和发送。
 
 Gateway 维护以下运行时注册表：
@@ -72,7 +72,7 @@ Gateway 维护以下运行时注册表：
 
 ### 入站路径
 
-Gateway 收到 IM 插件产出的 NormalizedMessage（经 Processor Chain 处理后为 ProcessedMessage）后，按以下路径处理：
+Gateway 收到 Processor Chain 入站产出的 ProcessedMessage 后，按以下路径处理：
 
 - **消息入队**：高并发入站时消息先进入有界缓冲队列。队列满时拒绝新消息并回复"服务繁忙，请稍后重试"。IM 插件按 FIFO 从队列取消息解析，送入 Processor Chain 串行处理。Gateway 重启时队列清空（消息由 IM 平台 webhook 重试补偿）。
 
@@ -136,7 +136,7 @@ SlashResult.execute() 通过 SideEffectContext 的回复通道产出回复内容
 
 ### 权限调用时机
 
-Gateway 在以下场景调用 Permission 模块（在分派给 SlashDispatcher 之前校验，不进入 SlashResult 副作用执行阶段）：
+Gateway 在以下场景调用 Permission 模块（在 SlashDispatcher 分派到 Handler、Handler 返回 SlashResult 后，SlashResult.execute() 执行前校验）：
 - 用户斜杠指令 `/exec`、`/git` 写操作 → 调用权限评估，Non-owner 高危指令默认 Deny
 
 Gateway 自身的消息路由、Processor Chain 调度、IM 插件选择均不经过权限检查。工具调用的权限检查由 tools 模块触发，Gateway 不参与。
