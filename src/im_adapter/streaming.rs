@@ -250,6 +250,26 @@ impl DefaultStreamingRenderer {
         }
     }
 
+    /// Reset all renderer state fields to initial values.
+    fn reset_state(&mut self) {
+        self.line_buffer.reset();
+        self.current_block_type = None;
+        self.current_block_index = None;
+        self.current_acc = None;
+    }
+
+    /// Flush remaining content from LineBuffer and any open accumulator,
+    /// routing output to `out`.
+    fn flush_remaining(&mut self, out: &mut StreamingOutput) {
+        if let Some(remaining) = self.line_buffer.flush() {
+            route_line(&remaining, out);
+        }
+        if let (Some(acc), Some(bt)) = (self.current_acc.take(), self.current_block_type.take()) {
+            out.render_blocks.push(acc.into_block(bt));
+            self.current_block_index = None;
+        }
+    }
+
     fn handle_block_start(&mut self, index: usize, block_type: ContentBlockType) {
         self.current_block_type = Some(block_type);
         self.current_block_index = Some(index);
@@ -303,7 +323,13 @@ impl StreamingRenderer for DefaultStreamingRenderer {
             StreamEvent::BlockEnd { index, block_type } => {
                 self.handle_block_end(index, block_type, &mut out);
             }
-            StreamEvent::MessageEnd { .. } | StreamEvent::Error { .. } => {}
+            StreamEvent::MessageEnd { .. } => {
+                self.flush_remaining(&mut out);
+                self.reset_state();
+            }
+            StreamEvent::Error { .. } => {
+                self.reset_state();
+            }
         }
         out
     }
@@ -494,5 +520,98 @@ mod tests {
         // After BlockEnd, flush should have nothing to emit.
         let after = r.flush();
         assert!(after.text_messages.is_empty());
+    }
+
+    // --- Step 1.2: MessageEnd / Error / state reset tests ---
+
+    fn message_end() -> StreamEvent {
+        StreamEvent::MessageEnd {
+            usage: None,
+            finish_reason: None,
+        }
+    }
+
+    fn error_event(msg: &str) -> StreamEvent {
+        StreamEvent::Error {
+            message: msg.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_message_end_flushes_remaining_buffer() {
+        let mut r = DefaultStreamingRenderer::new();
+        r.handle_event(block_start(0, ContentBlockType::Text));
+        // Partial text with no terminator — stays in the line buffer.
+        r.handle_event(text_delta("remaining text"));
+        let out = r.handle_event(message_end());
+        assert_eq!(out.text_messages, vec!["remaining text"]);
+    }
+
+    #[test]
+    fn test_message_end_resets_state() {
+        let mut r = DefaultStreamingRenderer::new();
+        // Round 1: partial text left in buffer.
+        r.handle_event(block_start(0, ContentBlockType::Text));
+        r.handle_event(text_delta("first round partial"));
+        let out1 = r.handle_event(message_end());
+        assert_eq!(out1.text_messages, vec!["first round partial"]);
+        // State should be fully reset — verify by starting round 2.
+        r.handle_event(block_start(0, ContentBlockType::Text));
+        let out2 = r.handle_event(text_delta("second round."));
+        assert_eq!(out2.text_messages, vec!["second round."]);
+        // No leftover from round 1.
+        assert_eq!(out2.text_messages.len(), 1);
+    }
+
+    #[test]
+    fn test_message_end_flushes_thinking_accumulator() {
+        let mut r = DefaultStreamingRenderer::new();
+        r.handle_event(block_start(0, ContentBlockType::Thinking));
+        r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Thinking {
+                thinking: "let me think".to_string(),
+            },
+        });
+        let out = r.handle_event(message_end());
+        assert_eq!(
+            out.render_blocks,
+            vec![ContentBlock::Thinking("let me think".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_error_resets_state() {
+        let mut r = DefaultStreamingRenderer::new();
+        r.handle_event(block_start(0, ContentBlockType::Text));
+        r.handle_event(text_delta("partial"));
+        // Error should not flush, just reset.
+        let out = r.handle_event(error_event("stream failed"));
+        assert!(out.text_messages.is_empty());
+        assert!(out.render_blocks.is_empty());
+        // State should be clean — start a new round.
+        r.handle_event(block_start(0, ContentBlockType::Text));
+        let out2 = r.handle_event(text_delta("after error."));
+        assert_eq!(out2.text_messages, vec!["after error."]);
+    }
+
+    #[test]
+    fn test_consecutive_rounds_isolation() {
+        let mut r = DefaultStreamingRenderer::new();
+        // Round 1: partial text (no terminator) stays in buffer until
+        // BlockEnd, which flushes it.
+        r.handle_event(block_start(0, ContentBlockType::Text));
+        r.handle_event(text_delta("round 1 partial"));
+        let be1 = r.handle_event(block_end(0, ContentBlockType::Text));
+        assert_eq!(be1.text_messages, vec!["round 1 partial"]);
+        let me1 = r.handle_event(message_end());
+        assert!(me1.text_messages.is_empty());
+        // Round 2: independent partial text.
+        r.handle_event(block_start(0, ContentBlockType::Text));
+        r.handle_event(text_delta("round 2 partial"));
+        let be2 = r.handle_event(block_end(0, ContentBlockType::Text));
+        assert_eq!(be2.text_messages, vec!["round 2 partial"]);
+        let me2 = r.handle_event(message_end());
+        assert!(me2.text_messages.is_empty());
     }
 }
