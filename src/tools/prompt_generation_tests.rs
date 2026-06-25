@@ -12,8 +12,12 @@
 
 use std::sync::Arc;
 
+use crate::gateway::GatewayConfig;
+use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::rules::RuleSetBuilder;
+use crate::session::bootstrap::BootstrapMode;
+use crate::session::persistence::ReasoningLevel;
 use crate::system_prompt::WorkdirContext;
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::builtin::BashTool;
@@ -32,8 +36,28 @@ fn test_bg_manager() -> Arc<BackgroundTaskManager> {
     Arc::new(BackgroundTaskManager::new())
 }
 
+fn test_session_manager() -> Arc<SessionManager> {
+    Arc::new(SessionManager::new(
+        &GatewayConfig {
+            name: "test".to_string(),
+            rate_limit_per_minute: 100,
+            max_message_size: 1024,
+            dm_scope: crate::gateway::DmScope::default(),
+            ..Default::default()
+        },
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ))
+}
+
 fn test_bash_tool() -> BashTool {
-    BashTool::new(test_permission_engine(), test_bg_manager())
+    BashTool::new(
+        test_permission_engine(),
+        test_bg_manager(),
+        test_session_manager(),
+    )
 }
 
 // --- generate_prompt: workdir-aware behavior ---

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::llm::session::ChatSession;
 use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
 use crate::permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
@@ -121,6 +122,20 @@ impl Gateway {
             .get_chat_id(session_id)
             .await
             .unwrap_or_default();
+
+        // Collect full-chain deny subjects from all ancestors.
+        let extra_deny = {
+            let rules = engine.rules.clone();
+            let subjects =
+                collect_chain_deny_subjects(&self.session_manager, &rules, session_id, &agent_id)
+                    .await;
+            if subjects.is_empty() {
+                None
+            } else {
+                Some(subjects)
+            }
+        };
+
         let caller = Caller {
             user_id: sender_id.unwrap_or("").to_owned(),
             agent: agent_id.clone(),
@@ -134,7 +149,7 @@ impl Gateway {
             },
         };
 
-        if let PermissionResponse::Denied { reason, .. } = engine.evaluate(request, None) {
+        if let PermissionResponse::Denied { reason, .. } = engine.evaluate(request, extra_deny) {
             self.send_reply_if_available(&format!("无权限：{reason}"))
                 .await;
             return false;

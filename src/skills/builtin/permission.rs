@@ -1,4 +1,6 @@
 //! Permission skill - allows agents to query their own permissions
+use crate::gateway::SessionManager;
+use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
 use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
@@ -6,17 +8,27 @@ use std::sync::Arc;
 
 pub struct PermissionSkill {
     engine: Option<Arc<crate::permission::PermissionEngine>>,
+    session_manager: Option<Arc<SessionManager>>,
 }
 
 impl PermissionSkill {
     pub fn new() -> Self {
-        Self { engine: None }
+        Self {
+            engine: None,
+            session_manager: None,
+        }
     }
 
     pub fn with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Self {
         Self {
             engine: Some(engine),
+            session_manager: None,
         }
+    }
+
+    pub fn with_session_manager(mut self, session_manager: Arc<SessionManager>) -> Self {
+        self.session_manager = Some(session_manager);
+        self
     }
 }
 
@@ -60,7 +72,24 @@ impl Skill for PermissionSkill {
                     .ok_or_else(|| SkillError::InvalidArgs("action required".to_string()))?;
 
                 if let Some(ref engine) = self.engine {
-                    let response = engine.check(agent_id, action);
+                    // Collect chain deny subjects from all ancestors if session
+                    // context is available.
+                    let extra_deny = if let (Some(ref sm), Some(sid)) = (
+                        &self.session_manager,
+                        args.get("session_id").and_then(|v| v.as_str()),
+                    ) {
+                        let subjects =
+                            collect_chain_deny_subjects(sm, &engine.rules, sid, agent_id).await;
+                        if subjects.is_empty() {
+                            None
+                        } else {
+                            Some(subjects)
+                        }
+                    } else {
+                        None
+                    };
+                    let deny_ref = extra_deny.as_deref();
+                    let response = engine.check(agent_id, action, deny_ref);
                     match response {
                         PermissionResponse::Allowed { token: _ } => Ok(serde_json::json!({
                             "allowed": true,
