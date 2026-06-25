@@ -87,7 +87,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 ### 第三步：Gateway 路由
 
-Gateway 从 metadata 取出 `session_key`。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败"，消息不进入 LLM。
+Gateway 从 metadata 取出 `session_key`。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败，请重试"，消息不进入 LLM。
 
 非空时，调用 `SessionManager.resolve(session_key)` 获得 `session_id`。
 
