@@ -60,7 +60,7 @@ pub struct SessionManager {
     /// Priority prompt overrides (checked at request time, not session creation).
     prompt_overrides: RwLock<Option<PromptOverrides>>,
     /// Children tracking table: parent_session_id → list of child sessions.
-    children: RwLock<HashMap<String, Vec<ChildSessionInfo>>>,
+    children: RwLock<spawn::SpawnTree>,
     /// Channel → active session_id mapping.
     /// Updated by `force_new_for_channel` so subsequent `find_or_create`
     /// calls route to the latest session for a channel.
@@ -110,7 +110,7 @@ impl SessionManager {
             skill_registry: RwLock::new(None),
             default_reasoning_level,
             prompt_overrides: RwLock::new(None),
-            children: RwLock::new(HashMap::new()),
+            children: RwLock::new(spawn::SpawnTree::new()),
             channel_active_sessions: RwLock::new(HashMap::new()),
             key_registry: RwLock::new(HashMap::new()),
             config_manager: RwLock::new(None),
