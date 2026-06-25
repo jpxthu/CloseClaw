@@ -58,6 +58,15 @@ impl SessionMessageHandler {
         plugin: Option<&Arc<dyn IMPlugin>>,
     ) -> HandleResult {
         self.set_busy(session_id, true).await;
+
+        // ── Trigger active-searcher (best-effort, non-blocking) ────────
+        // Look up the agent_id for role-based exclusion, then spawn a
+        // background searcher that writes results to the memory_injection
+        // slot for the next turn to consume.
+        if let Some(agent_id) = self.session_manager.get_chat_id(session_id).await {
+            self.maybe_spawn_active_searcher(session_id, &agent_id, &content);
+        }
+
         let session_id = session_id.to_string();
         let content_for_task = content;
         let sm = Arc::clone(&self.session_manager);
