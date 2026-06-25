@@ -85,26 +85,20 @@ impl DmScope {
     ) -> String {
         let routing_fields = match self {
             DmScope::Main => {
-                format!("{}:{}:{}", channel, message.to, timestamp_ms)
+                format!("{}:{}", channel, message.to)
             }
             DmScope::PerPeer => {
-                format!("{}:{}:{}", message.from, message.to, timestamp_ms)
+                format!("{}:{}", message.from, message.to)
             }
             DmScope::PerChannelPeer => {
-                format!(
-                    "{}:{}:{}:{}",
-                    channel, message.from, message.to, timestamp_ms
-                )
+                format!("{}:{}:{}", channel, message.from, message.to)
             }
             DmScope::PerAccountChannelPeer => {
                 let acc = account_id.unwrap_or("default");
-                format!(
-                    "{}:{}:{}:{}:{}",
-                    channel, message.from, message.to, acc, timestamp_ms
-                )
+                format!("{}:{}:{}:{}", channel, message.from, message.to, acc)
             }
             DmScope::PerChannelSender => {
-                format!("{}:{}:{}", channel, message.from, timestamp_ms)
+                format!("{}:{}", channel, message.from)
             }
         };
         let hash = Sha256::digest(routing_fields.as_bytes());

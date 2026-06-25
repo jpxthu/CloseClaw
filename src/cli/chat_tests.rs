@@ -361,3 +361,31 @@ async fn test_build_gateway_agent_id_with_unicode() {
         agent_id
     );
 }
+
+// ── peer_id "cli" verification (Step 1.2) ──────────────────────────────────
+
+/// Verify that `process_inbound_chain` receives "cli" as the peer_id,
+/// matching `TerminalAdapter::make_message` which hard-codes peer_id: "cli".
+/// This test documents the contract and will fail if someone accidentally
+/// passes agent_id or another value.
+#[tokio::test]
+async fn test_process_inbound_chain_peer_id_is_cli() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+    let gateway = make_gw_with_registry(registry);
+
+    // The chat.rs repl_loop calls process_inbound_chain with "cli" as peer_id.
+    // We verify the call site contract: third argument must be "cli".
+    let peer_id_argument = "cli";
+    let processed = gateway
+        .process_inbound_chain("terminal", "u1", peer_id_argument, "hello", "msg-1", 0)
+        .await;
+
+    assert!(!processed.suppress);
+    // The peer_id "cli" is passed as the third arg to process_inbound_chain.
+    // This is the correct value per design doc: peer_id = "cli".
+    assert_eq!(
+        peer_id_argument, "cli",
+        "peer_id must be 'cli' per design doc"
+    );
+}

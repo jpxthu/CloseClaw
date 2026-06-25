@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::cli::renderer::BOLD;
     use crate::cli::terminal::*;
     use crate::im_adapter::plugin::IMPlugin;
     use crate::im_adapter::NormalizedMessage;

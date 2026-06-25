@@ -232,6 +232,24 @@ fn test_dm_scope_main_session_key() {
 }
 
 #[test]
+fn test_dm_scope_session_key_stable_across_timestamps() {
+    // Hash should be identical regardless of timestamp_ms (per-user session stability)
+    let key_early = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 1000);
+    let key_late =
+        DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 999999);
+    // Hash part (after timestamp prefix) must be identical
+    let hash_early = &key_early[key_early.find('-').unwrap() + 1..];
+    let hash_late = &key_late[key_late.find('-').unwrap() + 1..];
+    assert_eq!(
+        hash_early, hash_late,
+        "routing hash must be stable across different timestamps"
+    );
+    // Prefix should still reflect the provided timestamp
+    assert!(key_early.starts_with("1000-"));
+    assert!(key_late.starts_with("999999-"));
+}
+
+#[test]
 fn test_dm_scope_per_peer_session_key() {
     let key = DmScope::PerPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
     assert!(
