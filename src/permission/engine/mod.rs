@@ -2,6 +2,7 @@
 //!
 //! Runs as a separate OS process, evaluates access rules for agents.
 
+pub mod engine_chain;
 pub mod engine_check;
 pub mod engine_eval;
 pub mod engine_helpers;
