@@ -88,8 +88,6 @@ tools 模块解析 → 生成内部消息 { agent, user, 操作 }
   │
   ├─ Owner 短路：caller 为 Owner → 仅评估 Agent 维度
   │
-  ├─ Creator 规则检查：caller 为 Agent 创建者 → 跳过 User 维度
-  │
   ├─ 候选规则收集：User+Agent 索引 + Agent-Only 索引 + Glob 回退
   │
   ├─ 按优先级降序排序
@@ -188,7 +186,7 @@ Gateway 入站路由
                         执行  写规则 Deny
 ```
 
-- 关键分支：Owner 短路（跳过 User 维度）、Creator 规则（跳过 User 维度）
+- 关键分支：Owner 短路（跳过 User 维度）
 - 关键分支：子 Agent Deny 静默、Heartbeat Deny 按配置分流
 
 ## 模块关系
