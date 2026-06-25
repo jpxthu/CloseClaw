@@ -63,6 +63,18 @@ impl SessionManager {
         }
     }
 
+    /// Get the parent session ID of a given child session.
+    ///
+    /// Returns `None` if the child is unknown or has no registered parent.
+    pub async fn get_parent_of(&self, child_id: &str) -> Option<String> {
+        let children = self.children.read().await;
+        children
+            .values()
+            .flatten()
+            .find(|info| info.session_id == child_id)
+            .map(|info| info.parent_session_id.clone())
+    }
+
     /// Count active (non-completed) child sessions for a parent.
     pub async fn count_active_children(&self, parent_id: &str) -> usize {
         let children = self.children.read().await;

@@ -384,6 +384,19 @@ impl SpawnTree {
     pub fn root_ids(&self) -> &[String] {
         &self.roots
     }
+
+    /// Get the parent session ID of a given session.
+    ///
+    /// Returns `None` for root nodes or unknown sessions.
+    pub fn get_parent(&self, session_id: &str) -> Option<&String> {
+        if self.is_root(session_id) {
+            return None;
+        }
+        self.children
+            .iter()
+            .find(|(_, children)| children.iter().any(|id| id == session_id))
+            .map(|(parent, _)| parent)
+    }
 }
 
 #[cfg(test)]
