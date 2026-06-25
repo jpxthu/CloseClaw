@@ -46,7 +46,6 @@ pub struct SpawnController {
 
 /// Internal result from resolving parent depth and max spawn budget.
 struct ResolvedParentDepth {
-    parent_depth: u32,
     parent_effective_budget: u32,
 }
 
@@ -129,11 +128,8 @@ impl SpawnController {
             .await?;
 
         // ⑧ Compute effective_max_spawn_depth and validate child depth.
-        let effective_max = self.compute_effective_max_depth(
-            parent.parent_depth,
-            parent.parent_effective_budget,
-            Some(&config),
-        )?;
+        let effective_max =
+            self.compute_effective_max_depth(parent.parent_effective_budget, Some(&config))?;
 
         Ok(SpawnValidationResult {
             config,
@@ -142,11 +138,8 @@ impl SpawnController {
     }
 
     /// Compute the effective maximum spawn depth for a child session.
-    ///
-    /// Returns `Err(DepthExceeded)` if the child would exceed the budget.
     fn compute_effective_max_depth(
         &self,
-        parent_depth: u32,
         parent_effective_budget: u32,
         target_config: Option<&ResolvedAgentConfig>,
     ) -> Result<u32, SpawnError> {
@@ -154,13 +147,6 @@ impl SpawnController {
             .map(|c| c.subagents.max_spawn_depth)
             .unwrap_or(1);
         let effective_max = child_max_depth.min(parent_effective_budget.saturating_sub(1));
-        let child_depth = parent_depth + 1;
-        if child_depth > effective_max {
-            return Err(SpawnError::DepthExceeded {
-                current: child_depth,
-                max: effective_max,
-            });
-        }
         Ok(effective_max)
     }
 
@@ -249,12 +235,6 @@ impl SpawnController {
         parent_session_id: &str,
         parent_agent_id: &str,
     ) -> Result<ResolvedParentDepth, SpawnError> {
-        let parent_depth = self
-            .session_manager
-            .get_session_depth(parent_session_id)
-            .await
-            .unwrap_or(0);
-
         let parent_max_spawn_depth = {
             let agents = self
                 .config_manager
@@ -274,14 +254,10 @@ impl SpawnController {
             .unwrap_or(parent_max_spawn_depth);
 
         if parent_effective_budget == 0 {
-            return Err(SpawnError::DepthExceeded {
-                current: parent_depth + 1,
-                max: 0,
-            });
+            return Err(SpawnError::DepthExceeded { current: 1, max: 0 });
         }
 
         Ok(ResolvedParentDepth {
-            parent_depth,
             parent_effective_budget,
         })
     }

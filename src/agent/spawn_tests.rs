@@ -356,7 +356,7 @@ async fn test_validate_wildcard_allow() {
 
 /// Parent maxSpawnDepth=1, child maxSpawnDepth=2
 /// → effective_max = min(2, 1-1) = 0
-/// → child_depth=1 > 0 → DepthExceeded.
+/// → child exists with effective_budget=0 (cannot spawn further).
 #[tokio::test]
 async fn test_validate_cascade_parent_depth1_child_depth2() {
     let cm = Arc::new(make_config_manager());
@@ -375,18 +375,12 @@ async fn test_validate_cascade_parent_depth1_child_depth2() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    let err = controller
+    let result = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+        .expect("should allow: effective_max=0, child exists but cannot spawn further");
 
-    match err {
-        SpawnError::DepthExceeded { current, max } => {
-            assert_eq!(current, 1);
-            assert_eq!(max, 0);
-        }
-        other => panic!("expected DepthExceeded, got {:?}", other),
-    }
+    assert_eq!(result.effective_max_spawn_depth, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +583,7 @@ async fn test_validate_cascade_parent_depth0_child_depth5() {
 /// Target agent not configured (default max_spawn_depth=1)
 /// with parent max_spawn_depth=1
 /// → effective_max = min(1, 1-1) = 0
-/// → child_depth=1 > 0 → DepthExceeded.
+/// → child exists with effective_budget=0 (cannot spawn further).
 /// Verifies that unconfigured targets use the default max_spawn_depth=1.
 #[tokio::test]
 async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
@@ -607,18 +601,12 @@ async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    let err = controller
+    let result = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("should reject: effective_max=0, child_depth=1 > 0");
+        .expect("should allow: effective_max=0, child exists but cannot spawn further");
 
-    match err {
-        SpawnError::DepthExceeded { current, max } => {
-            assert_eq!(current, 1);
-            assert_eq!(max, 0);
-        }
-        other => panic!("expected DepthExceeded, got {:?}", other),
-    }
+    assert_eq!(result.effective_max_spawn_depth, 0);
 }
 
 // ── Step 1.1: depth-before-agentId order verification ────────────────────
