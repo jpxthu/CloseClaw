@@ -1,7 +1,7 @@
 # 权限系统
 
 > 子功能文档：
-> - [权限维度](permission-dimensions.md) — 七类操作的权限定义与关系
+> - [权限维度](permission-dimensions.md) — 八类操作的权限定义与关系
 > - [审批工作流](approval-workflow.md) — 拒绝操作的审批全链路
 > - [权限配置管理](permission-configuration.md) — 规则修改、热加载与配置保护
 
@@ -11,7 +11,7 @@
 
 权限系统是系统级身份型访问控制模块。它判断"某个 Agent 以某个 User 身份能否执行某个操作"，而不是判断"某个工具该不该执行"。
 
-七类操作维度独立管理：读、写、命令行、工具、收发消息、网络、跨 Agent 通信、配置写入（详见 [权限维度](permission-dimensions.md)）。配置写入维度永远高危，只能走单次审批。
+八类操作维度独立管理：读、写、命令行、工具、收发消息、网络、跨 Agent 通信、配置写入（详见 [权限维度](permission-dimensions.md)）。配置写入维度永远高危，只能走单次审批。
 
 ## 架构
 
@@ -31,7 +31,7 @@ Owner 的 User ID 固定为 `"owner"`，额外拥有 CLI 渠道访问方式。
 
 ### 交集模型
 
-权限评估采用双主体单规则集架构：
+权限评估采用双主体架构：
 
 ```
 Agent 维度规则    User 维度规则
@@ -46,9 +46,9 @@ Agent 维度规则    User 维度规则
 
 - **Agent 规则**仅匹配 Agent ID，定义 Agent 自身的能力边界
 - **User+Agent 规则**同时匹配 User ID 和 Agent ID，实现细粒度交集控制
-- 两套规则在同一引擎中求值，双方都必须 Allow 操作才放行
+- Agent 规则与 User+Agent 规则在同一引擎中求值，双方都必须 Allow 操作才放行
 
-Owner（User ID = `"owner"`）在引擎层面短路：当 caller 的 User ID 为 Owner 时，跳过所有 User 维度规则，仅评估 Agent 维度。
+Owner（User ID = `"owner"`）在引擎层面豁免 User 维度规则：当 caller 的 User ID 为 Owner 时，跳过所有 User 维度规则，仅评估 Agent 维度。
 
 ### 规则加载策略
 
@@ -86,7 +86,7 @@ tools 模块解析 → 生成内部消息 { agent, user, 操作 }
   ▼
 权限引擎 evaluate(caller, request)
   │
-  ├─ Owner 短路：caller 为 Owner → 仅评估 Agent 维度
+  ├─ Owner 豁免 User 维度：caller 为 Owner → 仅评估 Agent 维度
   │
   ├─ 候选规则收集：User+Agent 索引 + Agent-Only 索引 
   │
@@ -190,12 +190,12 @@ Gateway 入站路由
                         执行  写规则 Deny
 ```
 
-- 关键分支：Owner 短路（跳过 User 维度）
+- 关键分支：Owner 豁免 User 维度规则
 - 关键分支：子 Agent Deny 静默、Heartbeat Deny 按配置分流
 
 ## 模块关系
 
 - **上游**：tools 模块（Agent 工具调用时传入 caller + 操作）、Gateway（用户斜杠指令拦截后传入）
 - **下游**：审批系统（Deny 需审批时产出审批请求）、Agent Session（Allow/Deny 结果回调）
-- **无关**：IM Processor（消息格式解析与渲染，不涉及权限判断；审批卡片渲染由外部层 IM Adapter 处理）
+- **无关**：IM Adapter（消息格式解析与渲染，不涉及权限判断；审批卡片渲染由外部层 IM Adapter 处理）
 - **无关**：Session Manager（会话生命周期管理——创建、压缩、归档、清理——不经过权限检查。spawn 时的权限继承由 tools 模块经 PermissionEngine.evaluate() 执行，非 Session Manager 直接调用）

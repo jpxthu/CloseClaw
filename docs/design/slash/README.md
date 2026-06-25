@@ -8,18 +8,18 @@
 
 斜杠指令系统由三个核心组件组成：
 
-- **Dispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 Dispatcher，否则正常路由到 Session。
+- **SlashDispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 SlashDispatcher，否则正常路由到 Session。
 - **HandlerRegistry**：指令注册表，维护指令名到 Handler 的映射。Gateway 初始化时注册所有 Handler。
 - **Handler**：指令处理器。每个 Handler 负责一组关联指令，接收指令参数和上下文，返回 SlashResult。
 
-Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Gateway 构造 SideEffectContext 并调用 SlashResult.execute()。SideEffectContext 封装 Session 操作和消息回复能力，各 SlashResult 变体在 execute() 内自行完成副作用。Gateway 不感知具体变体，只负责传递上下文。
+SlashDispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Gateway 构造 SideEffectContext 并调用 SlashResult.execute()。SideEffectContext 封装 Session 操作和消息回复能力，各 SlashResult 变体在 execute() 内自行完成副作用。Gateway 不感知具体变体，只负责传递上下文。
 
 ```
 用户消息到达 Gateway
   ↓
 是否以 / 开头？
   ├── 否 → 正常路由到 Session
-  └── 是 → Dispatcher 解析指令名 + 参数
+  └── 是 → SlashDispatcher 解析指令名 + 参数
             ↓
           HandlerRegistry 查表
             ↓
@@ -100,4 +100,4 @@ Gateway.handle_inbound()
   - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（Gateway 在收到 Handler 返回的 Exec SlashResult 后、实际执行前调用 Permission 引擎）
 - **间接下游**（通过 Session 生效）：
   - LLM 模块 — `/reasoning` 写入的推理深度在下一次 LLM 调用时映射为各模型的原生参数（含不支持等级的自动降级）
-- **间接相关**：Processor 链（斜杠指令消息经入站 Processor 链处理后由 Gateway 路由到 SlashDispatcher；SlashResult 各变体通过 SideEffectContext 的回复通道产出回复内容，由 Gateway 送入出站 Processor 链处理后经 IM 插件渲染发送）
+- **间接相关**：Processor Chain（斜杠指令消息经入站 Processor Chain 处理后由 Gateway 路由到 SlashDispatcher；SlashResult 各变体通过 SideEffectContext 的回复通道产出回复内容，由 Gateway 送入出站 Processor Chain 处理后经 IM 插件渲染发送）
