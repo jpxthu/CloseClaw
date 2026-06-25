@@ -196,7 +196,7 @@ impl SessionManager {
 
         // Collect all child IDs that have a parent in the tree.
         let mut all_child_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for child_infos in children.values() {
+        for child_infos in children.iter().map(|(_, v)| v) {
             for info in child_infos {
                 if sessions.contains_key(&info.session_id) {
                     all_child_ids.insert(info.session_id.clone());

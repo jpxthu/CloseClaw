@@ -18,7 +18,7 @@ use crate::session::persistence::{
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::ToolContext;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use tracing::warn;
 use uuid::Uuid;
@@ -40,6 +40,120 @@ pub enum SpawnMode {
     Run,
     /// Persistent: child stays alive for subsequent steering.
     Session,
+}
+
+/// Spawn tree: maintains parent-child relationships between sessions.
+///
+/// Wraps the `children` lookup table (parent_session_id → child list)
+/// and exposes the three query interfaces described in the design doc:
+/// `list_children`, `list_descendants`, `get_parent`.
+pub(crate) struct SpawnTree {
+    inner: HashMap<String, Vec<ChildSessionInfo>>,
+}
+
+impl SpawnTree {
+    pub(crate) fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    // ── Design doc query interfaces ────────────────────────────────
+
+    /// List all direct children of a session.
+    pub(crate) fn list_children(&self, session_id: &str) -> Vec<&ChildSessionInfo> {
+        self.inner
+            .get(session_id)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// List all descendants of a session (recursive BFS).
+    ///
+    /// Returns session IDs in reverse BFS order (deepest first,
+    /// shallowest last) so callers can process leaves before parents.
+    pub(crate) fn list_descendants(&self, session_id: &str) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut queue = VecDeque::new();
+        if let Some(list) = self.inner.get(session_id) {
+            for info in list {
+                queue.push_back(info.session_id.clone());
+            }
+        }
+        while let Some(current) = queue.pop_front() {
+            result.push(current.clone());
+            if let Some(list) = self.inner.get(&current) {
+                for info in list {
+                    queue.push_back(info.session_id.clone());
+                }
+            }
+        }
+        result.reverse();
+        result
+    }
+
+    /// Get the parent session ID of a given session.
+    pub(crate) fn get_parent(&self, session_id: &str) -> Option<String> {
+        self.inner
+            .values()
+            .flatten()
+            .find(|info| info.session_id == session_id)
+            .map(|info| info.parent_session_id.clone())
+    }
+
+    /// Check if the tree is empty.
+    #[allow(dead_code)] // Used in tests
+    pub(crate) fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Find a child session info by its session ID.
+    pub(crate) fn find_child(&self, session_id: &str) -> Option<&ChildSessionInfo> {
+        self.inner
+            .values()
+            .flatten()
+            .find(|info| info.session_id == session_id)
+    }
+
+    /// Register a child session under its parent.
+    pub(crate) fn register_child(&mut self, parent_id: &str, info: ChildSessionInfo) {
+        self.inner
+            .entry(parent_id.to_string())
+            .or_default()
+            .push(info);
+    }
+
+    /// Iterate all parent → children entries.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, &Vec<ChildSessionInfo>)> {
+        self.inner.iter()
+    }
+
+    /// Remove a direct child from its parent's list. Removes the
+    /// parent entry entirely if the list becomes empty.
+    pub(crate) fn remove_child(&mut self, parent_id: &str, child_id: &str) {
+        if let Some(list) = self.inner.get_mut(parent_id) {
+            list.retain(|info| info.session_id != child_id);
+            if list.is_empty() {
+                self.inner.remove(parent_id);
+            }
+        }
+    }
+
+    /// Remove entries for descendant sessions from the tree.
+    /// For each descendant, removes it from its parent's list and
+    /// removes any sub-entries where it is itself a parent.
+    pub(crate) fn remove_descendant_entries(&mut self, descendant_ids: &[String]) {
+        for id in descendant_ids {
+            let parent = self
+                .inner
+                .values_mut()
+                .find(|list| list.iter().any(|info| info.session_id == *id));
+            if let Some(list) = parent {
+                list.retain(|info| info.session_id != *id);
+            }
+            self.inner.remove(id);
+        }
+    }
 }
 
 impl SessionManager {
@@ -68,11 +182,7 @@ impl SessionManager {
     /// Returns `None` if the child is unknown or has no registered parent.
     pub async fn get_parent_of(&self, child_id: &str) -> Option<String> {
         let children = self.children.read().await;
-        children
-            .values()
-            .flatten()
-            .find(|info| info.session_id == child_id)
-            .map(|info| info.parent_session_id.clone())
+        children.get_parent(child_id)
     }
 
     /// Count active (non-completed) child sessions for a parent.
@@ -89,9 +199,10 @@ impl SessionManager {
         let child_ids: Vec<String> = {
             let children = self.children.read().await;
             children
-                .get(parent_id)
-                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
-                .unwrap_or_default()
+                .list_children(parent_id)
+                .into_iter()
+                .map(|info| info.session_id.clone())
+                .collect()
         };
         if child_ids.is_empty() {
             return 0;
@@ -111,18 +222,16 @@ impl SessionManager {
     pub(crate) async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
         let children = self.children.read().await;
         children
-            .get(parent_id)
-            .map(|list| list.iter().map(|info| info.session_id.clone()).collect())
-            .unwrap_or_default()
+            .list_children(parent_id)
+            .into_iter()
+            .map(|info| info.session_id.clone())
+            .collect()
     }
 
     /// Register a child session under its parent. Called after child session creation.
     pub(crate) async fn register_child(&self, parent_id: &str, info: ChildSessionInfo) {
         let mut children = self.children.write().await;
-        children
-            .entry(parent_id.to_string())
-            .or_default()
-            .push(info);
+        children.register_child(parent_id, info);
     }
 
     /// Create a child session for a spawned sub-agent.
@@ -525,8 +634,9 @@ impl SessionManager {
     ) -> Option<ChildSessionInfo> {
         let children = self.children.read().await;
         children
-            .get(parent_id)
-            .and_then(|list| list.iter().find(|info| info.session_id == child_id))
+            .list_children(parent_id)
+            .into_iter()
+            .find(|info| info.session_id == child_id)
             .cloned()
     }
 
@@ -571,7 +681,10 @@ impl SessionManager {
     /// IDs before any removals, preventing lock-ordering issues.
     pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
         // 1. Collect all descendant session IDs via BFS.
-        let descendant_ids = self.collect_descendant_ids(child_id).await;
+        let descendant_ids = {
+            let children = self.children.read().await;
+            children.list_descendants(child_id)
+        };
 
         // 2. Stop active sessions. Completed/terminated sessions
         //    skip the stop step but still get cleaned up from the
@@ -612,8 +725,11 @@ impl SessionManager {
         }
 
         // 6. Remove child + descendants from children table.
-        self.remove_children_entries(parent_id, child_id, &descendant_ids)
-            .await;
+        {
+            let mut children = self.children.write().await;
+            children.remove_child(parent_id, child_id);
+            children.remove_descendant_entries(&descendant_ids);
+        }
 
         Ok(())
     }
@@ -629,9 +745,10 @@ impl SessionManager {
         let child_ids: Vec<String> = {
             let children = self.children.read().await;
             children
-                .get(parent_id)
-                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
-                .unwrap_or_default()
+                .list_children(parent_id)
+                .into_iter()
+                .map(|info| info.session_id.clone())
+                .collect()
         };
         for child_id in child_ids {
             if let Err(e) = self.kill_child(parent_id, &child_id).await {
@@ -643,76 +760,6 @@ impl SessionManager {
                 );
             }
         }
-    }
-
-    /// Remove a direct child and all its descendants from the
-    /// `children` tracking table.
-    ///
-    /// Handles: (a) removing the direct child from `parent_id`'s
-    /// list, (b) removing each descendant from its own parent's
-    /// list, and (c) removing any entries where a descendant is
-    /// itself a parent of further descendants.
-    async fn remove_children_entries(
-        &self,
-        parent_id: &str,
-        child_id: &str,
-        descendant_ids: &[String],
-    ) {
-        let mut children = self.children.write().await;
-
-        // Remove the direct child from parent's children list.
-        if let Some(list) = children.get_mut(parent_id) {
-            list.retain(|info| info.session_id != child_id);
-            if list.is_empty() {
-                children.remove(parent_id);
-            }
-        }
-
-        // Remove each descendant from its own parent's list
-        // and clean up any sub-entries.
-        for id in descendant_ids {
-            let parent = children
-                .values_mut()
-                .find(|list| list.iter().any(|info| info.session_id == *id));
-            if let Some(list) = parent {
-                list.retain(|info| info.session_id != *id);
-            }
-            children.remove(id);
-        }
-    }
-
-    /// Collect all descendant session IDs of a given session via BFS
-    /// on the `children` table.
-    ///
-    /// Returns session IDs in reverse BFS order (deepest first,
-    /// shallowest last) so that the caller removes leaves before
-    /// their parents — matching the design doc requirement to
-    /// "terminate from deepest to shallowest".
-    async fn collect_descendant_ids(&self, session_id: &str) -> Vec<String> {
-        let children = self.children.read().await;
-        let mut result = Vec::new();
-        let mut queue = std::collections::VecDeque::new();
-
-        // Seed the queue with the direct children of session_id.
-        if let Some(list) = children.get(session_id) {
-            for info in list {
-                queue.push_back(info.session_id.clone());
-            }
-        }
-
-        while let Some(current) = queue.pop_front() {
-            result.push(current.clone());
-            // Enqueue this session's own children (grandchildren).
-            if let Some(list) = children.get(&current) {
-                for info in list {
-                    queue.push_back(info.session_id.clone());
-                }
-            }
-        }
-
-        // Reverse so deepest descendants come first.
-        result.reverse();
-        result
     }
 
     /// Rebuild the spawn tree (children table) from persisted checkpoints.
