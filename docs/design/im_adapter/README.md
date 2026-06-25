@@ -10,7 +10,7 @@ IM Adapter 模块提供跨消息渠道的插件化适配框架。每个消息渠
 
 IM Adapter 模块不包含业务逻辑，由三层组成：
 
-- **插件接口层**：定义 IMPlugin trait，统一插件契约。每个消息渠道实现此 trait，提供入站解析、格式渲染、消息发送、生命周期管理、平台清洗五组方法。terminal 渠道的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
+- **插件接口层**：定义 IMPlugin trait，统一插件契约。每个消息渠道实现此 trait，提供入站解析、格式渲染、消息发送、生命周期管理四组方法。terminal 渠道的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
 - **通用渲染能力**：代码块语法高亮和流式增量渲染是跨平台通用机制，作为 IMPlugin trait 的默认实现提供。各平台插件自动继承，按需覆盖平台差异化部分。
 - **平台插件**：每个消息渠道的数据和渲染实现。IM 渠道（飞书、Discord 等）的插件放在 `platforms/` 子目录下。terminal 渠道的实现位于 CLI 模块。
 
@@ -28,7 +28,7 @@ platforms/<平台名>/
 │                  — 出站：API 调用发送消息
 │                  — token 管理与刷新
 ├── renderer.rs    — ContentBlock[] + DSL → 平台原生格式
-├── cleaner.rs     — 平台消息清洗（@ 语法、mention 等），实现 clean_content() 回调
+
 └── tools/         — 平台工具注册
     ├── mod.rs     — register_tools() 入口
     └── ...        — 各工具分组文件
@@ -54,8 +54,6 @@ im_adapter/
 每个消息渠道插件实现统一接口，包含以下方法分组：
 
 **入站**：解析 webhook payload 为 NormalizedMessage。消息过滤（空内容、非文本消息）在解析阶段完成——Adapter 对不支持的消息类型不产 NormalizedMessage。
-
-**清洗**：`clean_content(raw: &str) -> String`，接收平台原生文本，移除平台专属标记（飞书 @ 语法、Discord mention 等），产出清洗后的纯文本。由 Processor Chain 的 ContentNormalizer 调用。各平台按需实现，不需要的平台空实现透传。
 
 **渲染**：接收 ContentBlock[] 和 DSL 解析结果，按平台能力选择输出格式（纯文本或富格式）。渲染是纯数据转换，无副作用。
 

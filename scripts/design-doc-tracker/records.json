@@ -99,10 +99,10 @@
   },
   {
     "path": "docs/design/gateway/inbound-flow.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-06-24T04:03:00+08:00",
-    "comment": "blocked: F2b doc_problem + must_fix"
+    "commit": "b4770d160d417335ea2ce5d75e57320b065e36fc",
+    "commit_time": "2026-06-25T02:31:02+08:00",
+    "confirmed_time": "2026-06-25T02:31:02+08:00",
+    "comment": "cleared: #1197 — ContentNormalizer 职责缩减为3项纯文本标准化(去控制字符/压缩空行/去尾空格)。URL补全和代码块标签归属IM插件。clean_content()从IMPlugin trait移除,平台清洗由Adapter解析阶段完成。RawLogProcessor disabled时中断链为代码bug(返回None→应返回pass-through),另开issue修。"
   },
   {
     "path": "docs/design/im_adapter/code-render.md",

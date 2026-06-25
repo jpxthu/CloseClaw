@@ -22,7 +22,7 @@ IM Adapter（入站）
 Processor 链（入站，按 priority 顺序执行，纯变换）
   ├── RawLogProcessor（priority 10）→ 原始消息写入日志
   ├── SessionRouter（priority 20）   → 计算 session_key，写入 metadata
-  └── ContentNormalizer（priority 30）→ 清洗 + 标准化 markdown 格式
+  └── ContentNormalizer（priority 30）→ 文本标准化（去控制字符、压缩空行、去尾空格）
   ↓
 Gateway
   → 从 metadata 取 session_key → SessionManager.resolve(key) 获得 session_id
@@ -59,7 +59,7 @@ IM webhook → IM Adapter 解析 → NormalizedMessage（platform, sender_id, pe
 
 NormalizedMessage 是平台无关的中间结构，承载消息的通用字段（发送者、内容、会话标识等）。IM Adapter 的入站部分负责将自己平台的格式转为此结构，content 为清洗后的消息文本。内容块（ContentBlock[]）概念仅在出站方向使用——LLM 输出 UnifiedResponse 时引入，经出站链处理后由 Renderer 渲染。
 
-Processor 链在入站方向按 priority 升序执行，全链路操作 NormalizedMessage 的 content 字段（纯文本）。SessionRouter 计算 session_key 后写入 metadata。ContentNormalizer 对文本做清洗和标准化。链输出 ProcessedMessage（content + metadata），由 Gateway 消费。
+Processor 链在入站方向按 priority 升序执行，全链路操作 NormalizedMessage 的 content 字段（纯文本）。SessionRouter 计算 session_key 后写入 metadata。ContentNormalizer 对文本做平台无关的标准化——去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格。平台格式转换和清洗由 IM Adapter 在解析阶段完成。链输出 ProcessedMessage（content + metadata），由 Gateway 消费。
 
 ### 出站路径
 

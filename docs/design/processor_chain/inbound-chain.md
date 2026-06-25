@@ -2,7 +2,7 @@
 
 ## 概述
 
-入站 Processor 链在所有 IM 平台的归一化之后运行。各 IM Adapter 的入站部分先将平台特定格式转为 NormalizedMessage，链再统一处理日志、会话路由计算和内容清洗。
+入站 Processor 链在所有 IM 平台的归一化之后运行。各 IM Adapter 的入站部分先将平台特定格式转为 NormalizedMessage，链再统一处理日志、会话路由计算和文本标准化。
 
 Processor 链是纯变换链——只做内容计算和 metadata 填充，不管理 session 生命周期、不做路由决策。链路不感知平台差异，平台特有的解析和适配逻辑由 IM Adapter 负责。
 
@@ -34,9 +34,7 @@ Processor 链（按 priority 升序执行，纯变换）
   │     → 不创建 session、不查 SessionManager
   │
   └── ContentNormalizer（priority 30）
-        → 平台清洗：调用 IMPlugin.clean_content()，委托对应平台插件移除专属标记
-        → 富文本展开为标准 markdown
-        → 标准化格式：压缩连续空行、去行尾空格、裸 URL 补全 https:// 前缀
+        → 文本标准化：去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格
   ↓
 ProcessedMessage → Gateway 路由
 ```
@@ -73,7 +71,7 @@ SessionRouter 不区分私聊和群聊。会话粒度由 Adapter 通过 peer_id 
 IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content }
   → RawLogProcessor：记录原始内容到日志 → 透传
     → SessionRouter：计算 session_key = hash(platform, sender_id, peer_id, account_id, agent_id) → 写入 metadata.session_key
-      → ContentNormalizer：清洗平台残留 → 标准化 markdown 格式
+      → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）
         → ProcessedMessage { content, metadata { session_key } }
           → Gateway
             → 调用 SessionManager.resolve(session_key) 获得 session_id
@@ -85,7 +83,7 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
 - ContentNormalizer 异常时内容不变（丢回原文），消息继续流转
 - 所有异常均记录日志，用于后续问题定位和改进
 
-**平台清洗委托**：ContentNormalizer 的"平台残留清洗"不包含任何平台专属逻辑。清洗行为委托给 IMPlugin trait 的 `clean_content()` 回调——ContentNormalizer 调用消息来源平台的插件方法，各平台插件实现自己的清洗逻辑（飞书处理 @ 语法，Discord 处理 mention，不支持的平台空实现透传）。ContentNormalizer 自身只执行平台无关的标准化（富文本展开、空行压缩、去尾空格、URL 补全）。
+
 
 ## 模块关系
 
@@ -94,5 +92,5 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
 - **链内**：
   - RawLogProcessor — 审计日志（副作用），不改内容
   - SessionRouter — 计算 session_key（纯哈希计算），写 metadata
-  - ContentNormalizer — 格式标准化（平台无关）+ 委托 IMPlugin 清洗平台残留
+  - ContentNormalizer — 文本标准化（去控制字符、压缩空行、去尾空格）
 - **无关**：出站 Processor 链（独立链路，与入站互不干扰）
