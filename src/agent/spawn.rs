@@ -5,6 +5,7 @@ use crate::config::ConfigManager;
 use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
+use crate::permission::engine::engine_helpers::collect_chain_effective_permissions;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -181,11 +182,13 @@ impl SpawnController {
             .cloned();
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
         if let (Some(child_perms), Some(parent_agent_id)) = (child_perms, parent_agent_id) {
-            let parent_perms = self
-                .config_manager
-                .agent_permissions()
-                .get(&parent_agent_id)
-                .cloned();
+            let parent_perms = collect_chain_effective_permissions(
+                &self.session_manager,
+                &self.config_manager.agent_permissions(),
+                parent_session_id,
+                &parent_agent_id,
+            )
+            .await;
             if let Some(parent_perms) = parent_perms {
                 let user_id = self.session_manager.get_sender_id(parent_session_id).await;
                 // Owner skips User dimension — design doc:
