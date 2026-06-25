@@ -103,7 +103,7 @@ impl SessionsSpawnTool {
         })
     }
 
-    /// Parse the raw JSON arguments into typed [`SpawnArgs`]. for the given config and parameters.
+    /// Create a child session for the given config and parameters.
     ///
     /// Delegates to [`SessionManager::create_child_session`] with error mapping.
     #[allow(clippy::too_many_arguments)]
