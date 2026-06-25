@@ -45,14 +45,14 @@ SessionRouter 计算 session_key 的方式：
 
 - `session_key = {timestamp}-{hash}`，hash 由 `platform:sender_id:peer_id:account_id:timestamp_ms` 拼接后计算
 - `account_id` 由 `sender_id` 通过身份映射得到，是 CloseClaw 本地的账号标识。一个 CloseClaw 账号可绑定多个平台的 sender_id
-- `timestamp_ms` 为消息发送时间（毫秒级 Unix 时间戳），由 IM 平台 webhook 提供
+- `timestamp_ms` 为消息到达时间（毫秒级 Unix 时间戳），由 IM 插件设置
 - `thread_id` 不参与——仅用于出站时 Gateway 定向回复到正确的话题线
 
 session_key 是消息级标识，用于日志追踪和调试。它不直接参与 session 路由——Gateway 调用 SessionManager 后，SessionManager 从消息路由字段中提取**稳定路由键**（platform + sender_id + peer_id + account_id）做 registry 查找。`/new` 指令在同稳定路由键下创建新 session 时覆盖映射，旧 session 自然脱离路由。
 
 SessionRouter 不区分私聊和群聊。会话粒度由 IM Adapter 通过 peer_id 的构造方式控制——IM Adapter 决定什么构成一个"会话对端"，Session 机制本身是通用的。
 
-并发 `/new` 指令的 session 创建防碰撞由 SessionManager 的 per-agent 串行化 + 创建前 SQLite 双重确认兜底，不依赖 session_key 的唯一性（详见 [Session 模块](../session/README.md)）。
+`timestamp_ms` 的毫秒精度天然提供防撞能力。极罕见情况下（同一毫秒同一路由键发生碰撞），SessionManager 等待 10ms 后重试——此时时间戳已更新，session_key 必然不同。
 
 ### 异常处理
 
