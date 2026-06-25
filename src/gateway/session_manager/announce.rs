@@ -211,15 +211,10 @@ impl SessionManager {
     /// helper — we never hold it while touching any session lock.
     async fn find_run_mode_parent(&self, child_session_id: &str) -> Option<(String, String)> {
         let children = self.children.read().await;
-        for infos in children.values() {
-            if let Some(info) = infos
-                .iter()
-                .find(|i| i.session_id == child_session_id && i.mode == SpawnMode::Run)
-            {
-                return Some((info.parent_session_id.clone(), info.agent_id.clone()));
-            }
-        }
-        None
+        children
+            .find_child(child_session_id)
+            .filter(|i| i.mode == SpawnMode::Run)
+            .map(|info| (info.parent_session_id.clone(), info.agent_id.clone()))
     }
 
     /// Extract the concatenated `Text` blocks from the child's last

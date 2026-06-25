@@ -78,7 +78,8 @@ async fn test_rebuild_spawn_tree_basic() {
     assert_eq!(count, 1, "parent-1 should have exactly 1 child");
 
     let children = mgr.children.read().await;
-    let list = children.get("parent-1").unwrap();
+    let list = children.list_children("parent-1");
+    assert_eq!(list.len(), 1);
     assert_eq!(list[0].session_id, "child-1");
     assert_eq!(list[0].parent_session_id, "parent-1");
     assert_eq!(list[0].agent_id, "child-agent");

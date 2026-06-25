@@ -87,16 +87,16 @@ impl SpawnController {
             .resolve_parent_depth(parent_session_id, &parent_agent_id)
             .await?;
 
-        // ② AgentId fallback + target config resolution.
-        let resolved = self
-            .resolve_target_config(&parent_agent_id, target_agent_id)
-            .await?;
-
-        // ③ Read parent config for concurrency/whitelist/requireAgentId.
+        // ② Read parent config for concurrency/whitelist/requireAgentId.
         let parent_cfg = self.read_parent_config(&parent_agent_id).await?;
 
-        // ④ Concurrency check.
+        // ③ Concurrency check.
         self.check_concurrency(parent_session_id, parent_cfg.max_children)
+            .await?;
+
+        // ④ AgentId fallback + target config resolution.
+        let resolved = self
+            .resolve_target_config(&parent_agent_id, target_agent_id)
             .await?;
 
         // ⑤ Whitelist check (on resolved target_id, after fallback).
