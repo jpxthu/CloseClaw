@@ -553,16 +553,19 @@ impl SessionManager {
     /// table is traversed via BFS to discover all descendant session
     /// IDs before any removals, preventing lock-ordering issues.
     pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
-        // 1. Recursively collect all descendant session IDs via
-        //    BFS on the `children` table.
+        // 1. Collect all descendant session IDs via BFS.
         let descendant_ids = self.collect_descendant_ids(child_id).await;
 
-        // 2. Get the child's conversation session, verify it exists,
-        //    and cascade-stop its token tree.
+        // 2. Stop active sessions. Completed/terminated sessions
+        //    skip the stop step but still get cleaned up from the
+        //    spawn tree (design doc §级联 Kill).
         if let Some(cs) = self.get_conversation_session(child_id).await {
             cs.read().await.stop(true).await;
-        } else {
-            return Err(format!("child session not found: {}", child_id));
+        }
+        for id in &descendant_ids {
+            if let Some(cs) = self.get_conversation_session(id).await {
+                cs.read().await.stop(true).await;
+            }
         }
 
         // 3. Remove child + descendants from conversation_sessions.
