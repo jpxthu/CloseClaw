@@ -187,10 +187,15 @@ impl SpawnController {
                 .cloned();
             if let Some(parent_perms) = parent_perms {
                 let user_id = self.session_manager.get_sender_id(parent_session_id).await;
-                let user_perms = user_id.as_ref().map(|uid| {
-                    self.permission_engine
-                        .evaluate_user_permissions(uid, &config.id)
-                });
+                // Owner skips User dimension — design doc: "Owner（User ID = 'owner'）→ 跳过 User 维度，仅评估 Agent 维度"
+                let user_perms = if user_id.as_deref() == Some("owner") {
+                    None
+                } else {
+                    user_id.as_ref().map(|uid| {
+                        self.permission_engine
+                            .evaluate_user_permissions(uid, &config.id)
+                    })
+                };
                 self.permission_engine
                     .validate_and_inject_spawn(
                         &config.id,
