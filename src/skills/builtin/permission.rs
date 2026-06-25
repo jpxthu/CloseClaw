@@ -1,14 +1,17 @@
 //! Permission skill - allows agents to query their own permissions
+use crate::agent::config::AgentPermissions;
 use crate::gateway::SessionManager;
-use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
+use crate::permission::engine::engine_types::{PermissionRequest, PermissionRequestBody};
 use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct PermissionSkill {
     engine: Option<Arc<crate::permission::PermissionEngine>>,
     session_manager: Option<Arc<SessionManager>>,
+    agent_permissions: HashMap<String, AgentPermissions>,
 }
 
 impl PermissionSkill {
@@ -16,6 +19,7 @@ impl PermissionSkill {
         Self {
             engine: None,
             session_manager: None,
+            agent_permissions: HashMap::new(),
         }
     }
 
@@ -23,11 +27,20 @@ impl PermissionSkill {
         Self {
             engine: Some(engine),
             session_manager: None,
+            agent_permissions: HashMap::new(),
         }
     }
 
     pub fn with_session_manager(mut self, session_manager: Arc<SessionManager>) -> Self {
         self.session_manager = Some(session_manager);
+        self
+    }
+
+    pub fn with_agent_permissions(
+        mut self,
+        agent_permissions: HashMap<String, AgentPermissions>,
+    ) -> Self {
+        self.agent_permissions = agent_permissions;
         self
     }
 }
@@ -72,24 +85,57 @@ impl Skill for PermissionSkill {
                     .ok_or_else(|| SkillError::InvalidArgs("action required".to_string()))?;
 
                 if let Some(ref engine) = self.engine {
-                    // Collect chain deny subjects from all ancestors if session
-                    // context is available.
-                    let extra_deny = if let (Some(ref sm), Some(sid)) = (
+                    let body = match action {
+                        "exec" => PermissionRequestBody::CommandExec {
+                            agent: agent_id.to_string(),
+                            cmd: "*".to_string(),
+                            args: Vec::new(),
+                        },
+                        "file_read" => PermissionRequestBody::FileOp {
+                            agent: agent_id.to_string(),
+                            path: "*".to_string(),
+                            op: "read".to_string(),
+                        },
+                        "file_write" => PermissionRequestBody::FileOp {
+                            agent: agent_id.to_string(),
+                            path: "*".to_string(),
+                            op: "write".to_string(),
+                        },
+                        "network" => PermissionRequestBody::NetOp {
+                            agent: agent_id.to_string(),
+                            host: "*".to_string(),
+                            port: 0,
+                        },
+                        "spawn" => PermissionRequestBody::InterAgentMsg {
+                            from: agent_id.to_string(),
+                            to: "*".to_string(),
+                        },
+                        "tool_call" => PermissionRequestBody::ToolCall {
+                            agent: agent_id.to_string(),
+                            skill: "*".to_string(),
+                            method: "*".to_string(),
+                        },
+                        "config_write" => PermissionRequestBody::ConfigWrite {
+                            agent: agent_id.to_string(),
+                            config_file: "*".to_string(),
+                        },
+                        _ => PermissionRequestBody::ToolCall {
+                            agent: agent_id.to_string(),
+                            skill: action.to_string(),
+                            method: "unknown".to_string(),
+                        },
+                    };
+                    let request = PermissionRequest::Bare(body);
+                    let response = if let (Some(ref sm), Some(sid)) = (
                         &self.session_manager,
                         args.get("session_id").and_then(|v| v.as_str()),
                     ) {
-                        let subjects =
-                            collect_chain_deny_subjects(sm, &engine.rules, sid, agent_id).await;
-                        if subjects.is_empty() {
-                            None
-                        } else {
-                            Some(subjects)
-                        }
+                        engine
+                            .evaluate_with_chain(request, sm, sid, &self.agent_permissions)
+                            .await
                     } else {
-                        None
+                        engine.evaluate(request, None)
                     };
-                    let deny_ref = extra_deny.as_deref();
-                    let response = engine.check(agent_id, action, deny_ref);
                     match response {
                         PermissionResponse::Allowed { token: _ } => Ok(serde_json::json!({
                             "allowed": true,
