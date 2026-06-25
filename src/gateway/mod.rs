@@ -189,7 +189,6 @@ pub struct Gateway {
     /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
     /// Bounded inbound queue sender. `None` until the queue is started.
-    #[allow(dead_code)]
     inbound_tx: std::sync::Mutex<Option<mpsc::Sender<InboundRequest>>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
     ///

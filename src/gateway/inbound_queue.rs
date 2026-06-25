@@ -149,6 +149,10 @@ pub(crate) fn start_inbound_consumer(
     });
 }
 
+/// Reply text sent when the inbound queue is at capacity.
+const BUSY_REPLY_TEXT: &str =
+    "\u{274C} \u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}";
+
 /// Try to enqueue an inbound request into the gateway's bounded queue.
 ///
 /// On success the request will be processed by the consumer task.
@@ -166,50 +170,7 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, request: InboundRequest) 
     {
         Some(tx) => tx,
         None => {
-            // ── Fallback: process inline when queue is not started ───
-            tracing::warn!("inbound queue not started — processing directly");
-            if let Some(plugin) = gateway.get_plugin(&request.platform).await {
-                match plugin.parse_inbound(&request.raw_payload).await {
-                    Ok(Some(normalized)) => {
-                        let sender_id = normalized.sender_id.clone();
-                        let processed = gateway
-                            .process_inbound_chain(
-                                &normalized.platform,
-                                &normalized.sender_id,
-                                &normalized.peer_id,
-                                &normalized.content,
-                                "",
-                                normalized.timestamp,
-                            )
-                            .await;
-                        gateway
-                            .handle_inbound_message(
-                                processed,
-                                Some(&sender_id),
-                                &normalized.platform,
-                            )
-                            .await;
-                    }
-                    Ok(None) => {
-                        tracing::debug!(
-                            platform = %request.platform,
-                            "inline fallback: parse returned None — dropping"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            platform = %request.platform,
-                            error = %e,
-                            "inline fallback: parse failed — dropping"
-                        );
-                    }
-                }
-            } else {
-                tracing::warn!(
-                    platform = %request.platform,
-                    "inline fallback: no plugin registered — dropping"
-                );
-            }
+            process_inbound_direct(gateway, &request).await;
             return;
         }
     };
@@ -227,16 +188,60 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, request: InboundRequest) 
     }
 }
 
+/// Fallback: process an inbound request directly when the queue has not started.
+///
+/// Parses the raw payload through the IM plugin, runs the processor chain,
+/// and handles the inbound message inline.
+async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
+    tracing::warn!("inbound queue not started — processing directly");
+    let Some(plugin) = gateway.get_plugin(&request.platform).await else {
+        tracing::warn!(
+            platform = %request.platform,
+            "inline fallback: no plugin registered — dropping"
+        );
+        return;
+    };
+    match plugin.parse_inbound(&request.raw_payload).await {
+        Ok(Some(normalized)) => {
+            let sender_id = normalized.sender_id.clone();
+            let processed = gateway
+                .process_inbound_chain(
+                    &normalized.platform,
+                    &normalized.sender_id,
+                    &normalized.peer_id,
+                    &normalized.content,
+                    "",
+                    normalized.timestamp,
+                )
+                .await;
+            gateway
+                .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
+                .await;
+        }
+        Ok(None) => {
+            tracing::debug!(
+                platform = %request.platform,
+                "inline fallback: parse returned None — dropping"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                platform = %request.platform,
+                error = %e,
+                "inline fallback: parse failed — dropping"
+            );
+        }
+    }
+}
+
 /// Send a "service busy" reply via the outbound Processor Chain.
 ///
 /// The reply text goes through the outbound chain (DslParser → RawLog)
 /// and is then rendered by the IM plugin, consistent with slash-command
 /// and LLM reply paths.
 async fn send_busy_reply(gateway: &Gateway, request: &InboundRequest) {
-    let text =
-        "\u{274C} \u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}";
     if let Err(e) = gateway
-        .send_outbound_to_chat(&request.peer_id, &request.platform, text)
+        .send_outbound_to_chat(&request.peer_id, &request.platform, BUSY_REPLY_TEXT)
         .await
     {
         tracing::warn!(error = %e, "failed to send busy reply");

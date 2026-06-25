@@ -1,5 +1,4 @@
 use crate::common::VerbosityLevel;
-use crate::llm::session::ChatSession;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 use crate::slash::side_effect::SideEffectContext;
@@ -73,13 +72,13 @@ impl SlashResult {
                 }
             }
             SlashResult::SystemAppend { action } => {
-                Self::execute_system_append(ctx, action).await;
+                crate::slash::side_effect::execute_system_append(ctx, action).await;
             }
             SlashResult::NewSession => {
-                Self::execute_new_session(ctx).await;
+                crate::slash::side_effect::execute_new_session(ctx).await;
             }
             SlashResult::Stop => {
-                Self::execute_stop(ctx).await;
+                crate::slash::side_effect::execute_stop(ctx).await;
             }
             SlashResult::SetMode(_) => {
                 tracing::warn!("SlashResult::SetMode not yet routed through dispatch_slash");
@@ -88,76 +87,6 @@ impl SlashResult {
                 tracing::debug!("SlashResult::Unknown returned from handler");
             }
         }
-    }
-
-    async fn execute_system_append(ctx: &SideEffectContext, action: &SystemAppendAction) {
-        match action {
-            SystemAppendAction::Add(content) => {
-                if let Some(cs) = ctx.get_conversation_session().await {
-                    let mut session = cs.write().await;
-                    let index = session.add_system_append(content.clone());
-                    ctx.reply(format!("已追加指令（序号 {index}）")).await;
-                } else {
-                    ctx.reply("当前会话未激活，无法追加指令".to_owned()).await;
-                }
-            }
-            SystemAppendAction::Clear => {
-                if let Some(cs) = ctx.get_conversation_session().await {
-                    let mut session = cs.write().await;
-                    let count = session.clear_system_appends();
-                    ctx.reply(format!("已清除 {count} 条追加指令")).await;
-                } else {
-                    ctx.reply("当前会话未激活，无法清除指令".to_owned()).await;
-                }
-            }
-        }
-    }
-
-    async fn execute_new_session(ctx: &SideEffectContext) {
-        let agent_id = ctx
-            .session_manager
-            .get_chat_id(&ctx.session_id)
-            .await
-            .unwrap_or_default();
-        let new_session_id = ctx
-            .session_manager
-            .force_new_for_channel(&ctx.channel, &agent_id)
-            .await;
-        ctx.reply(format!("已创建新 session：{new_session_id}"))
-            .await;
-    }
-
-    async fn execute_stop(ctx: &SideEffectContext) {
-        let Some(conv) = ctx
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        else {
-            ctx.reply("当前会话未激活".to_owned()).await;
-            return;
-        };
-        let busy = {
-            let cs = conv.read().await;
-            cs.is_llm_busy()
-        };
-        if busy {
-            let mut cs = conv.write().await;
-            cs.cancel_token.cancel();
-            let handles_to_stop: Vec<_> = {
-                let child_handles = cs
-                    .child_handles
-                    .read()
-                    .expect("child_handles lock poisoned");
-                child_handles.values().filter_map(|w| w.upgrade()).collect()
-            };
-            cs.clear_pending();
-            drop(cs);
-            for child in handles_to_stop {
-                let child_cs = child.read().await;
-                child_cs.cancel_token.cancel();
-            }
-        }
-        ctx.reply("已停止当前任务".to_owned()).await;
     }
 }
 
