@@ -377,7 +377,7 @@ spawn_tree 查询父 session 的所有后代
 
 | 模块 | 说明 |
 |------|------|
-| Permission | Agent 模块（纯配置层）不直接调用 Permission；spawn 流程中的权限检查由 Session 模块协调，通过 Permission 模块完成继承计算 |
+| Permission | Agent 模块（纯配置层）不直接调用 Permission；spawn 流程中的权限检查：Session 执行前置检查后，sessions_spawn 工具经 tools 模块触发 PermissionEngine.evaluate()，由 Permission 模块完成继承计算 |
 | LLM Provider | spawn 不直接调用 LLM，子 session 的 LLM 调用由 session 模块管理 |
 | Processor Chain / Renderer | announce 内容的渲染由 session 的消息渲染管线完成 |
 | IM Adapter | spawn 不涉及外部消息路由 |
