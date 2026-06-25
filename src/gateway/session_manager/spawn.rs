@@ -368,7 +368,8 @@ impl SessionManager {
         // 4a. Append spawn context to the system prompt so the child
         //     agent knows its role, depth limits, and communication
         //     behavior.  Non-spawn sessions never reach this path.
-        let spawn_context = Self::build_spawn_context(depth, max_spawn_depth);
+        let spawn_context =
+            Self::build_spawn_context(depth, max_spawn_depth, parent_session_id, &mode, fork);
         let prompt = format!("{}\n{}", prompt, spawn_context);
 
         // 5. Create ConversationSession
@@ -524,11 +525,24 @@ impl SessionManager {
     /// - Communication behavior (push-based, no polling)
     /// - Behavioral constraints (direct execution, no back-and-forth)
     /// - Spawn guidance when depth allows further spawning
-    pub(crate) fn build_spawn_context(depth: u32, max_spawn_depth: u32) -> String {
+    pub(crate) fn build_spawn_context(
+        depth: u32,
+        max_spawn_depth: u32,
+        parent_session_id: &str,
+        spawn_mode: &SpawnMode,
+        fork: bool,
+    ) -> String {
+        let mode_str = match spawn_mode {
+            SpawnMode::Run => "run",
+            SpawnMode::Session => "session",
+        };
         let mut ctx = format!(
             "## Spawn Context\n\
-             You are running as a sub-agent. \
-             Current depth: {depth} / Maximum depth: {max_spawn_depth}.\n\
+             You are running as a sub-agent.\n\
+             - **parent_session_id**: {parent_session_id}\n\
+             - **depth**: {depth} / **max_spawn_depth**: {max_spawn_depth}\n\
+             - **spawn_mode**: {mode_str}\n\
+             - **fork**: {fork}\n\
              **Communication behavior:** Your results are automatically \
              pushed back to the parent agent when you finish. \
              Do not poll for status. \
@@ -670,67 +684,48 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Force-terminate a child session: cancel its token tree,
-    /// remove it from `conversation_sessions`, `sessions`, and
-    /// the parent's `children` tracking table. The archive is
-    /// preserved (no purge).
+    /// Force-terminate a child session and all its descendants.
     ///
-    /// All descendants are also cleaned up recursively (per design
-    /// doc §级联 Kill — from deepest to shallowest). The `children`
-    /// table is traversed via BFS to discover all descendant session
-    /// IDs before any removals, preventing lock-ordering issues.
+    /// Per design doc §级联 Kill: processes deepest descendants
+    /// first, then the target child itself. For each session:
+    /// stop → clean conversation_sessions → unregister handle →
+    /// clean sessions → clean children table.
     pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
-        // 1. Collect all descendant session IDs via BFS.
         let descendant_ids = {
             let children = self.children.read().await;
             children.list_descendants(child_id)
         };
 
-        // 2. Stop active sessions. Completed/terminated sessions
-        //    skip the stop step but still get cleaned up from the
-        //    spawn tree (design doc §级联 Kill).
-        if let Some(cs) = self.get_conversation_session(child_id).await {
-            cs.read().await.stop(true).await;
-        }
         for id in &descendant_ids {
             if let Some(cs) = self.get_conversation_session(id).await {
                 cs.read().await.stop(true).await;
             }
-        }
-
-        // 3. Remove child + descendants from conversation_sessions.
-        {
-            let mut cs = self.conversation_sessions.write().await;
-            cs.remove(child_id);
-            for id in &descendant_ids {
-                cs.remove(id);
+            self.conversation_sessions.write().await.remove(id);
+            if let Some(info) = self.children.read().await.find_child(id) {
+                let pid = info.parent_session_id.clone();
+                if let Some(pcs) = self.conversation_sessions.read().await.get(&pid) {
+                    pcs.read().await.unregister_child_handle(id);
+                }
             }
+            self.sessions.write().await.remove(id);
+            self.children
+                .write()
+                .await
+                .remove_descendant_entries(&[id.clone()]);
         }
 
-        // 4. Unregister child handle from parent.
-        {
-            let cs = self.conversation_sessions.read().await;
-            if let Some(parent_cs) = cs.get(parent_id) {
-                parent_cs.read().await.unregister_child_handle(child_id);
-            }
+        if let Some(cs) = self.get_conversation_session(child_id).await {
+            cs.read().await.stop(true).await;
         }
-
-        // 5. Remove child + descendants from sessions.
-        {
-            let mut sessions = self.sessions.write().await;
-            sessions.remove(child_id);
-            for id in &descendant_ids {
-                sessions.remove(id);
-            }
+        self.conversation_sessions.write().await.remove(child_id);
+        if let Some(pcs) = self.conversation_sessions.read().await.get(parent_id) {
+            pcs.read().await.unregister_child_handle(child_id);
         }
-
-        // 6. Remove child + descendants from children table.
-        {
-            let mut children = self.children.write().await;
-            children.remove_child(parent_id, child_id);
-            children.remove_descendant_entries(&descendant_ids);
-        }
-
+        self.sessions.write().await.remove(child_id);
+        self.children
+            .write()
+            .await
+            .remove_child(parent_id, child_id);
         Ok(())
     }
 

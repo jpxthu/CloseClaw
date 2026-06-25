@@ -124,6 +124,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     let spawn_controller = Arc::new(SpawnController::new(
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.session_manager),
+        Arc::clone(ctx.permission_engine),
     ));
     let builtin_ctx = Arc::new(BuiltinToolContext {
         config_manager: Arc::clone(ctx.config_manager),

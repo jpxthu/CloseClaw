@@ -11,6 +11,8 @@ mod tests {
     use crate::config::ConfigManager;
     use crate::gateway::{GatewayConfig, SessionManager};
     use crate::llm::session::ConversationSession;
+    use crate::permission::engine::engine_eval::PermissionEngine;
+    use crate::permission::rules::RuleSetBuilder;
     use crate::session::bootstrap::loader::BootstrapMode;
     use crate::session::persistence::ReasoningLevel;
     use crate::skills::disk::types::{
@@ -44,6 +46,9 @@ mod tests {
         let spawn_controller = Arc::new(SpawnController::new(
             config_manager,
             session_manager.clone(),
+            Arc::new(PermissionEngine::new_with_default_data_root(
+                RuleSetBuilder::new().build().unwrap(),
+            )),
         ));
         (spawn_controller, session_manager)
     }
@@ -163,6 +168,9 @@ mod tests {
         let spawn_controller = Arc::new(SpawnController::new(
             config_manager.clone(),
             session_manager.clone(),
+            Arc::new(PermissionEngine::new_with_default_data_root(
+                RuleSetBuilder::new().build().unwrap(),
+            )),
         ));
 
         (config_manager, session_manager, spawn_controller)

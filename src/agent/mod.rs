@@ -11,3 +11,7 @@ mod spawn_tests;
 #[cfg(test)]
 #[path = "spawn_budget_tests.rs"]
 mod spawn_budget_tests;
+
+#[cfg(test)]
+#[path = "spawn_permission_tests.rs"]
+mod spawn_permission_tests;
