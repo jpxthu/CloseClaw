@@ -63,10 +63,44 @@ impl SessionManager {
         }
     }
 
-    /// Count active (non-completed) child sessions for a parent.
-    pub async fn count_active_children(&self, parent_id: &str) -> usize {
+    /// Get the parent session ID of a given child session.
+    ///
+    /// Returns `None` if the child is unknown or has no registered parent.
+    pub async fn get_parent_of(&self, child_id: &str) -> Option<String> {
         let children = self.children.read().await;
-        children.get(parent_id).map(|v| v.len()).unwrap_or(0)
+        children
+            .values()
+            .flatten()
+            .find(|info| info.session_id == child_id)
+            .map(|info| info.parent_session_id.clone())
+    }
+
+    /// Count active (non-completed) child sessions for a parent.
+    ///
+    /// A child is considered "active" if its session still exists in
+    /// `conversation_sessions`. Run-mode sessions that have completed
+    /// and been cleaned up are excluded from the count, so the
+    /// concurrency limit is not consumed by finished children.
+    ///
+    /// Lock order: `children` read lock (collect IDs) then
+    /// `conversation_sessions` read lock (check existence), held
+    /// separately to avoid deadlocks.
+    pub async fn count_active_children(&self, parent_id: &str) -> usize {
+        let child_ids: Vec<String> = {
+            let children = self.children.read().await;
+            children
+                .get(parent_id)
+                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
+                .unwrap_or_default()
+        };
+        if child_ids.is_empty() {
+            return 0;
+        }
+        let conv = self.conversation_sessions.read().await;
+        child_ids
+            .iter()
+            .filter(|id| conv.contains_key(id.as_str()))
+            .count()
     }
 
     /// List all active child session IDs for a parent.
@@ -146,6 +180,19 @@ impl SessionManager {
             let mut overridden = config.clone();
             overridden.tools = tools.clone();
             overridden
+        } else {
+            config.clone()
+        };
+        let config = &config;
+
+        // Tool-level spawn prevention (design doc §两层防护):
+        // When the effective max_spawn_depth budget is 0, strip
+        // sessions_spawn from the child's tool whitelist so the LLM
+        // cannot even see the tool.
+        let config = if max_spawn_depth == 0 {
+            let mut filtered = config.clone();
+            filtered.tools.retain(|t| t != "sessions_spawn");
+            filtered
         } else {
             config.clone()
         };
@@ -506,16 +553,19 @@ impl SessionManager {
     /// table is traversed via BFS to discover all descendant session
     /// IDs before any removals, preventing lock-ordering issues.
     pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
-        // 1. Recursively collect all descendant session IDs via
-        //    BFS on the `children` table.
+        // 1. Collect all descendant session IDs via BFS.
         let descendant_ids = self.collect_descendant_ids(child_id).await;
 
-        // 2. Get the child's conversation session, verify it exists,
-        //    and cascade-stop its token tree.
+        // 2. Stop active sessions. Completed/terminated sessions
+        //    skip the stop step but still get cleaned up from the
+        //    spawn tree (design doc §级联 Kill).
         if let Some(cs) = self.get_conversation_session(child_id).await {
             cs.read().await.stop(true).await;
-        } else {
-            return Err(format!("child session not found: {}", child_id));
+        }
+        for id in &descendant_ids {
+            if let Some(cs) = self.get_conversation_session(id).await {
+                cs.read().await.stop(true).await;
+            }
         }
 
         // 3. Remove child + descendants from conversation_sessions.

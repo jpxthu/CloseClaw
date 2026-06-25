@@ -104,12 +104,26 @@ fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
 
 /// Register N child sessions under a given parent in the SessionManager
 /// (used to simulate concurrency pressure for the max_children test).
+///
+/// Also inserts each child into `conversation_sessions` so
+/// `count_active_children` (which checks session liveness) counts
+/// them correctly.
 async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
     for i in 0..count {
+        let child_id = format!("child-{}", i);
+        let cs = crate::llm::session::ConversationSession::new(
+            child_id.clone(),
+            "test-model".to_string(),
+            std::path::PathBuf::from("/tmp"),
+        );
+        mgr.conversation_sessions.write().await.insert(
+            child_id.clone(),
+            std::sync::Arc::new(tokio::sync::RwLock::new(cs)),
+        );
         mgr.register_child(
             parent_id,
             ChildSessionInfo {
-                session_id: format!("child-{}", i),
+                session_id: child_id,
                 parent_session_id: parent_id.to_string(),
                 agent_id: "child".to_string(),
                 depth: 1,
