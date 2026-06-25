@@ -1,6 +1,7 @@
 use crate::common::VerbosityLevel;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
+use crate::slash::side_effect::SideEffectContext;
 
 /// Action for the `SystemAppend` slash result.
 #[derive(Debug, Clone)]
@@ -34,6 +35,59 @@ pub enum SlashResult {
     SetVerbosity { level: VerbosityLevel },
     /// Unknown command — no handler matched.
     Unknown(String),
+}
+
+impl SlashResult {
+    /// Execute the side effects for this slash result variant.
+    ///
+    /// Side effects are communicated through `ctx`'s reply channel.
+    /// The Gateway collects these actions and dispatches them.
+    pub async fn execute(&self, ctx: &SideEffectContext) {
+        match self {
+            SlashResult::Reply(text) => {
+                ctx.reply(text.clone()).await;
+            }
+            SlashResult::Compact { instruction } => {
+                ctx.trigger_compact(instruction.clone()).await;
+            }
+            SlashResult::Exec { command } => {
+                ctx.reply(format!("命令已提交审批：/{command}")).await;
+            }
+            SlashResult::SetReasoning { level } => {
+                if let Some(cs) = ctx.get_conversation_session().await {
+                    cs.write().await.set_reasoning_level(*level);
+                    ctx.reply(format!("推理深度已设置为 {:?}", level)).await;
+                } else {
+                    ctx.reply("当前会话未激活，无法设置推理深度".to_owned())
+                        .await;
+                }
+            }
+            SlashResult::SetVerbosity { level } => {
+                if let Some(cs) = ctx.get_conversation_session().await {
+                    cs.write().await.set_verbosity_level(*level);
+                    ctx.reply(format!("输出详细度已设置为 {level}")).await;
+                } else {
+                    ctx.reply("当前会话未激活，无法设置输出详细度".to_owned())
+                        .await;
+                }
+            }
+            SlashResult::SystemAppend { action } => {
+                crate::slash::side_effect::execute_system_append(ctx, action).await;
+            }
+            SlashResult::NewSession => {
+                crate::slash::side_effect::execute_new_session(ctx).await;
+            }
+            SlashResult::Stop => {
+                crate::slash::side_effect::execute_stop(ctx).await;
+            }
+            SlashResult::SetMode(_) => {
+                tracing::warn!("SlashResult::SetMode not yet routed through dispatch_slash");
+            }
+            SlashResult::Unknown(_) => {
+                tracing::debug!("SlashResult::Unknown returned from handler");
+            }
+        }
+    }
 }
 
 /// Trait for slash command handlers.

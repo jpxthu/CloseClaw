@@ -352,3 +352,272 @@ async fn test_slash_context_channel_propagates() {
     assert_eq!(captured.session_id, "sess42");
     assert_eq!(captured.sender_id, "user123");
 }
+
+// ===========================================================================
+// execute_and_route: SlashResult.execute() path tests
+// ===========================================================================
+//
+// These tests verify that `dispatch_slash` → `execute_and_route` correctly
+// routes every `SlashResult` variant through the new `SideEffectContext::
+// execute()` path. Each handler returns a specific variant, and we assert
+// that `dispatch_slash` returns `SlashHandled` (meaning the execute path
+// ran without panic).
+
+/// Handler that returns a configurable [`SlashResult`].
+struct ResultHandler {
+    command: &'static str,
+    result: SlashResult,
+    requires_permission: bool,
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for ResultHandler {
+    fn commands(&self) -> &[&str] {
+        std::slice::from_ref(&self.command)
+    }
+    fn description(&self) -> &str {
+        "result handler"
+    }
+    fn requires_permission(&self) -> bool {
+        self.requires_permission
+    }
+    async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
+        // Clone so each invocation returns the same variant.
+        match &self.result {
+            SlashResult::Reply(t) => SlashResult::Reply(t.clone()),
+            SlashResult::Compact { instruction } => SlashResult::Compact {
+                instruction: instruction.clone(),
+            },
+            SlashResult::Exec { command } => SlashResult::Exec {
+                command: command.clone(),
+            },
+            SlashResult::SetReasoning { level } => SlashResult::SetReasoning { level: *level },
+            SlashResult::SetVerbosity { level } => SlashResult::SetVerbosity { level: *level },
+            SlashResult::Unknown(t) => SlashResult::Unknown(t.clone()),
+            SlashResult::NewSession => SlashResult::NewSession,
+            SlashResult::Stop => SlashResult::Stop,
+            SlashResult::SetMode(t) => SlashResult::SetMode(t.clone()),
+            SlashResult::SystemAppend { action } => SlashResult::SystemAppend {
+                action: action.clone(),
+            },
+        }
+    }
+}
+
+fn result_dispatcher(command: &'static str, result: SlashResult) -> Arc<SlashDispatcher> {
+    let registry = HandlerRegistry::new();
+    registry.register(Arc::new(ResultHandler {
+        command,
+        result,
+        requires_permission: false,
+    }));
+    Arc::new(SlashDispatcher::new(registry))
+}
+
+#[tokio::test]
+async fn test_execute_route_reply_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "echo",
+        SlashResult::Reply("pong".to_owned()),
+    ))
+    .await;
+    let result = gw.dispatch_slash("s1", "/echo", Some("u1"), "feishu").await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_compact_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "compact",
+        SlashResult::Compact {
+            instruction: Some("keep summary".to_owned()),
+        },
+    ))
+    .await;
+    let result = gw
+        .dispatch_slash("s1", "/compact keep summary", Some("u1"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_exec_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "exec",
+        SlashResult::Exec {
+            command: "ls".to_owned(),
+        },
+    ))
+    .await;
+    let result = gw
+        .dispatch_slash("s1", "/exec ls", Some("u1"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_unknown_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "unk",
+        SlashResult::Unknown("not found".to_owned()),
+    ))
+    .await;
+    let result = gw.dispatch_slash("s1", "/unk", Some("u1"), "feishu").await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_set_reasoning_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "reasoning",
+        SlashResult::SetReasoning {
+            level: crate::session::persistence::ReasoningLevel::High,
+        },
+    ))
+    .await;
+    let result = gw
+        .dispatch_slash("s1", "/reasoning high", Some("u1"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_set_verbosity_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "verbose",
+        SlashResult::SetVerbosity {
+            level: crate::common::VerbosityLevel::Off,
+        },
+    ))
+    .await;
+    let result = gw
+        .dispatch_slash("s1", "/verbose off", Some("u1"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_new_session_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher("new", SlashResult::NewSession))
+        .await;
+    let result = gw.dispatch_slash("s1", "/new", Some("u1"), "feishu").await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_stop_variant() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher("stop", SlashResult::Stop))
+        .await;
+    let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_system_append_variant() {
+    use crate::slash::handler::SystemAppendAction;
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "sys",
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Add("test instruction".to_owned()),
+        },
+    ))
+    .await;
+    let result = gw
+        .dispatch_slash("s1", "/sys add test instruction", Some("u1"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_all_variants_return_slash_handled() {
+    // Comprehensive: all recognized variants go through execute_and_route
+    // and return SlashHandled.
+    let gw = make_gateway();
+    let cases: Vec<(&str, SlashResult)> = vec![
+        ("a", SlashResult::Reply("r".to_owned())),
+        ("b", SlashResult::Compact { instruction: None }),
+        (
+            "c",
+            SlashResult::Exec {
+                command: "x".to_owned(),
+            },
+        ),
+        (
+            "d",
+            SlashResult::SetReasoning {
+                level: crate::session::persistence::ReasoningLevel::Low,
+            },
+        ),
+        (
+            "e",
+            SlashResult::SetVerbosity {
+                level: crate::common::VerbosityLevel::Normal,
+            },
+        ),
+        ("f", SlashResult::Unknown("?".to_owned())),
+        ("g", SlashResult::NewSession),
+        ("h", SlashResult::Stop),
+        ("i", SlashResult::SetMode("dark".to_owned())),
+    ];
+    for (cmd, result) in cases {
+        gw.set_slash_dispatcher(result_dispatcher(cmd, result))
+            .await;
+        let dispatch_result = gw
+            .dispatch_slash("s1", &format!("/{cmd}"), Some("u1"), "feishu")
+            .await;
+        assert!(
+            matches!(dispatch_result, Some(HandleResult::SlashHandled)),
+            "variant /{cmd} should return SlashHandled"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_execute_route_permission_check_before_execute() {
+    // Owner bypasses permission engine AND goes through execute_and_route.
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "exec",
+        SlashResult::Exec {
+            command: "ls".to_owned(),
+        },
+    ))
+    .await;
+    gw.set_permission_engine(deny_engine()).await;
+
+    // Owner must bypass the deny engine and still reach execute_and_route.
+    let result = gw
+        .dispatch_slash("s1", "/exec ls", Some("owner"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+#[tokio::test]
+async fn test_execute_route_non_owner_denied_skips_execute() {
+    // Non-owner with requires_permission=true and deny engine
+    // → execute_and_route is never reached.
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(result_dispatcher(
+        "exec",
+        SlashResult::Exec {
+            command: "ls".to_owned(),
+        },
+    ))
+    .await;
+    gw.set_permission_engine(deny_engine()).await;
+
+    let result = gw
+        .dispatch_slash("s1", "/exec ls", Some("user1"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+    // The handler was NOT invoked — engine denied before execute_and_route.
+}

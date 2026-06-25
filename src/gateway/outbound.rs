@@ -295,6 +295,55 @@ impl Gateway {
         }
     }
 
+    /// Send an outbound message to a specific chat via the registered IM plugin.
+    ///
+    /// This is a lightweight variant of [`send_outbound`](Self::send_outbound) that
+    /// does not require a `session_id` — it takes a `chat_id` directly. Useful for
+    /// system messages (e.g. busy replies) that have no associated session.
+    ///
+    /// Flow:
+    /// 1. Resolve the [`IMPlugin`](super::im::IMPlugin) for `channel`.
+    /// 2. Run the outbound processor chain (DslParser → RawLog).
+    /// 3. Render via `plugin.render` and dispatch via `plugin.send`.
+    pub async fn send_outbound_to_chat(
+        &self,
+        chat_id: &str,
+        channel: &str,
+        raw_output: &str,
+    ) -> Result<(), GatewayError> {
+        let plugin = self
+            .get_plugin(channel)
+            .await
+            .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
+
+        // Run the outbound processor chain (DslParser → RawLog).
+        let processed = self
+            .process_or_bypass(raw_output, vec![], channel, "")
+            .await?;
+        if processed.suppress {
+            return Ok(());
+        }
+
+        // Extract dsl_result stored by the DSL processor.
+        let dsl_result: Option<DslParseResult> = processed
+            .metadata
+            .get("dsl_result")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok());
+
+        // Render via the plugin.
+        let render_blocks = if processed.content_blocks.is_empty() {
+            vec![ContentBlock::Text(processed.content.clone())]
+        } else {
+            processed.content_blocks
+        };
+        let rendered = plugin.render(&render_blocks, dsl_result.as_ref());
+
+        // Dispatch via plugin.send.
+        plugin.send(&rendered, chat_id, None).await?;
+        Ok(())
+    }
+
     /// Send a streaming LLM response via the registered IM plugin.
     ///
     /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,
