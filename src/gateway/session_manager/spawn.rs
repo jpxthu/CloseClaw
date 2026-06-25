@@ -151,6 +151,19 @@ impl SessionManager {
         };
         let config = &config;
 
+        // Tool-level spawn prevention (design doc §两层防护):
+        // When the effective max_spawn_depth budget is 0, strip
+        // sessions_spawn from the child's tool whitelist so the LLM
+        // cannot even see the tool.
+        let config = if max_spawn_depth == 0 {
+            let mut filtered = config.clone();
+            filtered.tools.retain(|t| t != "sessions_spawn");
+            filtered
+        } else {
+            config.clone()
+        };
+        let config = &config;
+
         // 1. Generate child session_id
         let child_session_id = Uuid::new_v4().to_string();
 
