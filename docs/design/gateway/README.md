@@ -60,7 +60,7 @@ Gateway 维护以下运行时注册表：
 关键交接：
 - NormalizedMessage：IM Adapter 产出，Processor Chain 消费
 - ProcessedMessage：Processor Chain 产出，Gateway 消费
-- ContentBlock[]：LLM 响应 / SlashHandler 产出，Processor Chain 出站消费
+- ContentBlock[]：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
 - RenderedOutput：Gateway 调用 IM 插件渲染产出，由插件内部 Adapter 发送
 - **SideEffectContext**：Gateway 构造，封装 Session 引用和回复通道。传给 SlashResult.execute() 让各变体自行完成副作用，Gateway 不穷举变体。回复内容经出站 Processor Chain 发送（详见 [Slash 模块](../slash/README.md)）
 

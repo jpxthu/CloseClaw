@@ -55,8 +55,8 @@ Gateway / SessionManager  ← session 生命周期协调者
   - **SessionManager**：session 的创建、查找、恢复入口。维护会话路由键 → session_id 映射表。查询时：命中返回已有 session，未命中创建新 session 并写入映射。`/new` 指令创建新 session 后覆盖映射。协调各组件完成 session 初始化。session_id 格式为 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒（`YYYYMMDDhhmmss`），random_suffix 为 8 位小写 hex 随机字符串。
 
   **session_key 与会话路由键**：
-  - session_key = {timestamp}-{hash}，hash 由 platform:sender_id:peer_id:account_id:timestamp_ms 共同计算，确保并发消息因时间戳不同而产生不同 key。thread_id 不参与 session_key 计算——仅用于出站时定向回复
-  - session_key 是消息级路由标识，每条消息唯一。SessionManager 内部从 session_key 或消息的路由字段中提取稳定的会话路由键（platform + sender_id + peer_id + account_id）用于 registry 查找
+  - session_key = {timestamp}-{hash}，算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session-key-算法)
+  - session_key 是消息级标识，用于日志追踪。SessionManager 内部从消息路由字段中提取稳定的**会话路由键**（platform + sender_id + peer_id + account_id）用于 registry 查找——session_key 本身不直接参与路由
   - 会话路由键是稳定的 lookup 键。同一会话路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
 
   **key registry 生命周期**：

@@ -29,7 +29,7 @@ Processor Chain（按 priority 升序执行，纯变换）
   │     → 原始消息写入日志，透传
   │
   ├── SessionRouter（priority 20）
-  │     → 从 (platform, sender_id, peer_id, account_id, timestamp_ms) 计算 session_key
+  │     → 计算 session_key（公式见 [Session key 算法](#session-key-算法)）
   │     → session_key 写入 metadata
   │     → 不创建 session、不查 SessionManager
   │
@@ -45,14 +45,14 @@ SessionRouter 计算 session_key 的方式：
 
 - `session_key = {timestamp}-{hash}`，hash 由 `platform:sender_id:peer_id:account_id:timestamp_ms` 拼接后计算
 - `account_id` 由 `sender_id` 通过身份映射得到，是 CloseClaw 本地的账号标识。一个 CloseClaw 账号可绑定多个平台的 sender_id
-- `timestamp_ms` 为消息到达时间的毫秒级 Unix 时间戳，确保并发消息产生不同 key
+- `timestamp_ms` 为消息发送时间（毫秒级 Unix 时间戳），由 IM 平台 webhook 提供
 - `thread_id` 不参与——仅用于出站时 Gateway 定向回复到正确的话题线
 
-session_key 含时间戳，每条消息的 key 不同。但 session_key 不直接等于 session_id——它只是一个查找键。
-
-Gateway 拿到 session_key 后，调用 SessionManager 的 key registry 查表获得最新的 session_id。`/new` 指令在同输入下创建新 session 时，registry 覆盖为新的 session_id，旧 session 自然脱离路由。
+session_key 是消息级标识，用于日志追踪和调试。它不直接参与 session 路由——Gateway 调用 SessionManager 后，SessionManager 从消息路由字段中提取**稳定路由键**（platform + sender_id + peer_id + account_id）做 registry 查找。`/new` 指令在同稳定路由键下创建新 session 时覆盖映射，旧 session 自然脱离路由。
 
 SessionRouter 不区分私聊和群聊。会话粒度由 IM Adapter 通过 peer_id 的构造方式控制——IM Adapter 决定什么构成一个"会话对端"，Session 机制本身是通用的。
+
+并发 `/new` 指令的 session 创建防碰撞由 SessionManager 的 per-agent 串行化 + 创建前 SQLite 双重确认兜底，不依赖 session_key 的唯一性（详见 [Session 模块](../session/README.md)）。
 
 ### 异常处理
 
@@ -70,7 +70,7 @@ SessionRouter 不区分私聊和群聊。会话粒度由 IM Adapter 通过 peer_
 ```
 IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content }
   → RawLogProcessor：记录原始内容到日志 → 透传
-    → SessionRouter：计算 session_key = {timestamp}-{hash(platform, sender_id, peer_id, account_id, timestamp_ms)} → 写入 metadata.session_key
+    → SessionRouter：计算 session_key（算法见上文 Session key 算法节）→ 写入 metadata.session_key
       → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）
         → ProcessedMessage { content, metadata { session_key } }
           → Gateway
@@ -88,7 +88,7 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
 ## 模块关系
 
 - **上游**：IM Adapter（各平台提供适配器，产 NormalizedMessage）
-- **下游**：Gateway（接收 ProcessedMessage，消费 metadata.session_key 做路由决策）、Session 模块（SessionRouter 计算的 session_key 经 Gateway 传递给 SessionManager 做 session 路由查找，属数据流下游依赖）
+- **下游**：Gateway（接收 ProcessedMessage，消费 metadata.session_key 用于消息追踪）、Session 模块（SessionRouter 计算的 session_key 随 metadata 经 Gateway 传递给 SessionManager；SessionManager 使用稳定路由键做 session 路由查找，属数据流下游依赖）
 - **链内**：
   - RawLogProcessor — 审计日志（副作用），不改内容
   - SessionRouter — 计算 session_key（纯哈希计算），写 metadata
