@@ -21,7 +21,7 @@ webhook → webhook → webhook → ...（高并发）
   SessionRouter(20) → session_key = {timestamp}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session-key-算法)）
                     → 写入 metadata，不创建 session
     ↓
-  ContentNormalizer(30) → 文本标准化（去除控制字符和 ANSI 转义序列、压缩空行、去尾空格）
+  ContentNormalizer(30) → 文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去尾空格）
   ↓
 ProcessedMessage { content, metadata { session_key } }
   ↓
@@ -44,9 +44,9 @@ ProcessedMessage { content, metadata { session_key } }
 
 ## 数据流
 
-### 第零步：入站消息队列
+### 前置：入站消息队列
 
-高并发入站时 webhook 消息先进入 Gateway 的入站消息队列。队列属性（边界、持久化、满行为、重启行为）见 [Gateway README](README.md#消息队列与排队语义)。
+入站消息先进入 Gateway 的入站消息队列。队列属性（边界、持久化、满行为、重启行为）见 [Gateway README](README.md#消息队列与排队语义)。
 
 ### 第一步：IM 插件解析
 
@@ -76,7 +76,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 **SessionRouter（priority 20）**：计算 session 路由键。
 
-- 输入：NormalizedMessage 的 `platform`、`sender_id`、`peer_id`、`account_id`
+- 输入：NormalizedMessage 的 `platform`、`sender_id`、`peer_id`、`account_id`，以及 SessionRouter 取的当前系统时间 `timestamp_ms`（毫秒）
 - 计算：session_key 算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session-key-算法)
 - 输出：将 `session_key` 写入 metadata
 - SessionRouter 不创建 session、不查 SessionManager——仅计算 session key
