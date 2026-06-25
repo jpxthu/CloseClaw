@@ -3,6 +3,7 @@
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
 
 pub mod approval;
+pub mod inbound_queue;
 pub mod message;
 pub mod outbound;
 pub mod session_handler;
@@ -12,6 +13,8 @@ mod session_handler_streaming;
 pub mod session_manager;
 pub mod slash_permission;
 
+#[cfg(test)]
+mod inbound_queue_tests;
 #[cfg(test)]
 mod outbound_tests;
 #[cfg(test)]
@@ -33,6 +36,7 @@ use crate::slash::SlashDispatcher;
 
 use crate::processor_chain::context::{ProcessedMessage, RawMessage};
 pub use crate::processor_chain::ProcessorRegistry;
+pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::SessionManager;
 
@@ -135,6 +139,14 @@ pub struct GatewayConfig {
     /// When `None` (default), raw logging is disabled.
     #[serde(default)]
     pub raw_log_dir: Option<std::path::PathBuf>,
+    /// Maximum number of messages the inbound queue can buffer.
+    /// Defaults to 64.
+    #[serde(default = "default_inbound_queue_capacity")]
+    pub inbound_queue_capacity: usize,
+}
+
+fn default_inbound_queue_capacity() -> usize {
+    64
 }
 
 #[allow(clippy::derivable_impls)]
@@ -146,6 +158,7 @@ impl Default for GatewayConfig {
             max_message_size: 0,
             dm_scope: DmScope::default(),
             raw_log_dir: None,
+            inbound_queue_capacity: default_inbound_queue_capacity(),
         }
     }
 }
@@ -175,6 +188,8 @@ pub struct Gateway {
     slash_dispatcher: RwLock<Option<Arc<SlashDispatcher>>>,
     /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
+    /// Bounded inbound queue sender. `None` until the queue is started.
+    inbound_tx: std::sync::Mutex<Option<mpsc::Sender<InboundRequest>>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
     ///
     /// `handle_inbound_message` is called with `&self`, but
@@ -201,6 +216,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
+            inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
         }
@@ -222,6 +238,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
+            inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
         }
@@ -261,6 +278,35 @@ impl Gateway {
         if let Ok(mut slot) = self.shutdown_handle.lock() {
             *slot = Some(handle);
         }
+    }
+
+    /// Start the inbound bounded queue.
+    ///
+    /// Creates a bounded mpsc channel with capacity from
+    /// [`GatewayConfig::inbound_queue_capacity`], stores the sender
+    /// for later use by [`Self::enqueue_inbound`], and spawns a
+    /// consumer task that drains messages through the processor chain
+    /// and inbound handler.
+    ///
+    /// Returns an [`InboundQueueHandle`] that callers can use to
+    /// enqueue inbound requests.
+    pub fn start_inbound_queue(self: &Arc<Self>) -> inbound_queue::InboundQueueHandle {
+        let capacity = self.config.inbound_queue_capacity;
+        let (tx, rx) = tokio::sync::mpsc::channel(capacity);
+        if let Ok(mut slot) = self.inbound_tx.lock() {
+            *slot = Some(tx.clone());
+        }
+        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity);
+        inbound_queue::InboundQueueHandle::new(tx)
+    }
+
+    /// Enqueue an inbound request into the bounded queue.
+    ///
+    /// When the queue is full, a busy reply is sent via the IM plugin.
+    /// If the queue has not been started, the message is processed
+    /// directly (bypass mode).
+    pub async fn enqueue_inbound(&self, request: inbound_queue::InboundRequest) {
+        inbound_queue::enqueue_inbound(self, request).await;
     }
 
     /// Get a clone of the shutdown handle, if set.

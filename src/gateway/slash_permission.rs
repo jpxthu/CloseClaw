@@ -6,14 +6,14 @@
 
 use std::sync::Arc;
 
-use crate::llm::session::ChatSession;
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use crate::slash::handler::SlashHandler;
-use crate::slash::handler::SystemAppendAction;
-use crate::slash::{parse_slash, SlashContext, SlashDispatcher, SlashResult};
+use crate::slash::side_effect::ReplyAction;
+use crate::slash::side_effect::SideEffectContext;
+use crate::slash::{parse_slash, SlashContext, SlashDispatcher};
 
 use super::{Gateway, HandleResult};
 
@@ -167,6 +167,9 @@ impl Gateway {
 
     /// Invoke the handler with a constructed `SlashContext`, then route the
     /// returned `SlashResult` to the appropriate side effect.
+    ///
+    /// Constructs a [`SideEffectContext`] and calls [`SlashResult::execute`],
+    /// then dispatches the produced [`ReplyAction`]s through the session handler.
     async fn execute_and_route(
         &self,
         handler: &dyn SlashHandler,
@@ -176,174 +179,42 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
-        let ctx = SlashContext {
+        let slash_ctx = SlashContext {
             command: cmd_name.to_owned(),
             sender_id: sender_id.unwrap_or("").to_owned(),
             session_id: session_id.to_owned(),
             channel: channel.to_owned(),
         };
-        let result = handler.handle(args, &ctx).await;
+        let result = handler.handle(args, &slash_ctx).await;
 
-        match result {
-            SlashResult::Reply(text) => {
-                if let Some(sh) = self.session_handler.as_ref() {
-                    sh.send_reply(text).await;
-                }
-            }
-            SlashResult::Compact { instruction } => {
-                if let Some(sh) = self.session_handler.as_ref() {
-                    let compact_cmd = match &instruction {
-                        Some(inst) => format!("/compact {}", inst),
-                        None => "/compact".to_string(),
-                    };
-                    sh.handle_compact_command(session_id, &compact_cmd).await;
-                }
-            }
-            SlashResult::Exec { command: _ } => {
-                // Step 1.2 占位：ExecHandler 经权限引擎放行后，先以 Reply 模式
-                // 通知用户命令已提交审批。后续步骤接完整审批流。
-                if let Some(sh) = self.session_handler.as_ref() {
-                    sh.send_reply(format!("命令已提交审批：/{cmd_name}")).await;
-                }
-            }
-            SlashResult::SetReasoning { level } => {
-                if let Some(cs) = self
-                    .session_manager
-                    .get_conversation_session(session_id)
-                    .await
-                {
-                    cs.write().await.set_reasoning_level(level);
+        let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
+        let side_effect_ctx = SideEffectContext::new(
+            session_id.to_owned(),
+            channel.to_owned(),
+            Arc::clone(&self.session_manager),
+            reply_tx,
+        );
+
+        result.execute(&side_effect_ctx).await;
+        drop(side_effect_ctx);
+
+        while let Some(action) = reply_rx.recv().await {
+            match action {
+                ReplyAction::Reply(text) => {
                     if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply(format!("推理深度已设置为 {:?}", level)).await;
-                    }
-                } else {
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply("当前会话未激活，无法设置推理深度".to_owned())
-                            .await;
+                        sh.send_reply(text).await;
                     }
                 }
-            }
-            SlashResult::SetVerbosity { level } => {
-                if let Some(cs) = self
-                    .session_manager
-                    .get_conversation_session(session_id)
-                    .await
-                {
-                    cs.write().await.set_verbosity_level(level);
+                ReplyAction::TriggerCompact { instruction } => {
                     if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply(format!("输出详细度已设置为 {level}")).await;
-                    }
-                } else {
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply("当前会话未激活，无法设置输出详细度".to_owned())
-                            .await;
-                    }
-                }
-            }
-            SlashResult::SystemAppend {
-                action: SystemAppendAction::Add(content),
-            } => {
-                if let Some(cs) = self
-                    .session_manager
-                    .get_conversation_session(session_id)
-                    .await
-                {
-                    let mut session = cs.write().await;
-                    let index = session.add_system_append(content);
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply(format!("已追加指令（序号 {index}）")).await;
-                    }
-                } else {
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply("当前会话未激活，无法追加指令".to_owned())
-                            .await;
-                    }
-                }
-            }
-            SlashResult::SystemAppend {
-                action: SystemAppendAction::Clear,
-            } => {
-                if let Some(cs) = self
-                    .session_manager
-                    .get_conversation_session(session_id)
-                    .await
-                {
-                    let mut session = cs.write().await;
-                    let count = session.clear_system_appends();
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply(format!("已清除 {count} 条追加指令")).await;
-                    }
-                } else {
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply("当前会话未激活，无法清除指令".to_owned())
-                            .await;
-                    }
-                }
-            }
-            SlashResult::NewSession => {
-                let agent_id = self
-                    .session_manager
-                    .get_chat_id(session_id)
-                    .await
-                    .unwrap_or_default();
-                let new_session_id = self
-                    .session_manager
-                    .force_new_for_channel(channel, &agent_id)
-                    .await;
-                if let Some(sh) = self.session_handler.as_ref() {
-                    sh.send_reply(format!("已创建新 session：{new_session_id}"))
-                        .await;
-                }
-            }
-            SlashResult::Stop => {
-                match self
-                    .session_manager
-                    .get_conversation_session(session_id)
-                    .await
-                {
-                    None => {
-                        if let Some(sh) = self.session_handler.as_ref() {
-                            sh.send_reply("当前会话未激活".to_owned()).await;
-                        }
-                    }
-                    Some(conv) => {
-                        let busy = {
-                            let cs = conv.read().await;
-                            cs.is_llm_busy()
+                        let compact_cmd = match &instruction {
+                            Some(inst) => format!("/compact {}", inst),
+                            None => "/compact".to_string(),
                         };
-                        if busy {
-                            let mut cs = conv.write().await;
-                            cs.cancel_token.cancel();
-                            // Cascade stop to child handles.
-                            let handles_to_stop: Vec<_> = {
-                                let child_handles = cs
-                                    .child_handles
-                                    .read()
-                                    .expect("child_handles lock poisoned");
-                                child_handles.values().filter_map(|w| w.upgrade()).collect()
-                            };
-                            cs.clear_pending();
-                            drop(cs);
-                            for child in handles_to_stop {
-                                let child_cs = child.read().await;
-                                child_cs.cancel_token.cancel();
-                            }
-                        }
-                        if let Some(sh) = self.session_handler.as_ref() {
-                            sh.send_reply("已停止当前任务".to_owned()).await;
-                        }
+                        sh.handle_compact_command(session_id, &compact_cmd).await;
                     }
                 }
-            }
-            SlashResult::SetMode(_) => {
-                tracing::warn!(
-                    cmd = cmd_name,
-                    "SlashResult::SetMode not yet routed through dispatch_slash"
-                );
-            }
-            SlashResult::Unknown(_) => {
-                // Should not happen — dispatcher only invokes handler on match.
-                tracing::debug!("SlashResult::Unknown returned from handler");
+                ReplyAction::Nothing => {}
             }
         }
 

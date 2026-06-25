@@ -276,6 +276,8 @@ impl Daemon {
         crate::im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
         Self::init_terminal_plugin(&gateway).await;
         Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
+        // Start the inbound queue consumer so webhook messages are buffered.
+        gateway.start_inbound_queue();
         let shutdown = shutdown::ShutdownHandle::new();
         // Wire shutdown handle into SessionManager for child-session
         // busy-count tracking during drain.
