@@ -711,7 +711,7 @@ impl SessionManager {
             self.children
                 .write()
                 .await
-                .remove_descendant_entries(&[id.clone()]);
+                .remove_descendant_entries(std::slice::from_ref(id));
         }
 
         if let Some(cs) = self.get_conversation_session(child_id).await {
