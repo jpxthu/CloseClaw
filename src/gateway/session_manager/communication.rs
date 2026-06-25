@@ -81,18 +81,46 @@ pub fn check_communication_allowed(
     CommunicationCheckResult::Allowed
 }
 
+/// Resolved communication configs and agent IDs for a session pair.
+struct SessionPairConfig {
+    source_config: CommunicationConfig,
+    source_agent_id: String,
+    target_config: CommunicationConfig,
+    target_agent_id: String,
+}
+
+/// Evaluate whether communication is allowed based on resolved configs.
+/// Returns `Ok(())` if allowed, or `Err` with a descriptive reason.
+fn evaluate_communication(pair: &SessionPairConfig) -> Result<(), CommunicationError> {
+    match check_communication_allowed(
+        &pair.source_config,
+        &pair.source_agent_id,
+        &pair.target_config,
+        &pair.target_agent_id,
+    ) {
+        CommunicationCheckResult::Allowed => Ok(()),
+        CommunicationCheckResult::TargetNotInSourceOutbound => Err(CommunicationError::Denied {
+            reason: format!(
+                "agent '{}' outbound list does not include '{}'",
+                pair.source_agent_id, pair.target_agent_id,
+            ),
+        }),
+        CommunicationCheckResult::SourceNotInTargetInbound => Err(CommunicationError::Denied {
+            reason: format!(
+                "agent '{}' inbound list does not include '{}'",
+                pair.target_agent_id, pair.source_agent_id,
+            ),
+        }),
+    }
+}
+
 impl super::SessionManager {
-    /// Check if communication from `source_session_id` to `target_session_id`
-    /// is allowed by their respective `CommunicationConfig`.
-    ///
-    /// Returns `Ok(())` if allowed, or `Err(CommunicationError)` with a
-    /// descriptive reason if denied.
-    pub(crate) async fn check_session_communication(
+    /// Resolve communication configs and agent IDs for two sessions.
+    async fn resolve_session_configs(
         &self,
         source_session_id: &str,
         target_session_id: &str,
-    ) -> Result<(), CommunicationError> {
-        // 1. Acquire conversation_sessions read lock once to look up both sessions.
+    ) -> Result<SessionPairConfig, CommunicationError> {
         let (source_config_opt, target_config_opt) = {
             let conv = self.conversation_sessions.read().await;
             let source_cs = conv.get(source_session_id).ok_or_else(|| {
@@ -108,8 +136,6 @@ impl super::SessionManager {
                 target_cs.communication_config().cloned(),
             )
         };
-
-        // 2. Resolve agent_ids from the sessions map.
         let (source_agent_id, target_agent_id) = {
             let sessions = self.sessions.read().await;
             let source_session = sessions.get(source_session_id).ok_or_else(|| {
@@ -123,38 +149,28 @@ impl super::SessionManager {
                 target_session.agent_id.clone(),
             )
         };
-
-        // 3. Extract configs. Missing config = unrestricted
-        //    (parent/orchestrator sessions are not constrained).
         let allow_all = CommunicationConfig {
             outbound: vec!["*".to_string()],
             inbound: vec!["*".to_string()],
         };
-        let source_config = source_config_opt.unwrap_or(allow_all.clone());
-        let target_config = target_config_opt.unwrap_or(allow_all);
+        Ok(SessionPairConfig {
+            source_config: source_config_opt.unwrap_or(allow_all.clone()),
+            source_agent_id,
+            target_config: target_config_opt.unwrap_or(allow_all),
+            target_agent_id,
+        })
+    }
 
-        // 4. Delegate to the pure function and translate the result.
-        match check_communication_allowed(
-            &source_config,
-            &source_agent_id,
-            &target_config,
-            &target_agent_id,
-        ) {
-            CommunicationCheckResult::Allowed => Ok(()),
-            CommunicationCheckResult::TargetNotInSourceOutbound => {
-                Err(CommunicationError::Denied {
-                    reason: format!(
-                        "agent '{}' outbound list does not include '{}'",
-                        source_agent_id, target_agent_id,
-                    ),
-                })
-            }
-            CommunicationCheckResult::SourceNotInTargetInbound => Err(CommunicationError::Denied {
-                reason: format!(
-                    "agent '{}' inbound list does not include '{}'",
-                    target_agent_id, source_agent_id,
-                ),
-            }),
-        }
+    /// Check if communication from `source_session_id` to `target_session_id`
+    /// is allowed by their respective `CommunicationConfig`.
+    pub(crate) async fn check_session_communication(
+        &self,
+        source_session_id: &str,
+        target_session_id: &str,
+    ) -> Result<(), CommunicationError> {
+        let pair = self
+            .resolve_session_configs(source_session_id, target_session_id)
+            .await?;
+        evaluate_communication(&pair)
     }
 }
