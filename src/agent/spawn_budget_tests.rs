@@ -155,7 +155,7 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
 /// may be 0). Root(maxSpawnDepth=3) → child1(effective=1) →
 /// child2(effective=0, exists but cannot spawn further).
 #[tokio::test]
-async fn test_depth_budget_rejected_when_effective_zero() {
+async fn test_depth_budget_allowed_when_effective_zero() {
     let cm = Arc::new(make_config_manager());
     let (sm, mem_storage) = make_session_manager_with_memory_storage();
     let controller = SpawnController::new(
