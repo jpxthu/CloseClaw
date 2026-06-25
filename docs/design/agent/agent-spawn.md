@@ -46,29 +46,33 @@ mode="session"：子 session 保持存活，等待父 agent 后续 steer
 
 ### 通信配置（CommunicationConfig）
 
-Spawn 子 agent 时生成通信白名单，控制子 agent 可以向哪些 agent（以 agent ID 标识）发消息、接收哪些 agent 的消息。默认仅允许与父 agent 通信，防止子 agent 与无关 agent 交互。
+Spawn 子 agent 时生成通信路由表，定义子 agent 的消息可达范围——可以向哪些 agent（以 agent ID 标识）发送消息、接收哪些 agent 的消息。
+
+> **与权限的关系**：跨 agent 通信的操作权限（能否通信）由 Permission Engine 的"跨 Agent 通信"维度评估。CommunicationConfig 只负责消息路由——决定消息能否送达——不参与权限判定。当权限放行但路由未配置时，消息不可达；当路由允许但权限拒绝时，消息不发送。
 
 通信配置包含两个方向的白名单：
 
 - **outbound**：允许发送消息的目标 agent ID 列表。`"*"` 表示不限制
 - **inbound**：允许接收消息的来源 agent ID 列表。`"*"` 表示不限制
 
-生成规则：每次 spawn 时调用 `default_with_parent(父 agent ID)`，outbound 和 inbound 均设置为仅含父 agent ID。
+生成规则：每次 spawn 时默认 outbound 和 inbound 均设置为仅含父 agent ID。
 
-通信检查为双向校验：
+路由检查为双向匹配：
 
 ```
 Agent A 向 Agent B 发送消息
   ↓
-检查 A 的 outbound 是否包含 B（或 "*"）
+权限检查：PermissionEngine 评估"跨 Agent 通信"维度
+  ↓ （通过）
+路由检查：A 的 outbound 是否包含 B（或 "*"）
   ↓
-检查 B 的 inbound 是否包含 A（或 "*"）
+路由检查：B 的 inbound 是否包含 A（或 "*"）
   ↓
-任意一方不满足 → 拒绝通信
-两者都满足 → 允许
+任意一方不匹配 → 消息不可达（非权限拒绝）
+两者都匹配 → 消息送达
 ```
 
-此配置注入子 session 的 LLM 会话上下文，在消息路由和跨 agent 交互时由 Session 模块校验。如需扩展通信范围（如兄弟 agent 之间通信），需显式配置额外 agent ID。
+此配置注入子 session 的 LLM 会话上下文，在消息路由时由 Session 模块使用。默认仅父 agent 可达，如需扩展（如兄弟 agent 之间），需显式配置额外 agent ID。
 
 ### Depth 追踪
 
