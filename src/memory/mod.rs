@@ -8,6 +8,11 @@ pub mod active_searcher_llm;
 pub mod dreaming;
 pub mod miner;
 
+pub use crate::llm::session::{InjectionPosition, MemoryInjection};
+pub use active_searcher::{ActiveSearcher, ActiveSearcherConfig};
+
+#[cfg(test)]
+mod active_searcher_tests;
 #[cfg(test)]
 mod dreaming_tests;
 #[cfg(test)]

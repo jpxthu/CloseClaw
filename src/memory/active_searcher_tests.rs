@@ -1,0 +1,794 @@
+//! Unit tests for active-searcher module.
+//!
+//! Covers SQLite schema, search logic, event association, dedup,
+//! summarise, memory_injection slot, role exclusion, and timeout.
+
+use std::collections::HashSet;
+use std::path::Path;
+
+use rusqlite::{params, Connection};
+
+use crate::llm::session::{InjectionPosition, MemoryInjection};
+use crate::memory::active_searcher::{
+    ActiveSearcher, ActiveSearcherConfig, ActiveSearcherError, EventRecord,
+};
+use crate::memory::active_searcher_llm::{parse_concepts, should_trigger_role, LlmCaller};
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/// Create a temporary SQLite database with the standard schema.
+fn create_test_db(dir: &Path) -> Connection {
+    let db_path = dir.join("test.db");
+    let conn = Connection::open(&db_path).unwrap();
+    init_test_schema(&conn);
+    conn
+}
+
+/// Initialize the test database with entity_types, entities, event_entities,
+/// and an events table (not part of init_schema yet).
+fn init_test_schema(conn: &Connection) {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_types (
+            id INTEGER PRIMARY KEY,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            weight REAL NOT NULL DEFAULT 1.0,
+            similarity_threshold REAL NOT NULL DEFAULT 0.80,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+
+        INSERT OR IGNORE INTO entity_types (id, type, name, description, weight, similarity_threshold, is_default, is_active) VALUES
+            (1,  'time',         '时间',     '时间点', 1.0, 0.90, 0, 1),
+            (2,  'location',      '地点',     '地点',   1.0, 0.75, 0, 1),
+            (3,  'person',        '人物',     '人物',   1.2, 0.80, 0, 1),
+            (4,  'organization',  '组织',     '组织',   1.1, 0.80, 0, 1),
+            (5,  'subject',       '主题',     '主题',   1.5, 0.78, 1, 1),
+            (6,  'product',       '产品',     '产品',   1.1, 0.80, 0, 1),
+            (7,  'metric',        '指标',     '指标',   1.2, 0.85, 0, 1),
+            (8,  'action',        '动作',     '动作',   1.3, 0.78, 1, 1),
+            (9,  'work',          '作品',     '作品',   1.0, 0.80, 0, 1),
+            (10, 'group',         '群体',     '群体',   1.0, 0.78, 0, 1),
+            (11, 'tags',          '标签',     '标签',   0.5, 0.70, 1, 1);
+
+        CREATE TABLE IF NOT EXISTS entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL,
+            description TEXT,
+            UNIQUE(agent_id, type, normalized_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_entities_agent_normalized
+            ON entities(agent_id, normalized_name);
+
+        CREATE TABLE IF NOT EXISTS event_entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            entity_id INTEGER NOT NULL,
+            FOREIGN KEY (entity_id) REFERENCES entities(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_event_entities_entity_id
+            ON event_entities(entity_id);
+
+        CREATE INDEX IF NOT EXISTS idx_event_entities_event_id
+            ON event_entities(event_id);
+
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            source_session_id TEXT NOT NULL
+        );
+        "#,
+    )
+    .unwrap();
+}
+
+/// Insert an entity and return its ID.
+fn insert_entity(
+    conn: &Connection,
+    agent_id: &str,
+    entity_type: &str,
+    name: &str,
+    normalized_name: &str,
+) -> i64 {
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![agent_id, entity_type, name, normalized_name],
+    )
+    .unwrap();
+    conn.last_insert_rowid()
+}
+
+/// Insert an event and return its ID.
+fn insert_event(conn: &Connection, content: &str, timestamp: i64, session_id: &str) -> i64 {
+    conn.execute(
+        "INSERT INTO events (content, timestamp, source_session_id)
+         VALUES (?1, ?2, ?3)",
+        params![content, timestamp, session_id],
+    )
+    .unwrap();
+    conn.last_insert_rowid()
+}
+
+/// Link an event to an entity.
+fn link_event_entity(conn: &Connection, event_id: i64, entity_id: i64) {
+    conn.execute(
+        "INSERT INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
+        params![event_id, entity_id],
+    )
+    .unwrap();
+}
+
+// ── SQLite schema tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_sqlite_schema_tables_created() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+
+    let tables: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+    };
+    assert!(tables.contains(&"entity_types".to_string()));
+    assert!(tables.contains(&"entities".to_string()));
+    assert!(tables.contains(&"event_entities".to_string()));
+}
+
+#[test]
+fn test_sqlite_schema_seed_data_integrity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entity_types", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 11, "should have 11 seed entity types");
+
+    let types: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT type FROM entity_types ORDER BY id")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+    };
+    assert_eq!(types[0], "time");
+    assert_eq!(types[2], "person");
+    assert_eq!(types[4], "subject");
+}
+
+#[test]
+fn test_sqlite_schema_unique_constraint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+
+    insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let result = conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name)
+         VALUES (?1, ?2, ?3, ?4)",
+        params!["agent-1", "person", "Alice Alt", "alice"],
+    );
+    assert!(
+        result.is_err(),
+        "UNIQUE constraint should prevent duplicate"
+    );
+}
+
+// ── Search logic tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_search_entities_exact_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let results = searcher
+        .search_entities("agent-1", &["alice".into()])
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[0].normalized_name, "alice");
+}
+
+#[test]
+fn test_search_entities_fuzzy_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    insert_entity(&conn, "agent-1", "person", "Alice Smith", "alice smith");
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let results = searcher
+        .search_entities("agent-1", &["alice".into()])
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Alice Smith");
+}
+
+#[test]
+fn test_search_entities_agent_id_isolation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    insert_entity(&conn, "agent-2", "person", "Bob", "bob");
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let r1 = searcher
+        .search_entities("agent-1", &["alice".into()])
+        .unwrap();
+    assert_eq!(r1.len(), 1);
+    assert_eq!(r1[0].agent_id, "agent-1");
+
+    let r1_all = searcher
+        .search_entities("agent-1", &["bob".into()])
+        .unwrap();
+    assert!(r1_all.is_empty(), "agent-1 should not see Bob");
+
+    let r2 = searcher
+        .search_entities("agent-2", &["bob".into()])
+        .unwrap();
+    assert_eq!(r2.len(), 1);
+    assert_eq!(r2[0].agent_id, "agent-2");
+}
+
+#[test]
+fn test_search_entities_type_weight_ordering() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    // "subject" has weight 1.5, "person" has weight 1.2, "tags" has weight 0.5
+    insert_entity(&conn, "agent-1", "tags", "alice", "alice");
+    insert_entity(&conn, "agent-1", "subject", "alice topic", "alice topic");
+    insert_entity(&conn, "agent-1", "person", "alice person", "alice person");
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let results = searcher
+        .search_entities("agent-1", &["alice".into()])
+        .unwrap();
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].entity_type, "subject");
+    assert_eq!(results[1].entity_type, "person");
+    assert_eq!(results[2].entity_type, "tags");
+}
+
+#[test]
+fn test_search_entities_no_data_returns_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let results = searcher
+        .search_entities("agent-1", &["anything".into()])
+        .unwrap();
+    assert!(results.is_empty());
+}
+
+// ── Event association tests ──────────────────────────────────────────────
+
+#[test]
+fn test_find_events_single_entity_multiple_events() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    let eid = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let ev1 = insert_event(&conn, "Alice did X", 1000, "sess-1");
+    let ev2 = insert_event(&conn, "Alice did Y", 2000, "sess-1");
+    link_event_entity(&conn, ev1, eid);
+    link_event_entity(&conn, ev2, eid);
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let events = searcher.find_events(&[eid]).unwrap();
+    assert_eq!(events.len(), 2);
+    let ids: HashSet<i64> = events.iter().map(|e| e.id).collect();
+    assert!(ids.contains(&ev1));
+    assert!(ids.contains(&ev2));
+}
+
+#[test]
+fn test_find_events_multiple_entities_dedup() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    let e1 = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let e2 = insert_entity(&conn, "agent-1", "person", "Bob", "bob");
+    let ev = insert_event(&conn, "Alice and Bob met", 1000, "sess-1");
+    link_event_entity(&conn, ev, e1);
+    link_event_entity(&conn, ev, e2);
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let events = searcher.find_events(&[e1, e2]).unwrap();
+    assert_eq!(events.len(), 1, "same event should appear once");
+    assert_eq!(events[0].id, ev);
+}
+
+#[test]
+fn test_find_events_min_entity_hits_filter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    let e1 = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let e2 = insert_entity(&conn, "agent-1", "person", "Bob", "bob");
+    let ev1 = insert_event(&conn, "Alice alone", 1000, "sess-1");
+    let ev2 = insert_event(&conn, "Alice and Bob", 2000, "sess-1");
+    link_event_entity(&conn, ev1, e1);
+    link_event_entity(&conn, ev2, e1);
+    link_event_entity(&conn, ev2, e2);
+
+    let config = ActiveSearcherConfig {
+        min_entity_hits: 2,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+
+    let events = searcher.find_events(&[e1, e2]).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].id, ev2);
+}
+
+#[test]
+fn test_find_events_top_k_truncation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    let eid = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    for i in 0..5 {
+        let ev = insert_event(&conn, &format!("Event {i}"), i as i64 * 1000, "sess-1");
+        link_event_entity(&conn, ev, eid);
+    }
+
+    let config = ActiveSearcherConfig {
+        top_k_events: 3,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+
+    let events = searcher.find_events(&[eid]).unwrap();
+    assert_eq!(events.len(), 3, "should be limited to top_k_events");
+}
+
+#[test]
+fn test_find_events_empty_entity_ids_returns_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let events = searcher.find_events(&[]).unwrap();
+    assert!(events.is_empty());
+}
+
+// ── Dedup tests ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_dedup_events_first_time_inject_all() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let events = vec![
+        EventRecord {
+            id: 1,
+            content: "ev1".into(),
+            timestamp: 1000,
+            source_session_id: "s1".into(),
+        },
+        EventRecord {
+            id: 2,
+            content: "ev2".into(),
+            timestamp: 2000,
+            source_session_id: "s1".into(),
+        },
+    ];
+    let injected = HashSet::new();
+    let result = searcher.dedup_events(events.clone(), &injected);
+    assert_eq!(result.len(), 2);
+}
+
+#[test]
+fn test_dedup_events_already_injected_excluded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let events = vec![
+        EventRecord {
+            id: 1,
+            content: "ev1".into(),
+            timestamp: 1000,
+            source_session_id: "s1".into(),
+        },
+        EventRecord {
+            id: 2,
+            content: "ev2".into(),
+            timestamp: 2000,
+            source_session_id: "s1".into(),
+        },
+        EventRecord {
+            id: 3,
+            content: "ev3".into(),
+            timestamp: 3000,
+            source_session_id: "s1".into(),
+        },
+    ];
+    let mut injected = HashSet::new();
+    injected.insert(2);
+    let result = searcher.dedup_events(events, &injected);
+    assert_eq!(result.len(), 2);
+    let ids: Vec<i64> = result.iter().map(|e| e.id).collect();
+    assert!(ids.contains(&1));
+    assert!(ids.contains(&3));
+    assert!(!ids.contains(&2));
+}
+
+// ── Summarize tests ──────────────────────────────────────────────────────
+
+#[test]
+fn test_summarize_short_text_preserved() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let events = vec![EventRecord {
+        id: 1,
+        content: "Short event".into(),
+        timestamp: 1000,
+        source_session_id: "s1".into(),
+    }];
+    let summary = searcher.summarize_events(&events);
+    assert!(summary.contains("Short event"));
+    assert!(summary.contains("1000"));
+}
+
+#[test]
+fn test_summarize_long_text_truncated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let config = ActiveSearcherConfig {
+        max_summary_chars: 50,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+
+    let events = vec![EventRecord {
+        id: 1,
+        content: "A very long event description that should be truncated when exceeding the max summary chars limit".into(),
+        timestamp: 1000,
+        source_session_id: "s1".into(),
+    }];
+    let summary = searcher.summarize_events(&events);
+    assert!(
+        summary.len() <= 50,
+        "summary should be <= 50 chars, got {}",
+        summary.len()
+    );
+}
+
+#[test]
+fn test_summarize_empty_events_returns_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let summary = searcher.summarize_events(&[]);
+    assert!(summary.is_empty());
+}
+
+// ── memory_injection slot tests ──────────────────────────────────────────
+
+#[test]
+fn test_memory_injection_set_and_take() {
+    let session = crate::llm::session::ConversationSession::new(
+        "test-session".into(),
+        "model".into(),
+        tempfile::tempdir().unwrap().keep(),
+    );
+
+    assert!(
+        session.take_memory_injection().is_none(),
+        "slot should be empty initially"
+    );
+
+    let inj = MemoryInjection::new("summary".into(), InjectionPosition::AfterCurrent);
+    session.set_memory_injection(inj);
+
+    let taken = session.take_memory_injection();
+    assert!(taken.is_some(), "slot should have content after set");
+    assert_eq!(taken.unwrap().content, "summary");
+
+    assert!(
+        session.take_memory_injection().is_none(),
+        "slot should be empty after take"
+    );
+}
+
+#[test]
+fn test_memory_injection_position_mode() {
+    let after = MemoryInjection::new("a".into(), InjectionPosition::AfterCurrent);
+    let before = MemoryInjection::new("b".into(), InjectionPosition::BeforeNext);
+    assert_eq!(after.position_mode, InjectionPosition::AfterCurrent);
+    assert_eq!(before.position_mode, InjectionPosition::BeforeNext);
+    assert_ne!(after.position_mode, before.position_mode);
+}
+
+#[test]
+fn test_memory_injection_event_id_dedup() {
+    let mut inj = MemoryInjection::new("s".into(), InjectionPosition::AfterCurrent);
+    assert!(!inj.is_event_injected(42));
+    inj.add_injected_event_id(42);
+    assert!(inj.is_event_injected(42));
+    assert!(!inj.is_event_injected(99));
+    inj.add_injected_event_id(42);
+    assert_eq!(inj.injected_event_ids.len(), 1);
+}
+
+#[test]
+fn test_memory_injection_add_event_id_noop_when_empty_slot() {
+    let session = crate::llm::session::ConversationSession::new(
+        "test".into(),
+        "model".into(),
+        tempfile::tempdir().unwrap().keep(),
+    );
+    session.add_injected_event_id(42);
+    assert!(!session.is_event_injected(42));
+}
+
+// ── Role exclusion tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_role_exclusion_memory_miner() {
+    assert!(!should_trigger_role("memory-miner"));
+}
+
+#[test]
+fn test_role_exclusion_dreaming() {
+    assert!(!should_trigger_role("dreaming"));
+}
+
+#[test]
+fn test_role_inclusion_normal_session() {
+    assert!(should_trigger_role("user"));
+    assert!(should_trigger_role("assistant"));
+    assert!(should_trigger_role("main_agent"));
+    assert!(should_trigger_role("sub_agent"));
+}
+
+#[test]
+fn test_active_searcher_should_trigger_delegates() {
+    assert!(!ActiveSearcher::should_trigger("memory-miner"));
+    assert!(!ActiveSearcher::should_trigger("dreaming"));
+    assert!(ActiveSearcher::should_trigger("user"));
+}
+
+// ── Timeout test ─────────────────────────────────────────────────────────
+
+struct SlowLlmCaller;
+
+#[async_trait::async_trait]
+impl LlmCaller for SlowLlmCaller {
+    async fn complete(&self, _prompt: &str) -> Result<String, ActiveSearcherError> {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        Ok("[]".into())
+    }
+}
+
+#[tokio::test]
+async fn test_run_timeout_returns_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let config = ActiveSearcherConfig {
+        timeout_ms: 50,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+    let llm = SlowLlmCaller;
+
+    let result = searcher
+        .run(
+            "agent-1",
+            "user",
+            "test message",
+            &[],
+            &HashSet::new(),
+            &llm,
+        )
+        .await;
+
+    assert!(result.is_none(), "timeout should return None");
+}
+
+// ── LLM integration tests (mock) ────────────────────────────────────────
+
+struct MockConceptLlm {
+    concepts: Vec<String>,
+}
+
+#[async_trait::async_trait]
+impl LlmCaller for MockConceptLlm {
+    async fn complete(&self, _prompt: &str) -> Result<String, ActiveSearcherError> {
+        let json = serde_json::to_string(&self.concepts).unwrap();
+        Ok(json)
+    }
+}
+
+#[tokio::test]
+async fn test_run_full_pipeline_mock() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+
+    let eid = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let ev1 = insert_event(&conn, "Alice met Bob", 1000, "sess-1");
+    let ev2 = insert_event(&conn, "Alice went home", 2000, "sess-1");
+    link_event_entity(&conn, ev1, eid);
+    link_event_entity(&conn, ev2, eid);
+    drop(conn);
+
+    let config = ActiveSearcherConfig {
+        timeout_ms: 5000,
+        max_summary_chars: 500,
+        min_entity_hits: 1,
+        top_k_events: 10,
+        context_turns: 3,
+        model: "mock".into(),
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+    let llm = MockConceptLlm {
+        concepts: vec!["alice".into()],
+    };
+
+    let result = searcher
+        .run(
+            "agent-1",
+            "user",
+            "Tell me about Alice",
+            &[],
+            &HashSet::new(),
+            &llm,
+        )
+        .await;
+
+    assert!(result.is_some(), "pipeline should produce an injection");
+    let injection = result.unwrap();
+    assert!(!injection.content.is_empty(), "content should not be empty");
+    assert_eq!(
+        injection.position_mode,
+        InjectionPosition::AfterCurrent,
+        "user role should use AfterCurrent"
+    );
+    assert_eq!(
+        injection.injected_event_ids.len(),
+        2,
+        "should record both event IDs"
+    );
+}
+
+#[tokio::test]
+async fn test_run_skips_excluded_role() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let llm = MockConceptLlm {
+        concepts: vec!["test".into()],
+    };
+
+    let result = searcher
+        .run(
+            "agent-1",
+            "memory-miner",
+            "test",
+            &[],
+            &HashSet::new(),
+            &llm,
+        )
+        .await;
+
+    assert!(
+        result.is_none(),
+        "memory-miner should not trigger active searcher"
+    );
+}
+
+#[tokio::test]
+async fn test_run_empty_concepts_returns_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let llm = MockConceptLlm { concepts: vec![] };
+
+    let result = searcher
+        .run("agent-1", "user", "test", &[], &HashSet::new(), &llm)
+        .await;
+
+    assert!(result.is_none(), "empty concepts should return None");
+}
+
+#[tokio::test]
+async fn test_run_dedup_excludes_injected_events() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+
+    let eid = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let ev1 = insert_event(&conn, "Alice met Bob", 1000, "sess-1");
+    let ev2 = insert_event(&conn, "Alice went home", 2000, "sess-1");
+    link_event_entity(&conn, ev1, eid);
+    link_event_entity(&conn, ev2, eid);
+    drop(conn);
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let llm = MockConceptLlm {
+        concepts: vec!["alice".into()],
+    };
+
+    let mut injected = HashSet::new();
+    injected.insert(ev1);
+
+    let result = searcher
+        .run("agent-1", "user", "test", &[], &injected, &llm)
+        .await;
+
+    if let Some(inj) = result {
+        assert!(
+            !inj.injected_event_ids.contains(&ev1),
+            "ev1 should not be in injected set"
+        );
+        assert!(
+            inj.injected_event_ids.contains(&ev2),
+            "ev2 should be in injected set"
+        );
+    }
+}
+
+// ── Concept parser tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_parse_concepts_valid_json() {
+    let concepts = parse_concepts(r#"["Alice", "project X"]"#);
+    assert_eq!(concepts, vec!["Alice", "project X"]);
+}
+
+#[test]
+fn test_parse_concepts_with_extra_text() {
+    let concepts = parse_concepts(r#"Here are the concepts: ["Alice", "Bob"]"#);
+    assert_eq!(concepts, vec!["Alice", "Bob"]);
+}
+
+#[test]
+fn test_parse_concepts_empty_array() {
+    let concepts = parse_concepts("[]");
+    assert!(concepts.is_empty());
+}
+
+#[test]
+fn test_parse_concepts_invalid() {
+    let concepts = parse_concepts("no json here");
+    assert!(concepts.is_empty());
+}
+
+// ── Config defaults test ─────────────────────────────────────────────────
+
+#[test]
+fn test_active_searcher_config_defaults() {
+    let config = ActiveSearcherConfig::default();
+    assert_eq!(config.timeout_ms, 5000);
+    assert_eq!(config.max_summary_chars, 2000);
+    assert_eq!(config.min_entity_hits, 1);
+    assert_eq!(config.top_k_events, 10);
+    assert_eq!(config.context_turns, 3);
+    assert_eq!(config.model, "gpt-4o-mini");
+}

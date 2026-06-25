@@ -84,6 +84,9 @@ pub struct SessionMessageHandler {
     /// and decrement when complete. The shutdown drain waits for the
     /// count to reach zero before finalizing.
     pub(super) shutdown_handle: Option<Arc<ShutdownHandle>>,
+    /// Path to the SQLite database file used by the active-searcher.
+    /// When set, `dispatch_llm_call` spawns a background searcher task.
+    pub(super) memory_db_path: Option<std::path::PathBuf>,
 }
 
 // ── Construction ──
@@ -105,6 +108,7 @@ impl SessionMessageHandler {
             unified_fallback_client,
             gateway: None,
             shutdown_handle: None,
+            memory_db_path: None,
         }
     }
     /// Create a new handler without an output channel (used in tests).
@@ -123,6 +127,7 @@ impl SessionMessageHandler {
             unified_fallback_client,
             gateway: None,
             shutdown_handle: None,
+            memory_db_path: None,
         }
     }
     /// Attach a back-reference (weak) to the owning [`Gateway`].
@@ -142,6 +147,16 @@ impl SessionMessageHandler {
     /// waits for the count to reach zero before finalizing.
     pub fn with_shutdown_handle(mut self, handle: Arc<ShutdownHandle>) -> Self {
         self.shutdown_handle = Some(handle);
+        self
+    }
+
+    /// Set the SQLite database path for the active-searcher.
+    ///
+    /// When set, `dispatch_llm_call` spawns a background active-searcher
+    /// task that writes query results to the session's `memory_injection`
+    /// slot for the next turn to consume.
+    pub fn with_memory_db_path(mut self, path: std::path::PathBuf) -> Self {
+        self.memory_db_path = Some(path);
         self
     }
 }
@@ -299,10 +314,46 @@ impl SessionMessageHandler {
                 content: full_prompt,
             });
         }
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-        });
+
+        // ── Consume memory_injection slot ──────────────────────────────────
+        // The active-searcher writes to this slot asynchronously; we consume
+        // and inject it here during message assembly.
+        let injection = if let Some(cs) = session_manager.get_conversation_session(session_id).await
+        {
+            cs.read().await.take_memory_injection()
+        } else {
+            None
+        };
+        if let Some(inj) = injection {
+            use crate::llm::session::InjectionPosition;
+            match inj.position_mode {
+                InjectionPosition::AfterCurrent => {
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: content.to_string(),
+                    });
+                    messages.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: inj.content,
+                    });
+                }
+                InjectionPosition::BeforeNext => {
+                    messages.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: inj.content,
+                    });
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: content.to_string(),
+                    });
+                }
+            }
+        } else {
+            messages.push(ChatMessage {
+                role: "user".to_string(),
+                content: content.to_string(),
+            });
+        }
 
         let internal_request = crate::llm::types::InternalRequest {
             model: String::new(),
@@ -349,6 +400,146 @@ impl SessionMessageHandler {
                 tracing::info!(session_id = %session_id, "LLM request cancelled");
                 Err(LLMError::Cancelled)
             }
+        }
+    }
+}
+// ── Active-searcher trigger ──
+impl SessionMessageHandler {
+    /// Spawn a background active-searcher task for the current message.
+    ///
+    /// Runs asynchronously and writes results to the session's
+    /// `memory_injection` slot. Skips if:
+    /// - `memory_db_path` is not set
+    /// - The agent_id is excluded (memory-miner, dreaming)
+    pub(super) fn maybe_spawn_active_searcher(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        content: &str,
+    ) {
+        use crate::memory::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
+        use crate::memory::active_searcher_llm::should_trigger_role;
+
+        let Some(ref db_path) = self.memory_db_path else {
+            return;
+        };
+        if !should_trigger_role(agent_id) {
+            return;
+        }
+
+        let sm = Arc::clone(&self.session_manager);
+        let sid = session_id.to_string();
+        let aid = agent_id.to_string();
+        let content = content.to_string();
+        let db_path = db_path.clone();
+        let ufc = Arc::clone(&self.unified_fallback_client);
+        let model = ActiveSearcherConfig::default().model.clone();
+
+        tokio::spawn(async move {
+            // Build an LlmCaller wrapper around UnifiedFallbackClient.
+            let caller = FallbackLlmCaller { client: ufc, model };
+
+            let config = ActiveSearcherConfig::default();
+            let searcher = ActiveSearcher::new(&db_path, config);
+
+            // Gather context: last N messages from the session.
+            let context_messages = if let Some(cs) = sm.get_conversation_session(&sid).await {
+                let cs_read = cs.read().await;
+                let msgs = ChatSession::messages(&*cs_read);
+                let n = searcher.config().context_turns;
+                if msgs.len() > n {
+                    msgs[msgs.len() - n..].to_vec()
+                } else {
+                    msgs.to_vec()
+                }
+            } else {
+                Vec::new()
+            };
+
+            // Gather injected event IDs for dedup.
+            let injected_ids = if let Some(cs) = sm.get_conversation_session(&sid).await {
+                let cs_read = cs.read().await;
+                let slot = cs_read
+                    .memory_injection_arc()
+                    .lock()
+                    .expect("memory_injection lock poisoned");
+                slot.as_ref()
+                    .map(|inj| inj.injected_event_ids.clone())
+                    .unwrap_or_default()
+            } else {
+                std::collections::HashSet::new()
+            };
+
+            if let Some(injection) = searcher
+                .run(
+                    &aid,
+                    &aid,
+                    &content,
+                    &context_messages,
+                    &injected_ids,
+                    &caller,
+                )
+                .await
+            {
+                if let Some(cs) = sm.get_conversation_session(&sid).await {
+                    cs.read().await.set_memory_injection(injection);
+                }
+            }
+        });
+    }
+}
+
+/// LlmCaller adapter for `UnifiedFallbackClient`.
+///
+/// Wraps the unified fallback client so it can be used as a trait object
+/// by the active-searcher pipeline.
+struct FallbackLlmCaller {
+    client: Arc<UnifiedFallbackClient>,
+    model: String,
+}
+
+#[async_trait::async_trait]
+impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
+    async fn complete(
+        &self,
+        prompt: &str,
+    ) -> Result<String, crate::memory::active_searcher::ActiveSearcherError> {
+        use crate::llm::types::InternalRequest;
+
+        let request = InternalRequest {
+            model: self.model.clone(),
+            messages: vec![crate::llm::types::InternalMessage {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
+            temperature: 0.0,
+            max_tokens: None,
+            stream: false,
+            extra_body: Default::default(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            session_id: None,
+            reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+            turn_count: None,
+        };
+
+        match self.client.chat(request).await {
+            Ok(response) => {
+                let text = response
+                    .content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        crate::llm::types::ContentBlock::Text(t) => Some(t.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
+                Ok(text)
+            }
+            Err(e) => Err(crate::memory::active_searcher::ActiveSearcherError::Llm(
+                e.to_string(),
+            )),
         }
     }
 }
