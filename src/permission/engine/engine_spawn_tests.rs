@@ -64,7 +64,7 @@ fn test_validate_and_inject_spawn_success() {
     let child = make_allowed_perms("child");
     let parent = make_allowed_perms("parent");
 
-    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
+    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None, None);
     assert!(result.is_ok());
 }
 
@@ -74,7 +74,7 @@ fn test_validate_and_inject_spawn_fully_denied() {
     let child = make_fully_denied_perms("child");
     let parent = make_allowed_perms("parent");
 
-    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
+    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None, None);
     assert!(result.is_err());
     match result.unwrap_err() {
         SpawnPermissionError::FullyDenied {
@@ -99,8 +99,14 @@ fn test_validate_and_inject_spawn_user_deny_overrides() {
     let parent = make_allowed_perms("parent");
     let user = make_fully_denied_perms("user-1");
 
-    let result =
-        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-1"));
+    let result = engine.validate_and_inject_spawn(
+        "child",
+        &child,
+        &parent,
+        Some(&user),
+        Some("user-1"),
+        None,
+    );
     assert!(result.is_err());
     match result.unwrap_err() {
         SpawnPermissionError::FullyDeniedWithUser {
@@ -147,8 +153,14 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
         inherited_from: None,
     };
 
-    let result =
-        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-2"));
+    let result = engine.validate_and_inject_spawn(
+        "child",
+        &child,
+        &parent,
+        Some(&user),
+        Some("user-2"),
+        None,
+    );
     assert!(result.is_ok());
 }
 
@@ -159,8 +171,14 @@ fn test_validate_and_inject_spawn_user_allow_full() {
     let parent = make_allowed_perms("parent");
     let user = make_allowed_perms("user-3");
 
-    let result =
-        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-3"));
+    let result = engine.validate_and_inject_spawn(
+        "child",
+        &child,
+        &parent,
+        Some(&user),
+        Some("user-3"),
+        None,
+    );
     assert!(result.is_ok());
 }
 
@@ -190,6 +208,7 @@ fn test_concurrent_spawn_and_evaluate() {
                 &format!("child-{}", i),
                 &child,
                 &parent,
+                None,
                 None,
                 None,
             );

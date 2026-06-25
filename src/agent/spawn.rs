@@ -4,6 +4,7 @@ use crate::config::agents::ResolvedAgentConfig;
 use crate::config::ConfigManager;
 use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -196,6 +197,21 @@ impl SpawnController {
                             .evaluate_user_permissions(uid, &config.id)
                     })
                 };
+                // Collect full-chain deny subjects from all ancestors.
+                let rules = self.permission_engine.rules.clone();
+                let chain_deny_subjects = collect_chain_deny_subjects(
+                    &self.session_manager,
+                    &rules,
+                    parent_session_id,
+                    &config.id,
+                )
+                .await;
+                let extra_deny = if chain_deny_subjects.is_empty() {
+                    None
+                } else {
+                    Some(chain_deny_subjects.as_slice())
+                };
+
                 self.permission_engine
                     .validate_and_inject_spawn(
                         &config.id,
@@ -203,6 +219,7 @@ impl SpawnController {
                         &parent_perms,
                         user_perms.as_ref(),
                         user_id.as_deref(),
+                        extra_deny,
                     )
                     .map_err(|e| {
                         tracing::debug!(error = %e, "spawn permission denied");

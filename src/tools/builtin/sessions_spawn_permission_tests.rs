@@ -85,7 +85,8 @@ async fn test_child_all_deny_spawn_returns_permission_denied() {
     let child = make_all_deny("child-all-deny");
     let parent = make_all_allow("parent-agent");
 
-    let result = engine.validate_and_inject_spawn("child-all-deny", &child, &parent, None, None);
+    let result =
+        engine.validate_and_inject_spawn("child-all-deny", &child, &parent, None, None, None);
 
     match result {
         Err(SpawnPermissionError::FullyDenied {
@@ -112,7 +113,8 @@ async fn test_child_partial_deny_spawn_success() {
     let child = make_partial_deny("child-partial", &["exec", "file_write"]);
     let parent = make_all_allow("parent-agent");
 
-    let result = engine.validate_and_inject_spawn("child-partial", &child, &parent, None, None);
+    let result =
+        engine.validate_and_inject_spawn("child-partial", &child, &parent, None, None, None);
     assert!(
         result.is_ok(),
         "spawn should succeed for partial-deny child"
@@ -158,7 +160,7 @@ fn test_multi_generation_spawn_chain() {
 
     // Spawn child under root.
     engine
-        .validate_and_inject_spawn("child-agent", &child, &root, None, None)
+        .validate_and_inject_spawn("child-agent", &child, &root, None, None, None)
         .expect("spawn of child under root should succeed");
 
     // Compute child's effective permissions (no cache — compute manually)
@@ -185,6 +187,7 @@ fn test_multi_generation_spawn_chain() {
             "grandchild-agent",
             &grandchild,
             &child_effective,
+            None,
             None,
             None,
         )
@@ -329,7 +332,7 @@ fn test_recursive_permission_intersection_three_layers() {
 
     // Spawn child under root: effective = child ∩ root.
     engine
-        .validate_and_inject_spawn("child-agent", &child, &root, None, None)
+        .validate_and_inject_spawn("child-agent", &child, &root, None, None, None)
         .expect("spawn of child-agent should succeed");
 
     let child_effective = child.intersect(&root);
@@ -378,6 +381,7 @@ fn test_recursive_permission_intersection_three_layers() {
             "grandchild-agent",
             &grandchild,
             &child_effective,
+            None,
             None,
             None,
         )

@@ -1,6 +1,6 @@
 //! Permission Engine - Agent spawn permission validation.
 
-use super::engine_types::PermissionRequestBody;
+use super::engine_types::{PermissionRequestBody, Subject};
 use crate::agent::config::AgentPermissions;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -40,7 +40,25 @@ impl super::engine_eval::PermissionEngine {
         parent_perms: &AgentPermissions,
         user_perms: Option<&AgentPermissions>,
         user_id: Option<&str>,
+        extra_deny_subjects: Option<&[Subject]>,
     ) -> Result<(), SpawnPermissionError> {
+        // Step 0: Extra deny — chain deny subjects override all other checks.
+        if let Some(subjects) = extra_deny_subjects {
+            let caller = super::engine_types::Caller {
+                user_id: user_id.unwrap_or_default().to_string(),
+                agent: child_agent_id.to_string(),
+                creator_id: String::new(),
+            };
+            for subject in subjects {
+                if subject.matches(&caller) {
+                    return Err(SpawnPermissionError::FullyDenied {
+                        child_agent_id: child_agent_id.to_string(),
+                        parent_agent_id: parent_perms.agent_id.clone(),
+                    });
+                }
+            }
+        }
+
         // Step 1: child ∩ parent
         let effective = child_perms.intersect(parent_perms);
 
