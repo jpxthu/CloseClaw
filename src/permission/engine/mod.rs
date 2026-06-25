@@ -2,6 +2,7 @@
 //!
 //! Runs as a separate OS process, evaluates access rules for agents.
 
+pub mod engine_chain;
 pub mod engine_check;
 pub mod engine_eval;
 pub mod engine_helpers;
@@ -33,6 +34,9 @@ mod engine_two_phase_tests;
 
 #[cfg(test)]
 mod engine_types_tests;
+
+#[cfg(test)]
+mod engine_chain_tests;
 
 #[cfg(test)]
 mod engine_spawn_tests;

@@ -294,6 +294,7 @@ impl Daemon {
         gateway: &Arc<Gateway>,
         session_manager: &Arc<SessionManager>,
         permission_engine: &Arc<PermissionEngine>,
+        config_manager: &Arc<crate::config::ConfigManager>,
     ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(session_manager),
@@ -305,6 +306,7 @@ impl Daemon {
             Arc::clone(permission_engine),
             Arc::clone(&approval_flow),
             Some(Arc::clone(session_manager)),
+            config_manager.agent_permissions(),
         );
         approval_flow
     }
@@ -431,8 +433,13 @@ impl Daemon {
             .set_shutdown_handle(Arc::clone(&shutdown))
             .await;
 
-        let approval_flow =
-            Self::init_phase_4_wiring(&gateway, &session_manager, &permission_engine).await;
+        let approval_flow = Self::init_phase_4_wiring(
+            &gateway,
+            &session_manager,
+            &permission_engine,
+            &config_manager,
+        )
+        .await;
         let (sweeper_tx, dreaming_tx, config_watcher) = Self::init_phase_5_background(
             &config_manager,
             &agent_registry,

@@ -1,17 +1,19 @@
 //! File operations skill
+use crate::agent::config::AgentPermissions;
 use crate::gateway::SessionManager;
 use crate::permission::approval_flow::ApprovalFlow;
-use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
-use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::permission::engine::engine_types::{Caller, PermissionRequest, PermissionRequestBody};
 use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct FileOpsSkill {
     engine: Option<Arc<crate::permission::PermissionEngine>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
     session_manager: Option<Arc<SessionManager>>,
+    agent_permissions: HashMap<String, AgentPermissions>,
 }
 
 impl Default for FileOpsSkill {
@@ -26,6 +28,7 @@ impl FileOpsSkill {
             engine: None,
             approval_flow: None,
             session_manager: None,
+            agent_permissions: HashMap::new(),
         }
     }
 
@@ -34,6 +37,7 @@ impl FileOpsSkill {
             engine: Some(engine),
             approval_flow: None,
             session_manager: None,
+            agent_permissions: HashMap::new(),
         }
     }
 
@@ -45,11 +49,20 @@ impl FileOpsSkill {
             engine: Some(engine),
             approval_flow: Some(approval_flow),
             session_manager: None,
+            agent_permissions: HashMap::new(),
         }
     }
 
     pub fn with_session_manager(mut self, session_manager: Arc<SessionManager>) -> Self {
         self.session_manager = Some(session_manager);
+        self
+    }
+
+    pub fn with_agent_permissions(
+        mut self,
+        agent_permissions: HashMap<String, AgentPermissions>,
+    ) -> Self {
+        self.agent_permissions = agent_permissions;
         self
     }
 }
@@ -91,31 +104,51 @@ impl Skill for FileOpsSkill {
                 .get("agent_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
-            // Collect chain deny subjects from all ancestors if session context
-            // is available. Falls back to None when session_id is absent.
-            let extra_deny = if let (Some(ref sm), Some(session_id)) = (
+            // Chain-aware permission check: dimension-level intersection
+            // with the parent agent chain.
+            let user_id = args
+                .get("user_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let file_op = match action {
+                "file_read" => "read",
+                "file_write" => "write",
+                _ => action,
+            };
+            let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+                agent: agent_id.to_string(),
+                path: args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                op: file_op.to_string(),
+            });
+            let response = match (
                 &self.session_manager,
                 args.get("session_id").and_then(|v| v.as_str()),
             ) {
-                let subjects =
-                    collect_chain_deny_subjects(sm, &engine.rules, session_id, agent_id).await;
-                if subjects.is_empty() {
-                    None
-                } else {
-                    Some(subjects)
+                (Some(ref sm), Some(sid)) => {
+                    let caller = Caller {
+                        user_id: user_id.to_string(),
+                        agent: agent_id.to_string(),
+                        creator_id: String::new(),
+                    };
+                    let request = request.with_caller(caller);
+                    engine
+                        .evaluate_with_chain(request, sm, sid, &self.agent_permissions)
+                        .await
                 }
-            } else {
-                None
+                _ => engine.evaluate(request, None),
             };
-            let deny_ref = extra_deny.as_deref();
-            match engine.check(agent_id, action, deny_ref) {
+            match response {
                 PermissionResponse::Allowed { .. } => {}
                 PermissionResponse::Denied {
                     reason, risk_level, ..
                 } => {
                     if let Some(ref flow) = self.approval_flow {
                         let caller = Caller {
-                            user_id: "unknown".to_string(),
+                            user_id: user_id.to_string(),
                             agent: agent_id.to_string(),
                             creator_id: String::new(),
                         };

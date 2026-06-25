@@ -52,11 +52,20 @@ fn test_session_manager() -> Arc<SessionManager> {
     ))
 }
 
+fn test_config_manager() -> Arc<crate::config::ConfigManager> {
+    let tmp = tempfile::TempDir::new().unwrap();
+    Arc::new(
+        crate::config::ConfigManager::new(tmp.path().to_path_buf())
+            .expect("ConfigManager::new should succeed"),
+    )
+}
+
 fn test_bash_tool() -> BashTool {
     BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
+        test_config_manager(),
     )
 }
 

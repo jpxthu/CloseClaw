@@ -10,10 +10,12 @@
 //! etc.) live in the sibling module [`super::bash_kill`] to keep this
 //! file under the CONTRIBUTING.md 500-line hard cap.
 
+use crate::config::ConfigManager;
 use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
-use crate::permission::engine::engine_types::PermissionResponse;
+use crate::permission::engine::engine_types::{
+    PermissionRequest, PermissionRequestBody, PermissionResponse,
+};
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::security::{BashSecurityAnalyzer, TrustLevel};
 use crate::tools::{
@@ -43,20 +45,23 @@ pub struct BashTool {
     permission_engine: Arc<PermissionEngine>,
     bg_manager: Arc<BackgroundTaskManager>,
     session_manager: Arc<SessionManager>,
+    config_manager: Arc<ConfigManager>,
 }
 
 impl BashTool {
-    /// Creates a new `BashTool` backed by the given permission engine
-    /// and background task manager.
+    /// Creates a new `BashTool` backed by the given permission engine,
+    /// background task manager, and config manager.
     pub fn new(
         permission_engine: Arc<PermissionEngine>,
         bg_manager: Arc<BackgroundTaskManager>,
         session_manager: Arc<SessionManager>,
+        config_manager: Arc<ConfigManager>,
     ) -> Self {
         Self {
             permission_engine,
             bg_manager,
             session_manager,
+            config_manager,
         }
     }
 }
@@ -143,6 +148,7 @@ impl Tool for BashTool {
             &self.permission_engine,
             &self.session_manager,
             &self.bg_manager,
+            &self.config_manager,
             args,
             ctx,
         )
@@ -272,6 +278,7 @@ async fn execute_bash_call(
     perm: &PermissionEngine,
     session_manager: &SessionManager,
     bg: &Arc<BackgroundTaskManager>,
+    config_manager: &ConfigManager,
     args: Value,
     ctx: &ToolContext,
 ) -> Result<ToolResult, ToolCallError> {
@@ -313,21 +320,20 @@ async fn execute_bash_call(
         }
     }
 
-    // --- 3. Permission check ---
-    let extra_deny = if let Some(ref session_id) = ctx.session_id {
-        let subjects =
-            collect_chain_deny_subjects(session_manager, &perm.rules, session_id, &ctx.agent_id)
-                .await;
-        if subjects.is_empty() {
-            None
-        } else {
-            Some(subjects)
-        }
+    // --- 3. Permission check (chain-aware) ---
+    let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+        agent: ctx.agent_id.clone(),
+        cmd: "*".to_string(),
+        args: Vec::new(),
+    });
+    let agent_perms = config_manager.agent_permissions();
+    let response = if let Some(ref session_id) = ctx.session_id {
+        perm.evaluate_with_chain(request, session_manager, session_id, &agent_perms)
+            .await
     } else {
-        None
+        perm.evaluate(request, None)
     };
-    let deny_ref = extra_deny.as_deref();
-    if let PermissionResponse::Denied { reason, .. } = perm.check(&ctx.agent_id, "exec", deny_ref) {
+    if let PermissionResponse::Denied { reason, .. } = response {
         return Err(ToolCallError::PermissionDenied(reason));
     }
 
