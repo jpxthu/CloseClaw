@@ -113,6 +113,7 @@ pub async fn register_builtin_tools(
             context.permission_engine.clone(),
             bg_manager,
             context.session_manager.clone(),
+            context.config_manager.clone(),
         ))
         .await
         .ok();

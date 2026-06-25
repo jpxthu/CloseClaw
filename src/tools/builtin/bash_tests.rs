@@ -40,6 +40,14 @@ fn test_session_manager() -> Arc<SessionManager> {
     ))
 }
 
+fn test_config_manager() -> Arc<crate::config::ConfigManager> {
+    let tmp = tempfile::TempDir::new().unwrap();
+    Arc::new(
+        crate::config::ConfigManager::new(tmp.path().to_path_buf())
+            .expect("ConfigManager::new should succeed"),
+    )
+}
+
 fn test_tool_context() -> ToolContext {
     ToolContext {
         agent_id: "test-agent".to_string(),
@@ -159,6 +167,7 @@ fn test_bash_tool_name_and_group() {
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
+        test_config_manager(),
     );
     assert_eq!(tool.name(), "Bash");
     assert_eq!(tool.group(), "bash");
@@ -170,6 +179,7 @@ fn test_bash_tool_flags() {
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
+        test_config_manager(),
     );
     let flags = tool.flags();
     assert!(flags.is_destructive);
@@ -184,6 +194,7 @@ fn test_input_schema_command_required() {
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
+        test_config_manager(),
     );
     let schema = tool.input_schema();
     let required = schema["required"].as_array().unwrap();
@@ -196,6 +207,7 @@ fn test_input_schema_six_properties() {
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
+        test_config_manager(),
     );
     let schema = tool.input_schema();
     let props = schema["properties"].as_object().unwrap();
