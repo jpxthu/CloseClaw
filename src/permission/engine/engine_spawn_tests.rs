@@ -1,6 +1,6 @@
 use super::engine_eval::PermissionEngine;
 use super::engine_spawn::SpawnPermissionError;
-use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, PermissionResponse};
+use super::engine_types::Effect;
 use crate::agent::config::AgentPermissions;
 use crate::permission::rules::RuleSetBuilder;
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ fn make_fully_denied_perms(agent_id: &str) -> AgentPermissions {
 }
 
 // -------------------------------------------------------------------------
-// validate_and_inject_spawn tests
+// validate_and_inject_spawn tests (no caching)
 // -------------------------------------------------------------------------
 
 #[test]
@@ -66,10 +66,6 @@ fn test_validate_and_inject_spawn_success() {
 
     let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
     assert!(result.is_ok());
-
-    // Verify cache was populated
-    let cache = engine.agent_permissions.read().unwrap();
-    assert!(cache.contains_key("child"));
 }
 
 #[test]
@@ -90,25 +86,6 @@ fn test_validate_and_inject_spawn_fully_denied() {
         }
         other => panic!("expected FullyDenied, got {:?}", other),
     }
-
-    // Verify cache was NOT populated
-    let cache = engine.agent_permissions.read().unwrap();
-    assert!(!cache.contains_key("child"));
-}
-
-#[test]
-fn test_validate_and_inject_spawn_idempotent() {
-    let engine = make_engine();
-    let child = make_allowed_perms("child");
-    let parent = make_allowed_perms("parent");
-
-    // First call succeeds
-    engine
-        .validate_and_inject_spawn("child", &child, &parent, None, None)
-        .unwrap();
-    // Second call succeeds (idempotent)
-    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
-    assert!(result.is_ok());
 }
 
 // -------------------------------------------------------------------------
@@ -173,14 +150,6 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
     let result =
         engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-2"));
     assert!(result.is_ok());
-
-    // Verify cached agent perms: exec should be denied (user denied it)
-    let cache = engine.agent_permissions.read().unwrap();
-    let cached = cache.get("child").unwrap();
-    assert!(!cached.permissions.get("exec").unwrap().allowed);
-    // Other dims should be allowed
-    assert!(cached.permissions.get("file_read").unwrap().allowed);
-    assert!(cached.permissions.get("spawn").unwrap().allowed);
 }
 
 #[test]
@@ -193,181 +162,18 @@ fn test_validate_and_inject_spawn_user_allow_full() {
     let result =
         engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-3"));
     assert!(result.is_ok());
-
-    // Verify cached agent perms: all allowed
-    let cache = engine.agent_permissions.read().unwrap();
-    let cached = cache.get("child").unwrap();
-    for dim in &[
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-        "config_write",
-    ] {
-        assert!(
-            cached.permissions.get(*dim).unwrap().allowed,
-            "{} should be allowed",
-            dim
-        );
-    }
-}
-
-#[test]
-fn test_validate_and_inject_spawn_user_cache_injection() {
-    let engine = make_engine();
-    let child = make_allowed_perms("child");
-    let parent = make_allowed_perms("parent");
-    let user = make_allowed_perms("user-4");
-
-    let result =
-        engine.validate_and_inject_spawn("child", &child, &parent, Some(&user), Some("user-4"));
-    assert!(result.is_ok());
-
-    // Verify user_effective_permissions cache was populated
-    let user_cache = engine.user_effective_permissions.read().unwrap();
-    assert!(user_cache.contains_key("user-4"));
-}
-
-#[test]
-fn test_validate_and_inject_spawn_no_user_no_cache() {
-    let engine = make_engine();
-    let child = make_allowed_perms("child");
-    let parent = make_allowed_perms("parent");
-
-    // No user → user cache should NOT be populated
-    let result = engine.validate_and_inject_spawn("child", &child, &parent, None, None);
-    assert!(result.is_ok());
-
-    let user_cache = engine.user_effective_permissions.read().unwrap();
-    assert!(user_cache.is_empty());
 }
 
 // -------------------------------------------------------------------------
-// check_agent_effective_permissions tests
-// -------------------------------------------------------------------------
-
-#[test]
-fn test_check_agent_effective_permissions_cache_miss() {
-    let engine = make_engine();
-    let body = PermissionRequestBody::CommandExec {
-        agent: "unknown-agent".to_string(),
-        cmd: "ls".to_string(),
-        args: vec![],
-    };
-
-    let result = engine.check_agent_effective_permissions("unknown-agent", &body);
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_check_agent_effective_permissions_deny() {
-    let engine = make_engine();
-    // Inject a fully denied agent into cache
-    // Force inject by directly manipulating cache
-    {
-        let mut cache = engine.agent_permissions.write().unwrap();
-        cache.insert(
-            "denied-agent".to_string(),
-            AgentPermissions {
-                agent_id: "denied-agent".to_string(),
-                permissions: HashMap::from([(
-                    "exec".to_string(),
-                    crate::agent::config::ActionPermission {
-                        allowed: false,
-                        limits: crate::agent::config::PermissionLimits::default(),
-                    },
-                )]),
-                inherited_from: Some("parent".to_string()),
-            },
-        );
-    }
-
-    let body = PermissionRequestBody::CommandExec {
-        agent: "denied-agent".to_string(),
-        cmd: "ls".to_string(),
-        args: vec![],
-    };
-    let result = engine.check_agent_effective_permissions("denied-agent", &body);
-    assert!(result.is_some());
-    match result.unwrap() {
-        PermissionResponse::Denied { reason, .. } => {
-            assert!(reason.contains("agent effective permission denied"));
-        }
-        other => panic!("expected Denied, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_check_agent_effective_permissions_allow() {
-    let engine = make_engine();
-    // Inject an allowed agent into cache
-    {
-        let mut cache = engine.agent_permissions.write().unwrap();
-        cache.insert(
-            "allowed-agent".to_string(),
-            AgentPermissions {
-                agent_id: "allowed-agent".to_string(),
-                permissions: HashMap::from([(
-                    "exec".to_string(),
-                    crate::agent::config::ActionPermission {
-                        allowed: true,
-                        limits: crate::agent::config::PermissionLimits::default(),
-                    },
-                )]),
-                inherited_from: None,
-            },
-        );
-    }
-
-    let body = PermissionRequestBody::CommandExec {
-        agent: "allowed-agent".to_string(),
-        cmd: "ls".to_string(),
-        args: vec![],
-    };
-    let result = engine.check_agent_effective_permissions("allowed-agent", &body);
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_check_agent_effective_permissions_slash_command() {
-    let engine = make_engine();
-    // Even with agent in cache, SlashCommand → None (dimension_name returns None)
-    {
-        let mut cache = engine.agent_permissions.write().unwrap();
-        cache.insert(
-            "cached-agent".to_string(),
-            AgentPermissions {
-                agent_id: "cached-agent".to_string(),
-                permissions: HashMap::from([(
-                    "exec".to_string(),
-                    crate::agent::config::ActionPermission {
-                        allowed: false,
-                        limits: crate::agent::config::PermissionLimits::default(),
-                    },
-                )]),
-                inherited_from: None,
-            },
-        );
-    }
-
-    let body = PermissionRequestBody::SlashCommand {
-        agent: "cached-agent".to_string(),
-        command: "/status".to_string(),
-    };
-    let result = engine.check_agent_effective_permissions("cached-agent", &body);
-    assert!(result.is_none());
-}
-
-// -------------------------------------------------------------------------
-// Concurrent test (E)
+// Concurrent test
 // -------------------------------------------------------------------------
 
 #[test]
 fn test_concurrent_spawn_and_evaluate() {
     use std::sync::Arc;
     use std::thread;
+
+    use super::engine_types::{PermissionRequest, PermissionRequestBody};
 
     let engine = Arc::new(make_engine());
     let parent = Arc::new(make_allowed_perms("parent"));

@@ -181,14 +181,10 @@ impl SpawnController {
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
         if let (Some(child_perms), Some(parent_agent_id)) = (child_perms, parent_agent_id) {
             let parent_perms = self
-                .permission_engine
-                .get_agent_effective_permissions(&parent_agent_id)
-                .or_else(|| {
-                    self.config_manager
-                        .agent_permissions()
-                        .get(&parent_agent_id)
-                        .cloned()
-                });
+                .config_manager
+                .agent_permissions()
+                .get(&parent_agent_id)
+                .cloned();
             if let Some(parent_perms) = parent_perms {
                 let user_id = self.session_manager.get_sender_id(parent_session_id).await;
                 let user_perms = user_id.as_ref().map(|uid| {

@@ -11,6 +11,8 @@ use super::engine_workspace;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::info;
+// NOTE: Cache fields (agent_permissions, user_effective_permissions) removed per
+// design doc: "权限评估每次新鲜计算，不缓存评估结果"
 
 /// Permission Engine - evaluates access requests against rules
 pub struct PermissionEngine {
@@ -24,12 +26,6 @@ pub struct PermissionEngine {
     templates: HashMap<String, crate::permission::templates::Template>,
     /// Data root directory for workspace path resolution
     data_root: PathBuf,
-    /// Per-agent effective permissions cache (populated by spawn validation)
-    pub(crate) agent_permissions:
-        std::sync::RwLock<HashMap<String, crate::agent::config::AgentPermissions>>,
-    /// Per-user effective permissions cache (populated by spawn validation)
-    pub(crate) user_effective_permissions:
-        std::sync::RwLock<HashMap<String, crate::agent::config::AgentPermissions>>,
 }
 
 // --- Construction & index management ---
@@ -43,8 +39,6 @@ impl PermissionEngine {
             user_agent_rule_index: HashMap::new(),
             templates: HashMap::new(),
             data_root,
-            agent_permissions: std::sync::RwLock::new(HashMap::new()),
-            user_effective_permissions: std::sync::RwLock::new(HashMap::new()),
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -134,20 +128,6 @@ impl PermissionEngine {
         );
 
         let is_owner = caller.user_id == "owner";
-
-        // Step 0.7: Agent effective permissions pre-check
-        if let Some(response) = self.check_agent_effective_permissions(&agent_id, request.body()) {
-            return response;
-        }
-
-        // Step 0.8: User effective permissions pre-check
-        if !is_owner {
-            if let Some(response) =
-                self.check_user_effective_permissions(&caller.user_id, request.body())
-            {
-                return response;
-            }
-        }
 
         // Step 0: Creator rule (highest priority)
         if let Some(response) = self.check_creator_rule(&caller, &agent_id) {
