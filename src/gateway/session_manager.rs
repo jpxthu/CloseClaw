@@ -539,6 +539,8 @@ mod spawn_gap_tests;
 #[cfg(test)]
 mod spawn_tests;
 #[cfg(test)]
+mod spawn_tree_tests;
+#[cfg(test)]
 mod test_helpers;
 #[cfg(test)]
 mod tests;
