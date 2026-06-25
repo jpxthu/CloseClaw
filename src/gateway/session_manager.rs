@@ -533,6 +533,8 @@ mod rebuild_tests;
 #[cfg(test)]
 mod resolve_tests;
 #[cfg(test)]
+mod spawn_gap_tests;
+#[cfg(test)]
 mod spawn_tests;
 #[cfg(test)]
 mod test_helpers;
