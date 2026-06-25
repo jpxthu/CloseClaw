@@ -124,6 +124,9 @@ mod tests {
         let spawn_controller = Arc::new(SpawnController::new(
             Arc::clone(&cfg_mgr),
             Arc::clone(&session_manager),
+            Arc::new(PermissionEngine::new_with_default_data_root(
+                RuleSetBuilder::new().build().unwrap(),
+            )),
         ));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         (spawn_controller, session_manager, cfg_mgr, agent_registry)
