@@ -29,7 +29,7 @@ Processor 链（按 priority 升序执行，纯变换）
   │     → 原始消息写入日志，透传
   │
   ├── SessionRouter（priority 20）
-  │     → 从 (platform, sender_id, peer_id, account_id, agent_id) 计算 session_key
+  │     → 从 (platform, sender_id, peer_id, account_id, timestamp_ms) 计算 session_key
   │     → session_key 写入 metadata
   │     → 不创建 session、不查 SessionManager
   │
