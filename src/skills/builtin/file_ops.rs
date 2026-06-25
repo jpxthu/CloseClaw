@@ -1,15 +1,23 @@
 //! File operations skill
+use crate::gateway::SessionManager;
 use crate::permission::approval_flow::ApprovalFlow;
+use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
 use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
 use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-#[derive(Default)]
 pub struct FileOpsSkill {
     engine: Option<Arc<crate::permission::PermissionEngine>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
+    session_manager: Option<Arc<SessionManager>>,
+}
+
+impl Default for FileOpsSkill {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FileOpsSkill {
@@ -17,6 +25,7 @@ impl FileOpsSkill {
         Self {
             engine: None,
             approval_flow: None,
+            session_manager: None,
         }
     }
 
@@ -24,6 +33,7 @@ impl FileOpsSkill {
         Self {
             engine: Some(engine),
             approval_flow: None,
+            session_manager: None,
         }
     }
 
@@ -34,7 +44,13 @@ impl FileOpsSkill {
         Self {
             engine: Some(engine),
             approval_flow: Some(approval_flow),
+            session_manager: None,
         }
+    }
+
+    pub fn with_session_manager(mut self, session_manager: Arc<SessionManager>) -> Self {
+        self.session_manager = Some(session_manager);
+        self
     }
 }
 
@@ -75,7 +91,24 @@ impl Skill for FileOpsSkill {
                 .get("agent_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
-            match engine.check(agent_id, action) {
+            // Collect chain deny subjects from all ancestors if session context
+            // is available. Falls back to None when session_id is absent.
+            let extra_deny = if let (Some(ref sm), Some(session_id)) = (
+                &self.session_manager,
+                args.get("session_id").and_then(|v| v.as_str()),
+            ) {
+                let subjects =
+                    collect_chain_deny_subjects(sm, &engine.rules, session_id, agent_id).await;
+                if subjects.is_empty() {
+                    None
+                } else {
+                    Some(subjects)
+                }
+            } else {
+                None
+            };
+            let deny_ref = extra_deny.as_deref();
+            match engine.check(agent_id, action, deny_ref) {
                 PermissionResponse::Allowed { .. } => {}
                 PermissionResponse::Denied {
                     reason, risk_level, ..

@@ -91,7 +91,7 @@ fn make_engine() -> PermissionEngine {
 #[test]
 fn test_engine_allow_read() {
     let engine = make_engine();
-    let resp = engine.check("test-agent", "file_read");
+    let resp = engine.check("test-agent", "file_read", None);
     matches!(resp, PermissionResponse::Allowed { .. });
 }
 
@@ -106,7 +106,7 @@ fn test_engine_default_deny() {
         .build()
         .unwrap();
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
-    let resp = engine.check("unknown-agent", "file_read");
+    let resp = engine.check("unknown-agent", "file_read", None);
     matches!(resp, PermissionResponse::Denied { .. });
 }
 
@@ -377,6 +377,6 @@ fn test_tool_call_default_allow() {
         .build()
         .unwrap();
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
-    let resp = engine.check("unknown-agent", "tool_call");
+    let resp = engine.check("unknown-agent", "tool_call", None);
     matches!(resp, PermissionResponse::Allowed { .. });
 }

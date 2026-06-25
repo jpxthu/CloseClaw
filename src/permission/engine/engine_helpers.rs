@@ -1,6 +1,7 @@
 //! Permission Engine - Helper utilities.
 
 use super::engine_types::{Action, Effect, Subject};
+use crate::gateway::SessionManager;
 use crate::permission::engine::engine_types::RuleSet;
 use std::collections::HashMap;
 
@@ -34,6 +35,54 @@ pub fn get_agent_deny_subjects(
             Subject::UserAndAgent { .. } => unreachable!(),
         })
         .collect()
+}
+
+/// Collect AgentOnly Deny subjects from all ancestor agents in the parent
+/// session chain. Traverses upward via `SessionManager::get_parent_of`,
+/// collecting each ancestor's AgentOnly Deny rules from the RuleSet and
+/// replacing their agent field with `child_agent_id`. Deduplicates results
+/// by `(agent, match_type)`.
+///
+/// This implements the design doc requirement: "沿 spawn 链每增加一级深度，
+/// Deny 约束集只增不减".
+pub async fn collect_chain_deny_subjects(
+    session_manager: &SessionManager,
+    rules: &RuleSet,
+    parent_session_id: &str,
+    child_agent_id: &str,
+) -> Vec<Subject> {
+    let mut all_subjects: Vec<Subject> = Vec::new();
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let mut current_session = parent_session_id.to_string();
+
+    loop {
+        let parent_agent_id = match session_manager.get_chat_id(&current_session).await {
+            Some(id) => id,
+            None => break,
+        };
+
+        let subjects = get_agent_deny_subjects(rules, &parent_agent_id, child_agent_id);
+        for subject in subjects {
+            match &subject {
+                Subject::AgentOnly { agent, match_type } => {
+                    let key = (agent.clone(), format!("{:?}", match_type));
+                    if seen.insert(key) {
+                        all_subjects.push(subject);
+                    }
+                }
+                _ => {
+                    all_subjects.push(subject);
+                }
+            }
+        }
+
+        match session_manager.get_parent_of(&current_session).await {
+            Some(parent_id) => current_session = parent_id,
+            None => break,
+        }
+    }
+
+    all_subjects
 }
 
 /// Resolve template actions with overrides applied.

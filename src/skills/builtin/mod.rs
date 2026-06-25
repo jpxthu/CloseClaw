@@ -16,6 +16,7 @@ pub use git_ops::GitOpsSkill;
 pub use permission::PermissionSkill;
 pub use search::SearchSkill;
 
+use crate::gateway::SessionManager;
 use crate::permission::approval_flow::ApprovalFlow;
 use crate::skills::Skill;
 use std::sync::Arc;
@@ -57,15 +58,26 @@ impl BuiltinSkills {
     pub fn all_with_engine_and_approval_flow(
         engine: Arc<crate::permission::PermissionEngine>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+        session_manager: Option<Arc<SessionManager>>,
     ) -> Vec<Arc<dyn Skill>> {
+        let file_ops =
+            FileOpsSkill::with_engine_and_approval_flow(engine.clone(), approval_flow.clone());
+        let file_ops = if let Some(ref sm) = session_manager {
+            file_ops.with_session_manager(Arc::clone(sm))
+        } else {
+            file_ops
+        };
+        let perm_skill = PermissionSkill::with_engine(engine.clone());
+        let perm_skill = if let Some(ref sm) = session_manager {
+            perm_skill.with_session_manager(Arc::clone(sm))
+        } else {
+            perm_skill
+        };
         vec![
-            Arc::new(FileOpsSkill::with_engine_and_approval_flow(
-                engine.clone(),
-                approval_flow.clone(),
-            )) as Arc<dyn Skill>,
+            Arc::new(file_ops) as Arc<dyn Skill>,
             Arc::new(GitOpsSkill::new()),
             Arc::new(SearchSkill::new()),
-            Arc::new(PermissionSkill::with_engine(engine.clone())),
+            Arc::new(perm_skill),
             Arc::new(SkillDiscoverySkill::with_engine_and_approval_flow(
                 engine,
                 approval_flow,
@@ -92,8 +104,9 @@ pub fn builtin_skills_with_engine(
 pub fn builtin_skills_with_engine_and_approval_flow(
     engine: Arc<crate::permission::PermissionEngine>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    session_manager: Option<Arc<SessionManager>>,
 ) -> Vec<Arc<dyn Skill>> {
-    BuiltinSkills::all_with_engine_and_approval_flow(engine, approval_flow)
+    BuiltinSkills::all_with_engine_and_approval_flow(engine, approval_flow, session_manager)
 }
 
 #[cfg(test)]

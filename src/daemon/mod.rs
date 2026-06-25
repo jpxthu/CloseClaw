@@ -304,6 +304,7 @@ impl Daemon {
         let _builtin_skills = builtin_skills_with_engine_and_approval_flow(
             Arc::clone(permission_engine),
             Arc::clone(&approval_flow),
+            Some(Arc::clone(session_manager)),
         );
         approval_flow
     }

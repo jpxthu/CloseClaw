@@ -2,11 +2,10 @@
 //!
 //! Covers:
 //! 1. Child agent all-deny → spawn returns PermissionDenied
-//! 2. Child agent partial deny → spawn succeeds, effective permissions cached
-//! 3. Parent effective permissions from cache hit (spawn chain simulation)
+//! 2. Child agent partial deny → spawn succeeds
+//! 3. Parent effective permissions (no cache — config_manager provides base perms)
 //! 4. SpawnError::PermissionDenied includes agent_id and reason
-//! 5. Runtime permission enforcement via check_agent_effective_permissions
-//! 6. Multi-generation spawn chain (depth=2)
+//! 5. Multi-generation spawn chain (depth=2)
 
 use std::collections::HashMap;
 
@@ -17,7 +16,6 @@ use crate::gateway::session_manager::SessionManager;
 use crate::gateway::{DmScope, GatewayConfig, Session};
 use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_spawn::SpawnPermissionError;
-use crate::permission::engine::engine_types::PermissionRequestBody;
 use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
@@ -81,20 +79,14 @@ fn make_all_allow(agent_id: &str) -> AgentPermissions {
 // ===========================================================================
 
 /// Test 1: Child agent all seven dimensions denied → spawn returns PermissionDenied.
-///
-/// When the intersection of child and parent permissions is fully denied,
-/// `validate_and_inject_spawn` returns `Err(SpawnPermissionError::FullyDenied)`,
-/// and `sessions_spawn` surfaces this as `ToolCallError::ExecutionFailed` with
-/// "permission denied" in the message.
 #[tokio::test]
 async fn test_child_all_deny_spawn_returns_permission_denied() {
     let engine = make_permission_engine();
     let child = make_all_deny("child-all-deny");
     let parent = make_all_allow("parent-agent");
 
-    // Simulate the permission validation that sessions_spawn performs.
-    // Child all-deny × parent all-allow = fully denied.
-    let result = engine.validate_and_inject_spawn("child-all-deny", &child, &parent, None, None);
+    let result =
+        engine.validate_and_inject_spawn("child-all-deny", &child, &parent, None, None, None);
 
     match result {
         Err(SpawnPermissionError::FullyDenied {
@@ -112,160 +104,24 @@ async fn test_child_all_deny_spawn_returns_permission_denied() {
             other
         ),
     }
-
-    // Verify the cache does NOT contain the child (was rejected).
-    assert!(
-        engine
-            .get_agent_effective_permissions("child-all-deny")
-            .is_none(),
-        "all-deny child should not be cached after rejection"
-    );
 }
 
-/// Test 2: Child agent partial deny → spawn succeeds, effective permissions
-/// injected into cache.
-///
-/// Child denies exec + file_write, allows the rest. Parent is all-allow.
-/// After successful spawn, the permission cache should contain the child
-/// with exec=deny, file_write=deny, file_read=allow.
+/// Test 2: Child agent partial deny → spawn succeeds.
 #[tokio::test]
-async fn test_child_partial_deny_spawn_success_injects_cache() {
+async fn test_child_partial_deny_spawn_success() {
     let engine = make_permission_engine();
     let child = make_partial_deny("child-partial", &["exec", "file_write"]);
     let parent = make_all_allow("parent-agent");
 
-    // Spawn should succeed (child is not fully denied).
-    let result = engine.validate_and_inject_spawn("child-partial", &child, &parent, None, None);
+    let result =
+        engine.validate_and_inject_spawn("child-partial", &child, &parent, None, None, None);
     assert!(
         result.is_ok(),
         "spawn should succeed for partial-deny child"
     );
-
-    // Verify the cache contains the child.
-    let cached = engine
-        .get_agent_effective_permissions("child-partial")
-        .expect("child should be in cache after successful spawn");
-
-    // Verify exec = deny.
-    let exec_perm = cached
-        .permissions
-        .get("exec")
-        .expect("exec dimension should exist");
-    assert!(
-        !exec_perm.allowed,
-        "exec should be denied in cached effective permissions"
-    );
-
-    // Verify file_write = deny.
-    let fw_perm = cached
-        .permissions
-        .get("file_write")
-        .expect("file_write dimension should exist");
-    assert!(
-        !fw_perm.allowed,
-        "file_write should be denied in cached effective permissions"
-    );
-
-    // Verify file_read = allow.
-    let fr_perm = cached
-        .permissions
-        .get("file_read")
-        .expect("file_read dimension should exist");
-    assert!(
-        fr_perm.allowed,
-        "file_read should be allowed in cached effective permissions"
-    );
-
-    // Verify other allowed dimensions.
-    for dim in &["network", "spawn", "tool_call", "config_write"] {
-        let perm = cached
-            .permissions
-            .get(*dim)
-            .unwrap_or_else(|| panic!("{dim} dimension should exist"));
-        assert!(
-            perm.allowed,
-            "{dim} should be allowed in cached effective permissions"
-        );
-    }
 }
 
-/// Test 3: Parent effective permissions from cache hit (spawn chain simulation).
-///
-/// First spawn child A (injects A's effective permissions into cache).
-/// Then use A's effective permissions as parent to spawn grandchild B.
-/// Verify B's cached permissions = B original ∩ A effective.
-#[tokio::test]
-async fn test_parent_effective_permissions_from_cache() {
-    let engine = make_permission_engine();
-
-    // Parent: all-allow.
-    let grandparent = make_all_allow("grandparent");
-
-    // Child A: deny exec, allow rest.
-    let child_a = make_partial_deny("child-a", &["exec"]);
-
-    // Spawn A under grandparent.
-    engine
-        .validate_and_inject_spawn("child-a", &child_a, &grandparent, None, None)
-        .expect("spawn of child-a should succeed");
-
-    // Verify A's effective permissions are in cache.
-    let a_effective = engine
-        .get_agent_effective_permissions("child-a")
-        .expect("child-a should be in cache");
-    assert!(
-        !a_effective.permissions.get("exec").unwrap().allowed,
-        "child-a effective should have exec=deny"
-    );
-
-    // Grandchild B: deny file_write, allow rest.
-    let child_b = make_partial_deny("child-b", &["file_write"]);
-
-    // Spawn B under A (using A's effective permissions as parent).
-    engine
-        .validate_and_inject_spawn("child-b", &child_b, &a_effective, None, None)
-        .expect("spawn of child-b under child-a should succeed");
-
-    // Verify B's cached effective permissions.
-    let b_effective = engine
-        .get_agent_effective_permissions("child-b")
-        .expect("child-b should be in cache");
-
-    // B original ∩ A effective: exec=deny (from A), file_write=deny (from B),
-    // all others=allow.
-    assert!(
-        !b_effective.permissions.get("exec").unwrap().allowed,
-        "child-b effective should have exec=deny (inherited from child-a)"
-    );
-    assert!(
-        !b_effective.permissions.get("file_write").unwrap().allowed,
-        "child-b effective should have file_write=deny (own restriction)"
-    );
-    assert!(
-        b_effective.permissions.get("file_read").unwrap().allowed,
-        "child-b effective should have file_read=allow"
-    );
-    assert!(
-        b_effective.permissions.get("network").unwrap().allowed,
-        "child-b effective should have network=allow"
-    );
-    assert!(
-        b_effective.permissions.get("spawn").unwrap().allowed,
-        "child-b effective should have spawn=allow"
-    );
-    assert!(
-        b_effective.permissions.get("tool_call").unwrap().allowed,
-        "child-b effective should have tool_call=allow"
-    );
-    assert!(
-        b_effective.permissions.get("config_write").unwrap().allowed,
-        "child-b effective should have config_write=allow"
-    );
-}
-
-/// Test 4: SpawnError::PermissionDenied includes agent_id and reason.
-///
-/// Verify the error message format contains the denied agent_id.
+/// Test 3: SpawnError::PermissionDenied includes agent_id and reason.
 #[test]
 fn test_spawn_error_permission_denied_includes_agent_id() {
     let err = SpawnPermissionError::FullyDenied {
@@ -291,77 +147,9 @@ fn test_spawn_error_permission_denied_includes_agent_id() {
     );
 }
 
-/// Test 5: Runtime permission enforcement via check_agent_effective_permissions.
-///
-/// After spawning a child with exec=deny and file_read=allow:
-/// - Exec dimension check → Denied response
-/// - file_read dimension check → None (allowed, continue normal evaluate)
-#[tokio::test]
-async fn test_runtime_permission_enforcement() {
-    let engine = make_permission_engine();
-    let child = make_partial_deny("child-rt", &["exec"]);
-    let parent = make_all_allow("parent-agent");
-
-    // Spawn child (injects into cache).
-    engine
-        .validate_and_inject_spawn("child-rt", &child, &parent, None, None)
-        .expect("spawn should succeed");
-
-    // Simulate an exec operation for child-rt.
-    let exec_body = PermissionRequestBody::CommandExec {
-        agent: "child-rt".to_string(),
-        cmd: "ls".to_string(),
-        args: vec![],
-    };
-    let result = engine.check_agent_effective_permissions("child-rt", &exec_body);
-    assert!(
-        result.is_some(),
-        "exec dimension should be denied for child-rt"
-    );
-    match result.unwrap() {
-        crate::permission::engine::engine_types::PermissionResponse::Denied { reason, .. } => {
-            assert!(
-                reason.contains("exec"),
-                "denied reason should mention exec dimension, got: {}",
-                reason
-            );
-        }
-        other => panic!("expected Denied response, got: {:?}", other),
-    }
-
-    // Simulate a file_read operation for child-rt.
-    let tmp = TempDir::new().unwrap();
-    let read_body = PermissionRequestBody::FileOp {
-        agent: "child-rt".to_string(),
-        path: tmp.path().join("test.txt").to_string_lossy().to_string(),
-        op: "read".to_string(),
-    };
-    let result = engine.check_agent_effective_permissions("child-rt", &read_body);
-    assert!(
-        result.is_none(),
-        "file_read dimension should be allowed (None = continue) for child-rt"
-    );
-
-    // Simulate a network operation for child-rt (allowed dimension).
-    let net_body = PermissionRequestBody::NetOp {
-        agent: "child-rt".to_string(),
-        host: "example.com".to_string(),
-        port: 443,
-    };
-    let result = engine.check_agent_effective_permissions("child-rt", &net_body);
-    assert!(
-        result.is_none(),
-        "network dimension should be allowed for child-rt"
-    );
-}
-
-/// Test 6: Multi-generation spawn chain (depth=2).
-///
-/// Root agent disables exec. Child spawns successfully (effective: exec=deny).
-/// Grandchild spawns successfully, inherits exec=deny.
-/// Verify grandchild's check_agent_effective_permissions returns Denied for exec.
-#[tokio::test]
-async fn test_multi_generation_spawn_chain() {
+/// Test 4: Multi-generation spawn chain (depth=2) — intersection logic.
+#[test]
+fn test_multi_generation_spawn_chain() {
     let engine = make_permission_engine();
 
     // Root agent: deny exec, allow rest.
@@ -372,16 +160,14 @@ async fn test_multi_generation_spawn_chain() {
 
     // Spawn child under root.
     engine
-        .validate_and_inject_spawn("child-agent", &child, &root, None, None)
+        .validate_and_inject_spawn("child-agent", &child, &root, None, None, None)
         .expect("spawn of child under root should succeed");
 
-    // Verify child's effective permissions: exec=deny (inherited from root).
-    let child_effective = engine
-        .get_agent_effective_permissions("child-agent")
-        .expect("child-agent should be in cache");
+    // Compute child's effective permissions (no cache — compute manually)
+    let child_effective = child.intersect(&root);
     assert!(
         !child_effective.permissions.get("exec").unwrap().allowed,
-        "child-agent effective should have exec=deny (inherited from root)"
+        "child effective should have exec=deny (inherited from root)"
     );
     assert!(
         child_effective
@@ -389,7 +175,7 @@ async fn test_multi_generation_spawn_chain() {
             .get("file_read")
             .unwrap()
             .allowed,
-        "child-agent effective should have file_read=allow"
+        "child effective should have file_read=allow"
     );
 
     // Grandchild agent: all-allow (inherits from child's effective).
@@ -403,20 +189,19 @@ async fn test_multi_generation_spawn_chain() {
             &child_effective,
             None,
             None,
+            None,
         )
         .expect("spawn of grandchild under child should succeed");
 
-    // Verify grandchild's effective permissions: exec=deny (inherited chain).
-    let grandchild_effective = engine
-        .get_agent_effective_permissions("grandchild-agent")
-        .expect("grandchild-agent should be in cache");
+    // Compute grandchild's effective permissions
+    let grandchild_effective = grandchild.intersect(&child_effective);
     assert!(
         !grandchild_effective
             .permissions
             .get("exec")
             .unwrap()
             .allowed,
-        "grandchild-agent effective should have exec=deny (inherited chain root→child)"
+        "grandchild effective should have exec=deny (inherited chain root→child)"
     );
     assert!(
         grandchild_effective
@@ -424,49 +209,7 @@ async fn test_multi_generation_spawn_chain() {
             .get("file_read")
             .unwrap()
             .allowed,
-        "grandchild-agent effective should have file_read=allow"
-    );
-
-    // Verify runtime enforcement on grandchild.
-    let tmp = TempDir::new().unwrap();
-    let exec_body = PermissionRequestBody::CommandExec {
-        agent: "grandchild-agent".to_string(),
-        cmd: "rm".to_string(),
-        args: vec![
-            "-rf".to_string(),
-            tmp.path().join("test").to_string_lossy().to_string(),
-        ],
-    };
-    let result = engine.check_agent_effective_permissions("grandchild-agent", &exec_body);
-    assert!(
-        result.is_some(),
-        "exec should be denied at runtime for grandchild-agent"
-    );
-    match result.unwrap() {
-        crate::permission::engine::engine_types::PermissionResponse::Denied { reason, .. } => {
-            assert!(
-                reason.contains("exec"),
-                "denied reason should mention exec dimension, got: {}",
-                reason
-            );
-        }
-        other => panic!(
-            "expected Denied response for grandchild exec, got: {:?}",
-            other
-        ),
-    }
-
-    // Verify file_read is still allowed at runtime for grandchild.
-    let tmp2 = TempDir::new().unwrap();
-    let read_body = PermissionRequestBody::FileOp {
-        agent: "grandchild-agent".to_string(),
-        path: tmp2.path().join("data.txt").to_string_lossy().to_string(),
-        op: "read".to_string(),
-    };
-    let result = engine.check_agent_effective_permissions("grandchild-agent", &read_body);
-    assert!(
-        result.is_none(),
-        "file_read should be allowed at runtime for grandchild-agent"
+        "grandchild effective should have file_read=allow"
     );
 }
 
@@ -475,7 +218,6 @@ async fn test_multi_generation_spawn_chain() {
 async fn test_external_permissions_used() {
     let tmp = TempDir::new().unwrap();
 
-    // Create ConfigManager with external exec-deny permissions.
     let cm = Arc::new(
         ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
     );
@@ -502,7 +244,6 @@ async fn test_external_permissions_used() {
         source: crate::config::agents::ConfigSource::Merged,
     };
 
-    // Build SessionManager with a parent session.
     let gw_config = GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
@@ -534,13 +275,6 @@ async fn test_external_permissions_used() {
     let pe = Arc::new(make_permission_engine());
     let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone(), pe.clone()));
 
-    // Insert parent effective permissions into the engine cache.
-    let parent_perms = make_all_allow("parent-agent-2");
-    {
-        let mut cache = pe.agent_permissions.write().unwrap();
-        cache.insert("parent-agent-2".to_string(), parent_perms);
-    }
-
     // Inject both parent and child agents into ConfigManager so
     // SpawnController::validate() can resolve configs and pass all checks.
     {
@@ -570,7 +304,6 @@ async fn test_external_permissions_used() {
         agents.insert("fallback-agent".to_string(), config.clone());
     }
 
-    // Call SpawnController::validate() — should use external permissions (exec-deny).
     let result = controller
         .validate("parent-sess-2", Some("fallback-agent"))
         .await;
@@ -579,38 +312,14 @@ async fn test_external_permissions_used() {
         "validate should succeed with external permissions, got: {:?}",
         result
     );
-
-    // Verify the cached permissions match the external exec-deny config.
-    let cached = pe
-        .get_agent_effective_permissions("fallback-agent")
-        .expect("agent should be cached after successful validate");
-    assert!(
-        !cached.permissions.get("exec").unwrap().allowed,
-        "exec should be denied from external permissions"
-    );
-    assert!(
-        cached.permissions.get("file_read").unwrap().allowed,
-        "file_read should be allowed from external permissions"
-    );
 }
 
 // ===========================================================================
-// Multi-layer recursive permission intersection (Step 1.4)
+// Multi-layer recursive permission intersection
 // ===========================================================================
 
 /// Test: Three-layer spawn chain where each level introduces different
-/// permission restrictions. Verify the grandchild's effective permissions
-/// are the intersection of all restrictions along the full chain.
-///
-/// Chain:
-///   depth=0 (root-agent):  deny exec, deny file_write
-///   depth=1 (child-agent): deny network, deny file_read
-///   depth=2 (grandchild):  deny spawn
-///
-/// Expected grandchild effective:
-///   exec=deny (root), file_read=deny (child), file_write=deny (root),
-///   network=deny (child), spawn=deny (grandchild),
-///   tool_call=allow, config_write=allow
+/// permission restrictions.
 #[test]
 fn test_recursive_permission_intersection_three_layers() {
     let engine = make_permission_engine();
@@ -623,12 +332,10 @@ fn test_recursive_permission_intersection_three_layers() {
 
     // Spawn child under root: effective = child ∩ root.
     engine
-        .validate_and_inject_spawn("child-agent", &child, &root, None, None)
+        .validate_and_inject_spawn("child-agent", &child, &root, None, None, None)
         .expect("spawn of child-agent should succeed");
 
-    let child_effective = engine
-        .get_agent_effective_permissions("child-agent")
-        .expect("child-agent should be in cache");
+    let child_effective = child.intersect(&root);
 
     // Child effective: exec=deny (root), file_read=deny (child),
     // file_write=deny (root), network=deny (child),
@@ -676,12 +383,11 @@ fn test_recursive_permission_intersection_three_layers() {
             &child_effective,
             None,
             None,
+            None,
         )
         .expect("spawn of grandchild-agent should succeed");
 
-    let gc_effective = engine
-        .get_agent_effective_permissions("grandchild-agent")
-        .expect("grandchild-agent should be in cache");
+    let gc_effective = grandchild.intersect(&child_effective);
 
     // Grandchild effective: all denied dims from every level accumulate.
     assert!(
@@ -716,24 +422,14 @@ fn test_recursive_permission_intersection_three_layers() {
             .allowed,
         "config_write should be allowed (no restriction in chain)"
     );
-
-    // Verify inherited_from chain is correct.
-    assert_eq!(gc_effective.inherited_from, Some("child-agent".to_string()));
-    assert_eq!(
-        child_effective.inherited_from,
-        Some("root-agent".to_string())
-    );
 }
 
 // ===========================================================================
-// FullyDenied silent return through SessionsSpawnTool (Step 1.4)
+// FullyDenied silent return through SessionsSpawnTool
 // ===========================================================================
 
-/// Test: When a child agent is fully denied, `validate_spawn_permissions`
-/// returns `ToolCallError::PermissionDenied("spawn")`.
-/// The child session is NOT created — the error short-circuits the spawn
-/// pipeline before `create_child` is reached.
-/// The error message is generic and does not expose internal agent_id details.
+/// Test: When a child agent is fully denied, validate_spawn_permissions
+/// returns SpawnError::PermissionDenied.
 #[tokio::test]
 async fn test_fully_denied_silent_return_no_session_created() {
     let tmp = TempDir::new().unwrap();
@@ -741,11 +437,14 @@ async fn test_fully_denied_silent_return_no_session_created() {
     let cm = Arc::new(
         ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
     );
-    // External permissions: child has all-deny.
     cm.agent_permissions
         .write()
         .unwrap()
         .insert("denied-child".to_string(), make_all_deny("denied-child"));
+    cm.agent_permissions.write().unwrap().insert(
+        "parent-agent-deny".to_string(),
+        make_all_allow("parent-agent-deny"),
+    );
 
     let config = crate::config::agents::ResolvedAgentConfig {
         id: "denied-child".to_string(),
@@ -793,15 +492,7 @@ async fn test_fully_denied_silent_return_no_session_created() {
     let pe = Arc::new(make_permission_engine());
     let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone(), pe.clone()));
 
-    // Parent has all-allow effective permissions in cache.
-    let parent_perms = make_all_allow("parent-agent-deny");
-    {
-        let mut cache = pe.agent_permissions.write().unwrap();
-        cache.insert("parent-agent-deny".to_string(), parent_perms);
-    }
-
-    // Inject both parent and child agents into ConfigManager so
-    // SpawnController::validate() can resolve configs and pass all checks.
+    // Inject both parent and child agents into ConfigManager.
     {
         let mut agents = cm.agents.write().unwrap();
         agents.insert(
@@ -829,7 +520,6 @@ async fn test_fully_denied_silent_return_no_session_created() {
         agents.insert("denied-child".to_string(), config.clone());
     }
 
-    // SpawnController::validate() should fail with PermissionDenied.
     let result = controller
         .validate("parent-sess-deny", Some("denied-child"))
         .await;
@@ -849,10 +539,4 @@ async fn test_fully_denied_silent_return_no_session_created() {
         }
         other => panic!("expected PermissionDenied, got: {:?}", other),
     }
-
-    // Verify the child was NOT cached (spawn was rejected).
-    assert!(
-        pe.get_agent_effective_permissions("denied-child").is_none(),
-        "fully-denied child should NOT be in permission cache after rejection"
-    );
 }

@@ -4,6 +4,7 @@ use crate::config::agents::ResolvedAgentConfig;
 use crate::config::ConfigManager;
 use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -181,20 +182,37 @@ impl SpawnController {
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
         if let (Some(child_perms), Some(parent_agent_id)) = (child_perms, parent_agent_id) {
             let parent_perms = self
-                .permission_engine
-                .get_agent_effective_permissions(&parent_agent_id)
-                .or_else(|| {
-                    self.config_manager
-                        .agent_permissions()
-                        .get(&parent_agent_id)
-                        .cloned()
-                });
+                .config_manager
+                .agent_permissions()
+                .get(&parent_agent_id)
+                .cloned();
             if let Some(parent_perms) = parent_perms {
                 let user_id = self.session_manager.get_sender_id(parent_session_id).await;
-                let user_perms = user_id.as_ref().map(|uid| {
-                    self.permission_engine
-                        .evaluate_user_permissions(uid, &config.id)
-                });
+                // Owner skips User dimension — design doc:
+                // "Owner(User ID = 'owner') → skip User dim, only Agent"
+                let user_perms = if user_id.as_deref() == Some("owner") {
+                    None
+                } else {
+                    user_id.as_ref().map(|uid| {
+                        self.permission_engine
+                            .evaluate_user_permissions(uid, &config.id)
+                    })
+                };
+                // Collect full-chain deny subjects from all ancestors.
+                let rules = self.permission_engine.rules.clone();
+                let chain_deny_subjects = collect_chain_deny_subjects(
+                    &self.session_manager,
+                    &rules,
+                    parent_session_id,
+                    &config.id,
+                )
+                .await;
+                let extra_deny = if chain_deny_subjects.is_empty() {
+                    None
+                } else {
+                    Some(chain_deny_subjects.as_slice())
+                };
+
                 self.permission_engine
                     .validate_and_inject_spawn(
                         &config.id,
@@ -202,6 +220,7 @@ impl SpawnController {
                         &parent_perms,
                         user_perms.as_ref(),
                         user_id.as_deref(),
+                        extra_deny,
                     )
                     .map_err(|e| {
                         tracing::debug!(error = %e, "spawn permission denied");

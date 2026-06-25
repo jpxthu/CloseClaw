@@ -101,7 +101,7 @@ async fn test_sandbox_evaluate_invalid_state_unstarted() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("sandbox.sock");
     let sandbox = Sandbox::new(&path);
-    let result = sandbox.evaluate(dummy_request()).await;
+    let result = sandbox.evaluate(dummy_request(), None).await;
     let err = result.unwrap_err();
     match err {
         SandboxError::InvalidState { state } => {
@@ -142,7 +142,7 @@ async fn test_sandbox_evaluate_invalid_state_shutdown() {
     let mut sandbox = Sandbox::new(&path);
     sandbox.shutdown().await;
     assert_eq!(sandbox.state().await, SandboxState::Shutdown);
-    let result = sandbox.evaluate(dummy_request()).await;
+    let result = sandbox.evaluate(dummy_request(), None).await;
     let err = result.unwrap_err();
     match err {
         SandboxError::InvalidState { state } => {

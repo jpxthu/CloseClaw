@@ -176,6 +176,7 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
                 args: vec![".".to_string()],
             },
         },
+        extra_deny_subjects: None,
     };
 
     let json = serde_json::to_vec(&request).unwrap();
@@ -183,7 +184,10 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
 
     let parsed: SandboxRequest = serde_json::from_slice(&json).unwrap();
     match parsed {
-        SandboxRequest::Evaluate { request: _ } => {}
+        SandboxRequest::Evaluate {
+            request: _,
+            extra_deny_subjects: _,
+        } => {}
         other => panic!("expected Evaluate, got {:?}", other),
     }
 }
@@ -320,7 +324,7 @@ async fn test_sandbox_ping_after_spawn() {
             cmd: "echo".to_string(),
             args: vec![],
         });
-        let eval_result = sandbox.evaluate(dummy_request).await;
+        let eval_result = sandbox.evaluate(dummy_request, None).await;
         assert!(
             eval_result.is_ok(),
             "evaluate should succeed after spawn (sandbox is alive)"
@@ -364,7 +368,7 @@ async fn test_sandbox_evaluate_permission_request() {
             },
         };
 
-        let eval_result = sandbox.evaluate(request).await;
+        let eval_result = sandbox.evaluate(request, None).await;
         assert!(
             eval_result.is_ok(),
             "evaluate should succeed with permissive rules"
@@ -409,7 +413,7 @@ async fn test_sandbox_restart_after_shutdown() {
             cmd: "echo".to_string(),
             args: vec![],
         });
-        assert!(sandbox.evaluate(dummy).await.is_ok());
+        assert!(sandbox.evaluate(dummy, None).await.is_ok());
 
         sandbox.shutdown().await;
 
@@ -433,7 +437,7 @@ async fn test_sandbox_restart_after_shutdown() {
             args: vec![],
         });
         assert!(
-            sandbox.evaluate(dummy2).await.is_ok(),
+            sandbox.evaluate(dummy2, None).await.is_ok(),
             "evaluate should succeed after restart"
         );
 
@@ -455,7 +459,7 @@ async fn test_sandbox_cannot_operate_when_not_spawned() {
         cmd: "echo".to_string(),
         args: vec![],
     });
-    let eval_result = sandbox.evaluate(dummy_request).await;
+    let eval_result = sandbox.evaluate(dummy_request, None).await;
     assert!(eval_result.is_err(), "evaluate without spawn should fail");
 
     // _tmpdir auto-cleans on drop

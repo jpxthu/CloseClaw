@@ -214,6 +214,7 @@ impl Sandbox {
     pub async fn evaluate(
         &self,
         request: PermissionRequest,
+        extra_deny_subjects: Option<Vec<crate::permission::engine::engine_types::Subject>>,
     ) -> Result<PermissionResponse, SandboxError> {
         let state = *self.state.read().await;
         if state != SandboxState::Running {
@@ -222,7 +223,10 @@ impl Sandbox {
 
         let resp = timeout(
             Duration::from_millis(IPC_TIMEOUT_MS),
-            self.channel.call(&SandboxRequest::Evaluate { request }),
+            self.channel.call(&SandboxRequest::Evaluate {
+                request,
+                extra_deny_subjects,
+            }),
         )
         .await
         .map_err(|_| SandboxError::IpcTimeout)?
