@@ -281,7 +281,16 @@ impl ActiveSearcher {
             if out.len() + line.len() > max {
                 let remaining = max.saturating_sub(out.len());
                 if remaining > 0 {
-                    out.push_str(&line[..remaining.min(line.len())]);
+                    // UTF-8 safe truncation: accumulate chars until
+                    // the next char would exceed `remaining` bytes.
+                    let mut safe = String::new();
+                    for ch in line.chars() {
+                        if safe.len() + ch.len_utf8() > remaining {
+                            break;
+                        }
+                        safe.push(ch);
+                    }
+                    out.push_str(&safe);
                 }
                 break;
             }

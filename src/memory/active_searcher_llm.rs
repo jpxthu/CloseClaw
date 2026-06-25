@@ -131,9 +131,18 @@ pub(crate) async fn summarize_events_llm(
 ) -> Result<String, ActiveSearcherError> {
     let prompt = build_summarization_prompt(events_text, max_chars);
     let raw = caller.complete(&prompt).await?;
-    // Safety truncation — LLM should respect the limit, but guard against overflow.
+    // Safety truncation — LLM should respect the limit, but guard
+    // against overflow. Use char-based truncation to avoid splitting
+    // multi-byte UTF-8 characters.
     if raw.len() > max_chars {
-        Ok(raw[..max_chars].to_string())
+        let mut end = 0;
+        for (idx, ch) in raw.char_indices() {
+            if idx + ch.len_utf8() > max_chars {
+                break;
+            }
+            end = idx + ch.len_utf8();
+        }
+        Ok(raw[..end].to_string())
     } else {
         Ok(raw)
     }

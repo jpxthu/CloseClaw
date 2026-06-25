@@ -248,6 +248,58 @@ impl SessionMessageHandler {
         .await;
     }
 }
+
+/// Consume the `memory_injection` slot and push user + optional tool
+/// messages into `messages` according to the injection position mode.
+///
+/// When an injection is present:
+/// - `AfterCurrent` → `[user(content), tool(injection)]`
+/// - `BeforeNext`   → `[tool(injection), user(content)]`
+///
+/// When absent → `[user(content)]`.
+pub(super) async fn push_messages_with_injection(
+    messages: &mut Vec<ChatMessage>,
+    session_manager: &SessionManager,
+    session_id: &str,
+    content: &str,
+) {
+    let injection = match session_manager.get_conversation_session(session_id).await {
+        Some(cs) => cs.read().await.take_memory_injection(),
+        None => None,
+    };
+
+    if let Some(inj) = injection {
+        use crate::llm::session::InjectionPosition;
+        match inj.position_mode {
+            InjectionPosition::AfterCurrent => {
+                messages.push(ChatMessage {
+                    role: "user".to_string(),
+                    content: content.to_string(),
+                });
+                messages.push(ChatMessage {
+                    role: "tool".to_string(),
+                    content: inj.content,
+                });
+            }
+            InjectionPosition::BeforeNext => {
+                messages.push(ChatMessage {
+                    role: "tool".to_string(),
+                    content: inj.content,
+                });
+                messages.push(ChatMessage {
+                    role: "user".to_string(),
+                    content: content.to_string(),
+                });
+            }
+        }
+    } else {
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: content.to_string(),
+        });
+    }
+}
+
 // ── LLM calling ──
 impl SessionMessageHandler {
     /// Make a non-streaming LLM call with full system prompt injection.
@@ -316,44 +368,7 @@ impl SessionMessageHandler {
         }
 
         // ── Consume memory_injection slot ──────────────────────────────────
-        // The active-searcher writes to this slot asynchronously; we consume
-        // and inject it here during message assembly.
-        let injection = if let Some(cs) = session_manager.get_conversation_session(session_id).await
-        {
-            cs.read().await.take_memory_injection()
-        } else {
-            None
-        };
-        if let Some(inj) = injection {
-            use crate::llm::session::InjectionPosition;
-            match inj.position_mode {
-                InjectionPosition::AfterCurrent => {
-                    messages.push(ChatMessage {
-                        role: "user".to_string(),
-                        content: content.to_string(),
-                    });
-                    messages.push(ChatMessage {
-                        role: "tool".to_string(),
-                        content: inj.content,
-                    });
-                }
-                InjectionPosition::BeforeNext => {
-                    messages.push(ChatMessage {
-                        role: "tool".to_string(),
-                        content: inj.content,
-                    });
-                    messages.push(ChatMessage {
-                        role: "user".to_string(),
-                        content: content.to_string(),
-                    });
-                }
-            }
-        } else {
-            messages.push(ChatMessage {
-                role: "user".to_string(),
-                content: content.to_string(),
-            });
-        }
+        push_messages_with_injection(&mut messages, session_manager, session_id, content).await;
 
         let internal_request = crate::llm::types::InternalRequest {
             model: String::new(),

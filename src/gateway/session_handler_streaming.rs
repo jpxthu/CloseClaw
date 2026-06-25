@@ -107,42 +107,13 @@ impl SessionMessageHandler {
         }
 
         // ── Consume memory_injection slot ──────────────────────────────────
-        let injection = if let Some(cs) = session_manager.get_conversation_session(session_id).await
-        {
-            cs.read().await.take_memory_injection()
-        } else {
-            None
-        };
-        if let Some(inj) = injection {
-            use crate::llm::session::InjectionPosition;
-            match inj.position_mode {
-                InjectionPosition::AfterCurrent => {
-                    messages.push(ChatMessage {
-                        role: "user".to_string(),
-                        content: content.to_string(),
-                    });
-                    messages.push(ChatMessage {
-                        role: "tool".to_string(),
-                        content: inj.content,
-                    });
-                }
-                InjectionPosition::BeforeNext => {
-                    messages.push(ChatMessage {
-                        role: "tool".to_string(),
-                        content: inj.content,
-                    });
-                    messages.push(ChatMessage {
-                        role: "user".to_string(),
-                        content: content.to_string(),
-                    });
-                }
-            }
-        } else {
-            messages.push(ChatMessage {
-                role: "user".to_string(),
-                content: content.to_string(),
-            });
-        }
+        super::session_handler::push_messages_with_injection(
+            &mut messages,
+            session_manager,
+            session_id,
+            content,
+        )
+        .await;
 
         let internal_request = crate::llm::types::InternalRequest {
             model: String::new(),
