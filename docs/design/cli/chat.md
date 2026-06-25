@@ -58,7 +58,7 @@ TerminalAdapter 封装 NormalizedMessage { platform: "terminal", sender_id, peer
 Processor Chain 入站
   ├── RawLog：记录原始输入到日志
   ├── SessionRouter：根据平台、用户和端点计算 session key
-  └── ContentNormalizer：清洗 stdin 残留控制字符 + 标准化格式
+  └── ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）
   ↓
 ProcessedMessage → Gateway 路由
   ├── / 开头 → SlashDispatcher（与飞书等渠道共享同一套）

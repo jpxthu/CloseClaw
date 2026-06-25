@@ -86,10 +86,7 @@ platforms/feishu/
 │                  — markdown → 飞书元素映射（标题/粗体/代码块/列表/引用/链接/分割线）
 │                  — header 提取 + body 渲染
 │                  — DSL 按钮注入
-├── cleaner.rs     — 飞书平台消息清洗，实现 clean_content()
-│                  — 移除 @ 提及语法
-│                  — 移除 `<at>xxx</at>` 等飞书专属标记
-│                  — ContentNormalizer 调用此回调完成平台残留清洗
+
 └── tools/         — 飞书工具注册
     ├── mod.rs     — register_tools() 入口，注册所有飞书工具分组
     └── ...        — 各工具分组实现文件（im/calendar/task/bitable/doc/drive/sheet）

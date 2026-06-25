@@ -13,7 +13,7 @@
 | [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径、审批栅栏）和 Auto Mode（连续自主执行），通过工具过滤和权限边界约束 agent 行为 |
 | [permission](permission/README.md) | 系统级身份型访问控制：交集模型、七类权限维度、审批工作流与配置管理 |
 | [platform](platform/README.md) | 操作系统抽象层：进程管理、信号处理、配置目录、终端 I/O 的平台差异封装 |
-| [processor_chain](processor_chain/README.md) | 统一出入站消息处理：入站纯变换链（审计日志、session_key 计算、内容清洗标准化）、出站 DSL 解析、ContentBlock[] 传递 |
+| [processor_chain](processor_chain/README.md) | 统一出入站消息处理：入站纯变换链（审计日志、session_key 计算、文本标准化）、出站 DSL 解析、ContentBlock[] 传递 |
 | [im_adapter](im_adapter/README.md) | IM 平台插件化适配框架：IMPlugin trait 统一接口，每个平台一个插件（含 Adapter + Renderer），通用代码渲染和流式渲染能力 |
 | [session](session/README.md) | Agent 会话生命周期管理：session_key 路由映射与解析、持久化（创建、压缩、归档、清理）、执行层（三维执行状态、级联停止、后台结果注入） |
 | [slash](slash/README.md) | 斜杠指令系统：Gateway 层拦截、统一分派、Handler 执行，不进入 LLM 对话流程 |
