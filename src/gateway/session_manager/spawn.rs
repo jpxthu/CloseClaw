@@ -61,7 +61,6 @@ impl SpawnTree {
     // ── Design doc query interfaces ────────────────────────────────
 
     /// List all direct children of a session.
-    #[allow(dead_code)] // Used in tests; will be used by SessionManager in Step 1.3
     pub(crate) fn list_children(&self, session_id: &str) -> Vec<&ChildSessionInfo> {
         self.inner
             .get(session_id)
@@ -100,13 +99,6 @@ impl SpawnTree {
             .flatten()
             .find(|info| info.session_id == session_id)
             .map(|info| info.parent_session_id.clone())
-    }
-
-    // ── Internal accessors ─────────────────────────────────────────
-
-    /// Get the children list for a parent session.
-    pub(crate) fn get(&self, parent_id: &str) -> Option<&Vec<ChildSessionInfo>> {
-        self.inner.get(parent_id)
     }
 
     /// Check if the tree is empty.
@@ -207,9 +199,10 @@ impl SessionManager {
         let child_ids: Vec<String> = {
             let children = self.children.read().await;
             children
-                .get(parent_id)
-                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
-                .unwrap_or_default()
+                .list_children(parent_id)
+                .into_iter()
+                .map(|info| info.session_id.clone())
+                .collect()
         };
         if child_ids.is_empty() {
             return 0;
@@ -229,9 +222,10 @@ impl SessionManager {
     pub(crate) async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
         let children = self.children.read().await;
         children
-            .get(parent_id)
-            .map(|list| list.iter().map(|info| info.session_id.clone()).collect())
-            .unwrap_or_default()
+            .list_children(parent_id)
+            .into_iter()
+            .map(|info| info.session_id.clone())
+            .collect()
     }
 
     /// Register a child session under its parent. Called after child session creation.
@@ -640,8 +634,9 @@ impl SessionManager {
     ) -> Option<ChildSessionInfo> {
         let children = self.children.read().await;
         children
-            .get(parent_id)
-            .and_then(|list| list.iter().find(|info| info.session_id == child_id))
+            .list_children(parent_id)
+            .into_iter()
+            .find(|info| info.session_id == child_id)
             .cloned()
     }
 
@@ -750,9 +745,10 @@ impl SessionManager {
         let child_ids: Vec<String> = {
             let children = self.children.read().await;
             children
-                .get(parent_id)
-                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
-                .unwrap_or_default()
+                .list_children(parent_id)
+                .into_iter()
+                .map(|info| info.session_id.clone())
+                .collect()
         };
         for child_id in child_ids {
             if let Err(e) = self.kill_child(parent_id, &child_id).await {

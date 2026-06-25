@@ -217,9 +217,8 @@ async fn test_create_child_session_registers_child_info() {
 
     // Direct lookup via children table
     let children = mgr.children.read().await;
-    let list = children
-        .get("parent-7")
-        .expect("parent-7 should have a children entry");
+    let list = children.list_children("parent-7");
+    assert!(!list.is_empty(), "parent-7 should have a children entry");
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].session_id, child_id);
     assert_eq!(list[0].parent_session_id, "parent-7");
@@ -341,7 +340,7 @@ async fn test_kill_child_removes_from_all_tables() {
     );
     let children = mgr.children.read().await;
     assert!(
-        children.get("parent-kill").is_none(),
+        children.list_children("parent-kill").is_empty(),
         "parent entry should be removed from children table when list is empty"
     );
 }
