@@ -363,6 +363,39 @@ async fn test_slash_context_channel_propagates() {
 // that `dispatch_slash` returns `SlashHandled` (meaning the execute path
 // ran without panic).
 
+/// Handler that claims to be immediate (responds even when LLM is busy).
+struct ImmediateCountingHandler {
+    command: &'static str,
+    counter: Arc<AtomicU32>,
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for ImmediateCountingHandler {
+    fn commands(&self) -> &[&str] {
+        std::slice::from_ref(&self.command)
+    }
+    fn description(&self) -> &str {
+        "immediate counting handler"
+    }
+    fn immediate(&self, _cmd: &str) -> bool {
+        true
+    }
+    async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
+        self.counter.fetch_add(1, Ordering::SeqCst);
+        SlashResult::Reply("counted".to_owned())
+    }
+}
+
+/// Build a dispatcher that contains an `ImmediateCountingHandler` for a given command.
+fn immediate_counting_dispatcher(
+    command: &'static str,
+    counter: Arc<AtomicU32>,
+) -> Arc<SlashDispatcher> {
+    let registry = HandlerRegistry::new();
+    registry.register(Arc::new(ImmediateCountingHandler { command, counter }));
+    Arc::new(SlashDispatcher::new(registry))
+}
+
 /// Handler that returns a configurable [`SlashResult`].
 struct ResultHandler {
     command: &'static str,
@@ -620,4 +653,149 @@ async fn test_execute_route_non_owner_denied_skips_execute() {
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     // The handler was NOT invoked — engine denied before execute_and_route.
+}
+
+// ===========================================================================
+// Busy-queueing: non-immediate slash commands enqueued when session is busy
+// ===========================================================================
+
+/// Helper: register a `ConversationSession` in the gateway's session manager
+/// and return the Arc so the test can set it busy/idle.
+async fn register_session(
+    gw: &Gateway,
+    session_id: &str,
+) -> Arc<tokio::sync::RwLock<crate::llm::session::ConversationSession>> {
+    use std::path::PathBuf;
+    let cs = crate::llm::session::ConversationSession::new(
+        session_id.to_owned(),
+        "test-model".to_owned(),
+        PathBuf::from("/tmp"),
+    );
+    let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
+    {
+        let mut conv = gw.session_manager.conversation_sessions.write().await;
+        conv.insert(session_id.to_owned(), cs_arc.clone());
+    }
+    cs_arc
+}
+
+#[tokio::test]
+async fn test_non_immediate_busy_enqueues_and_returns_slash_handled() {
+    // Non-immediate command + session busy → enqueued, handler NOT invoked,
+    // returns SlashHandled.
+    let counter = Arc::new(AtomicU32::new(0));
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(counting_dispatcher("help", false, Arc::clone(&counter)))
+        .await;
+
+    let cs = register_session(&gw, "sess-busy").await;
+    cs.write()
+        .await
+        .set_llm_state(crate::llm::session_state::LlmState::Requesting);
+
+    let result = gw
+        .dispatch_slash("sess-busy", "/help", Some("user1"), "feishu")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        0,
+        "handler must NOT be invoked when session is busy"
+    );
+
+    // Verify the command was enqueued as a pending message.
+    let cs = gw
+        .session_manager
+        .get_conversation_session("sess-busy")
+        .await
+        .unwrap();
+    let cs = cs.read().await;
+    let pending = cs.get_pending_messages();
+    assert_eq!(
+        pending.len(),
+        1,
+        "exactly one pending message should be enqueued"
+    );
+    assert!(
+        pending[0].content.contains("/help"),
+        "pending message should contain the slash command"
+    );
+}
+
+#[tokio::test]
+async fn test_immediate_busy_executes_normally() {
+    // Immediate command + session busy → handler IS invoked (no enqueue).
+    let counter = Arc::new(AtomicU32::new(0));
+    let gw = make_gateway();
+    // "stop" is an immediate command (SlashDispatcher::is_immediate returns true).
+    gw.set_slash_dispatcher(immediate_counting_dispatcher("stop", Arc::clone(&counter)))
+        .await;
+
+    let cs = register_session(&gw, "sess-busy-stop").await;
+    cs.write()
+        .await
+        .set_llm_state(crate::llm::session_state::LlmState::Requesting);
+
+    let result = gw
+        .dispatch_slash("sess-busy-stop", "/stop", Some("user1"), "feishu")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "immediate handler must be invoked even when busy"
+    );
+
+    // No pending messages should be enqueued.
+    let cs = gw
+        .session_manager
+        .get_conversation_session("sess-busy-stop")
+        .await
+        .unwrap();
+    let cs = cs.read().await;
+    assert_eq!(
+        cs.get_pending_messages().len(),
+        0,
+        "immediate command must NOT be enqueued"
+    );
+}
+
+#[tokio::test]
+async fn test_non_immediate_idle_executes_normally() {
+    // Non-immediate command + session idle → handler IS invoked (no enqueue).
+    let counter = Arc::new(AtomicU32::new(0));
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(counting_dispatcher("help", false, Arc::clone(&counter)))
+        .await;
+
+    let cs = register_session(&gw, "sess-idle").await;
+    cs.write()
+        .await
+        .set_llm_state(crate::llm::session_state::LlmState::Idle);
+
+    let result = gw
+        .dispatch_slash("sess-idle", "/help", Some("user1"), "feishu")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "handler must be invoked when session is idle"
+    );
+
+    // No pending messages should be enqueued.
+    let cs = gw
+        .session_manager
+        .get_conversation_session("sess-idle")
+        .await
+        .unwrap();
+    let cs = cs.read().await;
+    assert_eq!(
+        cs.get_pending_messages().len(),
+        0,
+        "idle session must NOT enqueue"
+    );
 }

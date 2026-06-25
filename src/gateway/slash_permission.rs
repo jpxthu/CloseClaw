@@ -10,6 +10,7 @@ use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
+use crate::session::persistence::PendingMessage;
 use crate::slash::handler::SlashHandler;
 use crate::slash::side_effect::ReplyAction;
 use crate::slash::side_effect::SideEffectContext;
@@ -66,6 +67,29 @@ impl Gateway {
             }
             return Some(HandleResult::SlashHandled);
         };
+
+        // Non-immediate commands: if session is busy, enqueue for later.
+        if !dispatcher.is_immediate(cmd) && self.session_manager.is_session_busy(session_id).await {
+            let msg = PendingMessage::new(
+                format!("pending-{}", chrono::Utc::now().timestamp_millis()),
+                content.to_owned(),
+            );
+            if let Err(e) = self
+                .session_manager
+                .push_pending_message(session_id, msg)
+                .await
+            {
+                tracing::warn!(
+                    session_id,
+                    error = %e,
+                    "failed to enqueue pending slash command"
+                );
+            }
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("⏳ 正在排队...".to_owned()).await;
+            }
+            return Some(HandleResult::SlashHandled);
+        }
 
         if !self
             .check_slash_permission(cmd, sender_id, session_id)
