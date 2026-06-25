@@ -250,6 +250,26 @@ impl DefaultStreamingRenderer {
         }
     }
 
+    /// Reset all renderer state fields to initial values.
+    fn reset_state(&mut self) {
+        self.line_buffer.reset();
+        self.current_block_type = None;
+        self.current_block_index = None;
+        self.current_acc = None;
+    }
+
+    /// Flush remaining content from LineBuffer and any open accumulator,
+    /// routing output to `out`.
+    fn flush_remaining(&mut self, out: &mut StreamingOutput) {
+        if let Some(remaining) = self.line_buffer.flush() {
+            route_line(&remaining, out);
+        }
+        if let (Some(acc), Some(bt)) = (self.current_acc.take(), self.current_block_type.take()) {
+            out.render_blocks.push(acc.into_block(bt));
+            self.current_block_index = None;
+        }
+    }
+
     fn handle_block_start(&mut self, index: usize, block_type: ContentBlockType) {
         self.current_block_type = Some(block_type);
         self.current_block_index = Some(index);
@@ -303,7 +323,13 @@ impl StreamingRenderer for DefaultStreamingRenderer {
             StreamEvent::BlockEnd { index, block_type } => {
                 self.handle_block_end(index, block_type, &mut out);
             }
-            StreamEvent::MessageEnd { .. } | StreamEvent::Error { .. } => {}
+            StreamEvent::MessageEnd { .. } => {
+                self.flush_remaining(&mut out);
+                self.reset_state();
+            }
+            StreamEvent::Error { .. } => {
+                self.reset_state();
+            }
         }
         out
     }
