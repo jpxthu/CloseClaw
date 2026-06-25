@@ -188,7 +188,7 @@ pub struct Gateway {
     permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
     /// Bounded inbound queue sender. `None` until the queue is started.
     #[allow(dead_code)]
-    inbound_tx: Option<mpsc::Sender<InboundRequest>>,
+    inbound_tx: std::sync::Mutex<Option<mpsc::Sender<InboundRequest>>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
     ///
     /// `handle_inbound_message` is called with `&self`, but
@@ -215,7 +215,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
-            inbound_tx: None,
+            inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
         }
@@ -237,7 +237,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
-            inbound_tx: None,
+            inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
         }
@@ -277,6 +277,35 @@ impl Gateway {
         if let Ok(mut slot) = self.shutdown_handle.lock() {
             *slot = Some(handle);
         }
+    }
+
+    /// Start the inbound bounded queue.
+    ///
+    /// Creates a bounded mpsc channel with capacity from
+    /// [`GatewayConfig::inbound_queue_capacity`], stores the sender
+    /// for later use by [`Self::enqueue_inbound`], and spawns a
+    /// consumer task that drains messages through the processor chain
+    /// and inbound handler.
+    ///
+    /// Returns an [`InboundQueueHandle`] that callers can use to
+    /// enqueue inbound requests.
+    pub fn start_inbound_queue(self: &Arc<Self>) -> inbound_queue::InboundQueueHandle {
+        let capacity = self.config.inbound_queue_capacity;
+        let (tx, rx) = tokio::sync::mpsc::channel(capacity);
+        if let Ok(mut slot) = self.inbound_tx.lock() {
+            *slot = Some(tx.clone());
+        }
+        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity);
+        inbound_queue::InboundQueueHandle::new(tx)
+    }
+
+    /// Enqueue an inbound request into the bounded queue.
+    ///
+    /// When the queue is full, a busy reply is sent via the IM plugin.
+    /// If the queue has not been started, the message is processed
+    /// directly (bypass mode).
+    pub async fn enqueue_inbound(&self, request: inbound_queue::InboundRequest) {
+        inbound_queue::enqueue_inbound(self, request).await;
     }
 
     /// Get a clone of the shutdown handle, if set.
