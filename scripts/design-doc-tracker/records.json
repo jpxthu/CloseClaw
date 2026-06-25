@@ -105,6 +105,13 @@
     "comment": "blocked: hash-includes-timestamp_ms contradicts session-reuse-via-resolve"
   },
   {
+    "path": "docs/design/im_adapter/README.md",
+    "commit": "3e2b0b7d29ebf4cf46cdb79fe33e5d3c34e70d54",
+    "commit_time": "2026-06-26T02:45:41+08:00",
+    "confirmed_time": "2026-06-26T02:54:54.436593+08:00",
+    "comment": ""
+  },
+  {
     "path": "docs/design/im_adapter/code-render.md",
     "commit": "7cff111af671176aec722634fa183328a3d3d9f8",
     "commit_time": "2026-06-24T00:32:37+08:00",
