@@ -19,7 +19,7 @@ webhook
                     → hash 由 platform:sender_id:peer_id:account_id:timestamp_ms 计算
                     → 写入 metadata，不创建 session
     ↓
-  ContentNormalizer(30) → 清洗平台残留 → 标准化 markdown 格式
+  ContentNormalizer(30) → 文本标准化（去控制字符、压缩空行、去尾空格）
   ↓
 ProcessedMessage { content, metadata { session_key } }
   ↓
@@ -72,9 +72,9 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 - 输出：将 `session_key` 写入 metadata
 - SessionRouter 不创建 session、不查 SessionManager——仅计算 session key
 
-**ContentNormalizer（priority 30）**：对消息内容做平台无关的文本标准化。去除控制字符和 ANSI 转义序列，压缩连续空行，去行尾空格，为裸 URL 补全 `https://` 前缀，为无语言标签的代码块添加 `text` 标注。不负责平台格式转换——富文本到 markdown 的转换由各 IM 插件在解析阶段完成。
+**ContentNormalizer（priority 30）**：对消息内容做平台无关的文本标准化。去除控制字符和 ANSI 转义序列，压缩连续空行，去行尾空格。不负责 Markdown 格式处理——URL 补全、代码块语言标签、富文本展开等均由各 IM 插件在解析阶段完成。
 
-链输出入站 `ProcessedMessage`（`content` 清洗后文本 + `metadata` 含 `session_key`）。ContentNormalizer 保留 metadata 不变，下游 Gateway 从 metadata 取出 session_key。
+链输出入站 `ProcessedMessage`（`content` 标准化后文本 + `metadata` 含 `session_key`）。ContentNormalizer 保留 metadata 不变，下游 Gateway 从 metadata 取出 session_key。
 
 ### 第三步：Gateway 路由
 
