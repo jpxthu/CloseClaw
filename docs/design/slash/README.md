@@ -22,10 +22,12 @@ SlashDispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，�
   └── 是 → SlashDispatcher 解析指令名 + 参数
             ↓
           HandlerRegistry 查表
-            ↓
-          Handler 处理 → SlashResult
-            ↓
-          Gateway 构造 SideEffectContext → SlashResult.execute(ctx)
+            ├── 命中 → Handler 处理 → SlashResult
+            │           ↓
+            │         Gateway 构造 SideEffectContext → SlashResult.execute(ctx)
+            │           ↓
+            │         回复内容 → 出站 Processor Chain → IM 插件渲染发送
+            └── 未命中 → SlashResult::Unknown → 回复内容 → 出站 Processor Chain → IM 插件发送
 ```
 
 部分指令支持 Immediate 模式——LLM 正在运行时也能立即响应，不被 Session 忙碌队列阻塞。非 Immediate 指令在 LLM 忙碌时回复等待提示。
