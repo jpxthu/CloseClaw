@@ -3,6 +3,7 @@
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
 
 pub mod approval;
+pub mod inbound_queue;
 pub mod message;
 pub mod outbound;
 pub mod session_handler;
@@ -33,6 +34,7 @@ use crate::slash::SlashDispatcher;
 
 use crate::processor_chain::context::{ProcessedMessage, RawMessage};
 pub use crate::processor_chain::ProcessorRegistry;
+pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::SessionManager;
 
@@ -135,6 +137,14 @@ pub struct GatewayConfig {
     /// When `None` (default), raw logging is disabled.
     #[serde(default)]
     pub raw_log_dir: Option<std::path::PathBuf>,
+    /// Maximum number of messages the inbound queue can buffer.
+    /// Defaults to 64.
+    #[serde(default = "default_inbound_queue_capacity")]
+    pub inbound_queue_capacity: usize,
+}
+
+fn default_inbound_queue_capacity() -> usize {
+    64
 }
 
 #[allow(clippy::derivable_impls)]
@@ -146,6 +156,7 @@ impl Default for GatewayConfig {
             max_message_size: 0,
             dm_scope: DmScope::default(),
             raw_log_dir: None,
+            inbound_queue_capacity: default_inbound_queue_capacity(),
         }
     }
 }
@@ -175,6 +186,9 @@ pub struct Gateway {
     slash_dispatcher: RwLock<Option<Arc<SlashDispatcher>>>,
     /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
+    /// Bounded inbound queue sender. `None` until the queue is started.
+    #[allow(dead_code)]
+    inbound_tx: Option<mpsc::Sender<InboundRequest>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
     ///
     /// `handle_inbound_message` is called with `&self`, but
@@ -201,6 +215,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
+            inbound_tx: None,
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
         }
@@ -222,6 +237,7 @@ impl Gateway {
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
+            inbound_tx: None,
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
         }
