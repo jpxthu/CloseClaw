@@ -125,6 +125,11 @@ impl SessionManager {
         *self.config_manager.write().await = Some(config_manager);
     }
 
+    /// Get the config manager reference (if set).
+    pub async fn get_config_manager(&self) -> Option<Arc<ConfigManager>> {
+        self.config_manager.read().await.clone()
+    }
+
     /// Set the agent registry for resolved config lookups.
     pub async fn set_agent_registry(
         &self,
