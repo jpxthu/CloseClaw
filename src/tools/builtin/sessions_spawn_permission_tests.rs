@@ -11,7 +11,6 @@
 use std::collections::HashMap;
 
 use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits};
-use crate::agent::registry::AgentRegistry;
 use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::SessionManager;
@@ -22,8 +21,6 @@ use crate::permission::engine::engine_types::PermissionRequestBody;
 use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
-use crate::tools::builtin::sessions_spawn::SessionsSpawnTool;
-use crate::tools::ToolCallError;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -535,9 +532,7 @@ async fn test_external_permissions_used() {
     }
 
     let pe = Arc::new(make_permission_engine());
-    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
-    let ar = Arc::new(AgentRegistry::new());
-    let tool = SessionsSpawnTool::new(controller, sm, pe.clone(), cm.clone(), ar);
+    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone(), pe.clone()));
 
     // Insert parent effective permissions into the engine cache.
     let parent_perms = make_all_allow("parent-agent-2");
@@ -546,19 +541,49 @@ async fn test_external_permissions_used() {
         cache.insert("parent-agent-2".to_string(), parent_perms);
     }
 
-    // Call validate_spawn_permissions — should use external permissions (exec-deny).
-    let result = tool
-        .validate_spawn_permissions(&config, "parent-sess-2")
+    // Inject both parent and child agents into ConfigManager so
+    // SpawnController::validate() can resolve configs and pass all checks.
+    {
+        let mut agents = cm.agents.write().unwrap();
+        agents.insert(
+            "parent-agent-2".to_string(),
+            crate::config::agents::ResolvedAgentConfig {
+                id: "parent-agent-2".to_string(),
+                name: "parent-agent-2".to_string(),
+                parent_id: None,
+                model: Some("test-model".to_string()),
+                workspace: None,
+                agent_dir: None,
+                bootstrap_mode: BootstrapMode::Full,
+                skills: vec![],
+                tools: vec![],
+                disallowed_tools: vec![],
+                subagents: {
+                    let mut sub = crate::agent::config::SubagentsConfig::default();
+                    sub.max_spawn_depth = 2;
+                    sub.allow_agents = vec!["fallback-agent".to_string()];
+                    sub
+                },
+                source: crate::config::agents::ConfigSource::User,
+            },
+        );
+        agents.insert("fallback-agent".to_string(), config.clone());
+    }
+
+    // Call SpawnController::validate() — should use external permissions (exec-deny).
+    let result = controller
+        .validate("parent-sess-2", Some("fallback-agent"))
         .await;
     assert!(
         result.is_ok(),
-        "spawn should succeed with external permissions"
+        "validate should succeed with external permissions, got: {:?}",
+        result
     );
 
     // Verify the cached permissions match the external exec-deny config.
     let cached = pe
         .get_agent_effective_permissions("fallback-agent")
-        .expect("agent should be cached after successful spawn");
+        .expect("agent should be cached after successful validate");
     assert!(
         !cached.permissions.get("exec").unwrap().allowed,
         "exec should be denied from external permissions"
@@ -766,9 +791,7 @@ async fn test_fully_denied_silent_return_no_session_created() {
     }
 
     let pe = Arc::new(make_permission_engine());
-    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone()));
-    let ar = Arc::new(AgentRegistry::new());
-    let tool = SessionsSpawnTool::new(controller, sm.clone(), pe.clone(), cm.clone(), ar);
+    let controller = Arc::new(SpawnController::new(cm.clone(), sm.clone(), pe.clone()));
 
     // Parent has all-allow effective permissions in cache.
     let parent_perms = make_all_allow("parent-agent-deny");
@@ -777,26 +800,55 @@ async fn test_fully_denied_silent_return_no_session_created() {
         cache.insert("parent-agent-deny".to_string(), parent_perms);
     }
 
-    // validate_spawn_permissions should fail with FullyDenied.
-    let result = tool
-        .validate_spawn_permissions(&config, "parent-sess-deny")
+    // Inject both parent and child agents into ConfigManager so
+    // SpawnController::validate() can resolve configs and pass all checks.
+    {
+        let mut agents = cm.agents.write().unwrap();
+        agents.insert(
+            "parent-agent-deny".to_string(),
+            crate::config::agents::ResolvedAgentConfig {
+                id: "parent-agent-deny".to_string(),
+                name: "parent-agent-deny".to_string(),
+                parent_id: None,
+                model: Some("test-model".to_string()),
+                workspace: None,
+                agent_dir: None,
+                bootstrap_mode: BootstrapMode::Full,
+                skills: vec![],
+                tools: vec![],
+                disallowed_tools: vec![],
+                subagents: {
+                    let mut sub = crate::agent::config::SubagentsConfig::default();
+                    sub.max_spawn_depth = 2;
+                    sub.allow_agents = vec!["denied-child".to_string()];
+                    sub
+                },
+                source: crate::config::agents::ConfigSource::User,
+            },
+        );
+        agents.insert("denied-child".to_string(), config.clone());
+    }
+
+    // SpawnController::validate() should fail with PermissionDenied.
+    let result = controller
+        .validate("parent-sess-deny", Some("denied-child"))
         .await;
 
-    assert!(result.is_err(), "spawn should fail for fully-denied child");
-    let err_msg = match result.unwrap_err() {
-        ToolCallError::PermissionDenied(msg) => msg,
+    assert!(
+        result.is_err(),
+        "validate should fail for fully-denied child"
+    );
+    match result.unwrap_err() {
+        crate::agent::spawn::SpawnError::PermissionDenied { agent_id, reason } => {
+            assert_eq!(agent_id, "denied-child");
+            assert!(
+                reason.contains("denied"),
+                "reason should mention denied, got: {}",
+                reason
+            );
+        }
         other => panic!("expected PermissionDenied, got: {:?}", other),
-    };
-    assert!(
-        err_msg.contains("spawn"),
-        "error should contain 'spawn', got: {}",
-        err_msg
-    );
-    assert!(
-        !err_msg.contains("denied-child"),
-        "error must not expose internal agent_id, got: {}",
-        err_msg
-    );
+    }
 
     // Verify the child was NOT cached (spawn was rejected).
     assert!(

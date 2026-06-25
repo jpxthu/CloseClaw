@@ -3,6 +3,7 @@
 use crate::config::agents::ResolvedAgentConfig;
 use crate::config::ConfigManager;
 use crate::gateway::SessionManager;
+use crate::permission::engine::engine_eval::PermissionEngine;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -38,6 +39,7 @@ pub enum SpawnError {
 pub struct SpawnController {
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
+    permission_engine: Arc<PermissionEngine>,
 }
 
 /// Internal result from resolving parent depth and max spawn budget.
@@ -60,10 +62,15 @@ struct ResolvedTarget {
 }
 
 impl SpawnController {
-    pub fn new(config_manager: Arc<ConfigManager>, session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(
+        config_manager: Arc<ConfigManager>,
+        session_manager: Arc<SessionManager>,
+        permission_engine: Arc<PermissionEngine>,
+    ) -> Self {
         Self {
             config_manager,
             session_manager,
+            permission_engine,
         }
     }
 
@@ -110,16 +117,22 @@ impl SpawnController {
         }
         let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
 
-        // ⑦ Compute effective_max_spawn_depth and validate child depth.
+        // ⑦ Permission check: validate child permissions via intersection
+        //    with parent effective permissions (design doc §⑥).
+        let config = resolved
+            .target_config
+            .ok_or(SpawnError::ConfigNotFound(target_id))?
+            .clone();
+        self.validate_permissions(&config, parent_session_id)
+            .await?;
+
+        // ⑧ Compute effective_max_spawn_depth and validate child depth.
         let effective_max = self.compute_effective_max_depth(
             parent.parent_depth,
             parent.parent_effective_budget,
-            resolved.target_config.as_ref(),
+            Some(&config),
         )?;
 
-        let config = resolved
-            .target_config
-            .ok_or(SpawnError::ConfigNotFound(target_id))?;
         Ok(SpawnValidationResult {
             config,
             effective_max_spawn_depth: effective_max,
@@ -147,6 +160,59 @@ impl SpawnController {
             });
         }
         Ok(effective_max)
+    }
+
+    /// Validate spawn permissions: intersect child permissions with parent
+    /// effective permissions.
+    ///
+    /// Returns `Ok(())` if the spawn is permitted (or if there are no
+    /// permissions to check), or `Err(SpawnError::PermissionDenied)` if
+    /// the spawn is fully denied.
+    async fn validate_permissions(
+        &self,
+        config: &ResolvedAgentConfig,
+        parent_session_id: &str,
+    ) -> Result<(), SpawnError> {
+        let child_perms = self
+            .config_manager
+            .agent_permissions()
+            .get(&config.id)
+            .cloned();
+        let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
+        if let (Some(child_perms), Some(parent_agent_id)) = (child_perms, parent_agent_id) {
+            let parent_perms = self
+                .permission_engine
+                .get_agent_effective_permissions(&parent_agent_id)
+                .or_else(|| {
+                    self.config_manager
+                        .agent_permissions()
+                        .get(&parent_agent_id)
+                        .cloned()
+                });
+            if let Some(parent_perms) = parent_perms {
+                let user_id = self.session_manager.get_sender_id(parent_session_id).await;
+                let user_perms = user_id.as_ref().map(|uid| {
+                    self.permission_engine
+                        .evaluate_user_permissions(uid, &config.id)
+                });
+                self.permission_engine
+                    .validate_and_inject_spawn(
+                        &config.id,
+                        &child_perms,
+                        &parent_perms,
+                        user_perms.as_ref(),
+                        user_id.as_deref(),
+                    )
+                    .map_err(|e| {
+                        tracing::debug!(error = %e, "spawn permission denied");
+                        SpawnError::PermissionDenied {
+                            agent_id: config.id.clone(),
+                            reason: e.to_string(),
+                        }
+                    })?;
+            }
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------------

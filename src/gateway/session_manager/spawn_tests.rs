@@ -641,33 +641,24 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
 /// depth=1, max_spawn_depth=3 (allows further spawning).
 #[test]
 fn test_build_spawn_context_allows_spawning() {
-    let ctx = SessionManager::build_spawn_context(1, 3);
+    let ctx = SessionManager::build_spawn_context(1, 3, "parent-abc", &SpawnMode::Run, false);
     assert!(ctx.contains("sub-agent"), "should declare sub-agent role");
-    assert!(
-        ctx.contains("Current depth: 1 / Maximum depth: 3"),
-        "should contain depth info"
-    );
-    assert!(
-        ctx.contains("results are automatically pushed back"),
-        "should describe push-based communication"
-    );
-    assert!(
-        ctx.contains("Do not poll for status"),
-        "should forbid polling"
-    );
-    assert!(
-        ctx.contains("Your effective maximum depth for children is 2"),
-        "should show effective spawn depth (3-1=2)"
-    );
+    assert!(ctx.contains("**depth**: 1 / **max_spawn_depth**: 3"));
+    assert!(ctx.contains("results are automatically pushed back"));
+    assert!(ctx.contains("Do not poll for status"));
+    assert!(ctx.contains("Your effective maximum depth for children is 2"));
+    assert!(ctx.contains("**parent_session_id**: parent-abc"));
+    assert!(ctx.contains("**spawn_mode**: run"));
+    assert!(ctx.contains("**fork**: false"));
 }
 
 /// Verify `build_spawn_context` omits spawn guidance when depth == max_spawn_depth.
 #[test]
 fn test_build_spawn_context_no_spawning_at_limit() {
-    let ctx = SessionManager::build_spawn_context(3, 3);
+    let ctx = SessionManager::build_spawn_context(3, 3, "parent-abc", &SpawnMode::Run, false);
     assert!(ctx.contains("sub-agent"));
     assert!(
-        ctx.contains("Current depth: 3 / Maximum depth: 3"),
+        ctx.contains("**depth**: 3 / **max_spawn_depth**: 3"),
         "should contain depth info"
     );
     assert!(
@@ -679,8 +670,8 @@ fn test_build_spawn_context_no_spawning_at_limit() {
 /// Verify `build_spawn_context` at depth=0, max_spawn_depth=1 (allows spawning).
 #[test]
 fn test_build_spawn_context_depth_zero() {
-    let ctx = SessionManager::build_spawn_context(0, 1);
-    assert!(ctx.contains("Current depth: 0 / Maximum depth: 1"));
+    let ctx = SessionManager::build_spawn_context(0, 1, "parent-abc", &SpawnMode::Run, false);
+    assert!(ctx.contains("**depth**: 0 / **max_spawn_depth**: 1"));
     assert!(
         ctx.contains("Your effective maximum depth for children is 1"),
         "should show effective depth (1-0=1)"
@@ -690,7 +681,7 @@ fn test_build_spawn_context_depth_zero() {
 /// Verify the behavioral constraints section is always present.
 #[test]
 fn test_build_spawn_context_behavioral_constraints() {
-    let ctx = SessionManager::build_spawn_context(0, 1);
+    let ctx = SessionManager::build_spawn_context(0, 1, "parent-abc", &SpawnMode::Session, true);
     assert!(
         ctx.contains("Behavioral constraints"),
         "should have behavioral constraints header"
@@ -703,6 +694,11 @@ fn test_build_spawn_context_behavioral_constraints() {
         ctx.contains("do not ask for confirmation"),
         "should forbid confirmation-seeking"
     );
+    assert!(
+        ctx.contains("**spawn_mode**: session"),
+        "should reflect session spawn mode"
+    );
+    assert!(ctx.contains("**fork**: true"), "should reflect fork=true");
 }
 
 // ── Step 1.4: child session spawn-context integration test ───────────────
@@ -750,7 +746,7 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
         "system prompt should contain sub-agent role declaration"
     );
     assert!(
-        prompt.contains("Current depth: 2 / Maximum depth: 4"),
+        prompt.contains("**depth**: 2 / **max_spawn_depth**: 4"),
         "system prompt should contain depth info"
     );
     assert!(
@@ -765,7 +761,7 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
 /// section (per design doc §结构化输出) when remaining_depth > 0.
 #[test]
 fn test_build_spawn_context_structured_output_guidance() {
-    let ctx = SessionManager::build_spawn_context(1, 2);
+    let ctx = SessionManager::build_spawn_context(1, 2, "parent-abc", &SpawnMode::Run, false);
     assert!(
         ctx.contains("Structured output (optional)"),
         "should contain structured output header"
@@ -796,7 +792,7 @@ fn test_build_spawn_context_structured_output_guidance() {
 /// and that the child may reply freely.
 #[test]
 fn test_build_spawn_context_structured_output_is_optional() {
-    let ctx = SessionManager::build_spawn_context(0, 1);
+    let ctx = SessionManager::build_spawn_context(0, 1, "parent-abc", &SpawnMode::Run, false);
     assert!(
         ctx.contains("suggestion"),
         "should indicate structured output is a suggestion"
@@ -811,7 +807,7 @@ fn test_build_spawn_context_structured_output_is_optional() {
 /// (it is independent of spawn depth — it always applies).
 #[test]
 fn test_build_spawn_context_structured_output_at_depth_limit() {
-    let ctx = SessionManager::build_spawn_context(3, 0);
+    let ctx = SessionManager::build_spawn_context(3, 0, "parent-abc", &SpawnMode::Run, false);
     assert!(
         ctx.contains("Structured output (optional)"),
         "structured output should be present even at spawn depth limit"

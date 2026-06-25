@@ -3,9 +3,7 @@
 use super::prompt_template::PromptTemplate;
 use crate::agent::registry::AgentRegistry;
 use crate::agent::spawn::SpawnController;
-use crate::config::ConfigManager;
 use crate::gateway::session_manager::{SessionManager, SpawnMode};
-use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
@@ -20,8 +18,6 @@ use std::sync::Arc;
 pub struct SessionsSpawnTool {
     spawn_controller: Arc<SpawnController>,
     session_manager: Arc<SessionManager>,
-    permission_engine: Arc<PermissionEngine>,
-    config_manager: Arc<ConfigManager>,
     agent_registry: Arc<AgentRegistry>,
 }
 
@@ -44,15 +40,11 @@ impl SessionsSpawnTool {
     pub fn new(
         spawn_controller: Arc<SpawnController>,
         session_manager: Arc<SessionManager>,
-        permission_engine: Arc<PermissionEngine>,
-        config_manager: Arc<ConfigManager>,
         agent_registry: Arc<AgentRegistry>,
     ) -> Self {
         Self {
             spawn_controller,
             session_manager,
-            permission_engine,
-            config_manager,
             agent_registry,
         }
     }
@@ -109,55 +101,6 @@ impl SessionsSpawnTool {
             prompt_template,
             model,
         })
-    }
-
-    /// Validate spawn permissions: intersect child permissions with parent effective permissions.
-    ///
-    /// Returns `Ok(())` if the spawn is permitted (or if there are no permissions to check),
-    /// or `Err(ToolCallError)` if the spawn is fully denied.
-    pub(crate) async fn validate_spawn_permissions(
-        &self,
-        config: &crate::config::agents::ResolvedAgentConfig,
-        parent_session_id: &str,
-    ) -> Result<(), ToolCallError> {
-        let child_perms = self
-            .config_manager
-            .agent_permissions()
-            .get(&config.id)
-            .cloned();
-        let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
-        if let (Some(child_perms), Some(parent_agent_id)) = (child_perms, parent_agent_id) {
-            let parent_perms = self
-                .permission_engine
-                .get_agent_effective_permissions(&parent_agent_id)
-                .or_else(|| {
-                    self.config_manager
-                        .agent_permissions()
-                        .get(&parent_agent_id)
-                        .cloned()
-                });
-            if let Some(parent_perms) = parent_perms {
-                // Get user_id from parent session checkpoint for three-way intersection.
-                let user_id = self.session_manager.get_sender_id(parent_session_id).await;
-                let user_perms = user_id.as_ref().map(|uid| {
-                    self.permission_engine
-                        .evaluate_user_permissions(uid, &config.id)
-                });
-                self.permission_engine
-                    .validate_and_inject_spawn(
-                        &config.id,
-                        &child_perms,
-                        &parent_perms,
-                        user_perms.as_ref(),
-                        user_id.as_deref(),
-                    )
-                    .map_err(|e| {
-                        tracing::debug!(error = %e, "spawn permission denied");
-                        ToolCallError::PermissionDenied("spawn".to_string())
-                    })?;
-            }
-        }
-        Ok(())
     }
 
     /// Create a child session for the given config and parameters.
@@ -303,13 +246,16 @@ impl Tool for SessionsSpawnTool {
             .spawn_controller
             .validate(parent_session_id, spawn_args.agent_id.as_deref())
             .await
-            .map_err(|e| {
-                ToolCallError::ExecutionFailed(format!("spawn validation failed: {}", e))
+            .map_err(|e| match e {
+                crate::agent::spawn::SpawnError::PermissionDenied { .. } => {
+                    ToolCallError::PermissionDenied("spawn".to_string())
+                }
+                other => {
+                    ToolCallError::ExecutionFailed(format!("spawn validation failed: {}", other))
+                }
             })?;
         let config = spawn_result.config;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
-        self.validate_spawn_permissions(&config, parent_session_id)
-            .await?;
         // Look up the parent agent's subagents.model config
         // (used as priority level 2 in the model priority chain).
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;

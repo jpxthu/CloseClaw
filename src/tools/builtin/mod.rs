@@ -126,8 +126,6 @@ pub async fn register_builtin_tools(
         .register(SessionsSpawnTool::new(
             context.spawn_controller.clone(),
             context.session_manager.clone(),
-            context.permission_engine.clone(),
-            context.config_manager.clone(),
             context.agent_registry.clone(),
         ))
         .await

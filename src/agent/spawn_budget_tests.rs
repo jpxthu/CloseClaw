@@ -9,6 +9,8 @@ use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use crate::gateway::{DmScope, GatewayConfig, SessionManager};
+use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::{PersistenceService, SessionCheckpoint};
 use crate::session::storage::memory::MemoryStorage;
@@ -112,7 +114,13 @@ async fn save_checkpoint_with_budget(
 async fn test_depth_budget_propagation_multilevel() {
     let cm = Arc::new(make_config_manager());
     let (sm, mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(cm.clone(), sm.clone());
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new().build().unwrap(),
+        )),
+    );
 
     // Root: maxSpawnDepth=3
     let mut root_sub = SubagentsConfig::default();
@@ -184,7 +192,13 @@ async fn test_depth_budget_propagation_multilevel() {
 async fn test_depth_budget_rejected_when_effective_zero() {
     let cm = Arc::new(make_config_manager());
     let (sm, mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(cm.clone(), sm.clone());
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new().build().unwrap(),
+        )),
+    );
 
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = 3;
@@ -256,7 +270,13 @@ async fn test_depth_budget_rejected_when_effective_zero() {
 async fn test_depth_budget_child_narrows_via_min() {
     let cm = Arc::new(make_config_manager());
     let (sm, mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(cm.clone(), sm.clone());
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new().build().unwrap(),
+        )),
+    );
 
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = 5;
@@ -327,7 +347,13 @@ async fn test_depth_budget_child_narrows_via_min() {
 async fn test_depth_budget_checkpoint_vs_config_fallback() {
     let cm = Arc::new(make_config_manager());
     let (sm, mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(cm.clone(), sm.clone());
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new().build().unwrap(),
+        )),
+    );
 
     // Root: maxSpawnDepth=3
     let mut root_sub = SubagentsConfig::default();

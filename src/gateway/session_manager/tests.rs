@@ -300,7 +300,11 @@ async fn test_find_or_create_with_tool_registry() {
         ConfigManager::new(tmp.path().to_path_buf())
             .expect("failed to create ConfigManager for test"),
     );
-    let spawn_controller = Arc::new(SpawnController::new(Arc::clone(&cfg_mgr), Arc::clone(&mgr)));
+    let spawn_controller = Arc::new(SpawnController::new(
+        Arc::clone(&cfg_mgr),
+        Arc::clone(&mgr),
+        perm_engine.clone(),
+    ));
     let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
     let builtin_ctx = Arc::new(BuiltinToolContext {
         config_manager: Arc::clone(&cfg_mgr),
