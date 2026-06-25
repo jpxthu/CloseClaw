@@ -684,67 +684,48 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Force-terminate a child session: cancel its token tree,
-    /// remove it from `conversation_sessions`, `sessions`, and
-    /// the parent's `children` tracking table. The archive is
-    /// preserved (no purge).
+    /// Force-terminate a child session and all its descendants.
     ///
-    /// All descendants are also cleaned up recursively (per design
-    /// doc §级联 Kill — from deepest to shallowest). The `children`
-    /// table is traversed via BFS to discover all descendant session
-    /// IDs before any removals, preventing lock-ordering issues.
+    /// Per design doc §级联 Kill: processes deepest descendants
+    /// first, then the target child itself. For each session:
+    /// stop → clean conversation_sessions → unregister handle →
+    /// clean sessions → clean children table.
     pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
-        // 1. Collect all descendant session IDs via BFS.
         let descendant_ids = {
             let children = self.children.read().await;
             children.list_descendants(child_id)
         };
 
-        // 2. Stop active sessions. Completed/terminated sessions
-        //    skip the stop step but still get cleaned up from the
-        //    spawn tree (design doc §级联 Kill).
-        if let Some(cs) = self.get_conversation_session(child_id).await {
-            cs.read().await.stop(true).await;
-        }
         for id in &descendant_ids {
             if let Some(cs) = self.get_conversation_session(id).await {
                 cs.read().await.stop(true).await;
             }
-        }
-
-        // 3. Remove child + descendants from conversation_sessions.
-        {
-            let mut cs = self.conversation_sessions.write().await;
-            cs.remove(child_id);
-            for id in &descendant_ids {
-                cs.remove(id);
+            self.conversation_sessions.write().await.remove(id);
+            if let Some(info) = self.children.read().await.find_child(id) {
+                let pid = info.parent_session_id.clone();
+                if let Some(pcs) = self.conversation_sessions.read().await.get(&pid) {
+                    pcs.read().await.unregister_child_handle(id);
+                }
             }
+            self.sessions.write().await.remove(id);
+            self.children
+                .write()
+                .await
+                .remove_descendant_entries(&[id.clone()]);
         }
 
-        // 4. Unregister child handle from parent.
-        {
-            let cs = self.conversation_sessions.read().await;
-            if let Some(parent_cs) = cs.get(parent_id) {
-                parent_cs.read().await.unregister_child_handle(child_id);
-            }
+        if let Some(cs) = self.get_conversation_session(child_id).await {
+            cs.read().await.stop(true).await;
         }
-
-        // 5. Remove child + descendants from sessions.
-        {
-            let mut sessions = self.sessions.write().await;
-            sessions.remove(child_id);
-            for id in &descendant_ids {
-                sessions.remove(id);
-            }
+        self.conversation_sessions.write().await.remove(child_id);
+        if let Some(pcs) = self.conversation_sessions.read().await.get(parent_id) {
+            pcs.read().await.unregister_child_handle(child_id);
         }
-
-        // 6. Remove child + descendants from children table.
-        {
-            let mut children = self.children.write().await;
-            children.remove_child(parent_id, child_id);
-            children.remove_descendant_entries(&descendant_ids);
-        }
-
+        self.sessions.write().await.remove(child_id);
+        self.children
+            .write()
+            .await
+            .remove_child(parent_id, child_id);
         Ok(())
     }
 
