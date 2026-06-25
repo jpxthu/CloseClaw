@@ -7,8 +7,6 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::renderer::RenderedOutput;
-
 use super::Gateway;
 
 /// An inbound message awaiting processing.
@@ -229,20 +227,19 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, request: InboundRequest) 
     }
 }
 
-/// Send a "service busy" reply via the IM plugin for the request's platform.
+/// Send a "service busy" reply via the outbound Processor Chain.
+///
+/// The reply text goes through the outbound chain (DslParser → RawLog)
+/// and is then rendered by the IM plugin, consistent with slash-command
+/// and LLM reply paths.
 async fn send_busy_reply(gateway: &Gateway, request: &InboundRequest) {
-    if let Some(plugin) = gateway.get_plugin(&request.platform).await {
-        let output = RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({
-                "content": {
-                    "text": "\u{274C} \u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}"
-                }
-            }),
-        };
-        if let Err(e) = plugin.send(&output, &request.peer_id, None).await {
-            tracing::warn!(error = %e, "failed to send busy reply");
-        }
+    let text =
+        "\u{274C} \u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}";
+    if let Err(e) = gateway
+        .send_outbound_to_chat(&request.peer_id, &request.platform, text)
+        .await
+    {
+        tracing::warn!(error = %e, "failed to send busy reply");
     }
 }
 
