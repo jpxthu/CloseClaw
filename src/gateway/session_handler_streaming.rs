@@ -105,10 +105,15 @@ impl SessionMessageHandler {
                 content: full_prompt,
             });
         }
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-        });
+
+        // ── Consume memory_injection slot ──────────────────────────────────
+        super::session_handler::push_messages_with_injection(
+            &mut messages,
+            session_manager,
+            session_id,
+            content,
+        )
+        .await;
 
         let internal_request = crate::llm::types::InternalRequest {
             model: String::new(),
