@@ -8,6 +8,12 @@ use rusqlite::{params, Connection};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tokio::time::timeout;
+
+use super::active_searcher_llm::{
+    extract_concepts_llm, should_trigger_role, summarize_events_llm, LlmCaller,
+};
+use crate::llm::session::{InjectionPosition, MemoryInjection};
 
 // ── Errors ───────────────────────────────────────────────────────────────
 
@@ -17,6 +23,9 @@ pub enum ActiveSearcherError {
     /// SQLite storage error.
     #[error("sqlite error: {0}")]
     Sqlite(String),
+    /// LLM caller error.
+    #[error("llm error: {0}")]
+    Llm(String),
 }
 
 // ── Configuration ────────────────────────────────────────────────────────
@@ -280,6 +289,92 @@ impl ActiveSearcher {
         }
 
         out
+    }
+
+    // ── Full pipeline ─────────────────────────────────────────────
+
+    /// Run the complete active-searcher pipeline.
+    ///
+    /// 1. Extract concepts via LLM
+    /// 2. Search entities in SQLite
+    /// 3. Find associated events
+    /// 4. Deduplicate against already-injected events
+    /// 5. Summarise via LLM
+    ///
+    /// Returns `None` if the pipeline times out or produces no results.
+    pub async fn run(
+        &self,
+        agent_id: &str,
+        session_role: &str,
+        current_message: &str,
+        context_messages: &[crate::llm::session::SessionMessage],
+        injected_event_ids: &HashSet<i64>,
+        llm: &dyn LlmCaller,
+    ) -> Option<MemoryInjection> {
+        if !should_trigger_role(session_role) {
+            return None;
+        }
+
+        let timeout_duration = std::time::Duration::from_millis(self.config.timeout_ms);
+
+        let result: Result<Result<Option<MemoryInjection>, ActiveSearcherError>, _> =
+            timeout(timeout_duration, async {
+                // 1. Extract concepts
+                let concepts = extract_concepts_llm(llm, context_messages, current_message).await?;
+                if concepts.is_empty() {
+                    return Ok(None);
+                }
+
+                // 2. Search entities
+                let entities = self.search_entities(agent_id, &concepts)?;
+                if entities.is_empty() {
+                    return Ok(None);
+                }
+
+                // 3. Find events
+                let entity_ids: Vec<i64> = entities.iter().map(|e| e.id).collect();
+                let events = self.find_events(&entity_ids)?;
+                if events.is_empty() {
+                    return Ok(None);
+                }
+
+                // 4. Deduplicate
+                let events = self.dedup_events(events, injected_event_ids);
+                if events.is_empty() {
+                    return Ok(None);
+                }
+
+                // 5. Summarise via LLM
+                let events_text = self.summarize_events(&events);
+                let summary =
+                    summarize_events_llm(llm, &events_text, self.config.max_summary_chars).await?;
+
+                // 6. Determine position mode based on session role
+                let position = if session_role == "user" {
+                    InjectionPosition::AfterCurrent
+                } else {
+                    InjectionPosition::BeforeNext
+                };
+
+                // 7. Build injection with event IDs for dedup
+                let mut injection = MemoryInjection::new(summary, position);
+                for ev in &events {
+                    injection.add_injected_event_id(ev.id);
+                }
+
+                Ok(Some(injection))
+            })
+            .await;
+
+        match result {
+            Ok(Ok(Some(injection))) => Some(injection),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if the given session role should trigger active-searcher.
+    pub fn should_trigger(session_role: &str) -> bool {
+        should_trigger_role(session_role)
     }
 
     // ── Internal ─────────────────────────────────────────────────────

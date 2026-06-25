@@ -4,6 +4,7 @@
 //! (session transcript extraction) capabilities.
 
 pub mod active_searcher;
+pub mod active_searcher_llm;
 pub mod dreaming;
 pub mod miner;
 
