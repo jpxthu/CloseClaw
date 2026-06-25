@@ -538,6 +538,9 @@ mod resolve_tests;
 mod spawn_gap_tests;
 #[cfg(test)]
 mod spawn_tests;
+
+#[cfg(test)]
+mod spawn_cascade_tests;
 #[cfg(test)]
 mod spawn_tree_tests;
 #[cfg(test)]
