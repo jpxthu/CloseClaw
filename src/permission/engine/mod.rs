@@ -36,4 +36,7 @@ mod engine_two_phase_tests;
 mod engine_types_tests;
 
 #[cfg(test)]
+mod engine_chain_tests;
+
+#[cfg(test)]
 mod engine_spawn_tests;
