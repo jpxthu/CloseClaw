@@ -341,7 +341,7 @@ async fn build_session_handler(
 ///
 /// Returns [`ExitReason::Quit`] when the user exits normally, or
 /// [`ExitReason::Error`] on I/O failure.
-async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> ExitReason {
+async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> ExitReason {
     let plugin = TerminalPlugin::new();
 
     loop {
@@ -370,7 +370,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> E
             .process_inbound_chain(
                 "terminal",
                 sender_id,
-                agent_id,
+                "cli",
                 &content,
                 &message_id,
                 chrono::Utc::now().timestamp_millis(),
