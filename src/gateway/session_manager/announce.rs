@@ -13,6 +13,7 @@
 
 use super::spawn::SpawnMode;
 use super::SessionManager;
+use crate::gateway::session_manager::communication::CommunicationError;
 use crate::llm::session::{AnnounceEvent, ChatSession, ConversationSession};
 use crate::llm::types::ContentBlock;
 use chrono::Utc;
@@ -71,8 +72,8 @@ impl SessionManager {
     /// `role="system"` message at the head of the parent's next turn.
     ///
     /// Called by `SessionMessageHandler::drain_pending_loop` (Step 1.5)
-    /// before processing user-pending messages. Loops until the queue
-    /// is empty so bursts of child completions accumulated during LLM
+    /// before processing user-pending messages. Loops until the queue is
+    /// empty so bursts of child completions accumulated during LLM
     /// calls are all consumed in a single call. If the session is
     /// missing mid-drain, logs a warning and returns — the next turn
     /// will retry from an empty queue.
@@ -133,6 +134,38 @@ impl SessionManager {
             // Not a child, or mode != Run: nothing to do.
             return;
         };
+
+        // Step 1.3: Check communication permissions before pushing announce.
+        // Child is the source (sending completion to parent), parent is the
+        // target (receiving from child).
+        if let Err(e) = self
+            .check_session_communication(child_session_id, &parent_session_id)
+            .await
+        {
+            match &e {
+                CommunicationError::Denied { reason } => {
+                    warn!(
+                        child_session_id = %child_session_id,
+                        parent_session_id = %parent_session_id,
+                        reason = %reason,
+                        "try_push_announce: communication check denied"
+                    );
+                }
+                CommunicationError::SessionNotFound(s) => {
+                    warn!(
+                        session = %s,
+                        "try_push_announce: session not found during communication check"
+                    );
+                }
+                CommunicationError::NoCommunicationConfig(s) => {
+                    warn!(
+                        session = %s,
+                        "try_push_announce: session missing communication config"
+                    );
+                }
+            }
+            return;
+        }
 
         let Some(result_text) = self.extract_last_assistant_text(child_session_id).await else {
             warn!(
