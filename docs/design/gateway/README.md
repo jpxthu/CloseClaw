@@ -32,13 +32,15 @@ Gateway 维护以下运行时注册表：
               ↓
          [入站消息队列]（有界缓冲，满则拒 + 通知"服务繁忙"）
               ↓
-         [IM 插件: 平台格式解析] → NormalizedMessage
+         [IM 插件: 平台格式解析]
+              ↓
+         NormalizedMessage
               ↓
          [Processor Chain 入站: RawLog→SessionRouter→ContentNormalizer]
               ↓
          ProcessedMessage
               ↓
-         [Gateway: SessionManager.resolve(session_key) → session_id]
+         [Gateway: SessionManager 把 session_key 解析为 session_id]
               ↓
          [Gateway: 路由决策]
               ├─ / 开头 → SlashDispatcher
