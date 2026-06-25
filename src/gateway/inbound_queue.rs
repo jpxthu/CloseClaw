@@ -13,27 +13,20 @@ use super::Gateway;
 
 /// An inbound message awaiting processing.
 ///
-/// Carries all fields needed by `process_inbound_chain` and
-/// `handle_inbound_message` so the consumer task can replay the
-/// full inbound path without the original webhook context.
+/// Stores the raw webhook payload so the consumer task can parse it
+/// through the IM plugin _after_ entering the queue, matching the
+/// design doc architecture where the queue sits before plugin parsing.
+///
+/// `peer_id` is stored separately for the busy-reply path (when the
+/// queue is full, we need a target to reply to without parsing).
 #[derive(Debug, Clone)]
 pub struct InboundRequest {
     /// IM platform identifier (e.g. "feishu", "discord").
     pub platform: String,
-    /// Sender's user ID on the platform.
-    pub sender_id: String,
-    /// Peer / chat ID the message was sent to.
+    /// Raw webhook payload bytes.
+    pub raw_payload: Vec<u8>,
+    /// Peer / chat ID — used for busy-reply when the queue is full.
     pub peer_id: String,
-    /// Message content (text).
-    pub content: String,
-    /// Platform-specific message ID for deduplication.
-    pub message_id: String,
-    /// Message timestamp in milliseconds since epoch.
-    pub timestamp_ms: i64,
-    /// Optional thread / topic ID.
-    pub thread_id: Option<String>,
-    /// Optional account identifier (for multi-account setups).
-    pub account_id: Option<String>,
 }
 
 /// Handle to the inbound queue producer side.
@@ -84,9 +77,19 @@ pub struct InboundQueueFull {
 }
 
 /// Spawn a consumer task that drains the inbound queue and processes
-/// each message through the processor chain and inbound handler.
+/// each message through the IM plugin parser, processor chain, and
+/// inbound handler.
 ///
 /// The task runs until the receiver is closed (Gateway shutdown).
+///
+/// Flow per message:
+/// 1. Get the registered IM plugin for `platform`
+/// 2. Call `plugin.parse_inbound(raw_payload)` → `NormalizedMessage`
+/// 3. Run through `process_inbound_chain`
+/// 4. Hand off to `handle_inbound_message`
+///
+/// When the plugin is not registered or parsing returns `None` (e.g.
+/// unsupported message type), the message is silently dropped.
 pub(crate) fn start_inbound_consumer(
     mut rx: mpsc::Receiver<InboundRequest>,
     gateway: Arc<Gateway>,
@@ -95,18 +98,53 @@ pub(crate) fn start_inbound_consumer(
     tokio::spawn(async move {
         tracing::info!(capacity, "inbound queue consumer started");
         while let Some(req) = rx.recv().await {
+            // ── 1. Resolve plugin ─────────────────────────────────────
+            let Some(plugin) = gateway.get_plugin(&req.platform).await else {
+                tracing::warn!(
+                    platform = %req.platform,
+                    "inbound consumer: no plugin registered — dropping"
+                );
+                continue;
+            };
+
+            // ── 2. Parse raw webhook payload ──────────────────────────
+            let normalized = match plugin.parse_inbound(&req.raw_payload).await {
+                Ok(Some(msg)) => msg,
+                Ok(None) => {
+                    tracing::debug!(
+                        platform = %req.platform,
+                        peer_id = %req.peer_id,
+                        "inbound consumer: parse returned None — dropping"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        platform = %req.platform,
+                        peer_id = %req.peer_id,
+                        error = %e,
+                        "inbound consumer: parse failed — dropping"
+                    );
+                    continue;
+                }
+            };
+
+            // ── 3. Process through inbound chain ──────────────────────
+            let sender_id = normalized.sender_id.clone();
             let processed = gateway
                 .process_inbound_chain(
-                    &req.platform,
-                    &req.sender_id,
-                    &req.peer_id,
-                    &req.content,
-                    &req.message_id,
-                    req.timestamp_ms,
+                    &normalized.platform,
+                    &normalized.sender_id,
+                    &normalized.peer_id,
+                    &normalized.content,
+                    "", // message_id not in NormalizedMessage; empty for now
+                    normalized.timestamp,
                 )
                 .await;
+
+            // ── 4. Handle inbound message ─────────────────────────────
             gateway
-                .handle_inbound_message(processed, Some(&req.sender_id), &req.platform)
+                .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
                 .await;
         }
         tracing::info!("inbound queue consumer stopped");
@@ -118,6 +156,9 @@ pub(crate) fn start_inbound_consumer(
 /// On success the request will be processed by the consumer task.
 /// When the queue is at capacity, a busy reply is sent to the user
 /// via the registered IM plugin and the request is dropped.
+///
+/// When the queue has not been started (fallback mode), the raw payload
+/// is parsed inline and processed immediately.
 pub(crate) async fn enqueue_inbound(gateway: &Gateway, request: InboundRequest) {
     let tx = match gateway
         .inbound_tx
@@ -127,20 +168,50 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, request: InboundRequest) 
     {
         Some(tx) => tx,
         None => {
+            // ── Fallback: process inline when queue is not started ───
             tracing::warn!("inbound queue not started — processing directly");
-            let processed = gateway
-                .process_inbound_chain(
-                    &request.platform,
-                    &request.sender_id,
-                    &request.peer_id,
-                    &request.content,
-                    &request.message_id,
-                    request.timestamp_ms,
-                )
-                .await;
-            gateway
-                .handle_inbound_message(processed, Some(&request.sender_id), &request.platform)
-                .await;
+            if let Some(plugin) = gateway.get_plugin(&request.platform).await {
+                match plugin.parse_inbound(&request.raw_payload).await {
+                    Ok(Some(normalized)) => {
+                        let sender_id = normalized.sender_id.clone();
+                        let processed = gateway
+                            .process_inbound_chain(
+                                &normalized.platform,
+                                &normalized.sender_id,
+                                &normalized.peer_id,
+                                &normalized.content,
+                                "",
+                                normalized.timestamp,
+                            )
+                            .await;
+                        gateway
+                            .handle_inbound_message(
+                                processed,
+                                Some(&sender_id),
+                                &normalized.platform,
+                            )
+                            .await;
+                    }
+                    Ok(None) => {
+                        tracing::debug!(
+                            platform = %request.platform,
+                            "inline fallback: parse returned None — dropping"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            platform = %request.platform,
+                            error = %e,
+                            "inline fallback: parse failed — dropping"
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    platform = %request.platform,
+                    "inline fallback: no plugin registered — dropping"
+                );
+            }
             return;
         }
     };
@@ -183,22 +254,12 @@ mod tests {
     fn inbound_request_fields() {
         let req = InboundRequest {
             platform: "feishu".into(),
-            sender_id: "u1".into(),
+            raw_payload: b"{\"event\":{}}".to_vec(),
             peer_id: "p1".into(),
-            content: "hello".into(),
-            message_id: "m1".into(),
-            timestamp_ms: 1_700_000_000_000,
-            thread_id: Some("t1".into()),
-            account_id: Some("a1".into()),
         };
         assert_eq!(req.platform, "feishu");
-        assert_eq!(req.sender_id, "u1");
+        assert_eq!(req.raw_payload, b"{\"event\":{}}");
         assert_eq!(req.peer_id, "p1");
-        assert_eq!(req.content, "hello");
-        assert_eq!(req.message_id, "m1");
-        assert_eq!(req.timestamp_ms, 1_700_000_000_000);
-        assert_eq!(req.thread_id.as_deref(), Some("t1"));
-        assert_eq!(req.account_id.as_deref(), Some("a1"));
     }
 
     #[test]
@@ -207,13 +268,8 @@ mod tests {
         let handle = InboundQueueHandle::new(tx);
         let req = InboundRequest {
             platform: "feishu".into(),
-            sender_id: "u1".into(),
+            raw_payload: b"hello".to_vec(),
             peer_id: "p1".into(),
-            content: "hello".into(),
-            message_id: "m1".into(),
-            timestamp_ms: 0,
-            thread_id: None,
-            account_id: None,
         };
         assert!(handle.try_send(req).is_ok());
     }
@@ -224,28 +280,18 @@ mod tests {
         let handle = InboundQueueHandle::new(tx);
         let req1 = InboundRequest {
             platform: "feishu".into(),
-            sender_id: "u1".into(),
+            raw_payload: b"a".to_vec(),
             peer_id: "p1".into(),
-            content: "a".into(),
-            message_id: "m1".into(),
-            timestamp_ms: 0,
-            thread_id: None,
-            account_id: None,
         };
         let req2 = InboundRequest {
             platform: "feishu".into(),
-            sender_id: "u2".into(),
+            raw_payload: b"b".to_vec(),
             peer_id: "p2".into(),
-            content: "b".into(),
-            message_id: "m2".into(),
-            timestamp_ms: 0,
-            thread_id: None,
-            account_id: None,
         };
         assert!(handle.try_send(req1).is_ok());
         let err = handle.try_send(req2);
         assert!(err.is_err());
-        assert_eq!(err.unwrap_err().request.content, "b");
+        assert_eq!(err.unwrap_err().request.peer_id, "p2");
     }
 
     #[test]

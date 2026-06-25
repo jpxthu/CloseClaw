@@ -17,16 +17,44 @@ use super::inbound_queue::{start_inbound_consumer, InboundQueueFull, InboundQueu
 // Helpers
 // ---------------------------------------------------------------------------
 
+fn make_raw_payload(text: &str) -> Vec<u8> {
+    serde_json::json!({
+        "header": {
+            "event_id": "ev_test",
+            "event_type": "im.message.receive_v1",
+            "create_time": "1700000000000",
+            "token": "t",
+            "app_id": "a"
+        },
+        "event": {
+            "sender": {
+                "sender_id": {
+                    "open_id": "u1"
+                },
+                "sender_type": "user",
+                "tenant_key": "tk"
+            },
+            "message": {
+                "message_id": "m1",
+                "root_id": "",
+                "parent_id": "",
+                "create_time": "1700000000000",
+                "chat_id": "p1",
+                "chat_type": "p2p",
+                "message_type": "text",
+                "content": format!("{{\"text\":\"{}\"}}", text)
+            }
+        }
+    })
+    .to_string()
+    .into_bytes()
+}
+
 fn make_request(content: &str) -> InboundRequest {
     InboundRequest {
         platform: "feishu".into(),
-        sender_id: "u1".into(),
+        raw_payload: make_raw_payload(content),
         peer_id: "p1".into(),
-        content: content.to_owned(),
-        message_id: format!("mid-{content}"),
-        timestamp_ms: 1_700_000_000_000,
-        thread_id: None,
-        account_id: None,
     }
 }
 
@@ -70,7 +98,7 @@ async fn test_try_send_full_returns_original_request() {
     let err: Result<(), InboundQueueFull> = handle.try_send(make_request("overflow"));
     assert!(err.is_err());
     let full = err.unwrap_err();
-    assert_eq!(full.request.content, "overflow");
+    assert_eq!(full.request.peer_id, "p1");
 }
 
 #[tokio::test]
@@ -87,10 +115,10 @@ async fn test_try_send_closed_channel() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_consumer_fires_process_and_handle() {
-    // The consumer task calls gateway.process_inbound_chain + handle_inbound_message.
-    // Without a session_handler installed, handle_inbound_message returns None,
-    // but the consumer should not panic or hang.
+async fn test_consumer_fires_parse_and_process() {
+    // The consumer task calls gateway.get_plugin → parse_inbound →
+    // process_inbound_chain → handle_inbound_message.
+    // Without a plugin registered, the consumer should not panic or hang.
     let gw = make_gateway();
     let (tx, rx) = mpsc::channel::<InboundRequest>(8);
     let capacity = 8;
@@ -102,9 +130,9 @@ async fn test_consumer_fires_process_and_handle() {
 
     // Give the consumer time to process.
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    // Channel should be drained.
+    // Channel should be drained (messages dropped because no plugin registered).
     assert!(tx.try_send(make_request("z")).is_ok());
-    // No panic = consumer ran and handled missing session_handler gracefully.
+    // No panic = consumer ran and handled missing plugin gracefully.
 }
 
 #[tokio::test]
@@ -184,9 +212,6 @@ async fn test_inbound_request_clone_preserves_fields() {
     let req = make_request("clone-test");
     let cloned = req.clone();
     assert_eq!(cloned.platform, "feishu");
-    assert_eq!(cloned.sender_id, "u1");
     assert_eq!(cloned.peer_id, "p1");
-    assert_eq!(cloned.content, "clone-test");
-    assert_eq!(cloned.thread_id, None);
-    assert_eq!(cloned.account_id, None);
+    assert_eq!(cloned.raw_payload, make_raw_payload("clone-test"));
 }
