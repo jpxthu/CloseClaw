@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::common::VerbosityLevel;
@@ -39,6 +39,9 @@ pub(crate) use crate::llm::session_handles::KillHandle;
 // `ChatSession` trait + `impl ChatSession for ConversationSession` live in
 // the sibling file `session_chat.rs`. Re-exported here so existing
 // `use crate::llm::session::ChatSession;` call sites keep working.
+mod memory_injection;
+pub use memory_injection::{InjectionPosition, MemoryInjection};
+
 mod session_chat;
 pub use session_chat::ChatSession;
 
@@ -117,6 +120,11 @@ pub struct ConversationSession {
     /// Communication configuration for spawned child sessions.
     /// When set, restricts which agents the child may communicate with.
     communication_config: Option<CommunicationConfig>,
+    /// Per-session memory-injection slot.
+    /// Written by the active-searcher async task, consumed and cleared
+    /// by the session owner when assembling the next message list.
+    /// Not persisted across process restarts.
+    memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every message
     /// push or state mutation.  Used by the shutdown progress card to
     /// display accurate "elapsed since last activity" instead of session age.
@@ -161,6 +169,7 @@ impl ConversationSession {
             cancel_token: CancellationToken::new(),
             stopped: Arc::new(AtomicBool::new(false)),
             communication_config: None,
+            memory_injection: Arc::new(Mutex::new(None)),
             last_activity_at: Utc::now().timestamp(),
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
@@ -254,6 +263,53 @@ impl ConversationSession {
     /// Overrides the verbosity level at runtime.
     pub fn set_verbosity_level(&mut self, level: VerbosityLevel) {
         self.verbosity_level = level;
+    }
+
+    /// Returns a reference to the memory-injection Arc.
+    pub fn memory_injection_arc(&self) -> &Arc<Mutex<Option<MemoryInjection>>> {
+        &self.memory_injection
+    }
+
+    /// Write a memory-injection payload into the slot.
+    pub fn set_memory_injection(&self, injection: MemoryInjection) {
+        let mut slot = self
+            .memory_injection
+            .lock()
+            .expect("memory_injection lock poisoned");
+        *slot = Some(injection);
+    }
+
+    /// Take the current memory-injection payload, replacing the slot
+    /// with `None`. Returns `None` if the slot was already empty.
+    pub fn take_memory_injection(&self) -> Option<MemoryInjection> {
+        let mut slot = self
+            .memory_injection
+            .lock()
+            .expect("memory_injection lock poisoned");
+        slot.take()
+    }
+
+    /// Record that `event_id` has been injected in the current session.
+    /// If no injection exists yet, this is a no-op.
+    pub fn add_injected_event_id(&self, event_id: i64) {
+        let mut slot = self
+            .memory_injection
+            .lock()
+            .expect("memory_injection lock poisoned");
+        if let Some(ref mut inj) = *slot {
+            inj.add_injected_event_id(event_id);
+        }
+    }
+
+    /// Returns `true` if `event_id` was already injected in this session.
+    pub fn is_event_injected(&self, event_id: i64) -> bool {
+        let slot = self
+            .memory_injection
+            .lock()
+            .expect("memory_injection lock poisoned");
+        slot.as_ref()
+            .map(|inj| inj.is_event_injected(event_id))
+            .unwrap_or(false)
     }
 
     /// Replace the system prompt on an existing session.
@@ -606,6 +662,13 @@ impl std::fmt::Debug for ConversationSession {
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
             .field("communication_config", &self.communication_config)
             .field("verbosity_level", &self.verbosity_level)
+            .field(
+                "memory_injection",
+                &*self
+                    .memory_injection
+                    .lock()
+                    .expect("memory_injection lock poisoned"),
+            )
             .finish()
     }
 }
