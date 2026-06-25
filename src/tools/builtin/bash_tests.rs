@@ -20,6 +20,26 @@ fn test_bg_manager() -> Arc<BackgroundTaskManager> {
     Arc::new(BackgroundTaskManager::new())
 }
 
+fn test_session_manager() -> Arc<SessionManager> {
+    use crate::gateway::GatewayConfig;
+    use crate::gateway::SessionManager;
+    use crate::session::bootstrap::BootstrapMode;
+    use crate::session::persistence::ReasoningLevel;
+    Arc::new(SessionManager::new(
+        &GatewayConfig {
+            name: "test".to_string(),
+            rate_limit_per_minute: 100,
+            max_message_size: 1024,
+            dm_scope: crate::gateway::DmScope::default(),
+            ..Default::default()
+        },
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ))
+}
+
 fn test_tool_context() -> ToolContext {
     ToolContext {
         agent_id: "test-agent".to_string(),
@@ -135,14 +155,22 @@ fn test_resolve_cwd_with_cwd_arg() {
 
 #[test]
 fn test_bash_tool_name_and_group() {
-    let tool = BashTool::new(test_permission_engine(), test_bg_manager());
+    let tool = BashTool::new(
+        test_permission_engine(),
+        test_bg_manager(),
+        test_session_manager(),
+    );
     assert_eq!(tool.name(), "Bash");
     assert_eq!(tool.group(), "bash");
 }
 
 #[test]
 fn test_bash_tool_flags() {
-    let tool = BashTool::new(test_permission_engine(), test_bg_manager());
+    let tool = BashTool::new(
+        test_permission_engine(),
+        test_bg_manager(),
+        test_session_manager(),
+    );
     let flags = tool.flags();
     assert!(flags.is_destructive);
     assert!(flags.is_expensive);
@@ -152,7 +180,11 @@ fn test_bash_tool_flags() {
 
 #[test]
 fn test_input_schema_command_required() {
-    let tool = BashTool::new(test_permission_engine(), test_bg_manager());
+    let tool = BashTool::new(
+        test_permission_engine(),
+        test_bg_manager(),
+        test_session_manager(),
+    );
     let schema = tool.input_schema();
     let required = schema["required"].as_array().unwrap();
     assert!(required.contains(&json!("command")));
@@ -160,7 +192,11 @@ fn test_input_schema_command_required() {
 
 #[test]
 fn test_input_schema_six_properties() {
-    let tool = BashTool::new(test_permission_engine(), test_bg_manager());
+    let tool = BashTool::new(
+        test_permission_engine(),
+        test_bg_manager(),
+        test_session_manager(),
+    );
     let schema = tool.input_schema();
     let props = schema["properties"].as_object().unwrap();
     assert_eq!(props.len(), 6);

@@ -2,12 +2,17 @@
 
 use super::engine_eval::PermissionEngine;
 use super::engine_risk::assess_risk_level;
-use super::engine_types::{PermissionRequest, PermissionRequestBody, PermissionResponse};
+use super::engine_types::{PermissionRequest, PermissionRequestBody, PermissionResponse, Subject};
 
 impl PermissionEngine {
     /// Simplified permission check — evaluates if `agent_id` may
     /// perform `action`.
-    pub fn check(&self, agent_id: &str, action: &str) -> PermissionResponse {
+    pub fn check(
+        &self,
+        agent_id: &str,
+        action: &str,
+        extra_deny_subjects: Option<&[Subject]>,
+    ) -> PermissionResponse {
         let body = match action {
             "exec" => PermissionRequestBody::CommandExec {
                 agent: agent_id.to_string(),
@@ -56,6 +61,9 @@ impl PermissionEngine {
             }
         };
 
-        self.evaluate(PermissionRequest::Bare(body), None)
+        self.evaluate(
+            PermissionRequest::Bare(body),
+            extra_deny_subjects.map(|s| s.to_vec()),
+        )
     }
 }

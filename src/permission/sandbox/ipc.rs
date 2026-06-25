@@ -33,7 +33,11 @@ pub const IPC_TIMEOUT_MS: u64 = 3000;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SandboxRequest {
     /// Ask the engine to evaluate a permission request.
-    Evaluate { request: PermissionRequest },
+    Evaluate {
+        request: PermissionRequest,
+        #[serde(default)]
+        extra_deny_subjects: Option<Vec<crate::permission::engine::engine_types::Subject>>,
+    },
     /// Ask the engine to reload its ruleset.
     ReloadRules { rules: RuleSet },
     /// Ping — returns Pong.
@@ -177,9 +181,12 @@ async fn handle_connection(
 
         // Process request
         let response = match &request {
-            SandboxRequest::Evaluate { request } => {
-                SandboxResponse::PermissionResponse(engine.evaluate(request.clone(), None))
-            }
+            SandboxRequest::Evaluate {
+                request,
+                extra_deny_subjects,
+            } => SandboxResponse::PermissionResponse(
+                engine.evaluate(request.clone(), extra_deny_subjects.clone()),
+            ),
             SandboxRequest::ReloadRules { rules: _ } => {
                 // The engine is recreated externally; we just acknowledge.
                 SandboxResponse::RulesReloaded
@@ -255,6 +262,7 @@ mod tests {
                     op: "read".to_string(),
                 },
             ),
+            extra_deny_subjects: None,
         };
         let json = serde_json::to_vec(&req).unwrap();
         let deserialized: SandboxRequest = serde_json::from_slice(&json).unwrap();

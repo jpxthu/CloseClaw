@@ -10,7 +10,9 @@
 //! etc.) live in the sibling module [`super::bash_kill`] to keep this
 //! file under the CONTRIBUTING.md 500-line hard cap.
 
+use crate::gateway::SessionManager;
 use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::permission::engine::engine_helpers::collect_chain_deny_subjects;
 use crate::permission::engine::engine_types::PermissionResponse;
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::security::{BashSecurityAnalyzer, TrustLevel};
@@ -40,6 +42,7 @@ const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 pub struct BashTool {
     permission_engine: Arc<PermissionEngine>,
     bg_manager: Arc<BackgroundTaskManager>,
+    session_manager: Arc<SessionManager>,
 }
 
 impl BashTool {
@@ -48,10 +51,12 @@ impl BashTool {
     pub fn new(
         permission_engine: Arc<PermissionEngine>,
         bg_manager: Arc<BackgroundTaskManager>,
+        session_manager: Arc<SessionManager>,
     ) -> Self {
         Self {
             permission_engine,
             bg_manager,
+            session_manager,
         }
     }
 }
@@ -134,7 +139,14 @@ impl Tool for BashTool {
     }
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
-        execute_bash_call(&self.permission_engine, &self.bg_manager, args, ctx).await
+        execute_bash_call(
+            &self.permission_engine,
+            &self.session_manager,
+            &self.bg_manager,
+            args,
+            ctx,
+        )
+        .await
     }
 }
 
@@ -258,6 +270,7 @@ async fn handle_foreground_result(
 /// Execute the BashTool call: parse args, check permissions, run command.
 async fn execute_bash_call(
     perm: &PermissionEngine,
+    session_manager: &SessionManager,
     bg: &Arc<BackgroundTaskManager>,
     args: Value,
     ctx: &ToolContext,
@@ -301,7 +314,20 @@ async fn execute_bash_call(
     }
 
     // --- 3. Permission check ---
-    if let PermissionResponse::Denied { reason, .. } = perm.check(&ctx.agent_id, "exec") {
+    let extra_deny = if let Some(ref session_id) = ctx.session_id {
+        let subjects =
+            collect_chain_deny_subjects(session_manager, &perm.rules, session_id, &ctx.agent_id)
+                .await;
+        if subjects.is_empty() {
+            None
+        } else {
+            Some(subjects)
+        }
+    } else {
+        None
+    };
+    let deny_ref = extra_deny.as_deref();
+    if let PermissionResponse::Denied { reason, .. } = perm.check(&ctx.agent_id, "exec", deny_ref) {
         return Err(ToolCallError::PermissionDenied(reason));
     }
 

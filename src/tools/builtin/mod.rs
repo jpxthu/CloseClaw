@@ -109,7 +109,11 @@ pub async fn register_builtin_tools(
     // bash
     let bg_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
     registry
-        .register(BashTool::new(context.permission_engine.clone(), bg_manager))
+        .register(BashTool::new(
+            context.permission_engine.clone(),
+            bg_manager,
+            context.session_manager.clone(),
+        ))
         .await
         .ok();
     // skills
