@@ -128,6 +128,8 @@ Gateway 涉及两层排队：
             └─ 正忙 → [Session 忙碌队列]（第 2 层）→ 通知"排队中"
                            ↓
                        Session 空闲后 FIFO 取出
+                         ↓
+                    按原路由分派（LLM / SlashDispatcher）
 ```
 
 ### 斜杠指令副作用执行

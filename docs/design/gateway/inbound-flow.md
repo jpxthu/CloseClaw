@@ -31,7 +31,9 @@ ProcessedMessage { content, metadata { session_key } }
   → content 以 / 开头？
     ├─ 是 → 先拦截 /approve、/deny（不进 SlashDispatcher）
     │       其余斜杠 → SlashDispatcher（不进入 LLM）
-    └─ 否 → Session → LLM → ContentBlock[]（进入出站）
+    └─ 否 → Session → LLM
+                       ↓
+                  ContentBlock[]（进入出站）
 ```
 
 ### 关键设计
