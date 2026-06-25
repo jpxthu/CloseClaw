@@ -29,7 +29,8 @@ ProcessedMessage { content, metadata { session_key } }
 [Gateway]
   → SessionManager.resolve(session_key) → 获得 session_id
   → content 以 / 开头？
-    ├─ 是 → 先拦截 /approve、/deny → SlashDispatcher（不进入 LLM）
+    ├─ 是 → 先拦截 /approve、/deny（不进 SlashDispatcher）
+    │       其余斜杠 → SlashDispatcher（不进入 LLM）
     └─ 否 → Session → LLM → ContentBlock[]（进入出站）
 ```
 
