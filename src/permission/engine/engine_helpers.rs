@@ -1,6 +1,7 @@
 //! Permission Engine - Helper utilities.
 
 use super::engine_types::{Action, Effect, Subject};
+use crate::agent::config::AgentPermissions;
 use crate::gateway::SessionManager;
 use crate::permission::engine::engine_types::RuleSet;
 use std::collections::HashMap;
@@ -83,6 +84,46 @@ pub async fn collect_chain_deny_subjects(
     }
 
     all_subjects
+}
+
+/// Compute the effective permissions for a child agent by intersecting
+/// configured permissions of every ancestor in the spawn chain.
+///
+/// Traverses upward from the direct parent via `SessionManager::get_parent_of`.
+/// At each level the ancestor's configured permissions (from
+/// `agent_permissions`) are intersected with the accumulated result.
+/// Ancestors without configured permissions are skipped.
+///
+/// Returns `None` if the direct parent has no configured permissions
+/// (caller should treat as no restriction, matching prior behavior).
+pub async fn collect_chain_effective_permissions(
+    session_manager: &SessionManager,
+    agent_permissions: &HashMap<String, AgentPermissions>,
+    parent_session_id: &str,
+    parent_agent_id: &str,
+) -> Option<AgentPermissions> {
+    let mut result = agent_permissions.get(parent_agent_id)?.clone();
+    let mut current_session = parent_session_id.to_string();
+
+    loop {
+        let ancestor_session = match session_manager.get_parent_of(&current_session).await {
+            Some(id) => id,
+            None => break,
+        };
+
+        let ancestor_agent_id = match session_manager.get_chat_id(&ancestor_session).await {
+            Some(id) => id,
+            None => break,
+        };
+
+        if let Some(ancestor_perms) = agent_permissions.get(&ancestor_agent_id) {
+            result = result.intersect(ancestor_perms);
+        }
+
+        current_session = ancestor_session;
+    }
+
+    Some(result)
 }
 
 /// Resolve template actions with overrides applied.
