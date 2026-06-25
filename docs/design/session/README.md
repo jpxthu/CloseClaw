@@ -57,17 +57,17 @@ Gateway / SessionManager  ← session 生命周期协调者
   **session_key 与会话路由键**：
   - session_key = {timestamp}-{hash}，hash 由 platform:sender_id:peer_id:account_id:timestamp_ms 共同计算，确保并发消息因时间戳不同而产生不同 key。thread_id 不参与 session_key 计算——仅用于出站时定向回复
   - session_key 是消息级路由标识，每条消息唯一。SessionManager 内部从 session_key 或消息的路由字段中提取稳定的会话路由键（platform + sender_id + peer_id + account_id）用于 registry 查找
-  - 会话路由键是稳定的 lookup 键。同一路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
+  - 会话路由键是稳定的 lookup 键。同一会话路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
 
-  **key_registry 生命周期**：
-  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各路由键下最新 session_id 写入映射表。archived session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
+  **key registry 生命周期**：
+  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各会话路由键下最新 session_id 写入映射表。archived session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
   - 运行时：SessionManager 收到 resolve(session_key) 调用后，从消息路由字段中提取会话路由键，查映射表获取已有 session
     - 命中 → 校验 session status 仍为 active。若 status 已变为 archived（如被 Sweeper 归档），从映射表移除该条目 → 走未命中回退路径
     - 未命中 → 通过会话路由字段查询 SQLite → 查到 archived 则取 last_message_at 最新的一条恢复并注册 → 查不到则创建新 session 并注册
-    - 创建新 session 前，做一次 SQLite 双重确认：该路由键下是否已有 active session（防御性检查，正常不应发生）。若有 → 直接注册已有 session（自愈），不再创建新的
+    - 创建新 session 前，做一次 SQLite 双重确认：该会话路由键下是否已有 active session（防御性检查，正常不应发生）。若有 → 直接注册已有 session（自愈），不再创建新的
   - 创建新 session 后覆盖映射。`/new` 指令同理
   - 映射表为纯内存数据结构，不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段
-  - SessionManager 对每个 agent_id 串行处理请求，确保同一路由键的 lookup、恢复、创建操作不会并发竞态
+  - SessionManager 对每个 agent_id 串行处理请求，确保同一会话路由键的 lookup、恢复、创建操作不会并发竞态
   - **CheckpointManager**：协调 SessionCheckpoint 的读写缓存和持久化。需要持久化时调用 PersistenceService。
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
   - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。
@@ -107,7 +107,7 @@ Gateway / SessionManager  ← session 生命周期协调者
         → 注册到映射表
         → 执行状态初始为 Idle
         → Gateway 通知用户 → 返回恢复后的 session
-      → 查不到 archived → 双重确认该路由键下无 active session
+      → 查不到 archived → 双重确认该会话路由键下无 active session
         → 若有 → 注册已有 session 到映射表（自愈，不创建新 session）
         → 若无 → 创建新 session → 注册到映射表
           → 构建 system prompt（注入 bootstrap、工具列表、skill 列表）

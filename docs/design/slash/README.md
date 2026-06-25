@@ -9,7 +9,7 @@
 斜杠指令系统由三个核心组件组成：
 
 - **Dispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 Dispatcher，否则正常路由到 Session。
-- **HandlerRegistry**：指令注册表，维护指令名到 Handler 的映射。Gateway 初始化时注册所有 Handler，查询为 O(1)。
+- **HandlerRegistry**：指令注册表，维护指令名到 Handler 的映射。Gateway 初始化时注册所有 Handler。
 - **Handler**：指令处理器。每个 Handler 负责一组关联指令，接收指令参数和上下文，返回 SlashResult。
 
 Dispatcher 不持有 Session 引用——Handler 返回 SlashResult 后，由 Gateway 构造 SideEffectContext 并调用 SlashResult.execute()。SideEffectContext 封装 Session 操作和消息回复能力，各 SlashResult 变体在 execute() 内自行完成副作用。Gateway 不感知具体变体，只负责传递上下文。
@@ -84,7 +84,7 @@ Gateway.handle_inbound()
             │         SlashResult.execute(ctx) —— 各变体自行完成副作用
             │           ↓
             │         回复内容经出站 Processor Chain → IM 插件渲染发送
-            └── 未命中 → SlashResult::Unknown → 回复"未知指令"
+            └── 未命中 → SlashResult::Unknown → 回复（经出站 Processor Chain → IM 插件发送）
 ```
 
 关键判断点：

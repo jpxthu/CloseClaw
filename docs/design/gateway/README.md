@@ -22,7 +22,7 @@ Gateway 维护以下运行时注册表：
 - **Processor Registry**：入站/出站处理器链，按 priority 排序
 - **入站消息队列**：有界缓冲队列，暂存 Gateway 来不及处理的入站消息
 
-**明确不做的职责**（详见下方无关表）：Bootstrap 加载与 System Prompt 构建、LLM 调用、工具注册与执行。
+**明确不做的职责**（详见下方无关表）：Bootstrap 加载与 System Prompt 构建、LLM 调用、工具注册与工具调用的直接执行。
 
 ### 模块分层和数据流
 
@@ -48,7 +48,7 @@ Gateway 维护以下运行时注册表：
                                      ↓
                                 ContentBlock[]（LLM 响应，进入出站）
 
-出站（ContentBlock[] 来自 LLM 响应（由 Session 产出）或 SlashHandler，经 verbosity 过滤后进入 Processor Chain）：
+出站（ContentBlock[] 来源：LLM 响应由 Session 产出，或斜杠指令回复由 SlashResult 变体产出；均经 Verbosity 过滤后进入 Processor Chain）：
 
   ContentBlock[] → [Verbosity 过滤]（详见 [slash 模块 verbose 指令](../slash/verbose.md)）
                  → [Processor Chain 出站: DslParser→RawLog]
