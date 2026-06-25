@@ -7,7 +7,7 @@
 
 use super::SessionManager;
 use crate::config::agents::ResolvedAgentConfig;
-use crate::gateway::session_manager::communication::CommunicationConfig;
+use crate::gateway::session_manager::communication::{CommunicationConfig, CommunicationError};
 use crate::gateway::Session;
 use crate::llm::session::ChatSession;
 use crate::llm::session::ConversationSession;
@@ -534,6 +534,23 @@ impl SessionManager {
     /// message queue. The task is enqueued (FIFO) and will be
     /// consumed after the child's current turn completes.
     pub(crate) async fn steer_child(&self, child_id: &str, task: &str) -> Result<(), String> {
+        let parent_session_id = self
+            .get_parent_of(child_id)
+            .await
+            .ok_or_else(|| format!("no parent registered for child session: {}", child_id))?;
+
+        self.check_session_communication(&parent_session_id, child_id)
+            .await
+            .map_err(|e| match e {
+                CommunicationError::Denied { reason } => {
+                    format!("steer blocked by communication policy: {}", reason)
+                }
+                CommunicationError::SessionNotFound(s) => {
+                    format!("session not found: {}", s)
+                }
+                other => format!("communication check failed: {}", other),
+            })?;
+
         let cs = self
             .get_conversation_session(child_id)
             .await
