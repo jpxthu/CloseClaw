@@ -43,12 +43,12 @@ ProcessedMessage → Gateway 路由
 
 SessionRouter 计算 session_key 的方式：
 
-- `session_key = hash(platform, sender_id, peer_id, account_id, agent_id)`
+- `session_key = {timestamp}-{hash}`，hash 由 `platform:sender_id:peer_id:account_id:timestamp_ms` 拼接后计算
 - `account_id` 由 `sender_id` 通过身份映射得到，是 CloseClaw 本地的账号标识。一个 CloseClaw 账号可绑定多个平台的 sender_id
-- `agent_id` 参与哈希，用于区分同一 CloseClaw 实例上运行的不同 agent 的 session
+- `timestamp_ms` 为消息到达时间的毫秒级 Unix 时间戳，确保并发消息产生不同 key
 - `thread_id` 不参与——仅用于出站时 Gateway 定向回复到正确的话题线
 
-session_key 是一个确定性哈希值，相同的输入永远产相同的 key。但 session_key 不直接等于 session_id——它只是一个查找键。
+session_key 含时间戳，每条消息的 key 不同。但 session_key 不直接等于 session_id——它只是一个查找键。
 
 Gateway 拿到 session_key 后，调用 SessionManager 的 key registry 查表获得最新的 session_id。`/new` 指令在同输入下创建新 session 时，registry 覆盖为新的 session_id，旧 session 自然脱离路由。
 
@@ -70,7 +70,7 @@ SessionRouter 不区分私聊和群聊。会话粒度由 Adapter 通过 peer_id 
 ```
 IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content }
   → RawLogProcessor：记录原始内容到日志 → 透传
-    → SessionRouter：计算 session_key = hash(platform, sender_id, peer_id, account_id, agent_id) → 写入 metadata.session_key
+    → SessionRouter：计算 session_key = {timestamp}-{hash(platform, sender_id, peer_id, account_id, timestamp_ms)} → 写入 metadata.session_key
       → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）
         → ProcessedMessage { content, metadata { session_key } }
           → Gateway

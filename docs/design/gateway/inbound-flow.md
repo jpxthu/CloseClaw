@@ -7,7 +7,10 @@
 ## 架构
 
 ```
-webhook
+webhook → webhook → webhook → ...（高并发）
+  ↓
+[Gateway 入站消息队列]
+  有界缓冲 → 满则拒 + 回复"服务繁忙"。重启清空，消息由 IM 平台 webhook 重试补偿
   ↓
 [IM 插件]
   平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, timestamp }
@@ -39,9 +42,13 @@ ProcessedMessage { content, metadata { session_key } }
 
 ## 数据流
 
+### 第零步：入站消息队列
+
+高并发入站时 webhook 消息先进入 Gateway 的入站消息队列。队列属性（边界、持久化、满行为、重启行为）见 [Gateway README](README.md#消息队列与排队语义)。
+
 ### 第一步：IM 插件解析
 
-各 IM 平台（飞书、Discord、Telegram 等）的 webhook 到达后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`：
+IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`：
 
 | 字段 | 来源 | 说明 |
 |------|------|------|

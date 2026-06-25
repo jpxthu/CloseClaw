@@ -28,7 +28,7 @@ Session 模块由持久化层和执行层两部分组成：
 ```
 Gateway / SessionManager  ← session 生命周期协调者
     │
-    ├── session_key → session_id 映射表  ← 路由到最新 session
+    ├── 会话路由键 → session_id 映射表  ← 路由到最新 session
     │
     ├── 持久化层
     │   ├── CheckpointManager  ← 持久化协调（内存缓存 + PersistenceService）
@@ -52,21 +52,22 @@ Gateway / SessionManager  ← session 生命周期协调者
 ```
 
 - **持久化层组件**：
-  - **SessionManager**：session 的创建、查找、恢复入口。维护 session_key → session_id 映射表。查询时：key 命中返回已有 session，未命中创建新 session 并写入映射。`/new` 指令创建新 session 后覆盖映射。协调各组件完成 session 初始化。session_id 格式为 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒（`YYYYMMDDhhmmss`），random_suffix 为 8 位小写 hex 随机字符串。
+  - **SessionManager**：session 的创建、查找、恢复入口。维护会话路由键 → session_id 映射表。查询时：命中返回已有 session，未命中创建新 session 并写入映射。`/new` 指令创建新 session 后覆盖映射。协调各组件完成 session 初始化。session_id 格式为 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒（`YYYYMMDDhhmmss`），random_suffix 为 8 位小写 hex 随机字符串。
 
   **session_key 与会话路由键**：
-  - session_key = hash(platform, sender_id, peer_id, account_id, agent_id)。agent_id 用于区分同一 CloseClaw 实例上运行的不同 agent 的 session。thread_id 不参与 session_key 计算——仅用于出站时定向回复
-  - session_key 是路由查找键，不直接等于 session_id。同一 key 下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
+  - session_key = {timestamp}-{hash}，hash 由 platform:sender_id:peer_id:account_id:timestamp_ms 共同计算，确保并发消息因时间戳不同而产生不同 key。thread_id 不参与 session_key 计算——仅用于出站时定向回复
+  - session_key 是消息级路由标识，每条消息唯一。SessionManager 内部从 session_key 或消息的路由字段中提取稳定的会话路由键（platform + sender_id + peer_id + account_id）用于 registry 查找
+  - 会话路由键是稳定的 lookup 键。同一路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
 
   **key_registry 生命周期**：
-  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键分组，取各 key 下最新 session_id 写入映射表。archived session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
-  - 运行时：查映射表获取已有 session
+  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各路由键下最新 session_id 写入映射表。archived session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
+  - 运行时：SessionManager 收到 resolve(session_key) 调用后，从消息路由字段中提取会话路由键，查映射表获取已有 session
     - 命中 → 校验 session status 仍为 active。若 status 已变为 archived（如被 Sweeper 归档），从映射表移除该条目 → 走未命中回退路径
     - 未命中 → 通过会话路由字段查询 SQLite → 查到 archived 则取 last_message_at 最新的一条恢复并注册 → 查不到则创建新 session 并注册
-    - 创建新 session 前，做一次 SQLite 双重确认：该 key 下是否已有 active session（防御性检查，正常不应发生）。若有 → 直接注册已有 session（自愈），不再创建新的
+    - 创建新 session 前，做一次 SQLite 双重确认：该路由键下是否已有 active session（防御性检查，正常不应发生）。若有 → 直接注册已有 session（自愈），不再创建新的
   - 创建新 session 后覆盖映射。`/new` 指令同理
   - 映射表为纯内存数据结构，不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段
-  - SessionManager 对每个 agent_id 串行处理请求，确保同一 key 的 lookup、恢复、创建操作不会并发竞态
+  - SessionManager 对每个 agent_id 串行处理请求，确保同一路由键的 lookup、恢复、创建操作不会并发竞态
   - **CheckpointManager**：协调 SessionCheckpoint 的读写缓存和持久化。需要持久化时调用 PersistenceService。
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
   - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。
@@ -76,6 +77,7 @@ Gateway / SessionManager  ← session 生命周期协调者
   - **三维执行状态**：LLM 状态、Tool 状态（per-invocation）、子 Session 状态三者独立跟踪，组合判定 session 当前是否空闲。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle。
   - **级联停止**：停止一个 session 时，递归停止其所有子 session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。
   - **后台结果注入**：后台工具完成或子 session 完成时，结果通过优先级消息队列（now > next > later）作为消息注入对话流，agent 在下一轮 turn 中消费。
+  - **Session 忙碌队列**：Session 正忙（LLM 运行中或工具执行中）时，Gateway 路由来的新用户消息进入 FIFO 待处理队列。Session 空闲后自动取出队首消息，按原路由分派：普通消息送入 LLM，斜杠指令分派给 SlashDispatcher。入队时 Gateway 回复"⏳ 正在排队..."通知用户。Immediate 斜杠指令（/stop、/status、/help 等）绕过此队列。
 
 各子功能的关系：
 - **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Archived）描述持久化状态，与执行状态无关。
@@ -105,7 +107,7 @@ Gateway / SessionManager  ← session 生命周期协调者
         → 注册到映射表
         → 执行状态初始为 Idle
         → Gateway 通知用户 → 返回恢复后的 session
-      → 查不到 archived → 双重确认该 key 下无 active session
+      → 查不到 archived → 双重确认该路由键下无 active session
         → 若有 → 注册已有 session 到映射表（自愈，不创建新 session）
         → 若无 → 创建新 session → 注册到映射表
           → 构建 system prompt（注入 bootstrap、工具列表、skill 列表）
