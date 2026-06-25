@@ -87,7 +87,6 @@ impl super::SessionManager {
     ///
     /// Returns `Ok(())` if allowed, or `Err(CommunicationError)` with a
     /// descriptive reason if denied.
-    #[allow(dead_code)] // called in Step 1.2 / 1.3
     pub(crate) async fn check_session_communication(
         &self,
         source_session_id: &str,
@@ -125,13 +124,14 @@ impl super::SessionManager {
             )
         };
 
-        // 3. Extract configs (or treat missing config as deny-all).
-        let source_config = source_config_opt.ok_or_else(|| {
-            CommunicationError::NoCommunicationConfig(source_session_id.to_string())
-        })?;
-        let target_config = target_config_opt.ok_or_else(|| {
-            CommunicationError::NoCommunicationConfig(target_session_id.to_string())
-        })?;
+        // 3. Extract configs. Missing config = unrestricted
+        //    (parent/orchestrator sessions are not constrained).
+        let allow_all = CommunicationConfig {
+            outbound: vec!["*".to_string()],
+            inbound: vec!["*".to_string()],
+        };
+        let source_config = source_config_opt.unwrap_or(allow_all.clone());
+        let target_config = target_config_opt.unwrap_or(allow_all);
 
         // 4. Delegate to the pure function and translate the result.
         match check_communication_allowed(
