@@ -368,7 +368,8 @@ impl SessionManager {
         // 4a. Append spawn context to the system prompt so the child
         //     agent knows its role, depth limits, and communication
         //     behavior.  Non-spawn sessions never reach this path.
-        let spawn_context = Self::build_spawn_context(depth, max_spawn_depth);
+        let spawn_context =
+            Self::build_spawn_context(depth, max_spawn_depth, parent_session_id, &mode, fork);
         let prompt = format!("{}\n{}", prompt, spawn_context);
 
         // 5. Create ConversationSession
@@ -524,11 +525,24 @@ impl SessionManager {
     /// - Communication behavior (push-based, no polling)
     /// - Behavioral constraints (direct execution, no back-and-forth)
     /// - Spawn guidance when depth allows further spawning
-    pub(crate) fn build_spawn_context(depth: u32, max_spawn_depth: u32) -> String {
+    pub(crate) fn build_spawn_context(
+        depth: u32,
+        max_spawn_depth: u32,
+        parent_session_id: &str,
+        spawn_mode: &SpawnMode,
+        fork: bool,
+    ) -> String {
+        let mode_str = match spawn_mode {
+            SpawnMode::Run => "run",
+            SpawnMode::Session => "session",
+        };
         let mut ctx = format!(
             "## Spawn Context\n\
-             You are running as a sub-agent. \
-             Current depth: {depth} / Maximum depth: {max_spawn_depth}.\n\
+             You are running as a sub-agent.\n\
+             - **parent_session_id**: {parent_session_id}\n\
+             - **depth**: {depth} / **max_spawn_depth**: {max_spawn_depth}\n\
+             - **spawn_mode**: {mode_str}\n\
+             - **fork**: {fork}\n\
              **Communication behavior:** Your results are automatically \
              pushed back to the parent agent when you finish. \
              Do not poll for status. \
