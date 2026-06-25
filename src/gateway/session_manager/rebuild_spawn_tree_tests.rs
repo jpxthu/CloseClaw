@@ -61,6 +61,18 @@ async fn test_rebuild_spawn_tree_basic() {
     let mgr = make_mgr_with_storage(storage);
     mgr.rebuild_spawn_tree().await.unwrap();
 
+    // Register child-1 in conversation_sessions so count_active_children
+    // (which checks session liveness) counts it correctly.
+    let child_cs = crate::llm::session::ConversationSession::new(
+        "child-1".to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    mgr.conversation_sessions.write().await.insert(
+        "child-1".to_string(),
+        std::sync::Arc::new(tokio::sync::RwLock::new(child_cs)),
+    );
+
     // children table should have one entry under parent-1.
     let count = mgr.count_active_children("parent-1").await;
     assert_eq!(count, 1, "parent-1 should have exactly 1 child");

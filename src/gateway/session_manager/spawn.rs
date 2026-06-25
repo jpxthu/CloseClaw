@@ -76,9 +76,31 @@ impl SessionManager {
     }
 
     /// Count active (non-completed) child sessions for a parent.
+    ///
+    /// A child is considered "active" if its session still exists in
+    /// `conversation_sessions`. Run-mode sessions that have completed
+    /// and been cleaned up are excluded from the count, so the
+    /// concurrency limit is not consumed by finished children.
+    ///
+    /// Lock order: `children` read lock (collect IDs) then
+    /// `conversation_sessions` read lock (check existence), held
+    /// separately to avoid deadlocks.
     pub async fn count_active_children(&self, parent_id: &str) -> usize {
-        let children = self.children.read().await;
-        children.get(parent_id).map(|v| v.len()).unwrap_or(0)
+        let child_ids: Vec<String> = {
+            let children = self.children.read().await;
+            children
+                .get(parent_id)
+                .map(|list| list.iter().map(|i| i.session_id.clone()).collect())
+                .unwrap_or_default()
+        };
+        if child_ids.is_empty() {
+            return 0;
+        }
+        let conv = self.conversation_sessions.read().await;
+        child_ids
+            .iter()
+            .filter(|id| conv.contains_key(id.as_str()))
+            .count()
     }
 
     /// List all active child session IDs for a parent.
