@@ -92,10 +92,10 @@
   },
   {
     "path": "docs/design/gateway/README.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-06-23T22:52:42.297921+08:00",
-    "comment": "blocked: 文档内部矛盾 - 明确不做的职责声称Gateway不负责Session生命周期管理/LLM调用/System Prompt构建，但代码通过SessionMessageHandler直接调用LLM和构建System Prompt；声称不穷举SlashResult变体但代码穷举全部10个变体且SideEffectContext类型不存在；Immediate/Non-Immediate指令区分未实现。"
+    "commit": "d9ef169ddba0089a251795a72458bd6d00f0dfcf",
+    "commit_time": "2026-06-25T16:49:55+08:00",
+    "confirmed_time": "2026-06-26T02:25:41.254844+08:00",
+    "comment": ""
   },
   {
     "path": "docs/design/gateway/inbound-flow.md",
