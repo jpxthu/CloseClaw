@@ -3,6 +3,7 @@
 //! Provides dreaming (three-stage memory promotion) and memory-mining
 //! (session transcript extraction) capabilities.
 
+pub mod active_searcher;
 pub mod dreaming;
 pub mod miner;
 
