@@ -14,6 +14,8 @@ pub mod session_manager;
 pub mod slash_permission;
 
 #[cfg(test)]
+mod inbound_queue_tests;
+#[cfg(test)]
 mod outbound_tests;
 #[cfg(test)]
 mod tests_plugin;
