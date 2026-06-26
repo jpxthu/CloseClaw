@@ -84,6 +84,15 @@ impl CacheAdapter for AnthropicCacheAdapter {
         if !blocks.is_empty() {
             request.system_blocks = Some(blocks);
         }
+
+        // Mark all tool schemas as cacheable when tools are passed via the
+        // API `tools` parameter (as opposed to being embedded in the system
+        // prompt text, which is already covered by static block caching).
+        if let Some(ref mut tools) = request.tools {
+            for tool in tools.iter_mut() {
+                tool.cache = true;
+            }
+        }
     }
 }
 
@@ -126,6 +135,7 @@ mod tests {
             system_static: None,
             system_dynamic: None,
             system_blocks: None,
+            tools: None,
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
             turn_count: None,
@@ -216,6 +226,46 @@ mod tests {
     #[test]
     fn kimi_adapter_name() {
         assert_eq!(KimiCacheAdapter.name(), "kimi");
+    }
+
+    #[test]
+    fn anthropic_adapter_marks_tools_as_cacheable() {
+        use crate::llm::types::ToolDefinition;
+
+        let mut req = make_request();
+        req.tools = Some(vec![
+            ToolDefinition {
+                name: "read_file".to_owned(),
+                cache: false,
+            },
+            ToolDefinition {
+                name: "write_file".to_owned(),
+                cache: false,
+            },
+        ]);
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let tools = req.tools.as_ref().unwrap();
+        assert_eq!(tools.len(), 2);
+        assert!(tools[0].cache, "tool should be marked cacheable");
+        assert!(tools[1].cache, "tool should be marked cacheable");
+    }
+
+    #[test]
+    fn anthropic_adapter_no_tools_no_change() {
+        let mut req = make_request();
+        req.tools = None;
+        AnthropicCacheAdapter.apply(&mut req);
+        assert!(req.tools.is_none());
+    }
+
+    #[test]
+    fn anthropic_adapter_empty_tools_no_change() {
+        let mut req = make_request();
+        req.tools = Some(vec![]);
+        AnthropicCacheAdapter.apply(&mut req);
+        let tools = req.tools.as_ref().unwrap();
+        assert!(tools.is_empty());
     }
 
     #[test]

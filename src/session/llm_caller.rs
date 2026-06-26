@@ -170,6 +170,7 @@ pub async fn build_request(
         system_static,
         system_dynamic,
         system_blocks: None,
+        tools: None,
         session_id: Some(session_id.to_string()),
         reasoning_level,
         turn_count: Some(turn_count),

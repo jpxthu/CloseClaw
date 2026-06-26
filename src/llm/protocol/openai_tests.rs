@@ -22,6 +22,7 @@ fn make_request() -> InternalRequest {
         system_static: None,
         system_dynamic: None,
         system_blocks: None,
+        tools: None,
         session_id: None,
         reasoning_level: ReasoningLevel::default(),
         turn_count: None,

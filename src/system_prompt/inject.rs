@@ -68,7 +68,7 @@ pub(crate) fn build_dynamic_sections(
 
 /// Split a full system prompt into static and dynamic parts.
 ///
-/// Uses the `<!-- STATIC_LAYER_END -->` boundary marker as the split point:
+/// Uses the `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` boundary marker as the split point:
 ///
 /// - Content **before** the first marker → `Some(static)` (trailing whitespace trimmed)
 /// - Content **after** the first marker → `Some(dynamic)` (leading whitespace trimmed)
@@ -79,7 +79,7 @@ pub(crate) fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option
         return (None, None);
     }
 
-    let marker = "<!-- STATIC_LAYER_END -->";
+    let marker = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
     match full_prompt.find(marker) {
         Some(pos) => {
             let static_part = full_prompt[..pos].trim_end().to_owned();
@@ -103,7 +103,7 @@ pub(crate) fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option
 
 /// Compose a full system prompt from static layer + dynamic sections.
 ///
-/// Inserts `<!-- STATIC_LAYER_END -->` between static and dynamic layers.
+/// Inserts `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` between static and dynamic layers.
 ///
 /// When `overrides` is provided and contains a non-None priority prompt,
 /// the resolution order is:
@@ -152,7 +152,7 @@ pub(crate) fn build_full_system_prompt(
             static_prompt.to_string()
         } else {
             format!(
-                "{}\n<!-- STATIC_LAYER_END -->\n{}",
+                "{}\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n{}",
                 static_prompt, dynamic_rendered
             )
         }
