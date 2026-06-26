@@ -29,17 +29,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
-/// Bootstrap 文件集合模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BootstrapMode {
-    /// 运行时必须的身份/工具文件，token 消耗最小
-    Minimal,
-    /// 完整集合，包含需要持久化的上下文/记忆文件
-    Full,
-}
+pub use closeclaw_common::BootstrapMode;
 
 /// Bootstrap 加载器错误类型
 #[derive(Debug)]

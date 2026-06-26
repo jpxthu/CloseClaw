@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/common"]
+members = ["crates/common", "crates/config"]
 
 [workspace.package]
 edition = "2021"
@@ -87,6 +87,7 @@ notify-debouncer-mini = "0.4"
 
 # Internal crates
 closeclaw-common = { path = "crates/common" }
+closeclaw-config = { path = "crates/config" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

@@ -6,7 +6,7 @@
 use crate::agent::registry::AgentRegistry;
 use crate::config::events::ConfigChangeEvent;
 use crate::config::manager::ConfigManager;
-use crate::config::reload::{ConfigReloadManager, WatcherHandle};
+use crate::config_reload::reload::{ConfigReloadManager, WatcherHandle};
 use crate::gateway::SessionManager;
 use std::sync::Arc;
 use tracing::{info, warn};
