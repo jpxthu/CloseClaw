@@ -233,7 +233,8 @@ async fn test_owner_slash_direct_dispatch() {
 #[tokio::test]
 async fn test_non_owner_high_risk_goes_to_permission_engine() {
     // Branch 2: non-owner + requires_permission=true + engine Deny
-    // → SlashHandled (message consumed) AND handler is NOT invoked.
+    // → handler.handle() IS invoked (returns SlashResult), but execute() is
+    //   skipped because permission check denies after handler.
     let counter = Arc::new(AtomicU32::new(0));
     let gw = make_gateway();
     gw.set_slash_dispatcher(counting_dispatcher("exec", true, Arc::clone(&counter)))
@@ -247,8 +248,8 @@ async fn test_non_owner_high_risk_goes_to_permission_engine() {
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(
         counter.load(Ordering::SeqCst),
-        0,
-        "non-owner + engine Deny must not invoke the handler"
+        1,
+        "handler.handle() must be invoked even when permission is denied"
     );
 }
 
@@ -311,9 +312,9 @@ async fn test_unknown_slash_command_returns_reply() {
 }
 
 #[tokio::test]
-async fn test_deny_does_not_invoke_handler() {
-    // Stronger assertion of Branch 2: a mocked handler with an
-    // `AtomicU32` counter MUST observe 0 calls when the engine denies.
+async fn test_deny_skips_execute() {
+    // Branch 2: handler.handle() IS invoked, but permission check denies
+    // after handler returns, so result.execute() is skipped.
     let counter = Arc::new(AtomicU32::new(0));
     let gw = make_gateway();
     gw.set_slash_dispatcher(counting_dispatcher("exec", true, Arc::clone(&counter)))
@@ -327,8 +328,8 @@ async fn test_deny_does_not_invoke_handler() {
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(
         counter.load(Ordering::SeqCst),
-        0,
-        "Deny must consume the command and skip the handler"
+        1,
+        "handler.handle() must be invoked; only execute() is skipped"
     );
 }
 
@@ -637,7 +638,8 @@ async fn test_execute_route_permission_check_before_execute() {
 #[tokio::test]
 async fn test_execute_route_non_owner_denied_skips_execute() {
     // Non-owner with requires_permission=true and deny engine
-    // → execute_and_route is never reached.
+    // → handler.handle() IS invoked, but permission check denies
+    //   after handler, so result.execute() is skipped.
     let gw = make_gateway();
     gw.set_slash_dispatcher(result_dispatcher(
         "exec",
@@ -652,7 +654,7 @@ async fn test_execute_route_non_owner_denied_skips_execute() {
         .dispatch_slash("s1", "/exec ls", Some("user1"), "feishu")
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
-    // The handler was NOT invoked — engine denied before execute_and_route.
+    // handler.handle() was invoked, but execute() was skipped by permission check.
 }
 
 // ===========================================================================

@@ -3,7 +3,6 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::gateway::Message;
-use crate::im::IMAdapter;
 use crate::session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use crate::session::persistence::{PersistenceService, SessionStatus};
 use crate::session::workspace;
@@ -11,7 +10,6 @@ use crate::skills::DiskSkillRegistry;
 use crate::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use crate::system_prompt::workdir::build_workdir_context;
 use crate::tools::{ToolContext, ToolRegistry};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::warn;
@@ -172,47 +170,58 @@ pub(super) async fn update_checkpoint_thread_id(
     }
 }
 
+/// Result of attempting to restore an archived session.
+pub(super) struct RestoreResult {
+    /// Whether the restoration was attempted and succeeded.
+    pub restored: bool,
+    /// The chat_id to send the restore notification to (via Gateway outbound chain).
+    /// `None` if no notification is needed (e.g. not archived or restore failed).
+    pub notification_chat_id: Option<String>,
+}
+
 /// Attempt to restore an archived session.
 ///
-/// Returns `true` if restoration was attempted and succeeded.
+/// Returns a [`RestoreResult`] indicating whether restoration succeeded and,
+/// if so, the chat_id to which the restore notification should be sent via
+/// Gateway's outbound chain (instead of sending directly via IMAdapter).
 pub(super) async fn try_restore_archived_session_inner(
     storage: &Arc<dyn PersistenceService>,
-    adapters: &HashMap<String, Arc<dyn IMAdapter>>,
     session_id: &str,
-    channel: &str,
-) -> bool {
+    _channel: &str,
+) -> RestoreResult {
     let checkpoint = match storage.load_checkpoint(session_id).await {
         Ok(Some(cp)) => cp,
-        Ok(None) | Err(_) => return false,
+        Ok(None) | Err(_) => {
+            return RestoreResult {
+                restored: false,
+                notification_chat_id: None,
+            }
+        }
     };
     if checkpoint.status != SessionStatus::Archived {
-        return false;
-    }
-    // Send restore notification
-    if let Some(adapter) = adapters.get(channel) {
-        let notification = Message {
-            id: format!("restore-{}", session_id),
-            from: "system".to_string(),
-            to: checkpoint
-                .peer_id
-                .as_deref()
-                .unwrap_or(session_id)
-                .to_string(),
-            content: "正在恢复会话...".to_string(),
-            channel: channel.to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
-            metadata: std::collections::HashMap::new(),
-            thread_id: None,
+        return RestoreResult {
+            restored: false,
+            notification_chat_id: None,
         };
-        if let Err(e) = adapter.send_message(&notification, None).await {
-            warn!(session_id = %session_id, error = %e,
-                "failed to send restore notification");
-        }
     }
+    // Compute notification chat_id for caller to send via outbound chain.
+    let notification_chat_id = Some(
+        checkpoint
+            .peer_id
+            .as_deref()
+            .unwrap_or(session_id)
+            .to_string(),
+    );
     if let Err(e) = storage.restore_checkpoint(session_id).await {
         warn!(session_id = %session_id, error = %e,
             "failed to restore archived session");
-        return false;
+        return RestoreResult {
+            restored: false,
+            notification_chat_id: None,
+        };
     }
-    true
+    RestoreResult {
+        restored: true,
+        notification_chat_id,
+    }
 }

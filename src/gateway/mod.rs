@@ -644,6 +644,23 @@ impl Gateway {
                     .resolve(session_key, channel, &message, account_id)
                     .await
                     .map_err(|e| GatewayError::AdapterError(e.to_string()))?;
+                // Send restore notification through outbound chain (if any).
+                if let Some(chat_id) = self
+                    .session_manager
+                    .take_restore_notification(&session_id)
+                    .await
+                {
+                    if let Err(e) = self
+                        .send_outbound_to_chat(&chat_id, channel, "正在恢复会话...")
+                        .await
+                    {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            error = %e,
+                            "failed to send restore notification via outbound chain"
+                        );
+                    }
+                }
                 return self.forward_to_plugin(channel, &message, &session_id).await;
             }
         }
