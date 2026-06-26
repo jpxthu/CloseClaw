@@ -4,7 +4,7 @@
 //! configuration (processor registry, slash dispatcher, session handler) and
 //! that the TerminalAdapter quit/exit detection logic works correctly.
 
-use crate::gateway::{GatewayConfig, SessionManager};
+use crate::gateway::{GatewayConfig, InboundChainInput, SessionManager};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use std::sync::Arc;
@@ -273,7 +273,15 @@ async fn test_process_inbound_chain_cleans_control_characters() {
 
     let input = "hello\x1b[31mworld\x1b[0m";
     let processed = gateway
-        .process_inbound_chain("terminal", "u1", "cli", input, "msg-1", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "u1".into(),
+            peer_id: "cli".into(),
+            content: input.into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
 
     assert_eq!(processed.content, "helloworld");
@@ -287,7 +295,15 @@ async fn test_process_inbound_chain_suppress_message() {
     let gateway = make_gw_with_registry(registry);
 
     let processed = gateway
-        .process_inbound_chain("terminal", "u1", "cli", "hello", "msg-1", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "u1".into(),
+            peer_id: "cli".into(),
+            content: "hello".into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
 
     assert!(processed.suppress, "expected suppress flag to be set");
@@ -301,7 +317,15 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
 
     for cmd in &["quit", "exit", "/stop"] {
         let processed = gateway
-            .process_inbound_chain("terminal", "u1", "cli", cmd, "msg-1", 0, None)
+            .process_inbound_chain(&InboundChainInput {
+                platform: "terminal".into(),
+                sender_id: "u1".into(),
+                peer_id: "cli".into(),
+                content: cmd.to_string(),
+                message_id: "msg-1".into(),
+                timestamp_ms: 0,
+                account_id: None,
+            })
             .await;
         assert_eq!(processed.content.trim(), *cmd);
     }
@@ -379,15 +403,15 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
     // We verify the call site contract: third argument must be "cli".
     let peer_id_argument = "cli";
     let processed = gateway
-        .process_inbound_chain(
-            "terminal",
-            "u1",
-            peer_id_argument,
-            "hello",
-            "msg-1",
-            0,
-            None,
-        )
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "u1".into(),
+            peer_id: peer_id_argument.into(),
+            content: "hello".into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
 
     assert!(!processed.suppress);
