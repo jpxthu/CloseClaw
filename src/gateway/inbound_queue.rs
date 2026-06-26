@@ -137,6 +137,7 @@ pub(crate) fn start_inbound_consumer(
                     &normalized.content,
                     "", // message_id not in NormalizedMessage; empty for now
                     normalized.timestamp,
+                    normalized.account_id.as_deref(),
                 )
                 .await;
 
@@ -212,6 +213,7 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
                     &normalized.content,
                     "",
                     normalized.timestamp,
+                    normalized.account_id.as_deref(),
                 )
                 .await;
             gateway

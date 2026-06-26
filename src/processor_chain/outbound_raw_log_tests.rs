@@ -11,6 +11,7 @@ fn make_ctx(content: &str, channel: &str, message_id: &str) -> MessageContext {
         content: content.to_string(),
         timestamp: Utc::now(),
         message_id: message_id.to_string(),
+        account_id: None,
     };
     let mut ctx = MessageContext::from_raw(raw);
     ctx.metadata.insert(
@@ -111,6 +112,7 @@ async fn test_outbound_and_independent_from_inbound() {
         content: "hello".to_string(),
         timestamp: Utc::now(),
         message_id: "msg_99".to_string(),
+        account_id: None,
     };
     let inbound_ctx = MessageContext::from_raw(raw.clone());
     inbound.process(&inbound_ctx).await.unwrap();

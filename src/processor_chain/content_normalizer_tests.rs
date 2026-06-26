@@ -1,4 +1,5 @@
 use super::*;
+use crate::im_adapter::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::processor_chain::context::{MessageContext, RawMessage};
 use crate::processor_chain::processor::MessageProcessor;
 
@@ -87,6 +88,7 @@ async fn test_process_plain_text() {
         content: "hello world".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_1".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap();
@@ -105,6 +107,7 @@ async fn test_process_normalizes_empty_lines() {
         content: "hello\n\n\n\nworld  ".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_2".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
@@ -121,6 +124,7 @@ async fn test_process_strips_ansi() {
         content: "\x1b[31mError:\x1b[0m something went wrong".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_3".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
@@ -137,6 +141,7 @@ async fn test_process_strips_control_chars() {
         content: "hello\x00\x01\x02world".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_4".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
@@ -153,10 +158,91 @@ async fn test_process_preserves_newlines_and_tabs() {
         content: "line1\nline2\ttab".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_5".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.content, "line1\nline2\ttab");
+}
+
+// -----------------------------------------------------------------------
+// ContentNormalizer does NOT normalize URLs or add code block language hints
+// (these are handled by IM Adapter layer during parsing)
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_process_does_not_normalize_urls() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "visit www.example.com today".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_url".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // ContentNormalizer should NOT add https:// prefix
+    assert_eq!(result.content, "visit www.example.com today");
+}
+
+#[tokio::test]
+async fn test_process_does_not_normalize_bare_domain() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "go to google.com/path please".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_url2".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.content, "go to google.com/path please");
+}
+
+#[tokio::test]
+async fn test_process_does_not_add_code_block_language_hint() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "```\ncode here\n```".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_code".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // ContentNormalizer should NOT add ```text language hint
+    assert_eq!(result.content, "```\ncode here\n```");
+    assert!(!result.content.contains("```text"));
+}
+
+#[tokio::test]
+async fn test_process_combined_url_and_code_block_unchanged() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "see www.example.com and ```\nfn main() {}\n```".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_combo".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // Neither URL nor code block should be modified
+    assert_eq!(
+        result.content,
+        "see www.example.com and ```\nfn main() {}\n```"
+    );
 }
 
 // -------------------------------------------------------------------------

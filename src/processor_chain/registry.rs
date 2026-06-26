@@ -117,6 +117,7 @@ impl ProcessorRegistry {
             content: llm_output.content.clone(),
             timestamp: chrono::Utc::now(),
             message_id: String::new(),
+            account_id: None,
         };
         let mut ctx = MessageContext::from_raw(synthetic_raw);
         ctx.metadata = llm_output.metadata.clone();

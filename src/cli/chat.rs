@@ -329,6 +329,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> 
                 &content,
                 &message_id,
                 chrono::Utc::now().timestamp_millis(),
+                None,
             )
             .await;
 

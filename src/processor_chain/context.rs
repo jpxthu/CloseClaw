@@ -28,6 +28,9 @@ pub struct RawMessage {
     pub timestamp: DateTime<Utc>,
     /// Message ID assigned by the platform.
     pub message_id: String,
+    /// Optional account ID filled by IM Adapter via identity mapping.
+    #[serde(default)]
+    pub account_id: Option<String>,
 }
 
 /// Metadata for logging a raw message snapshot.
@@ -128,6 +131,7 @@ mod tests {
             content: "hello".to_string(),
             timestamp: Utc::now(),
             message_id: "msg_1".to_string(),
+            account_id: None,
         };
         let ctx = MessageContext::from_raw(raw.clone());
         assert_eq!(ctx.content, "hello");
@@ -146,6 +150,7 @@ mod tests {
             content: "hello".to_string(),
             timestamp: Utc::now(),
             message_id: "msg_1".to_string(),
+            account_id: None,
         };
         let processed = ProcessedMessage::from_raw(raw);
         assert_eq!(processed.content, "hello");
