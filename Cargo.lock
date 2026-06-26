@@ -442,6 +442,7 @@ dependencies = [
  "cargo-llvm-cov",
  "chrono",
  "clap",
+ "closeclaw-common",
  "dashmap",
  "dialoguer",
  "dirs",
@@ -478,6 +479,14 @@ dependencies = [
  "tree-sitter-bash",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "closeclaw-common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
