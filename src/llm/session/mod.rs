@@ -14,8 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::common::CommunicationConfig;
 use crate::common::VerbosityLevel;
-use crate::gateway::session_manager::communication::CommunicationConfig;
 use crate::llm::session_state::{ChildSessionState, LlmState, ToolExecState};
 use crate::llm::stats::RunningStats;
 use crate::llm::streaming::StreamingSink;
