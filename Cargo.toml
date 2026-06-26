@@ -1,11 +1,19 @@
+[workspace]
+members = ["crates/common"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/jpxthu/CloseClaw"
+
 [package]
 name = "closeclaw"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 authors = ["CloseClaw Team"]
 description = "Lightweight, rule-driven multi-agent execution framework"
-license = "MIT"
-repository = "https://github.com/jpxthu/CloseClaw"
+license.workspace = true
+repository.workspace = true
 rust-version = "1.80"
 
 [features]
@@ -76,6 +84,9 @@ hex = "0.4"
 # File watching (hot reload)
 notify = "6.1"
 notify-debouncer-mini = "0.4"
+
+# Internal crates
+closeclaw-common = { path = "crates/common" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

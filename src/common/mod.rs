@@ -3,6 +3,4 @@
 //! Test helpers live in [`test_helpers`].
 
 pub mod test_helpers;
-pub mod verbosity;
-
-pub use verbosity::VerbosityLevel;
+pub use closeclaw_common::VerbosityLevel;
