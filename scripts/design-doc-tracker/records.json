@@ -102,7 +102,7 @@
     "commit": "b4770d160d417335ea2ce5d75e57320b065e36fc",
     "commit_time": "2026-06-25T02:31:02+08:00",
     "confirmed_time": "2026-06-25T02:31:02+08:00",
-    "comment": "blocked: hash-includes-timestamp_ms contradicts session-reuse-via-resolve"
+    "comment": ""
   },
   {
     "path": "docs/design/im_adapter/README.md",
