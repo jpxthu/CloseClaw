@@ -70,11 +70,11 @@ async fn test_knowledge_fallback_returns_fallback_source() {
 }
 
 #[tokio::test]
-async fn test_discover_success_path_fills_default_temperature() {
+async fn test_discover_success_path_knowledge_overrides_default_temperature() {
     let dir = tempfile::tempdir().unwrap();
     let discovery = make_test_discovery(&dir);
 
-    // API returns default_temperature: None — knowledge base should fill it.
+    // 知识库始终覆盖 API 的 default_temperature
     let api_models = vec![ModelInfo {
         id: "MiniMax-M2.7".into(),
         name: "MiniMax M2.7".into(),
@@ -101,11 +101,11 @@ async fn test_discover_success_path_fills_default_temperature() {
 }
 
 #[tokio::test]
-async fn test_discover_success_path_fills_input_types() {
+async fn test_discover_success_path_knowledge_overrides_input_types() {
     let dir = tempfile::tempdir().unwrap();
     let discovery = make_test_discovery(&dir);
 
-    // API returns empty input_types — knowledge base should fill it.
+    // 知识库始终覆盖 API 的 input_types
     let api_models = vec![ModelInfo {
         id: "MiniMax-M2.7".into(),
         name: "MiniMax M2.7".into(),
