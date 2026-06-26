@@ -36,7 +36,7 @@ pub enum WorkspaceError {
 /// # Examples
 ///
 /// ```
-/// # use closeclaw::session::workspace::validate_path_component;
+/// # use closeclaw_session::workspace::validate_path_component;
 /// assert!(validate_path_component("user123").is_ok());
 /// assert!(validate_path_component("").is_err());
 /// assert!(validate_path_component("../etc").is_err());
@@ -80,7 +80,7 @@ pub fn validate_path_component(id: &str) -> Result<(), WorkspaceError> {
 ///
 /// ```
 /// # use std::path::Path;
-/// # use closeclaw::session::workspace::ensure_workspace_dir;
+/// # use closeclaw_session::workspace::ensure_workspace_dir;
 /// # let temp = tempfile::tempdir().unwrap();
 /// # let config_dir = temp.path();
 /// let workspace = ensure_workspace_dir(config_dir, "agent1", "user1").unwrap();

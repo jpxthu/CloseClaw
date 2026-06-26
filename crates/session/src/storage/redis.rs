@@ -3,7 +3,7 @@
 //! This backend stores checkpoints in Redis with TTL support.
 //! Suitable for production deployments.
 
-use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 use async_trait::async_trait;
 use redis;
 use redis::AsyncCommands;

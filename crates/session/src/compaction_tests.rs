@@ -2,10 +2,10 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::llm::Message;
-    use crate::session::compaction::{
+    use crate::compaction::{
         build_compact_prompt, estimate_tokens, extract_summary, format_boundary_message,
-        get_context_window, CompactConfig, CompactionError, CompactionService, TokenWarningState,
+        get_context_window, CompactConfig, CompactionError, CompactionMessage, CompactionService,
+        TokenWarningState,
     };
 
     #[test]
@@ -59,7 +59,7 @@ mod tests {
     fn test_should_auto_compact_below_threshold() {
         let config = CompactConfig::default();
         let service = CompactionService::new(config);
-        let msgs = vec![Message {
+        let msgs = vec![CompactionMessage {
             role: "user".to_string(),
             content: "short".to_string(),
         }];
@@ -75,7 +75,7 @@ mod tests {
         service.record_failure();
         service.record_failure();
         service.record_failure();
-        let msgs = vec![Message {
+        let msgs = vec![CompactionMessage {
             role: "user".to_string(),
             content: "x".repeat(900_000),
         }];
@@ -180,7 +180,7 @@ mod tests {
         service.record_failure();
         service.record_failure();
         service.record_failure();
-        let msgs = vec![Message {
+        let msgs = vec![CompactionMessage {
             role: "user".to_string(),
             content: "x".repeat(4_000_000),
         }];
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn test_compaction_error_display() {
         // LLMCallFailed
-        let err_llm = CompactionError::LLMCallFailed(crate::llm::LLMError::RateLimitExceeded);
+        let err_llm = CompactionError::LLMCallFailed("rate limit exceeded".to_string());
         assert!(err_llm.to_string().contains("LLM call failed"));
 
         // SummaryParseFailed

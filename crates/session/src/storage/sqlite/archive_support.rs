@@ -3,7 +3,7 @@
 //! These helpers are used by SqliteStorage for archive/restore/purge/list
 //! operations. Kept separate to keep sqlite.rs under 500 lines.
 
-use crate::session::persistence::{PersistenceError, SessionCheckpoint};
+use crate::persistence::{PersistenceError, SessionCheckpoint};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use std::path::Path;
@@ -243,20 +243,20 @@ pub fn load_checkpoint_inner(
         .unwrap_or(false);
 
     // dreaming_status: handle missing or empty string
-    let dreaming_status = crate::session::persistence::dreaming_status_from_db(
+    let dreaming_status = crate::persistence::dreaming_status_from_db(
         dreaming_status_raw.as_deref().unwrap_or("completed"),
     );
 
     let status = match status_db.as_str() {
-        "archived" => crate::session::persistence::SessionStatus::Archived,
-        _ => crate::session::persistence::SessionStatus::Active,
+        "archived" => crate::persistence::SessionStatus::Archived,
+        _ => crate::persistence::SessionStatus::Active,
     };
 
     let transcript_path = match status {
-        crate::session::persistence::SessionStatus::Active => data_dir
+        crate::persistence::SessionStatus::Active => data_dir
             .join("sessions")
             .join(format!("{session_id}.jsonl")),
-        crate::session::persistence::SessionStatus::Archived => data_dir
+        crate::persistence::SessionStatus::Archived => data_dir
             .join("archived_sessions")
             .join(format!("{session_id}.jsonl")),
     };
@@ -269,7 +269,7 @@ pub fn load_checkpoint_inner(
 
     let last_message_id: Option<String> = None;
     #[allow(unused_mut)]
-    let mut mode_state_val: crate::session::persistence::ReasoningModeState;
+    let mut mode_state_val: crate::persistence::ReasoningModeState;
     let mode_val: String;
     let mut system_appends: Vec<String> = Vec::new();
     if let Some(ref meta) = metadata {
@@ -288,7 +288,7 @@ pub fn load_checkpoint_inner(
             .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
             .unwrap_or_default();
     } else {
-        mode_state_val = crate::session::persistence::ReasoningModeState::default();
+        mode_state_val = crate::persistence::ReasoningModeState::default();
         mode_val = "direct".to_string();
     }
 
@@ -304,10 +304,10 @@ pub fn load_checkpoint_inner(
         mode_state: mode_state_val,
         pending_messages,
         mode: match mode_val.as_str() {
-            "plan" => crate::session::persistence::ReasoningMode::Plan,
-            "stream" => crate::session::persistence::ReasoningMode::Stream,
-            "hidden" => crate::session::persistence::ReasoningMode::Hidden,
-            _ => crate::session::persistence::ReasoningMode::Direct,
+            "plan" => crate::persistence::ReasoningMode::Plan,
+            "stream" => crate::persistence::ReasoningMode::Stream,
+            "hidden" => crate::persistence::ReasoningMode::Hidden,
+            _ => crate::persistence::ReasoningMode::Direct,
         },
         created_at: DateTime::from_timestamp(created_ts, 0).unwrap_or_else(Utc::now),
         updated_at: DateTime::from_timestamp(created_ts, 0).unwrap_or_else(Utc::now),
@@ -341,11 +341,11 @@ pub fn load_checkpoint_inner(
             Some(agent_id_str)
         },
         role: match role_str.as_str() {
-            "main_agent" => Some(crate::session::persistence::AgentRole::MainAgent),
-            "sub_agent" => Some(crate::session::persistence::AgentRole::SubAgent),
+            "main_agent" => Some(crate::persistence::AgentRole::MainAgent),
+            "sub_agent" => Some(crate::persistence::AgentRole::SubAgent),
             _ => None,
         },
-        reasoning_level: crate::session::persistence::ReasoningLevel::default(),
+        reasoning_level: crate::persistence::ReasoningLevel::default(),
         system_appends,
         account_id: account_id_new,
         thread_id,
@@ -358,14 +358,14 @@ pub fn load_checkpoint_inner(
         pending_operations: Vec::new(),
         recovery_notification: None,
         pending_tool_failures: Vec::new(),
-        verbosity_level: crate::common::VerbosityLevel::default(),
+        verbosity_level: closeclaw_common::VerbosityLevel::default(),
     }))
 }
 
 /// Read transcript entries from a .jsonl file.
 fn read_transcript(
     path: &Path,
-) -> Result<Vec<crate::session::persistence::PendingMessage>, PersistenceError> {
+) -> Result<Vec<crate::persistence::PendingMessage>, PersistenceError> {
     #[derive(serde::Deserialize)]
     struct Entry {
         role: String,
@@ -379,7 +379,7 @@ fn read_transcript(
             continue;
         }
         let entry: Entry = serde_json::from_str(line).map_err(PersistenceError::Serialization)?;
-        messages.push(crate::session::persistence::PendingMessage {
+        messages.push(crate::persistence::PendingMessage {
             message_id: entry.role,
             content: entry.content,
             created_at: entry.timestamp,

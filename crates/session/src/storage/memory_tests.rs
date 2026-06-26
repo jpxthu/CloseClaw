@@ -3,8 +3,8 @@
 //! Tests `list_archived_unmined_sessions`, `list_mined_undreamt_sessions`,
 //! `mark_mined`, and `update_dreaming_status` on MemoryStorage.
 
-use crate::session::persistence::{DreamingStatus, PersistenceService, SessionCheckpoint};
-use crate::session::storage::memory::MemoryStorage;
+use crate::persistence::{DreamingStatus, PersistenceService, SessionCheckpoint};
+use crate::storage::memory::MemoryStorage;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
