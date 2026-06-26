@@ -55,7 +55,18 @@ impl ModelDiscovery {
             let result = tokio::time::timeout(FETCH_TIMEOUT, fetch(credential)).await;
 
             match result {
-                Ok(Ok(models)) => {
+                Ok(Ok(mut models)) => {
+                    for model in &mut models {
+                        if let Some(params) = self.knowledge.find(provider_id, &model.id) {
+                            model.reasoning = params.reasoning;
+                            if params.context_window > model.context_window {
+                                model.context_window = params.context_window;
+                            }
+                            if params.max_tokens > model.max_tokens {
+                                model.max_tokens = params.max_tokens;
+                            }
+                        }
+                    }
                     self.cache.set(provider_id, credential, models.clone());
                     return models;
                 }
@@ -279,5 +290,82 @@ mod tests {
 
         let models = discovery.knowledge_fallback("minimax");
         assert!(!models.is_empty(), "minimax should have known models");
+    }
+
+    // ── Knowledge base filling tests (Step 1.3) ──────────────────────
+
+    fn make_test_discovery(dir: &tempfile::TempDir) -> ModelDiscovery {
+        ModelDiscovery {
+            cache: ModelCache::with_path(dir.path().join("cache.json")),
+            knowledge: ProviderModelKnowledge::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_discover_success_path_knowledge_fills() {
+        let dir = tempfile::tempdir().unwrap();
+        let discovery = make_test_discovery(&dir);
+
+        // API returns MiniMax-M2.7 with context_window=1000 (below knowledge base 32768)
+        let api_models = vec![ModelInfo {
+            id: "MiniMax-M2.7".into(),
+            name: "MiniMax M2.7".into(),
+            context_window: 1000,
+            max_tokens: 512,
+            default_temperature: Some(0.3),
+            reasoning: false,
+            input_types: vec![],
+        }];
+
+        let result = discovery
+            .discover("minimax", "key", |_| {
+                let value = api_models.clone();
+                async move { Ok(value) }
+            })
+            .await;
+
+        assert_eq!(result.len(), 1);
+        let m = &result[0];
+        // Knowledge base fills reasoning: true for M2.7
+        assert!(
+            m.reasoning,
+            "M2.7 should have reasoning=true from knowledge base"
+        );
+        // Knowledge base context_window (204800) > API (1000), so it overrides
+        assert_eq!(m.context_window, 204_800);
+        // Knowledge base max_tokens (131072) > API (512), so it overrides
+        assert_eq!(m.max_tokens, 131_072);
+    }
+
+    #[tokio::test]
+    async fn test_discover_knowledge_miss_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let discovery = make_test_discovery(&dir);
+
+        // API returns an unknown model not in knowledge base
+        let api_models = vec![ModelInfo {
+            id: "some-new-future-model".into(),
+            name: "Future Model".into(),
+            context_window: 16384,
+            max_tokens: 4096,
+            default_temperature: Some(0.5),
+            reasoning: false,
+            input_types: vec![],
+        }];
+
+        let result = discovery
+            .discover("minimax", "key", |_| {
+                let value = api_models.clone();
+                async move { Ok(value) }
+            })
+            .await;
+
+        assert_eq!(result.len(), 1);
+        let m = &result[0];
+        // Unknown model: no knowledge base fill, API values preserved
+        assert_eq!(m.id, "some-new-future-model");
+        assert_eq!(m.context_window, 16384);
+        assert_eq!(m.max_tokens, 4096);
+        assert!(!m.reasoning);
     }
 }
