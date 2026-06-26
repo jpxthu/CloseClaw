@@ -12,6 +12,8 @@ pub mod knowledge;
 pub mod minimax;
 pub mod model_cache;
 pub mod model_discovery;
+#[cfg(test)]
+mod model_discovery_tests;
 pub mod model_info;
 pub mod openai;
 pub mod protocol;
@@ -54,7 +56,7 @@ pub use knowledge::{ModelRecommendParams, ProviderModelKnowledge, ReasoningLevel
 pub use minimax::MiniMaxProvider;
 pub use model_cache::{CacheEntry, ModelCache};
 pub use model_discovery::ModelDiscovery;
-pub use model_info::{InputType, ModelInfo};
+pub use model_info::{DiscoveryResult, DiscoverySource, InputType, ModelInfo};
 pub use openai::OpenAIProvider;
 pub use protocol::ChatProtocol;
 pub use provider::Provider;

@@ -6,6 +6,39 @@ use serde::{Deserialize, Serialize};
 
 use super::knowledge::ProviderModelKnowledge;
 
+/// Indicates where the model list came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiscoverySource {
+    /// Data returned from the local cache.
+    Cache,
+    /// Data returned directly from the provider API.
+    Api,
+    /// Data returned from the built-in knowledge base
+    /// (API unavailable or not returning enough info).
+    KnowledgeFallback,
+}
+
+/// Wraps a discovered model list together with its source.
+#[derive(Debug, Clone)]
+pub struct DiscoveryResult {
+    /// The list of discovered models.
+    pub models: Vec<ModelInfo>,
+    /// Where these models came from.
+    pub source: DiscoverySource,
+}
+
+impl DiscoveryResult {
+    /// Borrow the model list.
+    pub fn models(&self) -> &Vec<ModelInfo> {
+        &self.models
+    }
+
+    /// Consume and return the model list.
+    pub fn into_models(self) -> Vec<ModelInfo> {
+        self.models
+    }
+}
+
 /// Supported input types for a model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
