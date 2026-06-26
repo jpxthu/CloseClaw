@@ -129,17 +129,16 @@ pub(crate) fn start_inbound_consumer(
 
             // ── 3. Process through inbound chain ──────────────────────
             let sender_id = normalized.sender_id.clone();
-            let processed = gateway
-                .process_inbound_chain(
-                    &normalized.platform,
-                    &normalized.sender_id,
-                    &normalized.peer_id,
-                    &normalized.content,
-                    "", // message_id not in NormalizedMessage; empty for now
-                    normalized.timestamp,
-                    normalized.account_id.as_deref(),
-                )
-                .await;
+            let input = super::InboundChainInput {
+                platform: normalized.platform.clone(),
+                sender_id: normalized.sender_id.clone(),
+                peer_id: normalized.peer_id.clone(),
+                content: normalized.content.clone(),
+                message_id: String::new(), // message_id not in NormalizedMessage; empty for now
+                timestamp_ms: normalized.timestamp,
+                account_id: normalized.account_id.clone(),
+            };
+            let processed = gateway.process_inbound_chain(&input).await;
 
             // ── 4. Handle inbound message ─────────────────────────────
             gateway
@@ -205,17 +204,16 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
     match plugin.parse_inbound(&request.raw_payload).await {
         Ok(Some(normalized)) => {
             let sender_id = normalized.sender_id.clone();
-            let processed = gateway
-                .process_inbound_chain(
-                    &normalized.platform,
-                    &normalized.sender_id,
-                    &normalized.peer_id,
-                    &normalized.content,
-                    "",
-                    normalized.timestamp,
-                    normalized.account_id.as_deref(),
-                )
-                .await;
+            let input = super::InboundChainInput {
+                platform: normalized.platform.clone(),
+                sender_id: normalized.sender_id.clone(),
+                peer_id: normalized.peer_id.clone(),
+                content: normalized.content.clone(),
+                message_id: String::new(),
+                timestamp_ms: normalized.timestamp,
+                account_id: normalized.account_id.clone(),
+            };
+            let processed = gateway.process_inbound_chain(&input).await;
             gateway
                 .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
                 .await;
