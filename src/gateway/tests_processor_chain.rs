@@ -3,7 +3,7 @@
 //! These tests live in a separate file so that src/gateway/tests.rs stays
 //! under the 500-line limit.
 
-use crate::gateway::{DmScope, GatewayConfig, Message, SessionManager};
+use crate::gateway::{DmScope, GatewayConfig, InboundChainInput, Message, SessionManager};
 use crate::im::IMPlugin;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -420,7 +420,15 @@ impl MessageProcessor for SuppressTestProcessor {
 async fn test_process_inbound_chain_no_registry() {
     let (gw, _sm) = make_gw(make_config());
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "hello world", "msg-1", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "cli".into(),
+            content: "hello world".into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
     assert_eq!(result.content, "hello world");
     assert!(!result.suppress);
@@ -452,7 +460,15 @@ async fn test_process_inbound_chain_with_normalizer() {
     // Input with ANSI escape sequences and invisible control characters.
     let raw_input = "\x1b[31mhello\x1b[0m\x01world";
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-1", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "cli".into(),
+            content: raw_input.into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
     // ANSI stripped, control char stripped, plain text remains.
     assert_eq!(result.content, "helloworld");
@@ -481,7 +497,15 @@ async fn test_process_inbound_chain_with_session_router() {
     );
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-1", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "peer1".into(),
+            content: "hi".into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
     assert_eq!(result.content, "hi");
     // SessionRouter injects session_key with real timestamp.
@@ -520,15 +544,15 @@ async fn test_process_inbound_chain_uses_system_time() {
 
     let before_ms = chrono::Utc::now().timestamp_millis();
     let result = gw
-        .process_inbound_chain(
-            "terminal",
-            "user1",
-            "peer1",
-            "hi",
-            "msg-ts",
-            1_700_000_000_123, // past timestamp — should NOT be used
-            None,
-        )
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "peer1".into(),
+            content: "hi".into(),
+            message_id: "msg-ts".into(),
+            timestamp_ms: 1_700_000_000_123, // past timestamp — should NOT be used
+            account_id: None,
+        })
         .await;
     let after_ms = chrono::Utc::now().timestamp_millis();
 
@@ -627,7 +651,15 @@ async fn test_process_inbound_chain_processor_error() {
     );
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "original", "msg-1", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "cli".into(),
+            content: "original".into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
     // Fallback to original content.
     assert_eq!(result.content, "original");
@@ -653,15 +685,15 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
 
     let raw_input = "\x1b[32mhello\x1b[0m\x01world\x1b[1;34m!";
     let result = gw
-        .process_inbound_chain(
-            "terminal",
-            "user1",
-            "peer1",
-            raw_input,
-            "msg-e2e-1",
-            0,
-            None,
-        )
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "peer1".into(),
+            content: raw_input.into(),
+            message_id: "msg-e2e-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
 
     assert_eq!(result.content, "helloworld!");
@@ -694,7 +726,15 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
 
     let raw_input = "\x1b[33mwhat is the weather\x1b[0m";
     let processed = gw
-        .process_inbound_chain("terminal", "user1", "cli", raw_input, "msg-e2e-2", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "cli".into(),
+            content: raw_input.into(),
+            message_id: "msg-e2e-2".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
 
     assert_eq!(processed.content, "what is the weather");
@@ -722,7 +762,15 @@ async fn test_e2e_suppress_flag_propagates_through_chain() {
     let gw = make_gw_with_registry(registry);
 
     let result = gw
-        .process_inbound_chain("terminal", "user1", "cli", "hello", "msg-e2e-4", 0, None)
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "user1".into(),
+            peer_id: "cli".into(),
+            content: "hello".into(),
+            message_id: "msg-e2e-4".into(),
+            timestamp_ms: 0,
+            account_id: None,
+        })
         .await;
     assert!(result.suppress, "suppress flag should propagate");
     assert_eq!(result.content, "hello");
