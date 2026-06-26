@@ -19,6 +19,7 @@ async fn test_terminal_session_key_computed() {
         content: "hello".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_1".to_string(),
+        account_id: None,
     };
     let ts_ms = raw.timestamp.timestamp_millis();
     let ctx = make_ctx(raw);
@@ -52,6 +53,7 @@ async fn test_deterministic_key() {
         content: "hi".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_d".to_string(),
+        account_id: None,
     };
     let ctx = make_ctx(raw);
     let r1 = router.process(&ctx).await.unwrap().unwrap();
@@ -71,6 +73,7 @@ async fn test_missing_peer_id_yields_empty_key() {
         content: "hi".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_e".to_string(),
+        account_id: None,
     };
     let ctx = make_ctx(raw);
     let result = router.process(&ctx).await.unwrap().unwrap();
@@ -93,6 +96,7 @@ async fn test_dm_scope_affects_key() {
         content: "test".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_f".to_string(),
+        account_id: None,
     };
     let ctx = make_ctx(raw);
     let k1 = r1
@@ -126,6 +130,7 @@ async fn test_metadata_preserves_upstream() {
         content: "hi".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_g".to_string(),
+        account_id: None,
     };
     let mut ctx = make_ctx(raw);
     ctx.metadata.insert(
@@ -153,6 +158,7 @@ async fn test_fallback_when_no_initial_raw() {
         content: String::new(),
         timestamp: chrono::Utc::now(),
         message_id: String::new(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = router.process(&ctx).await.unwrap().unwrap();
@@ -178,6 +184,7 @@ async fn test_different_timestamps_produce_different_keys() {
         content: "msg1".to_string(),
         timestamp: ts1,
         message_id: "msg_c1".to_string(),
+        account_id: None,
     };
     let raw2 = RawMessage {
         platform: "feishu".to_string(),
@@ -186,6 +193,7 @@ async fn test_different_timestamps_produce_different_keys() {
         content: "msg2".to_string(),
         timestamp: ts2,
         message_id: "msg_c2".to_string(),
+        account_id: None,
     };
 
     let ctx1 = make_ctx(raw1);
@@ -252,6 +260,7 @@ async fn test_same_routing_different_timestamps_different_keys() {
         content: "test".to_string(),
         timestamp: ts,
         message_id: "msg_s1".to_string(),
+        account_id: None,
     };
 
     let ctx_a = make_ctx(make_raw(ts_a));

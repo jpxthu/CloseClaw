@@ -13,6 +13,7 @@ fn test_message_context_content_blocks_default_empty() {
         content: "hello".to_string(),
         timestamp: Utc::now(),
         message_id: "msg_1".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     assert!(ctx.content_blocks.is_empty());
@@ -27,6 +28,7 @@ fn test_processed_message_content_blocks_default_empty() {
         content: "hello".to_string(),
         timestamp: Utc::now(),
         message_id: "msg_1".to_string(),
+        account_id: None,
     };
     let processed = ProcessedMessage::from_raw(raw);
     assert!(processed.content_blocks.is_empty());

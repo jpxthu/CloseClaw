@@ -88,6 +88,7 @@ async fn test_process_plain_text() {
         content: "hello world".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_1".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap();
@@ -106,6 +107,7 @@ async fn test_process_normalizes_empty_lines() {
         content: "hello\n\n\n\nworld  ".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_2".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
@@ -122,6 +124,7 @@ async fn test_process_strips_ansi() {
         content: "\x1b[31mError:\x1b[0m something went wrong".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_3".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
@@ -138,6 +141,7 @@ async fn test_process_strips_control_chars() {
         content: "hello\x00\x01\x02world".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_4".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
@@ -154,6 +158,7 @@ async fn test_process_preserves_newlines_and_tabs() {
         content: "line1\nline2\ttab".to_string(),
         timestamp: chrono::Utc::now(),
         message_id: "msg_5".to_string(),
+        account_id: None,
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
