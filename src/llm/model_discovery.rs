@@ -16,8 +16,8 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Model discovery service combining local cache, API fetch, and knowledge base.
 pub struct ModelDiscovery {
-    cache: ModelCache,
-    knowledge: ProviderModelKnowledge,
+    pub(crate) cache: ModelCache,
+    pub(crate) knowledge: ProviderModelKnowledge,
 }
 
 impl ModelDiscovery {
@@ -154,7 +154,6 @@ impl Default for ModelDiscovery {
 mod tests {
     use super::*;
     use crate::llm::model_cache::{CacheEntry, CacheKey};
-    use crate::llm::InputType;
     use crate::llm::LLMError;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -389,111 +388,5 @@ mod tests {
         assert_eq!(m.context_window, 16384);
         assert_eq!(m.max_tokens, 4096);
         assert!(!m.reasoning);
-    }
-
-    // ── Step 1.4: source attribution + field filling tests ─────────
-
-    #[tokio::test]
-    async fn test_discover_returns_api_source() {
-        let dir = tempfile::tempdir().unwrap();
-        let discovery = make_test_discovery(&dir);
-
-        let result = discovery
-            .discover("minimax", "key", |_| {
-                let value = test_models();
-                async move { Ok(value) }
-            })
-            .await;
-
-        assert_eq!(result.source, DiscoverySource::Api);
-    }
-
-    #[tokio::test]
-    async fn test_cache_hit_returns_cache_source() {
-        let dir = tempfile::tempdir().unwrap();
-        let discovery = make_test_discovery(&dir);
-
-        discovery
-            .cache
-            .set("test-provider", "mytoken", test_models());
-
-        let result = discovery
-            .discover("test-provider", "mytoken", |_| async {
-                unreachable!("fetch should not be called")
-            })
-            .await;
-
-        assert_eq!(result.source, DiscoverySource::Cache);
-    }
-
-    #[tokio::test]
-    async fn test_knowledge_fallback_returns_fallback_source() {
-        let dir = tempfile::tempdir().unwrap();
-        let discovery = make_test_discovery(&dir);
-
-        let result = discovery.knowledge_fallback("minimax");
-        assert_eq!(result.source, DiscoverySource::KnowledgeFallback);
-    }
-
-    #[tokio::test]
-    async fn test_discover_success_path_fills_default_temperature() {
-        let dir = tempfile::tempdir().unwrap();
-        let discovery = make_test_discovery(&dir);
-
-        // API returns default_temperature: None — knowledge base should fill it.
-        let api_models = vec![ModelInfo {
-            id: "MiniMax-M2.7".into(),
-            name: "MiniMax M2.7".into(),
-            context_window: 204_800,
-            max_tokens: 131_072,
-            default_temperature: None,
-            reasoning: false,
-            input_types: vec![],
-        }];
-
-        let result = discovery
-            .discover("minimax", "key", |_| {
-                let value = api_models.clone();
-                async move { Ok(value) }
-            })
-            .await;
-
-        let m = &result.models()[0];
-        assert_eq!(
-            m.default_temperature,
-            Some(1.0),
-            "knowledge base should fill default_temperature when API is None"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_discover_success_path_fills_input_types() {
-        let dir = tempfile::tempdir().unwrap();
-        let discovery = make_test_discovery(&dir);
-
-        // API returns empty input_types — knowledge base should fill it.
-        let api_models = vec![ModelInfo {
-            id: "MiniMax-M2.7".into(),
-            name: "MiniMax M2.7".into(),
-            context_window: 204_800,
-            max_tokens: 131_072,
-            default_temperature: Some(0.8),
-            reasoning: false,
-            input_types: vec![],
-        }];
-
-        let result = discovery
-            .discover("minimax", "key", |_| {
-                let value = api_models.clone();
-                async move { Ok(value) }
-            })
-            .await;
-
-        let m = &result.models()[0];
-        assert_eq!(
-            m.input_types,
-            vec![InputType::Text],
-            "knowledge base should fill input_types when API returns empty"
-        );
     }
 }

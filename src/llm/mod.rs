@@ -12,6 +12,8 @@ pub mod knowledge;
 pub mod minimax;
 pub mod model_cache;
 pub mod model_discovery;
+#[cfg(test)]
+mod model_discovery_tests;
 pub mod model_info;
 pub mod openai;
 pub mod protocol;
