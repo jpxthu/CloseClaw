@@ -156,7 +156,7 @@ fn test_parse_response_thinking_block() {
     assert_eq!(resp.content_blocks.len(), 2);
     assert!(matches!(
         resp.content_blocks[0],
-        RawContentBlock::Thinking(ref s) if s == "Let me think..."
+        RawContentBlock::Thinking { thinking: ref s, .. } if s == "Let me think..."
     ));
     assert!(matches!(
         resp.content_blocks[1],

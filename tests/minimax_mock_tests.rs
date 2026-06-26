@@ -104,10 +104,9 @@ async fn test_provider_send_reasoning_content_mock() {
         .unwrap();
 
     m.assert_async().await;
-    assert!(resp
-        .content_blocks
-        .iter()
-        .any(|b| { matches!(b, RawContentBlock::Thinking(s) if s.contains("thinking")) }));
+    assert!(resp.content_blocks.iter().any(|b| {
+        matches!(b, RawContentBlock::Thinking { thinking: s, .. } if s.contains("thinking"))
+    }));
 }
 
 // --- send() error cases ---

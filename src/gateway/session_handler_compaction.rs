@@ -31,7 +31,7 @@ fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
         .iter()
         .filter_map(|b| match b {
             ContentBlock::Text(t) => Some(t.as_str()),
-            ContentBlock::Thinking(t) => Some(t.as_str()),
+            ContentBlock::Thinking { thinking: t, .. } => Some(t.as_str()),
             ContentBlock::ToolUse { input, .. } => Some(input.as_str()),
             ContentBlock::ToolResult { content, .. } => Some(content.as_str()),
             _ => Some(""),

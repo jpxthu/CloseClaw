@@ -733,6 +733,7 @@ mod tests {
             index: 0,
             delta: ContentDelta::Thinking {
                 thinking: "reasoning...".to_string(),
+                signature: None,
             },
         });
         let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
@@ -743,7 +744,10 @@ mod tests {
         assert_eq!(out.render_blocks.len(), 1);
         assert_eq!(
             out.render_blocks[0],
-            ContentBlock::Thinking("reasoning...".to_string())
+            ContentBlock::Thinking {
+                thinking: "reasoning...".to_string(),
+                signature: None
+            }
         );
     }
 
@@ -859,6 +863,7 @@ mod tests {
             index: 1,
             delta: ContentDelta::Thinking {
                 thinking: "hmm".to_string(),
+                signature: None,
             },
         });
         let out = plugin.handle_stream_event(StreamEvent::BlockEnd {

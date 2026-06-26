@@ -41,7 +41,10 @@ fn test_render_block_text() {
 #[test]
 fn test_render_block_thinking_no_ansi() {
     let renderer = TerminalRenderer::with_ansi(false);
-    let result = renderer.render_block(&ContentBlock::Thinking("reasoning".into()));
+    let result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: "reasoning".into(),
+        signature: None,
+    });
     assert!(result.contains("[Thinking]"));
     assert!(result.contains("reasoning"));
     assert!(result.contains("[end of thinking]"));
@@ -50,7 +53,10 @@ fn test_render_block_thinking_no_ansi() {
 #[test]
 fn test_render_block_thinking_ansi() {
     let renderer = TerminalRenderer::with_ansi(true);
-    let result = renderer.render_block(&ContentBlock::Thinking("thought".into()));
+    let result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: "thought".into(),
+        signature: None,
+    });
     assert!(result.contains(DIM));
     assert!(result.contains("[Thinking]"));
     assert!(result.contains("[end of thinking]"));
@@ -376,7 +382,10 @@ fn test_render_text_empty_string() {
 #[test]
 fn test_render_thinking_empty() {
     let renderer = TerminalRenderer::with_ansi(false);
-    let result = renderer.render_block(&ContentBlock::Thinking(String::new()));
+    let result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: String::new(),
+        signature: None,
+    });
     assert!(result.contains("[Thinking]"));
 }
 

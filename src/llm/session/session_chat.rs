@@ -82,7 +82,7 @@ impl ConversationSession {
                 if msg.role == "assistant" {
                     !msg.content_blocks
                         .iter()
-                        .all(|b| matches!(b, ContentBlock::Thinking(_)))
+                        .all(|b| matches!(b, ContentBlock::Thinking { .. }))
                 } else {
                     true
                 }
@@ -95,7 +95,7 @@ impl ConversationSession {
             while last_assistant
                 .content_blocks
                 .last()
-                .is_some_and(|b| matches!(b, ContentBlock::Thinking(_)))
+                .is_some_and(|b| matches!(b, ContentBlock::Thinking { .. }))
             {
                 last_assistant.content_blocks.pop();
             }
@@ -160,7 +160,9 @@ impl ChatSession for ConversationSession {
                 .iter()
                 .flat_map(|b| match b {
                     ContentBlock::Text(t) => vec![t.clone()],
-                    ContentBlock::Thinking(t) => vec![format!("<thinking>{}</thinking>", t)],
+                    ContentBlock::Thinking { thinking: t, .. } => {
+                        vec![format!("<thinking>{}</thinking>", t)]
+                    }
                     ContentBlock::ToolUse { name, input, .. } => {
                         vec![format!("[tool:{}] {}", name, input)]
                     }

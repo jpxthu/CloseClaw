@@ -242,7 +242,7 @@ fn test_parse_response_with_reasoning_content() {
     assert_eq!(resp.content_blocks.len(), 2);
     assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
     assert!(
-        matches!(&resp.content_blocks[1], RawContentBlock::Thinking(s) if s == "Let me think about this...")
+        matches!(&resp.content_blocks[1], RawContentBlock::Thinking { thinking: s, .. } if s == "Let me think about this...")
     );
 }
 
@@ -271,7 +271,7 @@ fn test_parse_response_with_both_content_and_reasoning() {
         matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "The answer is 42.")
     );
     assert!(
-        matches!(&resp.content_blocks[1], RawContentBlock::Thinking(s) if s == "Let me think about this...")
+        matches!(&resp.content_blocks[1], RawContentBlock::Thinking { thinking: s, .. } if s == "Let me think about this...")
     );
 }
 
