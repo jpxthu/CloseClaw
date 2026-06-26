@@ -138,5 +138,12 @@
     "commit_time": "",
     "confirmed_time": "2026-06-26T13:19:05.908214+08:00",
     "comment": "blocked: doc has responsibility attribution issues"
+  },
+  {
+    "path": "docs/design/llm/model-discovery.md",
+    "commit": "136edef20d57977748391e78287803c88180fc28",
+    "commit_time": "2026-06-26T17:48:33+08:00",
+    "confirmed_time": "2026-06-26T17:55:59.491929+08:00",
+    "comment": ""
   }
 ]
