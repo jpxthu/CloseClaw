@@ -80,20 +80,23 @@ impl Gateway {
     /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
     /// 2. Resolve the [`IMPlugin`](super::im::IMPlugin) registered for `channel`
     ///    through `self.plugins`.
-    /// 3. Run the processor chain (if `processor_registry` is configured) to
+    /// 3. Apply verbosity filtering on `content_blocks` **before** the processor
+    ///    chain (as required by design doc: "ContentBlock[] 进入 Processor Chain
+    ///    之前，按当前 Session 的 Verbosity 等级过滤信息块").
+    /// 4. Run the processor chain (if `processor_registry` is configured) to
     ///    produce a [`ProcessedMessage`]; otherwise bypass with a synthetic
-    ///    `ProcessedMessage` wrapping the raw input.
-    /// 4. Honor `processed.suppress` — return `Ok(())` without sending.
-    /// 5. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
+    ///    `ProcessedMessage` wrapping the filtered input.
+    /// 5. Honor `processed.suppress` — return `Ok(())` without sending.
+    /// 6. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
     ///    as a JSON-encoded string by the DSL processor).
-    /// 6. Call `plugin.render(blocks, dsl_result)` to obtain a
+    /// 7. Call `plugin.render(blocks, dsl_result)` to obtain a
     ///    [`RenderedOutput`](crate::renderer::RenderedOutput); fall back to a
     ///    single `ContentBlock::Text` block when `content_blocks` is empty.
-    /// 7. Dispatch by `msg_type` (`"text"` / `"interactive"`) through
+    /// 8. Dispatch by `msg_type` (`"text"` / `"interactive"`) through
     ///    `plugin.send`. Any other type is an [`GatewayError::OutboundError`].
-    /// 8. After each successful send, trigger checkpoint persistence.
-    /// 9. `thread_id` is resolved via `session_manager.get_thread_id` and
-    ///    passed to `plugin.send`.
+    /// 9. After each successful send, trigger checkpoint persistence.
+    /// 10. `thread_id` is resolved via `session_manager.get_thread_id` and
+    ///     passed to `plugin.send`.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -112,15 +115,7 @@ impl Gateway {
             .await
             .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
 
-        // 2. Run processor chain (or bypass) and honor suppress.
-        let processed = self
-            .process_or_bypass(raw_output, content_blocks, channel, session_id)
-            .await?;
-        if processed.suppress {
-            return Ok(());
-        }
-
-        // 3. Apply verbosity filtering.
+        // 2. Apply verbosity filtering BEFORE processor chain.
         let verbosity_level = if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
@@ -130,7 +125,17 @@ impl Gateway {
         } else {
             VerbosityLevel::default()
         };
-        let blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
+        let filtered_blocks = filter_by_verbosity(content_blocks, verbosity_level);
+
+        // 3. Run processor chain (or bypass) and honor suppress.
+        let processed = self
+            .process_or_bypass(raw_output, filtered_blocks, channel, session_id)
+            .await?;
+        if processed.suppress {
+            return Ok(());
+        }
+
+        let blocks = processed.content_blocks;
 
         // 4. Extract dsl_result (serialized as a JSON string by DslParser).
         let dsl_result: Option<DslParseResult> = processed
