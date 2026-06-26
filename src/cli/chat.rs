@@ -19,12 +19,7 @@ use crate::llm::minimax::MiniMaxProvider;
 use crate::llm::openai::OpenAIProvider;
 use crate::llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use crate::llm::LLMRegistry;
-use crate::processor_chain::content_normalizer::ContentNormalizer;
-use crate::processor_chain::dsl_parser::DslParser;
-use crate::processor_chain::outbound_raw_log::OutboundRawLogProcessor;
-use crate::processor_chain::raw_log_processor::{RawLogConfig, RawLogProcessor};
-use crate::processor_chain::session_router::SessionRouter;
-use crate::processor_chain::ProcessorRegistry;
+use crate::processor_chain;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::dispatcher::SlashDispatcher;
@@ -78,7 +73,7 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         ReasoningLevel::default(),
     ));
 
-    let processor_registry = Arc::new(build_processor_registry(&gateway_config));
+    let processor_registry = Arc::new(processor_chain::build_processor_registry(&gateway_config));
     let gateway = Gateway::with_processor_registry(
         gateway_config,
         Arc::clone(&session_manager),
@@ -96,46 +91,6 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
     gateway.register_plugin(plugin).await;
 
     (gateway, session_manager)
-}
-
-/// Build a [`ProcessorRegistry`] with inbound [`RawLogProcessor`] and
-/// [`ContentNormalizer`], outbound [`DslParser`].
-pub(crate) fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
-    let mut registry = ProcessorRegistry::default();
-
-    // Inbound: RawLogProcessor (if raw_log_dir is configured)
-    if let Some(ref dir) = config.raw_log_dir {
-        let raw_log_config = RawLogConfig {
-            enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
-        };
-        let processor =
-            RawLogProcessor::new(raw_log_config).expect("RawLogProcessor initialization failed");
-        registry.register(Arc::new(processor));
-    }
-
-    // Inbound: SessionRouter (priority 20 — computes session_key)
-    registry.register(Arc::new(SessionRouter::new(config.dm_scope)));
-
-    // Inbound: ContentNormalizer
-    registry.register(Arc::new(ContentNormalizer::new()));
-
-    // Outbound: RawLogProcessor (if raw_log_dir is configured)
-    if let Some(ref dir) = config.raw_log_dir {
-        let raw_log_config = RawLogConfig {
-            enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
-        };
-        let processor = OutboundRawLogProcessor::new(raw_log_config);
-        registry.register(Arc::new(processor));
-    }
-
-    // Outbound: DslParser
-    registry.register(Arc::new(DslParser));
-
-    registry
 }
 
 /// Load credentials from the config directory, falling back to defaults.
