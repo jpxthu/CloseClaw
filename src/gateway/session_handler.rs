@@ -276,6 +276,7 @@ impl SessionMessageHandler {
         session_id: &str,
         agent_id: &str,
         content: &str,
+        message_role: &str,
     ) {
         use crate::memory::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
         use crate::memory::active_searcher_llm::should_trigger_role;
@@ -294,6 +295,7 @@ impl SessionMessageHandler {
         let db_path = db_path.clone();
         let ufc = Arc::clone(&self.unified_fallback_client);
         let model = ActiveSearcherConfig::default().model.clone();
+        let role = message_role.to_string();
 
         tokio::spawn(async move {
             // Build an LlmCaller wrapper around UnifiedFallbackClient.
@@ -333,7 +335,7 @@ impl SessionMessageHandler {
             if let Some(injection) = searcher
                 .run(
                     &aid,
-                    &aid,
+                    &role,
                     &content,
                     &context_messages,
                     &injected_ids,

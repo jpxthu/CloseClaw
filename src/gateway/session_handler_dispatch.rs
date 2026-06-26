@@ -64,7 +64,7 @@ impl SessionMessageHandler {
         // background searcher that writes results to the memory_injection
         // slot for the next turn to consume.
         if let Some(agent_id) = self.session_manager.get_chat_id(session_id).await {
-            self.maybe_spawn_active_searcher(session_id, &agent_id, &content);
+            self.maybe_spawn_active_searcher(session_id, &agent_id, &content, "user");
         }
 
         let session_id = session_id.to_string();
