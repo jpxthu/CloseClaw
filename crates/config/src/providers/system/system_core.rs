@@ -345,33 +345,30 @@ impl ConfigProvider for SystemConfigData {
 
     fn is_default(&self) -> bool {
         self.wizard.is_none()
-            && self.update.as_ref().map_or(true, |u| u.check_on_start)
+            && self.update.as_ref().is_none_or(|u| u.check_on_start)
             && self.meta.is_none()
             && self
                 .messages
                 .as_ref()
-                .map_or(true, |m| m.ack_reaction_scope.is_none())
+                .is_none_or(|m| m.ack_reaction_scope.is_none())
             && self
                 .commands
                 .as_ref()
-                .map_or(true, |c| c == &CommandsConfig::default())
+                .is_none_or(|c| c == &CommandsConfig::default())
             && self
                 .session
                 .as_ref()
-                .map_or(true, |s| s == &SessionConfig::default())
-            && self.cron.as_ref().map_or(true, |c| c.enabled)
+                .is_none_or(|s| s == &SessionConfig::default())
+            && self.cron.as_ref().is_none_or(|c| c.enabled)
             && self
                 .hooks
                 .as_ref()
-                .map_or(true, |h| h == &HooksConfig::default())
+                .is_none_or(|h| h == &HooksConfig::default())
             && self
                 .browser
                 .as_ref()
-                .map_or(true, |b| b == &BrowserConfig::default())
+                .is_none_or(|b| b == &BrowserConfig::default())
             && self.auth.is_none()
-            && self
-                .llm
-                .as_ref()
-                .map_or(true, |l| l == &LlmConfig::default())
+            && self.llm.as_ref().is_none_or(|l| l == &LlmConfig::default())
     }
 }
