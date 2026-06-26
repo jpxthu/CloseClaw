@@ -236,11 +236,7 @@ impl SpawnController {
         parent_agent_id: &str,
     ) -> Result<ResolvedParentDepth, SpawnError> {
         let parent_max_spawn_depth = {
-            let agents = self
-                .config_manager
-                .agents
-                .read()
-                .expect("RwLock for agents was poisoned");
+            let agents = self.config_manager.agents();
             agents
                 .get(parent_agent_id)
                 .map(|pc| pc.subagents.max_spawn_depth)
@@ -269,11 +265,7 @@ impl SpawnController {
         &self,
         parent_agent_id: &str,
     ) -> Result<ParentSpawnConfig, SpawnError> {
-        let agents = self
-            .config_manager
-            .agents
-            .read()
-            .expect("RwLock for agents was poisoned");
+        let agents = self.config_manager.agents();
 
         Ok(match agents.get(parent_agent_id) {
             Some(pc) => {
@@ -301,11 +293,7 @@ impl SpawnController {
         target_agent_id: Option<&str>,
     ) -> Result<ResolvedTarget, SpawnError> {
         let (target_id, target_config) = {
-            let agents = self
-                .config_manager
-                .agents
-                .read()
-                .expect("RwLock for agents was poisoned");
+            let agents = self.config_manager.agents();
             let parent_config = agents.get(parent_agent_id);
 
             let target_id = target_agent_id

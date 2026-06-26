@@ -9,7 +9,8 @@
 pub mod admin;
 pub mod agent;
 pub mod cli;
-pub mod config;
+pub use closeclaw_config as config;
+pub mod config_reload;
 pub mod daemon;
 pub mod gateway;
 pub mod im;
