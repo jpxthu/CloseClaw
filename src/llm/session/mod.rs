@@ -130,7 +130,7 @@ pub struct ConversationSession {
     /// display accurate "elapsed since last activity" instead of session age.
     last_activity_at: i64,
     /// Shutdown handle for busy-count tracking during tool execution.
-    shutdown_handle: Option<Arc<crate::daemon::shutdown::ShutdownHandle>>,
+    shutdown_handle: Option<Arc<dyn crate::common::ShutdownSignal>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
 }
@@ -234,14 +234,12 @@ impl ConversationSession {
     }
 
     /// Set the shutdown handle for busy-count tracking during tool execution.
-    pub fn set_shutdown_handle(&mut self, handle: Arc<crate::daemon::shutdown::ShutdownHandle>) {
+    pub fn set_shutdown_handle(&mut self, handle: Arc<dyn crate::common::ShutdownSignal>) {
         self.shutdown_handle = Some(handle);
     }
 
     /// Get a clone of the shutdown handle, if set.
-    pub(crate) fn get_shutdown_handle(
-        &self,
-    ) -> Option<Arc<crate::daemon::shutdown::ShutdownHandle>> {
+    pub(crate) fn get_shutdown_handle(&self) -> Option<Arc<dyn crate::common::ShutdownSignal>> {
         self.shutdown_handle.clone()
     }
 
