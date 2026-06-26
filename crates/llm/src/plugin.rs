@@ -61,8 +61,8 @@ pub trait ModelPlugin: Send + Sync {
 ///
 /// # Example
 /// ```
-/// # use closeclaw::llm::plugin::{ModelPlugin, PluginPipeline};
-/// # use closeclaw::llm::types::{InternalRequest, StreamEvent, UnifiedResponse};
+/// # use closeclaw_llm::plugin::{ModelPlugin, PluginPipeline};
+/// # use closeclaw_llm::types::{InternalRequest, StreamEvent, UnifiedResponse};
 /// struct EchoPlugin;
 /// impl ModelPlugin for EchoPlugin {
 ///     fn name(&self) -> &str { "echo" }

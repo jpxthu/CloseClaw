@@ -49,6 +49,7 @@ async-stream = "0.3.6"
 
 [dev-dependencies]
 mockito = "1.2"
+tempfile = "3"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("server", "chat-legacy"))'] }
