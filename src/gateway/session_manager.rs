@@ -78,6 +78,10 @@ pub struct SessionManager {
     config_snapshot: RwLock<Option<ConfigSnapshot>>,
     /// Shutdown handle for busy-count tracking during drain.
     shutdown_handle: RwLock<Option<Arc<ShutdownHandle>>>,
+    /// Pending restore notifications: session_id → chat_id.
+    /// Populated by `try_restore_archived_session_inner` when a session is restored,
+    /// consumed by `take_restore_notification` after Gateway sends it through the outbound chain.
+    pending_restore_notifications: RwLock<HashMap<String, String>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -117,6 +121,7 @@ impl SessionManager {
             agent_registry: RwLock::new(None),
             config_snapshot: RwLock::new(None),
             shutdown_handle: RwLock::new(None),
+            pending_restore_notifications: RwLock::new(HashMap::new()),
         }
     }
 
@@ -249,14 +254,22 @@ impl SessionManager {
                 None => return false,
             }
         };
-        let adapters = self.adapters.read().await;
-        session_helpers::try_restore_archived_session_inner(
-            &storage_arc,
-            &adapters,
-            session_id,
-            channel,
-        )
-        .await
+        let result =
+            session_helpers::try_restore_archived_session_inner(&storage_arc, session_id, channel)
+                .await;
+        // Store the notification chat_id for Gateway to send via outbound chain.
+        if let Some(chat_id) = result.notification_chat_id {
+            let mut pending = self.pending_restore_notifications.write().await;
+            pending.insert(session_id.to_string(), chat_id);
+        }
+        result.restored
+    }
+
+    /// Take the pending restore notification for a session.
+    /// Returns the chat_id if a restore notification is pending for this session.
+    pub async fn take_restore_notification(&self, session_id: &str) -> Option<String> {
+        let mut pending = self.pending_restore_notifications.write().await;
+        pending.remove(session_id)
     }
 
     /// Update the thread_id in a session's checkpoint.
@@ -315,8 +328,10 @@ impl SessionManager {
         }
 
         let session_key = self.compute_session_key(channel, message, account_id, message.timestamp);
-        self.resolve(&session_key, channel, message, account_id)
-            .await
+        let session_id = self
+            .resolve(&session_key, channel, message, account_id)
+            .await?;
+        Ok(session_id)
     }
 
     /// Get active sessions for an agent.

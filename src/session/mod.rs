@@ -18,6 +18,7 @@ pub mod compaction_async_tests;
 #[cfg(test)]
 pub mod compaction_tests;
 pub mod events;
+pub mod llm_caller;
 #[cfg(test)]
 pub mod pending_operations_tests;
 pub mod persistence;

@@ -14,23 +14,17 @@ use crate::daemon::shutdown::ShutdownHandle;
 use crate::gateway::session_manager::SessionManager;
 use crate::llm::fallback::FallbackClient;
 use crate::llm::session::ChatSession;
-use crate::llm::session_state::LlmState;
 use crate::llm::types::ContentBlock;
 use crate::llm::types::UnifiedResponse;
 use crate::llm::unified_fallback::UnifiedFallbackClient;
-use crate::llm::{LLMError, Message as ChatMessage};
+use crate::llm::Message as ChatMessage;
 use crate::session::compaction::{
     execute_compact, CompactConfig, CompactionResult, CompactionService,
-};
-use crate::session::persistence::ReasoningLevel;
-use crate::system_prompt::inject::{
-    build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
 };
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use super::OutputTx;
-use tokio_util::sync::CancellationToken;
 
 /// Metadata about an inbound message, passed through the handling pipeline.
 pub struct MessageMetadata {
@@ -249,60 +243,9 @@ impl SessionMessageHandler {
     }
 }
 
-/// Consume the `memory_injection` slot and push user + optional tool
-/// messages into `messages` according to the injection position mode.
-///
-/// When an injection is present:
-/// - `AfterCurrent` → `[user(content), tool(injection)]`
-/// - `BeforeNext`   → `[tool(injection), user(content)]`
-///
-/// When absent → `[user(content)]`.
-pub(super) async fn push_messages_with_injection(
-    messages: &mut Vec<ChatMessage>,
-    session_manager: &SessionManager,
-    session_id: &str,
-    content: &str,
-) {
-    let injection = match session_manager.get_conversation_session(session_id).await {
-        Some(cs) => cs.read().await.take_memory_injection(),
-        None => None,
-    };
-
-    if let Some(inj) = injection {
-        use crate::llm::session::InjectionPosition;
-        match inj.position_mode {
-            InjectionPosition::AfterCurrent => {
-                messages.push(ChatMessage {
-                    role: "user".to_string(),
-                    content: content.to_string(),
-                });
-                messages.push(ChatMessage {
-                    role: "tool".to_string(),
-                    content: inj.content,
-                });
-            }
-            InjectionPosition::BeforeNext => {
-                messages.push(ChatMessage {
-                    role: "tool".to_string(),
-                    content: inj.content,
-                });
-                messages.push(ChatMessage {
-                    role: "user".to_string(),
-                    content: content.to_string(),
-                });
-            }
-        }
-    } else {
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-        });
-    }
-}
-
 // ── LLM calling ──
 impl SessionMessageHandler {
-    /// Make a non-streaming LLM call with full system prompt injection.
+    /// Delegate to [`crate::session::llm_caller::call_llm`].
     pub(super) async fn call_llm(
         unified_fallback_client: &Arc<UnifiedFallbackClient>,
         content: &str,
@@ -310,112 +253,14 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) -> Result<UnifiedResponse, crate::llm::LLMError> {
-        // ── Static layer ───────────────────────────────────────────────
-        let (
-            static_prompt_opt,
-            session_timestamp,
-            turn_count,
-            workdir_path,
-            system_appends,
-            reasoning_level,
-        ) = if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-            let cs_read = cs.read().await;
-            (
-                cs_read.system_prompt().map(|s| s.to_string()),
-                Some(cs_read.session_created_at()),
-                cs_read.turn_count(),
-                cs_read.workdir().to_string_lossy().into_owned(),
-                cs_read.system_appends().to_vec(),
-                cs_read.reasoning_level(),
-            )
-        } else {
-            (
-                None,
-                None,
-                0,
-                String::new(),
-                Vec::new(),
-                ReasoningLevel::default(),
-            )
-        };
-
-        // ── Dynamic sections ───────────────────────────────────────────
-        let dynamic_sections = build_dynamic_sections(
+        crate::session::llm_caller::call_llm(
+            unified_fallback_client,
+            content,
             meta,
-            Some(workdir_path.as_str()),
-            &system_appends,
-            session_timestamp,
-        );
-
-        // ── Compose full prompt ─────────────────────────────────────────
-        let overrides = session_manager.get_prompt_overrides().await;
-        let full_prompt = build_full_system_prompt(
-            static_prompt_opt.as_deref(),
-            &dynamic_sections,
-            overrides.as_ref(),
-        );
-
-        // ── Split static/dynamic for cache adapter ─────────────────────
-        let (system_static, system_dynamic) = split_static_dynamic(&full_prompt);
-
-        // ── Build InternalRequest with system + user messages ───────────
-        let mut messages = vec![];
-        if !full_prompt.is_empty() {
-            messages.push(ChatMessage {
-                role: "system".to_string(),
-                content: full_prompt,
-            });
-        }
-
-        // ── Consume memory_injection slot ──────────────────────────────────
-        push_messages_with_injection(&mut messages, session_manager, session_id, content).await;
-
-        let internal_request = crate::llm::types::InternalRequest {
-            model: String::new(),
-            messages: messages
-                .iter()
-                .map(|m| crate::llm::types::InternalMessage {
-                    role: m.role.clone(),
-                    content: m.content.clone(),
-                })
-                .collect(),
-            temperature: 0.7,
-            max_tokens: None,
-            stream: false,
-            extra_body: Default::default(),
-            system_static,
-            system_dynamic,
-            system_blocks: None,
-            session_id: Some(session_id.to_string()),
-            reasoning_level,
-            turn_count: Some(turn_count),
-        };
-
-        // Acquire this session's cancellation token so an in-flight
-        // request can be aborted by a cascade stop (parent or local).
-        // If the conversation session is gone we fall back to a never-
-        // cancelled token so the request still completes normally.
-        let cancel_token: CancellationToken =
-            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                cs.read().await.cancel_token().clone()
-            } else {
-                CancellationToken::new()
-            };
-
-        // Race the LLM call against the cancel signal.
-        tokio::select! {
-            res = unified_fallback_client.chat(internal_request) => res,
-            _ = cancel_token.cancelled() => {
-                // Restore idle state so the session can accept the next
-                // request. The actual cascade-cleanup (tool/child
-                // handles, states) is handled by `stop()`.
-                if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                    cs.read().await.set_llm_state(LlmState::Idle);
-                }
-                tracing::info!(session_id = %session_id, "LLM request cancelled");
-                Err(LLMError::Cancelled)
-            }
-        }
+            session_manager,
+            session_id,
+        )
+        .await
     }
 }
 // ── Active-searcher trigger ──

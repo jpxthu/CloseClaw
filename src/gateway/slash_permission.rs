@@ -40,9 +40,10 @@ impl Gateway {
     ///
     /// Three-branch permission routing (恢复自 PR #811 之前的语义):
     /// 1. `sender_id == Some("owner")` → 直接分派 handler（Owner 短路）
-    /// 2. `handler.requires_permission() == true` → 调用 `permission_engine.evaluate()`；
-    ///    返回 `Denied` 时回复"无权限"并返回 `SlashHandled`
-    /// 3. `handler.requires_permission() == false` → 直接分派 handler
+    /// 2. `handler.requires_permission() == true` → handler.handle() 执行后，
+    ///    调用 `permission_engine.evaluate()`；返回 `Denied` 时回复"无权限"
+    ///    并跳过 SlashResult.execute()
+    /// 3. `handler.requires_permission() == false` → 直接分派 handler 并执行
     ///
     /// `channel` 会被填入 `SlashContext.channel`，让 handler 知晓入站消息来自哪个
     /// channel（如 "feishu"）。
@@ -88,13 +89,6 @@ impl Gateway {
             if let Some(sh) = self.session_handler.as_ref() {
                 sh.send_reply("⏳ 正在排队...".to_owned()).await;
             }
-            return Some(HandleResult::SlashHandled);
-        }
-
-        if !self
-            .check_slash_permission(cmd, sender_id, session_id)
-            .await
-        {
             return Some(HandleResult::SlashHandled);
         }
 
@@ -210,6 +204,14 @@ impl Gateway {
             channel: channel.to_owned(),
         };
         let result = handler.handle(args, &slash_ctx).await;
+
+        // Permission check: after handler, before execute (design doc alignment).
+        if !self
+            .check_slash_permission(cmd_name, sender_id, session_id)
+            .await
+        {
+            return Some(HandleResult::SlashHandled);
+        }
 
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let side_effect_ctx = SideEffectContext::new(
