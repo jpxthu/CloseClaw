@@ -63,10 +63,10 @@ impl SessionManager {
             }
 
             // Path 2: key_registry hit but session not active — try restore
-            let restored = self
+            if self
                 .try_restore_archived_session(&session_id, channel)
-                .await;
-            if restored {
+                .await
+            {
                 // Load checkpoint and set up conversation session + Session entry
                 let storage_arc = {
                     let guard = self.storage.read().await;
