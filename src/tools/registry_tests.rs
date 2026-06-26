@@ -523,6 +523,7 @@ fn make_agent_config(
         tools,
         disallowed_tools,
         subagents: Default::default(),
+        memory: None,
         source: ConfigSource::User,
     }
 }

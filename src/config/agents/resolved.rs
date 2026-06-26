@@ -69,6 +69,7 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
+    pub memory: Option<crate::agent::config::MemoryConfig>,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }
@@ -152,6 +153,7 @@ impl ResolvedAgentConfig {
             tools: config.tools,
             disallowed_tools: config.disallowed_tools,
             subagents: config.subagents,
+            memory: config.memory.clone(),
             source,
         })
     }
@@ -210,6 +212,7 @@ impl ResolvedAgentConfig {
                 user.disallowed_tools,
             ),
             subagents: merge_subagents(project.subagents, user.subagents),
+            memory: project.memory.or(user.memory),
             source: ConfigSource::Merged,
         })
     }

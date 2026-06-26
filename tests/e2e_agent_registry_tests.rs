@@ -23,6 +23,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
+        memory: None,
         source: ConfigSource::User,
     }
 }
