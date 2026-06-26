@@ -173,7 +173,7 @@ fn test_build_full_system_prompt_composition() {
     // Contains static layer
     assert!(full.contains("You are helpful."));
     // Contains boundary marker
-    assert!(full.contains("<!-- STATIC_LAYER_END -->"));
+    assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Contains dynamic ChannelContext
     assert!(full.contains("sender_id: alice"));
     // Contains dynamic SessionState
@@ -188,7 +188,7 @@ fn test_build_full_system_prompt_no_static() {
     let full = build_full_system_prompt(None, &sections, None);
 
     // No boundary marker when no static prompt
-    assert!(!full.contains("<!-- STATIC_LAYER_END -->"));
+    assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Still contains dynamic content
     assert!(full.contains("sender_id: bob"));
     assert!(full.contains("pending_tasks:"));
@@ -205,7 +205,7 @@ fn test_build_full_system_prompt_empty_dynamic() {
     // But we verify the composition still works.
     let full = build_full_system_prompt(Some("static"), &sections, None);
     assert!(full.contains("static"));
-    assert!(full.contains("<!-- STATIC_LAYER_END -->"));
+    assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
 }
 
 /// handle_message backward compat: returns LlmStarted for a normal idle session.
@@ -334,7 +334,7 @@ fn test_workdir_path_no_config_dir_exposure() {
 #[test]
 fn test_split_static_dynamic_with_marker() {
     let input = "Be helpful.
-<!-- STATIC_LAYER_END -->
+__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__
 You are a coding assistant.";
     let (s, d) = split_static_dynamic(input);
     assert_eq!(s.as_deref(), Some("Be helpful."));
@@ -361,7 +361,7 @@ fn test_split_static_dynamic_empty() {
 /// split_static_dynamic: marker at the very start → static is None, dynamic is the rest.
 #[test]
 fn test_split_static_dynamic_marker_at_start() {
-    let input = "<!-- STATIC_LAYER_END -->\nSome dynamic content.";
+    let input = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nSome dynamic content.";
     let (s, d) = split_static_dynamic(input);
     assert_eq!(s, None, "static should be None when marker is at the start");
     assert_eq!(d.as_deref(), Some("Some dynamic content."));
@@ -370,7 +370,7 @@ fn test_split_static_dynamic_marker_at_start() {
 /// split_static_dynamic: marker at the very end → dynamic is None, static is the rest.
 #[test]
 fn test_split_static_dynamic_marker_at_end() {
-    let input = "Static content.\n<!-- STATIC_LAYER_END -->";
+    let input = "Static content.\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
     let (s, d) = split_static_dynamic(input);
     assert_eq!(s.as_deref(), Some("Static content."));
     assert_eq!(d, None, "dynamic should be None when marker is at the end");
@@ -379,13 +379,13 @@ fn test_split_static_dynamic_marker_at_end() {
 /// split_static_dynamic: multiple markers → only the first one is used as the split point.
 #[test]
 fn test_split_static_dynamic_multiple_markers() {
-    let input = "First part.\n<!-- STATIC_LAYER_END -->\nMiddle.\n<!-- STATIC_LAYER_END -->\nLast.";
+    let input = "First part.\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nMiddle.\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nLast.";
     let (s, d) = split_static_dynamic(input);
     assert_eq!(s.as_deref(), Some("First part."));
     // Dynamic should contain everything after the first marker, including the second marker
     assert_eq!(
         d.as_deref(),
-        Some("Middle.\n<!-- STATIC_LAYER_END -->\nLast.")
+        Some("Middle.\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nLast.")
     );
 }
 
