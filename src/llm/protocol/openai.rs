@@ -113,6 +113,7 @@ impl ChatProtocol for OpenAiProtocol {
         let content = message
             .and_then(|msg| msg.get("content"))
             .and_then(|c| c.as_str())
+            .filter(|s| !s.trim().is_empty())
             .map(|s| s.to_string());
 
         let reasoning_content = message
@@ -131,10 +132,19 @@ impl ChatProtocol for OpenAiProtocol {
 
         let usage = parse_usage(&body);
 
-        let mut content_blocks = vec![RawContentBlock::Text(content.unwrap_or_default())];
-        if let Some(thinking) = reasoning_content {
-            content_blocks.push(RawContentBlock::Thinking(thinking));
-        }
+        let content_blocks = if let Some(ref text) = content {
+            // content 非空 → 仅产出 Text（文档规则：content 非空优先取 content）
+            vec![RawContentBlock::Text(text.clone())]
+        } else if let Some(thinking) = reasoning_content {
+            // content 为空/仅空白且 reasoning_content 非空 → 仅产出 Thinking
+            vec![RawContentBlock::Thinking {
+                thinking,
+                signature: None,
+            }]
+        } else {
+            // 两者都为空 → 产出空 Text
+            vec![RawContentBlock::Text(String::new())]
+        };
 
         Ok(InternalResponse {
             content_blocks,
