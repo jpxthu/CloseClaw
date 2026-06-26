@@ -12,7 +12,9 @@ pub mod tools;
 
 use crate::gateway::Message;
 use crate::im_adapter::error::AdapterError;
-use crate::im_adapter::normalized::NormalizedMessage;
+use crate::im_adapter::normalized::{
+    add_code_block_language_hint, normalize_urls, NormalizedMessage,
+};
 use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
 use crate::im_adapter::streaming::DefaultStreamingRenderer;
 use crate::im_adapter::IMAdapter;
@@ -85,7 +87,12 @@ impl IMPlugin for FeishuPlugin {
         &self,
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        self.adapter.handle_webhook(payload).await
+        let mut msg = self.adapter.handle_webhook(payload).await?;
+        if let Some(ref mut m) = msg {
+            m.content = normalize_urls(&m.content);
+            m.content = add_code_block_language_hint(&m.content);
+        }
+        Ok(msg)
     }
 
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
