@@ -144,7 +144,7 @@ impl SessionManager {
     }
 
     /// Look up agent config by ID via the AgentRegistry.
-    async fn get_agent_config(
+    pub(crate) async fn get_agent_config(
         &self,
         agent_id: &str,
     ) -> Option<crate::config::agents::ResolvedAgentConfig> {

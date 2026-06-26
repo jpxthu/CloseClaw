@@ -790,5 +790,106 @@ fn test_active_searcher_config_defaults() {
     assert_eq!(config.min_entity_hits, 1);
     assert_eq!(config.top_k_events, 10);
     assert_eq!(config.context_turns, 3);
+    assert_eq!(config.model, "");
+}
+
+// ── from_agent_config tests ─────────────────────────────────────────────
+
+use crate::agent::config::{ActiveSearcherOverride, MemoryConfig};
+
+/// Full override: all fields specified → all fields correct.
+#[test]
+fn test_from_agent_config_full_override() {
+    let override_cfg = ActiveSearcherOverride {
+        model: Some("claude-opus".into()),
+        timeout_ms: Some(9999),
+        max_summary_chars: Some(8000),
+        min_entity_hits: Some(5),
+        top_k_events: Some(20),
+        context_turns: Some(7),
+    };
+    let memory = MemoryConfig {
+        active_searcher: Some(override_cfg),
+    };
+
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
+
+    assert_eq!(config.model, "claude-opus");
+    assert_eq!(config.timeout_ms, 9999);
+    assert_eq!(config.max_summary_chars, 8000);
+    assert_eq!(config.min_entity_hits, 5);
+    assert_eq!(config.top_k_events, 20);
+    assert_eq!(config.context_turns, 7);
+}
+
+/// Partial override: only model and timeout_ms → other fields use defaults.
+#[test]
+fn test_from_agent_config_partial_override() {
+    let override_cfg = ActiveSearcherOverride {
+        model: Some("deepseek-r1".into()),
+        timeout_ms: Some(12000),
+        max_summary_chars: None,
+        min_entity_hits: None,
+        top_k_events: None,
+        context_turns: None,
+    };
+    let memory = MemoryConfig {
+        active_searcher: Some(override_cfg),
+    };
+
+    let config = ActiveSearcherConfig::from_agent_config(None, Some(&memory));
+
+    assert_eq!(config.model, "deepseek-r1");
+    assert_eq!(config.timeout_ms, 12000);
+    assert_eq!(config.max_summary_chars, 2000);
+    assert_eq!(config.min_entity_hits, 1);
+    assert_eq!(config.top_k_events, 10);
+    assert_eq!(config.context_turns, 3);
+}
+
+/// No override (None) + agent_model → model uses agent global model, other fields use defaults.
+#[test]
+fn test_from_agent_config_no_override() {
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o-mini"), None);
+
     assert_eq!(config.model, "gpt-4o-mini");
+    assert_eq!(config.timeout_ms, 5000);
+    assert_eq!(config.max_summary_chars, 2000);
+    assert_eq!(config.min_entity_hits, 1);
+    assert_eq!(config.top_k_events, 10);
+    assert_eq!(config.context_turns, 3);
+}
+
+/// No agent_model + no override → model is empty string.
+#[test]
+fn test_from_agent_config_no_agent_model_no_override() {
+    let config = ActiveSearcherConfig::from_agent_config(None, None);
+
+    assert_eq!(config.model, "");
+    assert_eq!(config.timeout_ms, 5000);
+    assert_eq!(config.max_summary_chars, 2000);
+    assert_eq!(config.min_entity_hits, 1);
+    assert_eq!(config.top_k_events, 10);
+    assert_eq!(config.context_turns, 3);
+}
+
+/// Override model takes priority over agent global model.
+#[test]
+fn test_from_agent_config_override_overrides_agent_model() {
+    let override_cfg = ActiveSearcherOverride {
+        model: Some("override-model".into()),
+        timeout_ms: None,
+        max_summary_chars: None,
+        min_entity_hits: None,
+        top_k_events: None,
+        context_turns: None,
+    };
+    let memory = MemoryConfig {
+        active_searcher: Some(override_cfg),
+    };
+
+    let config = ActiveSearcherConfig::from_agent_config(Some("agent-global-model"), Some(&memory));
+
+    assert_eq!(config.model, "override-model");
+    assert_eq!(config.timeout_ms, 5000);
 }

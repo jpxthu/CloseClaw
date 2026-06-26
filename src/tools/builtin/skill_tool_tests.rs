@@ -97,6 +97,7 @@ mod tests {
                 allow_agents: vec!["*".to_string()],
                 model: None,
             },
+            memory: None,
             source: ConfigSource::Merged,
         };
         {
@@ -117,6 +118,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: SubagentsConfig::default(),
+            memory: None,
             source: ConfigSource::Merged,
         };
         {

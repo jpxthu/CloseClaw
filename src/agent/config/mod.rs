@@ -51,6 +51,9 @@ pub struct AgentConfig {
     /// Sub-agent spawn control parameters.
     #[serde(default)]
     pub subagents: SubagentsConfig,
+    /// Memory subsystem configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<MemoryConfig>,
 }
 
 fn default_all() -> Vec<String> {
@@ -120,8 +123,36 @@ impl Default for AgentConfig {
             tools: default_all(),
             disallowed_tools: Vec::new(),
             subagents: SubagentsConfig::default(),
+            memory: None,
         }
     }
+}
+
+/// Memory subsystem configuration.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_searcher: Option<ActiveSearcherOverride>,
+}
+
+/// Active-searcher overrides — all fields optional.
+/// Missing fields fall back to defaults (model from agent global).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveSearcherOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_summary_chars: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_entity_hits: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_k_events: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_turns: Option<usize>,
 }
 
 impl AgentConfig {
