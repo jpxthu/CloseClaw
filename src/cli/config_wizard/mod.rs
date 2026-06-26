@@ -347,7 +347,7 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         std::io::Write::flush(&mut std::io::stdout()).ok();
         let discovery = ModelDiscovery::new();
         let ml = Arc::clone(&model_lister);
-        let models = discovery
+        let result = discovery
             .discover(info.id, cred, move |cred: &str| {
                 let ml = Arc::clone(&ml);
                 let cred = cred.to_string();
@@ -355,7 +355,7 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
             })
             .await;
         println!(" done");
-        ctx.fetched_models = models;
+        ctx.fetched_models = result.into_models();
     }
 
     ctx.current_state = WizardState::SelectModels;
