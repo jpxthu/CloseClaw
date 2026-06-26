@@ -10,6 +10,8 @@
 //! - [`RawMessageLog`] — snapshot of raw message at each processing step
 //! - [`ProcessError`] — error types
 
+#[cfg(test)]
+mod build_processor_registry_tests;
 pub mod content_normalizer;
 pub mod context;
 #[cfg(test)]
