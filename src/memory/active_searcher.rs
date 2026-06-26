@@ -58,7 +58,7 @@ impl Default for ActiveSearcherConfig {
             min_entity_hits: 1,
             top_k_events: 10,
             context_turns: 3,
-            model: "gpt-4o-mini".to_string(),
+            model: String::new(),
         }
     }
 }
@@ -107,6 +107,31 @@ pub struct ActiveSearcher {
     db_path: PathBuf,
     /// Search parameters.
     config: ActiveSearcherConfig,
+}
+
+impl ActiveSearcherConfig {
+    /// Build config from agent-level settings.
+    ///
+    /// Priority: `memory.active_searcher.*` override > `agent_model` > defaults.
+    pub fn from_agent_config(
+        agent_model: Option<&str>,
+        memory_override: Option<&crate::agent::config::MemoryConfig>,
+    ) -> Self {
+        let override_as = memory_override.and_then(|m| m.active_searcher.as_ref());
+        Self {
+            timeout_ms: override_as.and_then(|o| o.timeout_ms).unwrap_or(5000),
+            max_summary_chars: override_as
+                .and_then(|o| o.max_summary_chars)
+                .unwrap_or(2000),
+            min_entity_hits: override_as.and_then(|o| o.min_entity_hits).unwrap_or(1),
+            top_k_events: override_as.and_then(|o| o.top_k_events).unwrap_or(10),
+            context_turns: override_as.and_then(|o| o.context_turns).unwrap_or(3),
+            model: override_as
+                .and_then(|o| o.model.clone())
+                .or_else(|| agent_model.map(|m| m.to_string()))
+                .unwrap_or_default(),
+        }
+    }
 }
 
 impl ActiveSearcher {

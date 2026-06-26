@@ -43,6 +43,7 @@ fn test_resolved_config(
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
+        memory: None,
         source: ConfigSource::Merged,
     }
 }

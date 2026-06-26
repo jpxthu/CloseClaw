@@ -29,6 +29,7 @@ fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: crate::agent::config::SubagentsConfig::default(),
+        memory: None,
         source: ConfigSource::Merged,
     }
 }

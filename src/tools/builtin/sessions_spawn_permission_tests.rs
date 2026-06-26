@@ -241,6 +241,7 @@ async fn test_external_permissions_used() {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: crate::agent::config::SubagentsConfig::default(),
+        memory: None,
         source: crate::config::agents::ConfigSource::Merged,
     };
 
@@ -298,6 +299,7 @@ async fn test_external_permissions_used() {
                     sub.allow_agents = vec!["fallback-agent".to_string()];
                     sub
                 },
+                memory: None,
                 source: crate::config::agents::ConfigSource::User,
             },
         );
@@ -458,6 +460,7 @@ async fn test_fully_denied_silent_return_no_session_created() {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: crate::agent::config::SubagentsConfig::default(),
+        memory: None,
         source: crate::config::agents::ConfigSource::Merged,
     };
 
@@ -514,6 +517,7 @@ async fn test_fully_denied_silent_return_no_session_created() {
                     sub.allow_agents = vec!["denied-child".to_string()];
                     sub
                 },
+                memory: None,
                 source: crate::config::agents::ConfigSource::User,
             },
         );

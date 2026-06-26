@@ -398,6 +398,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
+            memory: None,
             source: ConfigSource::User,
         }]);
 
@@ -444,6 +445,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
+            memory: None,
             source: ConfigSource::User,
         }]);
 
@@ -471,6 +473,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
+            memory: None,
             source: ConfigSource::User,
         }]);
 

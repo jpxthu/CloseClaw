@@ -448,6 +448,7 @@ fn make_agent_config(id: &str, skills: Vec<String>) -> ResolvedAgentConfig {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: Default::default(),
+        memory: None,
         source: ConfigSource::User,
     }
 }

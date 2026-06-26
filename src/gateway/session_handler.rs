@@ -276,6 +276,7 @@ impl SessionMessageHandler {
         session_id: &str,
         agent_id: &str,
         content: &str,
+        message_role: &str,
     ) {
         use crate::memory::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
         use crate::memory::active_searcher_llm::should_trigger_role;
@@ -293,13 +294,27 @@ impl SessionMessageHandler {
         let content = content.to_string();
         let db_path = db_path.clone();
         let ufc = Arc::clone(&self.unified_fallback_client);
-        let model = ActiveSearcherConfig::default().model.clone();
+        let role = message_role.to_string();
+
+        let sm_clone = Arc::clone(&self.session_manager);
+        let aid_clone = aid.clone();
 
         tokio::spawn(async move {
+            // Load agent config for active-searcher configuration.
+            let (agent_model, memory_override) = match sm_clone.get_agent_config(&aid_clone).await {
+                Some(cfg) => (cfg.model.clone(), cfg.memory),
+                None => (None, None),
+            };
+
+            let config = ActiveSearcherConfig::from_agent_config(
+                agent_model.as_deref(),
+                memory_override.as_ref(),
+            );
+            let model = config.model.clone();
+
             // Build an LlmCaller wrapper around UnifiedFallbackClient.
             let caller = FallbackLlmCaller { client: ufc, model };
 
-            let config = ActiveSearcherConfig::default();
             let searcher = ActiveSearcher::new(&db_path, config);
 
             // Gather context: last N messages from the session.
@@ -333,7 +348,7 @@ impl SessionMessageHandler {
             if let Some(injection) = searcher
                 .run(
                     &aid,
-                    &aid,
+                    &role,
                     &content,
                     &context_messages,
                     &injected_ids,
