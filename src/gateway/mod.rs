@@ -174,6 +174,18 @@ pub struct Session {
     pub depth: u32,
 }
 
+/// Groups inbound message fields into a single struct (≤ 6 params).
+#[derive(Debug, Clone)]
+pub(crate) struct InboundChainInput {
+    pub platform: String,
+    pub sender_id: String,
+    pub peer_id: String,
+    pub content: String,
+    pub message_id: String,
+    pub timestamp_ms: i64,
+    pub account_id: Option<String>,
+}
+
 /// Gateway - routes messages between IM plugins and agents
 pub struct Gateway {
     config: GatewayConfig,
@@ -896,45 +908,32 @@ impl Gateway {
         }
     }
 
-    /// Process an inbound message through the processor chain.
-    ///
-    /// Builds a [`RawMessage`] from the provided fields and runs it through
-    /// the inbound processor chain (if a [`ProcessorRegistry`] is configured).
-    ///
-    /// - When no registry exists, returns a bypass [`ProcessedMessage`]
-    ///   wrapping the original content.
-    /// - On processor failure, logs a warning and falls back to the
-    ///   original content.
+    /// Runs the inbound processor chain on a [`RawMessage`] built from `input`.
+    /// Falls back to raw content on registry absence or processor error.
     pub(crate) async fn process_inbound_chain(
         &self,
-        platform: &str,
-        sender_id: &str,
-        peer_id: &str,
-        content: &str,
-        message_id: &str,
-        timestamp_ms: i64,
-        account_id: Option<&str>,
+        input: &InboundChainInput,
     ) -> ProcessedMessage {
         let Some(registry) = &self.processor_registry else {
             return ProcessedMessage {
-                content: content.to_string(),
+                content: input.content.to_string(),
                 metadata: serde_json::Map::new(),
                 suppress: false,
                 content_blocks: vec![],
             };
         };
 
-        let timestamp =
-            chrono::DateTime::from_timestamp_millis(timestamp_ms).unwrap_or_else(chrono::Utc::now);
+        let timestamp = chrono::DateTime::from_timestamp_millis(input.timestamp_ms)
+            .unwrap_or_else(chrono::Utc::now);
 
         let raw = RawMessage {
-            platform: platform.to_string(),
-            sender_id: sender_id.to_string(),
-            peer_id: peer_id.to_string(),
-            content: content.to_string(),
+            platform: input.platform.to_string(),
+            sender_id: input.sender_id.to_string(),
+            peer_id: input.peer_id.to_string(),
+            content: input.content.to_string(),
             timestamp,
-            message_id: message_id.to_string(),
-            account_id: account_id.map(String::from),
+            message_id: input.message_id.to_string(),
+            account_id: input.account_id.clone(),
         };
 
         match registry.process_inbound(raw).await {
@@ -942,7 +941,7 @@ impl Gateway {
             Err(e) => {
                 tracing::warn!(?e, "processor chain failed, falling back to raw content");
                 ProcessedMessage {
-                    content: content.to_string(),
+                    content: input.content.to_string(),
                     metadata: serde_json::Map::new(),
                     suppress: false,
                     content_blocks: vec![],
