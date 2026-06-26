@@ -323,6 +323,17 @@ pub struct InternalMessage {
     pub content: String,
 }
 
+/// A tool definition passed via the API `tools` parameter.
+///
+/// Used by `CacheAdapter` to mark tool schemas as cacheable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolDefinition {
+    /// The name of the tool.
+    pub name: String,
+    /// Whether this tool's schema should be marked as cacheable.
+    pub cache: bool,
+}
+
 /// Internal request structure used by `ChatProtocol` implementations.
 ///
 /// This is the protocol-level representation of a chat completion request,
@@ -354,6 +365,10 @@ pub struct InternalRequest {
     /// Structured system blocks produced by a `CacheAdapter`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_blocks: Option<Vec<SystemBlock>>,
+    /// Tool definitions passed via the API `tools` parameter.
+    /// When present, the cache adapter marks each tool's schema as cacheable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
     /// Session identifier used for provider-level cache keys (e.g., Kimi prompt_cache_key).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,

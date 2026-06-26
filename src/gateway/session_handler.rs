@@ -394,6 +394,7 @@ impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
             system_static: None,
             system_dynamic: None,
             system_blocks: None,
+            tools: None,
             session_id: None,
             reasoning_level: crate::session::persistence::ReasoningLevel::default(),
             turn_count: None,
