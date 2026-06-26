@@ -27,6 +27,7 @@ fn make_raw_message() -> RawMessage {
         content: "  hello   world  ".to_string(),
         timestamp: Utc::now(),
         message_id: "msg_1".to_string(),
+        account_id: None,
     }
 }
 

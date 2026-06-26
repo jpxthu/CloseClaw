@@ -62,6 +62,7 @@ fn webhook_to_raw_message(webhook: &serde_json::Value) -> RawMessage {
         content,
         timestamp: chrono::Utc::now(),
         message_id,
+        account_id: None,
     }
 }
 

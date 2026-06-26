@@ -913,6 +913,7 @@ impl Gateway {
         content: &str,
         message_id: &str,
         timestamp_ms: i64,
+        account_id: Option<&str>,
     ) -> ProcessedMessage {
         let Some(registry) = &self.processor_registry else {
             return ProcessedMessage {
@@ -933,6 +934,7 @@ impl Gateway {
             content: content.to_string(),
             timestamp,
             message_id: message_id.to_string(),
+            account_id: account_id.map(String::from),
         };
 
         match registry.process_inbound(raw).await {
@@ -966,7 +968,6 @@ pub enum GatewayError {
 
     #[error("Missing session ID in message metadata")]
     MissingSessionId,
-
     #[error("No routing key: both session_key and session_id missing from metadata")]
     NoRoutingKey,
 

@@ -95,17 +95,17 @@ impl MessageProcessor for SessionRouter {
                 content: ctx.content.clone(),
                 timestamp: chrono::Utc::now(),
                 message_id: String::new(),
+                account_id: None,
             });
 
         let platform = raw.platform;
         let sender_id = raw.sender_id;
         let peer_id = raw.peer_id;
-        let account_id = ctx
-            .metadata
-            .get("account_id")
-            .and_then(|v| v.as_str().map(String::from));
+        let account_id = raw.account_id;
 
-        let timestamp_ms = raw.timestamp.timestamp_millis();
+        // Use system time instead of message timestamp to align with design doc:
+        // "timestamp_ms 为当前系统时间的毫秒级时间戳"
+        let timestamp_ms = chrono::Utc::now().timestamp_millis();
         let session_key = self.compute_key(
             &sender_id,
             &peer_id,

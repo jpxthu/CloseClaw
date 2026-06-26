@@ -185,6 +185,7 @@ mod tests {
             content: "hello".to_string(),
             timestamp: Utc::now(),
             message_id: message_id.to_string(),
+            account_id: None,
         }
     }
 
@@ -240,6 +241,7 @@ mod tests {
             content: "hello".to_string(),
             timestamp: Utc::now(),
             message_id: "msg_99".to_string(),
+            account_id: None,
         };
         let ctx = make_ctx(raw);
 
