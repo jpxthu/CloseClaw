@@ -522,6 +522,7 @@ dependencies = [
  "chrono",
  "closeclaw-common",
  "closeclaw-config",
+ "hex",
  "redis",
  "rusqlite",
  "serde",

@@ -10,7 +10,7 @@
 //! - [`events`] — Checkpoint trigger event definitions
 //! - [`bootstrap`] — Bootstrap context protection during compaction
 
-pub mod bootstrap;
+pub use closeclaw_session::bootstrap;
 pub mod checkpoint_manager;
 pub mod compaction;
 #[cfg(test)]
