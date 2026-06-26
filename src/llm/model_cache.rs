@@ -73,6 +73,12 @@ impl ModelCache {
         Self { persist_path }
     }
 
+    /// Construct a `ModelCache` with an explicit file path.
+    #[cfg(test)]
+    pub(crate) fn with_path(persist_path: std::path::PathBuf) -> Self {
+        Self { persist_path }
+    }
+
     /// Retrieve cached models for the given provider + token.
     ///
     /// Returns `None` if:

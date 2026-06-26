@@ -1,7 +1,7 @@
 //! Unit tests for the MiniMax provider.
 
 use super::*;
-use crate::llm::Provider;
+use crate::llm::{ModelLister, Provider};
 
 // TODO: Rewrite with v2 fixture (minimax/MiniMax-M3/anthropic/)
 // #[test]
@@ -369,4 +369,84 @@ async fn test_provider_send_streaming_rate_limit_mock() {
 
     m.assert_async().await;
     assert!(matches!(err, ProviderError::Legacy(_)));
+}
+
+// --- fetch_model_list knowledge base filling tests ---
+
+#[tokio::test]
+async fn test_fetch_model_list_uses_knowledge_base() {
+    let mut server = mockito::Server::new_async().await;
+    let api_response = serde_json::json!({
+        "data": [
+            {"id": "MiniMax-M2.7", "owned_by": "minimax"},
+            {"id": "MiniMax-M2", "owned_by": "minimax"}
+        ]
+    });
+    let m = server
+        .mock("GET", "/v1/models")
+        .match_header(
+            "Authorization",
+            mockito::Matcher::Regex(r"Bearer .+".to_string()),
+        )
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(api_response.to_string())
+        .create_async()
+        .await;
+
+    let provider =
+        MiniMaxProvider::with_http_client("test-key".into(), server.url(), reqwest::Client::new());
+    let models = ModelLister::fetch_model_list(&provider, "test-key")
+        .await
+        .unwrap();
+
+    m.assert_async().await;
+    assert_eq!(models.len(), 2);
+
+    // MiniMax-M2.7: knowledge base has reasoning=true, context_window=204800
+    let m27 = models.iter().find(|m| m.id == "MiniMax-M2.7").unwrap();
+    assert!(
+        m27.reasoning,
+        "knowledge base should set reasoning=true for M2.7"
+    );
+    assert_eq!(m27.context_window, 204_800);
+
+    // MiniMax-M2: knowledge base has reasoning=true, context_window=204800
+    let m2 = models.iter().find(|m| m.id == "MiniMax-M2").unwrap();
+    assert!(
+        m2.reasoning,
+        "knowledge base should set reasoning=true for M2"
+    );
+    assert_eq!(m2.context_window, 204_800);
+}
+
+#[tokio::test]
+async fn test_fetch_model_list_unknown_model_uses_fallback() {
+    let mut server = mockito::Server::new_async().await;
+    let api_response = serde_json::json!({
+        "data": [
+            {"id": "unknown-future-model", "owned_by": "minimax"}
+        ]
+    });
+    let m = server
+        .mock("GET", "/v1/models")
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(api_response.to_string())
+        .create_async()
+        .await;
+
+    let provider =
+        MiniMaxProvider::with_http_client("test-key".into(), server.url(), reqwest::Client::new());
+    let models = ModelLister::fetch_model_list(&provider, "test-key")
+        .await
+        .unwrap();
+
+    m.assert_async().await;
+    assert_eq!(models.len(), 1);
+    // Unknown model: fallback defaults (context_window=32768, reasoning=false)
+    let model = &models[0];
+    assert_eq!(model.id, "unknown-future-model");
+    assert_eq!(model.context_window, 32_768);
+    assert!(!model.reasoning);
 }

@@ -321,18 +321,37 @@ impl ModelLister for MiniMaxProvider {
 
         let data = api_resp["data"].as_array().cloned().unwrap_or_default();
 
+        let kb = crate::llm::ProviderModelKnowledge::new();
         let models: Vec<ModelInfo> = data
             .into_iter()
             .filter_map(|m| {
                 let model_id = m["id"].as_str()?.to_string();
+                let params = kb.find("minimax", &model_id);
+                let (context_window, max_tokens, default_temperature, reasoning, input_types) =
+                    match params {
+                        Some(p) => (
+                            p.context_window,
+                            p.max_tokens,
+                            Some(p.default_temperature),
+                            p.reasoning,
+                            p.input_types,
+                        ),
+                        None => (
+                            32_768,
+                            8_192,
+                            Some(0.7),
+                            false,
+                            vec![crate::llm::InputType::Text],
+                        ),
+                    };
                 Some(ModelInfo {
                     id: model_id.clone(),
                     name: format!("MiniMax {}", model_id.trim_start_matches("MiniMax-")),
-                    context_window: 32_768,
-                    max_tokens: 8_192,
-                    default_temperature: Some(0.7),
-                    reasoning: false,
-                    input_types: vec![crate::llm::InputType::Text],
+                    context_window,
+                    max_tokens,
+                    default_temperature,
+                    reasoning,
+                    input_types,
                 })
             })
             .collect();
