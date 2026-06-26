@@ -74,246 +74,30 @@ pub struct ProviderModelKnowledge {
 
 impl ProviderModelKnowledge {
     /// Create the knowledge base populated with all known providers.
+    ///
+    /// Each provider's models are loaded from a JSON file at compile time
+    /// via `include_str!` and parsed at runtime with `serde_json`.
     pub fn new() -> Self {
-        let mut inner = HashMap::new();
+        let mut inner: HashMap<String, HashMap<&'static str, ModelRecommendParams>> =
+            HashMap::new();
 
-        // ──────────────────────────────────────────────────────────────────────
-        // MiniMax
-        // MiniMax 官方文档 + 实测 API 响应
-        // ──────────────────────────────────────────────────────────────────────
-        let mut minimax_models = HashMap::new();
-        minimax_models.insert(
-            "MiniMax-M2",
-            ModelRecommendParams {
-                context_window: 32_768,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        minimax_models.insert(
-            "MiniMax-M2.1",
-            ModelRecommendParams {
-                context_window: 32_768,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        minimax_models.insert(
-            "MiniMax-M2.5",
-            ModelRecommendParams {
-                context_window: 32_768,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: true,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        minimax_models.insert(
-            "MiniMax-M2.7",
-            ModelRecommendParams {
-                context_window: 32_768,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: true,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        inner.insert("minimax".to_string(), minimax_models);
+        macro_rules! load_provider {
+            ($provider:expr, $file:expr) => {{
+                let json = include_str!(concat!("assets/", $file));
+                let models: HashMap<String, ModelRecommendParams> = serde_json::from_str(json)
+                    .unwrap_or_else(|e| panic!("failed to parse {}: {}", $file, e));
+                let static_models: HashMap<&'static str, ModelRecommendParams> = models
+                    .into_iter()
+                    .map(|(k, v)| (&*Box::leak(k.into_boxed_str()), v))
+                    .collect();
+                inner.insert($provider.to_string(), static_models);
+            }};
+        }
 
-        // ──────────────────────────────────────────────────────────────────────
-        // GLM
-        // 实测 API 响应 + 官方文档 (bigmodel.cn)
-        // reasoning_content 字段表示支持思考内容
-        // ──────────────────────────────────────────────────────────────────────
-        let mut glm_models = HashMap::new();
-        glm_models.insert(
-            "GLM-4.5-Air",
-            ModelRecommendParams {
-                context_window: 128_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        glm_models.insert(
-            "GLM-4.5-AirX",
-            ModelRecommendParams {
-                context_window: 128_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text, InputType::Image],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        glm_models.insert(
-            "glm-4.5-air",
-            ModelRecommendParams {
-                context_window: 128_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        glm_models.insert(
-            "glm-4.5-airx",
-            ModelRecommendParams {
-                context_window: 128_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text, InputType::Image],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        glm_models.insert(
-            "glm-4.7",
-            ModelRecommendParams {
-                context_window: 128_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: true,
-                reasoning_levels: ReasoningLevels::Toggle { on: false },
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        glm_models.insert(
-            "glm-5.1",
-            ModelRecommendParams {
-                context_window: 128_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: true,
-                reasoning_levels: ReasoningLevels::Toggle { on: false },
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        inner.insert("glm".to_string(), glm_models);
-
-        // ──────────────────────────────────────────────────────────────────────
-        // VolcEngine (火山引擎 ARTVC)
-        // 火山引擎 ARTVC API 文档
-        // ──────────────────────────────────────────────────────────────────────
-        let mut volcengine_models = HashMap::new();
-        volcengine_models.insert(
-            "doubao-1.5-pro",
-            ModelRecommendParams {
-                context_window: 32_768,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        volcengine_models.insert(
-            "doubao-1.5-lite",
-            ModelRecommendParams {
-                context_window: 32_768,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::None,
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("openai"),
-            },
-        );
-        inner.insert("volcengine".to_string(), volcengine_models);
-
-        // ──────────────────────────────────────────────────────────────────────
-        // DeepSeek
-        // 实测 API 响应 + 官方文档 (deepseek.com)
-        // reasoning_levels 支持 off/base/reasoner 三档
-        // ──────────────────────────────────────────────────────────────────────
-        let mut deepseek_models = HashMap::new();
-        deepseek_models.insert(
-            "deepseek-v3-flash",
-            ModelRecommendParams {
-                context_window: 64_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::Levels {
-                    off: false,
-                    base: true,
-                    reasoner: true,
-                },
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        deepseek_models.insert(
-            "deepseek-v3",
-            ModelRecommendParams {
-                context_window: 64_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: false,
-                reasoning_levels: ReasoningLevels::Levels {
-                    off: false,
-                    base: true,
-                    reasoner: true,
-                },
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        deepseek_models.insert(
-            "deepseek-v4-flash",
-            ModelRecommendParams {
-                context_window: 64_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: true,
-                reasoning_levels: ReasoningLevels::Levels {
-                    off: false,
-                    base: true,
-                    reasoner: true,
-                },
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        deepseek_models.insert(
-            "deepseek-v4",
-            ModelRecommendParams {
-                context_window: 64_000,
-                max_tokens: 8_192,
-                default_temperature: 0.7,
-                reasoning: true,
-                reasoning_levels: ReasoningLevels::Levels {
-                    off: false,
-                    base: true,
-                    reasoner: true,
-                },
-                input_types: vec![InputType::Text],
-                recommended_protocol: ProtocolId::from("anthropic"),
-            },
-        );
-        inner.insert("deepseek".to_string(), deepseek_models);
+        load_provider!("deepseek", "deepseek.json");
+        load_provider!("glm", "glm.json");
+        load_provider!("minimax", "minimax.json");
+        load_provider!("volcengine", "volcengine.json");
 
         Self { inner }
     }
@@ -365,9 +149,12 @@ mod tests {
         let params = kb.find("minimax", "MiniMax-M2.7");
         assert!(params.is_some());
         let p = params.unwrap();
-        assert_eq!(p.context_window, 32_768);
+        assert_eq!(p.context_window, 204_800);
         assert!(p.reasoning);
-        assert!(matches!(p.reasoning_levels, ReasoningLevels::None));
+        assert!(matches!(
+            p.reasoning_levels,
+            ReasoningLevels::Toggle { on: true }
+        ));
     }
 
     #[test]
@@ -423,7 +210,7 @@ mod tests {
         let p = kb.find("glm", "glm-5.1").unwrap();
         assert!(matches!(
             p.reasoning_levels,
-            ReasoningLevels::Toggle { on: false }
+            ReasoningLevels::Toggle { on: true }
         ));
     }
 
@@ -434,7 +221,7 @@ mod tests {
         assert!(matches!(
             p.reasoning_levels,
             ReasoningLevels::Levels {
-                off: false,
+                off: true,
                 base: true,
                 reasoner: true
             }
@@ -442,10 +229,13 @@ mod tests {
     }
 
     #[test]
-    fn test_minimax_reasoning_levels_none() {
+    fn test_minimax_reasoning_levels_toggle() {
         let kb = kb();
         let p = kb.find("minimax", "MiniMax-M2.7").unwrap();
-        assert!(matches!(p.reasoning_levels, ReasoningLevels::None));
+        assert!(matches!(
+            p.reasoning_levels,
+            ReasoningLevels::Toggle { on: true }
+        ));
     }
 
     // ── recommended_protocol ──────────────────────────────────────────────
