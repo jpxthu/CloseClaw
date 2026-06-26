@@ -423,13 +423,14 @@ fn test_parse_usage_no_cache_fields() {
 
 // ── decorate_headers tests ────────────────────────────────────────────────
 
-#[test]
 /// x-api-key header should always be present after decorate_headers.
+#[test]
 fn test_decorate_headers_api_key() {
     let proto = AnthropicProtocol::new();
     let mut headers = HeaderMap::new();
     proto.decorate_headers(&mut headers).unwrap();
 
+    // decorate_headers always inserts x-api-key (empty string when env var is unset)
     let key_header = headers.get("x-api-key");
     assert!(
         key_header.is_some(),
@@ -508,16 +509,17 @@ fn test_build_request_high_reasoning_level_no_injection() {
 
 // ── messages cache_control tests ──────────────────────────────────────────
 
-#[test]
 /// Last message in the array should receive cache_control marker.
+#[test]
 fn test_messages_cache_control_single_message() {
     let proto = AnthropicProtocol::new();
-    let request = make_request();
+    let request = make_request(); // single "Hello" message
     let body = proto.build_request(&request).unwrap();
 
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert_eq!(messages.len(), 1);
 
+    // Content should be a content blocks array with cache_control
     let content = messages[0].get("content").unwrap().as_array().unwrap();
     assert_eq!(content.len(), 1);
     assert_eq!(content[0].get("type").unwrap(), "text");
@@ -551,6 +553,7 @@ fn test_messages_cache_control_multiple_messages() {
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert_eq!(messages.len(), 3);
 
+    // First two messages should keep string content
     assert!(messages[0].get("content").unwrap().is_string());
     assert_eq!(messages[0].get("content").unwrap().as_str().unwrap(), "Hi");
     assert!(messages[1].get("content").unwrap().is_string());
@@ -559,6 +562,7 @@ fn test_messages_cache_control_multiple_messages() {
         "Hey!"
     );
 
+    // Last message should be content blocks with cache_control
     let last_content = messages[2].get("content").unwrap().as_array().unwrap();
     assert_eq!(last_content.len(), 1);
     assert_eq!(last_content[0].get("type").unwrap(), "text");
@@ -576,16 +580,21 @@ fn test_messages_cache_control_empty_messages() {
     request.messages = vec![];
     let body = proto.build_request(&request).unwrap();
 
+    // Empty messages should produce an empty array with no cache_control added
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert!(messages.is_empty());
 }
 
+/// Verify that ToolsSection content in `system_blocks` produces `cache_control`
+/// in the Anthropic request body, confirming the prefix-cache path covers tool
+/// definitions embedded in the static layer.
 #[test]
 fn test_build_request_tools_section_cache_control() {
     use crate::llm::types::SystemBlock;
 
     let proto = AnthropicProtocol::new();
     let mut request = make_request();
+    // Simulate a system prompt with role section followed by ToolsSection content
     let system_static = "Role: You are a helpful assistant.";
     let tools_section = "\n\n## Tools\n\n- web_search: search the web\n- read: read files";
     let full_static = format!("{system_static}{tools_section}");
@@ -631,6 +640,7 @@ fn test_messages_cache_control_with_system_blocks() {
     }]);
     let body = proto.build_request(&request).unwrap();
 
+    // System should have cache_control
     let system = body.get("system").unwrap().as_array().unwrap();
     assert_eq!(system.len(), 1);
     assert_eq!(
@@ -638,6 +648,7 @@ fn test_messages_cache_control_with_system_blocks() {
         &serde_json::json!({ "type": "ephemeral" })
     );
 
+    // Messages should also have cache_control on the last message
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert_eq!(messages.len(), 1);
     let content = messages[0].get("content").unwrap().as_array().unwrap();
