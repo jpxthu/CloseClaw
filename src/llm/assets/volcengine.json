@@ -1,0 +1,20 @@
+{
+  "doubao-1.5-pro": {
+    "context_window": 32768,
+    "max_tokens": 8192,
+    "default_temperature": 0.7,
+    "reasoning": false,
+    "reasoning_levels": { "type": "none" },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  },
+  "doubao-1.5-lite": {
+    "context_window": 32768,
+    "max_tokens": 8192,
+    "default_temperature": 0.7,
+    "reasoning": false,
+    "reasoning_levels": { "type": "none" },
+    "input_types": ["text"],
+    "recommended_protocol": "openai"
+  }
+}
