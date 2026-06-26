@@ -6,12 +6,12 @@ mod tests {
 
     use chrono::Utc;
 
-    use crate::session::persistence::{
+    use crate::checkpoint_manager::CheckpointManager;
+    use crate::persistence::{
         DreamingStatus, PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState,
         SessionCheckpoint, SessionStatus,
     };
-    use crate::session::storage::memory::MemoryStorage;
-    use crate::session::CheckpointManager;
+    use crate::storage::memory::MemoryStorage;
 
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         let mut state = ReasoningModeState::default();
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_session_checkpoint_with_role_main_agent() {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
         let cp = SessionCheckpoint::new("test-session".to_string()).with_role(AgentRole::MainAgent);
         assert_eq!(cp.role, Some(AgentRole::MainAgent));
         // agent_id should still be None
@@ -184,14 +184,14 @@ mod tests {
 
     #[test]
     fn test_session_checkpoint_with_role_sub_agent() {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
         let cp = SessionCheckpoint::new("test-session".to_string()).with_role(AgentRole::SubAgent);
         assert_eq!(cp.role, Some(AgentRole::SubAgent));
     }
 
     #[test]
     fn test_session_checkpoint_with_both_identity_fields() {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
         let cp = SessionCheckpoint::new("test-session".to_string())
             .with_agent_id("agent-eda".to_string())
             .with_role(AgentRole::SubAgent);
@@ -201,7 +201,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_manager_new_with_identity_fills_on_save() {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
         let storage = Arc::new(MemoryStorage::new());
         let manager = CheckpointManager::new_with_identity(
             storage.clone(),
@@ -262,7 +262,7 @@ mod tests {
             "agent_id should be empty string with MemoryStorage round-trip"
         );
         // For role, "main_agent" round-trips to Some(MainAgent)
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
         assert_eq!(
             loaded.role,
             Some(AgentRole::MainAgent),
@@ -272,7 +272,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_manager_save_existing_identity_preserved() {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
         let storage = Arc::new(MemoryStorage::new());
         let manager = CheckpointManager::new_with_identity(
             storage.clone(),
@@ -528,7 +528,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_archived_unmined_sessions() {
-        use crate::session::storage::memory::MemoryStorage;
+        use crate::storage::memory::MemoryStorage;
 
         let storage = MemoryStorage::new();
 
@@ -550,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_mined_updates_field() {
-        use crate::session::storage::memory::MemoryStorage;
+        use crate::storage::memory::MemoryStorage;
 
         let storage = MemoryStorage::new();
         let cp = create_test_checkpoint("mark-mined-test");
@@ -565,7 +565,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_mined_undreamt_sessions() {
-        use crate::session::storage::memory::MemoryStorage;
+        use crate::storage::memory::MemoryStorage;
 
         let storage = MemoryStorage::new();
 
@@ -591,7 +591,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_dreaming_status() {
-        use crate::session::storage::memory::MemoryStorage;
+        use crate::storage::memory::MemoryStorage;
 
         let storage = MemoryStorage::new();
         let cp = create_test_checkpoint("dreaming-status-test");

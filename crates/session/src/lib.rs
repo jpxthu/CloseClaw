@@ -12,3 +12,8 @@ pub mod persistence;
 pub mod recovery;
 pub mod storage;
 pub mod workspace;
+
+#[cfg(test)]
+mod compaction_tests;
+#[cfg(test)]
+mod persistence_tests;

@@ -15,15 +15,11 @@ pub use closeclaw_session::checkpoint_manager;
 pub mod compaction;
 #[cfg(test)]
 pub mod compaction_async_tests;
-#[cfg(test)]
-pub mod compaction_tests;
 pub use closeclaw_session::events;
 pub mod llm_caller;
 #[cfg(test)]
 pub mod pending_operations_tests;
 pub use closeclaw_session::persistence;
-#[cfg(test)]
-pub mod persistence_tests;
 pub use closeclaw_session::recovery;
 pub use closeclaw_session::storage;
 pub mod sweeper;

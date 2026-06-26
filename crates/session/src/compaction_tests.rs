@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::session::compaction::{
+    use crate::compaction::{
         build_compact_prompt, estimate_tokens, extract_summary, format_boundary_message,
         get_context_window, CompactConfig, CompactionError, CompactionMessage, CompactionService,
         TokenWarningState,
