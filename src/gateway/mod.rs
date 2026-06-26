@@ -988,6 +988,8 @@ mod session_handler_dynamic_tests;
 #[cfg(test)]
 mod session_handler_tests;
 #[cfg(test)]
+mod step1_5_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_dmscope;
