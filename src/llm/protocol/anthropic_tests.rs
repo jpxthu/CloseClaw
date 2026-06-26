@@ -424,6 +424,7 @@ fn test_parse_usage_no_cache_fields() {
 // ── decorate_headers tests ────────────────────────────────────────────────
 
 #[test]
+/// x-api-key header should always be present after decorate_headers.
 fn test_decorate_headers_api_key() {
     let proto = AnthropicProtocol::new();
     let mut headers = HeaderMap::new();
@@ -508,6 +509,7 @@ fn test_build_request_high_reasoning_level_no_injection() {
 // ── messages cache_control tests ──────────────────────────────────────────
 
 #[test]
+/// Last message in the array should receive cache_control marker.
 fn test_messages_cache_control_single_message() {
     let proto = AnthropicProtocol::new();
     let request = make_request();
@@ -802,13 +804,13 @@ async fn test_sse_thinking_stream() {
         } if t.is_empty() && sig == "sig_abc"
     ));
 
-    // BlockEnd — current impl always emits Text for content_block_stop
+    // BlockEnd(Thinking)
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockEnd {
             index: 0,
-            block_type: ContentBlockType::Text,
+            block_type: ContentBlockType::Thinking,
         }
     ));
 
@@ -897,13 +899,13 @@ async fn test_sse_tool_use_stream() {
         } if input == "ation\":\"Beijing\"}"
     ));
 
-    // BlockEnd — current impl always emits Text for content_block_stop
+    // BlockEnd(ToolUse)
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockEnd {
             index: 0,
-            block_type: ContentBlockType::Text,
+            block_type: ContentBlockType::ToolUse,
         }
     ));
 

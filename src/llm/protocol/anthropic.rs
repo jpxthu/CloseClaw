@@ -294,6 +294,8 @@ impl ChatProtocol for AnthropicProtocol {
             let mut stream = incoming;
             let mut stop_reason: Option<String> = None;
             let mut usage: Option<RawUsage> = None;
+            let mut block_type_map: std::collections::HashMap<usize, ContentBlockType> =
+                std::collections::HashMap::new();
 
             while let Some(chunk) = stream.next().await {
                 let data = chunk.data.trim();
@@ -339,6 +341,7 @@ impl ChatProtocol for AnthropicProtocol {
                             }
                             _ => continue,
                         };
+                        block_type_map.insert(index, block_type);
                         yield StreamEvent::BlockStart {
                             index,
                             block_type,
@@ -443,9 +446,12 @@ impl ChatProtocol for AnthropicProtocol {
                             .get("index")
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0) as usize;
+                        let block_type = block_type_map
+                            .remove(&index)
+                            .unwrap_or(ContentBlockType::Text);
                         yield StreamEvent::BlockEnd {
                             index,
-                            block_type: ContentBlockType::Text,
+                            block_type,
                         };
                     }
                     "message_delta" => {
