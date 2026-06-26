@@ -102,7 +102,13 @@ pub enum ContentDelta {
     /// Text delta.
     Text { text: String },
     /// Thinking delta.
-    Thinking { thinking: String },
+    Thinking {
+        /// The thinking/reasoning content.
+        thinking: String,
+        /// Optional signature (e.g., Anthropic thinking signature).
+        /// Always None in OpenAI streaming.
+        signature: Option<String>,
+    },
     /// Tool use call ID delta.
     ToolUseId { id: String },
     /// Tool use name delta.

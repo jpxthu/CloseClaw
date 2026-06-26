@@ -217,9 +217,24 @@ impl ChatProtocol for OpenAiProtocol {
                 }
 
                 // Content delta
+                // Document rule: content is prioritized over reasoning_content.
+                // If a Text block is already active, append to it.
+                // If a Thinking block is active and non-empty content arrives,
+                // end Thinking and start Text (content wins).
                 if let Some(text) = delta.get("content").and_then(|v| v.as_str()) {
                     if text.is_empty() {
                         continue;
+                    }
+                    // If Thinking block is active, content takes priority: end it
+                    if active_block_type == Some(ContentBlockType::Thinking) {
+                        if let Some(prev_idx) = block_index {
+                            yield StreamEvent::BlockEnd {
+                                index: prev_idx,
+                                block_type: ContentBlockType::Thinking,
+                            };
+                        }
+                        block_index = None;
+                        active_block_type = None;
                     }
                     let idx = match block_index {
                         Some(i) => i,
@@ -228,52 +243,63 @@ impl ChatProtocol for OpenAiProtocol {
                             next_block_index += 1;
                             block_index = Some(idx);
                             active_block_type = Some(ContentBlockType::Text);
-                            yield StreamEvent::BlockStart { index: idx, block_type: ContentBlockType::Text };
+                            yield StreamEvent::BlockStart {
+                                index: idx,
+                                block_type: ContentBlockType::Text,
+                            };
                             idx
                         }
                     };
-                    yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::Text { text: text.to_string() } };
+                    yield StreamEvent::BlockDelta {
+                        index: idx,
+                        delta: ContentDelta::Text {
+                            text: text.to_string(),
+                        },
+                    };
                 }
 
                 // reasoning_content delta
+                // If a Text block is already active, content is non-empty so
+                // reasoning_content is ignored (content priority).
                 if let Some(thinking) = delta.get("reasoning_content").and_then(|v| v.as_str()) {
                     if thinking.is_empty() {
+                        continue;
+                    }
+                    // If Text block is active, ignore reasoning_content
+                    if active_block_type == Some(ContentBlockType::Text) {
                         continue;
                     }
                     let idx = match block_index {
                         Some(i) if active_block_type == Some(ContentBlockType::Thinking) => i,
                         _ => {
-                            // End current block if any
+                            // End current block if any (e.g., tool_calls → thinking)
                             if let Some(prev_idx) = block_index {
                                 let prev_type = active_block_type.unwrap_or(
                                     ContentBlockType::Text,
                                 );
-                                let event = StreamEvent::BlockEnd {
+                                yield StreamEvent::BlockEnd {
                                     index: prev_idx,
                                     block_type: prev_type,
                                 };
-                                yield event;
                             }
                             let idx = next_block_index;
                             next_block_index += 1;
                             block_index = Some(idx);
                             active_block_type = Some(ContentBlockType::Thinking);
-                            let event = StreamEvent::BlockStart {
+                            yield StreamEvent::BlockStart {
                                 index: idx,
                                 block_type: ContentBlockType::Thinking,
                             };
-                            yield event;
                             idx
                         }
                     };
-                    let delta = ContentDelta::Thinking {
-                        thinking: thinking.to_string(),
-                    };
-                    let event = StreamEvent::BlockDelta {
+                    yield StreamEvent::BlockDelta {
                         index: idx,
-                        delta,
+                        delta: ContentDelta::Thinking {
+                            thinking: thinking.to_string(),
+                            signature: None,
+                        },
                     };
-                    yield event;
                 }
 
                 // tool_calls delta
