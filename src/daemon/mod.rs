@@ -23,6 +23,7 @@ type StartupPlan = (
 );
 use crate::cli::terminal::TerminalPlugin;
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
+use crate::processor_chain;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
 use crate::slash::registry::HandlerRegistry;
@@ -231,7 +232,18 @@ impl Daemon {
             Self::read_bootstrap_mode(),
             ReasoningLevel::default(),
         ));
-        let gateway = Gateway::new(gateway_config, Arc::clone(&session_manager));
+        let processor_registry =
+            Arc::new(processor_chain::build_processor_registry(&gateway_config));
+        info!(
+            inbound_len = processor_registry.inbound_len(),
+            outbound_len = processor_registry.outbound_len(),
+            "processor registry built for daemon"
+        );
+        let gateway = Gateway::with_processor_registry(
+            gateway_config,
+            Arc::clone(&session_manager),
+            processor_registry,
+        );
         gateway
             .set_storage(Arc::clone(storage) as Arc<dyn PersistenceService>)
             .await;
