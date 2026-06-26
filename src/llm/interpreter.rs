@@ -168,7 +168,10 @@ impl Default for InterpreterRegistry {
 fn raw_content_block_to_content_block(raw: RawContentBlock) -> ContentBlock {
     match raw {
         RawContentBlock::Text(s) => ContentBlock::Text(s),
-        RawContentBlock::Thinking(s) => ContentBlock::Thinking(s),
+        RawContentBlock::Thinking { thinking: s, .. } => ContentBlock::Thinking {
+            thinking: s,
+            signature: None,
+        },
         RawContentBlock::ToolUse { id, name, input } => ContentBlock::ToolUse { id, name, input },
         RawContentBlock::ToolResult {
             tool_call_id,
@@ -203,7 +206,7 @@ impl ModelInterpreter for MinimaxInterpreter {
         for block in response.content_blocks {
             match block {
                 RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking(s) => thinking_parts.push(s),
+                RawContentBlock::Thinking { thinking: s, .. } => thinking_parts.push(s),
                 RawContentBlock::ToolUse { id, name, input } => {
                     text_parts.push(format!("id:{id} name:{name} input:{input}"))
                 }
@@ -215,7 +218,10 @@ impl ModelInterpreter for MinimaxInterpreter {
         }
         let content_blocks: Vec<ContentBlock> = if text_parts.iter().all(|s| s.is_empty()) {
             if !thinking_parts.is_empty() {
-                vec![ContentBlock::Thinking(thinking_parts.join(""))]
+                vec![ContentBlock::Thinking {
+                    thinking: thinking_parts.join(""),
+                    signature: None,
+                }]
             } else {
                 vec![]
             }
@@ -264,7 +270,7 @@ impl ModelInterpreter for GlmInterpreter {
         for block in response.content_blocks {
             match block {
                 RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking(s) => thinking_parts.push(s),
+                RawContentBlock::Thinking { thinking: s, .. } => thinking_parts.push(s),
                 RawContentBlock::ToolUse { id, name, input } => {
                     text_parts.push(format!("id:{id} name:{name} input:{input}"))
                 }
@@ -277,7 +283,10 @@ impl ModelInterpreter for GlmInterpreter {
         let content_blocks: Vec<ContentBlock> = if text_parts.iter().all(|s| s.is_empty()) {
             let reasoning = thinking_parts.join("");
             if reasoning.len() > 10 {
-                vec![ContentBlock::Thinking(reasoning)]
+                vec![ContentBlock::Thinking {
+                    thinking: reasoning,
+                    signature: None,
+                }]
             } else {
                 vec![ContentBlock::Text(reasoning)]
             }
@@ -327,7 +336,7 @@ impl ModelInterpreter for DeepSeekInterpreter {
         for block in response.content_blocks {
             match block {
                 RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking(s) => thinking_parts.push(s),
+                RawContentBlock::Thinking { thinking: s, .. } => thinking_parts.push(s),
                 RawContentBlock::ToolUse { id, name, input } => {
                     text_parts.push(format!("id:{id} name:{name} input:{input}"))
                 }
@@ -339,7 +348,10 @@ impl ModelInterpreter for DeepSeekInterpreter {
         }
         let content_blocks: Vec<ContentBlock> = if text_parts.iter().all(|s| s.is_empty()) {
             if !thinking_parts.is_empty() {
-                vec![ContentBlock::Thinking(thinking_parts.join(""))]
+                vec![ContentBlock::Thinking {
+                    thinking: thinking_parts.join(""),
+                    signature: None,
+                }]
             } else {
                 vec![]
             }

@@ -17,7 +17,10 @@ fn test_content_block_text_serde_roundtrip() {
 
 #[test]
 fn test_content_block_thinking_serde_roundtrip() {
-    let original = ContentBlock::Thinking("let me think...".into());
+    let original = ContentBlock::Thinking {
+        thinking: "let me think...".into(),
+        signature: None,
+    };
     let json = serde_json::to_string(&original).unwrap();
     let parsed: ContentBlock = serde_json::from_str(&json).unwrap();
     assert_eq!(original, parsed);
@@ -199,9 +202,18 @@ fn test_raw_content_block_text_conversion() {
 
 #[test]
 fn test_raw_content_block_thinking_conversion() {
-    let raw = RawContentBlock::Thinking("let me think".to_string());
+    let raw = RawContentBlock::Thinking {
+        thinking: "let me think".to_string(),
+        signature: None,
+    };
     let block: ContentBlock = raw.into();
-    assert_eq!(block, ContentBlock::Thinking("let me think".to_string()));
+    assert_eq!(
+        block,
+        ContentBlock::Thinking {
+            thinking: "let me think".to_string(),
+            signature: None
+        }
+    );
 }
 
 #[test]
@@ -283,7 +295,10 @@ fn test_internal_response_conversion() {
     let resp = InternalResponse {
         content_blocks: vec![
             RawContentBlock::Text("hi".to_string()),
-            RawContentBlock::Thinking("hmm".to_string()),
+            RawContentBlock::Thinking {
+                thinking: "hmm".to_string(),
+                signature: None,
+            },
             RawContentBlock::ToolUse {
                 id: "c1".to_string(),
                 name: "do".to_string(),
@@ -311,7 +326,10 @@ fn test_internal_response_conversion() {
     );
     assert_eq!(
         unified.content_blocks[1],
-        ContentBlock::Thinking("hmm".to_string())
+        ContentBlock::Thinking {
+            thinking: "hmm".to_string(),
+            signature: None
+        }
     );
     assert_eq!(
         unified.content_blocks[2],

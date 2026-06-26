@@ -30,8 +30,13 @@ pub enum ContentBlockType {
 pub enum ContentBlock {
     /// Text content block with a string payload.
     Text(String),
-    /// Thinking content block with a string payload.
-    Thinking(String),
+    /// Thinking content block with a reasoning trace and optional signature.
+    Thinking {
+        /// The thinking/reasoning content.
+        thinking: String,
+        /// Optional signature for traceability (e.g., Anthropic thinking signature).
+        signature: Option<String>,
+    },
     /// Tool use invocation block.
     ToolUse {
         /// Tool call identifier.
@@ -97,7 +102,13 @@ pub enum ContentDelta {
     /// Text delta.
     Text { text: String },
     /// Thinking delta.
-    Thinking { thinking: String },
+    Thinking {
+        /// The thinking/reasoning content.
+        thinking: String,
+        /// Optional signature (e.g., Anthropic thinking signature).
+        /// Always None in OpenAI streaming.
+        signature: Option<String>,
+    },
     /// Tool use call ID delta.
     ToolUseId { id: String },
     /// Tool use name delta.
@@ -155,8 +166,13 @@ pub enum StreamEvent {
 pub enum RawContentBlock {
     /// Text content block with a string payload.
     Text(String),
-    /// Thinking content block with a string payload.
-    Thinking(String),
+    /// Thinking content block with a reasoning trace and optional signature.
+    Thinking {
+        /// The thinking/reasoning content.
+        thinking: String,
+        /// Optional signature for traceability (e.g., Anthropic thinking signature).
+        signature: Option<String>,
+    },
     /// Tool use invocation block.
     ToolUse {
         /// Tool call identifier.
@@ -220,7 +236,13 @@ impl From<RawContentBlock> for ContentBlock {
     fn from(block: RawContentBlock) -> Self {
         match block {
             RawContentBlock::Text(s) => ContentBlock::Text(s),
-            RawContentBlock::Thinking(s) => ContentBlock::Thinking(s),
+            RawContentBlock::Thinking {
+                thinking,
+                signature,
+            } => ContentBlock::Thinking {
+                thinking,
+                signature,
+            },
             RawContentBlock::ToolUse { id, name, input } => {
                 ContentBlock::ToolUse { id, name, input }
             }

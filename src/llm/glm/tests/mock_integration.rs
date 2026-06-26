@@ -43,7 +43,7 @@ fn assert_first_text(resp: &InternalResponse, expected: &str) {
         RawContentBlock::Text(s) => {
             assert!(s.contains(expected), "expected '{}', got: {}", expected, s)
         }
-        RawContentBlock::Thinking(s) => {
+        RawContentBlock::Thinking { thinking: s, .. } => {
             assert!(s.contains(expected), "expected '{}', got: {}", expected, s)
         }
         other => panic!("Expected Text/Thinking, got: {:?}", other),

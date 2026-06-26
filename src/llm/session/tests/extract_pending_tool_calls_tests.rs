@@ -138,7 +138,10 @@ fn test_extract_pending_tool_calls_last_has_mixed_blocks() {
                     name: "tool_a".to_string(),
                     input: "a".to_string(),
                 },
-                ContentBlock::Thinking("internal note".to_string()),
+                ContentBlock::Thinking {
+                    thinking: "internal note".to_string(),
+                    signature: None,
+                },
                 ContentBlock::ToolUse {
                     id: "call_b".to_string(),
                     name: "tool_b".to_string(),

@@ -462,8 +462,14 @@ mod tests {
     fn test_parse_content_blocks_only_thinking() {
         let parser = DslParser;
         let blocks = vec![
-            ContentBlock::Thinking("Let me think about this...".to_string()),
-            ContentBlock::Thinking("Maybe I should try...".to_string()),
+            ContentBlock::Thinking {
+                thinking: "Let me think about this...".to_string(),
+                signature: None,
+            },
+            ContentBlock::Thinking {
+                thinking: "Maybe I should try...".to_string(),
+                signature: None,
+            },
         ];
         let result = parser.parse_content_blocks(&blocks);
         assert!(result.instructions.is_empty());
@@ -520,7 +526,10 @@ mod tests {
     fn test_parse_content_blocks_mixed_with_non_text_skipped() {
         let parser = DslParser;
         let blocks = vec![
-            ContentBlock::Thinking("thinking...".to_string()),
+            ContentBlock::Thinking {
+                thinking: "thinking...".to_string(),
+                signature: None,
+            },
             ContentBlock::Text("::button[label:Click;action:go;value:ok]".to_string()),
             ContentBlock::ToolResult {
                 tool_call_id: "call_1".to_string(),
@@ -553,7 +562,10 @@ mod tests {
     fn test_from_content_blocks_equivalence() {
         let blocks = vec![
             ContentBlock::Text("Some text\n::button[label:X;action:a;value:1]".to_string()),
-            ContentBlock::Thinking("ignored".to_string()),
+            ContentBlock::Thinking {
+                thinking: "ignored".to_string(),
+                signature: None,
+            },
             ContentBlock::Text("More text\n::button[label:Y;action:b;value:2]".to_string()),
         ];
         let result_convenience = DslParseResult::from_content_blocks(&blocks);

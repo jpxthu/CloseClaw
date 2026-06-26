@@ -261,7 +261,10 @@ async fn test_verbosity_filter_before_processor_chain() {
 
     let blocks = vec![
         ContentBlock::Text("visible".to_string()),
-        ContentBlock::Thinking("hidden reasoning".to_string()),
+        ContentBlock::Thinking {
+            thinking: "hidden reasoning".to_string(),
+            signature: None,
+        },
     ];
 
     gw.send_outbound("sess-verb-off", "mock", "raw output", blocks)
@@ -293,7 +296,10 @@ async fn test_verbosity_normal_strips_thinking_before_chain() {
 
     let blocks = vec![
         ContentBlock::Text("hello".to_string()),
-        ContentBlock::Thinking("reasoning".to_string()),
+        ContentBlock::Thinking {
+            thinking: "reasoning".to_string(),
+            signature: None,
+        },
         ContentBlock::ToolUse {
             id: "t1".into(),
             name: "tool_a".into(),
@@ -328,7 +334,10 @@ async fn test_verbosity_full_all_blocks_before_chain() {
 
     let blocks = vec![
         ContentBlock::Text("hello".to_string()),
-        ContentBlock::Thinking("reasoning".to_string()),
+        ContentBlock::Thinking {
+            thinking: "reasoning".to_string(),
+            signature: None,
+        },
     ];
 
     gw.send_outbound("sess-verb-full", "mock", "raw", blocks)

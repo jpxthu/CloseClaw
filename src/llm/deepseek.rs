@@ -226,7 +226,10 @@ impl Provider for DeepSeekProvider {
         // reasoning_content → Thinking block (DeepSeek reasoning models)
         if let Some(reasoning) = choice.message.reasoning_content {
             if !reasoning.is_empty() {
-                content_blocks.push(RawContentBlock::Thinking(reasoning));
+                content_blocks.push(RawContentBlock::Thinking {
+                    thinking: reasoning,
+                    signature: None,
+                });
             }
         }
 

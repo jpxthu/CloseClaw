@@ -9,7 +9,10 @@ use super::outbound::filter_by_verbosity;
 fn test_filter_by_verbosity_full() {
     let blocks = vec![
         ContentBlock::Text("hello".into()),
-        ContentBlock::Thinking("reasoning".into()),
+        ContentBlock::Thinking {
+            thinking: "reasoning".into(),
+            signature: None,
+        },
         ContentBlock::ToolUse {
             id: "t1".into(),
             name: "tool_a".into(),
@@ -19,7 +22,7 @@ fn test_filter_by_verbosity_full() {
     let result = filter_by_verbosity(blocks.clone(), VerbosityLevel::Full);
     assert_eq!(result.len(), 3);
     assert!(matches!(result[0], ContentBlock::Text(_)));
-    assert!(matches!(result[1], ContentBlock::Thinking(_)));
+    assert!(matches!(result[1], ContentBlock::Thinking { .. }));
     assert!(matches!(result[2], ContentBlock::ToolUse { .. }));
 }
 
@@ -27,7 +30,10 @@ fn test_filter_by_verbosity_full() {
 fn test_filter_by_verbosity_normal() {
     let blocks = vec![
         ContentBlock::Text("hello".into()),
-        ContentBlock::Thinking("reasoning".into()),
+        ContentBlock::Thinking {
+            thinking: "reasoning".into(),
+            signature: None,
+        },
         ContentBlock::ToolUse {
             id: "t1".into(),
             name: "tool_a".into(),
@@ -44,7 +50,10 @@ fn test_filter_by_verbosity_normal() {
 fn test_filter_by_verbosity_off() {
     let blocks = vec![
         ContentBlock::Text("hello".into()),
-        ContentBlock::Thinking("reasoning".into()),
+        ContentBlock::Thinking {
+            thinking: "reasoning".into(),
+            signature: None,
+        },
         ContentBlock::ToolUse {
             id: "t1".into(),
             name: "tool_a".into(),

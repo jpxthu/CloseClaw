@@ -173,10 +173,18 @@ impl ChatProtocol for AnthropicProtocol {
                                 .get("text")
                                 .and_then(|v| v.as_str())
                                 .map(|s| RawContentBlock::Text(s.to_string())),
-                            Some("thinking") => item
-                                .get("thinking")
-                                .and_then(|v| v.as_str())
-                                .map(|s| RawContentBlock::Thinking(s.to_string())),
+                            Some("thinking") => {
+                                let thinking =
+                                    item.get("thinking").and_then(|v| v.as_str()).unwrap_or("");
+                                let signature = item
+                                    .get("signature")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                Some(RawContentBlock::Thinking {
+                                    thinking: thinking.to_string(),
+                                    signature,
+                                })
+                            }
                             _ => None,
                         }
                     })

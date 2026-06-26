@@ -18,7 +18,10 @@ fn test_default_interpreter_response_identity() {
     let response = InternalResponse {
         content_blocks: vec![
             RawContentBlock::Text("hello".into()),
-            RawContentBlock::Thinking("thinking...".into()),
+            RawContentBlock::Thinking {
+                thinking: "thinking...".into(),
+                signature: None,
+            },
         ],
         usage: RawUsage {
             prompt_tokens: 10,
@@ -32,7 +35,9 @@ fn test_default_interpreter_response_identity() {
     let unified = DefaultInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 2);
     assert!(matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "hello"));
-    assert!(matches!(&unified.content_blocks[1], ContentBlock::Thinking(s) if s == "thinking..."));
+    assert!(
+        matches!(&unified.content_blocks[1], ContentBlock::Thinking { thinking: s, .. } if s == "thinking...")
+    );
     assert_eq!(unified.usage.prompt_tokens, 10);
     assert_eq!(unified.finish_reason, Some("stop".into()));
 }
@@ -148,9 +153,10 @@ fn test_minimax_interpreter_name() {
 #[test]
 fn test_minimax_interpreter_empty_content_uses_reasoning() {
     let response = InternalResponse {
-        content_blocks: vec![RawContentBlock::Thinking(
-            "Let me think step by step...".into(),
-        )],
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "Let me think step by step...".into(),
+            signature: None,
+        }],
         usage: RawUsage {
             prompt_tokens: 10,
             completion_tokens: 5,
@@ -163,7 +169,7 @@ fn test_minimax_interpreter_empty_content_uses_reasoning() {
     let unified = MinimaxInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 1);
     assert!(
-        matches!(&unified.content_blocks[0], ContentBlock::Thinking(s) if s == "Let me think step by step..."),
+        matches!(&unified.content_blocks[0], ContentBlock::Thinking { thinking: s, .. } if s == "Let me think step by step..."),
         "expected Thinking block, got {:?}",
         unified.content_blocks[0]
     );
@@ -215,7 +221,10 @@ fn test_glm_interpreter_name() {
 #[test]
 fn test_glm_interpreter_reasoning_threshold_short() {
     let response = InternalResponse {
-        content_blocks: vec![RawContentBlock::Thinking("Hi".into())],
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "Hi".into(),
+            signature: None,
+        }],
         usage: RawUsage {
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -237,7 +246,10 @@ fn test_glm_interpreter_reasoning_threshold_short() {
 #[test]
 fn test_glm_interpreter_reasoning_threshold_exact_boundary() {
     let response = InternalResponse {
-        content_blocks: vec![RawContentBlock::Thinking("12345678901".into())],
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "12345678901".into(),
+            signature: None,
+        }],
         usage: RawUsage {
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -250,7 +262,7 @@ fn test_glm_interpreter_reasoning_threshold_exact_boundary() {
     let unified = GlmInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 1);
     assert!(
-        matches!(&unified.content_blocks[0], ContentBlock::Thinking(s) if s == "12345678901"),
+        matches!(&unified.content_blocks[0], ContentBlock::Thinking { thinking: s, .. } if s == "12345678901"),
         "expected Thinking block for 11-byte reasoning, got {:?}",
         unified.content_blocks[0]
     );
@@ -284,6 +296,7 @@ fn test_glm_interpreter_stream_event_passthrough() {
         index: 0,
         delta: ContentDelta::Thinking {
             thinking: "thinking...".into(),
+            signature: None,
         },
     };
     assert_eq!(
@@ -304,9 +317,10 @@ fn test_deepseek_interpreter_name() {
 #[test]
 fn test_deepseek_interpreter_empty_content_uses_reasoning() {
     let response = InternalResponse {
-        content_blocks: vec![RawContentBlock::Thinking(
-            "Let me think step by step...".into(),
-        )],
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "Let me think step by step...".into(),
+            signature: None,
+        }],
         usage: RawUsage {
             prompt_tokens: 10,
             completion_tokens: 5,
@@ -319,7 +333,7 @@ fn test_deepseek_interpreter_empty_content_uses_reasoning() {
     let unified = DeepSeekInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 1);
     assert!(
-        matches!(&unified.content_blocks[0], ContentBlock::Thinking(s) if s == "Let me think step by step..."),
+        matches!(&unified.content_blocks[0], ContentBlock::Thinking { thinking: s, .. } if s == "Let me think step by step..."),
         "expected Thinking block, got {:?}",
         unified.content_blocks[0]
     );
@@ -352,7 +366,10 @@ fn test_deepseek_interpreter_text_and_reasoning_prefers_text() {
     let response = InternalResponse {
         content_blocks: vec![
             RawContentBlock::Text("hello".into()),
-            RawContentBlock::Thinking("thinking...".into()),
+            RawContentBlock::Thinking {
+                thinking: "thinking...".into(),
+                signature: None,
+            },
         ],
         usage: RawUsage {
             prompt_tokens: 10,

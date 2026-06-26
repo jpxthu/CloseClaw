@@ -14,7 +14,10 @@ fn test_clean_thinking_mixed_text_and_thinking_unchanged() {
             role: "assistant".into(),
             content_blocks: vec![
                 ContentBlock::Text("reply".into()),
-                ContentBlock::Thinking("thought".into()),
+                ContentBlock::Thinking {
+                    thinking: "thought".into(),
+                    signature: None,
+                },
             ],
             timestamp: Utc::now(),
         },
@@ -36,7 +39,10 @@ fn test_clean_thinking_pure_thinking_removed() {
         },
         SessionMessage {
             role: "assistant".into(),
-            content_blocks: vec![ContentBlock::Thinking("only thinking".into())],
+            content_blocks: vec![ContentBlock::Thinking {
+                thinking: "only thinking".into(),
+                signature: None,
+            }],
             timestamp: Utc::now(),
         },
     ];
@@ -52,9 +58,15 @@ fn test_clean_thinking_trailing_removed_middle_kept() {
         role: "assistant".into(),
         content_blocks: vec![
             ContentBlock::Text("start".into()),
-            ContentBlock::Thinking("middle thought".into()),
+            ContentBlock::Thinking {
+                thinking: "middle thought".into(),
+                signature: None,
+            },
             ContentBlock::Text("end".into()),
-            ContentBlock::Thinking("trailing thought".into()),
+            ContentBlock::Thinking {
+                thinking: "trailing thought".into(),
+                signature: None,
+            },
         ],
         timestamp: Utc::now(),
     }];
@@ -64,7 +76,7 @@ fn test_clean_thinking_trailing_removed_middle_kept() {
     assert!(matches!(&cleaned[0].content_blocks[0], ContentBlock::Text(t) if t == "start"));
     assert!(matches!(
         &cleaned[0].content_blocks[1],
-        ContentBlock::Thinking(_)
+        ContentBlock::Thinking { .. }
     ));
     assert!(matches!(&cleaned[0].content_blocks[2], ContentBlock::Text(t) if t == "end"));
 }
@@ -76,7 +88,10 @@ fn test_clean_thinking_all_thinking_replaced_with_empty_text() {
         role: "assistant".into(),
         content_blocks: vec![
             ContentBlock::Text("real content".into()),
-            ContentBlock::Thinking("trailing".into()),
+            ContentBlock::Thinking {
+                thinking: "trailing".into(),
+                signature: None,
+            },
         ],
         timestamp: Utc::now(),
     }];
@@ -93,8 +108,14 @@ fn test_clean_thinking_last_assistant_only_thinking_becomes_empty_text() {
         role: "assistant".into(),
         content_blocks: vec![
             ContentBlock::Text(String::new()),
-            ContentBlock::Thinking("t1".into()),
-            ContentBlock::Thinking("t2".into()),
+            ContentBlock::Thinking {
+                thinking: "t1".into(),
+                signature: None,
+            },
+            ContentBlock::Thinking {
+                thinking: "t2".into(),
+                signature: None,
+            },
         ],
         timestamp: Utc::now(),
     }];
@@ -109,13 +130,18 @@ fn test_clean_thinking_isolation_original_unchanged() {
     // clean_thinking_content does not modify original messages
     let messages = vec![SessionMessage {
         role: "assistant".into(),
-        content_blocks: vec![ContentBlock::Thinking("secret".into())],
+        content_blocks: vec![ContentBlock::Thinking {
+            thinking: "secret".into(),
+            signature: None,
+        }],
         timestamp: Utc::now(),
     }];
     let original_len = messages[0].content_blocks.len();
     let _cleaned = ConversationSession::clean_thinking_content(&messages);
     assert_eq!(messages[0].content_blocks.len(), original_len);
-    assert!(matches!(&messages[0].content_blocks[0], ContentBlock::Thinking(t) if t == "secret"));
+    assert!(
+        matches!(&messages[0].content_blocks[0], ContentBlock::Thinking { thinking: t, .. } if t == "secret")
+    );
 }
 
 #[test]
@@ -125,7 +151,10 @@ fn test_build_api_request_does_not_modify_self_messages() {
     session.append_response(UnifiedResponse {
         content_blocks: vec![
             ContentBlock::Text("hi".into()),
-            ContentBlock::Thinking("think".into()),
+            ContentBlock::Thinking {
+                thinking: "think".into(),
+                signature: None,
+            },
         ],
         usage: UnifiedUsage {
             prompt_tokens: 1,

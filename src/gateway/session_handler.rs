@@ -425,7 +425,7 @@ fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
         .iter()
         .map(|b| match b {
             ContentBlock::Text(t) => t.as_str(),
-            ContentBlock::Thinking(t) => t.as_str(),
+            ContentBlock::Thinking { thinking: t, .. } => t.as_str(),
             ContentBlock::ToolUse { input, .. } => input.as_str(),
             ContentBlock::ToolResult { content, .. } => content.as_str(),
             _ => "",

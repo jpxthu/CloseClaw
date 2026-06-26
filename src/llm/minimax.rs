@@ -181,7 +181,10 @@ impl MiniMaxProvider {
         let mut content_blocks = Vec::new();
         if let Some(ref rc) = msg.reasoning_content {
             if !rc.trim().is_empty() {
-                content_blocks.push(RawContentBlock::Thinking(rc.trim().to_string()));
+                content_blocks.push(RawContentBlock::Thinking {
+                    thinking: rc.trim().to_string(),
+                    signature: None,
+                });
             }
         }
         if !content.is_empty() {

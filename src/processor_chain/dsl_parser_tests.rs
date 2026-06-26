@@ -24,7 +24,10 @@ fn test_with_result_mixed_blocks_preserves_non_text() {
     let parser = DslParser;
     let blocks = vec![
         ContentBlock::Text("Hello world".to_string()),
-        ContentBlock::Thinking("thinking...".to_string()),
+        ContentBlock::Thinking {
+            thinking: "thinking...".to_string(),
+            signature: None,
+        },
         ContentBlock::Text("::button[label:A;action:x;value:1]".to_string()),
         ContentBlock::ToolUse {
             id: "call_1".to_string(),
@@ -46,7 +49,7 @@ fn test_with_result_mixed_blocks_preserves_non_text() {
     // Non-Text blocks preserved, empty Text blocks (DSL-only) dropped
     assert_eq!(updated_blocks.len(), 5);
     assert!(matches!(&updated_blocks[0], ContentBlock::Text(s) if s == "Hello world"));
-    assert!(matches!(&updated_blocks[1], ContentBlock::Thinking(_)));
+    assert!(matches!(&updated_blocks[1], ContentBlock::Thinking { .. }));
     assert!(matches!(&updated_blocks[2], ContentBlock::ToolUse { .. }));
     assert!(matches!(&updated_blocks[3], ContentBlock::Text(s) if s == "Done"));
     assert!(matches!(
@@ -100,7 +103,10 @@ fn test_with_result_empty_input() {
 fn test_with_result_only_non_text_blocks() {
     let parser = DslParser;
     let blocks = vec![
-        ContentBlock::Thinking("hmm".to_string()),
+        ContentBlock::Thinking {
+            thinking: "hmm".to_string(),
+            signature: None,
+        },
         ContentBlock::ToolUse {
             id: "c1".to_string(),
             name: "fn".to_string(),
@@ -128,7 +134,10 @@ async fn test_process_with_content_blocks_non_empty() {
         "fallback content",
         vec![
             ContentBlock::Text("Hello\n::button[label:X;action:a;value:1]".to_string()),
-            ContentBlock::Thinking("think".to_string()),
+            ContentBlock::Thinking {
+                thinking: "think".to_string(),
+                signature: None,
+            },
             ContentBlock::Text("World".to_string()),
         ],
     );
@@ -139,7 +148,7 @@ async fn test_process_with_content_blocks_non_empty() {
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
     assert!(matches!(
         &result.content_blocks[1],
-        ContentBlock::Thinking(_)
+        ContentBlock::Thinking { .. }
     ));
     assert!(matches!(&result.content_blocks[2], ContentBlock::Text(s) if s == "World"));
 }
