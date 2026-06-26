@@ -6,7 +6,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use super::model_cache::ModelCache;
-use super::model_info::ModelInfo;
+use super::model_info::{DiscoveryResult, DiscoverySource, ModelInfo};
 use super::{ErrorKind, ProviderModelKnowledge};
 
 /// Maximum number of fetch retries for transient errors.
@@ -40,14 +40,17 @@ impl ModelDiscovery {
         provider_id: &str,
         credential: &str,
         fetch: F,
-    ) -> Vec<ModelInfo>
+    ) -> DiscoveryResult
     where
         F: Fn(&str) -> Fut,
         Fut: Future<Output = Result<Vec<ModelInfo>, crate::llm::LLMError>>,
     {
         // Layer 1: cache
         if let Some(models) = self.cache.get(provider_id, credential) {
-            return models;
+            return DiscoveryResult {
+                models,
+                source: DiscoverySource::Cache,
+            };
         }
 
         // Layer 2: API fetch with retry
@@ -65,10 +68,21 @@ impl ModelDiscovery {
                             if params.max_tokens > model.max_tokens {
                                 model.max_tokens = params.max_tokens;
                             }
+                            // Fill default_temperature when API provides None
+                            if model.default_temperature.is_none() {
+                                model.default_temperature = Some(params.default_temperature);
+                            }
+                            // Fill input_types when API returns empty
+                            if model.input_types.is_empty() {
+                                model.input_types = params.input_types;
+                            }
                         }
                     }
                     self.cache.set(provider_id, credential, models.clone());
-                    return models;
+                    return DiscoveryResult {
+                        models,
+                        source: DiscoverySource::Api,
+                    };
                 }
                 Ok(Err(err)) => {
                     let kind = err.kind();
@@ -106,9 +120,9 @@ impl ModelDiscovery {
     }
 
     /// Return all known models for a provider from the embedded knowledge base.
-    pub fn knowledge_fallback(&self, provider_id: &str) -> Vec<ModelInfo> {
+    pub fn knowledge_fallback(&self, provider_id: &str) -> DiscoveryResult {
         let model_ids = self.knowledge.all_models(provider_id);
-        model_ids
+        let models = model_ids
             .into_iter()
             .map(|id| {
                 let params = self.knowledge.find(provider_id, id).unwrap();
@@ -122,7 +136,11 @@ impl ModelDiscovery {
                     input_types: params.input_types,
                 }
             })
-            .collect()
+            .collect();
+        DiscoveryResult {
+            models,
+            source: DiscoverySource::KnowledgeFallback,
+        }
     }
 }
 
@@ -185,8 +203,8 @@ mod tests {
             })
             .await;
 
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, "test-model-1");
+        assert_eq!(result.models().len(), 1);
+        assert_eq!(result.models()[0].id, "test-model-1");
         // fetch closure must NOT have been called
         assert_eq!(fetch_count.load(Ordering::SeqCst), 0);
 
@@ -202,8 +220,8 @@ mod tests {
             .discover("test-provider", "mytoken", |_| async { Ok(test_models()) })
             .await;
 
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, "test-model-1");
+        assert_eq!(result.models().len(), 1);
+        assert_eq!(result.models()[0].id, "test-model-1");
 
         // Cache should now be populated — second call should not invoke fetch
         let fetch_count = Arc::new(AtomicUsize::new(0));
@@ -218,7 +236,7 @@ mod tests {
             })
             .await;
 
-        assert_eq!(result2.len(), 1);
+        assert_eq!(result2.models().len(), 1);
         assert_eq!(fetch_count.load(Ordering::SeqCst), 0);
 
         std::env::remove_var("MODEL_CACHE_FILE");
@@ -238,7 +256,7 @@ mod tests {
 
         // Should fall back to knowledge base — minimax has models
         assert!(
-            !result.is_empty(),
+            !result.models().is_empty(),
             "knowledge fallback should return models"
         );
 
@@ -275,8 +293,8 @@ mod tests {
             .await;
 
         // Should have re-fetched (not returned old-model)
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, "test-model-1");
+        assert_eq!(result.models().len(), 1);
+        assert_eq!(result.models()[0].id, "test-model-1");
 
         std::env::remove_var("MODEL_CACHE_FILE");
     }
@@ -288,8 +306,11 @@ mod tests {
         let discovery = ModelDiscovery::new();
         std::env::remove_var("MODEL_CACHE_FILE");
 
-        let models = discovery.knowledge_fallback("minimax");
-        assert!(!models.is_empty(), "minimax should have known models");
+        let result = discovery.knowledge_fallback("minimax");
+        assert!(
+            !result.models().is_empty(),
+            "minimax should have known models"
+        );
     }
 
     // ── Knowledge base filling tests (Step 1.3) ──────────────────────
@@ -324,8 +345,8 @@ mod tests {
             })
             .await;
 
-        assert_eq!(result.len(), 1);
-        let m = &result[0];
+        assert_eq!(result.models().len(), 1);
+        let m = &result.models()[0];
         // Knowledge base fills reasoning: true for M2.7
         assert!(
             m.reasoning,
@@ -360,8 +381,8 @@ mod tests {
             })
             .await;
 
-        assert_eq!(result.len(), 1);
-        let m = &result[0];
+        assert_eq!(result.models().len(), 1);
+        let m = &result.models()[0];
         // Unknown model: no knowledge base fill, API values preserved
         assert_eq!(m.id, "some-new-future-model");
         assert_eq!(m.context_window, 16384);
