@@ -185,6 +185,66 @@ impl ChatProtocol for AnthropicProtocol {
                                     signature,
                                 })
                             }
+                            Some("tool_use") => {
+                                let id = item
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let name = item
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let input = item
+                                    .get("input")
+                                    .map(|v| {
+                                        if v.is_object() && v.as_object().unwrap().is_empty() {
+                                            "{}".to_string()
+                                        } else {
+                                            v.to_string()
+                                        }
+                                    })
+                                    .unwrap_or_else(|| "{}".to_string());
+                                Some(RawContentBlock::ToolUse { id, name, input })
+                            }
+                            Some("tool_result") => {
+                                let tool_call_id = item
+                                    .get("tool_use_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let content = item
+                                    .get("content")
+                                    .map(|v| {
+                                        if let Some(s) = v.as_str() {
+                                            s.to_string()
+                                        } else if let Some(arr) = v.as_array() {
+                                            arr.iter()
+                                                .filter_map(|block| {
+                                                    if block.get("type").and_then(|t| t.as_str())
+                                                        == Some("text")
+                                                    {
+                                                        block
+                                                            .get("text")
+                                                            .and_then(|t| t.as_str())
+                                                            .map(|s| s.to_string())
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .collect::<Vec<_>>()
+                                                .join("")
+                                        } else {
+                                            String::new()
+                                        }
+                                    })
+                                    .unwrap_or_default();
+                                Some(RawContentBlock::ToolResult {
+                                    tool_call_id,
+                                    content,
+                                })
+                            }
                             _ => None,
                         }
                     })
