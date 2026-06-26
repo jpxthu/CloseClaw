@@ -496,10 +496,10 @@ async fn test_process_inbound_chain_with_session_router() {
     );
 }
 
-/// Verifies that `process_inbound_chain` uses the provided `timestamp_ms`
-/// parameter for the session key, not `Utc::now()`.
+/// Verifies that `process_inbound_chain` uses system time (not the provided
+/// timestamp parameter) for the session key, aligning with design doc.
 #[tokio::test]
-async fn test_process_inbound_chain_uses_provided_timestamp() {
+async fn test_process_inbound_chain_uses_system_time() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -518,10 +518,19 @@ async fn test_process_inbound_chain_uses_provided_timestamp() {
         Arc::new(registry),
     );
 
-    let ts_ms: i64 = 1_700_000_000_123;
+    let before_ms = chrono::Utc::now().timestamp_millis();
     let result = gw
-        .process_inbound_chain("terminal", "user1", "peer1", "hi", "msg-ts", ts_ms, None)
+        .process_inbound_chain(
+            "terminal",
+            "user1",
+            "peer1",
+            "hi",
+            "msg-ts",
+            1_700_000_000_123, // past timestamp — should NOT be used
+            None,
+        )
         .await;
+    let after_ms = chrono::Utc::now().timestamp_millis();
 
     let key = result
         .metadata
@@ -529,10 +538,13 @@ async fn test_process_inbound_chain_uses_provided_timestamp() {
         .and_then(|v| v.as_str())
         .expect("session_key should be set");
 
-    // Key must start with the exact timestamp we passed in
+    // Key prefix must be between before_ms and after_ms (system time), not 1700000000123
+    let ts_prefix: i64 = key[..key.find('-').unwrap()]
+        .parse()
+        .expect("key prefix should be parseable as i64");
     assert!(
-        key.starts_with(&format!("{ts_ms}-")),
-        "session_key should start with provided timestamp {ts_ms}, got: {key}"
+        ts_prefix >= before_ms && ts_prefix <= after_ms,
+        "session_key timestamp should reflect system time ({before_ms}..{after_ms}), got {ts_prefix}: {key}"
     );
     let hash_part = &key[key.find('-').unwrap() + 1..];
     assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");

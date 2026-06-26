@@ -165,6 +165,86 @@ async fn test_process_preserves_newlines_and_tabs() {
     assert_eq!(result.content, "line1\nline2\ttab");
 }
 
+// -----------------------------------------------------------------------
+// ContentNormalizer does NOT normalize URLs or add code block language hints
+// (these are handled by IM Adapter layer during parsing)
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_process_does_not_normalize_urls() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "visit www.example.com today".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_url".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // ContentNormalizer should NOT add https:// prefix
+    assert_eq!(result.content, "visit www.example.com today");
+}
+
+#[tokio::test]
+async fn test_process_does_not_normalize_bare_domain() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "go to google.com/path please".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_url2".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.content, "go to google.com/path please");
+}
+
+#[tokio::test]
+async fn test_process_does_not_add_code_block_language_hint() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "```\ncode here\n```".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_code".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // ContentNormalizer should NOT add ```text language hint
+    assert_eq!(result.content, "```\ncode here\n```");
+    assert!(!result.content.contains("```text"));
+}
+
+#[tokio::test]
+async fn test_process_combined_url_and_code_block_unchanged() {
+    let processor = ContentNormalizer::new();
+    let raw = RawMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: "see www.example.com and ```\nfn main() {}\n```".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_combo".to_string(),
+        account_id: None,
+    };
+    let ctx = MessageContext::from_raw(raw);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // Neither URL nor code block should be modified
+    assert_eq!(
+        result.content,
+        "see www.example.com and ```\nfn main() {}\n```"
+    );
+}
+
 // -------------------------------------------------------------------------
 // Markdown normalization functions
 // -------------------------------------------------------------------------

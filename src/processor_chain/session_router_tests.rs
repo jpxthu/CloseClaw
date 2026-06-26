@@ -263,3 +263,174 @@ async fn test_per_account_channel_peer_uses_system_time() {
         "hash should be hex: {key}"
     );
 }
+
+// -----------------------------------------------------------------------
+// account_id tests
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_different_account_ids_produce_different_session_keys() {
+    // Different account_id values must produce different session_key hashes
+    let router = make_router(DmScope::PerAccountChannelPeer);
+
+    let raw_a = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_group".to_string(),
+        content: "msg".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_acct_a".to_string(),
+        account_id: Some("account_1".to_string()),
+    };
+    let raw_b = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_group".to_string(),
+        content: "msg".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_acct_b".to_string(),
+        account_id: Some("account_2".to_string()),
+    };
+
+    let ctx_a = make_ctx(raw_a);
+    let ctx_b = make_ctx(raw_b);
+
+    let key_a = router
+        .process(&ctx_a)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let key_b = router
+        .process(&ctx_b)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+
+    assert_ne!(
+        key_a, key_b,
+        "different account_id must produce different session_key"
+    );
+    // Both must have valid format
+    assert!(
+        key_a.contains('-'),
+        "key_a should contain timestamp separator: {key_a}"
+    );
+    assert!(
+        key_b.contains('-'),
+        "key_b should contain timestamp separator: {key_b}"
+    );
+}
+
+#[tokio::test]
+async fn test_account_id_none_vs_some_produce_different_keys() {
+    // account_id=None vs account_id=Some(...) must produce different keys
+    let router = make_router(DmScope::PerAccountChannelPeer);
+
+    let raw_none = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_group".to_string(),
+        content: "msg".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_n1".to_string(),
+        account_id: None,
+    };
+    let raw_some = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_group".to_string(),
+        content: "msg".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_s1".to_string(),
+        account_id: Some("tenant_x".to_string()),
+    };
+
+    let ctx_none = make_ctx(raw_none);
+    let ctx_some = make_ctx(raw_some);
+
+    let key_none = router
+        .process(&ctx_none)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let key_some = router
+        .process(&ctx_some)
+        .await
+        .unwrap()
+        .unwrap()
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+
+    assert_ne!(
+        key_none, key_some,
+        "account_id None vs Some must produce different session_key"
+    );
+}
+
+#[tokio::test]
+async fn test_account_id_read_from_raw_message() {
+    // Verify account_id is read from RawMessage, not from ctx.metadata
+    let router = make_router(DmScope::PerAccountChannelPeer);
+    let raw = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_group".to_string(),
+        content: "hi".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_a1".to_string(),
+        account_id: Some("tenant_42".to_string()),
+    };
+    let mut ctx = make_ctx(raw);
+    // Even if metadata has a different account_id, RawMessage should win
+    ctx.metadata.insert(
+        "account_id".to_string(),
+        serde_json::json!("metadata_account"),
+    );
+    let result = router.process(&ctx).await.unwrap().unwrap();
+    let key = result
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap();
+    assert!(!key.is_empty(), "session_key should be set");
+    // Verify key hash differs from one computed with "metadata_account"
+    let raw_meta = RawMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_group".to_string(),
+        content: "hi".to_string(),
+        timestamp: chrono::Utc::now(),
+        message_id: "msg_a2".to_string(),
+        account_id: Some("metadata_account".to_string()),
+    };
+    let ctx_meta = make_ctx(raw_meta);
+    let result_meta = router.process(&ctx_meta).await.unwrap().unwrap();
+    let key_meta = result_meta
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap();
+    // They should differ because account_id comes from RawMessage
+    assert_ne!(
+        key, key_meta,
+        "account_id should be read from RawMessage, not metadata"
+    );
+}
