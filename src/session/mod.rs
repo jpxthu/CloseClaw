@@ -24,7 +24,7 @@ pub mod pending_operations_tests;
 pub use closeclaw_session::persistence;
 #[cfg(test)]
 pub mod persistence_tests;
-pub mod recovery;
+pub use closeclaw_session::recovery;
 pub use closeclaw_session::storage;
 pub mod sweeper;
 #[cfg(test)]
