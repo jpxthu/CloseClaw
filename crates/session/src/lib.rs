@@ -5,4 +5,7 @@
 //! bootstrap, storage, and recovery functionality for agent sessions.
 
 pub mod bootstrap;
+pub mod checkpoint_manager;
+pub mod events;
 pub mod persistence;
+pub mod workspace;

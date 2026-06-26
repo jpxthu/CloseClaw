@@ -1,12 +1,12 @@
 //! Checkpoint Manager — 负责保存和恢复 Session 状态
 //!
-//! 将 [`CheckpointManager`] 从 [`super::persistence`] 模块中拆分出来，降低 persistence.rs 的行数。
+//! 将 [`CheckpointManager`] 从 persistence 模块中拆分出来，降低 persistence.rs 的行数。
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::persistence::{AgentRole, PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::persistence::{AgentRole, PersistenceError, PersistenceService, SessionCheckpoint};
 
 /// Checkpoint 管理器 — 负责保存和恢复 Session 状态
 pub struct CheckpointManager<S: PersistenceService + ?Sized> {

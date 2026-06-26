@@ -3,7 +3,7 @@
 //! Defines when checkpoints should be saved during the session lifecycle,
 //! and the ModeSwitchEvent for handling reasoning mode transitions.
 
-use crate::session::persistence::ReasoningMode;
+use crate::persistence::ReasoningMode;
 use std::sync::Arc;
 
 /// User Intent — parsed user input for reasoning

@@ -11,13 +11,13 @@
 //! - [`bootstrap`] — Bootstrap context protection during compaction
 
 pub use closeclaw_session::bootstrap;
-pub mod checkpoint_manager;
+pub use closeclaw_session::checkpoint_manager;
 pub mod compaction;
 #[cfg(test)]
 pub mod compaction_async_tests;
 #[cfg(test)]
 pub mod compaction_tests;
-pub mod events;
+pub use closeclaw_session::events;
 pub mod llm_caller;
 #[cfg(test)]
 pub mod pending_operations_tests;
@@ -29,7 +29,7 @@ pub mod storage;
 pub mod sweeper;
 #[cfg(test)]
 pub mod sweeper_tests;
-pub mod workspace;
+pub use closeclaw_session::workspace;
 
 // Re-export commonly used types
 pub use bootstrap::{BootstrapContext, BootstrapProtection, BootstrapRegion};
