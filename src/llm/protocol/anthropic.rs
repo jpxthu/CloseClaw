@@ -1,15 +1,15 @@
 //! Anthropic ChatProtocol implementation.
 //!
-//! This is a **stub** implementation: SSE streaming is not yet supported
-//! (`parse_sse_stream` returns an empty stream). The HTTP request/response
-//! path (`build_request` / `parse_response`) is fully implemented.
+//! Implements `parse_response` with full content block parsing and
+//! `parse_sse_stream` with complete Anthropic SSE event handling.
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 
 use crate::llm::types::{
-    InternalMessage, InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawUsage,
-    SseStateMachine,
+    ContentBlockType, ContentDelta, InternalMessage, InternalRequest, InternalResponse, ProtocolId,
+    RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
 };
 use crate::session::persistence::ReasoningLevel;
 
@@ -287,11 +287,224 @@ impl ChatProtocol for AnthropicProtocol {
 
     async fn parse_sse_stream(
         &self,
-        _incoming: IncomingSseStream,
+        incoming: IncomingSseStream,
         _machine: SseStateMachine,
     ) -> OutgoingEventStream {
-        // Stub: streaming not yet implemented — return an empty stream.
-        Box::pin(futures::stream::empty())
+        Box::pin(async_stream::try_stream! {
+            let mut stream = incoming;
+            let mut stop_reason: Option<String> = None;
+            let mut usage: Option<RawUsage> = None;
+
+            while let Some(chunk) = stream.next().await {
+                let data = chunk.data.trim();
+                if data.is_empty() {
+                    continue;
+                }
+
+                let parsed: serde_json::Value = match serde_json::from_str(data) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                let event_type = chunk.event_type.as_str();
+                match event_type {
+                    "message_start" => {
+                        let message = parsed.get("message");
+                        if let Some(msg_usage) = message
+                            .and_then(|m| m.get("usage"))
+                        {
+                            usage = Some(parse_usage(
+                                msg_usage,
+                            ));
+                        }
+                    }
+                    "content_block_start" => {
+                        let index = parsed
+                            .get("index")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as usize;
+                        let block_type = match parsed
+                            .get("content_block")
+                            .and_then(|cb| cb.get("type"))
+                            .and_then(|v| v.as_str())
+                        {
+                            Some("text") => {
+                                ContentBlockType::Text
+                            }
+                            Some("thinking") => {
+                                ContentBlockType::Thinking
+                            }
+                            Some("tool_use") => {
+                                ContentBlockType::ToolUse
+                            }
+                            _ => continue,
+                        };
+                        yield StreamEvent::BlockStart {
+                            index,
+                            block_type,
+                        };
+                        if block_type
+                            == ContentBlockType::ToolUse
+                        {
+                            let cb = parsed
+                                .get("content_block")
+                                .unwrap();
+                            if let Some(id) = cb
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                            {
+                                yield StreamEvent::BlockDelta {
+                                    index,
+                                    delta: ContentDelta::ToolUseId {
+                                        id: id.to_string(),
+                                    },
+                                };
+                            }
+                            if let Some(name) = cb
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                            {
+                                yield StreamEvent::BlockDelta {
+                                    index,
+                                    delta: ContentDelta::ToolUseName {
+                                        name: name.to_string(),
+                                    },
+                                };
+                            }
+                        }
+                    }
+                    "content_block_delta" => {
+                        let index = parsed
+                            .get("index")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as usize;
+                        let delta = parsed.get("delta");
+                        match delta
+                            .and_then(|d| d.get("type"))
+                            .and_then(|v| v.as_str())
+                        {
+                            Some("text_delta") => {
+                                let text = delta
+                                    .and_then(|d| d.get("text"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                yield StreamEvent::BlockDelta {
+                                    index,
+                                    delta: ContentDelta::Text {
+                                        text: text.to_string(),
+                                    },
+                                };
+                            }
+                            Some("thinking_delta") => {
+                                let thinking = delta
+                                    .and_then(|d| d.get("thinking"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                yield StreamEvent::BlockDelta {
+                                    index,
+                                    delta: ContentDelta::Thinking {
+                                        thinking: thinking.to_string(),
+                                        signature: None,
+                                    },
+                                };
+                            }
+                            Some("signature_delta") => {
+                                let value = delta
+                                    .and_then(|d| d.get("signature"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                yield StreamEvent::BlockDelta {
+                                    index,
+                                    delta: ContentDelta::Thinking {
+                                        thinking: String::new(),
+                                        signature: Some(
+                                            value.to_string(),
+                                        ),
+                                    },
+                                };
+                            }
+                            Some("input_json_delta") => {
+                                let input = delta
+                                    .and_then(|d| d.get("partial_json"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                yield StreamEvent::BlockDelta {
+                                    index,
+                                    delta: ContentDelta::ToolUseInputChunk {
+                                        input: input.to_string(),
+                                    },
+                                };
+                            }
+                            _ => {}
+                        }
+                    }
+                    "content_block_stop" => {
+                        let index = parsed
+                            .get("index")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as usize;
+                        yield StreamEvent::BlockEnd {
+                            index,
+                            block_type: ContentBlockType::Text,
+                        };
+                    }
+                    "message_delta" => {
+                        if let Some(sr) = parsed
+                            .get("delta")
+                            .and_then(|d| d.get("stop_reason"))
+                            .and_then(|v| v.as_str())
+                        {
+                            stop_reason = Some(
+                                sr.to_string(),
+                            );
+                        }
+                        if let Some(msg_usage) = parsed
+                            .get("usage")
+                        {
+                            let output_tokens = msg_usage
+                                .get("output_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32;
+                            usage = Some(RawUsage {
+                                prompt_tokens: usage
+                                    .as_ref()
+                                    .map(|u| u.prompt_tokens)
+                                    .unwrap_or(0),
+                                completion_tokens: output_tokens,
+                                total_tokens: usage
+                                    .as_ref()
+                                    .and_then(|u| u.total_tokens),
+                                cache_read_tokens: usage
+                                    .as_ref()
+                                    .and_then(|u| u.cache_read_tokens),
+                                cache_write_tokens: usage
+                                    .as_ref()
+                                    .and_then(|u| u.cache_write_tokens),
+                            });
+                        }
+                    }
+                    "message_stop" => {
+                        yield StreamEvent::MessageEnd {
+                            usage: usage.as_ref().map(|u| u.clone().into()),
+                            finish_reason: stop_reason
+                                .clone(),
+                        };
+                    }
+                    "error" => {
+                        let message = parsed
+                            .get("error")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown error");
+                        yield StreamEvent::Error {
+                            message: message.to_string(),
+                        };
+                    }
+                    "ping" => {}
+                    _ => {}
+                }
+            }
+        })
     }
 }
 
