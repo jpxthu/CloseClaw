@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::*;
 use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
 use tempfile::TempDir;
