@@ -321,17 +321,16 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> 
         );
 
         // Run the inbound processor chain (ContentNormalizer, RawLog, etc.).
-        let processed = gateway
-            .process_inbound_chain(
-                "terminal",
-                sender_id,
-                "cli",
-                &content,
-                &message_id,
-                chrono::Utc::now().timestamp_millis(),
-                None,
-            )
-            .await;
+        let input = crate::gateway::InboundChainInput {
+            platform: "terminal".to_string(),
+            sender_id: sender_id.to_string(),
+            peer_id: "cli".to_string(),
+            content,
+            message_id,
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            account_id: None,
+        };
+        let processed = gateway.process_inbound_chain(&input).await;
 
         if processed.suppress {
             continue;
