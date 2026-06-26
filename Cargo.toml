@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/common", "crates/config", "crates/session"]
+members = ["crates/common", "crates/config", "crates/session", "crates/llm"]
 
 [workspace.package]
 edition = "2021"
@@ -17,7 +17,7 @@ repository.workspace = true
 rust-version = "1.80"
 
 [features]
-fake-llm = []
+fake-llm = ["closeclaw-llm/fake-llm"]
 
 [dependencies]
 # Async runtime - pinned to older version to avoid edition2024 issues
@@ -89,6 +89,7 @@ notify-debouncer-mini = "0.4"
 closeclaw-common = { path = "crates/common" }
 closeclaw-config = { path = "crates/config" }
 closeclaw-session = { path = "crates/session" }
+closeclaw-llm = { path = "crates/llm" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

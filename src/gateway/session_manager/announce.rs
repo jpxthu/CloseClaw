@@ -15,7 +15,6 @@ use super::spawn::SpawnMode;
 use super::SessionManager;
 use crate::gateway::session_manager::communication::CommunicationError;
 use crate::llm::session::{AnnounceEvent, ChatSession, ConversationSession};
-use crate::llm::types::ContentBlock;
 use chrono::Utc;
 use tracing::warn;
 
@@ -252,33 +251,5 @@ fn build_announce_event(
         child_agent_id,
         result_text,
         completed_at: Utc::now(),
-    }
-}
-
-// ── ConversationSession helper ─────────────────────────────────────────────
-
-impl ConversationSession {
-    /// Walk messages in reverse, concatenate `ContentBlock::Text`
-    /// blocks from the most recent `role="assistant"` message, and
-    /// return `None` if no assistant message exists. `Thinking` blocks
-    /// are intentionally excluded.
-    fn collect_last_assistant_text(
-        messages: &[crate::llm::session::SessionMessage],
-    ) -> Option<String> {
-        let mut text_buf = String::new();
-        for msg in messages.iter().rev() {
-            if msg.role == "assistant" {
-                for block in &msg.content_blocks {
-                    if let ContentBlock::Text(t) = block {
-                        if !text_buf.is_empty() {
-                            text_buf.push('\n');
-                        }
-                        text_buf.push_str(t);
-                    }
-                }
-                return Some(text_buf);
-            }
-        }
-        None
     }
 }
