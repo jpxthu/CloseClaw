@@ -9,7 +9,8 @@ use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
-use super::chat::{build_gateway, build_processor_registry};
+use super::chat::build_gateway;
+use crate::processor_chain::build_processor_registry;
 
 // ── Processor Registry tests ────────────────────────────────────────────────
 
