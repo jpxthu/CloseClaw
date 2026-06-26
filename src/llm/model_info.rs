@@ -153,9 +153,9 @@ mod tests {
         let model = ModelInfo::from_str("deepseek/deepseek-v4-flash").unwrap();
         assert_eq!(model.id, "deepseek-v4-flash");
         assert!(model.reasoning);
-        assert_eq!(model.context_window, 64_000);
-        assert_eq!(model.max_tokens, 8_192);
-        assert_eq!(model.default_temperature, Some(0.7));
+        assert_eq!(model.context_window, 1_000_000);
+        assert_eq!(model.max_tokens, 384_000);
+        assert_eq!(model.default_temperature, Some(1.0));
     }
 
     #[test]

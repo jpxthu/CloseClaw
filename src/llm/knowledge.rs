@@ -238,6 +238,93 @@ mod tests {
         ));
     }
 
+    // ── JSON loading: model counts ──────────────────────────────────────
+
+    #[test]
+    fn test_json_load_deepseek_model_count() {
+        let kb = kb();
+        let models = kb.all_models("deepseek");
+        assert_eq!(models.len(), 5, "deepseek should have 5 models from JSON");
+    }
+
+    #[test]
+    fn test_json_load_glm_model_count() {
+        let kb = kb();
+        let models = kb.all_models("glm");
+        assert_eq!(models.len(), 9, "glm should have 9 models from JSON");
+    }
+
+    #[test]
+    fn test_json_load_minimax_model_count() {
+        let kb = kb();
+        let models = kb.all_models("minimax");
+        assert_eq!(models.len(), 7, "minimax should have 7 models from JSON");
+    }
+
+    #[test]
+    fn test_json_load_volcengine_model_count() {
+        let kb = kb();
+        let models = kb.all_models("volcengine");
+        assert_eq!(models.len(), 2, "volcengine should have 2 models from JSON");
+    }
+
+    // ── new models: discoverable via find() ──────────────────────────────
+
+    #[test]
+    fn test_find_new_deepseek_v4_pro() {
+        let kb = kb();
+        let p = kb.find("deepseek", "deepseek-v4-pro");
+        assert!(p.is_some(), "deepseek-v4-pro should be in knowledge base");
+        let p = p.unwrap();
+        assert!(p.reasoning);
+        assert_eq!(p.context_window, 1_000_000);
+        assert_eq!(p.max_tokens, 384_000);
+    }
+
+    #[test]
+    fn test_find_new_minimax_m2() {
+        let kb = kb();
+        let p = kb.find("minimax", "MiniMax-M2");
+        assert!(p.is_some(), "MiniMax-M2 should be in knowledge base");
+        let p = p.unwrap();
+        assert!(p.reasoning);
+        assert_eq!(p.context_window, 204_800);
+    }
+
+    #[test]
+    fn test_find_new_volcengine_models() {
+        let kb = kb();
+        for model in "doubao-1.5-pro,doubao-1.5-lite".split(',') {
+            let p = kb.find("volcengine", model);
+            assert!(p.is_some(), "{model} should be in knowledge base");
+        }
+    }
+
+    #[test]
+    fn test_find_new_deepseek_v3_flash() {
+        let kb = kb();
+        let p = kb.find("deepseek", "deepseek-v3-flash");
+        assert!(p.is_some(), "deepseek-v3-flash should be in knowledge base");
+        let p = p.unwrap();
+        assert_eq!(p.context_window, 64_000);
+    }
+
+    // ── updated values ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_updated_deepseek_v4_flash_context_window() {
+        let kb = kb();
+        let p = kb.find("deepseek", "deepseek-v4-flash").unwrap();
+        assert_eq!(
+            p.context_window, 1_000_000,
+            "deepseek-v4-flash context_window should be 1,000,000"
+        );
+        assert_eq!(
+            p.max_tokens, 384_000,
+            "deepseek-v4-flash max_tokens should be 384,000"
+        );
+    }
+
     // ── recommended_protocol ──────────────────────────────────────────────
 
     #[test]
