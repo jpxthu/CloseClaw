@@ -21,7 +21,7 @@ pub mod events;
 pub mod llm_caller;
 #[cfg(test)]
 pub mod pending_operations_tests;
-pub mod persistence;
+pub use closeclaw_session::persistence;
 #[cfg(test)]
 pub mod persistence_tests;
 pub mod recovery;

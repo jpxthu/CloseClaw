@@ -5,3 +5,4 @@
 //! bootstrap, storage, and recovery functionality for agent sessions.
 
 pub mod bootstrap;
+pub mod persistence;
