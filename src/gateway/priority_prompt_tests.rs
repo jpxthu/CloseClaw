@@ -111,7 +111,7 @@ fn test_priority_hit_only_appends_append_section() {
         "SessionState should not appear on priority hit"
     );
     assert!(
-        !full.contains("STATIC_LAYER_END"),
+        !full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"),
         "Boundary marker should not appear on priority hit",
     );
 }
@@ -145,7 +145,7 @@ fn test_priority_no_hit_normal_behavior() {
     // Static prompt is preserved
     assert!(full.contains("static prompt"));
     // Boundary marker present
-    assert!(full.contains("<!-- STATIC_LAYER_END -->"));
+    assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Dynamic layers injected
     assert!(full.contains("sender_id: bob"));
     assert!(full.contains("pending_tasks:"));

@@ -186,6 +186,7 @@ impl ChatSession for ConversationSession {
             system_static: None,
             system_dynamic: None,
             system_blocks: None,
+            tools: None,
             session_id: None,
             reasoning_level: self.reasoning_level,
             turn_count: None,
