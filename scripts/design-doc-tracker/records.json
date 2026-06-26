@@ -127,10 +127,10 @@
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-06-26T05:40:09.261967+08:00",
-    "comment": "blocked: Two design doc problems found in F2b deep comparison: (1) First-line output 200ms delay target has no time-based logic in LineBuffer implementation; unclear if hard requirement or aspirational. (2) MessageEnd handling: doc says automatic flush but code MessageEnd branch is no-op requiring explicit caller flush(). Design intent unclear for both."
+    "commit": "41048d97e2d1b70a4a3d8160376937df1ec7cb79",
+    "commit_time": "2026-06-26T20:05:34+08:00",
+    "confirmed_time": "2026-06-26T20:07:45.804053+08:00",
+    "comment": ""
   },
   {
     "path": "docs/design/llm/cache-adapter.md",
