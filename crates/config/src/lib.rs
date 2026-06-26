@@ -1,0 +1,39 @@
+//! Configuration management for CloseClaw.
+//!
+//! Provides config loading, validation, hot-reload, and atomic write
+//! for all JSON configuration files under the config/ directory.
+
+pub mod agent_loader;
+#[cfg(test)]
+mod agent_loader_tests;
+pub mod agents;
+pub mod backup;
+pub mod events;
+pub mod manager;
+pub mod migration;
+pub mod providers;
+pub mod session;
+pub mod validators;
+
+/// Type alias for a section validator function.
+///
+/// Used by hot-reload and startup validation.
+pub type SectionValidator = dyn Fn(&serde_json::Value) -> Result<(), String>;
+
+// Re-exports from manager
+pub use backup::{BackupManager, SafeBackupManager};
+pub use events::{ConfigChangeBroadcaster, ConfigChangeEvent};
+pub use manager::{
+    write_atomically, ConfigInfo, ConfigLoadError, ConfigManager, ConfigSection,
+    ConfigValidationError, ConfigWriteError,
+};
+
+pub use agents::{AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
+pub use migration::{migrate_if_needed, ConfigMigrationError};
+pub use providers::{
+    ChannelsConfigData, ConfigError, ConfigProvider, CredentialsProvider, GatewayConfigData,
+    ModelsConfigData, SystemConfigData,
+};
+pub use session::{
+    JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfig, SessionConfigProvider,
+};
