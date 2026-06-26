@@ -10,7 +10,7 @@ use super::model_info::{DiscoveryResult, DiscoverySource, ModelInfo};
 use super::{ErrorKind, ProviderModelKnowledge};
 
 /// Maximum number of fetch retries for transient errors.
-const FETCH_MAX_RETRIES: u32 = 3;
+const FETCH_MAX_RETRIES: u32 = 4;
 /// Per-attempt API timeout.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -61,21 +61,13 @@ impl ModelDiscovery {
                 Ok(Ok(mut models)) => {
                     for model in &mut models {
                         if let Some(params) = self.knowledge.find(provider_id, &model.id) {
+                            // Knowledge base is the authoritative source for
+                            // capability parameters — always override API values.
                             model.reasoning = params.reasoning;
-                            if params.context_window > model.context_window {
-                                model.context_window = params.context_window;
-                            }
-                            if params.max_tokens > model.max_tokens {
-                                model.max_tokens = params.max_tokens;
-                            }
-                            // Fill default_temperature when API provides None
-                            if model.default_temperature.is_none() {
-                                model.default_temperature = Some(params.default_temperature);
-                            }
-                            // Fill input_types when API returns empty
-                            if model.input_types.is_empty() {
-                                model.input_types = params.input_types;
-                            }
+                            model.context_window = params.context_window;
+                            model.max_tokens = params.max_tokens;
+                            model.default_temperature = Some(params.default_temperature);
+                            model.input_types = params.input_types;
                         }
                     }
                     self.cache.set(provider_id, credential, models.clone());
@@ -154,6 +146,7 @@ impl Default for ModelDiscovery {
 mod tests {
     use super::*;
     use crate::llm::model_cache::{CacheEntry, CacheKey};
+    use crate::llm::model_info::InputType;
     use crate::llm::LLMError;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -323,11 +316,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_discover_success_path_knowledge_fills() {
+    async fn test_discover_success_path_knowledge_always_overrides() {
         let dir = tempfile::tempdir().unwrap();
         let discovery = make_test_discovery(&dir);
 
-        // API returns MiniMax-M2.7 with context_window=1000 (below knowledge base 32768)
+        // API returns MiniMax-M2.7 with values that differ from knowledge base
         let api_models = vec![ModelInfo {
             id: "MiniMax-M2.7".into(),
             name: "MiniMax M2.7".into(),
@@ -347,15 +340,23 @@ mod tests {
 
         assert_eq!(result.models().len(), 1);
         let m = &result.models()[0];
-        // Knowledge base fills reasoning: true for M2.7
+        // Knowledge base is authoritative — always overrides API values
         assert!(
             m.reasoning,
             "M2.7 should have reasoning=true from knowledge base"
         );
-        // Knowledge base context_window (204800) > API (1000), so it overrides
-        assert_eq!(m.context_window, 204_800);
-        // Knowledge base max_tokens (131072) > API (512), so it overrides
-        assert_eq!(m.max_tokens, 131_072);
+        assert_eq!(m.context_window, 204_800, "knowledge base overrides API");
+        assert_eq!(m.max_tokens, 131_072, "knowledge base overrides API");
+        assert_eq!(
+            m.default_temperature,
+            Some(1.0),
+            "knowledge base overrides API temperature"
+        );
+        assert_eq!(
+            m.input_types,
+            vec![InputType::Text],
+            "knowledge base overrides API input_types"
+        );
     }
 
     #[tokio::test]
