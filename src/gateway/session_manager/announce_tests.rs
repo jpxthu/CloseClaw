@@ -275,7 +275,10 @@ async fn test_thinking_blocks_excluded() {
         &mgr,
         &child_id,
         vec![
-            ContentBlock::Thinking("secret reasoning that should NOT leak".to_string()),
+            ContentBlock::Thinking {
+                thinking: "secret reasoning that should NOT leak".to_string(),
+                signature: None,
+            },
             ContentBlock::Text("final answer that MUST be present".to_string()),
         ],
     )

@@ -728,7 +728,7 @@ impl TerminalRenderer {
     pub(crate) fn render_block(&self, block: &ContentBlock) -> String {
         match block {
             ContentBlock::Text(text) => render_markdown_ansi(text, self.ansi),
-            ContentBlock::Thinking(text) => self.render_thinking(text),
+            ContentBlock::Thinking { thinking: text, .. } => self.render_thinking(text),
             ContentBlock::ToolUse { name, input, .. } => self.render_tool_use(name, input),
             ContentBlock::ToolResult { content, .. } => self.render_tool_result(content),
             ContentBlock::Image(name) => self.render_placeholder("image", name),

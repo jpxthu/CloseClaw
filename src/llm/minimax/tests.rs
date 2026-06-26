@@ -214,7 +214,7 @@ async fn test_provider_send_reasoning_content_mock() {
     assert!(resp
         .content_blocks
         .iter()
-        .any(|b| matches!(b, RawContentBlock::Thinking(_))));
+        .any(|b| matches!(b, RawContentBlock::Thinking { .. })));
 }
 
 // --- Provider send_streaming() via mockito ---

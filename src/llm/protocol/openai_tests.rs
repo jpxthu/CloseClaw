@@ -238,11 +238,10 @@ fn test_parse_response_with_reasoning_content() {
         }
     });
     let resp = proto.parse_response(body).unwrap();
-    // Empty content → Text(""), reasoning → Thinking block
-    assert_eq!(resp.content_blocks.len(), 2);
-    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    // Empty content → only Thinking block (no empty Text)
+    assert_eq!(resp.content_blocks.len(), 1);
     assert!(
-        matches!(&resp.content_blocks[1], RawContentBlock::Thinking(s) if s == "Let me think about this...")
+        matches!(&resp.content_blocks[0], RawContentBlock::Thinking { thinking: s, .. } if s == "Let me think about this...")
     );
 }
 
@@ -265,14 +264,35 @@ fn test_parse_response_with_both_content_and_reasoning() {
         }
     });
     let resp = proto.parse_response(body).unwrap();
-    // Both content and reasoning → Text + Thinking
-    assert_eq!(resp.content_blocks.len(), 2);
+    // Both content and reasoning → only Text (content non-empty takes priority)
+    assert_eq!(resp.content_blocks.len(), 1);
     assert!(
         matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "The answer is 42.")
     );
-    assert!(
-        matches!(&resp.content_blocks[1], RawContentBlock::Thinking(s) if s == "Let me think about this...")
-    );
+}
+
+#[test]
+fn test_parse_response_both_content_and_reasoning_empty() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": null
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 0,
+            "total_tokens": 100
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // Both empty → single empty Text block
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
 }
 
 #[test]

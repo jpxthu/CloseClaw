@@ -239,7 +239,9 @@ pub(crate) fn dispatch_blocks(
                     elements.extend(to_elements(text.trim()));
                 }
             }
-            ContentBlock::Thinking(content) => {
+            ContentBlock::Thinking {
+                thinking: content, ..
+            } => {
                 elements.push(render_thinking_block(content));
             }
             ContentBlock::ToolUse { name, input, .. } => {
@@ -406,7 +408,10 @@ mod tests {
     #[test]
     fn dispatch_blocks_with_thinking_includes_collapsible_panel() {
         let blocks = vec![
-            ContentBlock::Thinking("reasoning here".into()),
+            ContentBlock::Thinking {
+                thinking: "reasoning here".into(),
+                signature: None,
+            },
             ContentBlock::Text("Hello".into()),
         ];
         let (_, elements) = dispatch_blocks(&blocks, None);

@@ -124,7 +124,10 @@ impl ChatProtocol for GlmProtocol {
 
         let content_blocks = match (text, reasoning) {
             (Some(t), _) => vec![RawContentBlock::Text(t)],
-            (_, Some(r)) => vec![RawContentBlock::Thinking(r)],
+            (_, Some(r)) => vec![RawContentBlock::Thinking {
+                thinking: r,
+                signature: None,
+            }],
             (None, None) => vec![],
         };
 
@@ -217,7 +220,7 @@ impl ChatProtocol for GlmProtocol {
 
                     let delta = match btype {
                         ContentBlockType::Thinking => {
-                            ContentDelta::Thinking { thinking: text.to_string() }
+                            ContentDelta::Thinking { thinking: text.to_string(), signature: None }
                         }
                         _ => ContentDelta::Text { text: text.to_string() },
                     };

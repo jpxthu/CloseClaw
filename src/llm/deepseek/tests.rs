@@ -107,7 +107,10 @@ async fn test_send_success_with_reasoning_content() {
     assert_eq!(resp.content_blocks.len(), 2);
     assert_eq!(
         resp.content_blocks[0],
-        RawContentBlock::Thinking("Let me think step by step...".into())
+        RawContentBlock::Thinking {
+            thinking: "Let me think step by step...".into(),
+            signature: None
+        }
     );
     assert_eq!(
         resp.content_blocks[1],

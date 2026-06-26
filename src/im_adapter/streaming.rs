@@ -170,7 +170,10 @@ impl BlockAccumulator {
     /// Convert the accumulated data into a [`ContentBlock`].
     fn into_block(self, block_type: ContentBlockType) -> ContentBlock {
         match block_type {
-            ContentBlockType::Thinking => ContentBlock::Thinking(self.text),
+            ContentBlockType::Thinking => ContentBlock::Thinking {
+                thinking: self.text,
+                signature: None,
+            },
             ContentBlockType::ToolUse => ContentBlock::ToolUse {
                 id: self.tool_id.unwrap_or_default(),
                 name: self.tool_name.unwrap_or_default(),
@@ -295,7 +298,7 @@ impl StreamingRenderer for DefaultStreamingRenderer {
             }
             StreamEvent::BlockDelta { delta, .. } => match delta {
                 ContentDelta::Text { text } => self.handle_text_delta(&text, &mut out),
-                ContentDelta::Thinking { thinking } => self.handle_thinking_delta(&thinking),
+                ContentDelta::Thinking { thinking, .. } => self.handle_thinking_delta(&thinking),
                 ContentDelta::ToolUseId { id } => self.handle_tool_id(id),
                 ContentDelta::ToolUseName { name } => self.handle_tool_name(name),
                 ContentDelta::ToolUseInputChunk { input } => self.handle_tool_input(&input),
@@ -441,12 +444,16 @@ mod tests {
             index: 0,
             delta: ContentDelta::Thinking {
                 thinking: "Let me think.".to_string(),
+                signature: None,
             },
         });
         let out = r.handle_event(block_end(0, ContentBlockType::Thinking));
         assert_eq!(
             out.render_blocks,
-            vec![ContentBlock::Thinking("Let me think.".to_string())]
+            vec![ContentBlock::Thinking {
+                thinking: "Let me think.".to_string(),
+                signature: None
+            }]
         );
     }
 

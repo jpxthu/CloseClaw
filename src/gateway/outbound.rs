@@ -571,7 +571,7 @@ pub(crate) fn filter_by_verbosity(
         VerbosityLevel::Full => blocks,
         VerbosityLevel::Normal => blocks
             .into_iter()
-            .filter(|b| !matches!(b, ContentBlock::Thinking(_)))
+            .filter(|b| !matches!(b, ContentBlock::Thinking { .. }))
             .collect(),
         VerbosityLevel::Off => blocks
             .into_iter()

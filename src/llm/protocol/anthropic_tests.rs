@@ -156,7 +156,30 @@ fn test_parse_response_thinking_block() {
     assert_eq!(resp.content_blocks.len(), 2);
     assert!(matches!(
         resp.content_blocks[0],
-        RawContentBlock::Thinking(ref s) if s == "Let me think..."
+        RawContentBlock::Thinking { thinking: ref s, .. } if s == "Let me think..."
+    ));
+    assert!(matches!(
+        resp.content_blocks[1],
+        RawContentBlock::Text(ref s) if s == "Final answer."
+    ));
+}
+
+#[test]
+fn test_parse_response_thinking_block_with_signature() {
+    let proto = AnthropicProtocol::new();
+    let body = serde_json::json!({
+        "content": [
+            {"type": "thinking", "thinking": "Let me think...", "signature": "sig_abc123"},
+            {"type": "text", "text": "Final answer."}
+        ],
+        "stop_reason": "end_turn"
+    });
+
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert!(matches!(
+        resp.content_blocks[0],
+        RawContentBlock::Thinking { thinking: ref s, signature: Some(ref sig) } if s == "Let me think..." && sig == "sig_abc123"
     ));
     assert!(matches!(
         resp.content_blocks[1],
