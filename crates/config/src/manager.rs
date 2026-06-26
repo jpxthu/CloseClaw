@@ -230,9 +230,9 @@ pub struct ConfigManager {
     /// Loaded session config provider (from config/session.json).
     pub session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// Resolved agent configurations (loaded from two-level directories).
-    pub(crate) agents: RwLock<HashMap<String, crate::agents::ResolvedAgentConfig>>,
+    pub agents: RwLock<HashMap<String, crate::agents::ResolvedAgentConfig>>,
     /// Per-agent raw permissions (loaded from permissions.json).
-    pub(crate) agent_permissions: RwLock<HashMap<String, AgentPermissions>>,
+    pub agent_permissions: RwLock<HashMap<String, AgentPermissions>>,
     /// Optional project root for loading project-level agents.json.
     pub(crate) repo_root: RwLock<Option<PathBuf>>,
     /// Broadcast channel for config change events.

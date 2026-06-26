@@ -2,7 +2,7 @@
 mod reload_tests {
     use crate::agent::registry::AgentRegistry;
     use crate::config::manager::{ConfigManager, ConfigSection};
-    use crate::config::reload::{
+    use crate::config_reload::reload::{
         dispatch_change, filename_to_section, is_agents_path, ConfigReloadManager, DEFAULT_DEBOUNCE,
     };
     use std::path::Path;

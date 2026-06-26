@@ -530,3 +530,7 @@ mod tests {
         assert!(provider.list_agents().is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "session_compact_tests.rs"]
+mod session_compact_tests;

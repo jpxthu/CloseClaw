@@ -1,14 +1,30 @@
 //! Tests for ConfigManager hot-reload methods (reload_section / reload_agents).
 
-use crate::common::test_helpers::write_mandatory_configs;
-use crate::config::events::ConfigChangeEvent;
-use crate::config::manager::*;
-use crate::config::manager_reload::SectionValidator;
+use crate::events::ConfigChangeEvent;
+use crate::manager::*;
+use crate::SectionValidator;
 use std::fs;
 
 /// Helper: set up a valid config directory with all mandatory JSON files.
 fn setup_config_dir_at(dir: &std::path::Path) {
     write_mandatory_configs(dir).unwrap();
+}
+
+/// Write the 5 mandatory config files into `dir`.
+fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
+    for name in &[
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+    ] {
+        std::fs::write(
+            dir.join(name),
+            serde_json::json!({"version": "1.0"}).to_string(),
+        )?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -834,6 +850,7 @@ fn test_reload_section_default_validator_system() {
         ConfigLoadError::ValidationError { .. }
     ));
 }
+
 /// reload_section for Session updates the in-memory cache.
 #[test]
 fn test_reload_session_section_success() {
@@ -899,7 +916,7 @@ fn test_reload_session_provider_fallback_on_missing_file() {
     let provider = manager.session_config_provider().unwrap();
     assert_eq!(
         provider.sweeper_interval_secs(),
-        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+        crate::session::DEFAULT_SWEEPER_INTERVAL_SECS
     );
 }
 
@@ -920,7 +937,7 @@ fn test_reload_session_provider_fallback_on_invalid_json() {
     let provider = manager.session_config_provider().unwrap();
     assert_eq!(
         provider.sweeper_interval_secs(),
-        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+        crate::session::DEFAULT_SWEEPER_INTERVAL_SECS
     );
 }
 

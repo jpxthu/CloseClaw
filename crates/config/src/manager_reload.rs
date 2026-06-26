@@ -10,16 +10,11 @@
 
 use std::sync::Arc;
 
-use super::events::ConfigChangeEvent;
-use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
-use super::session::{JsonSessionConfigProvider, SessionConfigProvider};
+use crate::events::ConfigChangeEvent;
+use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
+use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
+use crate::SectionValidator;
 use tracing::warn;
-
-/// Validator callback type for config section reload.
-///
-/// Receives the parsed JSON value and returns `Ok(())` if valid,
-/// or `Err(message)` to reject the reload.
-pub type SectionValidator = dyn Fn(&serde_json::Value) -> Result<(), String>;
 
 impl ConfigManager {
     /// Hot-reload a single section by reading its canonical file.

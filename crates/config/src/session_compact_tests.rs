@@ -2,8 +2,8 @@
 
 use tempfile::TempDir;
 
-use crate::config::session::{JsonSessionConfigProvider, SessionConfigProvider};
-use crate::session::compaction::CompactConfig;
+use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
+use closeclaw_common::CompactConfig;
 
 /// Minimal valid session config JSON with given defaults, agents, and sweeper interval.
 fn valid_config_json(defaults: &str, agents: &str, sweeper_interval_secs: u64) -> String {

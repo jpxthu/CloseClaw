@@ -14,9 +14,9 @@ use notify::{
 };
 use tracing::{debug, info, warn};
 
-use super::events::ConfigChangeEvent;
-use super::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 use crate::agent::registry::AgentRegistry;
+use crate::config::events::ConfigChangeEvent;
+use crate::config::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 
 /// Default debounce duration for file change events.
 const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -193,7 +193,7 @@ impl ConfigReloadManager {
     /// - `agents/` directory (recursive, triggers `reload_agents`)
     ///
     /// Returns a `WatcherHandle` whose drop stops the watcher.
-    pub fn watch(&mut self, config_dir: &str) -> Result<WatcherHandle, super::ConfigError> {
+    pub fn watch(&mut self, config_dir: &str) -> Result<WatcherHandle, crate::config::ConfigError> {
         let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
         let mut watcher = create_watcher(tx)?;
         let config_path = Path::new(config_dir);
@@ -267,7 +267,7 @@ impl ConfigReloadManager {
 /// Create a `RecommendedWatcher` with an mpsc sender for file change events.
 fn create_watcher(
     tx: std::sync::mpsc::Sender<notify::Result<Event>>,
-) -> Result<RecommendedWatcher, super::ConfigError> {
+) -> Result<RecommendedWatcher, crate::config::ConfigError> {
     RecommendedWatcher::new(
         move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
@@ -276,14 +276,16 @@ fn create_watcher(
         },
         NotifyConfig::default(),
     )
-    .map_err(|e| super::ConfigError::SchemaError(format!("Failed to create watcher: {}", e)))
+    .map_err(|e| {
+        crate::config::ConfigError::SchemaError(format!("Failed to create watcher: {}", e))
+    })
 }
 
 /// Register all watched paths (config files, agents.json, agents/ dir).
 fn register_watched_paths(
     watcher: &mut RecommendedWatcher,
     config_path: &Path,
-) -> Result<(), super::ConfigError> {
+) -> Result<(), crate::config::ConfigError> {
     let config_files = [
         "models.json",
         "channels.json",
@@ -298,7 +300,10 @@ fn register_watched_paths(
             watcher
                 .watch(path.as_ref(), RecursiveMode::NonRecursive)
                 .map_err(|e| {
-                    super::ConfigError::SchemaError(format!("Failed to watch {:?}: {}", path, e))
+                    crate::config::ConfigError::SchemaError(format!(
+                        "Failed to watch {:?}: {}",
+                        path, e
+                    ))
                 })?;
         }
     }
@@ -310,13 +315,16 @@ fn register_watched_paths(
 fn register_agents_watch(
     watcher: &mut RecommendedWatcher,
     config_path: &Path,
-) -> Result<(), super::ConfigError> {
+) -> Result<(), crate::config::ConfigError> {
     let agents_json = config_path.join("agents.json");
     if agents_json.exists() {
         watcher
             .watch(agents_json.as_ref(), RecursiveMode::NonRecursive)
             .map_err(|e| {
-                super::ConfigError::SchemaError(format!("Failed to watch agents.json: {}", e))
+                crate::config::ConfigError::SchemaError(format!(
+                    "Failed to watch agents.json: {}",
+                    e
+                ))
             })?;
     }
     let agents_dir = config_path.parent().unwrap_or(config_path).join("agents");
@@ -324,7 +332,7 @@ fn register_agents_watch(
         watcher
             .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
             .map_err(|e| {
-                super::ConfigError::SchemaError(format!("Failed to watch agents/: {}", e))
+                crate::config::ConfigError::SchemaError(format!("Failed to watch agents/: {}", e))
             })?;
     }
     Ok(())

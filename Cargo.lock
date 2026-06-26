@@ -443,6 +443,7 @@ dependencies = [
  "chrono",
  "clap",
  "closeclaw-common",
+ "closeclaw-config",
  "dashmap",
  "dialoguer",
  "dirs",
@@ -488,6 +489,28 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "closeclaw-config"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "closeclaw-common",
+ "dashmap",
+ "dirs",
+ "notify",
+ "regex",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

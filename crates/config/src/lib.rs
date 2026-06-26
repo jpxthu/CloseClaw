@@ -10,6 +10,7 @@ pub mod agents;
 pub mod backup;
 pub mod events;
 pub mod manager;
+pub mod manager_reload;
 pub mod migration;
 pub mod providers;
 pub mod session;
