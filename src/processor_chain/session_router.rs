@@ -103,7 +103,9 @@ impl MessageProcessor for SessionRouter {
         let peer_id = raw.peer_id;
         let account_id = raw.account_id;
 
-        let timestamp_ms = raw.timestamp.timestamp_millis();
+        // Use system time instead of message timestamp to align with design doc:
+        // "timestamp_ms 为当前系统时间的毫秒级时间戳"
+        let timestamp_ms = chrono::Utc::now().timestamp_millis();
         let session_key = self.compute_key(
             &sender_id,
             &peer_id,
