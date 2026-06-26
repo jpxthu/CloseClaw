@@ -3,9 +3,7 @@
 //! This backend stores checkpoints in memory using a `HashMap` protected by an `RwLock`.
 //! Suitable for testing and single-instance deployments.
 
-use crate::session::persistence::{
-    DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
-};
+use crate::persistence::{DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -223,7 +221,7 @@ impl PersistenceService for MemoryStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::persistence::{
+    use crate::persistence::{
         DreamingStatus, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionStatus,
     };
     use chrono::Utc;
@@ -263,7 +261,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
-            verbosity_level: crate::common::VerbosityLevel::default(),
+            verbosity_level: closeclaw_common::VerbosityLevel::default(),
         }
     }
 

@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 
 /// Recovery report containing results of the recovery process
 #[derive(Debug)]
@@ -226,7 +226,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
 
     /// Build notification text listing pending operations.
     fn build_notification_text(&self, checkpoint: &SessionCheckpoint) -> String {
-        use crate::session::persistence::PendingOperationType;
+        use crate::persistence::PendingOperationType;
 
         let restart_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
 
@@ -289,7 +289,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
 
     /// Build tool failure result strings for pending tool call operations.
     fn build_tool_failure_results(&self, checkpoint: &SessionCheckpoint) -> Vec<String> {
-        use crate::session::persistence::PendingOperationType;
+        use crate::persistence::PendingOperationType;
 
         checkpoint
             .pending_operations
@@ -402,11 +402,11 @@ impl SpawnTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::persistence::{
+    use crate::persistence::{
         DreamingStatus, PendingOperation, PendingOperationType, ReasoningLevel, ReasoningMode,
         ReasoningModeState, SessionStatus,
     };
-    use crate::session::storage::memory::MemoryStorage;
+    use crate::storage::memory::MemoryStorage;
     use chrono::Utc;
 
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -444,7 +444,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
-            verbosity_level: crate::common::VerbosityLevel::default(),
+            verbosity_level: closeclaw_common::VerbosityLevel::default(),
         }
     }
 
@@ -826,10 +826,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_recovery_callback_receives_notification() {
-        use crate::session::persistence::{
+        use crate::persistence::{
             PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
         };
-        use crate::session::storage::memory::MemoryStorage;
+        use crate::storage::memory::MemoryStorage;
         use std::sync::Arc;
 
         let storage = Arc::new(MemoryStorage::new());

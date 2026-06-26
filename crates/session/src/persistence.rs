@@ -125,7 +125,7 @@ pub struct SessionCheckpoint {
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Full）。
     #[serde(default)]
-    pub verbosity_level: crate::common::VerbosityLevel,
+    pub verbosity_level: closeclaw_common::VerbosityLevel,
 }
 
 impl SessionCheckpoint {
@@ -161,7 +161,7 @@ impl SessionCheckpoint {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
-            verbosity_level: crate::common::VerbosityLevel::default(),
+            verbosity_level: closeclaw_common::VerbosityLevel::default(),
         }
     }
 
@@ -294,7 +294,7 @@ impl SessionCheckpoint {
         self
     }
     /// Update the verbosity level
-    pub fn with_verbosity_level(mut self, level: crate::common::VerbosityLevel) -> Self {
+    pub fn with_verbosity_level(mut self, level: closeclaw_common::VerbosityLevel) -> Self {
         self.verbosity_level = level;
         self
     }

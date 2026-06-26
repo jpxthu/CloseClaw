@@ -1,6 +1,6 @@
 //! Bug #904 tests for SQLite storage
 
-use crate::session::storage::SqliteStorage;
+use crate::storage::SqliteStorage;
 
 // ===================================================================
 // 10. Bug #904: init_schema idempotent with existing thread_id column

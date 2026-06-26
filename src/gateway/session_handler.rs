@@ -19,7 +19,7 @@ use crate::llm::types::UnifiedResponse;
 use crate::llm::unified_fallback::UnifiedFallbackClient;
 use crate::llm::Message as ChatMessage;
 use crate::session::compaction::{
-    execute_compact, CompactConfig, CompactionResult, CompactionService,
+    execute_compact, CompactConfig, CompactionMessage, CompactionResult, CompactionService,
 };
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -223,11 +223,18 @@ impl SessionMessageHandler {
         else {
             return;
         };
+        let compaction_msgs: Vec<CompactionMessage> = llm_messages
+            .iter()
+            .map(|m| CompactionMessage {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            })
+            .collect();
         let should_run = self
             .compaction_service
             .lock()
             .expect("compaction_service poisoned")
-            .should_auto_compact(&llm_messages, &model);
+            .should_auto_compact(&compaction_msgs, &model);
         if !should_run {
             return;
         }

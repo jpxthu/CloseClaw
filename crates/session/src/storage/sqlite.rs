@@ -10,7 +10,7 @@ mod bug904_tests;
 #[cfg(test)]
 mod tests;
 
-use crate::session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 use async_trait::async_trait;
 use rusqlite::{params, Connection};
 use serde_json::json;
@@ -284,20 +284,20 @@ impl Clone for SqliteStorage {
 }
 
 /// Convert SessionStatus to/from database string representation
-fn status_to_db(s: &crate::session::persistence::SessionStatus) -> &'static str {
+fn status_to_db(s: &crate::persistence::SessionStatus) -> &'static str {
     match s {
-        crate::session::persistence::SessionStatus::Active => "active",
-        crate::session::persistence::SessionStatus::Archived => "archived",
+        crate::persistence::SessionStatus::Active => "active",
+        crate::persistence::SessionStatus::Archived => "archived",
     }
 }
 
 /// Convert ReasonMode to/from database string representation
-fn mode_to_db(m: &crate::session::persistence::ReasoningMode) -> &'static str {
+fn mode_to_db(m: &crate::persistence::ReasoningMode) -> &'static str {
     match m {
-        crate::session::persistence::ReasoningMode::Direct => "direct",
-        crate::session::persistence::ReasoningMode::Plan => "plan",
-        crate::session::persistence::ReasoningMode::Stream => "stream",
-        crate::session::persistence::ReasoningMode::Hidden => "hidden",
+        crate::persistence::ReasoningMode::Direct => "direct",
+        crate::persistence::ReasoningMode::Plan => "plan",
+        crate::persistence::ReasoningMode::Stream => "stream",
+        crate::persistence::ReasoningMode::Hidden => "hidden",
     }
 }
 
@@ -349,7 +349,7 @@ impl PersistenceService for SqliteStorage {
                 .unwrap_or(0);
 
             let dreaming_status_str =
-                crate::session::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
+                crate::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
             let mined_str = if checkpoint.mined { "1" } else { "0" };
 
             conn.execute(
@@ -370,8 +370,8 @@ impl PersistenceService for SqliteStorage {
                     checkpoint
                         .role
                         .map(|r| match r {
-                            crate::session::persistence::AgentRole::MainAgent => "main_agent",
-                            crate::session::persistence::AgentRole::SubAgent => "sub_agent",
+                            crate::persistence::AgentRole::MainAgent => "main_agent",
+                            crate::persistence::AgentRole::SubAgent => "sub_agent",
                         })
                         .unwrap_or("main_agent"),
                     // Backward-compat: write platform value to old channel column
@@ -557,12 +557,12 @@ impl PersistenceService for SqliteStorage {
     async fn list_idle_sessions_for_agent(
         &self,
         agent_id: &str,
-        role: crate::session::persistence::AgentRole,
+        role: crate::persistence::AgentRole,
         idle_minutes: i64,
     ) -> Result<Vec<String>, PersistenceError> {
         let role_str = match role {
-            crate::session::persistence::AgentRole::MainAgent => "main_agent",
-            crate::session::persistence::AgentRole::SubAgent => "sub_agent",
+            crate::persistence::AgentRole::MainAgent => "main_agent",
+            crate::persistence::AgentRole::SubAgent => "sub_agent",
         };
         self.list_idle_sessions_for_agent(agent_id, role_str, idle_minutes)
             .await
@@ -571,12 +571,12 @@ impl PersistenceService for SqliteStorage {
     async fn list_expired_archived_sessions_for_agent(
         &self,
         agent_id: &str,
-        role: crate::session::persistence::AgentRole,
+        role: crate::persistence::AgentRole,
         purge_after_minutes: i64,
     ) -> Result<Vec<String>, PersistenceError> {
         let role_str = match role {
-            crate::session::persistence::AgentRole::MainAgent => "main_agent",
-            crate::session::persistence::AgentRole::SubAgent => "sub_agent",
+            crate::persistence::AgentRole::MainAgent => "main_agent",
+            crate::persistence::AgentRole::SubAgent => "sub_agent",
         };
         self.list_expired_archived_sessions_for_agent(agent_id, role_str, purge_after_minutes)
             .await
@@ -681,11 +681,11 @@ impl PersistenceService for SqliteStorage {
     async fn update_dreaming_status(
         &self,
         session_id: &str,
-        status: crate::session::persistence::DreamingStatus,
+        status: crate::persistence::DreamingStatus,
     ) -> Result<(), PersistenceError> {
         let data_dir = self.data_dir.clone();
         let session_id = session_id.to_string();
-        let status_str = crate::session::persistence::dreaming_status_to_db(&status).to_string();
+        let status_str = crate::persistence::dreaming_status_to_db(&status).to_string();
 
         spawn_blocking(move || {
             let conn = Connection::open(data_dir.join("sessions.sqlite"))

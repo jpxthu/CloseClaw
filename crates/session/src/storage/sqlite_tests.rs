@@ -3,11 +3,11 @@
 #![cfg(test)]
 
 mod tests {
-    use crate::session::persistence::{
+    use crate::persistence::{
         DreamingStatus, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
         ReasoningModeState, SessionCheckpoint, SessionStatus,
     };
-    use crate::session::storage::SqliteStorage;
+    use crate::storage::SqliteStorage;
     use chrono::Utc;
     use tempfile::TempDir;
 
@@ -41,7 +41,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
-            verbosity_level: crate::common::VerbosityLevel::default(),
+            verbosity_level: closeclaw_common::VerbosityLevel::default(),
         }
     }
 
@@ -354,7 +354,7 @@ mod tests {
     // ===================================================================
     #[tokio::test]
     async fn test_save_checkpoint_writes_agent_id_role_none() -> Result<(), PersistenceError> {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
 
         let temp = TempDir::new().unwrap();
         let storage = SqliteStorage::new(temp.path())?;
@@ -374,7 +374,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_checkpoint_writes_agent_id_role_some() -> Result<(), PersistenceError> {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
 
         let temp = TempDir::new().unwrap();
         let storage = SqliteStorage::new(temp.path())?;
@@ -408,7 +408,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
-            verbosity_level: crate::common::VerbosityLevel::default(),
+            verbosity_level: closeclaw_common::VerbosityLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -422,7 +422,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_checkpoint_agent_id_none_uses_unknown() -> Result<(), PersistenceError> {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
 
         let temp = TempDir::new().unwrap();
         let storage = SqliteStorage::new(temp.path())?;
@@ -457,7 +457,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
-            verbosity_level: crate::common::VerbosityLevel::default(),
+            verbosity_level: closeclaw_common::VerbosityLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -472,7 +472,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_checkpoint_roundtrips_agent_id_role() -> Result<(), PersistenceError> {
-        use crate::session::persistence::AgentRole;
+        use crate::persistence::AgentRole;
 
         let temp = TempDir::new().unwrap();
         let storage = SqliteStorage::new(temp.path())?;
@@ -506,7 +506,7 @@ mod tests {
             pending_operations: Vec::new(),
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
-            verbosity_level: crate::common::VerbosityLevel::default(),
+            verbosity_level: closeclaw_common::VerbosityLevel::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
