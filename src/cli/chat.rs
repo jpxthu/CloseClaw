@@ -255,7 +255,7 @@ async fn build_unified_chain(
                 protocol,
                 interpreter_registry,
                 plugin_pipeline,
-                Arc::new(crate::llm::cache_adapter::NoopCacheAdapter),
+                crate::llm::cache_adapter::for_provider(&entry.provider),
             ));
             ChainEntry {
                 provider_id: entry.provider.clone(),

@@ -5,6 +5,8 @@
 //! caching strategy. The adapter runs *before* the Plugin Pipeline, acting as
 //! an independent pre-processing step on the request hot path.
 
+use std::sync::Arc;
+
 use crate::llm::types::{InternalRequest, SystemBlock};
 
 /// Adapter trait for provider-specific prompt caching strategies.
@@ -115,6 +117,19 @@ impl CacheAdapter for KimiCacheAdapter {
                 serde_json::Value::String(session_id.clone()),
             );
         }
+    }
+}
+
+/// Create a [`CacheAdapter`] instance for the given provider.
+///
+/// Returns the provider-specific adapter when one exists
+/// (Anthropic, Kimi), or [`NoopCacheAdapter`] for providers
+/// that rely on server-side automatic prefix caching.
+pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
+    match provider_id {
+        "anthropic" => Arc::new(AnthropicCacheAdapter),
+        "kimi" => Arc::new(KimiCacheAdapter),
+        _ => Arc::new(NoopCacheAdapter),
     }
 }
 
@@ -291,5 +306,50 @@ mod tests {
         for block in blocks {
             assert!(block.cache, "block should be cached: {:?}", block.text);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // for_provider factory function tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn for_provider_anthropic_returns_anthropic_adapter() {
+        let adapter = for_provider("anthropic");
+        assert_eq!(adapter.name(), "anthropic");
+    }
+
+    #[test]
+    fn for_provider_kimi_returns_kimi_adapter() {
+        let adapter = for_provider("kimi");
+        assert_eq!(adapter.name(), "kimi");
+    }
+
+    #[test]
+    fn for_provider_unknown_returns_noop() {
+        for provider_id in ["openai", "deepseek", ""] {
+            let adapter = for_provider(provider_id);
+            assert_eq!(
+                adapter.name(),
+                "noop",
+                "expected noop for provider_id: {provider_id:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn for_provider_anthropic_applies_cache_marks() {
+        let adapter = for_provider("anthropic");
+        let mut req = make_request();
+        req.system_static = Some("Static section".to_owned());
+
+        adapter.apply(&mut req);
+
+        let blocks = req
+            .system_blocks
+            .as_ref()
+            .expect("system_blocks should be set");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].text, "Static section");
+        assert!(blocks[0].cache, "static block should have cache: true");
     }
 }
