@@ -41,7 +41,7 @@ LLM Client（UnifiedChatClient）—— 统一入口
 |----|------|---------|
 | Provider | 保存访问凭据和端点地址，发送 HTTP 请求，映射厂商错误码 | 否 |
 | Protocol | 按协议标准序列化请求、解析响应、解析流式 SSE 事件 | 是（协议标准逻辑） |
-| ModelInterpreter | 将协议原生字段归一化为统一内容块（如 reasoning_content → Thinking block） | 是（模型特有逻辑） |
+| ModelInterpreter | 将协议原生字段归一化为统一内容块（如 reasoning_content → Thinking block） | 是（协议标准逻辑） |
 | Plugin | 模型专属行为注入（注入额外参数、过滤内容块、处理流式事件） | 是（业务行为） |
 
 ### 统一内容块
