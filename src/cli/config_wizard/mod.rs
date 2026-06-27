@@ -263,12 +263,15 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         kb.recommended_protocol(&output.provider_id, &m.id)
             .to_string()
     });
-    let (base_url, api_key, api) = inherit_provider_fields(&existing_provider);
+    let (base_url, _api_key, api) = inherit_provider_fields(&existing_provider);
+    // api_key is never stored in models.json — credentials live in a separate
+    // file referenced by credential_path. Setting it to None prevents leaking
+    // secrets into the config file.
     providers.insert(
         output.provider_id.clone(),
         ProviderConfig {
             base_url,
-            api_key,
+            api_key: None,
             api,
             protocol: recommended_protocol,
             credential_path: Some(format!("credentials/{}.json", output.provider_id)),
@@ -297,6 +300,25 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
 /// Write wizard output to config files in the default config directory.
 pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
     write_wizard_config_to(output, &config_dir())
+}
+
+/// Compute a default selection string for already-configured models.
+///
+/// Given a list of fetched models and a set of already-configured model IDs,
+/// returns a comma-separated string of 1-based indices (e.g. "1,3,5")
+/// for models that exist in `configured_ids`. Returns an empty string if no
+/// models are already configured.
+pub(crate) fn compute_default_selection(
+    models: &[ModelInfo],
+    configured_ids: &std::collections::HashSet<String>,
+) -> String {
+    let indices: Vec<String> = models
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| configured_ids.contains(&m.id))
+        .map(|(i, _)| (i + 1).to_string())
+        .collect();
+    indices.join(",")
 }
 
 /// Locate the models.json config file, if it exists.
@@ -339,10 +361,26 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
     let mut ctx = WizardContext::default();
 
     // ── SelectProvider ──────────────────────────────────────────────────
-    let selection = tokio::task::spawn_blocking(|| {
+    let kb = ProviderModelKnowledge::new();
+    let provider_display: Vec<String> = PROVIDERS
+        .iter()
+        .map(|p| {
+            let proto = kb.recommended_protocol(p.id, "");
+            let proto_str = if proto.as_str().is_empty() {
+                "N/A"
+            } else {
+                proto.as_str()
+            };
+            format!(
+                "{} — {} (推荐协议: {})",
+                p.display_name, p.description, proto_str
+            )
+        })
+        .collect();
+    let selection = tokio::task::spawn_blocking(move || {
         Select::new()
             .with_prompt("Select a provider")
-            .items(&PROVIDERS.iter().map(|p| p.display_name).collect::<Vec<_>>())
+            .items(&provider_display)
             .default(0)
             .interact()
     })
@@ -396,6 +434,31 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
             .await;
         println!(" done");
         ctx.fetched_models = result.into_models();
+
+        // Display fetched model details
+        if !ctx.fetched_models.is_empty() {
+            println!("\nFound {} model(s):\n", ctx.fetched_models.len());
+            println!(
+                " {:3}. {:35} {:>10} {:>8} Reasoning",
+                "#", "Model", "Context", "MaxOut"
+            );
+            println!(
+                "{:->4}- {:->35}- {:->10}- {:->8}- {:->9}",
+                "", "", "", "", ""
+            );
+            for (i, m) in ctx.fetched_models.iter().enumerate() {
+                let reasoning = if m.reasoning { "✅" } else { "❌" };
+                println!(
+                    " {:3}. {:35} {:>10} {:>8} {}",
+                    i + 1,
+                    m.name,
+                    m.context_window,
+                    m.max_tokens,
+                    reasoning
+                );
+            }
+            println!();
+        }
     }
 
     ctx.current_state = WizardState::SelectModels;
@@ -433,11 +496,13 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
                 let proto = kb.recommended_protocol(provider_id, &m.id);
                 let proto_str = proto.as_str();
                 format!(
-                    "{:3}. {} {}{}  protocol: {} (recommended)",
+                    "{:3}. {} {}{}  ctx: {}K  max: {}K  protocol: {}",
                     i + 1,
                     mark,
                     m.name,
                     reasoning_flag,
+                    m.context_window / 1000,
+                    m.max_tokens / 1000,
                     proto_str
                 )
             })
@@ -451,10 +516,23 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         }
         println!();
 
-        let input: String =
-            tokio::task::spawn_blocking(|| Input::new().with_prompt("Your selection").interact())
-                .await
-                .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
+        // Compute default selection for already-configured models
+        let configured_ids: std::collections::HashSet<String> = models
+            .iter()
+            .filter(|m| ctx.existing_config.contains_key(&m.id))
+            .map(|m| m.id.clone())
+            .collect();
+        let default_selection = compute_default_selection(models, &configured_ids);
+
+        let input: String = tokio::task::spawn_blocking(move || {
+            let mut prompt = Input::new().with_prompt("Your selection");
+            if !default_selection.is_empty() {
+                prompt = prompt.with_initial_text(default_selection);
+            }
+            prompt.interact()
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
 
         match parse_model_selection(&input, models.len()) {
             Ok(indices) => {

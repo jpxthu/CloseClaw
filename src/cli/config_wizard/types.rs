@@ -23,6 +23,7 @@ pub struct ProviderInfo {
     pub id: &'static str,
     pub display_name: &'static str,
     pub provider_type: ProviderType,
+    pub description: &'static str,
 }
 
 /// Provider type enumeration
@@ -40,21 +41,25 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         id: "minimax",
         display_name: "MiniMax",
         provider_type: ProviderType::Minimax,
+        description: "多模态大模型，推荐 Anthropic 协议",
     },
     ProviderInfo {
         id: "glm",
         display_name: "GLM",
         provider_type: ProviderType::Glm,
+        description: "智谱 AI 大模型，推荐 OpenAI 协议",
     },
     ProviderInfo {
         id: "volcengine",
         display_name: "Volcengine",
         provider_type: ProviderType::Volcengine,
+        description: "火山引擎大模型",
     },
     ProviderInfo {
         id: "deepseek",
         display_name: "DeepSeek",
         provider_type: ProviderType::Deepseek,
+        description: "深度求索推理模型，推荐 Anthropic 协议",
     },
 ];
 
