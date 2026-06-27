@@ -793,7 +793,8 @@ mod provider_info_tests {
     #[test]
     fn test_provider_info_roundtrip_with_description() {
         // &'static str fields require static source for deserialization
-        let json = r#"{"id":"test","display_name":"Test","provider_type":"Deepseek","description":"test description"}"#;
+        let json = "{\"id\":\"test\",\"display_name\":\"Test\",
+             \"provider_type\":\"Deepseek\",\"description\":\"test description\"}";
         let roundtripped: ProviderInfo = serde_json::from_str(json).unwrap();
         assert_eq!(roundtripped.id, "test");
         assert_eq!(roundtripped.display_name, "Test");

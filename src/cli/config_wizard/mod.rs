@@ -308,7 +308,7 @@ pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
 /// returns a comma-separated string of 1-based indices (e.g. "1,3,5")
 /// for models that exist in `configured_ids`. Returns an empty string if no
 /// models are already configured.
-pub fn compute_default_selection(
+pub(crate) fn compute_default_selection(
     models: &[ModelInfo],
     configured_ids: &std::collections::HashSet<String>,
 ) -> String {
