@@ -474,11 +474,13 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
                 let proto = kb.recommended_protocol(provider_id, &m.id);
                 let proto_str = proto.as_str();
                 format!(
-                    "{:3}. {} {}{}  protocol: {} (recommended)",
+                    "{:3}. {} {}{}  ctx: {}K  max: {}K  protocol: {}",
                     i + 1,
                     mark,
                     m.name,
                     reasoning_flag,
+                    m.context_window / 1000,
+                    m.max_tokens / 1000,
                     proto_str
                 )
             })
