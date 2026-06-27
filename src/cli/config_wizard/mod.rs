@@ -412,6 +412,31 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
             .await;
         println!(" done");
         ctx.fetched_models = result.into_models();
+
+        // Display fetched model details
+        if !ctx.fetched_models.is_empty() {
+            println!("\nFound {} model(s):\n", ctx.fetched_models.len());
+            println!(
+                " {:3}. {:35} {:>10} {:>8} Reasoning",
+                "#", "Model", "Context", "MaxOut"
+            );
+            println!(
+                "{:->4}- {:->35}- {:->10}- {:->8}- {:->9}",
+                "", "", "", "", ""
+            );
+            for (i, m) in ctx.fetched_models.iter().enumerate() {
+                let reasoning = if m.reasoning { "✅" } else { "❌" };
+                println!(
+                    " {:3}. {:35} {:>10} {:>8} {}",
+                    i + 1,
+                    m.name,
+                    m.context_window,
+                    m.max_tokens,
+                    reasoning
+                );
+            }
+            println!();
+        }
     }
 
     ctx.current_state = WizardState::SelectModels;
