@@ -109,7 +109,7 @@ mod wizard_context_tests {
 
 #[cfg(test)]
 mod provider_config_protocol_tests {
-    use crate::config::providers::models::{ModelDefinition, ProviderConfig};
+    use closeclaw_config::providers::models::{ModelDefinition, ProviderConfig};
 
     /// Test 1: ProviderConfig serializes with protocol field present
     #[test]
@@ -626,7 +626,7 @@ mod ensure_master_agent_tests {
         assert!(config.agent_dir.is_none());
         assert_eq!(
             config.bootstrap_mode,
-            crate::session::bootstrap::BootstrapMode::Full
+            closeclaw_session::bootstrap::BootstrapMode::Full
         );
         assert_eq!(config.skills, vec!["*"]);
         assert_eq!(config.tools, vec!["*"]);
@@ -817,7 +817,7 @@ mod provider_info_tests {
 #[cfg(test)]
 mod compute_default_selection_tests {
     use super::compute_default_selection;
-    use crate::llm::model_info::ModelInfo;
+    use closeclaw_llm::model_info::ModelInfo;
     use std::collections::HashSet;
 
     fn make_model(id: &str) -> ModelInfo {

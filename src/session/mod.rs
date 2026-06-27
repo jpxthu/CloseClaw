@@ -10,30 +10,17 @@
 //! - [`events`] — Checkpoint trigger event definitions
 //! - [`bootstrap`] — Bootstrap context protection during compaction
 
-pub use closeclaw_session::bootstrap;
-pub use closeclaw_session::checkpoint_manager;
 pub mod compaction;
 #[cfg(test)]
 pub mod compaction_async_tests;
-pub use closeclaw_session::events;
 pub mod llm_caller;
 #[cfg(test)]
 pub mod pending_operations_tests;
-pub use closeclaw_session::persistence;
-pub use closeclaw_session::recovery;
-pub use closeclaw_session::storage;
 pub mod sweeper;
 #[cfg(test)]
 pub mod sweeper_tests;
-pub use closeclaw_session::workspace;
 
-// Re-export commonly used types
-pub use bootstrap::{BootstrapContext, BootstrapProtection, BootstrapRegion};
-pub use checkpoint_manager::CheckpointManager;
+// Re-export local module types
 pub use compaction::{CompactConfig, CompactionResult, CompactionService, TokenWarningState};
-pub use events::{CheckpointTrigger, ModeSwitchEvent, UserIntent};
-pub use persistence::{
-    PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
-    SessionCheckpoint,
-};
-pub use recovery::SpawnTree;
+// Note: closeclaw_session types (persistence, bootstrap, recovery, storage, etc.)
+// are no longer re-exported here. Use closeclaw_session:: directly.

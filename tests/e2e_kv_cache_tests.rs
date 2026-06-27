@@ -9,8 +9,8 @@
 //!
 //! Run with: `cargo test --features fake-llm --test e2e_kv_cache_tests`
 
-use closeclaw::llm::session::ConversationSession;
-use closeclaw::llm::types::UnifiedUsage;
+use closeclaw_llm::session::ConversationSession;
+use closeclaw_llm::types::UnifiedUsage;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
@@ -114,7 +114,7 @@ fn make_usage(
 #[tokio::test]
 async fn test_cache_hit_accumulation() {
     let n_rounds = 6;
-    let mut builder = closeclaw::llm::fake::FakeProvider::builder();
+    let mut builder = closeclaw_llm::fake::FakeProvider::builder();
 
     // Each round returns increasing cache_read_tokens (1000, 2000, 3000, ...)
     // with fixed prompt_tokens = 500, completion_tokens = 100.

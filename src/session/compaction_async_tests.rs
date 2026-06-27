@@ -2,15 +2,15 @@
 
 #[cfg(all(test, feature = "fake-llm"))]
 mod tests {
-    use crate::llm::fake::FakeProvider;
-    use crate::llm::fallback::FallbackClient;
-    use crate::llm::LLMRegistry;
-    use crate::llm::Message;
     use crate::session::compaction::{execute_compact, CompactionError};
+    use closeclaw_llm::fake::FakeProvider;
+    use closeclaw_llm::fallback::FallbackClient;
+    use closeclaw_llm::LLMRegistry;
+    use closeclaw_llm::Message;
     use std::sync::Arc;
 
     /// Wrap a FakeProvider into an `Arc<dyn Provider>`.
-    fn fake_as_dyn(provider: FakeProvider) -> Arc<dyn crate::llm::provider::Provider> {
+    fn fake_as_dyn(provider: FakeProvider) -> Arc<dyn closeclaw_llm::provider::Provider> {
         Arc::new(provider)
     }
 
@@ -85,7 +85,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_compact_llm_failure() {
         let provider = FakeProvider::builder()
-            .then_err(crate::llm::provider::ProviderError::Legacy(
+            .then_err(closeclaw_llm::provider::ProviderError::Legacy(
                 "rate limit exceeded".to_string(),
             ))
             .build();

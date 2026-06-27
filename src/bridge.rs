@@ -215,7 +215,7 @@ impl closeclaw_common::slash_router::SlashRouter for SlashDispatcher {
 /// Newtype wrapper around `Arc<RwLock<Option<DiskSkillRegistry>>>` to
 /// satisfy the orphan rule when implementing `SkillRegistryQuery`.
 pub struct SkillRegistryWrapper(
-    pub Arc<std::sync::RwLock<Option<crate::skills::DiskSkillRegistry>>>,
+    pub Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
 );
 
 #[async_trait]
@@ -303,45 +303,45 @@ pub fn common_shutdown_handle(
 /// Adapter that wraps a main-crate `IMPlugin` and implements the common
 /// `IMPlugin` trait for gateway registration.
 pub struct IMPluginAdapter {
-    inner: Arc<dyn crate::im_adapter::plugin::IMPlugin>,
+    inner: Arc<dyn closeclaw_im_adapter::plugin::IMPlugin>,
 }
 
 impl IMPluginAdapter {
     /// Wrap a main-crate IMPlugin for use with the gateway.
     pub fn wrap(
-        plugin: Arc<dyn crate::im_adapter::plugin::IMPlugin>,
+        plugin: Arc<dyn closeclaw_im_adapter::plugin::IMPlugin>,
     ) -> Arc<dyn closeclaw_common::IMPlugin> {
         Arc::new(Self { inner: plugin })
     }
 }
 
 fn convert_common_adapter_error(
-    e: crate::im_adapter::error::AdapterError,
+    e: closeclaw_im_adapter::error::AdapterError,
 ) -> closeclaw_common::im_plugin::AdapterError {
     match e {
-        crate::im_adapter::error::AdapterError::InvalidPayload(s) => {
+        closeclaw_im_adapter::error::AdapterError::InvalidPayload(s) => {
             closeclaw_common::im_plugin::AdapterError::InvalidPayload(s)
         }
-        crate::im_adapter::error::AdapterError::AuthFailed => {
+        closeclaw_im_adapter::error::AdapterError::AuthFailed => {
             closeclaw_common::im_plugin::AdapterError::AuthFailed
         }
-        crate::im_adapter::error::AdapterError::SendFailed(s) => {
+        closeclaw_im_adapter::error::AdapterError::SendFailed(s) => {
             closeclaw_common::im_plugin::AdapterError::SendFailed(s)
         }
-        crate::im_adapter::error::AdapterError::InvalidSignature => {
+        closeclaw_im_adapter::error::AdapterError::InvalidSignature => {
             closeclaw_common::im_plugin::AdapterError::InvalidSignature
         }
-        crate::im_adapter::error::AdapterError::IoError(e) => {
+        closeclaw_im_adapter::error::AdapterError::IoError(e) => {
             closeclaw_common::im_plugin::AdapterError::IoError(e)
         }
-        crate::im_adapter::error::AdapterError::UnsupportedOperation => {
+        closeclaw_im_adapter::error::AdapterError::UnsupportedOperation => {
             closeclaw_common::im_plugin::AdapterError::UnsupportedOperation
         }
     }
 }
 
 fn convert_main_to_common_normalized(
-    m: crate::im_adapter::normalized::NormalizedMessage,
+    m: closeclaw_im_adapter::normalized::NormalizedMessage,
 ) -> closeclaw_common::im_plugin::NormalizedMessage {
     closeclaw_common::im_plugin::NormalizedMessage {
         platform: m.platform,
@@ -372,15 +372,15 @@ fn convert_main_to_common_normalized(
 
 fn convert_common_to_main_rendered(
     output: &closeclaw_common::im_plugin::RenderedOutput,
-) -> crate::im_adapter::plugin::RenderedOutput {
-    crate::im_adapter::plugin::RenderedOutput {
+) -> closeclaw_im_adapter::plugin::RenderedOutput {
+    closeclaw_im_adapter::plugin::RenderedOutput {
         msg_type: output.msg_type.clone(),
         payload: output.payload.clone(),
     }
 }
 
 fn convert_common_streaming_output(
-    o: crate::im_adapter::streaming::StreamingOutput,
+    o: closeclaw_im_adapter::streaming::StreamingOutput,
 ) -> closeclaw_common::im_plugin::StreamingOutput {
     closeclaw_common::im_plugin::StreamingOutput {
         text_messages: o.text_messages,

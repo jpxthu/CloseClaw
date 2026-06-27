@@ -15,7 +15,7 @@
 
 use async_trait::async_trait;
 
-use crate::gateway::{DmScope, Message};
+use closeclaw_gateway::{DmScope, Message};
 
 use super::context::MessageContext;
 use super::error::ProcessError;

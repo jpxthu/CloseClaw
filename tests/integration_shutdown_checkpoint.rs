@@ -14,16 +14,16 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use closeclaw::gateway::session_manager::SessionManager;
-use closeclaw::gateway::{DmScope, GatewayConfig, Message};
-use closeclaw::llm::fake::FakeProvider;
-use closeclaw::llm::provider::Provider;
-use closeclaw::llm::session::ConversationSession;
-use closeclaw::llm::LLMRegistry;
-use closeclaw::session::bootstrap::BootstrapMode;
-use closeclaw::session::persistence::PersistenceService;
-use closeclaw::session::persistence::ReasoningLevel;
-use closeclaw::session::storage::sqlite::SqliteStorage;
+use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_gateway::{DmScope, GatewayConfig, Message};
+use closeclaw_llm::fake::FakeProvider;
+use closeclaw_llm::provider::Provider;
+use closeclaw_llm::session::ConversationSession;
+use closeclaw_llm::LLMRegistry;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::PersistenceService;
+use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::storage::sqlite::SqliteStorage;
 use tempfile::TempDir;
 
 /// Build a minimal GatewayConfig for testing.
@@ -100,7 +100,7 @@ async fn test_flush_all_writes_checkpoint_to_sqlite() {
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Push two pending messages: one sent=true, one sent=false
-    use closeclaw::session::persistence::PendingMessage;
+    use closeclaw_session::persistence::PendingMessage;
 
     let mut msg_sent =
         PendingMessage::new("msg-sent-1".to_string(), "already sent content".to_string());
@@ -174,7 +174,7 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
     let sm = &_sm;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
-    use closeclaw::session::persistence::PendingMessage;
+    use closeclaw_session::persistence::PendingMessage;
 
     let mut msg_sent =
         PendingMessage::new("msg-sent-1".to_string(), "already sent content".to_string());
@@ -319,8 +319,8 @@ async fn test_full_shutdown_restore_cycle() {
 
     let sid = sm1.find_or_create("ch", &make_msg(), None).await.unwrap();
 
-    use closeclaw::session::persistence::PendingMessage;
-    use closeclaw::session::persistence::ReasoningLevel;
+    use closeclaw_session::persistence::PendingMessage;
+    use closeclaw_session::persistence::ReasoningLevel;
 
     let mut msg_sent =
         PendingMessage::new("msg-sent-cycle".to_string(), "sent content".to_string());

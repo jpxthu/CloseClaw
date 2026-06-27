@@ -2,7 +2,7 @@
 
 use crate::common::test_helpers::write_mandatory_configs;
 use crate::daemon::Daemon;
-use crate::session::persistence::PersistenceService;
+use closeclaw_session::persistence::PersistenceService;
 
 /// Create only `config/agents.json` (without mandatory config files)
 /// in the given directory.

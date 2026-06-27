@@ -11,9 +11,9 @@ use tokio::net::{UnixListener, UnixStream};
 use crate::admin::protocol::{AdminRequest, AdminResponse, SkillInfo};
 use crate::agent::config::AgentConfig;
 use crate::agent::registry::AgentRegistry;
-use crate::config::manager::write_atomically;
-use crate::config::ConfigManager;
-use crate::skills::DiskSkillRegistry;
+use closeclaw_config::manager::write_atomically;
+use closeclaw_config::ConfigManager;
+use closeclaw_skills::DiskSkillRegistry;
 
 /// Server-side context holding references to daemon components.
 pub struct AdminContext {
@@ -392,7 +392,7 @@ async fn send_response(
 mod tests {
     use super::*;
     use crate::agent::registry::AgentRegistry;
-    use crate::skills::DiskSkillRegistry;
+    use closeclaw_skills::DiskSkillRegistry;
 
     fn make_test_context() -> AdminContext {
         let config_dir = tempfile::tempdir().unwrap().keep();
@@ -401,7 +401,7 @@ mod tests {
         // agents.json lives in the config subdirectory
         // (ConfigManager.config_dir = config_sub)
         std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
-        let config_manager = Arc::new(crate::config::ConfigManager::new(config_sub).unwrap());
+        let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
         AdminContext {
             agent_registry: Arc::new(AgentRegistry::new()),
             skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),

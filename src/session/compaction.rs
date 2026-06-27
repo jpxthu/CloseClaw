@@ -11,8 +11,8 @@ pub use closeclaw_session::compaction::{
     MODEL_CONTEXT_WINDOWS, NO_TOOLS_PREAMBLE, NO_TOOLS_TRAILER,
 };
 
-use crate::llm::fallback::FallbackClient;
-use crate::llm::{ChatRequest, Message};
+use closeclaw_llm::fallback::FallbackClient;
+use closeclaw_llm::{ChatRequest, Message};
 
 /// Executes session compaction: builds prompt, calls LLM, parses summary, formats result.
 ///

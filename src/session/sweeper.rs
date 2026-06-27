@@ -16,9 +16,9 @@ use tracing::{error, info, warn};
 /// before forcibly aborting it on shutdown.
 pub(crate) const SWEEPER_GRACE_PERIOD_SECS: u64 = 5;
 
-use crate::config::session::SessionConfigProvider;
-use crate::gateway::session_manager::SessionManager;
-use crate::session::persistence::{AgentRole, PersistenceError, PersistenceService};
+use closeclaw_config::session::SessionConfigProvider;
+use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_session::persistence::{AgentRole, PersistenceError, PersistenceService};
 
 /// Errors that can occur during sweeper operations.
 #[derive(Debug, Error)]

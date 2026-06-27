@@ -7,7 +7,7 @@
 use thiserror::Error;
 
 use crate::memory::dreaming::MemoryEntry;
-use crate::session::persistence::{PersistenceError, PersistenceService};
+use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
 /// Errors specific to the memory-miner.
 #[derive(Debug, Error)]

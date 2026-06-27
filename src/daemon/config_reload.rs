@@ -4,10 +4,10 @@
 //! Delegates file watching and event dispatch to [`ConfigReloadManager`].
 
 use crate::agent::registry::AgentRegistry;
-use crate::config::events::ConfigChangeEvent;
-use crate::config::manager::ConfigManager;
 use crate::config_reload::reload::{ConfigReloadManager, WatcherHandle};
-use crate::gateway::SessionManager;
+use closeclaw_config::events::ConfigChangeEvent;
+use closeclaw_config::manager::ConfigManager;
+use closeclaw_gateway::SessionManager;
 use std::sync::Arc;
 use tracing::{info, warn};
 

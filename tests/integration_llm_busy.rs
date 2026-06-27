@@ -13,18 +13,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use closeclaw::gateway::session_handler::{HandleResult, SessionMessageHandler};
-use closeclaw::gateway::session_manager::SessionManager;
-use closeclaw::gateway::{DmScope, GatewayConfig, Message};
-use closeclaw::llm::client::UnifiedChatClient;
-use closeclaw::llm::fake::{FakeProvider, Scenario};
-use closeclaw::llm::fallback::{FallbackClient, ModelEntry};
-use closeclaw::llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
-use closeclaw::llm::provider::Provider;
-use closeclaw::llm::types::{InternalRequest, InternalResponse, ProtocolId, SseStateMachine};
-use closeclaw::llm::LLMRegistry;
-use closeclaw::session::bootstrap::BootstrapMode;
-use closeclaw::session::persistence::ReasoningLevel;
+use closeclaw_gateway::session_handler::{HandleResult, SessionMessageHandler};
+use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_gateway::{DmScope, GatewayConfig, Message};
+use closeclaw_llm::client::UnifiedChatClient;
+use closeclaw_llm::fake::{FakeProvider, Scenario};
+use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
+use closeclaw_llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
+use closeclaw_llm::provider::Provider;
+use closeclaw_llm::types::{InternalRequest, InternalResponse, ProtocolId, SseStateMachine};
+use closeclaw_llm::LLMRegistry;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 use reqwest::header::HeaderMap;
 
 // ---------------------------------------------------------------------------
@@ -47,16 +47,16 @@ impl ChatProtocol for StubProtocol {
     fn build_request(
         &self,
         _req: &InternalRequest,
-    ) -> closeclaw::llm::protocol::Result<serde_json::Value> {
+    ) -> closeclaw_llm::protocol::Result<serde_json::Value> {
         Ok(serde_json::json!({}))
     }
     fn parse_response(
         &self,
         _body: serde_json::Value,
-    ) -> closeclaw::llm::protocol::Result<InternalResponse> {
+    ) -> closeclaw_llm::protocol::Result<InternalResponse> {
         unimplemented!("stub protocol")
     }
-    fn decorate_headers(&self, _headers: &mut HeaderMap) -> closeclaw::llm::protocol::Result<()> {
+    fn decorate_headers(&self, _headers: &mut HeaderMap) -> closeclaw_llm::protocol::Result<()> {
         Ok(())
     }
     fn create_sse_machine(&self) -> SseStateMachine {

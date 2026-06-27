@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::llm::types::ContentBlock;
+use closeclaw_llm::types::ContentBlock;
 
 /// Result type alias for processor chain operations.
 pub type Result<T> = std::result::Result<T, super::error::ProcessError>;

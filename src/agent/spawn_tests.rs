@@ -11,14 +11,14 @@ use std::sync::Arc;
 
 use crate::agent::config::SubagentsConfig;
 use crate::agent::spawn::{SpawnController, SpawnError};
-use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::config::ConfigManager;
-use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
-use crate::gateway::{DmScope, GatewayConfig, Message, SessionManager};
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::ReasoningLevel;
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
+use closeclaw_gateway::{DmScope, GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -119,7 +119,7 @@ fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
 async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
     for i in 0..count {
         let child_id = format!("child-{}", i);
-        let cs = crate::llm::session::ConversationSession::new(
+        let cs = closeclaw_llm::session::ConversationSession::new(
             child_id.clone(),
             "test-model".to_string(),
             std::path::PathBuf::from("/tmp"),
@@ -660,13 +660,13 @@ async fn test_validate_depth_before_agent_id_required() {
 /// Helper to create a minimal ConversationSession + register it in a
 /// SessionManager for cascade-kill tests.
 async fn setup_kill_test_session(
-    mgr: &crate::gateway::SessionManager,
+    mgr: &closeclaw_gateway::SessionManager,
     tmp: &tempfile::TempDir,
     session_id: &str,
     agent_id: &str,
     depth: u32,
 ) {
-    let cs = crate::llm::session::ConversationSession::new(
+    let cs = closeclaw_llm::session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -677,7 +677,7 @@ async fn setup_kill_test_session(
     );
     mgr.sessions.write().await.insert(
         session_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: session_id.to_string(),
             agent_id: agent_id.to_string(),
             channel: "spawn".to_string(),

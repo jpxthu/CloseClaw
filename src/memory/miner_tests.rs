@@ -4,7 +4,7 @@
 
 use crate::common::test_helpers::TestStorage;
 use crate::memory::miner::MemoryMiner;
-use crate::session::persistence::SessionCheckpoint;
+use closeclaw_session::persistence::SessionCheckpoint;
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

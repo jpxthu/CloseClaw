@@ -1,11 +1,11 @@
 //! Tests for builder skill listing injection (src/system_prompt/builder.rs)
 
-use closeclaw::skills::disk::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
-use closeclaw::skills::disk::DiskSkill;
-use closeclaw::skills::DiskSkillRegistry;
 use closeclaw::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
 use closeclaw::system_prompt::sections::invalidate_all_sections;
-use closeclaw::tools::ToolContext;
+use closeclaw_skills::disk::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
+use closeclaw_skills::disk::DiskSkill;
+use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_tools::ToolContext;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 

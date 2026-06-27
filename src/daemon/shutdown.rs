@@ -288,7 +288,7 @@ impl Default for ShutdownHandle {
     }
 }
 
-impl crate::common::ShutdownSignal for ShutdownHandle {
+impl closeclaw_common::ShutdownSignal for ShutdownHandle {
     fn is_shutting_down(&self) -> bool {
         self.coordinator.state().is_shutting_down_state()
     }

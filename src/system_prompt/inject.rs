@@ -6,10 +6,10 @@
 //! Migrated from `gateway::system_prompt_inject` — these functions logically
 //! belong to the `system_prompt` module.
 
-use crate::gateway::session_handler::MessageMetadata;
 use crate::system_prompt::sections::Section;
 use crate::system_prompt::workdir;
 use closeclaw_common::system_prompt::PromptOverrides;
+use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Build dynamic sections from metadata and session state.
 ///

@@ -1,7 +1,7 @@
 use super::*;
-use crate::im_adapter::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::processor_chain::context::{MessageContext, RawMessage};
 use crate::processor_chain::processor::MessageProcessor;
+use closeclaw_im_adapter::normalized::{add_code_block_language_hint, normalize_urls};
 
 // -------------------------------------------------------------------------
 // strip_control_chars

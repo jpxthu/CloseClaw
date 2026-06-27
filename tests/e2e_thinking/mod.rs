@@ -11,12 +11,12 @@ mod tests {
 
     use closeclaw::chat::protocol::ServerMessage;
     use closeclaw::chat::session::LegacyChatSession;
-    use closeclaw::llm::fake::{FakeProvider, Scenario};
-    use closeclaw::llm::fallback::FallbackClient;
-    use closeclaw::llm::provider::Provider;
-    use closeclaw::llm::LLMRegistry;
-    use closeclaw::llm::Message;
     use closeclaw::session::compaction::execute_compact;
+    use closeclaw_llm::fake::{FakeProvider, Scenario};
+    use closeclaw_llm::fallback::FallbackClient;
+    use closeclaw_llm::provider::Provider;
+    use closeclaw_llm::LLMRegistry;
+    use closeclaw_llm::Message;
     use std::env::{remove_var, set_var, var};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
