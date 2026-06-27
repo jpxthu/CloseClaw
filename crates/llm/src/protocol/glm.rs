@@ -14,7 +14,6 @@ use crate::types::{
     ContentBlockType, ContentDelta, InternalMessage, InternalRequest, InternalResponse, ProtocolId,
     RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
 };
-use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::protocol::{
     ChatProtocol, IncomingSseStream, OutgoingEventStream, ProtocolError, Result,
@@ -72,16 +71,6 @@ impl ChatProtocol for GlmProtocol {
                 .unwrap()
                 .insert("max_tokens".to_string(), serde_json::json!(max_tokens));
         }
-
-        // Map ReasoningLevel → thinking parameter for GLM.
-        let thinking_type = match request.reasoning_level {
-            ReasoningLevel::Low => "disabled",
-            _ => "enabled",
-        };
-        body.as_object_mut().unwrap().insert(
-            "thinking".to_string(),
-            serde_json::json!({ "type": thinking_type }),
-        );
 
         for (key, value) in &request.extra_body {
             body.as_object_mut()
