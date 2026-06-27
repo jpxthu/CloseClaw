@@ -218,6 +218,7 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         api_key: None,
         api: None,
         protocol: recommended_protocol,
+        credential_path: None,
         models: new_provider_models,
     };
     providers.insert(output.provider_id.clone(), new_provider_config);

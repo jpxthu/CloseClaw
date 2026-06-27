@@ -119,6 +119,7 @@ mod provider_config_protocol_tests {
             api_key: Some("sk-test".to_string()),
             api: Some("v1".to_string()),
             protocol: Some("openai".to_string()),
+            credential_path: None,
             models: vec![ModelDefinition {
                 id: "gpt-4".to_string(),
                 name: Some("GPT-4".to_string()),
@@ -141,6 +142,7 @@ mod provider_config_protocol_tests {
             api_key: None,
             api: None,
             protocol: None,
+            credential_path: None,
             models: vec![],
         };
         let json = serde_json::to_string_pretty(&config).unwrap();
@@ -183,6 +185,7 @@ mod provider_config_protocol_tests {
             api_key: None,
             api: None,
             protocol: Some("openai".to_string()),
+            credential_path: None,
             models: vec![],
         };
         let json = serde_json::to_string(&original).unwrap();

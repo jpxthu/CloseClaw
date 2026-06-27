@@ -45,6 +45,9 @@ pub struct ProviderConfig {
     pub protocol: Option<String>,
 
     #[serde(default)]
+    pub credential_path: Option<String>,
+
+    #[serde(default)]
     pub models: Vec<ModelDefinition>,
 }
 
@@ -138,6 +141,15 @@ impl ConfigProvider for ModelsConfigData {
                     return Err(ConfigError::ValueError {
                         field: "api_key".to_string(),
                         message: "api_key cannot be an empty string".to_string(),
+                    });
+                }
+            }
+
+            if let Some(ref credential_path) = provider.credential_path {
+                if credential_path.is_empty() {
+                    return Err(ConfigError::ValueError {
+                        field: "credential_path".to_string(),
+                        message: "credential_path cannot be an empty string".to_string(),
                     });
                 }
             }
