@@ -492,7 +492,7 @@ mod write_wizard_config_tests {
             provider.base_url.as_deref(),
             Some("https://custom.api.com/v1")
         );
-        assert_eq!(provider.api_key.as_deref(), Some("sk-existing-key"));
+        assert_eq!(provider.api_key, None);
         assert_eq!(provider.api.as_deref(), Some("v2"));
     }
 

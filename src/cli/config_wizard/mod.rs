@@ -263,12 +263,15 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         kb.recommended_protocol(&output.provider_id, &m.id)
             .to_string()
     });
-    let (base_url, api_key, api) = inherit_provider_fields(&existing_provider);
+    let (base_url, _api_key, api) = inherit_provider_fields(&existing_provider);
+    // api_key is never stored in models.json — credentials live in a separate
+    // file referenced by credential_path. Setting it to None prevents leaking
+    // secrets into the config file.
     providers.insert(
         output.provider_id.clone(),
         ProviderConfig {
             base_url,
-            api_key,
+            api_key: None,
             api,
             protocol: recommended_protocol,
             credential_path: Some(format!("credentials/{}.json", output.provider_id)),
