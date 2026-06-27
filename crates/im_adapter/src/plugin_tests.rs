@@ -2,24 +2,25 @@
 //!
 //! Tests cover:
 //! - Default `render()` pipeline: Text → `parse_content_segments` → hooks
-//! - Platform-specific hook overrides (Feishu, Terminal)
+//! - Platform-specific hook overrides (Feishu)
 //! - Mock plugin verifying plain-text fallback path
 //! - Edge cases: empty blocks, single/multi blocks, unclosed code fences,
 //!   no language annotation
-//! - `register_platform_plugins` auto-discovery (Step 1.1)
-//! - IMPlugin streaming default methods (Step 1.2)
+//! - IMPlugin streaming default methods
+//!
+//! Note: TerminalPlugin tests live in the main crate (src/im_adapter/plugin_tests.rs)
+//! since TerminalPlugin is defined there.
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::terminal::TerminalPlugin;
-    use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
-    use crate::im_adapter::platforms::feishu::{FeishuAdapter, FeishuPlugin};
-    use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
-    use crate::im_adapter::streaming::DefaultStreamingRenderer;
-    use crate::im_adapter::AdapterError;
-    use crate::im_adapter::NormalizedMessage;
-    use crate::llm::types::{ContentBlock, ContentDelta, StreamEvent};
+    use crate::code_block::{parse_content_segments, ContentSegment};
+    use crate::platforms::feishu::{FeishuAdapter, FeishuPlugin};
+    use crate::plugin::{IMPlugin, RenderedOutput};
+    use crate::streaming::DefaultStreamingRenderer;
+    use crate::AdapterError;
+    use crate::NormalizedMessage;
     use async_trait::async_trait;
+    use closeclaw_common::processor::{ContentBlock, ContentDelta, StreamEvent};
     use std::sync::Arc;
 
     // =========================================================================
@@ -135,7 +136,6 @@ mod tests {
         let blocks = vec![ContentBlock::Text(text.into())];
         let output = plugin.render(&blocks, None);
         let result = output.payload.as_str().unwrap();
-        // Default render_code_block produces: ```\ncode\n```
         assert!(result.contains("```\nhello\n```"));
     }
 
@@ -196,7 +196,6 @@ mod tests {
         let output = plugin.render(&blocks, None);
         let result = output.payload.as_str().unwrap();
         assert!(result.contains("visible"));
-        // ToolUse and ToolResult are non-text, default render ignores them
         assert!(!result.contains("exec"));
         assert!(!result.contains("output"));
     }
@@ -204,7 +203,6 @@ mod tests {
     #[test]
     fn test_default_render_unclosed_code_block() {
         let plugin = DefaultMockPlugin;
-        // Unclosed fence falls back to markdown text per parse_content_segments
         let text = "```rust\nfn main() {}\nno close";
         let blocks = vec![ContentBlock::Text(text.into())];
         let output = plugin.render(&blocks, None);
@@ -219,7 +217,6 @@ mod tests {
         let plugin = DefaultMockPlugin;
         let blocks = vec![ContentBlock::Text("test".into())];
         let output = plugin.render(&blocks, None);
-        // Default produces a plain String payload
         assert_eq!(output.msg_type, "text");
         assert!(output.payload.is_string());
     }
@@ -281,145 +278,6 @@ mod tests {
     }
 
     // =========================================================================
-    // TerminalPlugin hook override tests
-    // =========================================================================
-
-    #[test]
-    fn test_terminal_plugin_code_block_ansi_disabled() {
-        let plugin = TerminalPlugin::with_ansi(false);
-        let text = "```rust\nfn main() {}\n```";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        assert!(text_val.contains("fn main() {}"));
-        // Without ANSI, no escape sequences in code block header
-        assert!(!text_val.contains("\x1b["));
-    }
-
-    #[test]
-    fn test_terminal_plugin_code_block_ansi_enabled() {
-        let plugin = TerminalPlugin::with_ansi(true);
-        let text = "```rust\nfn main() {}\n```";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        // With ANSI enabled, code is rendered with line numbers and
-        // ANSI escape sequences. The code content should still be present.
-        assert!(text_val.contains("main"));
-        assert!(text_val.contains("1 ")); // line number
-    }
-
-    #[test]
-    fn test_terminal_plugin_code_block_no_language() {
-        let plugin = TerminalPlugin::with_ansi(false);
-        let text = "```\nhello\n```";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        assert!(text_val.contains("hello"));
-    }
-
-    #[test]
-    fn test_terminal_plugin_markdown_bold() {
-        let plugin = TerminalPlugin::with_ansi(true);
-        let blocks = vec![ContentBlock::Text("**bold text**".into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        assert!(text_val.contains("bold text"));
-    }
-
-    #[test]
-    fn test_terminal_plugin_hr_ansi_disabled() {
-        let plugin = TerminalPlugin::with_ansi(false);
-        let text = "---";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        assert!(text_val.contains("───"));
-    }
-
-    #[test]
-    fn test_terminal_plugin_hr_ansi_enabled() {
-        let plugin = TerminalPlugin::with_ansi(true);
-        let text = "---";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        assert!(text_val.contains("───"));
-    }
-
-    #[test]
-    fn test_terminal_plugin_mixed_content_ansi_off() {
-        let plugin = TerminalPlugin::with_ansi(false);
-        let text = "intro\n```python\nprint('x')\n```\n---\nend";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        assert!(text_val.contains("intro"));
-        assert!(text_val.contains("print('x')"));
-        assert!(text_val.contains("───"));
-        assert!(text_val.contains("end"));
-    }
-
-    #[test]
-    fn test_terminal_plugin_empty_blocks() {
-        let plugin = TerminalPlugin::new();
-        let output = plugin.render(&[], None);
-        assert_eq!(output.msg_type, "text");
-    }
-
-    #[test]
-    fn test_terminal_plugin_unclosed_code_block() {
-        let plugin = TerminalPlugin::with_ansi(false);
-        let text = "```rust\nfn main() {}\nno close";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let text_val = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
-        assert!(text_val.contains("fn main() {}"));
-        assert!(text_val.contains("no close"));
-    }
-
-    // =========================================================================
     // FeishuPlugin rendering tests
     // =========================================================================
 
@@ -450,7 +308,6 @@ mod tests {
         let plugin = make_feishu_plugin();
         let blocks = vec![ContentBlock::Text("hello".into())];
         let output = plugin.render(&blocks, None);
-        // Simple text without newlines → should return text type
         assert_eq!(output.msg_type, "text");
         let text = output
             .payload
@@ -466,7 +323,6 @@ mod tests {
         let plugin = make_feishu_plugin();
         let blocks = vec![ContentBlock::Text("line1\nline2\nline3".into())];
         let output = plugin.render(&blocks, None);
-        // Multi-line text triggers card rendering
         assert_eq!(output.msg_type, "interactive");
         assert!(output.payload.is_object());
     }
@@ -477,7 +333,6 @@ mod tests {
         let text = "```rust\nfn main() {}\n```";
         let blocks = vec![ContentBlock::Text(text.into())];
         let output = plugin.render(&blocks, None);
-        // Code blocks trigger card rendering
         assert_eq!(output.msg_type, "interactive");
     }
 
@@ -566,7 +421,6 @@ mod tests {
     #[test]
     fn test_parse_segments_unclosed_fence() {
         let segs = parse_content_segments("```rust\nfn main() {}");
-        // Unclosed fence → treated as markdown text
         assert_eq!(
             segs,
             vec![
@@ -633,7 +487,7 @@ mod tests {
     }
 
     // =========================================================================
-    // IMPlugin streaming default method tests (Step 1.2)
+    // IMPlugin streaming default method tests
     // =========================================================================
 
     /// Mock plugin with a real streaming renderer for testing default methods.
@@ -680,10 +534,9 @@ mod tests {
     fn test_streaming_text_delta_completes_line() {
         let plugin = StreamingMockPlugin::new();
 
-        // BlockStart + delta with a sentence terminator → should emit a complete line.
         let out = plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Text,
+            block_type: closeclaw_common::processor::ContentBlockType::Text,
         });
         assert!(out.text_messages.is_empty());
 
@@ -703,10 +556,9 @@ mod tests {
 
         plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Text,
+            block_type: closeclaw_common::processor::ContentBlockType::Text,
         });
 
-        // No terminator → nothing emitted yet.
         let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 0,
             delta: ContentDelta::Text {
@@ -715,7 +567,6 @@ mod tests {
         });
         assert!(out.text_messages.is_empty());
 
-        // Flush should return the buffered content.
         let out = plugin.flush_stream();
         assert_eq!(out.text_messages, vec!["partial text"]);
     }
@@ -724,10 +575,9 @@ mod tests {
     fn test_streaming_non_text_block_emits_render_block() {
         let plugin = StreamingMockPlugin::new();
 
-        // Thinking block → accumulates and emits on BlockEnd.
         plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Thinking,
+            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
         });
         plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 0,
@@ -738,7 +588,7 @@ mod tests {
         });
         let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Thinking,
+            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
         });
         assert!(out.text_messages.is_empty());
         assert_eq!(out.render_blocks.len(), 1);
@@ -757,7 +607,7 @@ mod tests {
 
         plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::ToolUse,
+            block_type: closeclaw_common::processor::ContentBlockType::ToolUse,
         });
         plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 0,
@@ -779,7 +629,7 @@ mod tests {
         });
         let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::ToolUse,
+            block_type: closeclaw_common::processor::ContentBlockType::ToolUse,
         });
         assert_eq!(out.render_blocks.len(), 1);
         assert_eq!(
@@ -804,10 +654,9 @@ mod tests {
     fn test_streaming_end_to_end_text_only() {
         let plugin = StreamingMockPlugin::new();
 
-        // Full lifecycle: start → delta → delta → end → flush.
         plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Text,
+            block_type: closeclaw_common::processor::ContentBlockType::Text,
         });
         plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 0,
@@ -815,24 +664,19 @@ mod tests {
                 text: "First line. ".to_string(),
             },
         });
-        // The trailing space after '.' stays in the line buffer;
-        // the second delta appends to it.
         let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 0,
             delta: ContentDelta::Text {
                 text: "Second line.".to_string(),
             },
         });
-        // " " + "Second line." → emitted on '.' terminator.
         assert_eq!(out.text_messages, vec![" Second line."]);
 
-        // BlockEnd drains remaining buffer (empty here).
         plugin.handle_stream_event(StreamEvent::BlockEnd {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Text,
+            block_type: closeclaw_common::processor::ContentBlockType::Text,
         });
 
-        // Flush after BlockEnd should be empty.
         let out = plugin.flush_stream();
         assert!(out.text_messages.is_empty());
     }
@@ -841,10 +685,9 @@ mod tests {
     fn test_streaming_end_to_end_mixed_blocks() {
         let plugin = StreamingMockPlugin::new();
 
-        // Text block — first delta emits on terminator, second continues.
         plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Text,
+            block_type: closeclaw_common::processor::ContentBlockType::Text,
         });
         plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 0,
@@ -853,10 +696,9 @@ mod tests {
             },
         });
 
-        // Thinking block in between.
         plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 1,
-            block_type: crate::llm::types::ContentBlockType::Thinking,
+            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
         });
         plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 1,
@@ -867,14 +709,13 @@ mod tests {
         });
         let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
             index: 1,
-            block_type: crate::llm::types::ContentBlockType::Thinking,
+            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
         });
         assert_eq!(out.render_blocks.len(), 1);
 
-        // Another text block.
         plugin.handle_stream_event(StreamEvent::BlockStart {
             index: 2,
-            block_type: crate::llm::types::ContentBlockType::Text,
+            block_type: closeclaw_common::processor::ContentBlockType::Text,
         });
         let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
             index: 2,
@@ -884,10 +725,9 @@ mod tests {
         });
         assert_eq!(out.text_messages, vec!["World."]);
 
-        // End first text block.
         plugin.handle_stream_event(StreamEvent::BlockEnd {
             index: 0,
-            block_type: crate::llm::types::ContentBlockType::Text,
+            block_type: closeclaw_common::processor::ContentBlockType::Text,
         });
     }
 
@@ -903,10 +743,10 @@ mod tests {
     }
 
     // =====================================================================
-    // Auto-discovery mechanism tests (Step 1.5)
+    // Auto-discovery mechanism tests
     // =====================================================================
 
-    use crate::im_adapter::platforms::{register_platform_plugins, PlatformEntry};
+    use crate::platforms::PlatformEntry;
 
     /// Verify that `inventory::iter::<PlatformEntry>` collects at least one
     /// entry with `name == "feishu"` — i.e. the feishu platform module was
@@ -918,42 +758,5 @@ mod tests {
             found,
             "inventory must contain at least one PlatformEntry with name \"feishu\""
         );
-    }
-
-    /// Verify that `register_platform_plugins` calls the feishu register
-    /// function so that `gateway.get_plugin("feishu")` returns `Some`.
-    /// Skipped when Feishu credentials are not available.
-    #[tokio::test]
-    async fn test_register_platform_plugins_registers_feishu() {
-        use crate::gateway::{Gateway, GatewayConfig, SessionManager};
-        use crate::session::bootstrap::BootstrapMode;
-        use crate::session::persistence::ReasoningLevel;
-
-        if std::env::var("FEISHU_APP_ID").is_err()
-            || std::env::var("FEISHU_APP_SECRET").is_err()
-            || std::env::var("FEISHU_VERIFICATION_TOKEN").is_err()
-        {
-            eprintln!("skipping: Feishu credentials not set");
-            return;
-        }
-
-        let config = GatewayConfig::default();
-        let sm = Arc::new(SessionManager::new(
-            &config,
-            None,
-            None,
-            BootstrapMode::Minimal,
-            ReasoningLevel::default(),
-        ));
-        let gw = Arc::new(Gateway::new(config, sm));
-        let tmp = tempfile::tempdir().unwrap();
-        register_platform_plugins(&gw, tmp.path().to_str().unwrap()).await;
-
-        let plugin = gw.get_plugin("feishu").await;
-        assert!(
-            plugin.is_some(),
-            "register_platform_plugins must register feishu so get_plugin returns Some"
-        );
-        assert_eq!(plugin.unwrap().platform(), "feishu");
     }
 }

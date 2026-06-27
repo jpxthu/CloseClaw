@@ -445,6 +445,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-gateway",
+ "closeclaw-im-adapter",
  "closeclaw-llm",
  "closeclaw-permission",
  "closeclaw-session",
@@ -546,6 +547,35 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "closeclaw-im-adapter"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "closeclaw-common",
+ "closeclaw-gateway",
+ "closeclaw-llm",
+ "closeclaw-tools",
+ "futures",
+ "inventory",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
  "uuid",
 ]
 

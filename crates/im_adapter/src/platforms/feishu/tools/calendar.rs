@@ -2,8 +2,8 @@
 //!
 //! Covers creating, updating, deleting, and querying calendar events.
 
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
+use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
 /// Feishu Calendar management tool.

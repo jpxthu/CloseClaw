@@ -1,0 +1,60 @@
+[package]
+name = "closeclaw-im-adapter"
+version = "0.1.0"
+edition.workspace = true
+description = "IM adapter system for CloseClaw"
+license = "MIT"
+
+[dependencies]
+# Internal crates
+closeclaw-common = { path = "../common" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-gateway = { path = "../gateway" }
+closeclaw-tools = { path = "../tools" }
+
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "2.0"
+
+# Async trait
+async-trait = "0.1"
+
+# Logging
+tracing = "=0.1.43"
+
+# Regex (for normalized URL processing)
+regex = "1.10"
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Hashing (for signature validation)
+sha2 = "0.10"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# URL encoding
+url = "2"
+
+# Plugin auto-discovery
+inventory = "0.3"
+
+# HTTP server (for adapter tests)
+axum = "0.7"
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3.4"

@@ -1,47 +1,47 @@
-//! Feishu Doc tool group — document operations.
+//! Feishu Sheet tool group — spreadsheet operations.
 //!
-//! Covers creating, reading, updating, and managing Feishu documents.
+//! Covers reading, writing, and managing Feishu spreadsheets.
 
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
+use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
-/// Feishu Document tool.
+/// Feishu Sheet (spreadsheet) tool.
 ///
-/// Provides document create, read, update, and management
-/// capabilities for the Feishu document platform.
-pub struct FeishuDocTool;
+/// Provides spreadsheet read, write, and management
+/// capabilities for the Feishu Sheet platform.
+pub struct FeishuSheetTool;
 
-impl Default for FeishuDocTool {
+impl Default for FeishuSheetTool {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl FeishuDocTool {
+impl FeishuSheetTool {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[async_trait]
-impl Tool for FeishuDocTool {
+impl Tool for FeishuSheetTool {
     fn name(&self) -> &str {
-        "FeishuDoc"
+        "FeishuSheet"
     }
 
     fn group(&self) -> &str {
-        "feishu_doc"
+        "feishu_sheet"
     }
 
     fn summary(&self) -> String {
-        "Feishu document operations".to_string()
+        "Feishu spreadsheet operations".to_string()
     }
 
     fn detail(&self) -> String {
-        "Create, read, update, and manage Feishu documents. \
-         Supports content editing, permission management, \
-         and document metadata."
+        "Read, write, and manage Feishu spreadsheets. \
+         Supports cell operations, sheet management, \
+         and data range manipulation."
             .to_string()
     }
 

@@ -1,47 +1,46 @@
-//! Feishu IM tool group — messaging operations.
+//! Feishu Task tool group — task management operations.
 //!
-//! Covers sending, recalling, editing, and reacting to messages.
+//! Covers creating, updating, completing, and querying tasks.
 
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
+use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
-/// Feishu IM message operations tool.
+/// Feishu Task management tool.
 ///
-/// Provides message send, recall, edit, and reaction capabilities
-/// for the Feishu messaging platform.
-pub struct FeishuImTool;
+/// Provides task create, update, complete, and query
+/// capabilities for the Feishu task platform.
+pub struct FeishuTaskTool;
 
-impl Default for FeishuImTool {
+impl Default for FeishuTaskTool {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl FeishuImTool {
+impl FeishuTaskTool {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[async_trait]
-impl Tool for FeishuImTool {
+impl Tool for FeishuTaskTool {
     fn name(&self) -> &str {
-        "FeishuIm"
+        "FeishuTask"
     }
 
     fn group(&self) -> &str {
-        "feishu_im"
+        "feishu_task"
     }
 
     fn summary(&self) -> String {
-        "Feishu IM message operations".to_string()
+        "Feishu task management".to_string()
     }
 
     fn detail(&self) -> String {
-        "Send, recall, edit, and react to Feishu messages. \
-         Supports text and card message formats, thread replies, \
-         and message deletion."
+        "Create, update, complete, and query Feishu tasks. \
+         Supports task lists, reminders, and collaborator management."
             .to_string()
     }
 

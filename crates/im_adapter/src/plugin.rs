@@ -9,13 +9,12 @@
 //! rules) and dispatches to overridable hook methods.  Platform plugins
 //! override the hooks they need for platform-specific rendering.
 
-use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
-use crate::im_adapter::error::AdapterError;
-use crate::im_adapter::normalized::NormalizedMessage;
-use crate::im_adapter::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRenderer};
-use crate::llm::types::{ContentBlock, StreamEvent};
-use crate::processor_chain::DslParseResult;
+use crate::code_block::{parse_content_segments, ContentSegment};
+use crate::error::AdapterError;
+use crate::normalized::NormalizedMessage;
+use crate::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRenderer};
 use async_trait::async_trait;
+use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -54,7 +53,7 @@ pub struct RenderedOutput {
 ///
 /// 1. Iterates over `content_blocks`.
 /// 2. For each [`ContentBlock::Text`], calls
-///    [`parse_content_segments`](crate::im_adapter::code_block::parse_content_segments)
+///    [`parse_content_segments`](crate::code_block::parse_content_segments)
 ///    to split the text into [`ContentSegment`]s.
 /// 3. Dispatches each segment to the corresponding hook method
 ///    ([`render_code_block`], [`render_markdown`], [`render_hr`]).
@@ -62,47 +61,6 @@ pub struct RenderedOutput {
 ///
 /// Platform plugins override the hook methods to produce platform-native output
 /// (e.g. Feishu interactive cards, ANSI-colored terminal text).
-///
-/// # Example
-///
-/// A minimal mock implementation using only defaults:
-///
-/// ```rust
-/// use async_trait::async_trait;
-/// use closeclaw::im::{IMPlugin, AdapterError, NormalizedMessage};
-/// use closeclaw::llm::types::ContentBlock;
-/// use closeclaw::processor_chain::DslParseResult;
-/// use closeclaw::im_adapter::RenderedOutput;
-///
-/// struct MockPlugin;
-///
-/// #[async_trait]
-/// impl IMPlugin for MockPlugin {
-///     fn platform(&self) -> &str {
-///         "mock"
-///     }
-///
-///     async fn parse_inbound(
-///         &self,
-///         _payload: &[u8],
-///     ) -> Result<Option<NormalizedMessage>, AdapterError> {
-///         Ok(None)
-///     }
-///
-///     async fn send(
-///         &self,
-///         _output: &RenderedOutput,
-///         _peer_id: &str,
-///         _thread_id: Option<&str>,
-///     ) -> Result<(), AdapterError> {
-///         Ok(())
-///     }
-/// }
-///
-/// let plugin = MockPlugin;
-/// assert_eq!(plugin.platform(), "mock");
-/// assert_eq!(plugin.clean_content("hello"), "hello");
-/// ```
 #[async_trait]
 pub trait IMPlugin: Send + Sync {
     /// Returns the platform identifier, e.g. `"feishu"` or `"discord"`.

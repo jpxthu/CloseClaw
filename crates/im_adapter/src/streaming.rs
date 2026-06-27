@@ -11,7 +11,7 @@
 //! - [`StreamingOutput`] — incremental output struct carrying completed
 //!   text lines and non-Text [`ContentBlock`]s.
 
-use crate::llm::types::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 
 /// Default threshold (in characters) for forcing buffer emission.
 const LINE_THRESHOLD: usize = 100;

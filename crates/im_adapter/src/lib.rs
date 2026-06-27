@@ -1,6 +1,6 @@
-//! im_adapter — Core types and rendering abstractions for IM adapters
+//! IM Adapter — Core types and rendering abstractions for IM adapters
 //!
-//! This module unifies IMPlugin, IMAdapter, NormalizedMessage, AdapterError,
+//! This crate unifies IMPlugin, IMAdapter, NormalizedMessage, AdapterError,
 //! and RenderedOutput under a single entry point.
 
 pub mod code_block;
@@ -20,8 +20,8 @@ pub use error::AdapterError;
 pub use normalized::NormalizedMessage;
 pub use plugin::{IMPlugin, RenderedOutput};
 
-use crate::gateway::Message;
 use async_trait::async_trait;
+use closeclaw_gateway::Message;
 
 /// IM Adapter trait - implemented by each messaging platform.
 #[async_trait]

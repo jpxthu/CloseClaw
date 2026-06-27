@@ -3,11 +3,11 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-    let platforms_dir = Path::new("src/im_adapter/platforms");
+    let platforms_dir = Path::new("src/platforms");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
 
     // Re-run when the platforms directory changes.
-    println!("cargo:rerun-if-changed=src/im_adapter/platforms");
+    println!("cargo:rerun-if-changed=src/platforms");
 
     let mut mods = Vec::new();
 
@@ -20,10 +20,8 @@ fn main() {
                         // Use #[path] with absolute path so module resolution
                         // works correctly when included via include!() from
                         // a different file context (OUT_DIR).
-                        let abs_path = format!(
-                            "{}/src/im_adapter/platforms/{}/mod.rs",
-                            manifest_dir, name_str
-                        );
+                        let abs_path =
+                            format!("{}/src/platforms/{}/mod.rs", manifest_dir, name_str);
                         mods.push(format!("#[path = \"{}\"]\npub mod {};", abs_path, name_str));
                     }
                 }

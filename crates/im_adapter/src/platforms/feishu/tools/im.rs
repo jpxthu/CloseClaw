@@ -1,47 +1,47 @@
-//! Feishu Sheet tool group — spreadsheet operations.
+//! Feishu IM tool group — messaging operations.
 //!
-//! Covers reading, writing, and managing Feishu spreadsheets.
+//! Covers sending, recalling, editing, and reacting to messages.
 
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
+use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
-/// Feishu Sheet (spreadsheet) tool.
+/// Feishu IM message operations tool.
 ///
-/// Provides spreadsheet read, write, and management
-/// capabilities for the Feishu Sheet platform.
-pub struct FeishuSheetTool;
+/// Provides message send, recall, edit, and reaction capabilities
+/// for the Feishu messaging platform.
+pub struct FeishuImTool;
 
-impl Default for FeishuSheetTool {
+impl Default for FeishuImTool {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl FeishuSheetTool {
+impl FeishuImTool {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[async_trait]
-impl Tool for FeishuSheetTool {
+impl Tool for FeishuImTool {
     fn name(&self) -> &str {
-        "FeishuSheet"
+        "FeishuIm"
     }
 
     fn group(&self) -> &str {
-        "feishu_sheet"
+        "feishu_im"
     }
 
     fn summary(&self) -> String {
-        "Feishu spreadsheet operations".to_string()
+        "Feishu IM message operations".to_string()
     }
 
     fn detail(&self) -> String {
-        "Read, write, and manage Feishu spreadsheets. \
-         Supports cell operations, sheet management, \
-         and data range manipulation."
+        "Send, recall, edit, and react to Feishu messages. \
+         Supports text and card message formats, thread replies, \
+         and message deletion."
             .to_string()
     }
 

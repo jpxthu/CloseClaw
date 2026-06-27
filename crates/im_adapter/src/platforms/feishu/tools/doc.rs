@@ -1,46 +1,47 @@
-//! Feishu Task tool group — task management operations.
+//! Feishu Doc tool group — document operations.
 //!
-//! Covers creating, updating, completing, and querying tasks.
+//! Covers creating, reading, updating, and managing Feishu documents.
 
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
+use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
-/// Feishu Task management tool.
+/// Feishu Document tool.
 ///
-/// Provides task create, update, complete, and query
-/// capabilities for the Feishu task platform.
-pub struct FeishuTaskTool;
+/// Provides document create, read, update, and management
+/// capabilities for the Feishu document platform.
+pub struct FeishuDocTool;
 
-impl Default for FeishuTaskTool {
+impl Default for FeishuDocTool {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl FeishuTaskTool {
+impl FeishuDocTool {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[async_trait]
-impl Tool for FeishuTaskTool {
+impl Tool for FeishuDocTool {
     fn name(&self) -> &str {
-        "FeishuTask"
+        "FeishuDoc"
     }
 
     fn group(&self) -> &str {
-        "feishu_task"
+        "feishu_doc"
     }
 
     fn summary(&self) -> String {
-        "Feishu task management".to_string()
+        "Feishu document operations".to_string()
     }
 
     fn detail(&self) -> String {
-        "Create, update, complete, and query Feishu tasks. \
-         Supports task lists, reminders, and collaborator management."
+        "Create, read, update, and manage Feishu documents. \
+         Supports content editing, permission management, \
+         and document metadata."
             .to_string()
     }
 

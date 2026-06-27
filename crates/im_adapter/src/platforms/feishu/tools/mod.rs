@@ -1,4 +1,4 @@
-//! Feishu tool registration — wires all platform-specific tools
+//! Feishu tool registration — provides tool instances for registration
 //! into the [`ToolRegistry`] at daemon startup.
 
 pub mod bitable;
@@ -12,20 +12,36 @@ pub mod task;
 #[cfg(test)]
 mod tools_tests;
 
-use crate::tools::ToolRegistry;
 use bitable::FeishuBitableTool;
 use calendar::FeishuCalendarTool;
+use closeclaw_tools::Tool;
 use doc::FeishuDocTool;
 use drive::FeishuDriveTool;
 use im::FeishuImTool;
 use sheet::FeishuSheetTool;
 use task::FeishuTaskTool;
 
+/// Create all Feishu tool instances.
+///
+/// Returns a vector of boxed tools ready for registration.
+/// Each tool group is created with `is_deferred_by_default = true`
+/// per the design doc requirement that all Feishu tools load lazily.
+pub fn create_feishu_tools() -> Vec<Box<dyn Tool>> {
+    vec![
+        Box::new(FeishuImTool::new()),
+        Box::new(FeishuCalendarTool::new()),
+        Box::new(FeishuTaskTool::new()),
+        Box::new(FeishuBitableTool::new()),
+        Box::new(FeishuDocTool::new()),
+        Box::new(FeishuDriveTool::new()),
+        Box::new(FeishuSheetTool::new()),
+    ]
+}
+
 /// Register all Feishu tool groups into the provided registry.
 ///
-/// Each tool group is registered with `is_deferred_by_default = true`
-/// per the design doc requirement that all Feishu tools load lazily.
-pub(crate) async fn register_tools(registry: &ToolRegistry) {
+/// Uses `closeclaw_tools::ToolRegistry` directly.
+pub async fn register_tools(registry: &closeclaw_tools::ToolRegistry) {
     registry.register(FeishuImTool::new()).await.ok();
     registry.register(FeishuCalendarTool::new()).await.ok();
     registry.register(FeishuTaskTool::new()).await.ok();

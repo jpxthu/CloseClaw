@@ -20,7 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/platforms_gen.rs"));
 ///
 /// Receives the Gateway handle and the configuration directory path.
 pub type RegisterFn =
-    fn(&Arc<crate::gateway::Gateway>, &str) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+    fn(&Arc<closeclaw_gateway::Gateway>, &str) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// A platform plugin entry discovered at compile time via [`inventory`].
 ///
@@ -43,7 +43,10 @@ inventory::collect!(PlatformEntry);
 /// calls its `register` function.  Plugins that do **not** belong in
 /// `platforms/` (e.g. `TerminalPlugin`) are registered explicitly elsewhere
 /// (design doc: "不在 `platforms/` 下的插件通过显式注册").
-pub async fn register_platform_plugins(gateway: &Arc<crate::gateway::Gateway>, config_dir: &str) {
+pub async fn register_platform_plugins(
+    gateway: &Arc<closeclaw_gateway::Gateway>,
+    config_dir: &str,
+) {
     for entry in inventory::iter::<PlatformEntry> {
         (entry.register)(gateway, config_dir).await;
     }

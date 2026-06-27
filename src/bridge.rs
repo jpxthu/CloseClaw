@@ -379,38 +379,6 @@ fn convert_common_to_main_rendered(
     }
 }
 
-fn convert_common_dsl(
-    dsl: Option<&closeclaw_common::processor::DslParseResult>,
-) -> Option<crate::processor_chain::DslParseResult> {
-    dsl.map(|d| crate::processor_chain::DslParseResult {
-        clean_content: d.clean_content.clone(),
-        instructions: d
-            .instructions
-            .iter()
-            .map(|i| match i {
-                closeclaw_common::processor::DslInstruction::Button {
-                    label,
-                    action,
-                    value,
-                } => crate::processor_chain::DslInstruction::Button {
-                    label: label.clone(),
-                    action: action.clone(),
-                    value: value.clone(),
-                },
-                closeclaw_common::processor::DslInstruction::Selector {
-                    label,
-                    options,
-                    action,
-                } => crate::processor_chain::DslInstruction::Selector {
-                    label: label.clone(),
-                    options: options.clone(),
-                    action: action.clone(),
-                },
-            })
-            .collect(),
-    })
-}
-
 fn convert_common_streaming_output(
     o: crate::im_adapter::streaming::StreamingOutput,
 ) -> closeclaw_common::im_plugin::StreamingOutput {
@@ -418,13 +386,6 @@ fn convert_common_streaming_output(
         text_messages: o.text_messages,
         render_blocks: o.render_blocks,
     }
-}
-
-fn convert_common_stream_event(
-    e: closeclaw_common::processor::StreamEvent,
-) -> crate::llm::types::StreamEvent {
-    // StreamEvent is the same type (re-exported from common), so this is a no-op
-    e
 }
 
 #[async_trait]
@@ -487,8 +448,8 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
         content_blocks: &[closeclaw_common::processor::ContentBlock],
         dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
     ) -> closeclaw_common::im_plugin::RenderedOutput {
-        let main_dsl = convert_common_dsl(dsl_result);
-        let result = self.inner.render(content_blocks, main_dsl.as_ref());
+        // The new crate uses closeclaw_common types directly — no conversion needed.
+        let result = self.inner.render(content_blocks, dsl_result);
         closeclaw_common::im_plugin::RenderedOutput {
             msg_type: result.msg_type,
             payload: result.payload,
@@ -499,8 +460,8 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
         &self,
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
-        let main_event = convert_common_stream_event(event);
-        let result = self.inner.handle_stream_event(main_event);
+        // The new crate uses closeclaw_common types directly — no conversion needed.
+        let result = self.inner.handle_stream_event(event);
         convert_common_streaming_output(result)
     }
 

@@ -267,6 +267,38 @@ pub trait Tool: Send + Sync {
     fn flags(&self) -> ToolFlags;
 }
 
+// ---------------------------------------------------------------------------
+// Blanket impl: Box<dyn Tool> delegates to the inner tool
+// ---------------------------------------------------------------------------
+
+#[async_trait]
+impl Tool for Box<dyn Tool> {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+    fn group(&self) -> &str {
+        (**self).group()
+    }
+    fn summary(&self) -> String {
+        (**self).summary()
+    }
+    fn detail(&self) -> String {
+        (**self).detail()
+    }
+    fn generate_prompt(&self, context: &PromptGenerationContext) -> String {
+        (**self).generate_prompt(context)
+    }
+    fn input_schema(&self) -> Value {
+        (**self).input_schema()
+    }
+    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        (**self).call(args, ctx).await
+    }
+    fn flags(&self) -> ToolFlags {
+        (**self).flags()
+    }
+}
+
 #[cfg(test)]
 mod prompt_generation_tests;
 

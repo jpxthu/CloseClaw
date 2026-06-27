@@ -3,8 +3,8 @@
 //! Covers creating, reading, updating, and deleting records in
 //! Feishu Bitable (multi-dimensional tables).
 
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
+use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
 /// Feishu Bitable (multi-dimensional table) tool.

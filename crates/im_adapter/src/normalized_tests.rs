@@ -7,7 +7,7 @@
 //! - MediaRef and QuotedMessage independent roundtrip
 //! - edge cases: empty media_refs, quoted_message None vs present
 
-use crate::im_adapter::normalized::{MediaRef, NormalizedMessage, QuotedMessage};
+use crate::normalized::{MediaRef, NormalizedMessage, QuotedMessage};
 
 // ---------------------------------------------------------------------------
 // Helpers

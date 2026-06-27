@@ -3,8 +3,8 @@
 //! Covers file upload, download, listing, and management in
 //! Feishu Drive.
 
-use crate::tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
+use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
 /// Feishu Drive (cloud storage) tool.

@@ -3,8 +3,8 @@
 //! receive_id_type verification.
 
 use super::*;
-use crate::im_adapter::platforms::feishu::FeishuPlugin;
-use crate::im_adapter::plugin::IMPlugin;
+use crate::platforms::feishu::FeishuPlugin;
+use crate::plugin::IMPlugin;
 use axum::{extract::Query, routing::post, Json, Router};
 use std::collections::HashMap as StdHashMap;
 use tokio::net::TcpListener;

@@ -1,9 +1,8 @@
 //! Feishu renderer — card building and content dispatch logic.
 
-use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
-use crate::im_adapter::plugin::RenderedOutput;
-use crate::llm::types::ContentBlock;
-use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
+use crate::code_block::{parse_content_segments, ContentSegment};
+use crate::plugin::RenderedOutput;
+use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult};
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
@@ -366,7 +365,7 @@ fn starts_with_ordered_list(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::types::ContentBlock;
+    use closeclaw_common::processor::ContentBlock;
 
     #[test]
     fn thinking_block_with_content_produces_collapsible_panel() {

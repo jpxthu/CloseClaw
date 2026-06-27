@@ -5,7 +5,7 @@
 //! and state reset on flush/MessageEnd.
 
 use super::streaming::*;
-use crate::llm::types::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 
 fn text_delta(text: &str) -> StreamEvent {
     StreamEvent::BlockDelta {

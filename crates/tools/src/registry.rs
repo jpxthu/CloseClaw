@@ -210,8 +210,7 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// Returns the inner lock for read operations (used in tests only).
-    #[cfg(test)]
+    /// Returns the number of registered tools.
     pub async fn len_for_test(&self) -> usize {
         self.tools.read().await.len()
     }

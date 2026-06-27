@@ -1,10 +1,10 @@
 //! Feishu adapter — HTTP I/O, token management, and webhook parsing.
 
-use crate::gateway::Message;
-use crate::im::IMAdapter;
-use crate::im_adapter::error::AdapterError;
-use crate::im_adapter::normalized::NormalizedMessage;
+use crate::error::AdapterError;
+use crate::normalized::NormalizedMessage;
+use crate::IMAdapter;
 use async_trait::async_trait;
+use closeclaw_gateway::Message;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

@@ -1,5 +1,5 @@
 use super::*;
-use crate::tools::{Tool, ToolContext, ToolRegistry};
+use closeclaw_tools::{Tool, ToolContext, ToolRegistry};
 
 fn make_ctx() -> ToolContext {
     ToolContext {
