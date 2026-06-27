@@ -38,6 +38,8 @@ pub(super) struct FeishuHeader {
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 pub(super) struct FeishuMessageEvent {
+    #[serde(default)]
+    pub(super) message_id: Option<String>,
     pub(super) sender: FeishuSender,
     pub(super) content: String,
     pub(super) chat_id: String,
@@ -245,6 +247,76 @@ impl FeishuAdapter {
         });
 
         Ok(new_token)
+    }
+
+    /// Download a media resource from Feishu API to a local temp file.
+    ///
+    /// Calls `GET /im/v1/messages/{message_id}/resources/{file_key}?type={media_type}`
+    /// with Bearer token authentication. Saves the file to
+    /// `{temp_dir}/closeclaw/media/{file_key}` and returns the local path.
+    #[allow(dead_code)]
+    async fn download_media(
+        &self,
+        message_id: &str,
+        file_key: &str,
+        media_type: &str,
+    ) -> Result<String, AdapterError> {
+        let token = self.get_tenant_token().await?;
+        let url = format!(
+            "{}/im/v1/messages/{}/resources/{}?type={}",
+            self.base_url, message_id, file_key, media_type
+        );
+
+        let resp = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            return Err(AdapterError::MediaDownloadFailed(format!(
+                "Feishu media download failed with status {}",
+                resp.status()
+            )));
+        }
+
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
+
+        let dir = std::env::temp_dir().join("closeclaw").join("media");
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
+
+        let path = dir.join(file_key);
+        tokio::fs::write(&path, &bytes)
+            .await
+            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
+
+        Ok(path.to_string_lossy().to_string())
+    }
+
+    /// Extract the media key from a Feishu message content JSON value.
+    ///
+    /// For `image` messages the key field is `image_key`.
+    /// For `file` and `audio` messages the key field is `file_key`.
+    #[allow(dead_code)]
+    fn extract_media_key(content: &serde_json::Value, media_type: &str) -> Option<String> {
+        match media_type {
+            "image" => content
+                .get("image_key")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            "file" | "audio" => content
+                .get("file_key")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            _ => None,
+        }
     }
 
     /// Fetch a fresh tenant access token from Feishu API (no caching).

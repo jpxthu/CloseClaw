@@ -176,6 +176,9 @@ fn convert_to_common_error(e: AdapterError) -> closeclaw_common::im_plugin::Adap
         AdapterError::UnsupportedOperation => {
             closeclaw_common::im_plugin::AdapterError::UnsupportedOperation
         }
+        AdapterError::MediaDownloadFailed(s) => {
+            closeclaw_common::im_plugin::AdapterError::SendFailed(s)
+        }
     }
 }
 

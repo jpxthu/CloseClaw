@@ -78,6 +78,7 @@ fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
             app_id: "test_app_id".to_string(),
         },
         event: FeishuMessageEvent {
+            message_id: None,
             sender: FeishuSender {
                 sender_id: FeishuSenderId {
                     open_id: "ou_sender".to_string(),
