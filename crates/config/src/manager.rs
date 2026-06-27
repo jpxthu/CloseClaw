@@ -376,7 +376,7 @@ impl ConfigManager {
 
         // Load credentials from config/credentials/ directory.
         let creds_dir = self.config_dir.join(CredentialsProvider::config_path());
-        let creds_provider = match CredentialsProvider::load_from_dir(&creds_dir) {
+        let mut creds_provider = match CredentialsProvider::load_from_dir(&creds_dir) {
             Ok(cp) => cp,
             Err(e) => {
                 warn!(
@@ -387,6 +387,42 @@ impl ConfigManager {
                 CredentialsProvider::default()
             }
         };
+
+        // Load additional credentials via credential_path from models.json.
+        // Each provider in models.json may specify a credential_path pointing to a
+        // credential file.  Resolve it relative to config_dir and merge into the
+        // credential set (credential_path takes priority over convention-directory
+        // entries).
+        if let Some(models_value) = sections.get(&ConfigSection::Models) {
+            if let Ok(models_config) =
+                serde_json::from_value::<ModelsConfigData>(models_value.clone())
+            {
+                for (provider_id, provider_cfg) in &models_config.providers {
+                    if let Some(ref rel_path) = provider_cfg.credential_path {
+                        let abs_path = self.config_dir.join(rel_path);
+                        match CredentialsProvider::load_from_file(&abs_path) {
+                            Ok(extra) => {
+                                for (name, cred) in extra.providers {
+                                    // credential_path is the explicit reference
+                                    // and takes priority over the convention
+                                    // directory.
+                                    creds_provider.providers.insert(name, cred);
+                                }
+                            }
+                            Err(e) => {
+                                warn!(
+                                    provider = %provider_id,
+                                    path = %abs_path.display(),
+                                    error = %e,
+                                    "failed to load credential_path for provider"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         *self.credentials_provider.write().expect("RwLock poisoned") = creds_provider.clone();
         // Store as JSON value in sections (may be empty/default if dir is absent)
         if let Ok(json) = serde_json::to_value(&creds_provider) {
@@ -397,7 +433,9 @@ impl ConfigManager {
         if let Some(models_value) = sections.get(&ConfigSection::Models) {
             match serde_json::from_value::<ModelsConfigData>(models_value.clone()) {
                 Ok(models_config) => {
-                    if let Err(e) = creds_provider.validate_model_references(&models_config) {
+                    if let Err(e) =
+                        creds_provider.validate_model_references(&models_config, &self.config_dir)
+                    {
                         warn!(
                             error = %e,
                             "credentials-models cross-validation warning"

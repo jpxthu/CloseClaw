@@ -119,6 +119,7 @@ mod provider_config_protocol_tests {
             api_key: Some("sk-test".to_string()),
             api: Some("v1".to_string()),
             protocol: Some("openai".to_string()),
+            credential_path: None,
             models: vec![ModelDefinition {
                 id: "gpt-4".to_string(),
                 name: Some("GPT-4".to_string()),
@@ -141,6 +142,7 @@ mod provider_config_protocol_tests {
             api_key: None,
             api: None,
             protocol: None,
+            credential_path: None,
             models: vec![],
         };
         let json = serde_json::to_string_pretty(&config).unwrap();
@@ -183,6 +185,7 @@ mod provider_config_protocol_tests {
             api_key: None,
             api: None,
             protocol: Some("openai".to_string()),
+            credential_path: None,
             models: vec![],
         };
         let json = serde_json::to_string(&original).unwrap();
@@ -367,6 +370,43 @@ mod write_wizard_config_tests {
             2,
             "should have exactly 2 models after overwrite, got: {}",
             provider.models.len()
+        );
+    }
+
+    /// Test: write_wizard_config includes credentialPath in ProviderConfig
+    #[test]
+    fn test_write_wizard_config_includes_credential_path() {
+        let tmp = TempDir::new().unwrap();
+        let output = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "MiniMax M2.7".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+
+        write_wizard_config_to(&output, tmp.path()).expect("write_wizard_config_to should succeed");
+
+        let models_path = tmp.path().join("models.json");
+        let content = std::fs::read_to_string(&models_path).expect("models.json should be written");
+
+        let parsed: ModelsConfigData =
+            serde_json::from_str(&content).expect("models.json should be valid JSON");
+
+        let provider = parsed
+            .providers
+            .get("minimax")
+            .expect("minimax provider should exist");
+        assert_eq!(
+            provider.credential_path.as_deref(),
+            Some("credentials/minimax.json"),
+            "credentialPath should be set to credentials/<provider_id>.json"
         );
     }
 
