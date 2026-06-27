@@ -318,50 +318,67 @@ fn test_parse_response_no_reasoning_content() {
     assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello!"));
 }
 
-// ── reasoning_level → reasoning_effort mapping tests ───────────────────────
+// ── reasoning_effort is NOT injected by protocol layer ───────────────────────
+// reasoning_effort is injected by DeepSeekPlugin via extra_body, not by the protocol.
+// These tests verify the protocol layer does not inject reasoning_effort directly.
 
 #[test]
-fn test_build_request_reasoning_level_low() {
+fn test_build_request_does_not_inject_reasoning_effort_low() {
     let proto = OpenAiProtocol::new();
     let mut request = make_request();
     request.reasoning_level = ReasoningLevel::Low;
     let body = proto.build_request(&request).unwrap();
-    assert_eq!(body.get("reasoning_effort").unwrap(), "off");
+    assert!(
+        body.get("reasoning_effort").is_none(),
+        "protocol layer should not inject reasoning_effort"
+    );
 }
 
 #[test]
-fn test_build_request_reasoning_level_medium() {
+fn test_build_request_does_not_inject_reasoning_effort_medium() {
     let proto = OpenAiProtocol::new();
     let mut request = make_request();
     request.reasoning_level = ReasoningLevel::Medium;
     let body = proto.build_request(&request).unwrap();
-    assert_eq!(body.get("reasoning_effort").unwrap(), "base");
+    assert!(
+        body.get("reasoning_effort").is_none(),
+        "protocol layer should not inject reasoning_effort"
+    );
 }
 
 #[test]
-fn test_build_request_reasoning_level_high() {
+fn test_build_request_does_not_inject_reasoning_effort_high() {
     let proto = OpenAiProtocol::new();
     let mut request = make_request();
     request.reasoning_level = ReasoningLevel::High;
     let body = proto.build_request(&request).unwrap();
-    assert_eq!(body.get("reasoning_effort").unwrap(), "high");
+    assert!(
+        body.get("reasoning_effort").is_none(),
+        "protocol layer should not inject reasoning_effort"
+    );
 }
 
 #[test]
-fn test_build_request_reasoning_level_max() {
+fn test_build_request_does_not_inject_reasoning_effort_max() {
     let proto = OpenAiProtocol::new();
     let mut request = make_request();
     request.reasoning_level = ReasoningLevel::Max;
     let body = proto.build_request(&request).unwrap();
-    assert_eq!(body.get("reasoning_effort").unwrap(), "reasoner");
+    assert!(
+        body.get("reasoning_effort").is_none(),
+        "protocol layer should not inject reasoning_effort"
+    );
 }
 
 #[test]
-fn test_build_request_default_reasoning_level_is_high() {
+fn test_build_request_default_does_not_inject_reasoning_effort() {
     let proto = OpenAiProtocol::new();
     let request = make_request();
     let body = proto.build_request(&request).unwrap();
-    assert_eq!(body.get("reasoning_effort").unwrap(), "high");
+    assert!(
+        body.get("reasoning_effort").is_none(),
+        "protocol layer should not inject reasoning_effort by default"
+    );
 }
 
 #[test]
