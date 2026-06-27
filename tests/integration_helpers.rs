@@ -7,19 +7,19 @@
 use std::sync::Arc;
 
 #[cfg(feature = "fake-llm")]
-use closeclaw::llm::fake::FakeProvider;
+use closeclaw_llm::fake::FakeProvider;
 #[cfg(feature = "fake-llm")]
-use closeclaw::llm::provider::Provider;
+use closeclaw_llm::provider::Provider;
 #[cfg(feature = "fake-llm")]
-use closeclaw::llm::session::ConversationSession;
+use closeclaw_llm::session::ConversationSession;
 #[cfg(feature = "fake-llm")]
-use closeclaw::llm::ChatSession;
+use closeclaw_llm::ChatSession;
 #[cfg(feature = "fake-llm")]
-use closeclaw::llm::LLMRegistry;
+use closeclaw_llm::LLMRegistry;
 #[cfg(feature = "fake-llm")]
-use closeclaw::session::storage::sqlite::SqliteStorage;
+use closeclaw_session::persistence::PendingMessage;
 #[cfg(feature = "fake-llm")]
-use closeclaw::session::PendingMessage;
+use closeclaw_session::storage::sqlite::SqliteStorage;
 
 /// Creates a new temporary test root directory.
 ///

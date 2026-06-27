@@ -140,13 +140,18 @@ mod tests {
         config_manager: Arc<ConfigManager>,
         agent_registry: Arc<crate::agent::registry::AgentRegistry>,
     ) -> Arc<BuiltinToolContext> {
+        let task_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
         Arc::new(BuiltinToolContext {
             config_manager,
-            agent_registry,
+            agent_tools_query: agent_registry.clone()
+                as Arc<dyn closeclaw_common::AgentToolsConfigQuery>,
+            agent_config_lookup: agent_registry.clone()
+                as Arc<dyn closeclaw_common::AgentConfigLookup>,
             disk_registry,
             permission_engine,
-            spawn_controller,
+            spawn_validator: spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
             session_manager,
+            task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
         })
     }
 
