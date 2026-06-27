@@ -13,7 +13,7 @@ use closeclaw_config::providers::{
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
 use closeclaw_llm::{
-    DeepSeekProvider, GlmProvider, MiniMaxProvider, ModelDiscovery, ModelLister,
+    DeepSeekProvider, DiscoverySource, GlmProvider, MiniMaxProvider, ModelDiscovery, ModelLister,
     ProviderModelKnowledge, VolcEngineProvider,
 };
 use dialoguer::{Input, Select};
@@ -23,6 +23,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use closeclaw_llm::model_info::ModelInfo;
+
+/// Format a human-readable source suffix for the discovered model list.
+///
+/// Returns a string like `" (via knowledge base fallback)"` for
+/// `KnowledgeFallback`, or an empty string for other sources.
+pub(crate) fn format_discovery_source_suffix(source: DiscoverySource) -> &'static str {
+    match source {
+        DiscoverySource::KnowledgeFallback => " (via knowledge base fallback)",
+        _ => "",
+    }
+}
 
 /// Parse user input for model selection into a vector of 0-based indices.
 ///
@@ -432,11 +443,17 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
             })
             .await;
         println!(" done");
+        let source = result.source;
         ctx.fetched_models = result.into_models();
 
         // Display fetched model details
         if !ctx.fetched_models.is_empty() {
-            println!("\nFound {} model(s):\n", ctx.fetched_models.len());
+            let source_suffix = format_discovery_source_suffix(source);
+            println!(
+                "\nFound {} model(s){}:\n",
+                ctx.fetched_models.len(),
+                source_suffix
+            );
             println!(
                 " {:3}. {:35} {:>10} {:>8} Reasoning",
                 "#", "Model", "Context", "MaxOut"
