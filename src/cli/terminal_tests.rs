@@ -4,8 +4,8 @@ mod tests {
     use crate::cli::terminal::*;
     use crate::im_adapter::plugin::IMPlugin;
     use crate::im_adapter::NormalizedMessage;
+    use crate::im_adapter::RenderedOutput;
     use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
-    use crate::renderer::RenderedOutput;
     use closeclaw_llm::types::ContentBlock;
 
     // =========================================================================

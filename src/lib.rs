@@ -18,7 +18,6 @@ pub use closeclaw_im_adapter as im_adapter;
 pub use closeclaw_permission;
 pub mod platform;
 pub mod processor_chain;
-pub mod renderer;
 pub mod session;
 pub use closeclaw_skills as skills;
 pub use closeclaw_tools as tools;
