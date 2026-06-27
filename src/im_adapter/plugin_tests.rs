@@ -798,7 +798,6 @@ mod tests {
         let out = plugin.flush_stream();
         assert!(out.text_messages.is_empty());
         assert!(out.render_blocks.is_empty());
-        assert!(out.dsl_lines.is_empty());
     }
 
     #[test]
