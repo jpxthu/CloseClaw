@@ -216,7 +216,7 @@ impl SessionManager {
     /// Returns a cloned snapshot so the caller does not hold the
     /// `children` lock across await points.
     #[allow(dead_code)] // Used in spawn_budget_tests.rs for cascade simulation
-    pub(crate) async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
+    pub async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
         let children = self.children.read().await;
         children
             .list_children(parent_id)
@@ -226,7 +226,7 @@ impl SessionManager {
     }
 
     /// Register a child session under its parent. Called after child session creation.
-    pub(crate) async fn register_child(&self, parent_id: &str, info: ChildSessionInfo) {
+    pub async fn register_child(&self, parent_id: &str, info: ChildSessionInfo) {
         let mut children = self.children.write().await;
         children.register_child(parent_id, info);
     }
@@ -607,7 +607,7 @@ impl SessionManager {
     /// Pure read operation — does not hold the children lock across
     /// any await point.
     #[allow(dead_code)]
-    pub(crate) async fn validate_child_ownership(
+    pub async fn validate_child_ownership(
         &self,
         parent_id: &str,
         child_id: &str,
@@ -624,7 +624,7 @@ impl SessionManager {
     /// message queue. The task is enqueued (FIFO) and will be
     /// consumed after the child's current turn completes.
     #[allow(dead_code)]
-    pub(crate) async fn steer_child(&self, child_id: &str, task: &str) -> Result<(), String> {
+    pub async fn steer_child(&self, child_id: &str, task: &str) -> Result<(), String> {
         let parent_session_id = self
             .get_parent_of(child_id)
             .await
@@ -657,7 +657,7 @@ impl SessionManager {
     /// first, then the target child itself. For each session:
     /// stop → clean conversation_sessions → unregister handle →
     /// clean sessions → clean children table.
-    pub(crate) async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
+    pub async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
         let descendant_ids = {
             let children = self.children.read().await;
             children.list_descendants(child_id)
@@ -702,7 +702,7 @@ impl SessionManager {
     /// by the sweeper, per design doc §生命周期联动.
     /// Iterates direct children and calls `kill_child` for each,
     /// which recursively handles deeper descendants.
-    pub(crate) async fn cascade_kill_all_children(&self, parent_id: &str) {
+    pub async fn cascade_kill_all_children(&self, parent_id: &str) {
         // Snapshot child IDs to avoid holding the lock across kill calls.
         let child_ids: Vec<String> = {
             let children = self.children.read().await;

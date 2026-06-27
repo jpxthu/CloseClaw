@@ -292,4 +292,14 @@ pub trait ProcessorChain: Send + Sync {
         &self,
         msg: ProcessedMessage,
     ) -> Result<ProcessedMessage, ProcessError>;
+
+    /// Number of inbound processors in the chain.
+    fn inbound_len(&self) -> usize {
+        0
+    }
+
+    /// Number of outbound processors in the chain.
+    fn outbound_len(&self) -> usize {
+        0
+    }
 }

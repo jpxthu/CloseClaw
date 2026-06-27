@@ -444,6 +444,7 @@ dependencies = [
  "clap",
  "closeclaw-common",
  "closeclaw-config",
+ "closeclaw-gateway",
  "closeclaw-llm",
  "closeclaw-permission",
  "closeclaw-session",

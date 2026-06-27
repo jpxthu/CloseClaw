@@ -176,7 +176,7 @@ pub struct Session {
 
 /// Groups inbound message fields into a single struct (≤ 6 params).
 #[derive(Debug, Clone)]
-pub(crate) struct InboundChainInput {
+pub struct InboundChainInput {
     pub platform: String,
     pub sender_id: String,
     pub peer_id: String,
@@ -292,6 +292,9 @@ impl Gateway {
         }
     }
 
+    // set_slash_dispatcher, set_permission_engine, and set_approval_flow
+    // are defined in slash_permission.rs and approval.rs respectively.
+
     /// Start the inbound bounded queue.
     ///
     /// Creates a bounded mpsc channel with capacity from
@@ -328,22 +331,28 @@ impl Gateway {
         self.shutdown_handle.lock().ok().and_then(|s| s.clone())
     }
 
-    #[cfg(test)]
     #[allow(dead_code)]
-    pub(crate) async fn has_slash_dispatcher(&self) -> bool {
+    pub async fn has_slash_dispatcher(&self) -> bool {
         self.slash_dispatcher.read().await.is_some()
     }
 
-    #[cfg(test)]
     #[allow(dead_code)]
-    pub(crate) async fn has_session_handler(&self) -> bool {
+    pub async fn has_session_handler(&self) -> bool {
         self.session_handler.is_some()
     }
 
-    #[cfg(test)]
     #[allow(dead_code)]
-    pub(crate) fn config_name(&self) -> &str {
+    pub fn config_name(&self) -> &str {
         &self.config.name
+    }
+
+    /// Returns `(inbound_count, outbound_count)` for the processor registry.
+    #[allow(dead_code)]
+    pub fn processor_registry_len(&self) -> (usize, usize) {
+        match &self.processor_registry {
+            Some(registry) => (registry.inbound_len(), registry.outbound_len()),
+            None => (0, 0),
+        }
     }
 
     /// Handle an inbound message through the busy/pending state machine.
@@ -908,10 +917,7 @@ impl Gateway {
 
     /// Runs the inbound processor chain on a [`RawMessage`] built from `input`.
     /// Falls back to raw content on registry absence or processor error.
-    pub(crate) async fn process_inbound_chain(
-        &self,
-        input: &InboundChainInput,
-    ) -> ProcessedMessage {
+    pub async fn process_inbound_chain(&self, input: &InboundChainInput) -> ProcessedMessage {
         let Some(registry) = &self.processor_registry else {
             return ProcessedMessage {
                 content: input.content.to_string(),

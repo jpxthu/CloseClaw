@@ -91,6 +91,7 @@ closeclaw-config = { path = "crates/config" }
 closeclaw-session = { path = "crates/session" }
 closeclaw-llm = { path = "crates/llm" }
 closeclaw-permission = { path = "crates/permission" }
+closeclaw-gateway = { path = "crates/gateway" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

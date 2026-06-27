@@ -48,7 +48,7 @@ const TOOLS_SECTION_MAX_LEN: usize = 15000;
 /// Wraps an inner `HashMap<String, Arc<dyn Tool>>` behind a Tokio
 /// read-write lock so that all operations are async-safe.
 pub struct ToolRegistry {
-    tools: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn Tool>>>,
+    pub(crate) tools: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn Tool>>>,
     /// Optional reference to the AgentRegistry for direct config queries.
     ///
     /// When set, allows querying agent-level tool filtering configuration
@@ -287,6 +287,69 @@ impl ToolRegistry {
         }
 
         lines.join("")
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ToolRegistryQuery — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[async_trait::async_trait]
+impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistry {
+    async fn list_tool_names(&self) -> Vec<String> {
+        let guard = self.tools.read().await;
+        guard.keys().cloned().collect()
+    }
+
+    async fn get_tool_descriptors(
+        &self,
+        _agent_id: Option<&str>,
+        agent_tools: Option<&[String]>,
+        agent_disallowed_tools: Option<&[String]>,
+    ) -> Vec<closeclaw_common::tool_registry::ToolDescriptor> {
+        let guard = self.tools.read().await;
+        let allowed: Option<&[String]> =
+            agent_tools.filter(|t| !(t.len() == 1 && t[0] == "*") && !t.is_empty());
+        let disallowed: &[String] = agent_disallowed_tools.unwrap_or(&[]);
+
+        guard
+            .values()
+            .filter(|t| {
+                let name = t.name();
+                if let Some(wl) = allowed {
+                    if !wl.iter().any(|n| n == name) {
+                        return false;
+                    }
+                }
+                !disallowed.iter().any(|n| n == name)
+            })
+            .map(|t| {
+                let flags = t.flags();
+                closeclaw_common::tool_registry::ToolDescriptor {
+                    name: t.name().to_string(),
+                    group: t.group().to_string(),
+                    detail: t.detail(),
+                    input_schema: t.input_schema(),
+                    flags: closeclaw_common::tool_registry::ToolFlags {
+                        is_concurrency_safe: flags.is_concurrency_safe,
+                        is_read_only: flags.is_read_only,
+                        is_destructive: flags.is_destructive,
+                        is_expensive: flags.is_expensive,
+                        is_deferred_by_default: flags.is_deferred_by_default,
+                    },
+                }
+            })
+            .collect()
+    }
+
+    async fn has_tool(&self, name: &str) -> bool {
+        let guard = self.tools.read().await;
+        guard.contains_key(name)
+    }
+
+    async fn get_tool_schema(&self, name: &str) -> Option<serde_json::Value> {
+        let guard = self.tools.read().await;
+        guard.get(name).map(|t| t.input_schema())
     }
 }
 

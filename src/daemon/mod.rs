@@ -295,7 +295,7 @@ impl Daemon {
         // Wire shutdown handle into SessionManager for child-session
         // busy-count tracking during drain.
         session_manager
-            .set_shutdown_handle(Arc::new(shutdown.clone()))
+            .set_shutdown_handle(crate::bridge::common_shutdown_handle(&shutdown))
             .await;
         info!("Shutdown coordinator initialized");
         Ok((gateway, session_manager, shutdown))
@@ -361,10 +361,15 @@ impl Daemon {
         )
         .await;
         session_manager
-            .set_tool_registry(Arc::clone(tool_registry))
+            .set_tool_registry(
+                Arc::clone(tool_registry) as Arc<dyn closeclaw_common::ToolRegistryQuery>
+            )
             .await;
         session_manager
-            .set_skill_registry(skill_registry.clone())
+            .set_skill_registry(Arc::new(crate::bridge::SkillRegistryWrapper(
+                skill_registry.clone(),
+            ))
+                as Arc<dyn closeclaw_common::SkillRegistryQuery>)
             .await;
         Ok((sweeper_tx, dreaming_tx, config_watcher))
     }
@@ -443,10 +448,9 @@ impl Daemon {
 
         // Wire shutdown handle into Gateway and SessionManager for
         // busy-count tracking during drain.
-        gateway.set_shutdown_handle(Arc::clone(&shutdown));
-        session_manager
-            .set_shutdown_handle(Arc::clone(&shutdown))
-            .await;
+        let common_sh = crate::bridge::common_shutdown_handle(&shutdown);
+        gateway.set_shutdown_handle(Arc::clone(&common_sh));
+        session_manager.set_shutdown_handle(common_sh).await;
 
         let approval_flow = Self::init_phase_4_wiring(
             &gateway,
@@ -621,7 +625,7 @@ impl Daemon {
         mode: crate::daemon::shutdown::ShutdownMode,
     ) -> crate::gateway::session_manager::stop::StopResult {
         // Send initial progress card (no-op if no active sessions)
-        self.gateway.send_shutdown_progress_card(mode).await;
+        self.gateway.send_shutdown_progress_card(mode.into()).await;
 
         // Create progress channel for real-time session stop updates
         let (progress_tx, mut progress_rx) =
@@ -630,7 +634,9 @@ impl Daemon {
         // Spawn session stop as a background task
         let sm = self.gateway.session_manager().clone();
         let mut stop_handle =
-            tokio::spawn(async move { sm.stop_all_sessions(mode, Some(&progress_tx)).await });
+            tokio::spawn(
+                async move { sm.stop_all_sessions(mode.into(), Some(&progress_tx)).await },
+            );
 
         // Spawn fresh signal handlers for escalation monitoring during Phase 2.
         // Phase 1's handlers are consumed by its tokio::select! loop.
@@ -685,7 +691,8 @@ impl Daemon {
                     if progress.remaining == 0
                         || now.duration_since(last_card_update) >= throttle_interval
                     {
-                        let current_mode = self.shutdown.mode();
+                        let current_mode: closeclaw_common::shutdown::ShutdownMode =
+                            self.shutdown.mode().into();
                         self.gateway
                             .send_shutdown_progress_card(current_mode)
                             .await;
@@ -729,7 +736,8 @@ impl Daemon {
             }
 
             // Check if mode changed and update card
-            let current_mode = self.shutdown.mode();
+            let current_mode: closeclaw_common::shutdown::ShutdownMode =
+                self.shutdown.mode().into();
             if current_mode != last_mode {
                 tracing::info!(
                     ?last_mode,
@@ -776,7 +784,7 @@ impl Daemon {
 
     /// Phase 4: Final persistence — ensure all session checkpoints are flushed.
     async fn phase_4_final_persist(&self, mode: crate::daemon::shutdown::ShutdownMode) {
-        match self.gateway.flush_all_sessions(mode).await {
+        match self.gateway.flush_all_sessions(mode.into()).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
@@ -918,7 +926,9 @@ impl Daemon {
     /// Initialize the terminal (CLI) IM plugin and register with Gateway.
     async fn init_terminal_plugin(gateway: &Arc<Gateway>) {
         let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
-        gateway.register_plugin(plugin).await;
+        gateway
+            .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
+            .await;
         info!("Terminal plugin registered");
     }
 
@@ -942,7 +952,9 @@ impl Daemon {
         slash_registry.register(Arc::new(StopHandler));
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(session_manager))));
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
-        gateway.set_slash_dispatcher(slash_dispatcher).await;
+        gateway
+            .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
+            .await;
         // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
         // dispatch_slash 在 Branch 2 时能取到 engine。
         gateway
