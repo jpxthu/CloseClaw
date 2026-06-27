@@ -317,6 +317,17 @@ fn test_parse_message_event_file_returns_none() {
 }
 
 #[test]
+fn test_parse_message_event_audio_returns_none() {
+    let adapter = make_test_adapter();
+    let event = make_message_event(
+        "audio",
+        &serde_json::json!({"file_key": "audio_xxx"}).to_string(),
+    );
+    let result = adapter.parse_message_event(event).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
 fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
