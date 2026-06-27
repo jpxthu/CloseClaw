@@ -275,7 +275,7 @@ impl DiskSkillRegistry {
                     return false;
                 }
                 if !(s.manifest.agent_id.is_empty()
-                    || agent_id.map_or(true, |id| s.manifest.agent_id == id))
+                    || agent_id.is_none_or(|id| s.manifest.agent_id == id))
                 {
                     return false;
                 }

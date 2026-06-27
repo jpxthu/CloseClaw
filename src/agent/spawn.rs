@@ -340,3 +340,40 @@ impl SpawnController {
         Ok(())
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SpawnValidator — bridge to closeclaw_tools trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[async_trait::async_trait]
+impl closeclaw_tools::SpawnValidator for SpawnController {
+    async fn validate_spawn(
+        &self,
+        parent_session_id: &str,
+        target_agent_id: Option<&str>,
+    ) -> Result<closeclaw_tools::SpawnValidationResult, closeclaw_tools::SpawnError> {
+        let result = self
+            .validate(parent_session_id, target_agent_id)
+            .await
+            .map_err(|e| match e {
+                SpawnError::DepthExceeded { current, max } => {
+                    closeclaw_tools::SpawnError::DepthExceeded { current, max }
+                }
+                SpawnError::MaxChildrenReached { current, max } => {
+                    closeclaw_tools::SpawnError::MaxChildrenReached { current, max }
+                }
+                SpawnError::AgentNotAllowed { agent_id } => {
+                    closeclaw_tools::SpawnError::AgentNotAllowed { agent_id }
+                }
+                SpawnError::AgentIdRequired => closeclaw_tools::SpawnError::AgentIdRequired,
+                SpawnError::ConfigNotFound(id) => closeclaw_tools::SpawnError::ConfigNotFound(id),
+                SpawnError::PermissionDenied { agent_id, reason } => {
+                    closeclaw_tools::SpawnError::PermissionDenied { agent_id, reason }
+                }
+            })?;
+        Ok(closeclaw_tools::SpawnValidationResult {
+            config: result.config,
+            effective_max_spawn_depth: result.effective_max_spawn_depth,
+        })
+    }
+}

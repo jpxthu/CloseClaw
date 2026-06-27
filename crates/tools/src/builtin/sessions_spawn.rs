@@ -262,8 +262,7 @@ impl Tool for SessionsSpawnTool {
                 .agent_config_lookup
                 .lookup_agent_config(id)
                 .await
-                .map(|c| c.subagents_model)
-                .flatten(),
+                .and_then(|c| c.subagents_model),
             None => None,
         };
         let parent_depth = self

@@ -22,10 +22,10 @@ pub mod processor_chain;
 pub mod renderer;
 pub mod session;
 pub use closeclaw_skills as skills;
+pub use closeclaw_tools as tools;
 pub mod slash;
 pub mod system_prompt;
 pub mod tasks;
-pub mod tools;
 
 pub mod bridge;
 pub mod common;
