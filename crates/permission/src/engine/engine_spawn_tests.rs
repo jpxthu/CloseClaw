@@ -5,12 +5,10 @@ use super::engine_types::{
     Effect, MatchType, PermissionRequest, PermissionRequestBody, PermissionResponse, Subject,
 };
 use crate::actions::ActionBuilder;
-use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits};
-use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
-use crate::gateway::{DmScope, GatewayConfig, Session, SessionManager};
+use crate::mock_session_lookup::MockSessionLookup;
 use crate::rules::RuleBuilder;
 use crate::rules::RuleSetBuilder;
-use crate::session::bootstrap::BootstrapMode;
+use closeclaw_common::{ActionPermission, AgentPermissions, PermissionLimits};
 use std::collections::HashMap;
 
 fn make_engine() -> PermissionEngine {
@@ -40,9 +38,9 @@ fn make_allowed_perms(agent_id: &str) -> AgentPermissions {
         .map(|&dim| {
             (
                 dim.to_string(),
-                crate::agent::config::ActionPermission {
+                closeclaw_common::ActionPermission {
                     allowed: true,
-                    limits: crate::agent::config::PermissionLimits::default(),
+                    limits: closeclaw_common::PermissionLimits::default(),
                 },
             )
         })
@@ -149,9 +147,9 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
     ] {
         user_perms_map.insert(
             dim.to_string(),
-            crate::agent::config::ActionPermission {
+            closeclaw_common::ActionPermission {
                 allowed: *dim != "exec",
-                limits: crate::agent::config::PermissionLimits::default(),
+                limits: closeclaw_common::PermissionLimits::default(),
             },
         );
     }
@@ -330,58 +328,11 @@ fn test_owner_spawn_extra_deny_still_blocks() {
 // collect_chain_effective_permissions tests
 // -------------------------------------------------------------------------
 
-fn make_gw_config() -> GatewayConfig {
-    GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 65536,
-        dm_scope: DmScope::PerAccountChannelPeer,
-        ..Default::default()
-    }
+async fn make_session_lookup() -> MockSessionLookup {
+    MockSessionLookup::new()
 }
 
-async fn make_session_manager() -> SessionManager {
-    SessionManager::new(
-        &make_gw_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        crate::session::persistence::ReasoningLevel::default(),
-    )
-}
-
-async fn register_session(mgr: &SessionManager, session_id: &str, agent_id: &str, depth: u32) {
-    mgr.sessions.write().await.insert(
-        session_id.to_string(),
-        Session {
-            id: session_id.to_string(),
-            agent_id: agent_id.to_string(),
-            channel: "test".to_string(),
-            created_at: 0,
-            depth,
-        },
-    );
-}
-
-async fn register_parent_child(
-    mgr: &SessionManager,
-    parent_session_id: &str,
-    child_session_id: &str,
-    child_agent_id: &str,
-    child_depth: u32,
-) {
-    mgr.register_child(
-        parent_session_id,
-        ChildSessionInfo {
-            session_id: child_session_id.to_string(),
-            parent_session_id: parent_session_id.to_string(),
-            agent_id: child_agent_id.to_string(),
-            depth: child_depth,
-            mode: SpawnMode::Run,
-        },
-    )
-    .await;
-}
+// register_session and register_parent_child replaced by MockSessionLookup methods
 
 fn make_perms(agent_id: &str, dims: &[(&str, bool)]) -> AgentPermissions {
     let permissions = dims
@@ -411,13 +362,13 @@ fn make_perms(agent_id: &str, dims: &[(&str, bool)]) -> AgentPermissions {
 /// and file_write: deny (from A).
 #[tokio::test]
 async fn test_three_level_chain_effective_permissions() {
-    let mgr = make_session_manager().await;
+    let mut lookup = make_session_lookup().await;
 
-    register_session(&mgr, "session-root", "root", 0).await;
-    register_session(&mgr, "session-a", "agent-a", 1).await;
-    register_parent_child(&mgr, "session-root", "session-a", "agent-a", 1).await;
-    register_session(&mgr, "session-b", "agent-b", 2).await;
-    register_parent_child(&mgr, "session-a", "session-b", "agent-b", 2).await;
+    lookup.register_session("session-root", "root");
+    lookup.register_session("session-a", "agent-a");
+    lookup.register_parent_child("session-root", "session-a");
+    lookup.register_session("session-b", "agent-b");
+    lookup.register_parent_child("session-a", "session-b");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -436,7 +387,7 @@ async fn test_three_level_chain_effective_permissions() {
         make_perms("agent-b", &[("exec", true)]),
     );
 
-    let result = collect_chain_effective_permissions(&mgr, &perms, "session-a", "agent-a").await;
+    let result = collect_chain_effective_permissions(&lookup, &perms, "session-a", "agent-a").await;
     assert!(result.is_some(), "should return Some for parent with perms");
     let effective = result.unwrap();
 
@@ -459,11 +410,11 @@ async fn test_three_level_chain_effective_permissions() {
 /// Single-level spawn: parent has no extra restrictions.
 #[tokio::test]
 async fn test_single_level_spawn_no_extra_restrictions() {
-    let mgr = make_session_manager().await;
+    let mut lookup = make_session_lookup().await;
 
-    register_session(&mgr, "session-parent", "parent", 0).await;
-    register_session(&mgr, "session-child", "child", 1).await;
-    register_parent_child(&mgr, "session-parent", "session-child", "child", 1).await;
+    lookup.register_session("session-parent", "parent");
+    lookup.register_session("session-child", "child");
+    lookup.register_parent_child("session-parent", "session-child");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -483,7 +434,7 @@ async fn test_single_level_spawn_no_extra_restrictions() {
     );
 
     let result =
-        collect_chain_effective_permissions(&mgr, &perms, "session-parent", "parent").await;
+        collect_chain_effective_permissions(&lookup, &perms, "session-parent", "parent").await;
     assert!(result.is_some());
     let effective = result.unwrap();
 
@@ -508,13 +459,13 @@ async fn test_single_level_spawn_no_extra_restrictions() {
 /// A denies everything, so effective perms are fully denied.
 #[tokio::test]
 async fn test_chain_with_fully_denied_level() {
-    let mgr = make_session_manager().await;
+    let mut lookup = make_session_lookup().await;
 
-    register_session(&mgr, "session-root", "root", 0).await;
-    register_session(&mgr, "session-a", "agent-a", 1).await;
-    register_parent_child(&mgr, "session-root", "session-a", "agent-a", 1).await;
-    register_session(&mgr, "session-b", "agent-b", 2).await;
-    register_parent_child(&mgr, "session-a", "session-b", "agent-b", 2).await;
+    lookup.register_session("session-root", "root");
+    lookup.register_session("session-a", "agent-a");
+    lookup.register_parent_child("session-root", "session-a");
+    lookup.register_session("session-b", "agent-b");
+    lookup.register_parent_child("session-a", "session-b");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -527,7 +478,7 @@ async fn test_chain_with_fully_denied_level() {
     // A is fully denied
     perms.insert("agent-a".to_string(), make_fully_denied_perms("agent-a"));
 
-    let result = collect_chain_effective_permissions(&mgr, &perms, "session-a", "agent-a").await;
+    let result = collect_chain_effective_permissions(&lookup, &perms, "session-a", "agent-a").await;
     assert!(result.is_some());
     let effective = result.unwrap();
 

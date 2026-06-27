@@ -3,11 +3,9 @@ use std::collections::HashMap;
 use super::engine_eval::PermissionEngine;
 use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, PermissionResponse};
 use crate::actions::ActionBuilder;
-use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits};
-use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
-use crate::gateway::{DmScope, GatewayConfig, Session, SessionManager};
+use crate::mock_session_lookup::MockSessionLookup;
 use crate::rules::{RuleBuilder, RuleSetBuilder};
-use crate::session::bootstrap::BootstrapMode;
+use closeclaw_common::{ActionPermission, AgentPermissions, PermissionLimits};
 
 // -------------------------------------------------------------------------
 // Test helpers
@@ -61,54 +59,11 @@ fn make_all_allowed(agent_id: &str) -> AgentPermissions {
     )
 }
 
-async fn make_session_manager() -> SessionManager {
-    let config = GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 65536,
-        dm_scope: DmScope::PerAccountChannelPeer,
-        ..Default::default()
-    };
-    SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Full,
-        crate::session::persistence::ReasoningLevel::default(),
-    )
+async fn make_session_lookup() -> MockSessionLookup {
+    MockSessionLookup::new()
 }
 
-async fn register_session(mgr: &SessionManager, session_id: &str, agent_id: &str) {
-    mgr.sessions.write().await.insert(
-        session_id.to_string(),
-        Session {
-            id: session_id.to_string(),
-            agent_id: agent_id.to_string(),
-            channel: "test".to_string(),
-            created_at: 0,
-            depth: 0,
-        },
-    );
-}
-
-async fn register_parent_child(
-    mgr: &SessionManager,
-    parent_session_id: &str,
-    child_session_id: &str,
-    child_agent_id: &str,
-) {
-    mgr.register_child(
-        parent_session_id,
-        ChildSessionInfo {
-            session_id: child_session_id.to_string(),
-            parent_session_id: parent_session_id.to_string(),
-            agent_id: child_agent_id.to_string(),
-            depth: 1,
-            mode: SpawnMode::Run,
-        },
-    )
-    .await;
-}
+// register_session and register_parent_child replaced by MockSessionLookup methods
 
 // -------------------------------------------------------------------------
 // Test 1: Chain intersection narrows dimension (parent Deny → child blocked)
@@ -118,10 +73,10 @@ async fn register_parent_child(
 /// Child tries file_write → denied by chain intersection.
 #[tokio::test]
 async fn test_chain_intersection_file_write_denied_by_parent() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     // Parent denies file_write, allows everything else
@@ -151,7 +106,7 @@ async fn test_chain_intersection_file_write_denied_by_parent() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { ref reason, .. } if reason.contains("chain")),
@@ -163,10 +118,10 @@ async fn test_chain_intersection_file_write_denied_by_parent() {
 /// Parent denies file_write, child tries file_read → allowed (different dimension).
 #[tokio::test]
 async fn test_chain_intersection_file_read_allowed_when_only_write_denied() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -194,7 +149,7 @@ async fn test_chain_intersection_file_read_allowed_when_only_write_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
@@ -207,10 +162,10 @@ async fn test_chain_intersection_file_read_allowed_when_only_write_denied() {
 /// Verifies single-level chain works, not just multi-level.
 #[tokio::test]
 async fn test_single_parent_denies_file_write() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -230,7 +185,7 @@ async fn test_single_parent_denies_file_write() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -247,8 +202,8 @@ async fn test_single_parent_denies_file_write() {
 /// The chain intersection check is skipped, and the response matches evaluate().
 #[tokio::test]
 async fn test_no_chain_matches_evaluate() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "root-session", "root").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("root-session", "root");
     // No parent registered → no chain
 
     let mut perms = HashMap::new();
@@ -262,7 +217,7 @@ async fn test_no_chain_matches_evaluate() {
         op: "write".to_string(),
     });
     let resp_chain = engine
-        .evaluate_with_chain(req_chain, &mgr, "root-session", &perms)
+        .evaluate_with_chain(req_chain, &lookup, "root-session", &perms)
         .await;
 
     // Same request evaluated directly
@@ -311,10 +266,10 @@ async fn test_deny_subject_propagation_through_chain() {
         .unwrap();
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert("parent".to_string(), make_all_allowed("parent"));
@@ -328,7 +283,7 @@ async fn test_deny_subject_propagation_through_chain() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -362,10 +317,10 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
         .unwrap();
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert("parent".to_string(), make_all_allowed("parent"));
@@ -379,7 +334,7 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
         args: vec![],
     });
     let resp_exec = engine
-        .evaluate_with_chain(req_exec, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req_exec, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp_exec, PermissionResponse::Denied { .. }),
@@ -394,7 +349,7 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
         op: "read".to_string(),
     });
     let resp_read = engine
-        .evaluate_with_chain(req_read, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req_read, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp_read, PermissionResponse::Denied { .. }),
@@ -411,8 +366,8 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
 /// Owner gets the same result as direct evaluate().
 #[tokio::test]
 async fn test_owner_no_chain_not_blocked() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "owner-session", "owner").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("owner-session", "owner");
     // No parent → no chain intersection
 
     let mut perms = HashMap::new();
@@ -427,7 +382,7 @@ async fn test_owner_no_chain_not_blocked() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "owner-session", &perms)
+        .evaluate_with_chain(req, &lookup, "owner-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
@@ -443,10 +398,10 @@ async fn test_owner_no_chain_not_blocked() {
 /// Parent denies exec → child exec blocked by chain intersection.
 #[tokio::test]
 async fn test_chain_intersection_exec_denied() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -463,7 +418,7 @@ async fn test_chain_intersection_exec_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -479,10 +434,10 @@ async fn test_chain_intersection_exec_denied() {
 /// Parent denies network → child network blocked by chain intersection.
 #[tokio::test]
 async fn test_chain_intersection_network_denied() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -499,7 +454,7 @@ async fn test_chain_intersection_network_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -515,10 +470,10 @@ async fn test_chain_intersection_network_denied() {
 /// Parent denies spawn → child inter-agent msg blocked by chain intersection.
 #[tokio::test]
 async fn test_chain_intersection_spawn_denied() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -534,7 +489,7 @@ async fn test_chain_intersection_spawn_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -550,10 +505,10 @@ async fn test_chain_intersection_spawn_denied() {
 /// Parent denies tool_call → child tool_call blocked by chain intersection.
 #[tokio::test]
 async fn test_chain_intersection_tool_call_denied() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -570,7 +525,7 @@ async fn test_chain_intersection_tool_call_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -586,10 +541,10 @@ async fn test_chain_intersection_tool_call_denied() {
 /// Parent denies config_write → child config_write blocked by chain intersection.
 #[tokio::test]
 async fn test_chain_intersection_config_write_denied() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
     perms.insert(
@@ -605,7 +560,7 @@ async fn test_chain_intersection_config_write_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -621,10 +576,10 @@ async fn test_chain_intersection_config_write_denied() {
 /// SlashCommand has no dimension_name() → chain intersection does not block.
 #[tokio::test]
 async fn test_chain_intersection_slash_command_not_blocked() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     // Parent denies exec — but SlashCommand has no dimension, so not blocked
     let mut perms = HashMap::new();
@@ -641,7 +596,7 @@ async fn test_chain_intersection_slash_command_not_blocked() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     // SlashCommand has no dimension → chain check skips → evaluate result
     // With default Allow and no deny rules, this should be Allowed
@@ -659,10 +614,10 @@ async fn test_chain_intersection_slash_command_not_blocked() {
 /// FileOp with unknown op → dimension_name() returns None → not blocked.
 #[tokio::test]
 async fn test_chain_intersection_unknown_op_not_blocked() {
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "parent-session", "parent").await;
-    register_session(&mgr, "child-session", "child").await;
-    register_parent_child(&mgr, "parent-session", "child-session", "child").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("parent-session", "parent");
+    lookup.register_session("child-session", "child");
+    lookup.register_parent_child("parent-session", "child-session");
 
     // Parent denies file_write — but unknown op has no dimension
     let mut perms = HashMap::new();
@@ -680,7 +635,7 @@ async fn test_chain_intersection_unknown_op_not_blocked() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &perms)
         .await;
     // Unknown op → dimension_name() = None → chain check skips
     // evaluate() with default Allow → Allowed
@@ -737,12 +692,12 @@ async fn test_three_level_chain_intersection() {
         .unwrap();
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    let mgr = make_session_manager().await;
-    register_session(&mgr, "session-root", "root").await;
-    register_session(&mgr, "session-a", "agent-a").await;
-    register_parent_child(&mgr, "session-root", "session-a", "agent-a").await;
-    register_session(&mgr, "session-b", "agent-b").await;
-    register_parent_child(&mgr, "session-a", "session-b", "agent-b").await;
+    let mut lookup = make_session_lookup().await;
+    lookup.register_session("session-root", "root");
+    lookup.register_session("session-a", "agent-a");
+    lookup.register_parent_child("session-root", "session-a");
+    lookup.register_session("session-b", "agent-b");
+    lookup.register_parent_child("session-a", "session-b");
 
     // Root denies network and file_write; A allows everything
     let mut perms = HashMap::new();
@@ -760,7 +715,7 @@ async fn test_three_level_chain_intersection() {
         op: "write".to_string(),
     });
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "session-b", &perms)
+        .evaluate_with_chain(req, &lookup, "session-b", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -775,7 +730,7 @@ async fn test_three_level_chain_intersection() {
         port: 443,
     });
     let resp = engine
-        .evaluate_with_chain(req, &mgr, "session-b", &perms)
+        .evaluate_with_chain(req, &lookup, "session-b", &perms)
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),

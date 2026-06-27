@@ -1,29 +1,13 @@
 use super::*;
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::mock_session_lookup::MockSessionLookup;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// Minimal test helper: creates a SessionManager with no storage.
-fn test_session_manager() -> Arc<SessionManager> {
-    use crate::gateway::{DmScope, GatewayConfig};
-    use crate::session::bootstrap::loader::BootstrapMode;
-    use crate::session::persistence::ReasoningLevel;
-
-    let config = GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        dm_scope: DmScope::PerChannelPeer,
-        ..Default::default()
-    };
-    Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Minimal,
-        ReasoningLevel::default(),
-    ))
+/// Minimal test helper: creates a MockSessionLookup.
+fn test_session_lookup() -> Arc<dyn SessionLookup> {
+    Arc::new(MockSessionLookup::new())
 }
 
 fn test_caller() -> Caller {
@@ -57,7 +41,7 @@ fn test_runtime() -> tokio::runtime::Runtime {
 #[test]
 fn test_submit_denial_enqueues_and_notifies() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -80,7 +64,7 @@ fn test_submit_denial_enqueues_and_notifies() {
 #[test]
 fn test_submit_denial_sub_agent_returns_none() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -103,7 +87,7 @@ fn test_submit_denial_sub_agent_returns_none() {
 #[test]
 fn test_submit_denial_heartbeat_skip_returns_none() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -126,7 +110,7 @@ fn test_submit_denial_heartbeat_skip_returns_none() {
 #[test]
 fn test_duplicate_denial_returns_none() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -156,7 +140,7 @@ fn test_duplicate_denial_returns_none() {
 #[test]
 fn test_approve_request_once() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -182,7 +166,7 @@ fn test_approve_request_once() {
 #[test]
 fn test_approve_request_whitelist_low_risk() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -208,7 +192,7 @@ fn test_approve_request_whitelist_low_risk() {
 #[test]
 fn test_approve_request_whitelist_high_risk() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -234,7 +218,7 @@ fn test_approve_request_whitelist_high_risk() {
 #[test]
 fn test_deny_request() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 
@@ -259,7 +243,7 @@ fn test_deny_request() {
 #[test]
 fn test_clear() {
     let rt = test_runtime();
-    let sm = test_session_manager();
+    let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
 

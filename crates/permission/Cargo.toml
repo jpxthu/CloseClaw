@@ -25,3 +25,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 sha2 = "0.10"
 anyhow = "1.0"
 hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+rand = "0.8"

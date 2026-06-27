@@ -11,6 +11,9 @@ pub mod sandbox;
 pub mod templates;
 
 #[cfg(test)]
+pub mod mock_session_lookup;
+
+#[cfg(test)]
 mod tests;
 
 pub use engine::{
