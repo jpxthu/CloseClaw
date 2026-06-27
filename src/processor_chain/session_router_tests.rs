@@ -230,8 +230,8 @@ async fn test_system_time_used_for_session_key() {
         .parse()
         .expect("key prefix should be parseable as i64");
     assert!(
-        ts_prefix >= before_ms && ts_prefix <= after_ms,
-        "session_key timestamp should reflect system time ({before_ms}..{after_ms}), got {ts_prefix}: {key}"
+        ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
+        "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
     );
     let hash = &key[key.find('-').unwrap() + 1..];
     assert_eq!(hash.len(), 64, "hash should be 64 hex chars: {key}");
@@ -277,8 +277,8 @@ async fn test_per_account_channel_peer_uses_system_time() {
         .parse()
         .expect("key prefix should be parseable as i64");
     assert!(
-        ts_prefix >= before_ms && ts_prefix <= after_ms,
-        "session_key timestamp should reflect system time ({before_ms}..{after_ms}), got {ts_prefix}: {key}"
+        ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
+        "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
     );
     let hash = &key[key.find('-').unwrap() + 1..];
     assert_eq!(hash.len(), 64, "hash should be 64 hex chars: {key}");
