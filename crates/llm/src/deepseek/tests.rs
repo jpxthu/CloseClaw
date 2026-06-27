@@ -736,7 +736,7 @@ async fn test_fetch_balance_success() {
 
     let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
     let balance = provider
-        .fetch_balance(&server.url())
+        .fetch_balance()
         .await
         .expect("fetch_balance should succeed");
 
@@ -763,7 +763,7 @@ async fn test_fetch_balance_error() {
 
     let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
     let err = provider
-        .fetch_balance(&server.url())
+        .fetch_balance()
         .await
         .expect_err("fetch_balance should fail on 401");
 

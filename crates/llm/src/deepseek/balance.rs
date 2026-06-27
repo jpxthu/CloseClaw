@@ -34,11 +34,8 @@ impl DeepSeekProvider {
     ///
     /// Sends `GET {base_url}/user/balance` with Bearer token
     /// authentication and returns the parsed balance response.
-    pub async fn fetch_balance(
-        &self,
-        base_url: &str,
-    ) -> Result<DeepSeekBalanceResponse, ProviderError> {
-        let url = format!("{}/user/balance", base_url.trim_end_matches('/'));
+    pub async fn fetch_balance(&self) -> Result<DeepSeekBalanceResponse, ProviderError> {
+        let url = format!("{}/user/balance", self.base_url.trim_end_matches('/'));
 
         let response = self
             .http_client
