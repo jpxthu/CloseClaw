@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway"]
+members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway", "crates/skills"]
 
 [workspace.package]
 edition = "2021"
@@ -92,6 +92,7 @@ closeclaw-session = { path = "crates/session" }
 closeclaw-llm = { path = "crates/llm" }
 closeclaw-permission = { path = "crates/permission" }
 closeclaw-gateway = { path = "crates/gateway" }
+closeclaw-skills = { path = "crates/skills" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

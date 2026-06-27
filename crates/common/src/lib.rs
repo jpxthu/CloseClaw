@@ -1,5 +1,6 @@
 pub mod agent_config;
 pub mod agent_lookup;
+pub mod agent_skills_query;
 pub mod bootstrap;
 pub mod communication;
 pub mod compaction;
@@ -24,6 +25,7 @@ pub use agent_config::{
     PermissionLimits, SubagentsConfig,
 };
 pub use agent_lookup::AgentLookup;
+pub use agent_skills_query::AgentSkillsQuery;
 pub use bootstrap::BootstrapMode;
 pub use communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,

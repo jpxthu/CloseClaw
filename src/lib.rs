@@ -21,7 +21,7 @@ pub mod platform;
 pub mod processor_chain;
 pub mod renderer;
 pub mod session;
-pub mod skills;
+pub use closeclaw_skills as skills;
 pub mod slash;
 pub mod system_prompt;
 pub mod tasks;

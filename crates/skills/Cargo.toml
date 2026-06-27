@@ -1,0 +1,44 @@
+[package]
+name = "closeclaw-skills"
+version = "0.1.0"
+edition.workspace = true
+description = "Skills system for CloseClaw"
+license = "MIT"
+
+[dependencies]
+# Internal crates
+closeclaw-common = { path = "../common" }
+closeclaw-config = { path = "../config" }
+closeclaw-session = { path = "../session" }
+closeclaw-gateway = { path = "../gateway" }
+closeclaw-permission = { path = "../permission" }
+
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "2.0"
+
+# Async trait
+async-trait = "0.1"
+
+# Logging
+tracing = "=0.1.43"
+
+# Glob pattern matching (for conditional skill activation)
+glob = "0.3"
+
+# File watching (hot reload)
+notify = "6.1"
+notify-debouncer-mini = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3.4"

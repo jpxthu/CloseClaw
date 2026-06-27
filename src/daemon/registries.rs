@@ -77,7 +77,9 @@ fn inject_agent_registry_into_skill_registry(
 ) {
     let mut guard = skill_registry.write().unwrap();
     if let Some(ref mut disk_reg) = *guard {
-        disk_reg.set_agent_registry(Arc::clone(agent_registry));
+        disk_reg.set_agent_skills_query(
+            Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentSkillsQuery>
+        );
     }
 }
 

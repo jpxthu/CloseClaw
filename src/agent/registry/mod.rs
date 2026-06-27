@@ -100,5 +100,15 @@ impl closeclaw_common::agent_lookup::AgentLookup for AgentRegistry {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AgentSkillsQuery — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+impl closeclaw_common::AgentSkillsQuery for AgentRegistry {
+    fn get_agent_skills(&self, agent_id: &str) -> Option<Vec<String>> {
+        self.get(agent_id).and_then(|cfg| cfg.effective_skills())
+    }
+}
+
 #[cfg(test)]
 mod config_tests;
