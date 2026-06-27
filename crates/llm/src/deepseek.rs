@@ -353,13 +353,28 @@ impl ModelLister for DeepSeekProvider {
 /// Anthropic messages have structured content arrays
 /// (`[{"type": "text", "text": "..."}]`), while OpenAI uses plain
 /// strings (`"content": "..."`).
+///
+/// As a secondary heuristic, the presence of a top-level `system` field
+/// (used only by the Anthropic protocol) is treated as a strong signal.
 fn detect_is_anthropic(body: &serde_json::Value) -> bool {
-    body.get("messages")
+    // Primary: structured content array in messages
+    if body
+        .get("messages")
         .and_then(|m| m.as_array())
         .and_then(|arr| arr.first())
         .and_then(|msg| msg.get("content"))
         .map(|c| c.is_array())
         .unwrap_or(false)
+    {
+        return true;
+    }
+
+    // Secondary: top-level "system" field is exclusive to Anthropic protocol
+    if body.get("system").is_some() {
+        return true;
+    }
+
+    false
 }
 
 // ── OpenAI response parsing ─────────────────────────────────────────────────
