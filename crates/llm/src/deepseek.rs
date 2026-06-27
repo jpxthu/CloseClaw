@@ -556,6 +556,8 @@ async fn process_sse_buffer_remainder(
     }
 }
 
+pub mod balance;
+
 #[cfg(test)]
 #[path = "deepseek/tests.rs"]
 mod tests;
