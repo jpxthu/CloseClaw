@@ -14,6 +14,7 @@ pub mod shutdown;
 pub mod skill_registry;
 pub mod slash_router;
 pub mod storage_provider;
+pub mod streaming;
 pub mod system_prompt;
 pub mod tool_registry;
 pub mod verbosity;
@@ -35,18 +36,21 @@ pub use gateway_types::{
     Session,
 };
 pub use im_plugin::{
-    AdapterError, IMPlugin, MediaRef, NormalizedMessage, QuotedMessage, RenderedOutput,
+    AdapterError, IMAdapter, IMPlugin, MediaRef, NormalizedMessage, QuotedMessage, RenderedOutput,
     StreamingOutput,
 };
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
-    ProcessedMessage, ProcessorChain, RawMessage, StreamEvent, UnifiedUsage,
+    ProcessedMessage, ProcessorChain, RawMessage, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
 pub use session_lookup::{PendingMessage, SessionLookup};
 pub use session_types::{AgentRole, ReasoningLevel};
-pub use shutdown::ShutdownSignal;
+pub use shutdown::{ShutdownHandle, ShutdownMode, ShutdownSignal};
 pub use skill_registry::SkillRegistryQuery;
-pub use slash_router::{ReplyAction, SlashContext, SlashResult, SlashRouter, SystemAppendAction};
+pub use slash_router::{
+    parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashDispatcherTrait, SlashHandler,
+    SlashResult, SlashRouter, SystemAppendAction,
+};
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder, WorkspaceBuildConfig};
 pub use tool_registry::{ToolDescriptor, ToolFlags, ToolRegistryQuery};

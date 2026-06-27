@@ -1,13 +1,9 @@
 //! Helper functions extracted from SessionManager::find_or_create
 //! to keep the main file under the 500-line limit.
 
+#![allow(dead_code)]
+
 use crate::Message;
-use closeclaw_common::agent_lookup::registry::AgentRegistry;
-use closeclaw_common::skill_registry::DiskSkillRegistry;
-use closeclaw_common::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
-use closeclaw_common::system_prompt::workdir::build_workdir_context;
-use closeclaw_common::tool_registry::{ToolContext, ToolRegistry};
-use closeclaw_session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
 use closeclaw_session::persistence::{PersistenceService, SessionStatus};
 use closeclaw_session::workspace;
 use std::path::PathBuf;
@@ -17,9 +13,13 @@ use uuid::Uuid;
 
 /// Encapsulates agent-level tool and skill filter configuration.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub(super) struct AgentToolSkillConfig {
+    #[allow(dead_code)]
     pub agent_tools: Option<Vec<String>>,
+    #[allow(dead_code)]
     pub agent_disallowed_tools: Option<Vec<String>>,
+    #[allow(dead_code)]
     pub agent_skills: Option<Vec<String>>,
 }
 
@@ -34,52 +34,16 @@ pub(super) fn generate_session_id(agent_id: &str) -> String {
 }
 
 /// Build the system prompt for a new session.
+///
+/// Uses the `SystemPromptBuilder` trait object to build the prompt,
+/// delegating all system-prompt construction to the main crate's implementation.
 pub(super) async fn build_session_system_prompt(
-    workspace_dir: &Option<PathBuf>,
-    bootstrap_mode: BootstrapMode,
-    tool_registry: &Option<Arc<ToolRegistry>>,
-    skill_registry: Option<Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>>,
+    builder: &dyn closeclaw_common::SystemPromptBuilder,
+    session_id: &str,
     agent_id: &str,
-    filters: &AgentToolSkillConfig,
-    agent_registry: Option<Arc<AgentRegistry>>,
+    overrides: Option<&closeclaw_common::PromptOverrides>,
 ) -> String {
-    let bootstrap_files = if let Some(ref workspace) = workspace_dir {
-        load_bootstrap_files(workspace, bootstrap_mode)
-            .unwrap_or_default()
-            .into_iter()
-            .collect()
-    } else {
-        vec![]
-    };
-    let tool_registry_ref = tool_registry.as_ref().map(|r| r.as_ref());
-    let workdir_ctx = workspace_dir
-        .as_ref()
-        .map(|p| build_workdir_context(&p.to_string_lossy()));
-    let tool_ctx = ToolContext {
-        agent_id: agent_id.to_string(),
-        workdir: workdir_ctx,
-        session_id: None,
-        call_id: None,
-        session: None,
-    };
-    let workspace_root = workspace_dir.clone().unwrap_or_default();
-    build_from_workspace(
-        &workspace_root,
-        WorkspaceBuildConfig {
-            bootstrap_files,
-            tool_registry: tool_registry_ref,
-            tool_ctx: &tool_ctx,
-            skill_registry,
-            agent_id: Some(agent_id),
-            agent_tools: filters.agent_tools.clone(),
-            agent_disallowed_tools: filters.agent_disallowed_tools.clone(),
-            agent_skills: filters.agent_skills.clone(),
-            dynamic_sections: vec![],
-            append_section: None,
-            agent_registry,
-        },
-    )
-    .await
+    builder.build_prompt(session_id, agent_id, overrides).await
 }
 
 /// Compute the workdir path for a new session.
@@ -183,7 +147,7 @@ pub(super) struct RestoreResult {
 ///
 /// Returns a [`RestoreResult`] indicating whether restoration succeeded and,
 /// if so, the chat_id to which the restore notification should be sent via
-/// Gateway's outbound chain (instead of sending directly via IMAdapter).
+/// Gateway's outbound chain (instead of sending directly via IMPlugin).
 pub(super) async fn try_restore_archived_session_inner(
     storage: &Arc<dyn PersistenceService>,
     session_id: &str,

@@ -149,6 +149,26 @@ pub struct StreamingOutput {
 }
 
 // ---------------------------------------------------------------------------
+// IMAdapter trait
+// ---------------------------------------------------------------------------
+
+/// Trait for sending messages through an IM adapter.
+///
+/// This is a simplified interface for components that only need to send
+/// messages (e.g., notification during session restoration). For full
+/// inbound/outbound handling, use [`IMPlugin`].
+#[async_trait]
+pub trait IMAdapter: Send + Sync {
+    /// Send the rendered output to the target.
+    async fn send(
+        &self,
+        output: &RenderedOutput,
+        peer_id: &str,
+        thread_id: Option<&str>,
+    ) -> Result<(), AdapterError>;
+}
+
+// ---------------------------------------------------------------------------
 // IMPlugin trait
 // ---------------------------------------------------------------------------
 
@@ -219,5 +239,42 @@ pub trait IMPlugin: Send + Sync {
     /// Plugins that do not need cleanup can use the default no-op.
     async fn shutdown(&self) -> Result<(), AdapterError> {
         Ok(())
+    }
+
+    /// Render LLM content blocks into a platform-native output.
+    ///
+    /// The default implementation concatenates text blocks into a plain-text
+    /// payload. Platforms should override for rich formatting.
+    fn render(
+        &self,
+        content_blocks: &[crate::processor::ContentBlock],
+        _dsl_result: Option<&crate::processor::DslParseResult>,
+    ) -> RenderedOutput {
+        let mut rendered = String::new();
+        for block in content_blocks {
+            if let crate::processor::ContentBlock::Text(text) = block {
+                rendered.push_str(text);
+            }
+        }
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::Value::String(rendered),
+        }
+    }
+
+    /// Handle a streaming event from the LLM.
+    ///
+    /// Returns incremental output (text lines, render blocks) for the
+    /// platform to deliver. The default implementation returns empty output.
+    fn handle_stream_event(&self, _event: crate::processor::StreamEvent) -> StreamingOutput {
+        StreamingOutput::default()
+    }
+
+    /// Flush any buffered streaming output.
+    ///
+    /// Called when the stream ends to drain any remaining buffered content.
+    /// Returns empty output by default.
+    fn flush_stream(&self) -> StreamingOutput {
+        StreamingOutput::default()
     }
 }

@@ -5,6 +5,9 @@ edition.workspace = true
 description = "Gateway - IM protocol adapters, message routing, authentication"
 license = "MIT"
 
+[features]
+full-tests = []
+
 [dependencies]
 # Internal crates
 closeclaw-common = { path = "../common" }

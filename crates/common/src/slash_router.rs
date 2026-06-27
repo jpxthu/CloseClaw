@@ -4,6 +4,28 @@
 //! allowing the dispatcher to be swapped or mocked.
 
 use async_trait::async_trait;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+
+/// Parse a slash command from raw content.
+///
+/// Returns `Some((command, args))` where `command` is without the
+/// leading `/` and `args` is the remainder. Returns `None` if the
+/// content does not start with `/`.
+pub fn parse_slash(content: &str) -> Option<(&str, &str)> {
+    let trimmed = content.trim();
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+    let without_slash = &trimmed[1..];
+    let (cmd, args) = without_slash
+        .split_once(char::is_whitespace)
+        .unwrap_or((without_slash, ""));
+    if cmd.is_empty() {
+        return None;
+    }
+    Some((cmd, args.trim_start()))
+}
 
 /// Execution context for a slash command invocation.
 #[derive(Debug, Clone)]
@@ -75,6 +97,64 @@ pub enum ReplyAction {
 /// Implemented by `SlashDispatcher` in the slash crate; used by the
 /// gateway to dispatch commands without a direct dependency on the
 /// slash module.
+/// Context passed to `SlashResult::execute` for side-effect dispatch.
+///
+/// Carries session/channel identity and a reply channel so that
+/// `execute` can produce [`ReplyAction`]s for the Gateway to consume.
+pub struct SideEffectContext {
+    /// Session ID where the slash command was invoked.
+    pub session_id: String,
+    /// Channel identifier (e.g. "feishu", "telegram").
+    pub channel: String,
+    /// Session manager for state queries.
+    pub session_manager: Arc<dyn crate::SessionLookup>,
+    /// Sender for [`ReplyAction`]s produced by `execute`.
+    pub reply_tx: mpsc::Sender<ReplyAction>,
+}
+
+impl SideEffectContext {
+    /// Create a new side-effect context.
+    pub fn new(
+        session_id: String,
+        channel: String,
+        session_manager: Arc<dyn crate::SessionLookup>,
+        reply_tx: mpsc::Sender<ReplyAction>,
+    ) -> Self {
+        Self {
+            session_id,
+            channel,
+            session_manager,
+            reply_tx,
+        }
+    }
+}
+
+impl SlashResult {
+    /// Execute this result, producing [`ReplyAction`]s on the context's reply channel.
+    pub async fn execute(&self, ctx: &SideEffectContext) {
+        let action = match self {
+            SlashResult::Reply(text) => ReplyAction::Reply(text.clone()),
+            SlashResult::SetMode(mode) => ReplyAction::Reply(format!("Mode set to: {}", mode)),
+            SlashResult::NewSession => ReplyAction::Nothing,
+            SlashResult::Stop => ReplyAction::Nothing,
+            SlashResult::Compact { instruction } => ReplyAction::TriggerCompact {
+                instruction: instruction.clone(),
+            },
+            SlashResult::SystemAppend { action: _ } => ReplyAction::Nothing,
+            SlashResult::Exec { command } => ReplyAction::Reply(format!("Exec: {}", command)),
+            SlashResult::SetReasoning { .. } => ReplyAction::Nothing,
+            SlashResult::SetVerbosity { .. } => ReplyAction::Nothing,
+            SlashResult::Unknown(cmd) => ReplyAction::Reply(format!("Unknown command: /{}", cmd)),
+        };
+        let _ = ctx.reply_tx.send(action).await;
+    }
+}
+
+/// Trait for routing slash commands to handlers.
+///
+/// Implemented by `SlashDispatcher` in the slash crate; used by the
+/// gateway to dispatch commands without a direct dependency on the
+/// slash module.
 #[async_trait]
 pub trait SlashRouter: Send + Sync {
     /// Dispatch a slash command and return the result.
@@ -90,23 +170,45 @@ pub trait SlashRouter: Send + Sync {
     /// Check whether a command is immediate (responds even when LLM is busy).
     fn is_immediate(&self, command: &str) -> bool;
 
-    /// Parse a slash command from raw content.
-    ///
-    /// Returns `Some((command, args))` where `command` is without the
-    /// leading `/` and `args` is the remainder. Returns `None` if the
-    /// content does not start with `/`.
-    fn parse(content: &str) -> Option<(&str, &str)> {
-        let trimmed = content.trim();
-        if !trimmed.starts_with('/') {
-            return None;
-        }
-        let without_slash = &trimmed[1..];
-        let (cmd, args) = without_slash
-            .split_once(char::is_whitespace)
-            .unwrap_or((without_slash, ""));
-        if cmd.is_empty() {
-            return None;
-        }
-        Some((cmd, args.trim_start()))
+    /// Get a handler by command name.
+    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>>;
+}
+
+/// Trait for slash command handlers.
+///
+/// Implementors define which commands they handle, a description for help
+/// text, whether the command is immediate (responds even when LLM is busy),
+/// and the async execution logic.
+#[async_trait]
+pub trait SlashHandler: Send + Sync {
+    /// Command names (without the leading `/`).
+    fn commands(&self) -> &[&str];
+
+    /// Short description (for /help listing).
+    fn description(&self) -> &str;
+
+    /// Whether this is an immediate command (responds even when LLM is busy).
+    fn immediate(&self, _cmd: &str) -> bool {
+        false
     }
+
+    /// Whether this command requires permission evaluation before execution.
+    fn requires_permission(&self) -> bool {
+        false
+    }
+
+    /// Execute the command with the given arguments and context.
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult;
+}
+
+/// Trait for dispatching slash commands to handlers.
+///
+/// Provides handler lookup and command metadata.
+#[async_trait]
+pub trait SlashDispatcherTrait: Send + Sync {
+    /// Get a handler by command name.
+    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>>;
+
+    /// Check whether a command is immediate.
+    fn is_immediate(&self, command: &str) -> bool;
 }

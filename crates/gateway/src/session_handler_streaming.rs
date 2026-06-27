@@ -47,7 +47,7 @@ impl SessionMessageHandler {
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
         // ── Delegate prompt building + LLM stream opening to Session layer ──
-        let (raw_stream, sink) = closeclaw_session::llm_caller::call_llm_streaming(
+        let (raw_stream, sink) = crate::llm_caller::call_llm_streaming(
             unified_client,
             content,
             meta,
@@ -69,7 +69,7 @@ impl SessionMessageHandler {
         // StreamingSink (CLI/websocket) still receives per-delta text
         // notifications in parallel with the IM plugin dispatch in
         // `send_outbound_streaming`.
-        let wrapped = closeclaw_session::llm_caller::SinkUpdater::new(
+        let wrapped = crate::llm_caller::SinkUpdater::new(
             raw_stream,
             sink.clone(),
             Arc::clone(session_manager),

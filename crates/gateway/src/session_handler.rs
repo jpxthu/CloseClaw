@@ -10,6 +10,7 @@
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
+use crate::llm_caller::execute_compact;
 use crate::session_manager::SessionManager;
 use closeclaw_common::shutdown::ShutdownHandle;
 use closeclaw_llm::fallback::FallbackClient;
@@ -19,7 +20,7 @@ use closeclaw_llm::types::UnifiedResponse;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::Message as ChatMessage;
 use closeclaw_session::compaction::{
-    execute_compact, CompactConfig, CompactionMessage, CompactionResult, CompactionService,
+    CompactConfig, CompactionMessage, CompactionResult, CompactionService,
 };
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -252,7 +253,7 @@ impl SessionMessageHandler {
 
 // ── LLM calling ──
 impl SessionMessageHandler {
-    /// Delegate to [`closeclaw_session::llm_caller::call_llm`].
+    /// Delegate to [`crate::llm_caller::call_llm`].
     pub(super) async fn call_llm(
         unified_fallback_client: &Arc<UnifiedFallbackClient>,
         content: &str,
@@ -260,7 +261,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) -> Result<UnifiedResponse, closeclaw_llm::LLMError> {
-        closeclaw_session::llm_caller::call_llm(
+        crate::llm_caller::call_llm(
             unified_fallback_client,
             content,
             meta,
@@ -309,7 +310,10 @@ impl SessionMessageHandler {
         tokio::spawn(async move {
             // Load agent config for active-searcher configuration.
             let (agent_model, memory_override) = match sm_clone.get_agent_config(&aid_clone).await {
-                Some(cfg) => (cfg.model.clone(), cfg.memory),
+                Some(cfg) => (
+                    cfg.model.clone(),
+                    cfg.memory.as_ref().and_then(|m| m.active_searcher.clone()),
+                ),
                 None => (None, None),
             };
 
@@ -375,8 +379,11 @@ impl SessionMessageHandler {
 ///
 /// Wraps the unified fallback client so it can be used as a trait object
 /// by the active-searcher pipeline.
+#[allow(dead_code)]
 struct FallbackLlmCaller {
+    #[allow(dead_code)]
     client: Arc<UnifiedFallbackClient>,
+    #[allow(dead_code)]
     model: String,
 }
 

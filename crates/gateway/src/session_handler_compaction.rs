@@ -19,12 +19,13 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
+use crate::llm_caller::execute_compact;
 use crate::session_manager::SessionManager;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::Message as ChatMessage;
-use closeclaw_session::compaction::{execute_compact, CompactionResult, CompactionService};
+use closeclaw_session::compaction::{CompactionResult, CompactionService};
 
 fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
     blocks

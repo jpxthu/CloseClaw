@@ -3,23 +3,26 @@
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
 
 pub mod approval;
+#[cfg(test)]
+mod im_adapter;
 pub mod inbound_queue;
+#[cfg(test)]
+mod inbound_queue_tests;
+mod llm_caller;
+mod memory;
 pub mod message;
 pub mod outbound;
+#[cfg(test)]
+mod outbound_tests;
 pub mod session_handler;
 mod session_handler_announce;
 mod session_handler_dispatch;
 mod session_handler_streaming;
 pub mod session_manager;
 pub mod slash_permission;
-
-#[cfg(test)]
-mod inbound_queue_tests;
-#[cfg(test)]
-mod outbound_tests;
-#[cfg(test)]
+#[cfg(feature = "full-tests")]
 mod tests_plugin;
-#[cfg(test)]
+#[cfg(feature = "full-tests")]
 mod tests_slash_permission;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -28,21 +31,18 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_common::slash_router::SlashDispatcher;
+pub use closeclaw_common::processor::ProcessorChain;
+use closeclaw_common::processor::{ProcessedMessage, RawMessage};
+use closeclaw_common::slash_router::SlashRouter;
+use closeclaw_llm::types::ContentBlock;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
-
-use closeclaw_common::processor::context::{ProcessedMessage, RawMessage};
-pub use closeclaw_common::processor::ProcessorRegistry;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::SessionManager;
-
 use sha2::{Digest, Sha256};
-
-use closeclaw_llm::types::ContentBlock;
 
 /// Type alias for the output channel sender used across session handler modules.
 pub(crate) type OutputTx = Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>;
@@ -189,15 +189,15 @@ pub(crate) struct InboundChainInput {
 /// Gateway - routes messages between IM plugins and agents
 pub struct Gateway {
     config: GatewayConfig,
-    plugins: RwLock<HashMap<String, Arc<dyn super::im::IMPlugin>>>,
+    plugins: RwLock<HashMap<String, Arc<dyn closeclaw_common::IMPlugin>>>,
     session_manager: Arc<SessionManager>,
-    processor_registry: Option<Arc<ProcessorRegistry>>,
+    processor_registry: Option<Arc<dyn ProcessorChain>>,
     checkpoint_manager: Option<Arc<CheckpointManager<dyn PersistenceService>>>,
     session_handler: Option<Arc<SessionMessageHandler>>,
     /// Daemon-level approval flow for intercepting `/approve` / `/deny` commands.
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,
     /// Slash command dispatcher.
-    slash_dispatcher: RwLock<Option<Arc<SlashDispatcher>>>,
+    slash_dispatcher: RwLock<Option<Arc<dyn SlashRouter>>>,
     /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
     /// Bounded inbound queue sender. `None` until the queue is started.
@@ -238,7 +238,7 @@ impl Gateway {
     pub fn with_processor_registry(
         config: GatewayConfig,
         session_manager: Arc<SessionManager>,
-        registry: Arc<ProcessorRegistry>,
+        registry: Arc<dyn ProcessorChain>,
     ) -> Self {
         Self {
             config,
@@ -329,24 +329,19 @@ impl Gateway {
     }
 
     #[cfg(test)]
-    pub(crate) fn processor_registry_len(&self) -> (usize, usize) {
-        self.processor_registry
-            .as_ref()
-            .map(|r| (r.inbound_len(), r.outbound_len()))
-            .unwrap_or((0, 0))
-    }
-
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) async fn has_slash_dispatcher(&self) -> bool {
         self.slash_dispatcher.read().await.is_some()
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) async fn has_session_handler(&self) -> bool {
         self.session_handler.is_some()
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn config_name(&self) -> &str {
         &self.config.name
     }
@@ -563,10 +558,10 @@ impl Gateway {
 
     /// Register an IM plugin.
     ///
-    /// The plugin's [`platform`](super::im::IMPlugin::platform) identifier is
+    /// The plugin's [`platform`](closeclaw_common::IMPlugin::platform) identifier is
     /// used as the registry key. Re-registering the same platform replaces
     /// the previous plugin.
-    pub async fn register_plugin(&self, plugin: Arc<dyn super::im::IMPlugin>) {
+    pub async fn register_plugin(&self, plugin: Arc<dyn closeclaw_common::IMPlugin>) {
         let key = plugin.platform().to_string();
         let mut plugins = self.plugins.write().await;
         plugins.insert(key, plugin);
@@ -578,13 +573,13 @@ impl Gateway {
     }
 
     /// Get a registered IM plugin by platform identifier.
-    pub async fn get_plugin(&self, platform: &str) -> Option<Arc<dyn super::im::IMPlugin>> {
+    pub async fn get_plugin(&self, platform: &str) -> Option<Arc<dyn closeclaw_common::IMPlugin>> {
         let plugins = self.plugins.read().await;
         plugins.get(platform).cloned()
     }
 
     /// Get all registered IM plugins (snapshot).
-    pub async fn get_all_plugins(&self) -> Vec<Arc<dyn super::im::IMPlugin>> {
+    pub async fn get_all_plugins(&self) -> Vec<Arc<dyn closeclaw_common::IMPlugin>> {
         let plugins = self.plugins.read().await;
         plugins.values().cloned().collect()
     }
@@ -974,26 +969,26 @@ pub enum GatewayError {
     OutboundError(String),
 }
 
-impl From<super::im::AdapterError> for GatewayError {
-    fn from(e: super::im::AdapterError) -> Self {
+impl From<closeclaw_common::AdapterError> for GatewayError {
+    fn from(e: closeclaw_common::AdapterError) -> Self {
         GatewayError::AdapterError(e.to_string())
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
-mod priority_prompt_tests;
+pub mod priority_prompt_tests;
+#[cfg(feature = "full-tests")]
+pub mod session_handler_dynamic_tests;
 #[cfg(test)]
-mod session_handler_dynamic_tests;
-#[cfg(test)]
-mod session_handler_tests;
-#[cfg(test)]
-mod step1_5_tests;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod tests_dmscope;
-#[cfg(test)]
-mod tests_processor_chain;
-#[cfg(test)]
-mod tests_thread;
+pub mod session_handler_tests;
+#[cfg(feature = "full-tests")]
+pub mod step1_5_tests;
+#[cfg(feature = "full-tests")]
+pub mod tests;
+#[cfg(feature = "full-tests")]
+pub mod tests_dmscope;
+#[cfg(feature = "full-tests")]
+pub mod tests_processor_chain;
+#[cfg(feature = "full-tests")]
+pub mod tests_thread;

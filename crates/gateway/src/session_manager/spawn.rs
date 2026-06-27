@@ -8,13 +8,10 @@
 use super::SessionManager;
 use crate::session_manager::communication::{CommunicationConfig, CommunicationError};
 use crate::Session;
-use closeclaw_common::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
-use closeclaw_common::system_prompt::workdir::build_workdir_context;
-use closeclaw_common::tool_registry::ToolContext;
 use closeclaw_config::agents::ResolvedAgentConfig;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::session::ConversationSession;
-use closeclaw_session::bootstrap::loader::{load_bootstrap_files, BootstrapMode};
+use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
 };
@@ -316,54 +313,22 @@ impl SessionManager {
             .await?;
 
         // 3. Determine bootstrap_mode
-        let bootstrap_mode = if light_context {
+        let _bootstrap_mode = if light_context {
             BootstrapMode::Minimal
         } else {
             config.bootstrap_mode
         };
 
         // 4. Build system prompt (mirror find_or_create)
-        let bootstrap_files = if let Some(ref workspace_root) = self.workspace_dir {
-            load_bootstrap_files(workspace_root, bootstrap_mode)
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
-        } else {
-            vec![]
-        };
-        let tool_registry_guard = self.tool_registry.read().await;
-        let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
-        let skill_registry = self.skill_registry.read().await.clone();
-        let agent_registry = self.agent_registry.read().await.clone();
         let agent_id = config.id.clone();
-        let tool_ctx = ToolContext {
-            agent_id: agent_id.clone(),
-            workdir: Some(build_workdir_context(&workdir_path.to_string_lossy())),
-            session_id: Some(child_session_id.clone()),
-            call_id: None,
-            session: None,
+        let prompt = if let Some(builder) = self.system_prompt_builder.read().await.clone() {
+            let overrides = self.prompt_overrides.read().await.clone();
+            builder
+                .build_prompt(&child_session_id, &agent_id, overrides.as_ref())
+                .await
+        } else {
+            String::new()
         };
-        let workspace_root = self.workspace_dir.clone().unwrap_or_default();
-        // Pass agent-level tool filtering from the resolved config.
-        let filters = Self::extract_agent_filters(config);
-        let prompt = build_from_workspace(
-            &workspace_root,
-            WorkspaceBuildConfig {
-                bootstrap_files,
-                tool_registry: tool_registry_ref,
-                tool_ctx: &tool_ctx,
-                skill_registry,
-                agent_id: Some(&agent_id),
-                agent_tools: filters.agent_tools,
-                agent_disallowed_tools: filters.agent_disallowed_tools,
-                agent_skills: filters.agent_skills,
-                dynamic_sections: vec![],
-                append_section: None,
-                agent_registry,
-            },
-        )
-        .await;
-        drop(tool_registry_guard);
 
         // 4a. Append spawn context to the system prompt so the child
         //     agent knows its role, depth limits, and communication
@@ -641,6 +606,7 @@ impl SessionManager {
     ///
     /// Pure read operation — does not hold the children lock across
     /// any await point.
+    #[allow(dead_code)]
     pub(crate) async fn validate_child_ownership(
         &self,
         parent_id: &str,
@@ -657,6 +623,7 @@ impl SessionManager {
     /// Inject a new task into a persistent child session's pending
     /// message queue. The task is enqueued (FIFO) and will be
     /// consumed after the child's current turn completes.
+    #[allow(dead_code)]
     pub(crate) async fn steer_child(&self, child_id: &str, task: &str) -> Result<(), String> {
         let parent_session_id = self
             .get_parent_of(child_id)

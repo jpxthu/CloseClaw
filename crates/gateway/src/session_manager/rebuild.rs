@@ -3,12 +3,6 @@
 //! Extracted from `session_manager.rs` to keep the file under the
 //! 500-line hard limit.
 
-use closeclaw_common::system_prompt::builder::{build_from_workspace, WorkspaceBuildConfig};
-use closeclaw_common::system_prompt::sections::invalidate_all_sections;
-use closeclaw_common::system_prompt::workdir::build_workdir_context;
-use closeclaw_common::tool_registry::ToolContext;
-use closeclaw_session::bootstrap::loader::load_bootstrap_files;
-
 use super::SessionManager;
 
 impl SessionManager {
@@ -28,53 +22,22 @@ impl SessionManager {
                 None => return,
             }
         };
-        invalidate_all_sections();
-        let bootstrap_files = if let Some(ref workspace) = self.workspace_dir {
-            load_bootstrap_files(workspace, self.bootstrap_mode)
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
-        } else {
-            vec![]
+
+        let builder = match self.system_prompt_builder.read().await.clone() {
+            Some(b) => b,
+            None => {
+                tracing::debug!(
+                    session_id,
+                    "no system prompt builder configured, skipping rebuild"
+                );
+                return;
+            }
         };
-        let tool_registry_guard = self.tool_registry.read().await;
-        let tool_registry_ref = tool_registry_guard.as_ref().map(|r| r.as_ref());
-        let skill_registry = self.skill_registry.read().await.clone();
-        let agent_registry = self.agent_registry.read().await.clone();
-        let session_workdir = {
-            let cs_read = cs.read().await;
-            cs_read.workdir().to_path_buf()
-        };
-        let tool_ctx = ToolContext {
-            agent_id: agent_id.clone(),
-            workdir: Some(build_workdir_context(&session_workdir.to_string_lossy())),
-            session_id: None,
-            call_id: None,
-            session: None,
-        };
-        let workspace_root = self.workspace_dir.clone().unwrap_or_default();
-        let agent_cfg = self.get_agent_config(&agent_id).await;
-        let filters = agent_cfg
-            .as_ref()
-            .map(Self::extract_agent_filters)
-            .unwrap_or_default();
-        let prompt = build_from_workspace(
-            &workspace_root,
-            WorkspaceBuildConfig {
-                bootstrap_files,
-                tool_registry: tool_registry_ref,
-                tool_ctx: &tool_ctx,
-                skill_registry,
-                agent_id: Some(&agent_id),
-                agent_tools: filters.agent_tools,
-                agent_disallowed_tools: filters.agent_disallowed_tools,
-                agent_skills: filters.agent_skills,
-                dynamic_sections: vec![],
-                append_section: None,
-                agent_registry,
-            },
-        )
-        .await;
+
+        let overrides = self.prompt_overrides.read().await.clone();
+        let prompt = builder
+            .build_prompt(session_id, &agent_id, overrides.as_ref())
+            .await;
 
         let mut cs = cs.write().await;
         cs.replace_system_prompt(prompt);

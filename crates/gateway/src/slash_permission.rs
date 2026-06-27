@@ -6,10 +6,9 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::slash_router::handler::SlashHandler;
-use closeclaw_common::slash_router::side_effect::ReplyAction;
-use closeclaw_common::slash_router::side_effect::SideEffectContext;
-use closeclaw_common::slash_router::{parse_slash, SlashContext, SlashDispatcher};
+use closeclaw_common::slash_router::{
+    parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashHandler, SlashRouter,
+};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
@@ -20,7 +19,7 @@ use super::{Gateway, HandleResult};
 
 impl Gateway {
     /// Install the slash command dispatcher.
-    pub async fn set_slash_dispatcher(&self, dispatcher: Arc<SlashDispatcher>) {
+    pub async fn set_slash_dispatcher(&self, dispatcher: Arc<dyn SlashRouter>) {
         let mut slot = self.slash_dispatcher.write().await;
         *slot = Some(dispatcher);
     }
@@ -214,10 +213,12 @@ impl Gateway {
         }
 
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
+        let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
+            self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
         let side_effect_ctx = SideEffectContext::new(
             session_id.to_owned(),
             channel.to_owned(),
-            Arc::clone(&self.session_manager),
+            session_mgr,
             reply_tx,
         );
 

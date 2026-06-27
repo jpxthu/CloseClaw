@@ -91,24 +91,27 @@ impl SessionManager {
                             )
                             .await?;
 
-                            let tool_registry = self.tool_registry.read().await;
-                            let skill_registry = self.skill_registry.read().await.clone();
+                            let _tool_registry = self.tool_registry.read().await;
+                            let _skill_registry = self.skill_registry.read().await.clone();
                             let agent_cfg = self.get_agent_config(&agent_id).await;
-                            let filters = agent_cfg
+                            let _filters = agent_cfg
                                 .as_ref()
                                 .map(Self::extract_agent_filters)
                                 .unwrap_or_default();
-                            let agent_registry = self.agent_registry.read().await.clone();
-                            let prompt = session_helpers::build_session_system_prompt(
-                                &self.workspace_dir,
-                                self.bootstrap_mode,
-                                &tool_registry,
-                                skill_registry,
-                                &agent_id,
-                                &filters,
-                                agent_registry,
-                            )
-                            .await;
+                            let overrides = self.prompt_overrides.read().await.clone();
+                            let prompt = if let Some(builder) =
+                                self.system_prompt_builder.read().await.as_ref()
+                            {
+                                session_helpers::build_session_system_prompt(
+                                    builder.as_ref(),
+                                    &session_id,
+                                    &agent_id,
+                                    overrides.as_ref(),
+                                )
+                                .await
+                            } else {
+                                String::new()
+                            };
 
                             let mut conv_session = ConversationSession::new(
                                 session_id.clone(),
@@ -211,25 +214,26 @@ impl SessionManager {
         }
 
         // Build system prompt
-        let tool_registry = self.tool_registry.read().await;
-        let skill_registry = self.skill_registry.read().await.clone();
+        let _tool_registry = self.tool_registry.read().await;
+        let _skill_registry = self.skill_registry.read().await.clone();
         let agent_id = message.to.clone();
         let agent_cfg = self.get_agent_config(&agent_id).await;
-        let filters = agent_cfg
+        let _filters = agent_cfg
             .as_ref()
             .map(Self::extract_agent_filters)
             .unwrap_or_default();
-        let agent_registry = self.agent_registry.read().await.clone();
-        let prompt = session_helpers::build_session_system_prompt(
-            &self.workspace_dir,
-            self.bootstrap_mode,
-            &tool_registry,
-            skill_registry,
-            &agent_id,
-            &filters,
-            agent_registry,
-        )
-        .await;
+        let overrides = self.prompt_overrides.read().await.clone();
+        let prompt = if let Some(builder) = self.system_prompt_builder.read().await.as_ref() {
+            session_helpers::build_session_system_prompt(
+                builder.as_ref(),
+                &session_id,
+                &agent_id,
+                overrides.as_ref(),
+            )
+            .await
+        } else {
+            String::new()
+        };
 
         // Compute workdir
         let workdir_path = if let Some(ref workspace_dir) = self.workspace_dir {

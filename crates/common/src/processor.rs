@@ -120,6 +120,20 @@ pub struct UnifiedUsage {
     pub reasoning_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_read_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u32>,
+}
+
+/// Unified response structure returned by all LLM providers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UnifiedResponse {
+    /// Ordered list of content blocks.
+    pub content_blocks: Vec<ContentBlock>,
+    /// Token usage statistics.
+    pub usage: UnifiedUsage,
+    /// Reason why the response finished (e.g., "stop", "length").
+    pub finish_reason: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

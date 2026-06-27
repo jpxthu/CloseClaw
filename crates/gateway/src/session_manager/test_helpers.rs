@@ -8,7 +8,7 @@
 use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
-use closeclaw_common::agent_lookup::config::SubagentsConfig;
+use closeclaw_common::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_llm::session::{ChatSession, ConversationSession, SessionMessage};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
@@ -37,6 +37,7 @@ pub(super) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
 }
 
 /// Build a `UnifiedResponse` with the given content blocks and zero usage.
+#[allow(dead_code)]
 pub(super) fn make_response(blocks: Vec<ContentBlock>) -> UnifiedResponse {
     UnifiedResponse {
         content_blocks: blocks,
@@ -55,6 +56,7 @@ pub(super) fn make_response(blocks: Vec<ContentBlock>) -> UnifiedResponse {
 /// Append a single assistant message containing the given content blocks
 /// to a child session's `ConversationSession`. Used to simulate
 /// `append_response` after a child turn completes.
+#[allow(dead_code)]
 pub(super) async fn append_assistant_to_child(
     mgr: &SessionManager,
     child_id: &str,
@@ -105,6 +107,7 @@ pub(super) async fn setup_parent_with_conv(mgr: &SessionManager, parent_id: &str
 /// `role="system"` `SessionMessage` using the documented
 /// `[子 agent X] 任务已完成：\n<text>` format, and return the resulting
 /// message history. Used by the system-injection test.
+#[allow(dead_code)]
 pub(super) async fn inject_events_and_return_messages(
     mgr: &SessionManager,
     parent_id: &str,
@@ -159,6 +162,7 @@ pub(super) async fn register_child_only(
 /// Create `N` run-mode children under the given parent, each with a
 /// unique `worker-{i}` agent id and a unique `answer-{i}` assistant
 /// message. Returns the list of generated child session ids.
+#[allow(dead_code)]
 pub(super) async fn spawn_n_run_children(
     mgr: &SessionManager,
     parent_id: &str,
