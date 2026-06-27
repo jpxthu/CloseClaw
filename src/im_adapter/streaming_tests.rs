@@ -62,8 +62,9 @@ fn line_buffer_force_emits_at_threshold() {
     let mut buf = LineBuffer::with_threshold(10);
     let out = buf.feed("a]long string without any terminator");
     assert_eq!(out.len(), 1);
-    assert_eq!(out[0].chars().count(), 10);
-    assert_eq!(out[0], "a]long str");
+    // force_emit outputs entire buffer, not truncated at threshold.
+    assert_eq!(out[0], "a]long string without any terminator");
+    assert!(buf.flush().is_none());
 }
 
 #[test]
@@ -109,12 +110,12 @@ fn renderer_routes_dsl_line_to_text_messages() {
 #[test]
 fn renderer_force_emits_long_text_at_threshold() {
     let mut r = DefaultStreamingRenderer::new();
-    // No terminator in 150-char string; first 100 chars must be emitted.
+    // No terminator in 150-char string; all 150 chars must be emitted at once.
     let long_text = "a".repeat(150);
     r.handle_event(block_start(0, ContentBlockType::Text));
     let out = r.handle_event(text_delta(&long_text));
     assert_eq!(out.text_messages.len(), 1);
-    assert_eq!(out.text_messages[0].chars().count(), 100);
+    assert_eq!(out.text_messages[0].chars().count(), 150);
 }
 
 #[test]
