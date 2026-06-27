@@ -13,6 +13,8 @@ pub mod plugin;
 #[cfg(test)]
 pub mod plugin_tests;
 pub mod streaming;
+#[cfg(test)]
+pub mod streaming_tests;
 
 pub use error::AdapterError;
 pub use normalized::NormalizedMessage;
