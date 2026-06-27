@@ -112,7 +112,6 @@ fn config_dir() -> PathBuf {
     PathBuf::from(home).join(".closeclaw").join("config")
 }
 
-#[allow(dead_code)]
 /// Create the initial `master` agent if it does not already exist.
 ///
 /// Writes:
@@ -120,7 +119,7 @@ fn config_dir() -> PathBuf {
 /// - `~/.closeclaw/config/agents.json` (appends "master" if missing)
 ///
 /// Idempotent: skips files that already exist.
-fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyhow::Result<()> {
+pub(crate) fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyhow::Result<()> {
     // ── Write master agent config.json if missing ──────────────────────────────
     let master_config_path = agents_dir.join("master").join("config.json");
     if !master_config_path.exists() {
