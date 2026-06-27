@@ -119,7 +119,7 @@ fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
 async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
     for i in 0..count {
         let child_id = format!("child-{}", i);
-        let cs = crate::llm::session::ConversationSession::new(
+        let cs = closeclaw_llm::session::ConversationSession::new(
             child_id.clone(),
             "test-model".to_string(),
             std::path::PathBuf::from("/tmp"),
@@ -666,7 +666,7 @@ async fn setup_kill_test_session(
     agent_id: &str,
     depth: u32,
 ) {
-    let cs = crate::llm::session::ConversationSession::new(
+    let cs = closeclaw_llm::session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),

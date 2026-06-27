@@ -817,7 +817,7 @@ mod provider_info_tests {
 #[cfg(test)]
 mod compute_default_selection_tests {
     use super::compute_default_selection;
-    use crate::llm::model_info::ModelInfo;
+    use closeclaw_llm::model_info::ModelInfo;
     use std::collections::HashSet;
 
     fn make_model(id: &str) -> ModelInfo {

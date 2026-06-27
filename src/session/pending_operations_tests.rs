@@ -6,11 +6,11 @@
 //! - Recovery injection with non-empty pending_operations
 //! - Recovery flow unaffected when pending_operations is empty
 
-use crate::llm::session::ConversationSession;
-use crate::llm::session_state::{ChildSessionState, ToolExecState};
 use crate::session::persistence::{
     PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
 };
+use closeclaw_llm::session::ConversationSession;
+use closeclaw_llm::session_state::{ChildSessionState, ToolExecState};
 
 // ── Step 1.4: collect_pending_operations ────────────────────────────────
 

@@ -8,9 +8,9 @@
 use crate::im_adapter::normalized::NormalizedMessage;
 use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
 use crate::im_adapter::AdapterError;
-use crate::llm::types::ContentBlock;
 use async_trait::async_trait;
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_llm::types::ContentBlock;
 use std::io::{self, BufRead, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 

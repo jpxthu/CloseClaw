@@ -12,7 +12,7 @@ use crate::config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
-use crate::llm::{
+use closeclaw_llm::{
     DeepSeekProvider, GlmProvider, MiniMaxProvider, ModelDiscovery, ModelLister,
     ProviderModelKnowledge, VolcEngineProvider,
 };
@@ -22,7 +22,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::llm::model_info::ModelInfo;
+use closeclaw_llm::model_info::ModelInfo;
 
 /// Parse user input for model selection into a vector of 0-based indices.
 ///

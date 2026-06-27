@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use crate::gateway::session_manager::SessionManager;
-use crate::llm::session::ChatSession;
+use closeclaw_llm::session::ChatSession;
 
 /// Action produced by [`SlashResult::execute`](super::SlashResult::execute)
 /// for the Gateway to dispatch.
@@ -67,7 +67,7 @@ impl SideEffectContext {
     /// Get the conversation session for the current session ID.
     pub async fn get_conversation_session(
         &self,
-    ) -> Option<Arc<tokio::sync::RwLock<crate::llm::session::ConversationSession>>> {
+    ) -> Option<Arc<tokio::sync::RwLock<closeclaw_llm::session::ConversationSession>>> {
         self.session_manager
             .get_conversation_session(&self.session_id)
             .await

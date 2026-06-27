@@ -5,8 +5,8 @@
 
 use async_trait::async_trait;
 
-use crate::llm::session::SessionMessage;
-use crate::llm::types::ContentBlock;
+use closeclaw_llm::session::SessionMessage;
+use closeclaw_llm::types::ContentBlock;
 
 use super::active_searcher::ActiveSearcherError;
 
@@ -15,7 +15,7 @@ use super::active_searcher::ActiveSearcherError;
 /// Abstract LLM caller for concept extraction and summarisation.
 ///
 /// Implementors must be `Send + Sync` for use in async contexts.
-/// In production, wrap a real [`Provider`][crate::llm::Provider];
+/// In production, wrap a real [`Provider`][closeclaw_llm::Provider];
 /// in tests, provide a mock that returns fixed strings.
 #[async_trait]
 pub trait LlmCaller: Send + Sync {

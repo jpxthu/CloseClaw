@@ -52,7 +52,7 @@ fn test_dispatcher_all_handlers() {
 
 #[test]
 fn test_reasoning_level_getter_setter_symmetry() {
-    let mut s = crate::llm::session::ConversationSession::new(
+    let mut s = closeclaw_llm::session::ConversationSession::new(
         "test-sym".to_owned(),
         "test-model".to_owned(),
         std::path::PathBuf::from("/tmp"),
@@ -71,7 +71,7 @@ fn test_reasoning_level_getter_setter_symmetry() {
 
 #[test]
 fn test_reasoning_level_with_builder() {
-    let s = crate::llm::session::ConversationSession::new(
+    let s = closeclaw_llm::session::ConversationSession::new(
         "test-b".to_owned(),
         "test-model".to_owned(),
         std::path::PathBuf::from("/tmp"),

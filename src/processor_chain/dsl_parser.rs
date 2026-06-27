@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::llm::types::ContentBlock;
+use closeclaw_llm::types::ContentBlock;
 
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
 
@@ -49,7 +49,7 @@ pub struct DslParseResult {
 
 impl DslParseResult {
     /// Construct a [`DslParseResult`] from a slice of
-    /// [`ContentBlock`][crate::llm::types::ContentBlock].
+    /// [`ContentBlock`][closeclaw_llm::types::ContentBlock].
     ///
     /// Only [`ContentBlock::Text`] variants are processed; [`ContentBlock::Thinking`],
     /// [`ContentBlock::ToolUse`], and [`ContentBlock::ToolResult`] are skipped.
@@ -102,7 +102,7 @@ impl DslParser {
         }
     }
 
-    /// Parse DSL instructions from a list of [`ContentBlock`][crate::llm::types::ContentBlock].
+    /// Parse DSL instructions from a list of [`ContentBlock`][closeclaw_llm::types::ContentBlock].
     ///
     /// Only [`ContentBlock::Text`] variants are processed; [`ContentBlock::Thinking`],
     /// [`ContentBlock::ToolUse`], and [`ContentBlock::ToolResult`] are skipped.
@@ -319,7 +319,7 @@ impl MessageProcessor for DslParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::types::ContentBlock;
+    use closeclaw_llm::types::ContentBlock;
 
     #[test]
     fn test_no_dsl() {

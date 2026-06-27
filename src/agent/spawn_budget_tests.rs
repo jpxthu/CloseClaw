@@ -468,7 +468,7 @@ async fn test_kill_run_mode_child_succeeds() {
     );
 
     let parent_id = "parent-run-kill";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -490,7 +490,7 @@ async fn test_kill_run_mode_child_succeeds() {
     );
 
     let child_id = "run-child-to-kill";
-    let child_cs = crate::llm::session::ConversationSession::new(
+    let child_cs = closeclaw_llm::session::ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -545,7 +545,7 @@ async fn test_kill_session_mode_child_succeeds() {
     );
 
     let parent_id = "parent-session-kill";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -567,7 +567,7 @@ async fn test_kill_session_mode_child_succeeds() {
     );
 
     let child_id = "session-child-to-kill";
-    let child_cs = crate::llm::session::ConversationSession::new(
+    let child_cs = closeclaw_llm::session::ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -627,7 +627,7 @@ async fn test_cascade_terminate_all_children_simulation() {
     );
 
     let parent_id = "parent-cascade";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -655,7 +655,7 @@ async fn test_cascade_terminate_all_children_simulation() {
         ("child-c", SpawnMode::Run),
     ];
     for (child_id, mode) in &children {
-        let cs = crate::llm::session::ConversationSession::new(
+        let cs = closeclaw_llm::session::ConversationSession::new(
             child_id.to_string(),
             "test-model".to_string(),
             tmp.path().to_path_buf(),
@@ -720,7 +720,7 @@ async fn test_cascade_terminate_no_children_noop() {
     );
 
     let parent_id = "parent-no-children";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -797,7 +797,7 @@ async fn test_validate_child_ownership_all_modes() {
     let (sm, _) = make_session_manager_with_memory_storage();
 
     let parent_id = "parent-ownership";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -860,7 +860,7 @@ async fn test_kill_child_cascades_to_grandchild() {
     let (mgr, _) = make_session_manager_with_memory_storage();
 
     let parent_id = "parent-kill-cascade";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -883,7 +883,7 @@ async fn test_kill_child_cascades_to_grandchild() {
 
     // Create child with a grandchild registered under it
     let child_id = "child-kill-cascade";
-    let child_cs = crate::llm::session::ConversationSession::new(
+    let child_cs = closeclaw_llm::session::ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -917,7 +917,7 @@ async fn test_kill_child_cascades_to_grandchild() {
 
     // Register grandchild under child
     let grandchild_id = "grandchild-kill-cascade";
-    let gc_cs = crate::llm::session::ConversationSession::new(
+    let gc_cs = closeclaw_llm::session::ConversationSession::new(
         grandchild_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),

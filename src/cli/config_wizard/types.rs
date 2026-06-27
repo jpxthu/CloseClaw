@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::llm::model_info::ModelInfo;
+use closeclaw_llm::model_info::ModelInfo;
 
 use serde::{Deserialize, Serialize};
 

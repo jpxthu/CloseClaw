@@ -15,7 +15,6 @@ pub mod daemon;
 pub use closeclaw_gateway as gateway;
 pub mod im;
 pub use closeclaw_im_adapter as im_adapter;
-pub mod llm;
 pub use closeclaw_permission;
 pub mod platform;
 pub mod processor_chain;

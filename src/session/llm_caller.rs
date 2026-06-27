@@ -10,17 +10,17 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::gateway::session_handler::MessageMetadata;
-use crate::llm::client::UnifiedChatClient;
-use crate::llm::session::{ChatSession, ConversationSession};
-use crate::llm::session_state::LlmState;
-use crate::llm::streaming::StreamingSink;
-use crate::llm::types::{InternalRequest, UnifiedResponse};
-use crate::llm::unified_fallback::UnifiedFallbackClient;
-use crate::llm::{LLMError, Message as ChatMessage};
 use crate::session::persistence::ReasoningLevel;
 use crate::system_prompt::inject::{
     build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
 };
+use closeclaw_llm::client::UnifiedChatClient;
+use closeclaw_llm::session::{ChatSession, ConversationSession};
+use closeclaw_llm::session_state::LlmState;
+use closeclaw_llm::streaming::StreamingSink;
+use closeclaw_llm::types::{InternalRequest, UnifiedResponse};
+use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
+use closeclaw_llm::{LLMError, Message as ChatMessage};
 
 use crate::gateway::session_manager::SessionManager;
 
@@ -40,9 +40,9 @@ pub async fn push_messages_with_injection(
     session_id: &str,
     content: &str,
 ) {
-    use crate::llm::session::InjectionPosition;
+    use closeclaw_llm::session::InjectionPosition;
 
-    let injection: Option<crate::llm::session::MemoryInjection> =
+    let injection: Option<closeclaw_llm::session::MemoryInjection> =
         match session_manager.get_conversation_session(session_id).await {
             Some(cs) => cs.read().await.take_memory_injection(),
             None => None,
@@ -158,7 +158,7 @@ pub async fn build_request(
         model: String::new(),
         messages: messages
             .iter()
-            .map(|m| crate::llm::types::InternalMessage {
+            .map(|m| closeclaw_llm::types::InternalMessage {
                 role: m.role.clone(),
                 content: m.content.clone(),
             })
@@ -233,7 +233,7 @@ pub async fn call_llm_streaming(
     session_id: &str,
 ) -> Result<
     (
-        crate::llm::protocol::OutgoingEventStream,
+        closeclaw_llm::protocol::OutgoingEventStream,
         Option<Arc<dyn StreamingSink>>,
     ),
     LLMError,
@@ -309,17 +309,20 @@ impl<S> SinkUpdater<S> {
 impl<S> futures::Stream for SinkUpdater<S>
 where
     S: futures::Stream<
-            Item = Result<crate::llm::types::StreamEvent, crate::llm::protocol::ProtocolError>,
+            Item = Result<
+                closeclaw_llm::types::StreamEvent,
+                closeclaw_llm::protocol::ProtocolError,
+            >,
         > + Unpin,
 {
-    type Item = Result<crate::llm::types::StreamEvent, crate::llm::protocol::ProtocolError>;
+    type Item = Result<closeclaw_llm::types::StreamEvent, closeclaw_llm::protocol::ProtocolError>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        use crate::llm::streaming::StreamDone;
-        use crate::llm::types::{ContentDelta, StreamEvent};
+        use closeclaw_llm::streaming::StreamDone;
+        use closeclaw_llm::types::{ContentDelta, StreamEvent};
 
         match std::pin::Pin::new(&mut self.inner).poll_next(cx) {
             std::task::Poll::Ready(Some(Ok(event))) => {

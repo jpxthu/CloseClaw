@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use crate::common::VerbosityLevel;
 use crate::gateway::SessionManager;
-use crate::llm::session::{ChatSession, ConversationSession};
 use crate::slash::context::SlashContext;
 use crate::slash::handler::{SlashHandler, SlashResult};
+use closeclaw_llm::session::{ChatSession, ConversationSession};
 
 // ── NewSessionHandler ────────────────────────────────────────────────────
 

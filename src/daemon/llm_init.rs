@@ -2,10 +2,10 @@
 
 use super::*;
 use crate::config::providers::CredentialsProvider;
-use crate::llm::anthropic::AnthropicProvider;
-use crate::llm::minimax::MiniMaxProvider;
-use crate::llm::openai::OpenAIProvider;
-use crate::llm::LLMRegistry;
+use closeclaw_llm::anthropic::AnthropicProvider;
+use closeclaw_llm::minimax::MiniMaxProvider;
+use closeclaw_llm::openai::OpenAIProvider;
+use closeclaw_llm::LLMRegistry;
 use std::collections::HashMap;
 
 impl Daemon {
@@ -43,7 +43,7 @@ impl Daemon {
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = openai_key {
-            let provider: Arc<dyn crate::llm::provider::Provider> =
+            let provider: Arc<dyn closeclaw_llm::provider::Provider> =
                 Arc::new(OpenAIProvider::new(api_key));
             registry.register("openai".to_string(), provider).await;
             info!("OpenAI provider registered");
@@ -60,7 +60,7 @@ impl Daemon {
             .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = anthropic_key {
-            let provider: Arc<dyn crate::llm::provider::Provider> =
+            let provider: Arc<dyn closeclaw_llm::provider::Provider> =
                 Arc::new(AnthropicProvider::new(api_key.clone()));
             registry.register("anthropic".to_string(), provider).await;
             info!("Anthropic provider registered");
@@ -73,7 +73,7 @@ impl Daemon {
             .or_else(|| std::env::var("MINIMAX_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = minimax_key {
-            let provider: Arc<dyn crate::llm::provider::Provider> =
+            let provider: Arc<dyn closeclaw_llm::provider::Provider> =
                 Arc::new(MiniMaxProvider::new(api_key));
             registry.register("minimax".to_string(), provider).await;
             info!("MiniMax provider registered");
