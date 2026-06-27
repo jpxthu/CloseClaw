@@ -77,7 +77,9 @@ fn inject_agent_registry_into_skill_registry(
 ) {
     let mut guard = skill_registry.write().unwrap();
     if let Some(ref mut disk_reg) = *guard {
-        disk_reg.set_agent_registry(Arc::clone(agent_registry));
+        disk_reg.set_agent_skills_query(
+            Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentSkillsQuery>
+        );
     }
 }
 
@@ -86,7 +88,9 @@ fn inject_agent_registry_into_tool_registry(
     tool_registry: &Arc<ToolRegistry>,
     agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
 ) {
-    tool_registry.set_agent_registry(Arc::clone(agent_registry));
+    tool_registry.set_agent_tools_query(
+        Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentToolsConfigQuery>
+    );
 }
 
 /// Wire ConfigManager and AgentRegistry into SessionManager.
@@ -126,14 +130,21 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.permission_engine),
     ));
+    let task_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
     let builtin_ctx = Arc::new(BuiltinToolContext {
         config_manager: Arc::clone(ctx.config_manager),
-        agent_registry: Arc::clone(ctx.agent_registry),
+        agent_tools_query: Arc::clone(ctx.agent_registry)
+            as Arc<dyn closeclaw_common::AgentToolsConfigQuery>,
+        agent_config_lookup: Arc::clone(ctx.agent_registry)
+            as Arc<dyn closeclaw_common::AgentConfigLookup>,
         disk_registry: Arc::clone(disk_reg),
         permission_engine: Arc::clone(ctx.permission_engine),
-        spawn_controller,
+        spawn_validator: Arc::clone(&spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
         session_manager: Arc::clone(ctx.session_manager),
+        task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
     });
     register_builtin_tools(ctx.tool_registry, builtin_ctx).await;
-    crate::im_adapter::platforms::feishu::tools::register_tools(ctx.tool_registry).await;
+    for tool in crate::im_adapter::platforms::feishu::tools::create_feishu_tools() {
+        ctx.tool_registry.register(tool).await.ok();
+    }
 }

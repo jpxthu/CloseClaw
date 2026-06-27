@@ -8,7 +8,7 @@ use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
 use crate::im_adapter::plugin::RenderedOutput;
 use crate::im_adapter::streaming::DefaultStreamingRenderer;
 use crate::llm::types::ContentBlock;
-use crate::processor_chain::DslParseResult;
+use closeclaw_common::processor::DslParseResult;
 use std::sync::Mutex;
 
 // ---------------------------------------------------------------------------
@@ -687,7 +687,7 @@ impl TerminalRenderer {
         let mut out = String::new();
         for inst in &dsl_result.instructions {
             match inst {
-                crate::processor_chain::DslInstruction::Button {
+                closeclaw_common::processor::DslInstruction::Button {
                     label,
                     action,
                     value,
@@ -697,7 +697,7 @@ impl TerminalRenderer {
                     out.push_str(&self.dim_or_plain(&line));
                     out.push('\n');
                 }
-                crate::processor_chain::DslInstruction::Selector {
+                closeclaw_common::processor::DslInstruction::Selector {
                     label,
                     options,
                     action,

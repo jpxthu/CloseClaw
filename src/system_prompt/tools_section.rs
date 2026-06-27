@@ -42,7 +42,7 @@ pub async fn build_tools_section(
         (agent_tools, agent_disallowed_tools)
     } else {
         // Query AgentRegistry directly (design-doc query path).
-        registry.query_agent_tools_config(&ctx.agent_id)
+        registry.query_agent_tools_config(&ctx.agent_id).await
     };
 
     // 3. Build the prompt-generation context from the names + the existing

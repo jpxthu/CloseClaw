@@ -1,0 +1,62 @@
+[package]
+name = "closeclaw-tools"
+version = "0.1.0"
+edition.workspace = true
+description = "Tools system for CloseClaw"
+license = "MIT"
+
+[dependencies]
+# Internal crates
+closeclaw-common = { path = "../common" }
+closeclaw-config = { path = "../config" }
+closeclaw-session = { path = "../session" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-gateway = { path = "../gateway" }
+closeclaw-skills = { path = "../skills" }
+closeclaw-permission = { path = "../permission" }
+
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "2.0"
+
+# Async trait
+async-trait = "0.1"
+
+# Logging
+tracing = "=0.1.43"
+
+# Glob pattern matching
+glob = "0.3"
+
+# Tree-sitter for Bash AST parsing
+tree-sitter = "0.24"
+tree-sitter-bash = "0.23"
+
+# Regex
+regex = "1.10"
+regex-lite = "0.1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Terminal size detection
+terminal_size = "0.4"
+
+# Async stream
+async-stream = "0.3.6"
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3.4"

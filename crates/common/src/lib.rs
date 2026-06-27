@@ -1,5 +1,8 @@
 pub mod agent_config;
+pub mod agent_config_lookup;
 pub mod agent_lookup;
+pub mod agent_skills_query;
+pub mod agent_tools_config_query;
 pub mod bootstrap;
 pub mod communication;
 pub mod compaction;
@@ -16,14 +19,19 @@ pub mod slash_router;
 pub mod storage_provider;
 pub mod streaming;
 pub mod system_prompt;
+pub mod task_manager;
 pub mod tool_registry;
 pub mod verbosity;
+pub mod workdir_context;
 
 pub use agent_config::{
     ActionPermission, ActiveSearcherOverride, AgentConfig, AgentPermissions, MemoryConfig,
     PermissionLimits, SubagentsConfig,
 };
+pub use agent_config_lookup::{AgentConfigInfo, AgentConfigLookup};
 pub use agent_lookup::AgentLookup;
+pub use agent_skills_query::AgentSkillsQuery;
+pub use agent_tools_config_query::{AgentToolsConfig, AgentToolsConfigQuery};
 pub use bootstrap::BootstrapMode;
 pub use communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
@@ -51,7 +59,10 @@ pub use slash_router::{
     parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashDispatcherTrait, SlashHandler,
     SlashResult, SlashRouter, SystemAppendAction,
 };
+
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder, WorkspaceBuildConfig};
+pub use task_manager::{BackgroundTask, BackgroundTaskError, TaskManager, TaskState};
 pub use tool_registry::{ToolDescriptor, ToolFlags, ToolRegistryQuery};
 pub use verbosity::VerbosityLevel;
+pub use workdir_context::{build_git_status_for, build_workdir_context, WorkdirContext};
