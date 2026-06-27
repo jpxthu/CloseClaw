@@ -668,6 +668,38 @@ fn test_detect_openai_with_string_content() {
 }
 
 #[test]
+fn test_detect_anthropic_with_system_field() {
+    // Top-level "system" field is Anthropic-only;
+    // even with string content in messages, it should return true.
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "max_tokens": 1024,
+        "system": "You are a helpful assistant.",
+        "messages": [{
+            "role": "user",
+            "content": "Hello"
+        }]
+    });
+    assert!(detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_anthropic_with_system_and_array_content() {
+    // Both primary (array content) and secondary (system field) signals;
+    // should return true as a double confirmation.
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "max_tokens": 1024,
+        "system": [{"type": "text", "text": "You are helpful."}],
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": "Hi"}]
+        }]
+    });
+    assert!(detect_is_anthropic(&body));
+}
+
+#[test]
 fn test_detect_empty_messages() {
     let body = json!({
         "model": "deepseek-v4-flash",
