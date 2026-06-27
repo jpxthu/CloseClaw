@@ -151,7 +151,7 @@
     "commit": "",
     "commit_time": "",
     "confirmed_time": "2026-06-27T14:47:02.621121+08:00",
-    "comment": "blocked: doc inaccuracies found in F2b"
+    "comment": ""
   },
   {
     "path": "docs/design/llm/provider-config-wizard.md",

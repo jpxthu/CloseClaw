@@ -30,7 +30,7 @@
 | ToolUse | `choices[].message.tool_calls[]` |
 | ToolResult | 消息数组中以 `role: "tool"` 出现 |
 
-OpenAI 协议下，content 和 reasoning_content 在同一个 message 对象中共存。提取规则：content 非空则优先取 content；content 为空或仅空白时回退到 reasoning_content。
+OpenAI 协议下，content 和 reasoning_content 在同一个 message 对象中共存。两者各自独立产出内容块：content 非空则产出 Text 块，reasoning_content 非空则产出 Thinking 块。若 content 为空且 reasoning_content 非空，则 reasoning_content 作为 Text 块输出（不产生 Thinking 块）。
 
 **Anthropic 协议**：
 
@@ -49,13 +49,21 @@ Anthropic 协议下，content 是类型化结构数组。每个元素通过 `typ
 
 | 统一事件 | OpenAI SSE 来源 | Anthropic SSE 来源 |
 |---------|----------------|-------------------|
-| 内容块开始 | 首个 `delta.role` 出现 / `delta.tool_calls[0]` 首次出现 | `content_block_start` 事件 |
-| 内容增量 | `delta.content` / `delta.reasoning_content` / `delta.tool_calls` | `content_block_delta` 事件（`text_delta` / `thinking_delta` / `signature_delta`） |
-| 内容块结束 | `finish_reason` 首次出现 | `content_block_stop` 事件 |
-| 消息结束 | `finish_reason=stop` 后接 `[DONE]` | `message_delta(stop_reason)` 后接 `message_stop` |
+| 内容块开始 | 首个非空 `delta.content` / `delta.reasoning_content` / `delta.tool_calls[0].id` 出现 | `content_block_start` 事件 |
+| 内容增量 | `delta.content` / `delta.reasoning_content` / `delta.tool_calls` | `content_block_delta` 事件（`text_delta` / `thinking_delta` / `signature_delta` / `input_json_delta`） |
+| 内容块结束 | `finish_reason=stop` 出现；`finish_reason=tool_calls` 出现（结束 ToolUse 块） | `content_block_stop` 事件 |
+| 消息结束 | `finish_reason=stop` 后接 `[DONE]`；`finish_reason=tool_calls`（直接结束，无 `[DONE]`） | `message_delta(stop_reason)` 后接 `message_stop` |
 | 错误事件 | HTTP 错误状态码 + 错误 body | HTTP 错误状态码 + `error` 事件 |
 
 Anthropic SSE 事件序列的典型顺序：`message_start` → `content_block_start(thinking)` → 若干 `thinking_delta` → 一个 `signature_delta` → `content_block_stop` → `content_block_start(text)` → 若干 `text_delta` → `content_block_stop` → `message_delta` → `message_stop`。
+
+工具调用场景的典型顺序：`message_start` → `content_block_start(tool_use)` → 若干 `input_json_delta` → `content_block_stop` → `message_delta` → `message_stop`。`input_json_delta` 的 `partial_json` 字段携带工具调用的 JSON 参数片段，粒度因供应商而异（逐字符到一次性全量），首次可为空字符串。
+
+OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reasoning_content` 若干帧（先于 content）→ Thinking 块增量 → 首个 `delta.content` 触发 Text 块开始 → Text 增量若干帧 → `finish_reason=stop` 触发块结束 + MessageEnd。
+
+混合响应（文本 + 工具调用）：Text 增量若干帧 → `delta.tool_calls` 首次出现时隐式结束 Text 块 → 启动 ToolUse 块 → `finish_reason=tool_calls` 触发 ToolUse 块结束 + MessageEnd。
+
+与 Anthropic 的差异：OpenAI 的 `finish_reason` 仅在流末尾出现一次，不区分内容块；Anthropic 通过 `content_block_stop` 逐块标注结束边界。
 
 ### 多轮对话增量处理
 
