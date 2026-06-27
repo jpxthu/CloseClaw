@@ -1,7 +1,7 @@
 //! Feishu adapter — HTTP I/O, token management, and webhook parsing.
 
 use crate::error::AdapterError;
-use crate::normalized::NormalizedMessage;
+use crate::normalized::{MediaRef, NormalizedMessage};
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_gateway::Message;
@@ -456,39 +456,77 @@ impl FeishuAdapter {
         }
     }
 
-    /// Parse a regular message event into a Message.
+    /// Parse a regular message event into a NormalizedMessage.
     ///
-    /// Returns `Ok(None)` for non-text message types (image, file, audio, etc.).
-    fn parse_message_event(
+    /// For `image`, `file`, and `audio` message types, downloads the media
+    /// resource and populates `media_refs`. On download failure the message
+    /// is still produced with an empty `media_refs` (graceful degradation).
+    async fn parse_message_event(
         &self,
         event: FeishuEvent,
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let (text, message_type) = match event.event.message_type.as_str() {
+        let message_type = event.event.message_type.clone();
+        let message_id = event.event.message_id.as_deref().unwrap_or("");
+        let thread_id = event
+            .event
+            .thread_id
+            .or(event.event.root_id)
+            .or(event.event.parent_id);
+        let sender_open_id = event.event.sender.sender_id.open_id.clone();
+
+        let (text, media_refs) = match message_type.as_str() {
             "text" => (
                 content
                     .get("text")
                     .and_then(|t| t.as_str())
                     .unwrap_or("")
                     .to_string(),
-                "text".to_string(),
+                vec![],
             ),
-            "post" => (expand_post_content(&content), "post".to_string()),
-            _other => {
-                tracing::debug!(message_type = _other, "Discarding unsupported message type");
+            "post" => (expand_post_content(&content), vec![]),
+            "image" | "file" | "audio" => {
+                let media_type = if message_type == "image" {
+                    "image"
+                } else {
+                    "file"
+                };
+                let media_ref = if let Some(key) = Self::extract_media_key(&content, &message_type)
+                {
+                    match self.download_media(message_id, &key, media_type).await {
+                        Ok(local_path) => Some(MediaRef {
+                            key,
+                            url: local_path,
+                        }),
+                        Err(e) => {
+                            tracing::warn!(
+                                message_type = %message_type,
+                                error = %e,
+                                "Failed to download media, continuing with empty media_refs"
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                let content_text = match message_type.as_str() {
+                    "file" => content
+                        .get("file_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    _ => String::new(),
+                };
+                (content_text, media_ref.into_iter().collect())
+            }
+            other => {
+                tracing::debug!(message_type = other, "Discarding unsupported message type");
                 return Ok(None);
             }
         };
-
-        let thread_id = event
-            .event
-            .thread_id
-            .or(event.event.root_id)
-            .or(event.event.parent_id);
-
-        let sender_open_id = event.event.sender.sender_id.open_id;
 
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
@@ -497,7 +535,7 @@ impl FeishuAdapter {
             content: text,
             timestamp: chrono::Utc::now().timestamp_millis(),
             message_type,
-            media_refs: vec![],
+            media_refs,
             quoted_message: None,
             thread_id,
             account_id: Some(sender_open_id),
@@ -548,7 +586,7 @@ impl IMAdapter for FeishuAdapter {
             _ => {
                 let event: FeishuEvent = serde_json::from_value(raw)
                     .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-                self.parse_message_event(event)
+                self.parse_message_event(event).await
             }
         }
     }

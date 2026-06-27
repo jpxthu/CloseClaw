@@ -1,6 +1,6 @@
-//! Unit tests for Feishu adapter: expand_post_content, parse_message_event,
-//! parse_inbound (message_type propagation), and send_message/send_card_json
-//! receive_id_type verification.
+//! Unit tests for Feishu adapter: expand_post_content, parse_message_event
+//! (text/post/image/file/audio with graceful degradation), parse_inbound,
+//! and send_message/send_card_json receive_id_type verification.
 
 use super::*;
 use crate::platforms::feishu::FeishuPlugin;
@@ -68,6 +68,15 @@ async fn start_mock_server(received_id_type: Arc<tokio::sync::Mutex<Option<Strin
 
 /// Build a minimal FeishuEvent for a message event.
 fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
+    make_message_event_with_id(message_type, content_json, None)
+}
+
+/// Build a FeishuEvent with an explicit message_id.
+fn make_message_event_with_id(
+    message_type: &str,
+    content_json: &str,
+    message_id: Option<&str>,
+) -> FeishuEvent {
     FeishuEvent {
         schema: "2.0".to_string(),
         header: FeishuHeader {
@@ -78,7 +87,7 @@ fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
             app_id: "test_app_id".to_string(),
         },
         event: FeishuMessageEvent {
-            message_id: None,
+            message_id: message_id.map(String::from),
             sender: FeishuSender {
                 sender_id: FeishuSenderId {
                     open_id: "ou_sender".to_string(),
@@ -98,6 +107,18 @@ fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
 /// Build a webhook payload JSON from a message event.
 fn make_webhook_payload(message_type: &str, content_json: &str) -> Vec<u8> {
     let event = make_message_event(message_type, content_json);
+    let mut event_json = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": event.event.sender.sender_id.open_id },
+            "sender_type": event.event.sender.sender_type,
+        },
+        "content": event.event.content,
+        "chat_id": event.event.chat_id,
+        "message_type": event.event.message_type,
+    });
+    if let Some(ref mid) = event.event.message_id {
+        event_json["message_id"] = serde_json::json!(mid);
+    }
     let payload = serde_json::json!({
         "schema": event.schema,
         "header": {
@@ -107,15 +128,7 @@ fn make_webhook_payload(message_type: &str, content_json: &str) -> Vec<u8> {
             "token": event.header.token,
             "app_id": event.header.app_id,
         },
-        "event": {
-            "sender": {
-                "sender_id": { "open_id": event.event.sender.sender_id.open_id },
-                "sender_type": event.event.sender.sender_type,
-            },
-            "content": event.event.content,
-            "chat_id": event.event.chat_id,
-            "message_type": event.event.message_type,
-        },
+        "event": event_json,
     });
     serde_json::to_vec(&payload).unwrap()
 }
@@ -273,75 +286,86 @@ fn test_expand_post_title_with_mixed_elements() {
 // parse_message_event tests
 // ===========================================================================
 
-#[test]
-fn test_parse_message_event_text_type() {
+#[tokio::test]
+async fn test_parse_message_event_text_type() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "hello");
     assert_eq!(msg.message_type, "text");
+    assert!(msg.media_refs.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_post_type() {
+#[tokio::test]
+async fn test_parse_message_event_post_type() {
     let adapter = make_test_adapter();
     let content = serde_json::json!({
         "title": "T",
         "content": [[{"tag": "text", "text": "body"}]]
     });
     let event = make_message_event("post", &content.to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "T\nbody");
     assert_eq!(msg.message_type, "post");
+    assert!(msg.media_refs.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_image_returns_none() {
+#[tokio::test]
+async fn test_parse_message_event_image_graceful_degradation() {
     let adapter = make_test_adapter();
-    let event = make_message_event(
+    let event = make_message_event_with_id(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
+        Some("om_msg_001"),
     );
-    let result = adapter.parse_message_event(event).unwrap();
-    assert!(result.is_none());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+    assert!(msg.content.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_file_returns_none() {
+#[tokio::test]
+async fn test_parse_message_event_file_graceful_degradation() {
     let adapter = make_test_adapter();
-    let event = make_message_event(
+    let event = make_message_event_with_id(
         "file",
-        &serde_json::json!({"file_key": "file_xxx"}).to_string(),
+        &serde_json::json!({"file_key": "file_xxx", "file_name": "report.pdf"}).to_string(),
+        Some("om_msg_002"),
     );
-    let result = adapter.parse_message_event(event).unwrap();
-    assert!(result.is_none());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "file");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+    assert_eq!(msg.content, "report.pdf");
 }
 
-#[test]
-fn test_parse_message_event_audio_returns_none() {
+#[tokio::test]
+async fn test_parse_message_event_audio_graceful_degradation() {
     let adapter = make_test_adapter();
-    let event = make_message_event(
+    let event = make_message_event_with_id(
         "audio",
         &serde_json::json!({"file_key": "audio_xxx"}).to_string(),
+        Some("om_msg_003"),
     );
-    let result = adapter.parse_message_event(event).unwrap();
-    assert!(result.is_none());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "audio");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+    assert!(msg.content.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_metadata_account_id() {
+#[tokio::test]
+async fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.account_id.as_deref(), Some("ou_sender"));
 }
 
-#[test]
-fn test_parse_message_event_thread_id_from_root_id() {
+#[tokio::test]
+async fn test_parse_message_event_thread_id_from_root_id() {
     let adapter = make_test_adapter();
     let mut event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     event.event.root_id = Some("om_root123".to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.thread_id.as_deref(), Some("om_root123"));
 }
 
@@ -543,13 +567,14 @@ async fn test_parse_inbound_post_type() {
 }
 
 #[tokio::test]
-async fn test_parse_inbound_image_returns_none() {
+async fn test_parse_inbound_image_graceful_degradation() {
     let adapter = Arc::new(make_test_adapter());
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
     );
-    let result = plugin.parse_inbound(&payload).await.unwrap();
-    assert!(result.is_none());
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
 }
