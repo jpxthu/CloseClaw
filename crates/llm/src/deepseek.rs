@@ -1,7 +1,8 @@
 //! DeepSeek LLM Provider
 //!
-//! Uses the DeepSeek API. Chat endpoint is OpenAI-compatible at
-//! `base_url/chat/completions`. Model list is fetched from `base_url/models`.
+//! Uses the DeepSeek API. Supports both OpenAI (`/chat/completions`)
+//! and Anthropic (`/v1/messages`) protocol formats. Model list is
+//! fetched from `base_url/models`.
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -139,12 +140,16 @@ impl DeepSeekProvider {
             api_key,
             base_url,
             http_client,
-            supported_protocols: vec![ProtocolId::new("openai")],
+            supported_protocols: vec![ProtocolId::new("openai"), ProtocolId::new("anthropic")],
         }
     }
 
     fn chat_url(&self) -> String {
         format!("{}/chat/completions", self.base_url)
+    }
+
+    fn messages_url(&self) -> String {
+        format!("{}/v1/messages", self.base_url)
     }
 
     /// Map HTTP status code to the appropriate provider error.
@@ -187,7 +192,12 @@ impl Provider for DeepSeekProvider {
         _request: InternalRequest,
         body: serde_json::Value,
     ) -> crate::provider::Result<InternalResponse> {
-        let url = self.chat_url();
+        let is_anthropic = detect_is_anthropic(&body);
+        let url = if is_anthropic {
+            self.messages_url()
+        } else {
+            self.chat_url()
+        };
 
         let response = self
             .http_client
@@ -204,58 +214,13 @@ impl Provider for DeepSeekProvider {
             return Err(Self::map_status_error(status, body));
         }
 
-        let ds_resp: DeepSeekResponse = response.json().await.map_err(ProviderError::Reqwest)?;
-
-        // Check for business-level error in response body
-        if let Some(ref err) = ds_resp.error {
-            let code = err.code.as_deref().unwrap_or("");
-            let msg = err.message.as_deref().unwrap_or("unknown error");
-            return Err(ProviderError::Legacy(format!(
-                "DeepSeek API error {}: {}",
-                code, msg
-            )));
+        if is_anthropic {
+            let resp_body: serde_json::Value =
+                response.json().await.map_err(ProviderError::Reqwest)?;
+            parse_anthropic_response(resp_body)
+        } else {
+            parse_openai_response(response).await
         }
-
-        let choice =
-            ds_resp.choices.into_iter().next().ok_or_else(|| {
-                ProviderError::Legacy("no choices in DeepSeek response".to_string())
-            })?;
-
-        let mut content_blocks = Vec::new();
-
-        // reasoning_content → Thinking block (DeepSeek reasoning models)
-        if let Some(reasoning) = choice.message.reasoning_content {
-            if !reasoning.is_empty() {
-                content_blocks.push(RawContentBlock::Thinking {
-                    thinking: reasoning,
-                    signature: None,
-                });
-            }
-        }
-
-        // content → Text block
-        if !choice.message.content.is_empty() {
-            content_blocks.push(RawContentBlock::Text(choice.message.content));
-        }
-
-        // Ensure at least one content block (fallback to empty text)
-        if content_blocks.is_empty() {
-            content_blocks.push(RawContentBlock::Text(String::new()));
-        }
-
-        let usage = ds_resp.usage.unwrap_or_default();
-
-        Ok(InternalResponse {
-            content_blocks,
-            usage: RawUsage {
-                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-                completion_tokens: usage.completion_tokens.unwrap_or(0),
-                total_tokens: usage.total_tokens,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
-            finish_reason: choice.finish_reason,
-        })
     }
 
     async fn send_streaming(
@@ -263,7 +228,12 @@ impl Provider for DeepSeekProvider {
         _request: InternalRequest,
         body: serde_json::Value,
     ) -> crate::provider::Result<SseStream> {
-        let url = self.chat_url();
+        let is_anthropic = detect_is_anthropic(&body);
+        let url = if is_anthropic {
+            self.messages_url()
+        } else {
+            self.chat_url()
+        };
 
         let response = self
             .http_client
@@ -285,54 +255,17 @@ impl Provider for DeepSeekProvider {
         tokio::spawn(async move {
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();
+            let mut current_event_type = String::from("message");
 
             while let Some(chunk_result) = stream.next().await {
                 let chunk = match chunk_result {
                     Ok(c) => c,
                     Err(_) => break,
                 };
-
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                // Process complete SSE events (separated by \n\n)
-                while let Some(pos) = buffer.find("\n\n") {
-                    let event_block = buffer[..pos].to_string();
-                    buffer = buffer[pos + 2..].to_string();
-
-                    for line in event_block.lines() {
-                        if let Some(data) = line.strip_prefix("data: ") {
-                            let data = data.trim().to_string();
-                            if data == "[DONE]" {
-                                return;
-                            }
-                            let _ = tx
-                                .send(RawSseChunk {
-                                    event_type: "message".into(),
-                                    data,
-                                })
-                                .await;
-                        }
-                    }
-                }
+                process_sse_buffer(&mut buffer, &mut current_event_type, &tx).await;
             }
-
-            // Process any remaining data in buffer
-            if !buffer.is_empty() {
-                for line in buffer.lines() {
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        let data = data.trim().to_string();
-                        if data == "[DONE]" {
-                            return;
-                        }
-                        let _ = tx
-                            .send(RawSseChunk {
-                                event_type: "message".into(),
-                                data,
-                            })
-                            .await;
-                    }
-                }
-            }
+            process_sse_buffer_remainder(&buffer, &current_event_type, &tx).await;
         });
 
         Ok(rx)
@@ -410,6 +343,216 @@ impl ModelLister for DeepSeekProvider {
             .collect();
 
         Ok(models)
+    }
+}
+
+// ── Protocol detection ────────────────────────────────────────────────────
+
+/// Detect whether the request body uses Anthropic protocol format.
+///
+/// Anthropic messages have structured content arrays
+/// (`[{"type": "text", "text": "..."}]`), while OpenAI uses plain
+/// strings (`"content": "..."`).
+fn detect_is_anthropic(body: &serde_json::Value) -> bool {
+    body.get("messages")
+        .and_then(|m| m.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|msg| msg.get("content"))
+        .map(|c| c.is_array())
+        .unwrap_or(false)
+}
+
+// ── OpenAI response parsing ─────────────────────────────────────────────────
+
+async fn parse_openai_response(
+    response: reqwest::Response,
+) -> crate::provider::Result<InternalResponse> {
+    let ds_resp: DeepSeekResponse = response.json().await.map_err(ProviderError::Reqwest)?;
+
+    if let Some(ref err) = ds_resp.error {
+        let code = err.code.as_deref().unwrap_or("");
+        let msg = err.message.as_deref().unwrap_or("unknown error");
+        return Err(ProviderError::Legacy(format!(
+            "DeepSeek API error {}: {}",
+            code, msg
+        )));
+    }
+
+    let choice = ds_resp
+        .choices
+        .into_iter()
+        .next()
+        .ok_or_else(|| ProviderError::Legacy("no choices in DeepSeek response".to_string()))?;
+
+    let mut content_blocks = Vec::new();
+
+    if let Some(reasoning) = choice.message.reasoning_content {
+        if !reasoning.is_empty() {
+            content_blocks.push(RawContentBlock::Thinking {
+                thinking: reasoning,
+                signature: None,
+            });
+        }
+    }
+
+    if !choice.message.content.is_empty() {
+        content_blocks.push(RawContentBlock::Text(choice.message.content));
+    }
+
+    if content_blocks.is_empty() {
+        content_blocks.push(RawContentBlock::Text(String::new()));
+    }
+
+    let usage = ds_resp.usage.unwrap_or_default();
+
+    Ok(InternalResponse {
+        content_blocks,
+        usage: RawUsage {
+            prompt_tokens: usage.prompt_tokens.unwrap_or(0),
+            completion_tokens: usage.completion_tokens.unwrap_or(0),
+            total_tokens: usage.total_tokens,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: choice.finish_reason,
+    })
+}
+
+// ── Anthropic response parsing ──────────────────────────────────────────────
+
+/// Parse an Anthropic-format response body into `InternalResponse`.
+fn parse_anthropic_response(body: serde_json::Value) -> crate::provider::Result<InternalResponse> {
+    let content_blocks: Vec<RawContentBlock> = body
+        .get("content")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(parse_content_block).collect())
+        .unwrap_or_default();
+
+    let usage = parse_anthropic_usage(&body);
+    let finish_reason = body
+        .get("stop_reason")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(InternalResponse {
+        content_blocks,
+        usage,
+        finish_reason,
+    })
+}
+
+/// Parse a single Anthropic content block.
+fn parse_content_block(item: &serde_json::Value) -> Option<RawContentBlock> {
+    let ty = item.get("type").and_then(|v| v.as_str())?;
+    match ty {
+        "text" => parse_text_block(item),
+        "thinking" => parse_thinking_block(item),
+        _ => None,
+    }
+}
+
+fn parse_text_block(item: &serde_json::Value) -> Option<RawContentBlock> {
+    item.get("text")
+        .and_then(|v| v.as_str())
+        .map(|s| RawContentBlock::Text(s.to_string()))
+}
+
+fn parse_thinking_block(item: &serde_json::Value) -> Option<RawContentBlock> {
+    let thinking = item.get("thinking").and_then(|v| v.as_str()).unwrap_or("");
+    let signature = item
+        .get("signature")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some(RawContentBlock::Thinking {
+        thinking: thinking.to_string(),
+        signature,
+    })
+}
+
+/// Parse usage from an Anthropic response body.
+fn parse_anthropic_usage(body: &serde_json::Value) -> RawUsage {
+    let u = body.get("usage");
+    let input_tokens = u
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+    let output_tokens = u
+        .and_then(|u| u.get("output_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+    let total_tokens = u
+        .and_then(|u| u.get("total_tokens"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    let cache_read_tokens = u
+        .and_then(|u| u.get("cache_read_input_tokens"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    let cache_write_tokens = u
+        .and_then(|u| u.get("cache_creation_input_tokens"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    RawUsage {
+        prompt_tokens: input_tokens,
+        completion_tokens: output_tokens,
+        total_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
+    }
+}
+
+// ── SSE streaming helpers ───────────────────────────────────────────────────
+
+/// Process complete SSE events from the buffer.
+#[allow(clippy::ptr_arg)]
+async fn process_sse_buffer(
+    buffer: &mut String,
+    current_event_type: &mut String,
+    tx: &mpsc::Sender<RawSseChunk>,
+) {
+    while let Some(pos) = buffer.find("\n\n") {
+        let event_block = buffer[..pos].to_string();
+        *buffer = buffer[pos + 2..].to_string();
+        for line in event_block.lines() {
+            if let Some(evt) = line.strip_prefix("event: ") {
+                *current_event_type = evt.trim().to_string();
+            } else if let Some(data) = line.strip_prefix("data: ") {
+                let data = data.trim().to_string();
+                if data == "[DONE]" {
+                    return;
+                }
+                let _ = tx
+                    .send(RawSseChunk {
+                        event_type: current_event_type.clone(),
+                        data,
+                    })
+                    .await;
+            }
+        }
+    }
+}
+
+/// Process remaining data in the buffer after stream ends.
+async fn process_sse_buffer_remainder(
+    buffer: &str,
+    current_event_type: &str,
+    tx: &mpsc::Sender<RawSseChunk>,
+) {
+    if !buffer.is_empty() {
+        for line in buffer.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                let data = data.trim().to_string();
+                if data == "[DONE]" {
+                    return;
+                }
+                let _ = tx
+                    .send(RawSseChunk {
+                        event_type: current_event_type.to_string(),
+                        data,
+                    })
+                    .await;
+            }
+        }
     }
 }
 

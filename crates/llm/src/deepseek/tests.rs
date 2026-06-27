@@ -45,8 +45,9 @@ fn test_provider_accessors() {
     assert_eq!(provider.base_url(), DEEPSEEK_API_URL);
     assert_eq!(provider.api_key(), "sk-secret-key");
     let protocols = provider.supported_protocols();
-    assert_eq!(protocols.len(), 1);
+    assert_eq!(protocols.len(), 2);
     assert_eq!(protocols[0].as_str(), "openai");
+    assert_eq!(protocols[1].as_str(), "anthropic");
     let _ = provider.http_client();
     assert!(provider.default_headers().is_empty());
 
