@@ -13,7 +13,6 @@ pub use closeclaw_config as config;
 pub mod config_reload;
 pub mod daemon;
 pub use closeclaw_gateway as gateway;
-pub mod im;
 pub use closeclaw_im_adapter as im_adapter;
 pub use closeclaw_permission;
 pub mod platform;

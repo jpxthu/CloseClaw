@@ -90,7 +90,7 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
         .await;
 
-    let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
+    let plugin: Arc<dyn crate::im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
     gateway
         .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
         .await;
