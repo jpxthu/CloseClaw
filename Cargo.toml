@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission"]
+members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway"]
 
 [workspace.package]
 edition = "2021"

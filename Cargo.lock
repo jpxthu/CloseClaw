@@ -489,10 +489,12 @@ dependencies = [
 name = "closeclaw-common"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "chrono",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
 ]
 
@@ -515,6 +517,31 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "closeclaw-gateway"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "closeclaw-common",
+ "closeclaw-config",
+ "closeclaw-llm",
+ "closeclaw-permission",
+ "closeclaw-session",
+ "futures",
+ "hex",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
  "uuid",
 ]
 
