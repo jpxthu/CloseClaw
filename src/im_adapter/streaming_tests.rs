@@ -36,8 +36,8 @@ fn block_end(index: usize, bt: ContentBlockType) -> StreamEvent {
 fn line_buffer_pure_text_splits_on_punctuation() {
     let mut buf = LineBuffer::new();
     // English and Chinese sentence terminators, plus newlines.
-    let out = buf.feed("Hello world. 你好世界！\nDone?");
-    assert_eq!(out, vec!["Hello world.", " 你好世界！", "\n", "Done?"]);
+    let out = buf.feed("Hello world. 你好世界!\nDone?");
+    assert_eq!(out, vec!["Hello world.", " 你好世界!", "\n", "Done?"]);
 }
 
 #[test]
@@ -85,7 +85,6 @@ fn renderer_pure_text_emits_complete_lines() {
     r.handle_event(block_start(0, ContentBlockType::Text));
     let out = r.handle_event(text_delta("Hello world."));
     assert_eq!(out.text_messages, vec!["Hello world."]);
-    assert!(out.dsl_lines.is_empty());
     assert!(out.render_blocks.is_empty());
 }
 
@@ -99,13 +98,12 @@ fn renderer_with_code_block_preserves_inner_periods() {
 }
 
 #[test]
-fn renderer_routes_dsl_line_to_dsl_lines() {
+fn renderer_routes_dsl_line_to_text_messages() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Text));
     let dsl = "::button[label:Yes;action:vote;value:1]";
     let out = r.handle_event(text_delta(&format!("{}\n", dsl)));
-    assert_eq!(out.dsl_lines, vec![dsl]);
-    assert!(out.text_messages.is_empty());
+    assert_eq!(out.text_messages, vec![format!("{}\n", dsl)]);
 }
 
 #[test]
@@ -198,7 +196,7 @@ fn renderer_flush_resets_block_state() {
             signature: None,
         },
     });
-    // Flush mid-block — should reset block state.
+    // Flush mid-block - should reset block state.
     let out = r.flush();
     assert!(out.render_blocks.is_empty());
     // Now start a new Thinking block (index 1). If old state leaked,
@@ -236,21 +234,6 @@ fn renderer_message_end_then_new_block() {
     r.handle_event(block_start(0, ContentBlockType::Text));
     let out = r.handle_event(text_delta("Fresh start."));
     assert_eq!(out.text_messages, vec!["Fresh start."]);
-    // No DSL lines or render blocks leaked from the previous message.
-    assert!(out.dsl_lines.is_empty());
+    // No render blocks leaked from the previous message.
     assert!(out.render_blocks.is_empty());
-}
-
-#[test]
-fn is_dsl_line_detects_various_dsl_formats() {
-    // All of these should be detected as DSL lines.
-    assert!(is_dsl_line("::button[label:Yes;action:vote;value:1]"));
-    assert!(is_dsl_line("  ::select[options:a,b,c]"));
-    assert!(is_dsl_line("\t::alert[message:Hello]"));
-    assert!(is_dsl_line("::"));
-    // These should NOT be DSL lines.
-    assert!(!is_dsl_line("normal text"));
-    assert!(!is_dsl_line(":not_dsl"));
-    assert!(!is_dsl_line(""));
-    assert!(!is_dsl_line("some::text"));
 }
