@@ -10,21 +10,8 @@ use crate::skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-/// Overrides for the three-tier priority prompt system.
-///
-/// When resolving the final system prompt, the caller (typically
-/// `build_full_system_prompt`) checks these in order:
-///   1. `override_prompt` — highest priority, replaces the entire static layer
-///   2. `agent_prompt`    — agent-level prompt
-///   3. `custom_prompt`   — user-defined custom prompt
-///
-/// If none is set, the normal section-based rendering is used.
-#[derive(Debug, Clone, Default)]
-pub struct PromptOverrides {
-    pub override_prompt: Option<String>,
-    pub agent_prompt: Option<String>,
-    pub custom_prompt: Option<String>,
-}
+/// Re-export the common PromptOverrides type.
+pub use closeclaw_common::system_prompt::PromptOverrides;
 
 /// Default system prompt fallback
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";

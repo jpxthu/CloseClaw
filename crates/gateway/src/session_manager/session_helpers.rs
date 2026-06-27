@@ -1,0 +1,191 @@
+//! Helper functions extracted from SessionManager::find_or_create
+//! to keep the main file under the 500-line limit.
+
+#![allow(dead_code)]
+
+use crate::Message;
+use closeclaw_session::persistence::{PersistenceService, SessionStatus};
+use closeclaw_session::workspace;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tracing::warn;
+use uuid::Uuid;
+
+/// Encapsulates agent-level tool and skill filter configuration.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub(super) struct AgentToolSkillConfig {
+    #[allow(dead_code)]
+    pub agent_tools: Option<Vec<String>>,
+    #[allow(dead_code)]
+    pub agent_disallowed_tools: Option<Vec<String>>,
+    #[allow(dead_code)]
+    pub agent_skills: Option<Vec<String>>,
+}
+
+/// Generate a unique session ID.
+///
+/// Format: `{agent_id}_{timestamp_ms}_{8-hex}`
+pub(super) fn generate_session_id(agent_id: &str) -> String {
+    let ts = chrono::Utc::now().timestamp_millis();
+    let uuid = Uuid::new_v4();
+    let hex_part = format!("{:08x}", uuid.as_fields().0);
+    format!("{}_{}_{}", agent_id, ts, hex_part)
+}
+
+/// Build the system prompt for a new session.
+///
+/// Uses the `SystemPromptBuilder` trait object to build the prompt,
+/// delegating all system-prompt construction to the main crate's implementation.
+pub(super) async fn build_session_system_prompt(
+    builder: &dyn closeclaw_common::SystemPromptBuilder,
+    session_id: &str,
+    agent_id: &str,
+    overrides: Option<&closeclaw_common::PromptOverrides>,
+) -> String {
+    builder.build_prompt(session_id, agent_id, overrides).await
+}
+
+/// Compute the workdir path for a new session.
+pub(super) async fn compute_session_workdir(
+    restored: bool,
+    session_id: &str,
+    message: &Message,
+    workspace_dir: &Option<PathBuf>,
+    storage: &Arc<dyn closeclaw_session::persistence::PersistenceService>,
+) -> Result<PathBuf, closeclaw_common::processor::ProcessError> {
+    if restored {
+        let checkpoint_agent_id = {
+            match storage
+                .load_checkpoint(session_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|cp| cp.agent_id)
+            {
+                Some(aid) => aid,
+                None => message.to.clone(),
+            }
+        };
+        let aid = &checkpoint_agent_id;
+        if let Some(ref wd) = workspace_dir {
+            Ok(workspace::ensure_workspace_dir(wd, aid, aid)
+                .unwrap_or_else(|_| PathBuf::from("/tmp")))
+        } else {
+            Ok(PathBuf::from("/tmp"))
+        }
+    } else if let Some(ref workspace_dir) = workspace_dir {
+        workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(|e| {
+            closeclaw_common::processor::ProcessError::ChainFailed(format!(
+                "workspace creation failed: {}",
+                e
+            ))
+        })
+    } else {
+        Ok(PathBuf::from("/tmp"))
+    }
+}
+
+/// Create and persist a brand-new session.
+pub(super) fn create_new_session(
+    session_id: &str,
+    message: &Message,
+    channel: &str,
+) -> crate::Session {
+    crate::Session {
+        id: session_id.to_string(),
+        agent_id: message.to.clone(),
+        channel: channel.to_string(),
+        created_at: chrono::Utc::now().timestamp(),
+        depth: 0,
+    }
+}
+
+/// Update the thread_id in a session's checkpoint.
+///
+/// Loads the checkpoint from storage, overwrites `thread_id` with the
+/// provided value, and saves it back.
+///
+/// Silently skips (with warn!) when:
+/// - storage is not available
+/// - checkpoint does not exist
+pub(super) async fn update_checkpoint_thread_id(
+    storage: &Arc<dyn PersistenceService>,
+    session_id: &str,
+    thread_id: &Option<String>,
+) {
+    let mut cp = match storage.load_checkpoint(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) | Err(_) => {
+            warn!(
+                session_id = %session_id,
+                "checkpoint not found, skipping thread_id update"
+            );
+            return;
+        }
+    };
+    cp.thread_id = thread_id.clone();
+    if let Err(e) = storage.save_checkpoint(&cp).await {
+        warn!(
+            session_id = %session_id,
+            error = %e,
+            "failed to save checkpoint with updated thread_id"
+        );
+    }
+}
+
+/// Result of attempting to restore an archived session.
+pub(super) struct RestoreResult {
+    /// Whether the restoration was attempted and succeeded.
+    pub restored: bool,
+    /// The chat_id to send the restore notification to (via Gateway outbound chain).
+    /// `None` if no notification is needed (e.g. not archived or restore failed).
+    pub notification_chat_id: Option<String>,
+}
+
+/// Attempt to restore an archived session.
+///
+/// Returns a [`RestoreResult`] indicating whether restoration succeeded and,
+/// if so, the chat_id to which the restore notification should be sent via
+/// Gateway's outbound chain (instead of sending directly via IMPlugin).
+pub(super) async fn try_restore_archived_session_inner(
+    storage: &Arc<dyn PersistenceService>,
+    session_id: &str,
+    _channel: &str,
+) -> RestoreResult {
+    let checkpoint = match storage.load_checkpoint(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) | Err(_) => {
+            return RestoreResult {
+                restored: false,
+                notification_chat_id: None,
+            }
+        }
+    };
+    if checkpoint.status != SessionStatus::Archived {
+        return RestoreResult {
+            restored: false,
+            notification_chat_id: None,
+        };
+    }
+    // Compute notification chat_id for caller to send via outbound chain.
+    let notification_chat_id = Some(
+        checkpoint
+            .peer_id
+            .as_deref()
+            .unwrap_or(session_id)
+            .to_string(),
+    );
+    if let Err(e) = storage.restore_checkpoint(session_id).await {
+        warn!(session_id = %session_id, error = %e,
+            "failed to restore archived session");
+        return RestoreResult {
+            restored: false,
+            notification_chat_id: None,
+        };
+    }
+    RestoreResult {
+        restored: true,
+        notification_chat_id,
+    }
+}

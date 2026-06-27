@@ -12,7 +12,7 @@ pub mod cli;
 pub use closeclaw_config as config;
 pub mod config_reload;
 pub mod daemon;
-pub mod gateway;
+pub use closeclaw_gateway as gateway;
 pub mod im;
 pub mod im_adapter;
 pub mod llm;
@@ -27,6 +27,7 @@ pub mod system_prompt;
 pub mod tasks;
 pub mod tools;
 
+pub mod bridge;
 pub mod common;
 pub mod memory;
 

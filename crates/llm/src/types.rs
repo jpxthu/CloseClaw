@@ -1,6 +1,10 @@
 //! Core types for LLM multi-Provider architecture.
 //!
-//! This module defines the unified type layer used across all Providers and Protocols.
+//! Shared types ([`ContentBlock`], [`StreamEvent`], [`UnifiedUsage`], etc.)
+//! are re-exported from `closeclaw_common::processor` to ensure a single
+//! canonical definition across all workspace crates. LLM-specific types
+//! (raw protocol types, internal request/response, SSE state machine)
+//! remain defined here.
 
 use std::fmt::{self, Display};
 use std::hash::Hash;
@@ -9,156 +13,17 @@ use serde::{Deserialize, Serialize};
 
 use closeclaw_session::persistence::ReasoningLevel;
 
-/// Content block type classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ContentBlockType {
-    /// Text content block.
-    Text,
-    /// Thinking content block (reasoning trace).
-    Thinking,
-    /// Tool use invocation block.
-    ToolUse,
-}
+// ---------------------------------------------------------------------------
+// Re-exports from closeclaw_common::processor
+// ---------------------------------------------------------------------------
 
-/// A single content block in a unified response.
-///
-/// Uses `#[serde(tag = "type")]` for JSON representation where
-/// each variant is distinguished by the `type` field.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "content", rename_all = "snake_case")]
-pub enum ContentBlock {
-    /// Text content block with a string payload.
-    Text(String),
-    /// Thinking content block with a reasoning trace and optional signature.
-    Thinking {
-        /// The thinking/reasoning content.
-        thinking: String,
-        /// Optional signature for traceability (e.g., Anthropic thinking signature).
-        signature: Option<String>,
-    },
-    /// Tool use invocation block.
-    ToolUse {
-        /// Tool call identifier.
-        id: String,
-        /// Tool name being invoked.
-        name: String,
-        /// Tool input/arguments.
-        input: String,
-    },
-    /// Tool result block.
-    ToolResult {
-        /// The tool call ID this result corresponds to.
-        tool_call_id: String,
-        /// Result content returned by the tool.
-        content: String,
-    },
-    /// Image content block (file name or identifier).
-    Image(String),
-    /// Audio content block (file name or identifier).
-    Audio(String),
-    /// File content block (file name or identifier).
-    File(String),
-}
+pub use closeclaw_common::processor::{
+    ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedResponse, UnifiedUsage,
+};
 
-/// Unified token usage statistics.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct UnifiedUsage {
-    /// Number of tokens in the prompt.
-    pub prompt_tokens: u32,
-    /// Number of tokens in the completion.
-    pub completion_tokens: u32,
-    /// Total tokens used (optional, some providers omit this).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_tokens: Option<u32>,
-    /// Number of tokens used for reasoning (if reported by provider).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_tokens: Option<u32>,
-    /// Number of tokens read from cache (cache hit).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_read_tokens: Option<u32>,
-    /// Number of tokens written to cache (cache creation).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_write_tokens: Option<u32>,
-}
-
-/// Unified response structure returned by all LLM providers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct UnifiedResponse {
-    /// Ordered list of content blocks.
-    pub content_blocks: Vec<ContentBlock>,
-    /// Token usage statistics.
-    pub usage: UnifiedUsage,
-    /// Reason why the response finished (e.g., "stop", "length").
-    pub finish_reason: Option<String>,
-}
-
-/// Streaming content delta for incremental updates.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ContentDelta {
-    /// Text delta.
-    Text { text: String },
-    /// Thinking delta.
-    Thinking {
-        /// The thinking/reasoning content.
-        thinking: String,
-        /// Optional signature (e.g., Anthropic thinking signature).
-        /// Always None in OpenAI streaming.
-        signature: Option<String>,
-    },
-    /// Tool use call ID delta.
-    ToolUseId { id: String },
-    /// Tool use name delta.
-    ToolUseName { name: String },
-    /// Tool use input chunk delta.
-    ToolUseInputChunk { input: String },
-}
-
-/// Stream event emitted during streaming responses.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum StreamEvent {
-    /// A new content block has started.
-    BlockStart {
-        /// Index of the block in the content blocks list.
-        index: usize,
-        /// Type of the block being started.
-        block_type: ContentBlockType,
-    },
-    /// An incremental delta for a content block.
-    BlockDelta {
-        /// Index of the block being updated.
-        index: usize,
-        /// The delta content.
-        delta: ContentDelta,
-    },
-    /// A content block has finished.
-    BlockEnd {
-        /// Index of the block that ended.
-        index: usize,
-        /// Type of the block that ended.
-        block_type: ContentBlockType,
-    },
-    /// The message stream has ended.
-    MessageEnd {
-        /// Token usage statistics (if available).
-        usage: Option<UnifiedUsage>,
-        /// Reason why the message finished.
-        finish_reason: Option<String>,
-    },
-    /// An error occurred during streaming.
-    Error {
-        /// Error message.
-        message: String,
-    },
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // Protocol-internal raw types (not exposed in public API)
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
 /// Raw content block used internally by Protocol implementations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

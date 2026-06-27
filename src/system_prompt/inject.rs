@@ -7,9 +7,9 @@
 //! belong to the `system_prompt` module.
 
 use crate::gateway::session_handler::MessageMetadata;
-use crate::system_prompt::builder::PromptOverrides;
 use crate::system_prompt::sections::Section;
 use crate::system_prompt::workdir;
+use closeclaw_common::system_prompt::PromptOverrides;
 
 /// Build dynamic sections from metadata and session state.
 ///
