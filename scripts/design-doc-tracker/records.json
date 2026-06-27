@@ -159,5 +159,12 @@
     "commit_time": "2026-06-28T01:46:15+08:00",
     "confirmed_time": "2026-06-28T01:53:33.164151+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/llm/providers/deepseek.md",
+    "commit": "9f383c5ff50ac98e2875827adc71ebccdd2e440d",
+    "commit_time": "2026-06-28T03:48:32+08:00",
+    "confirmed_time": "2026-06-28T03:55:52.948213+08:00",
+    "comment": ""
   }
 ]
