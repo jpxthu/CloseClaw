@@ -557,6 +557,8 @@ async fn process_sse_buffer_remainder(
 }
 
 pub mod balance;
+pub mod plugin;
+pub use plugin::DeepSeekPlugin;
 
 #[cfg(test)]
 #[path = "deepseek/tests.rs"]
