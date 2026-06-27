@@ -238,11 +238,12 @@ fn test_parse_response_with_reasoning_content() {
         }
     });
     let resp = proto.parse_response(body).unwrap();
-    // Empty content → only Thinking block (no empty Text)
+    // Empty content + reasoning_content → single Text block (reasoning_content as Text)
     assert_eq!(resp.content_blocks.len(), 1);
-    assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Thinking { thinking: s, .. } if s == "Let me think about this...")
-    );
+    let RawContentBlock::Text(text) = &resp.content_blocks[0] else {
+        panic!("expected Text block");
+    };
+    assert_eq!(text, "Let me think about this...");
 }
 
 #[test]
@@ -264,10 +265,14 @@ fn test_parse_response_with_both_content_and_reasoning() {
         }
     });
     let resp = proto.parse_response(body).unwrap();
-    // Both content and reasoning → only Text (content non-empty takes priority)
-    assert_eq!(resp.content_blocks.len(), 1);
+    // Both content and reasoning → Thinking + Text (thinking first)
+    assert_eq!(resp.content_blocks.len(), 2);
+    let RawContentBlock::Thinking { thinking, .. } = &resp.content_blocks[0] else {
+        panic!("expected Thinking block");
+    };
+    assert_eq!(thinking, "Let me think about this...");
     assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "The answer is 42.")
+        matches!(&resp.content_blocks[1], RawContentBlock::Text(s) if s == "The answer is 42.")
     );
 }
 
@@ -316,6 +321,72 @@ fn test_parse_response_no_reasoning_content() {
     // No reasoning_content → only Text block
     assert_eq!(resp.content_blocks.len(), 1);
     assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello!"));
+}
+
+#[test]
+fn test_parse_response_reasoning_as_text_when_content_empty() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "reasoning_content": "Deep reasoning here."
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // content=null + reasoning_content non-empty → single Text block with reasoning content
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Deep reasoning here.")
+    );
+}
+
+#[test]
+fn test_parse_response_thinking_then_text_order() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "The answer is 42.",
+                "reasoning_content": "Let me think about this..."
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 2);
+    // Thinking block first
+    match &resp.content_blocks[0] {
+        RawContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "Let me think about this...");
+            assert!(signature.is_none());
+        }
+        _ => panic!("Expected Thinking block first"),
+    }
+    // Text block second
+    match &resp.content_blocks[1] {
+        RawContentBlock::Text(text) => {
+            assert_eq!(text, "The answer is 42.");
+        }
+        _ => panic!("Expected Text block second"),
+    }
 }
 
 // ── reasoning_effort is NOT injected by protocol layer ───────────────────────
