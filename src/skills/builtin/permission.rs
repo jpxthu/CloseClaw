@@ -1,15 +1,15 @@
 //! Permission skill - allows agents to query their own permissions
 use crate::agent::config::AgentPermissions;
 use crate::gateway::SessionManager;
-use crate::permission::engine::engine_types::{PermissionRequest, PermissionRequestBody};
-use crate::permission::PermissionResponse;
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
+use closeclaw_permission::engine::engine_types::{PermissionRequest, PermissionRequestBody};
+use closeclaw_permission::PermissionResponse;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct PermissionSkill {
-    engine: Option<Arc<crate::permission::PermissionEngine>>,
+    engine: Option<Arc<closeclaw_permission::PermissionEngine>>,
     session_manager: Option<Arc<SessionManager>>,
     agent_permissions: HashMap<String, AgentPermissions>,
 }
@@ -23,7 +23,7 @@ impl PermissionSkill {
         }
     }
 
-    pub fn with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Self {
+    pub fn with_engine(engine: Arc<closeclaw_permission::PermissionEngine>) -> Self {
         Self {
             engine: Some(engine),
             session_manager: None,
@@ -131,7 +131,7 @@ impl Skill for PermissionSkill {
                         args.get("session_id").and_then(|v| v.as_str()),
                     ) {
                         engine
-                            .evaluate_with_chain(request, sm, sid, &self.agent_permissions)
+                            .evaluate_with_chain(request, sm.as_ref(), sid, &self.agent_permissions)
                             .await
                     } else {
                         engine.evaluate(request, None)
@@ -185,13 +185,13 @@ impl Skill for PermissionSkill {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permission::engine::engine_types::{
+    use closeclaw_permission::engine::engine_types::{
         Action, Defaults, Effect, Rule, RuleSet, Subject,
     };
     use std::collections::HashMap;
 
-    fn make_engine_with_allow_rule() -> Arc<crate::permission::PermissionEngine> {
-        use crate::permission::engine::engine_types::MatchType;
+    fn make_engine_with_allow_rule() -> Arc<closeclaw_permission::PermissionEngine> {
+        use closeclaw_permission::engine::engine_types::MatchType;
         let rules = RuleSet {
             rules: vec![
                 Rule {
@@ -229,7 +229,7 @@ mod tests {
             template_includes: vec![],
             agent_creators: HashMap::new(),
         };
-        Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(rules))
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules))
     }
 
     #[test]

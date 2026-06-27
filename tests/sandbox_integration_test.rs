@@ -15,12 +15,12 @@ use std::hash::Hash;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-use closeclaw::permission::engine::{
+use closeclaw_permission::engine::{
     Action, Caller, CommandArgs, Effect, PermissionRequest, PermissionRequestBody,
     PermissionResponse, RuleSet,
 };
-use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
-use closeclaw::permission::sandbox::{
+use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
+use closeclaw_permission::sandbox::{
     Sandbox, SandboxError, SandboxRequest, SandboxResponse, SecurityPolicy,
 };
 
@@ -243,7 +243,7 @@ async fn test_sandbox_new_has_unstarted_state() {
     assert!(
         matches!(
             state,
-            closeclaw::permission::sandbox::SandboxState::Unstarted
+            closeclaw_permission::sandbox::SandboxState::Unstarted
         ),
         "new sandbox should be in Unstarted state, got {:?}",
         state
@@ -286,7 +286,7 @@ async fn test_sandbox_cannot_spawn_twice() {
         let state = sandbox.state().await;
         assert!(matches!(
             state,
-            closeclaw::permission::sandbox::SandboxState::Running
+            closeclaw_permission::sandbox::SandboxState::Running
         ));
 
         // Second spawn should fail
@@ -296,7 +296,7 @@ async fn test_sandbox_cannot_spawn_twice() {
             Err(SandboxError::InvalidState { state }) => {
                 assert!(matches!(
                     state,
-                    closeclaw::permission::sandbox::SandboxState::Running
+                    closeclaw_permission::sandbox::SandboxState::Running
                 ));
             }
             other => panic!("expected InvalidState error, got {:?}", other),
@@ -421,7 +421,7 @@ async fn test_sandbox_restart_after_shutdown() {
         let state_after_shutdown = sandbox.state().await;
         assert!(matches!(
             state_after_shutdown,
-            closeclaw::permission::sandbox::SandboxState::Shutdown
+            closeclaw_permission::sandbox::SandboxState::Shutdown
         ));
 
         // Second spawn should succeed (restart)
@@ -475,7 +475,7 @@ async fn test_sandbox_state_transitions() {
     let state0 = sandbox.state().await;
     assert!(matches!(
         state0,
-        closeclaw::permission::sandbox::SandboxState::Unstarted
+        closeclaw_permission::sandbox::SandboxState::Unstarted
     ));
 
     // Spawn
@@ -483,7 +483,7 @@ async fn test_sandbox_state_transitions() {
         let state1 = sandbox.state().await;
         assert!(matches!(
             state1,
-            closeclaw::permission::sandbox::SandboxState::Running
+            closeclaw_permission::sandbox::SandboxState::Running
         ));
 
         // Shutdown
@@ -491,7 +491,7 @@ async fn test_sandbox_state_transitions() {
         let state2 = sandbox.state().await;
         assert!(matches!(
             state2,
-            closeclaw::permission::sandbox::SandboxState::Shutdown
+            closeclaw_permission::sandbox::SandboxState::Shutdown
         ));
     }
 

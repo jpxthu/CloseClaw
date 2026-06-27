@@ -1,9 +1,9 @@
 //! Tests for file_ops skill — permission engine integration and error paths
-use crate::permission::actions::ActionBuilder;
-use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
-use crate::permission::{Effect, MatchType};
 use crate::skills::builtin::FileOpsSkill;
 use crate::skills::Skill;
+use closeclaw_permission::actions::ActionBuilder;
+use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
+use closeclaw_permission::{Effect, MatchType};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -12,7 +12,7 @@ use tempfile::TempDir;
 // -----------------------------------------------------------------
 
 /// Build an engine that allows file_read and file_write for "test-agent"
-fn make_allowed_engine() -> Arc<crate::permission::PermissionEngine> {
+fn make_allowed_engine() -> Arc<closeclaw_permission::PermissionEngine> {
     let ruleset = RuleSetBuilder::new()
         .default_file(Effect::Deny)
         .rule(
@@ -148,16 +148,16 @@ fn make_allowed_engine() -> Arc<crate::permission::PermissionEngine> {
         )
         .build()
         .unwrap();
-    Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset))
+    Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset))
 }
 
 /// Build an engine that denies all file actions by default (no matching rules)
-fn make_denied_engine() -> Arc<crate::permission::PermissionEngine> {
+fn make_denied_engine() -> Arc<closeclaw_permission::PermissionEngine> {
     let ruleset = RuleSetBuilder::new()
         .default_file(Effect::Deny)
         .build()
         .unwrap();
-    Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset))
+    Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset))
 }
 
 // -----------------------------------------------------------------

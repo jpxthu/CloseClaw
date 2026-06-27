@@ -77,6 +77,11 @@ impl PermissionEngine {
         self.rules = rules;
     }
 
+    /// Get a reference to the current ruleset.
+    pub fn rules(&self) -> &RuleSet {
+        &self.rules
+    }
+
     /// Load templates into the engine
     pub fn load_templates(&mut self, templates: HashMap<String, crate::templates::Template>) {
         self.templates = templates;

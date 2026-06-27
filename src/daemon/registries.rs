@@ -5,10 +5,10 @@ use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
 use crate::daemon::config_reload;
 use crate::gateway::SessionManager;
-use crate::permission::PermissionEngine;
 use crate::skills::DiskSkillRegistry;
 use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
 use crate::tools::ToolRegistry;
+use closeclaw_permission::PermissionEngine;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 

@@ -1,6 +1,6 @@
 //! Shared helpers and output structs for CLI admin handlers.
 
-use crate::permission::Effect;
+use closeclaw_permission::Effect;
 use serde::Serialize;
 use std::path::PathBuf;
 

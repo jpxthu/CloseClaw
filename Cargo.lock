@@ -445,6 +445,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-llm",
+ "closeclaw-permission",
  "closeclaw-session",
  "dashmap",
  "dialoguer",

@@ -11,8 +11,6 @@ mod tests {
     use crate::config::ConfigManager;
     use crate::gateway::{GatewayConfig, SessionManager};
     use crate::llm::session::ConversationSession;
-    use crate::permission::engine::engine_eval::PermissionEngine;
-    use crate::permission::rules::RuleSetBuilder;
     use crate::session::bootstrap::loader::BootstrapMode;
     use crate::session::persistence::ReasoningLevel;
     use crate::skills::disk::types::{
@@ -20,6 +18,8 @@ mod tests {
     };
     use crate::skills::disk::DiskSkillRegistry;
     use crate::tools::{Tool, ToolContext};
+    use closeclaw_permission::engine::engine_eval::PermissionEngine;
+    use closeclaw_permission::rules::RuleSetBuilder;
     use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::sync::RwLock;

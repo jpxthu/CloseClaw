@@ -16,7 +16,7 @@ pub mod gateway;
 pub mod im;
 pub mod im_adapter;
 pub mod llm;
-pub mod permission;
+pub use closeclaw_permission;
 pub mod platform;
 pub mod processor_chain;
 pub mod renderer;

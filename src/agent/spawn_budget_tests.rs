@@ -9,12 +9,12 @@ use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use crate::gateway::{DmScope, GatewayConfig, SessionManager};
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::{PersistenceService, SessionCheckpoint};
 use crate::session::storage::memory::MemoryStorage;
 use crate::session::ReasoningLevel;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::rules::RuleSetBuilder;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_tests.rs to keep this file self-contained)
