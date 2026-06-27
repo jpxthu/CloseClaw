@@ -164,5 +164,14 @@ pub async fn handle_config_setup(skip: bool) -> Result<()> {
     }
 
     config_wizard::write_wizard_config(&output)?;
+
+    // Ensure the master agent exists after writing config.
+    let config_path = std::env::var("HOME")
+        .map(|h| std::path::PathBuf::from(h).join(".closeclaw"))
+        .map_err(|e| anyhow::anyhow!("HOME not set: {}", e))?;
+    let agents_dir = config_path.join("agents");
+    let config_dir = config_path.join("config");
+    config_wizard::ensure_master_agent(&config_dir, &agents_dir)?;
+
     Ok(())
 }
