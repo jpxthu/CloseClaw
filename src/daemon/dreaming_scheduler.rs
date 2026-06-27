@@ -15,7 +15,7 @@ use tracing::{error, info};
 use crate::config::session::SessionConfigProvider;
 use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;
-use crate::session::persistence::{PersistenceError, PersistenceService};
+use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
 /// Errors that can occur during scheduler operations.
 #[derive(Debug, Error)]

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use crate::session::persistence::{
+use closeclaw_session::persistence::{
     DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
 };
 

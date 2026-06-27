@@ -11,7 +11,7 @@ use crate::daemon::dreaming_scheduler::DreamingScheduler;
 use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;
 use crate::session::compaction::CompactConfig;
-use crate::session::persistence::{AgentRole, PersistenceService, SessionCheckpoint};
+use closeclaw_session::persistence::{AgentRole, PersistenceService, SessionCheckpoint};
 
 // ── Test helpers ─────────────────────────────────────────────────────────
 

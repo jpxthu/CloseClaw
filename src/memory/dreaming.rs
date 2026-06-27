@@ -7,7 +7,7 @@
 
 use thiserror::Error;
 
-use crate::session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
+use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
 // ── Types ────────────────────────────────────────────────────────────────
 

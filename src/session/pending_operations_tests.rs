@@ -6,11 +6,11 @@
 //! - Recovery injection with non-empty pending_operations
 //! - Recovery flow unaffected when pending_operations is empty
 
-use crate::session::persistence::{
-    PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
-};
 use closeclaw_llm::session::ConversationSession;
 use closeclaw_llm::session_state::{ChildSessionState, ToolExecState};
+use closeclaw_session::persistence::{
+    PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
+};
 
 // ── Step 1.4: collect_pending_operations ────────────────────────────────
 
@@ -106,7 +106,7 @@ fn test_collect_pending_operations_outbound_messages() {
     );
 
     // Use restore_pending_messages to add unsent messages
-    use crate::session::persistence::PendingMessage;
+    use closeclaw_session::persistence::PendingMessage;
     let messages = vec![
         {
             let mut pm = PendingMessage::new("msg_1".into(), "content_1".into());
@@ -160,7 +160,7 @@ fn test_collect_pending_operations_mixed_types() {
         child_states.insert("child_1".to_string(), ChildSessionState::Running);
     }
     {
-        use crate::session::persistence::PendingMessage;
+        use closeclaw_session::persistence::PendingMessage;
         let mut pm = PendingMessage::new("msg_1".into(), "content".into());
         pm.sent = false;
         cs.restore_pending_messages(vec![pm]);
@@ -300,8 +300,8 @@ fn test_checkpoint_with_pending_operations_builder() {
 
 // ── Step 1.4: recovery injection ────────────────────────────────────────
 
-use crate::session::recovery::SessionRecoveryService;
-use crate::session::storage::memory::MemoryStorage;
+use closeclaw_session::recovery::SessionRecoveryService;
+use closeclaw_session::storage::memory::MemoryStorage;
 use std::sync::Arc;
 
 fn make_checkpoint_with_pending_ops(session_id: &str) -> SessionCheckpoint {
@@ -502,10 +502,10 @@ async fn test_recovery_report_dirty_sessions_count() {
 
 #[tokio::test]
 async fn test_recovery_callback_receives_notification_and_tool_failures() {
-    use crate::session::persistence::{
+    use closeclaw_session::persistence::{
         PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
     };
-    use crate::session::storage::memory::MemoryStorage;
+    use closeclaw_session::storage::memory::MemoryStorage;
     use std::sync::Arc;
 
     let storage = Arc::new(MemoryStorage::new());

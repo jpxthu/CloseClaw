@@ -5,8 +5,8 @@
 use super::sections::{get_cached_section, load_cached_file_section, read_file_section, Section};
 use super::tools_section::build_tools_section;
 use crate::agent::registry::AgentRegistry;
-use crate::session::bootstrap::loader::load_bootstrap_files;
 use crate::skills::DiskSkillRegistry;
+use closeclaw_session::bootstrap::loader::load_bootstrap_files;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -370,7 +370,7 @@ mod tests {
     fn test_workspace_build_config_with_agent_registry() {
         use crate::agent::registry::AgentRegistry;
         use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-        use crate::session::bootstrap::loader::BootstrapMode;
+        use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
         agent_reg.populate(vec![ResolvedAgentConfig {
@@ -417,7 +417,7 @@ mod tests {
     fn test_agent_registry_query_bootstrap_mode_minimal() {
         use crate::agent::registry::AgentRegistry;
         use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-        use crate::session::bootstrap::loader::BootstrapMode;
+        use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
         agent_reg.populate(vec![ResolvedAgentConfig {
@@ -445,7 +445,7 @@ mod tests {
     fn test_agent_registry_query_bootstrap_mode_full() {
         use crate::agent::registry::AgentRegistry;
         use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-        use crate::session::bootstrap::loader::BootstrapMode;
+        use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
         agent_reg.populate(vec![ResolvedAgentConfig {

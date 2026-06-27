@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::common::VerbosityLevel;
 use crate::gateway::session_manager::SessionManager;
-use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handler::{SlashHandler, SlashResult, SystemAppendAction};
@@ -13,6 +12,7 @@ use crate::slash::handlers::{
 };
 use crate::slash::registry::HandlerRegistry;
 use crate::slash::VerboseHandler;
+use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Mock handler ────────────────────────────────────────────────────────────
 
@@ -86,8 +86,8 @@ fn test_compact_handler_commands_and_description() {
 async fn test_clear_handler_handle_returns_reply() {
     use crate::gateway::session_manager::SessionManager;
     use crate::gateway::DmScope;
-    use crate::session::bootstrap::loader::BootstrapMode;
-    use crate::session::persistence::ReasoningLevel;
+    use closeclaw_session::bootstrap::loader::BootstrapMode;
+    use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = crate::gateway::GatewayConfig {
         name: String::new(),
@@ -250,8 +250,8 @@ fn test_dispatcher_is_immediate_false() {
 /// `create_test_session` to obtain a `session_id`.
 fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
     use crate::gateway::DmScope;
-    use crate::session::bootstrap::loader::BootstrapMode;
-    use crate::session::persistence::ReasoningLevel;
+    use closeclaw_session::bootstrap::loader::BootstrapMode;
+    use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = crate::gateway::GatewayConfig {
         name: String::new(),

@@ -5,8 +5,8 @@
 //! that the TerminalAdapter quit/exit detection logic works correctly.
 
 use crate::gateway::{GatewayConfig, InboundChainInput, SessionManager};
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::ReasoningLevel;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
 use super::chat::build_gateway;
@@ -258,8 +258,8 @@ fn make_gw_with_registry(registry: ProcessorRegistry) -> crate::gateway::Gateway
             },
             None,
             None,
-            crate::session::bootstrap::BootstrapMode::Full,
-            crate::session::persistence::ReasoningLevel::default(),
+            closeclaw_session::bootstrap::BootstrapMode::Full,
+            closeclaw_session::persistence::ReasoningLevel::default(),
         )),
         Arc::new(registry),
     )

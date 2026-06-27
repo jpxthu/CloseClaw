@@ -5,7 +5,7 @@
 //! queries. All runtime state (processes, lifecycle) lives elsewhere.
 
 use crate::config::agents::ResolvedAgentConfig;
-use crate::session::bootstrap::loader::BootstrapMode;
+use closeclaw_session::bootstrap::loader::BootstrapMode;
 use dashmap::DashMap;
 use std::sync::Arc;
 

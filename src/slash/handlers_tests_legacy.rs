@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use crate::session::persistence::ReasoningLevel;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handler::SlashHandler;
 use crate::slash::registry::HandlerRegistry;
+use closeclaw_session::persistence::ReasoningLevel;
 
 use super::handlers_tests::MockHandler;
 

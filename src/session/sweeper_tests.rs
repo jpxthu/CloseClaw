@@ -2,11 +2,11 @@
 mod tests {
     use crate::config::session::PerAgentSessionConfig;
     use crate::config::SessionConfigProvider;
-    use crate::session::persistence::{
-        AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
-    };
     use crate::session::sweeper::*;
     use async_trait::async_trait;
+    use closeclaw_session::persistence::{
+        AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
+    };
     use std::sync::{Arc, Mutex};
     use tokio::sync::watch;
 

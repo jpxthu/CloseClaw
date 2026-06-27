@@ -14,8 +14,6 @@ use crate::config::providers::{ConfigProvider, CredentialsProvider};
 use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::im_adapter::plugin::IMPlugin;
 use crate::processor_chain;
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::ReasoningLevel;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::registry::HandlerRegistry;
 use crate::slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
@@ -25,6 +23,8 @@ use closeclaw_llm::minimax::MiniMaxProvider;
 use closeclaw_llm::openai::OpenAIProvider;
 use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use closeclaw_llm::LLMRegistry;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 
 /// Why the REPL loop exited.
 enum ExitReason {

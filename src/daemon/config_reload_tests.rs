@@ -4,8 +4,8 @@ use super::*;
 use crate::config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use crate::config::manager::{ConfigManager, ConfigSection};
 use crate::gateway::{GatewayConfig, SessionManager};
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::ReasoningLevel;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 use tempfile::TempDir;
 

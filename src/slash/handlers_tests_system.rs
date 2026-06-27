@@ -11,8 +11,8 @@ use crate::slash::handlers::SystemHandler;
 
 fn make_sm() -> Arc<SessionManager> {
     use crate::gateway::DmScope;
-    use crate::session::bootstrap::loader::BootstrapMode;
-    use crate::session::persistence::ReasoningLevel;
+    use closeclaw_session::bootstrap::loader::BootstrapMode;
+    use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = crate::gateway::GatewayConfig {
         name: String::new(),

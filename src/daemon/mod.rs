@@ -34,10 +34,6 @@ use crate::slash::{
 
 use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::PersistenceService;
-use crate::session::persistence::ReasoningLevel;
-use crate::session::storage::SqliteStorage;
 use crate::session::sweeper::ArchiveSweeper;
 use crate::skills::builtin::builtin_skills_with_engine_and_approval_flow;
 use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
@@ -45,6 +41,10 @@ use crate::tools::ToolRegistry;
 use closeclaw_common::SessionLookup;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::PersistenceService;
+use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::storage::SqliteStorage;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -254,7 +254,7 @@ impl Daemon {
         // results into checkpoints so resolve.rs can inject them when
         // sessions are restored.
         {
-            use crate::session::recovery::SessionRecoveryService;
+            use closeclaw_session::recovery::SessionRecoveryService;
             let recovery_svc =
                 SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
             match recovery_svc.recover().await {

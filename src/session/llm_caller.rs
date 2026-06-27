@@ -10,7 +10,6 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::gateway::session_handler::MessageMetadata;
-use crate::session::persistence::ReasoningLevel;
 use crate::system_prompt::inject::{
     build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
 };
@@ -21,6 +20,7 @@ use closeclaw_llm::streaming::StreamingSink;
 use closeclaw_llm::types::{InternalRequest, UnifiedResponse};
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::{LLMError, Message as ChatMessage};
+use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::gateway::session_manager::SessionManager;
 
