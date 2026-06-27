@@ -753,3 +753,236 @@ mod ensure_master_agent_tests {
         assert_agents_json(&agents_json_path, &["helper", "master"]);
     }
 }
+
+#[cfg(test)]
+mod provider_info_tests {
+    use super::types::{ProviderInfo, ProviderType};
+    use super::PROVIDERS;
+
+    #[test]
+    fn test_provider_info_serialize_with_description() {
+        let info = ProviderInfo {
+            id: "test",
+            display_name: "Test Provider",
+            provider_type: ProviderType::Minimax,
+            description: "A test provider",
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(
+            json.contains("description"),
+            "JSON should contain description: {}",
+            json
+        );
+        assert!(json.contains("A test provider"));
+    }
+
+    #[test]
+    fn test_provider_info_deserialize_with_description() {
+        let json = r#"{
+            "id": "test",
+            "display_name": "Test Provider",
+            "provider_type": "Minimax",
+            "description": "A test provider"
+        }"#;
+        let info: ProviderInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.id, "test");
+        assert_eq!(info.display_name, "Test Provider");
+        assert_eq!(info.description, "A test provider");
+    }
+
+    #[test]
+    fn test_provider_info_roundtrip_with_description() {
+        // &'static str fields require static source for deserialization
+        let json = r#"{"id":"test","display_name":"Test","provider_type":"Deepseek","description":"test description"}"#;
+        let roundtripped: ProviderInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(roundtripped.id, "test");
+        assert_eq!(roundtripped.display_name, "Test");
+        assert_eq!(roundtripped.description, "test description");
+        assert_eq!(roundtripped.provider_type, ProviderType::Deepseek);
+    }
+
+    #[test]
+    fn test_all_providers_have_description() {
+        for provider in PROVIDERS {
+            assert!(
+                !provider.description.is_empty(),
+                "Provider '{}' should have a non-empty description",
+                provider.id
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod compute_default_selection_tests {
+    use super::compute_default_selection;
+    use crate::llm::model_info::ModelInfo;
+    use std::collections::HashSet;
+
+    fn make_model(id: &str) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            context_window: 1000,
+            max_tokens: 1000,
+            default_temperature: None,
+            reasoning: false,
+            input_types: vec![],
+        }
+    }
+
+    #[test]
+    fn test_no_configured_models_returns_empty() {
+        let models = vec![make_model("a"), make_model("b"), make_model("c")];
+        let configured = HashSet::new();
+        assert_eq!(compute_default_selection(&models, &configured), "");
+    }
+
+    #[test]
+    fn test_single_configured_model() {
+        let models = vec![make_model("a"), make_model("b"), make_model("c")];
+        let mut configured = HashSet::new();
+        configured.insert("b".to_string());
+        assert_eq!(compute_default_selection(&models, &configured), "2");
+    }
+
+    #[test]
+    fn test_multiple_configured_models_sorted() {
+        let models = vec![
+            make_model("a"),
+            make_model("b"),
+            make_model("c"),
+            make_model("d"),
+        ];
+        let mut configured = HashSet::new();
+        configured.insert("d".to_string());
+        configured.insert("a".to_string());
+        assert_eq!(compute_default_selection(&models, &configured), "1,4");
+    }
+
+    #[test]
+    fn test_all_models_configured() {
+        let models = vec![make_model("a"), make_model("b"), make_model("c")];
+        let configured: HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
+        assert_eq!(compute_default_selection(&models, &configured), "1,2,3");
+    }
+
+    #[test]
+    fn test_empty_model_list() {
+        let models = vec![];
+        let mut configured = HashSet::new();
+        configured.insert("a".to_string());
+        assert_eq!(compute_default_selection(&models, &configured), "");
+    }
+
+    #[test]
+    fn test_configured_ids_not_in_models_ignored() {
+        let models = vec![make_model("a"), make_model("b")];
+        let mut configured = HashSet::new();
+        configured.insert("x".to_string());
+        configured.insert("y".to_string());
+        assert_eq!(compute_default_selection(&models, &configured), "");
+    }
+}
+
+#[cfg(test)]
+mod write_wizard_config_api_key_clearing_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Test: write_wizard_config always sets api_key to None in models.json
+    #[test]
+    fn test_write_wizard_config_clears_api_key() {
+        let tmp = TempDir::new().unwrap();
+        let output = WizardOutput {
+            provider_id: "glm".to_string(),
+            credential: "my-secret-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "glm-4".to_string(),
+                name: "GLM 4".to_string(),
+                context_window: 128_000,
+                max_tokens: 4_096,
+                default_temperature: Some(0.7),
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        let models_path = tmp.path().join("models.json");
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let provider = parsed.providers.get("glm").unwrap();
+
+        assert!(
+            provider.api_key.is_none(),
+            "api_key should be None (cleared), got: {:?}",
+            provider.api_key
+        );
+        assert_eq!(
+            provider.credential_path.as_deref(),
+            Some("credentials/glm.json"),
+            "credential_path should reference the credentials file"
+        );
+    }
+
+    /// Test: api_key is None even when existing config had api_key set
+    #[test]
+    fn test_write_wizard_config_clears_existing_api_key() {
+        let tmp = TempDir::new().unwrap();
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepseek".to_string(),
+            ProviderConfig {
+                base_url: Some("https://api.deepseek.com".to_string()),
+                api_key: Some("old-secret-key".to_string()),
+                api: None,
+                protocol: None,
+                credential_path: Some("credentials/deepseek.json".to_string()),
+                models: vec![],
+            },
+        );
+        let initial = ModelsConfigData {
+            mode: "merge".to_string(),
+            providers,
+        };
+        std::fs::create_dir_all(tmp.path()).unwrap();
+        std::fs::write(
+            tmp.path().join("models.json"),
+            serde_json::to_string_pretty(&initial).unwrap(),
+        )
+        .unwrap();
+
+        let output = WizardOutput {
+            provider_id: "deepseek".to_string(),
+            credential: "new-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "deepseek-v3".to_string(),
+                name: "DeepSeek V3".to_string(),
+                context_window: 64_000,
+                max_tokens: 8_192,
+                default_temperature: None,
+                reasoning: true,
+                input_types: vec![],
+            }],
+        };
+
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        let parsed: ModelsConfigData =
+            serde_json::from_str(&std::fs::read_to_string(tmp.path().join("models.json")).unwrap())
+                .unwrap();
+        let provider = parsed.providers.get("deepseek").unwrap();
+
+        assert!(
+            provider.api_key.is_none(),
+            "api_key should be None after wizard rewrite, got: {:?}",
+            provider.api_key
+        );
+        assert_eq!(
+            provider.base_url.as_deref(),
+            Some("https://api.deepseek.com")
+        );
+    }
+}

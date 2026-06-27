@@ -302,6 +302,25 @@ pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
     write_wizard_config_to(output, &config_dir())
 }
 
+/// Compute a default selection string for already-configured models.
+///
+/// Given a list of fetched models and a set of already-configured model IDs,
+/// returns a comma-separated string of 1-based indices (e.g. "1,3,5")
+/// for models that exist in `configured_ids`. Returns an empty string if no
+/// models are already configured.
+pub fn compute_default_selection(
+    models: &[ModelInfo],
+    configured_ids: &std::collections::HashSet<String>,
+) -> String {
+    let indices: Vec<String> = models
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| configured_ids.contains(&m.id))
+        .map(|(i, _)| (i + 1).to_string())
+        .collect();
+    indices.join(",")
+}
+
 /// Locate the models.json config file, if it exists.
 fn find_models_config() -> Option<std::path::PathBuf> {
     let possible = ["config/models.json", "configs/models.json"];
@@ -498,13 +517,12 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         println!();
 
         // Compute default selection for already-configured models
-        let configured_indices: Vec<String> = models
+        let configured_ids: std::collections::HashSet<String> = models
             .iter()
-            .enumerate()
-            .filter(|(_, m)| ctx.existing_config.contains_key(&m.id))
-            .map(|(i, _)| (i + 1).to_string())
+            .filter(|m| ctx.existing_config.contains_key(&m.id))
+            .map(|m| m.id.clone())
             .collect();
-        let default_selection = configured_indices.join(",");
+        let default_selection = compute_default_selection(models, &configured_ids);
 
         let input: String = tokio::task::spawn_blocking(move || {
             let mut prompt = Input::new().with_prompt("Your selection");
