@@ -69,7 +69,7 @@ impl ModelInterpreter for DefaultInterpreter {
         let content_blocks: Vec<ContentBlock> = response
             .content_blocks
             .into_iter()
-            .map(raw_content_block_to_content_block)
+            .map(Into::into)
             .collect();
         let usage = UnifiedUsage {
             prompt_tokens: response.usage.prompt_tokens,
@@ -162,24 +162,6 @@ impl InterpreterRegistry {
 impl Default for InterpreterRegistry {
     fn default() -> Self {
         Self::new(vec![])
-    }
-}
-
-fn raw_content_block_to_content_block(raw: RawContentBlock) -> ContentBlock {
-    match raw {
-        RawContentBlock::Text(s) => ContentBlock::Text(s),
-        RawContentBlock::Thinking { thinking: s, .. } => ContentBlock::Thinking {
-            thinking: s,
-            signature: None,
-        },
-        RawContentBlock::ToolUse { id, name, input } => ContentBlock::ToolUse { id, name, input },
-        RawContentBlock::ToolResult {
-            tool_call_id,
-            content,
-        } => ContentBlock::ToolResult {
-            tool_call_id,
-            content,
-        },
     }
 }
 
