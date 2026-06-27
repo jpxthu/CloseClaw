@@ -199,6 +199,57 @@ mod write_wizard_config_tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// Helper: write initial ModelsConfigData to models.json
+    fn write_initial_config(
+        tmp: &TempDir,
+        providers: std::collections::HashMap<String, ProviderConfig>,
+    ) {
+        let models_path = tmp.path().join("models.json");
+        std::fs::create_dir_all(tmp.path()).unwrap();
+        let initial = ModelsConfigData {
+            mode: "merge".to_string(),
+            providers,
+        };
+        std::fs::write(
+            &models_path,
+            serde_json::to_string_pretty(&initial).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Helper: create a WizardOutput
+    fn make_wizard_output(
+        provider_id: &str,
+        credential: &str,
+        models: Vec<ModelInfo>,
+    ) -> WizardOutput {
+        WizardOutput {
+            provider_id: provider_id.to_string(),
+            credential: credential.to_string(),
+            selected_models: models,
+        }
+    }
+
+    /// Helper: create a simple ModelInfo
+    fn make_model(id: &str, name: &str, context_window: u32, max_tokens: u32) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            context_window,
+            max_tokens,
+            default_temperature: None,
+            reasoning: false,
+            input_types: vec![],
+        }
+    }
+
+    /// Helper: read and parse models.json
+    fn read_parsed_config(tmp: &TempDir) -> ModelsConfigData {
+        let models_path = tmp.path().join("models.json");
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        serde_json::from_str(&content).unwrap()
+    }
+
     /// Test: write_wizard_config outputs protocol field in ProviderConfig
     #[test]
     fn test_write_wizard_config_includes_protocol() {
@@ -430,164 +481,92 @@ mod write_wizard_config_tests {
     #[test]
     fn test_write_wizard_config_to_preserves_provider_base_fields() {
         let tmp = TempDir::new().unwrap();
-
-        // Manually write initial config with custom base_url, api_key, api
-        let initial = ModelsConfigData {
-            mode: "merge".to_string(),
-            providers: {
-                let mut map = std::collections::HashMap::new();
-                map.insert(
-                    "minimax".to_string(),
-                    ProviderConfig {
-                        base_url: Some("https://custom.api.com/v1".to_string()),
-                        api_key: Some("sk-existing-key".to_string()),
-                        api: Some("v2".to_string()),
-                        protocol: Some("openai".to_string()),
-                        credential_path: Some("credentials/minimax.json".to_string()),
-                        models: vec![ModelDefinition {
-                            id: "MiniMax-M2.7".to_string(),
-                            name: Some("MiniMax M2.7".to_string()),
-                            enabled: Some(true),
-                        }],
-                    },
-                );
-                map
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "minimax".to_string(),
+            ProviderConfig {
+                base_url: Some("https://custom.api.com/v1".to_string()),
+                api_key: Some("sk-existing-key".to_string()),
+                api: Some("v2".to_string()),
+                protocol: Some("openai".to_string()),
+                credential_path: Some("credentials/minimax.json".to_string()),
+                models: vec![ModelDefinition {
+                    id: "MiniMax-M2.7".to_string(),
+                    name: Some("MiniMax M2.7".to_string()),
+                    enabled: Some(true),
+                }],
             },
-        };
-        let models_path = tmp.path().join("models.json");
-        std::fs::create_dir_all(tmp.path()).unwrap();
-        std::fs::write(
-            &models_path,
-            serde_json::to_string_pretty(&initial).unwrap(),
-        )
-        .unwrap();
+        );
+        write_initial_config(&tmp, providers);
 
-        // Re-run wizard for minimax
-        let output = WizardOutput {
-            provider_id: "minimax".to_string(),
-            credential: "new-api-key".to_string(),
-            selected_models: vec![ModelInfo {
-                id: "abab6.5-chat".to_string(),
-                name: "ABAB6.5 Chat".to_string(),
-                context_window: 2000,
-                max_tokens: 2000,
-                default_temperature: None,
-                reasoning: false,
-                input_types: vec![],
-            }],
-        };
+        let output = make_wizard_output(
+            "minimax",
+            "new-api-key",
+            vec![make_model("abab6.5-chat", "ABAB6.5 Chat", 2000, 2000)],
+        );
         write_wizard_config_to(&output, tmp.path()).unwrap();
 
-        // Verify base_url, api_key, api are preserved
-        let content = std::fs::read_to_string(&models_path).unwrap();
-        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let parsed = read_parsed_config(&tmp);
         let provider = parsed.providers.get("minimax").unwrap();
         assert_eq!(
             provider.base_url.as_deref(),
-            Some("https://custom.api.com/v1"),
-            "base_url should be preserved"
+            Some("https://custom.api.com/v1")
         );
-        assert_eq!(
-            provider.api_key.as_deref(),
-            Some("sk-existing-key"),
-            "api_key should be preserved"
-        );
-        assert_eq!(
-            provider.api.as_deref(),
-            Some("v2"),
-            "api should be preserved"
-        );
+        assert_eq!(provider.api_key.as_deref(), Some("sk-existing-key"));
+        assert_eq!(provider.api.as_deref(), Some("v2"));
     }
 
     /// Test: existing unselected models are preserved after rewrite
     #[test]
     fn test_write_wizard_config_to_preserves_unselected_models() {
         let tmp = TempDir::new().unwrap();
-
-        // Manually write initial config with 3 models
-        let initial = ModelsConfigData {
-            mode: "merge".to_string(),
-            providers: {
-                let mut map = std::collections::HashMap::new();
-                map.insert(
-                    "minimax".to_string(),
-                    ProviderConfig {
-                        base_url: None,
-                        api_key: None,
-                        api: None,
-                        protocol: None,
-                        credential_path: Some("credentials/minimax.json".to_string()),
-                        models: vec![
-                            ModelDefinition {
-                                id: "model-a".to_string(),
-                                name: Some("Model A".to_string()),
-                                enabled: Some(true),
-                            },
-                            ModelDefinition {
-                                id: "model-b".to_string(),
-                                name: Some("Model B".to_string()),
-                                enabled: Some(true),
-                            },
-                            ModelDefinition {
-                                id: "model-c".to_string(),
-                                name: Some("Model C".to_string()),
-                                enabled: Some(false),
-                            },
-                        ],
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "minimax".to_string(),
+            ProviderConfig {
+                base_url: None,
+                api_key: None,
+                api: None,
+                protocol: None,
+                credential_path: Some("credentials/minimax.json".to_string()),
+                models: vec![
+                    ModelDefinition {
+                        id: "model-a".to_string(),
+                        name: Some("Model A".to_string()),
+                        enabled: Some(true),
                     },
-                );
-                map
+                    ModelDefinition {
+                        id: "model-b".to_string(),
+                        name: Some("Model B".to_string()),
+                        enabled: Some(true),
+                    },
+                    ModelDefinition {
+                        id: "model-c".to_string(),
+                        name: Some("Model C".to_string()),
+                        enabled: Some(false),
+                    },
+                ],
             },
-        };
-        let models_path = tmp.path().join("models.json");
-        std::fs::create_dir_all(tmp.path()).unwrap();
-        std::fs::write(
-            &models_path,
-            serde_json::to_string_pretty(&initial).unwrap(),
-        )
-        .unwrap();
+        );
+        write_initial_config(&tmp, providers);
 
-        // Re-run wizard selecting only model-a and a new model-d
-        let output = WizardOutput {
-            provider_id: "minimax".to_string(),
-            credential: "test-key".to_string(),
-            selected_models: vec![
-                ModelInfo {
-                    id: "model-a".to_string(),
-                    name: "Model A Updated".to_string(),
-                    context_window: 1000,
-                    max_tokens: 1000,
-                    default_temperature: None,
-                    reasoning: false,
-                    input_types: vec![],
-                },
-                ModelInfo {
-                    id: "model-d".to_string(),
-                    name: "Model D".to_string(),
-                    context_window: 3000,
-                    max_tokens: 3000,
-                    default_temperature: None,
-                    reasoning: false,
-                    input_types: vec![],
-                },
+        let output = make_wizard_output(
+            "minimax",
+            "test-key",
+            vec![
+                make_model("model-a", "Model A Updated", 1000, 1000),
+                make_model("model-d", "Model D", 3000, 3000),
             ],
-        };
+        );
         write_wizard_config_to(&output, tmp.path()).unwrap();
 
-        // Verify: model-b and model-c preserved, model-a updated, model-d added
-        let content = std::fs::read_to_string(&models_path).unwrap();
-        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let parsed = read_parsed_config(&tmp);
         let provider = parsed.providers.get("minimax").unwrap();
-        assert_eq!(
-            provider.models.len(),
-            4,
-            "should have 4 models (model-a updated + model-b, model-c preserved + model-d new)"
-        );
+        assert_eq!(provider.models.len(), 4);
         let ids: Vec<&str> = provider.models.iter().map(|m| m.id.as_str()).collect();
-        assert!(ids.contains(&"model-b"), "model-b should be preserved");
-        assert!(ids.contains(&"model-c"), "model-c should be preserved");
-        assert!(ids.contains(&"model-d"), "model-d should be added");
-        // model-a should be updated
+        assert!(ids.contains(&"model-b"));
+        assert!(ids.contains(&"model-c"));
+        assert!(ids.contains(&"model-d"));
         let model_a = provider.models.iter().find(|m| m.id == "model-a").unwrap();
         assert_eq!(model_a.name.as_deref(), Some("Model A Updated"));
         assert_eq!(model_a.enabled, Some(true));
