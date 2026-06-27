@@ -130,6 +130,24 @@ pub struct RenderedOutput {
     pub payload: serde_json::Value,
 }
 
+use crate::processor::ContentBlock;
+
+// ---------------------------------------------------------------------------
+// StreamingOutput
+// ---------------------------------------------------------------------------
+
+/// Incremental output from streaming LLM responses.
+///
+/// Carries completed text lines and non-text content blocks
+/// produced during a streaming response batch.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StreamingOutput {
+    /// Completed text lines emitted by the line buffer.
+    pub text_messages: Vec<String>,
+    /// Non-Text content blocks completed in this batch.
+    pub render_blocks: Vec<ContentBlock>,
+}
+
 // ---------------------------------------------------------------------------
 // IMPlugin trait
 // ---------------------------------------------------------------------------

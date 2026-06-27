@@ -36,6 +36,7 @@ pub use gateway_types::{
 };
 pub use im_plugin::{
     AdapterError, IMPlugin, MediaRef, NormalizedMessage, QuotedMessage, RenderedOutput,
+    StreamingOutput,
 };
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
