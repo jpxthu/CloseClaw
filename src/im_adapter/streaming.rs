@@ -7,10 +7,9 @@
 //!   (`。！？.!?\n`) when outside fenced code blocks, and on `\n` when
 //!   inside. Forces emission when the buffer exceeds a character threshold.
 //! - [`DefaultStreamingRenderer`] — implements [`StreamingRenderer`]:
-//!   feeds Text deltas through [`LineBuffer`], accumulates non-Text blocks,
-//!   and routes DSL lines to a dedicated slot in [`StreamingOutput`].
+//!   feeds Text deltas through [`LineBuffer`] and accumulates non-Text blocks.
 //! - [`StreamingOutput`] — incremental output struct carrying completed
-//!   text lines, non-Text [`ContentBlock`]s, and parsed DSL lines.
+//!   text lines and non-Text [`ContentBlock`]s.
 
 use crate::llm::types::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 
@@ -24,8 +23,6 @@ pub struct StreamingOutput {
     pub text_messages: Vec<String>,
     /// Non-Text content blocks completed in this batch.
     pub render_blocks: Vec<ContentBlock>,
-    /// DSL lines (e.g. `::button[...]`) extracted from text content.
-    pub dsl_lines: Vec<String>,
 }
 
 /// Line buffer for incremental text rendering.
@@ -135,20 +132,12 @@ fn count_trailing_backticks(s: &str) -> usize {
     s.chars().rev().take_while(|&c| c == '`').count()
 }
 
-pub(crate) fn is_dsl_line(line: &str) -> bool {
-    line.trim_start().starts_with("::")
-}
-
 fn route_line(line: &str, out: &mut StreamingOutput) {
     let trimmed = line.trim();
     if trimmed.is_empty() {
         return;
     }
-    if is_dsl_line(trimmed) {
-        out.dsl_lines.push(trimmed.to_string());
-    } else {
-        out.text_messages.push(line.to_string());
-    }
+    out.text_messages.push(line.to_string());
 }
 
 /// Per-block accumulator for non-Text blocks (Thinking / ToolUse).

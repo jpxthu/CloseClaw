@@ -9,7 +9,6 @@ use crate::im::IMPlugin;
 use crate::llm::types::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
-use crate::processor_chain::dsl_parser::DslParser;
 use crate::processor_chain::{DslParseResult, ProcessedMessage};
 use crate::renderer::streaming::StreamingOutput;
 use crate::renderer::RenderedOutput;
@@ -355,8 +354,7 @@ impl Gateway {
     /// dispatching incremental output to `plugin` as it becomes available:
     /// - Text delta → line buffer → complete lines → `plugin.send` (text)
     /// - BlockEnd (non-Text) → `plugin.render(&[block], None)` → `plugin.send`
-    /// - MessageEnd → flush + `DslParser::parse` on accumulated DSL lines →
-    ///   `plugin.render` + `plugin.send`
+    /// - MessageEnd → flush remaining content → `plugin.send`
     ///
     /// Accumulated `content_blocks` and the LLM-reported `usage` are returned
     /// in a [`StreamResult`]. `thread_id` is resolved from the session
@@ -417,10 +415,10 @@ impl Gateway {
                 let is_text_delta = matches!(delta, ContentDelta::Text { .. });
                 // Delegate to the plugin's streaming method.
                 let out = plugin.handle_stream_event(StreamEvent::BlockDelta { index, delta });
-                // For Text deltas, the renderer may emit completed text lines
-                // and dsl lines; non-Text deltas only update internal state.
+                // For Text deltas, the renderer may emit completed text lines;
+                // non-Text deltas only update internal state.
                 if is_text_delta {
-                    dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
+                    dispatch_text(plugin, chat_id, thread_id, out, state).await?;
                 }
             }
             StreamEvent::BlockEnd { block_type, .. } => {
@@ -432,17 +430,16 @@ impl Gateway {
                         state.content_blocks.push(block);
                     }
                 }
-                dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
+                dispatch_text(plugin, chat_id, thread_id, out, state).await?;
             }
             StreamEvent::MessageEnd { usage, .. } => {
                 let mut out = plugin.flush_stream();
                 let render_blocks = std::mem::take(&mut out.render_blocks);
-                dispatch_text_and_dsl(plugin, chat_id, thread_id, out, state).await?;
+                dispatch_text(plugin, chat_id, thread_id, out, state).await?;
                 for block in render_blocks {
                     send_render_block(plugin, chat_id, thread_id, &block).await?;
                     state.content_blocks.push(block);
                 }
-                send_dsl_lines(plugin, chat_id, thread_id, &state.dsl_lines).await?;
                 if let Some(u) = usage {
                     state.usage = u;
                 }
@@ -465,7 +462,6 @@ impl Gateway {
 /// Mutable state carried across stream events in `send_outbound_streaming`.
 struct StreamState {
     content_blocks: Vec<ContentBlock>,
-    dsl_lines: Vec<String>,
     usage: UnifiedUsage,
 }
 
@@ -473,7 +469,6 @@ impl StreamState {
     fn new() -> Self {
         Self {
             content_blocks: Vec::new(),
-            dsl_lines: Vec::new(),
             usage: UnifiedUsage {
                 prompt_tokens: 0,
                 completion_tokens: 0,
@@ -493,8 +488,8 @@ impl StreamState {
     }
 }
 
-/// Send any text messages from `out` and accumulate dsl lines into `state`.
-async fn dispatch_text_and_dsl(
+/// Send any text messages from `out` into `state`.
+async fn dispatch_text(
     plugin: &std::sync::Arc<dyn IMPlugin>,
     chat_id: &str,
     thread_id: Option<&str>,
@@ -505,7 +500,6 @@ async fn dispatch_text_and_dsl(
         send_text(plugin, chat_id, thread_id, &text).await?;
         state.content_blocks.push(ContentBlock::Text(text));
     }
-    state.dsl_lines.extend(out.dsl_lines);
     Ok(())
 }
 
@@ -532,24 +526,6 @@ async fn send_render_block(
     block: &ContentBlock,
 ) -> Result<(), GatewayError> {
     let rendered = plugin.render(std::slice::from_ref(block), None);
-    plugin.send(&rendered, chat_id, thread_id).await?;
-    Ok(())
-}
-
-/// Parse accumulated DSL lines and dispatch via `plugin.render + plugin.send`.
-async fn send_dsl_lines(
-    plugin: &std::sync::Arc<dyn IMPlugin>,
-    chat_id: &str,
-    thread_id: Option<&str>,
-    dsl_lines: &[String],
-) -> Result<(), GatewayError> {
-    if dsl_lines.is_empty() {
-        return Ok(());
-    }
-    let dsl_text = dsl_lines.join("\n");
-    let dsl_result = DslParser.parse(&dsl_text);
-    let blocks = vec![ContentBlock::Text(dsl_result.clean_content.clone())];
-    let rendered = plugin.render(&blocks, Some(&dsl_result));
     plugin.send(&rendered, chat_id, thread_id).await?;
     Ok(())
 }
