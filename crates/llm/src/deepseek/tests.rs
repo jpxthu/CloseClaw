@@ -45,8 +45,9 @@ fn test_provider_accessors() {
     assert_eq!(provider.base_url(), DEEPSEEK_API_URL);
     assert_eq!(provider.api_key(), "sk-secret-key");
     let protocols = provider.supported_protocols();
-    assert_eq!(protocols.len(), 1);
+    assert_eq!(protocols.len(), 2);
     assert_eq!(protocols[0].as_str(), "openai");
+    assert_eq!(protocols[1].as_str(), "anthropic");
     let _ = provider.http_client();
     assert!(provider.default_headers().is_empty());
 
@@ -433,6 +434,347 @@ async fn test_send_streaming_error_401() {
     match err {
         crate::provider::ProviderError::Legacy(msg) => {
             assert!(msg.contains("401"));
+        }
+        other => panic!("expected Legacy error for 401, got: {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic protocol path tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_send_anthropic_protocol_success() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "id": "msg-anthropic-001",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            {
+                "type": "thinking",
+                "thinking": "Let me reason through this...",
+                "signature": "sig-abc123"
+            },
+            {
+                "type": "text",
+                "text": "The answer is 42."
+            }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 20
+        }
+    });
+
+    let m = server
+        .mock("POST", "/v1/messages")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-pro");
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "max_tokens": 1024,
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": "What is the answer?"}]
+        }]
+    });
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
+    m.assert_async().await;
+
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Thinking {
+            thinking: "Let me reason through this...".into(),
+            signature: Some("sig-abc123".into()),
+        }
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text("The answer is 42.".into())
+    );
+    assert_eq!(resp.finish_reason.as_deref(), Some("end_turn"));
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 20);
+}
+
+#[tokio::test]
+async fn test_send_anthropic_thinking_with_signature() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "id": "msg-anthropic-002",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            {
+                "type": "thinking",
+                "thinking": "Deep reasoning trace.",
+                "signature": "ESig-xyz-789"
+            },
+            {
+                "type": "text",
+                "text": "Done."
+            }
+        ],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 5, "output_tokens": 8 }
+    });
+
+    let m = server
+        .mock("POST", "/v1/messages")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let req = make_request("deepseek-v4-pro");
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "max_tokens": 1024,
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": "hi"}]
+        }]
+    });
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
+    m.assert_async().await;
+
+    // Thinking block should carry the signature
+    match &resp.content_blocks[0] {
+        RawContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "Deep reasoning trace.");
+            assert_eq!(signature.as_deref(), Some("ESig-xyz-789"));
+        }
+        other => panic!("expected Thinking block, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_send_streaming_anthropic_protocol() {
+    let mut server = mockito::Server::new_async().await;
+
+    // Anthropic SSE format: events separated by \n\n
+    let sse_body = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"role\":\"assistant\"}}\n",
+        "\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n",
+        "\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" world\"}}\n",
+        "\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n",
+        "\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n",
+        "\n",
+    );
+
+    let m = server
+        .mock("POST", "/v1/messages")
+        .match_header(
+            "authorization",
+            mockito::Matcher::Regex(r"Bearer sk-.*".into()),
+        )
+        .with_status(200)
+        .with_header("content-type", "text/event-stream")
+        .with_body(sse_body)
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let mut req = make_request("deepseek-v4-pro");
+    req.stream = true;
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "max_tokens": 1024,
+        "stream": true,
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": "Hi"}]
+        }]
+    });
+
+    let mut rx = provider
+        .send_streaming(req, body)
+        .await
+        .expect("send_streaming should succeed");
+    m.assert_async().await;
+
+    let mut chunks = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+        chunks.push(chunk);
+    }
+
+    // Should receive the message_start + 2 content_block_delta + message_delta + message_stop
+    // = 5 data frames (event-only lines without data are not sent as chunks)
+    assert!(
+        chunks.len() >= 2,
+        "expected >= 2 SSE chunks, got {}",
+        chunks.len()
+    );
+
+    // Verify we got the text delta chunks
+    let all_data: String = chunks.iter().map(|c| c.data.as_str()).collect();
+    assert!(all_data.contains("Hello"), "expected 'Hello' in chunks");
+    assert!(all_data.contains("world"), "expected 'world' in chunks");
+}
+
+// ---------------------------------------------------------------------------
+// detect_is_anthropic tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_detect_anthropic_with_array_content() {
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": "Hello"}]
+        }]
+    });
+    assert!(detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_openai_with_string_content() {
+    let body = json!({
+        "model": "deepseek-v4-flash",
+        "messages": [{
+            "role": "user",
+            "content": "Hello"
+        }]
+    });
+    assert!(!detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_anthropic_with_system_field() {
+    // Top-level "system" field is Anthropic-only;
+    // even with string content in messages, it should return true.
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "max_tokens": 1024,
+        "system": "You are a helpful assistant.",
+        "messages": [{
+            "role": "user",
+            "content": "Hello"
+        }]
+    });
+    assert!(detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_anthropic_with_system_and_array_content() {
+    // Both primary (array content) and secondary (system field) signals;
+    // should return true as a double confirmation.
+    let body = json!({
+        "model": "deepseek-v4-pro",
+        "max_tokens": 1024,
+        "system": [{"type": "text", "text": "You are helpful."}],
+        "messages": [{
+            "role": "user",
+            "content": [{"type": "text", "text": "Hi"}]
+        }]
+    });
+    assert!(detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_empty_messages() {
+    let body = json!({
+        "model": "deepseek-v4-flash",
+        "messages": []
+    });
+    assert!(!detect_is_anthropic(&body));
+}
+
+// ---------------------------------------------------------------------------
+// fetch_balance tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_fetch_balance_success() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "is_available": true,
+        "balance_infos": [{
+            "currency": "USD",
+            "total_balance": 42.50,
+            "granted_balance": 10.00,
+            "topped_up_balance": 32.50
+        }]
+    });
+
+    let m = server
+        .mock("GET", "/user/balance")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let balance = provider
+        .fetch_balance()
+        .await
+        .expect("fetch_balance should succeed");
+
+    m.assert_async().await;
+    assert!(balance.is_available);
+    assert_eq!(balance.balance_infos.len(), 1);
+    assert_eq!(balance.balance_infos[0].currency, "USD");
+    assert_eq!(balance.balance_infos[0].total_balance, 42.50);
+    assert_eq!(balance.balance_infos[0].granted_balance, 10.00);
+    assert_eq!(balance.balance_infos[0].topped_up_balance, 32.50);
+}
+
+#[tokio::test]
+async fn test_fetch_balance_error() {
+    let mut server = mockito::Server::new_async().await;
+
+    let m = server
+        .mock("GET", "/user/balance")
+        .with_status(401)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":{"message":"Unauthorized"}}"#)
+        .create_async()
+        .await;
+
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let err = provider
+        .fetch_balance()
+        .await
+        .expect_err("fetch_balance should fail on 401");
+
+    m.assert_async().await;
+    match err {
+        crate::provider::ProviderError::Legacy(msg) => {
+            assert!(
+                msg.contains("401"),
+                "expected 401 in error message, got: {}",
+                msg
+            );
         }
         other => panic!("expected Legacy error for 401, got: {:?}", other),
     }
