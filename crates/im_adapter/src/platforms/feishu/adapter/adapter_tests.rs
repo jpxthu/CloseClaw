@@ -7,6 +7,7 @@ use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use axum::{extract::Query, routing::post, Json, Router};
 use std::collections::HashMap as StdHashMap;
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
@@ -64,6 +65,72 @@ async fn start_mock_server(received_id_type: Arc<tokio::sync::Mutex<Option<Strin
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     format!("http://{}", addr)
+}
+
+/// Start a mock Feishu server that handles token + media download.
+/// Returns the base URL.
+async fn start_media_mock_server() -> String {
+    use axum::extract::{Path, RawQuery};
+    use axum::http::StatusCode;
+
+    let app = Router::new()
+        .route(
+            "/auth/v3/tenant_access_token/internal",
+            post(|Json(_body): Json<serde_json::Value>| async {
+                Json(serde_json::json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "mock_token"
+                }))
+            }),
+        )
+        .route(
+            "/im/v1/messages/:message_id/resources/:file_key",
+            axum::routing::get(
+                move |Path((_message_id, file_key)): Path<(String, String)>,
+                      RawQuery(query): RawQuery| async move {
+                    let media_type = query
+                        .and_then(|q| {
+                            q.split('&')
+                                .find(|p| p.starts_with("type="))
+                                .map(|p| p[5..].to_string())
+                        })
+                        .unwrap_or_default();
+                    (
+                        StatusCode::OK,
+                        [(
+                            "content-type",
+                            match media_type.as_str() {
+                                "image" => "image/png",
+                                _ => "application/octet-stream",
+                            },
+                        )],
+                        format!("MOCK_FILE_CONTENT_{}", file_key),
+                    )
+                },
+            ),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{}", addr)
+}
+
+/// Create a FeishuAdapter with a pre-populated valid cached token,
+/// pointing at the given base URL.
+fn make_adapter_with_cached_token(base_url: &str) -> FeishuAdapter {
+    let http_client = reqwest::Client::new();
+    FeishuAdapter {
+        app_id: "test_app_id".to_string(),
+        app_secret: "test_secret".to_string(),
+        verification_token: "test_token".to_string(),
+        http_client,
+        cached_token: Arc::new(tokio::sync::Mutex::new(Some(CachedToken {
+            token: "pre_cached_token".to_string(),
+            expires_at: Instant::now() + Duration::from_secs(3600),
+        }))),
+        base_url: base_url.to_string(),
+    }
 }
 
 /// Build a minimal FeishuEvent for a message event.
@@ -577,4 +644,84 @@ async fn test_parse_inbound_image_graceful_degradation() {
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     assert_eq!(msg.message_type, "image");
     assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+}
+
+// ===========================================================================
+// Positive download tests (download succeeds → media_refs populated)
+// ===========================================================================
+
+#[tokio::test]
+async fn test_parse_image_message_success() {
+    let base_url = start_media_mock_server().await;
+    let adapter = make_adapter_with_cached_token(&base_url);
+    let event = make_message_event_with_id(
+        "image",
+        &serde_json::json!({"image_key": "img_test_123"}).to_string(),
+        Some("om_img_001"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert_eq!(msg.content, "");
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "img_test_123");
+    assert!(msg.media_refs[0].url.contains("img_test_123"));
+    // Clean up temp file
+    let _ = tokio::fs::remove_file(&msg.media_refs[0].url).await;
+}
+
+#[tokio::test]
+async fn test_parse_file_message_success() {
+    let base_url = start_media_mock_server().await;
+    let adapter = make_adapter_with_cached_token(&base_url);
+    let event = make_message_event_with_id(
+        "file",
+        &serde_json::json!({"file_key": "file_xyz_789", "file_name": "report.pdf"}).to_string(),
+        Some("om_file_002"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "file");
+    assert_eq!(msg.content, "report.pdf");
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "file_xyz_789");
+    assert!(msg.media_refs[0].url.contains("file_xyz_789"));
+    let _ = tokio::fs::remove_file(&msg.media_refs[0].url).await;
+}
+
+#[tokio::test]
+async fn test_parse_audio_message_success() {
+    let base_url = start_media_mock_server().await;
+    let adapter = make_adapter_with_cached_token(&base_url);
+    let event = make_message_event_with_id(
+        "audio",
+        &serde_json::json!({"file_key": "audio_abc_456"}).to_string(),
+        Some("om_audio_003"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "audio");
+    assert!(msg.content.is_empty());
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "audio_abc_456");
+    assert!(msg.media_refs[0].url.contains("audio_abc_456"));
+    let _ = tokio::fs::remove_file(&msg.media_refs[0].url).await;
+}
+
+#[tokio::test]
+async fn test_download_media_failure_graceful_degradation() {
+    let adapter = make_test_adapter();
+    let event = make_message_event_with_id(
+        "image",
+        &serde_json::json!({"image_key": "img_fail"}).to_string(),
+        Some("om_fail_001"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert!(
+        msg.media_refs.is_empty(),
+        "media_refs should be empty on download failure"
+    );
+    assert!(msg.content.is_empty());
+    // Message is still produced (not discarded)
+    assert_eq!(msg.platform, "feishu");
+    assert_eq!(msg.sender_id, "ou_sender");
+    assert_eq!(msg.peer_id, "oc_chat");
 }
