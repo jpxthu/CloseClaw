@@ -413,10 +413,10 @@ impl Gateway {
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
         match event {
-            StreamEvent::BlockDelta { delta, .. } => {
+            StreamEvent::BlockDelta { index, delta } => {
                 let is_text_delta = matches!(delta, ContentDelta::Text { .. });
                 // Delegate to the plugin's streaming method.
-                let out = plugin.handle_stream_event(StreamEvent::BlockDelta { index: 0, delta });
+                let out = plugin.handle_stream_event(StreamEvent::BlockDelta { index, delta });
                 // For Text deltas, the renderer may emit completed text lines
                 // and dsl lines; non-Text deltas only update internal state.
                 if is_text_delta {
