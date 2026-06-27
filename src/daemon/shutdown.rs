@@ -295,6 +295,20 @@ impl Default for ShutdownHandle {
     }
 }
 
+impl crate::common::ShutdownSignal for ShutdownHandle {
+    fn is_shutting_down(&self) -> bool {
+        self.coordinator.state().is_shutting_down_state()
+    }
+
+    fn increment_busy(&self) {
+        self.busy_count.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn decrement_busy(&self) {
+        self.busy_count.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
