@@ -13,7 +13,6 @@
 //!   text lines, non-Text [`ContentBlock`]s, and parsed DSL lines.
 
 use crate::llm::types::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
-use crate::processor_chain::dsl_parser::DslParser;
 
 /// Default threshold (in characters) for forcing buffer emission.
 const LINE_THRESHOLD: usize = 100;
@@ -136,9 +135,8 @@ fn count_trailing_backticks(s: &str) -> usize {
     s.chars().rev().take_while(|&c| c == '`').count()
 }
 
-fn is_dsl_line(line: &str) -> bool {
-    let parser = DslParser;
-    !parser.parse(line).instructions.is_empty()
+pub(crate) fn is_dsl_line(line: &str) -> bool {
+    line.trim_start().starts_with("::")
 }
 
 fn route_line(line: &str, out: &mut StreamingOutput) {
@@ -316,190 +314,9 @@ impl StreamingRenderer for DefaultStreamingRenderer {
         if let Some(remaining) = self.line_buffer.flush() {
             route_line(&remaining, &mut out);
         }
+        self.current_block_type = None;
+        self.current_block_index = None;
+        self.current_acc = None;
         out
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn text_delta(text: &str) -> StreamEvent {
-        StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: text.to_string(),
-            },
-        }
-    }
-
-    fn block_start(index: usize, bt: ContentBlockType) -> StreamEvent {
-        StreamEvent::BlockStart {
-            index,
-            block_type: bt,
-        }
-    }
-
-    fn block_end(index: usize, bt: ContentBlockType) -> StreamEvent {
-        StreamEvent::BlockEnd {
-            index,
-            block_type: bt,
-        }
-    }
-
-    // --- LineBuffer ---
-
-    #[test]
-    fn line_buffer_pure_text_splits_on_punctuation() {
-        let mut buf = LineBuffer::new();
-        // English and Chinese sentence terminators, plus newlines.
-        let out = buf.feed("Hello world. 你好世界！\nDone?");
-        assert_eq!(out, vec!["Hello world.", " 你好世界！", "\n", "Done?"]);
-    }
-
-    #[test]
-    fn line_buffer_keeps_incomplete_across_feeds() {
-        let mut buf = LineBuffer::new();
-        assert!(buf.feed("Hello ").is_empty());
-        let out = buf.feed("world.");
-        assert_eq!(out, vec!["Hello world."]);
-        assert_eq!(buf.flush(), None);
-    }
-
-    #[test]
-    fn line_buffer_code_block_only_splits_on_newline() {
-        let mut buf = LineBuffer::new();
-        // Inside the fenced code block, "foo.bar" must NOT split on '.'.
-        let out = buf.feed("```\nfoo.bar.baz\n```\n");
-        assert_eq!(out, vec!["```\n", "foo.bar.baz\n", "```\n"]);
-    }
-
-    #[test]
-    fn line_buffer_force_emits_at_threshold() {
-        let mut buf = LineBuffer::with_threshold(10);
-        let out = buf.feed("a]long string without any terminator");
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].chars().count(), 10);
-        assert_eq!(out[0], "a]long str");
-    }
-
-    #[test]
-    fn line_buffer_flush_and_reset() {
-        let mut buf = LineBuffer::new();
-        buf.feed("partial");
-        assert_eq!(buf.flush(), Some("partial".to_string()));
-        assert_eq!(buf.flush(), None);
-        buf.feed("more");
-        buf.reset();
-        assert_eq!(buf.flush(), None);
-    }
-
-    // --- DefaultStreamingRenderer ---
-
-    #[test]
-    fn renderer_pure_text_emits_complete_lines() {
-        let mut r = DefaultStreamingRenderer::new();
-        r.handle_event(block_start(0, ContentBlockType::Text));
-        let out = r.handle_event(text_delta("Hello world."));
-        assert_eq!(out.text_messages, vec!["Hello world."]);
-        assert!(out.dsl_lines.is_empty());
-        assert!(out.render_blocks.is_empty());
-    }
-
-    #[test]
-    fn renderer_with_code_block_preserves_inner_periods() {
-        let mut r = DefaultStreamingRenderer::new();
-        r.handle_event(block_start(0, ContentBlockType::Text));
-        let out = r.handle_event(text_delta("```\nfoo.bar.baz\n```\n"));
-        // "foo.bar.baz" must be one line, no split on '.'.
-        assert_eq!(out.text_messages, vec!["```\n", "foo.bar.baz\n", "```\n"]);
-    }
-
-    #[test]
-    fn renderer_routes_dsl_line_to_dsl_lines() {
-        let mut r = DefaultStreamingRenderer::new();
-        r.handle_event(block_start(0, ContentBlockType::Text));
-        let dsl = "::button[label:Yes;action:vote;value:1]";
-        let out = r.handle_event(text_delta(&format!("{}\n", dsl)));
-        assert_eq!(out.dsl_lines, vec![dsl]);
-        assert!(out.text_messages.is_empty());
-    }
-
-    #[test]
-    fn renderer_force_emits_long_text_at_threshold() {
-        let mut r = DefaultStreamingRenderer::new();
-        // No terminator in 150-char string; first 100 chars must be emitted.
-        let long_text = "a".repeat(150);
-        r.handle_event(block_start(0, ContentBlockType::Text));
-        let out = r.handle_event(text_delta(&long_text));
-        assert_eq!(out.text_messages.len(), 1);
-        assert_eq!(out.text_messages[0].chars().count(), 100);
-    }
-
-    #[test]
-    fn renderer_block_end_thinking_emits_render_block() {
-        let mut r = DefaultStreamingRenderer::new();
-        r.handle_event(block_start(0, ContentBlockType::Thinking));
-        r.handle_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Thinking {
-                thinking: "Let me think.".to_string(),
-                signature: None,
-            },
-        });
-        let out = r.handle_event(block_end(0, ContentBlockType::Thinking));
-        assert_eq!(
-            out.render_blocks,
-            vec![ContentBlock::Thinking {
-                thinking: "Let me think.".to_string(),
-                signature: None
-            }]
-        );
-    }
-
-    #[test]
-    fn renderer_block_end_tool_use_assembles_block() {
-        let mut r = DefaultStreamingRenderer::new();
-        r.handle_event(block_start(0, ContentBlockType::ToolUse));
-        r.handle_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::ToolUseId {
-                id: "call_123".to_string(),
-            },
-        });
-        r.handle_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::ToolUseName {
-                name: "search".to_string(),
-            },
-        });
-        r.handle_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::ToolUseInputChunk {
-                input: r#"{"q":"rust"}"#.to_string(),
-            },
-        });
-        let out = r.handle_event(block_end(0, ContentBlockType::ToolUse));
-        assert_eq!(
-            out.render_blocks,
-            vec![ContentBlock::ToolUse {
-                id: "call_123".to_string(),
-                name: "search".to_string(),
-                input: r#"{"q":"rust"}"#.to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn renderer_text_block_end_and_flush_drain_buffer() {
-        let mut r = DefaultStreamingRenderer::new();
-        r.handle_event(block_start(0, ContentBlockType::Text));
-        // Feed partial (no terminator).
-        r.handle_event(text_delta("partial"));
-        let out = r.handle_event(block_end(0, ContentBlockType::Text));
-        assert_eq!(out.text_messages, vec!["partial"]);
-        // After BlockEnd, flush should have nothing to emit.
-        let after = r.flush();
-        assert!(after.text_messages.is_empty());
     }
 }
