@@ -448,6 +448,82 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
     assert!(stream.next().await.is_none());
 }
 
+// ── short reasoning_content filtering tests ──────────────────────────────
+
+#[test]
+fn test_parse_response_short_reasoning_empty_content() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "reasoning_content": " "
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Short reasoning with empty content → demoted to Text block
+    assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == " "));
+}
+
+#[test]
+fn test_parse_response_short_reasoning_with_content() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "Final answer",
+                "reasoning_content": "ok"
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Non-empty content takes precedence; short reasoning is ignored
+    assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "Final answer"));
+}
+
+#[test]
+fn test_parse_response_normal_reasoning_unchanged() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "reasoning_content": "Let me think step by step..."
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Normal-length reasoning → Thinking block (unchanged)
+    assert!(
+        matches!(resp.content_blocks[0], RawContentBlock::Thinking { thinking: ref s, .. } if s == "Let me think step by step...")
+    );
+}
+
+#[test]
+fn test_parse_response_two_char_reasoning_empty_content() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "reasoning_content": "ab"
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Exactly MIN_REASONING_LENGTH (2) trimmed → demoted to Text
+    assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "ab"));
+}
+
 // ── extra_body passthrough tests ───────────────────────────────────────────
 
 #[test]

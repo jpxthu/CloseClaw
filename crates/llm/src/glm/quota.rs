@@ -11,12 +11,15 @@ impl GlmProvider {
     ///
     /// The `base_url` should be the GLM API base
     /// (e.g. `https://open.bigmodel.cn/api`);
-    /// this method appends `/paas/quota` internally.
+    /// this method appends `/api/monitor/usage/quota/limit` internally.
     pub async fn fetch_usage(
         &self,
         base_url: &str,
     ) -> std::result::Result<GlmQuotaResponse, ProviderError> {
-        let url = format!("{}/paas/quota", base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/monitor/usage/quota/limit",
+            base_url.trim_end_matches('/')
+        );
 
         let response = self
             .client
