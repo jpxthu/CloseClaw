@@ -53,6 +53,30 @@ pub struct CredentialsProvider {
 }
 
 impl CredentialsProvider {
+    /// Load a single credential file.
+    ///
+    /// The file should contain a single credentials object.
+    /// Returns an empty provider if the file does not exist.
+    pub fn load_from_file(file: &Path) -> Result<Self, ConfigError> {
+        let mut provider = CredentialsProvider::default();
+        if !file.exists() {
+            return Ok(provider);
+        }
+        let content = fs::read_to_string(file)?;
+        let creds: AnyProviderCredentials = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(_) => {
+                return Ok(provider);
+            }
+        };
+        let name = match &creds {
+            AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
+            AnyProviderCredentials::Feishu(c) => c.provider.clone(),
+        };
+        provider.providers.insert(name, creds);
+        Ok(provider)
+    }
+
     /// Load all credentials from a directory containing JSON files.
     ///
     /// Each file should contain a single credentials object.

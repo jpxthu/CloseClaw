@@ -391,7 +391,8 @@ impl ConfigManager {
         // Load additional credentials via credential_path from models.json.
         // Each provider in models.json may specify a credential_path pointing to a
         // credential file.  Resolve it relative to config_dir and merge into the
-        // credential set (overrides convention-directory entries).
+        // credential set (credential_path takes priority over convention-directory
+        // entries).
         if let Some(models_value) = sections.get(&ConfigSection::Models) {
             if let Ok(models_config) =
                 serde_json::from_value::<ModelsConfigData>(models_value.clone())
@@ -399,15 +400,13 @@ impl ConfigManager {
                 for (provider_id, provider_cfg) in &models_config.providers {
                     if let Some(ref rel_path) = provider_cfg.credential_path {
                         let abs_path = self.config_dir.join(rel_path);
-                        match CredentialsProvider::load_from_dir(
-                            abs_path.parent().unwrap_or(&self.config_dir),
-                        ) {
+                        match CredentialsProvider::load_from_file(&abs_path) {
                             Ok(extra) => {
                                 for (name, cred) in extra.providers {
-                                    // Only insert if not already loaded from
-                                    // the convention directory, so
-                                    // credential_path acts as fallback.
-                                    creds_provider.providers.entry(name).or_insert(cred);
+                                    // credential_path is the explicit reference
+                                    // and takes priority over the convention
+                                    // directory.
+                                    creds_provider.providers.insert(name, cred);
                                 }
                             }
                             Err(e) => {
