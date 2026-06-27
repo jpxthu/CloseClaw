@@ -1,5 +1,4 @@
 //! Tests for the config wizard
-
 use super::*;
 
 #[cfg(test)]
@@ -11,73 +10,61 @@ mod parse_model_selection_tests {
         let result = parse_model_selection("3", 10).unwrap();
         assert_eq!(result, vec![2]);
     }
-
     #[test]
     fn space_separated() {
         let result = parse_model_selection("1 3 5", 10).unwrap();
         assert_eq!(result, vec![0, 2, 4]);
     }
-
     #[test]
     fn range() {
         let result = parse_model_selection("2-5", 10).unwrap();
         assert_eq!(result, vec![1, 2, 3, 4]);
     }
-
     #[test]
     fn mixed() {
         let result = parse_model_selection("1-3,5,7", 10).unwrap();
         assert_eq!(result, vec![0, 1, 2, 4, 6]);
     }
-
     #[test]
     fn all() {
         let result = parse_model_selection("all", 5).unwrap();
         assert_eq!(result, vec![0, 1, 2, 3, 4]);
     }
-
     #[test]
     fn all_case_insensitive() {
         let result = parse_model_selection("ALL", 3).unwrap();
         assert_eq!(result, vec![0, 1, 2]);
     }
-
     #[test]
     fn deduplicates() {
         let result = parse_model_selection("1 1 1", 5).unwrap();
         assert_eq!(result, vec![0]);
     }
-
     #[test]
     fn sorted() {
         let result = parse_model_selection("5 3 1", 10).unwrap();
         assert_eq!(result, vec![0, 2, 4]);
     }
-
     #[test]
     fn empty_input_error() {
         let result = parse_model_selection("", 5);
         assert!(result.is_err());
     }
-
     #[test]
     fn zero_not_allowed() {
         let result = parse_model_selection("0", 5);
         assert!(result.is_err());
     }
-
     #[test]
     fn out_of_range() {
         let result = parse_model_selection("11", 10);
         assert!(result.is_err());
     }
-
     #[test]
     fn start_greater_than_end() {
         let result = parse_model_selection("5-2", 10);
         assert!(result.is_err());
     }
-
     #[test]
     fn invalid_syntax() {
         let result = parse_model_selection("1-2-3", 10);
@@ -111,7 +98,7 @@ mod wizard_context_tests {
 mod provider_config_protocol_tests {
     use closeclaw_config::providers::models::{ModelDefinition, ProviderConfig};
 
-    /// Test 1: ProviderConfig serializes with protocol field present
+    /// Test: ProviderConfig serializes with protocol field present
     #[test]
     fn test_provider_config_serializes_with_protocol() {
         let config = ProviderConfig {
@@ -134,7 +121,7 @@ mod provider_config_protocol_tests {
         );
     }
 
-    /// Test 2: ProviderConfig serializes with protocol field as null when None
+    /// Test: ProviderConfig serializes with protocol field as null when None
     #[test]
     fn test_provider_config_serializes_with_protocol_null() {
         let config = ProviderConfig {
@@ -149,7 +136,7 @@ mod provider_config_protocol_tests {
         assert!(json.contains("\"protocol\": null"));
     }
 
-    /// Test 3: ProviderConfig deserializes with protocol field present
+    /// Test: ProviderConfig deserializes with protocol field present
     #[test]
     fn test_provider_config_deserializes_with_protocol() {
         let json = r#"{
@@ -165,7 +152,7 @@ mod provider_config_protocol_tests {
         assert_eq!(config.protocol.as_deref(), Some("anthropic"));
     }
 
-    /// Test 4: ProviderConfig deserializes with protocol field absent (treated as None)
+    /// Test: ProviderConfig deserializes with protocol field absent (treated as None)
     #[test]
     fn test_provider_config_deserializes_without_protocol() {
         let json = r#"{
@@ -175,6 +162,22 @@ mod provider_config_protocol_tests {
         }"#;
         let config: ProviderConfig = serde_json::from_str(json).unwrap();
         assert!(config.protocol.is_none());
+    }
+
+    /// Test: ProviderConfig roundtrip: serialize -> deserialize preserves protocol
+    #[test]
+    fn test_provider_config_roundtrip_with_protocol() {
+        let original = ProviderConfig {
+            base_url: Some("https://api.test.com".to_string()),
+            api_key: None,
+            api: None,
+            protocol: Some("openai".to_string()),
+            credential_path: None,
+            models: vec![],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let roundtripped: ProviderConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtripped.protocol, original.protocol);
     }
 }
 
