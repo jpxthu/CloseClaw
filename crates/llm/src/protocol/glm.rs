@@ -14,13 +14,16 @@ use crate::types::{
     ContentBlockType, ContentDelta, InternalMessage, InternalRequest, InternalResponse, ProtocolId,
     RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
 };
-use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::protocol::{
     ChatProtocol, IncomingSseStream, OutgoingEventStream, ProtocolError, Result,
 };
 
 const PATH: &str = "/api/paas/v4/chat/completions";
+
+/// Minimum trimmed length for `reasoning_content` to be treated as a
+/// reasoning block. Shorter values are demoted to plain text.
+const MIN_REASONING_LENGTH: usize = 2;
 
 /// GLM protocol implementation.
 #[derive(Debug, Clone)]
@@ -73,16 +76,6 @@ impl ChatProtocol for GlmProtocol {
                 .insert("max_tokens".to_string(), serde_json::json!(max_tokens));
         }
 
-        // Map ReasoningLevel → thinking parameter for GLM.
-        let thinking_type = match request.reasoning_level {
-            ReasoningLevel::Low => "disabled",
-            _ => "enabled",
-        };
-        body.as_object_mut().unwrap().insert(
-            "thinking".to_string(),
-            serde_json::json!({ "type": thinking_type }),
-        );
-
         for (key, value) in &request.extra_body {
             body.as_object_mut()
                 .unwrap()
@@ -124,10 +117,16 @@ impl ChatProtocol for GlmProtocol {
 
         let content_blocks = match (text, reasoning) {
             (Some(t), _) => vec![RawContentBlock::Text(t)],
-            (_, Some(r)) => vec![RawContentBlock::Thinking {
-                thinking: r,
-                signature: None,
-            }],
+            // Non-empty content takes precedence over reasoning (unchanged).
+            // Short reasoning (e.g. whitespace-only or scattered chars) is
+            // demoted to plain text per design doc requirements.
+            (None, Some(r)) if r.trim().len() > MIN_REASONING_LENGTH => {
+                vec![RawContentBlock::Thinking {
+                    thinking: r,
+                    signature: None,
+                }]
+            }
+            (None, Some(r)) => vec![RawContentBlock::Text(r)],
             (None, None) => vec![],
         };
 
@@ -190,6 +189,11 @@ impl ChatProtocol for GlmProtocol {
                     None => continue,
                 };
 
+                // NOTE: Short-reasoning filtering is intentionally NOT applied
+                // here. In streaming mode, reasoning_content arrives incrementally
+                // per delta — we cannot know the total length at emit time.
+                // Filtering is only feasible in the non-streaming `parse_response`.
+                //
                 // GLM may emit `reasoning_content` delta or `content` delta.
                 // Prefer `reasoning_content` first, then fall back to `content`.
                 let (text_delta, thinking_delta) = (

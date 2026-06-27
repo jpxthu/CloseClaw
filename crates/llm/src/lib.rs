@@ -52,6 +52,7 @@ pub use fake::FakeProvider;
 
 pub use anthropic::AnthropicProvider;
 pub use deepseek::DeepSeekProvider;
+pub use glm::GlmPlugin;
 pub use glm::GlmProvider;
 pub use http_client::{HttpClient, ReqwestHttpClient};
 pub use knowledge::{ModelRecommendParams, ProviderModelKnowledge, ReasoningLevels};

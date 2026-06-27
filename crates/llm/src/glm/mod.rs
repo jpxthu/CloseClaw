@@ -11,9 +11,11 @@ use crate::provider::{Provider, ProviderError, Result, SseStream};
 use crate::types::{InternalRequest, InternalResponse, ProtocolId};
 
 mod models;
+pub mod plugin;
 mod quota;
 mod streaming;
 mod types;
+pub use plugin::GlmPlugin;
 
 #[allow(unused_imports)]
 pub(crate) use crate::types::{RawContentBlock, RawSseChunk, RawUsage};

@@ -1,6 +1,5 @@
 use super::*;
 use crate::types::{InternalMessage, RawSseChunk};
-use closeclaw_session::persistence::ReasoningLevel;
 
 fn make_request() -> InternalRequest {
     InternalRequest {
@@ -18,7 +17,7 @@ fn make_request() -> InternalRequest {
         system_blocks: None,
         tools: None,
         session_id: None,
-        reasoning_level: ReasoningLevel::default(),
+        reasoning_level: Default::default(),
         turn_count: None,
     }
 }
@@ -449,53 +448,130 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
     assert!(stream.next().await.is_none());
 }
 
-// ── ReasoningLevel → thinking parameter mapping tests ──────────────────────
+// ── short reasoning_content filtering tests ──────────────────────────────
 
 #[test]
-fn test_build_request_reasoning_level_low_disables_thinking() {
+fn test_parse_response_short_reasoning_empty_content() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "reasoning_content": " "
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Short reasoning with empty content → demoted to Text block
+    assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == " "));
+}
+
+#[test]
+fn test_parse_response_short_reasoning_with_content() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "Final answer",
+                "reasoning_content": "ok"
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Non-empty content takes precedence; short reasoning is ignored
+    assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "Final answer"));
+}
+
+#[test]
+fn test_parse_response_normal_reasoning_unchanged() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "reasoning_content": "Let me think step by step..."
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Normal-length reasoning → Thinking block (unchanged)
+    assert!(
+        matches!(resp.content_blocks[0], RawContentBlock::Thinking { thinking: ref s, .. } if s == "Let me think step by step...")
+    );
+}
+
+#[test]
+fn test_parse_response_two_char_reasoning_empty_content() {
+    let proto = GlmProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "reasoning_content": "ab"
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    // Exactly MIN_REASONING_LENGTH (2) trimmed → demoted to Text
+    assert!(matches!(resp.content_blocks[0], RawContentBlock::Text(ref s) if s == "ab"));
+}
+
+// ── extra_body passthrough tests ───────────────────────────────────────────
+
+#[test]
+fn test_build_request_no_thinking_when_extra_body_empty() {
+    let proto = GlmProtocol::new();
+    let request = make_request();
+    let body = proto.build_request(&request).unwrap();
+    assert!(body.get("thinking").is_none());
+}
+
+#[test]
+fn test_build_request_thinking_passthrough_via_extra_body() {
     let proto = GlmProtocol::new();
     let mut request = make_request();
-    request.reasoning_level = ReasoningLevel::Low;
+    let mut extra = serde_json::Map::new();
+    extra.insert(
+        "thinking".to_string(),
+        serde_json::json!({ "type": "enabled" }),
+    );
+    request.extra_body = extra;
+    let body = proto.build_request(&request).unwrap();
+    let thinking = body.get("thinking").unwrap();
+    assert_eq!(thinking.get("type").unwrap(), "enabled");
+}
+
+#[test]
+fn test_build_request_extra_body_overrides_default_thinking() {
+    let proto = GlmProtocol::new();
+    let mut request = make_request();
+    let mut extra = serde_json::Map::new();
+    extra.insert(
+        "thinking".to_string(),
+        serde_json::json!({ "type": "disabled" }),
+    );
+    request.extra_body = extra;
     let body = proto.build_request(&request).unwrap();
     let thinking = body.get("thinking").unwrap();
     assert_eq!(thinking.get("type").unwrap(), "disabled");
 }
 
 #[test]
-fn test_build_request_reasoning_level_medium_enables_thinking() {
+fn test_build_request_extra_body_passthrough_non_thinking() {
     let proto = GlmProtocol::new();
     let mut request = make_request();
-    request.reasoning_level = ReasoningLevel::Medium;
+    let mut extra = serde_json::Map::new();
+    extra.insert("custom_key".to_string(), serde_json::json!(42));
+    request.extra_body = extra;
     let body = proto.build_request(&request).unwrap();
-    let thinking = body.get("thinking").unwrap();
-    assert_eq!(thinking.get("type").unwrap(), "enabled");
-}
-
-#[test]
-fn test_build_request_reasoning_level_high_enables_thinking() {
-    let proto = GlmProtocol::new();
-    let mut request = make_request();
-    request.reasoning_level = ReasoningLevel::High;
-    let body = proto.build_request(&request).unwrap();
-    let thinking = body.get("thinking").unwrap();
-    assert_eq!(thinking.get("type").unwrap(), "enabled");
-}
-
-#[test]
-fn test_build_request_reasoning_level_max_enables_thinking() {
-    let proto = GlmProtocol::new();
-    let mut request = make_request();
-    request.reasoning_level = ReasoningLevel::Max;
-    let body = proto.build_request(&request).unwrap();
-    let thinking = body.get("thinking").unwrap();
-    assert_eq!(thinking.get("type").unwrap(), "enabled");
-}
-
-#[test]
-fn test_build_request_default_reasoning_level_enables_thinking() {
-    let proto = GlmProtocol::new();
-    let request = make_request(); // default is High
-    let body = proto.build_request(&request).unwrap();
-    let thinking = body.get("thinking").unwrap();
-    assert_eq!(thinking.get("type").unwrap(), "enabled");
+    assert_eq!(body.get("custom_key").unwrap(), &serde_json::json!(42));
+    assert!(body.get("thinking").is_none());
 }
