@@ -257,6 +257,9 @@ async fn build_unified_chain(
             let plugin_pipeline = if entry.provider == "deepseek" {
                 closeclaw_llm::plugin::PluginPipeline::new()
                     .add(Box::new(closeclaw_llm::deepseek::DeepSeekPlugin))
+            } else if entry.provider == "glm" {
+                closeclaw_llm::plugin::PluginPipeline::new()
+                    .add(Box::new(closeclaw_llm::glm::GlmPlugin))
             } else {
                 closeclaw_llm::plugin::PluginPipeline::new()
             };
