@@ -254,7 +254,12 @@ async fn build_unified_chain(
         .map(|(entry, provider)| {
             let protocol = Arc::new(closeclaw_llm::protocol::OpenAiProtocol::default());
             let interpreter_registry = closeclaw_llm::interpreter::InterpreterRegistry::new(vec![]);
-            let plugin_pipeline = closeclaw_llm::plugin::PluginPipeline::new();
+            let plugin_pipeline = if entry.provider == "deepseek" {
+                closeclaw_llm::plugin::PluginPipeline::new()
+                    .add(Box::new(closeclaw_llm::deepseek::DeepSeekPlugin))
+            } else {
+                closeclaw_llm::plugin::PluginPipeline::new()
+            };
             let client = Arc::new(closeclaw_llm::client::UnifiedChatClient::new(
                 provider,
                 protocol,
