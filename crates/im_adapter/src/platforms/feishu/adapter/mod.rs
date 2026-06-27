@@ -9,6 +9,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -210,6 +211,9 @@ pub struct FeishuAdapter {
     http_client: Client,
     pub(super) cached_token: Arc<Mutex<Option<CachedToken>>>,
     base_url: String,
+    /// Base directory for downloaded media files.
+    /// Production uses `$TMPDIR/closeclaw/media`; tests inject [`tempfile::TempDir`] paths.
+    pub(super) temp_dir: PathBuf,
 }
 
 impl FeishuAdapter {
@@ -225,6 +229,7 @@ impl FeishuAdapter {
             http_client,
             cached_token: Arc::new(Mutex::new(None)),
             base_url: FEISHU_API_BASE.to_string(),
+            temp_dir: std::env::temp_dir().join("closeclaw").join("media"),
         }
     }
 
@@ -287,7 +292,7 @@ impl FeishuAdapter {
             .await
             .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
 
-        let dir = std::env::temp_dir().join("closeclaw").join("media");
+        let dir = &self.temp_dir;
         tokio::fs::create_dir_all(&dir)
             .await
             .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;

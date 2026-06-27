@@ -7,7 +7,8 @@ use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use axum::{extract::Query, routing::post, Json, Router};
 use std::collections::HashMap as StdHashMap;
-use std::time::{Duration, Instant};
+
+use tempfile::TempDir;
 use tokio::net::TcpListener;
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
@@ -20,6 +21,7 @@ fn make_test_adapter() -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
+        temp_dir: std::env::temp_dir().join("closeclaw").join("media"),
     }
 }
 
@@ -33,6 +35,7 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
+        temp_dir: std::env::temp_dir().join("closeclaw").join("media"),
     }
 }
 
@@ -116,20 +119,17 @@ async fn start_media_mock_server() -> String {
     format!("http://{}", addr)
 }
 
-/// Create a FeishuAdapter with a pre-populated valid cached token,
-/// pointing at the given base URL.
-fn make_adapter_with_cached_token(base_url: &str) -> FeishuAdapter {
+/// Create a FeishuAdapter pointing at a mock server with a custom temp_dir.
+fn make_adapter_with_temp_dir(base_url: &str, temp_dir: PathBuf) -> FeishuAdapter {
     let http_client = reqwest::Client::new();
     FeishuAdapter {
         app_id: "test_app_id".to_string(),
         app_secret: "test_secret".to_string(),
         verification_token: "test_token".to_string(),
         http_client,
-        cached_token: Arc::new(tokio::sync::Mutex::new(Some(CachedToken {
-            token: "pre_cached_token".to_string(),
-            expires_at: Instant::now() + Duration::from_secs(3600),
-        }))),
+        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
+        temp_dir,
     }
 }
 
@@ -652,8 +652,9 @@ async fn test_parse_inbound_image_graceful_degradation() {
 
 #[tokio::test]
 async fn test_parse_image_message_success() {
+    let tmp = TempDir::new().unwrap();
     let base_url = start_media_mock_server().await;
-    let adapter = make_adapter_with_cached_token(&base_url);
+    let adapter = make_adapter_with_temp_dir(&base_url, tmp.path().to_path_buf());
     let event = make_message_event_with_id(
         "image",
         &serde_json::json!({"image_key": "img_test_123"}).to_string(),
@@ -665,14 +666,14 @@ async fn test_parse_image_message_success() {
     assert_eq!(msg.media_refs.len(), 1);
     assert_eq!(msg.media_refs[0].key, "img_test_123");
     assert!(msg.media_refs[0].url.contains("img_test_123"));
-    // Clean up temp file
-    let _ = tokio::fs::remove_file(&msg.media_refs[0].url).await;
+    // TempDir dropped → files cleaned up automatically
 }
 
 #[tokio::test]
 async fn test_parse_file_message_success() {
+    let tmp = TempDir::new().unwrap();
     let base_url = start_media_mock_server().await;
-    let adapter = make_adapter_with_cached_token(&base_url);
+    let adapter = make_adapter_with_temp_dir(&base_url, tmp.path().to_path_buf());
     let event = make_message_event_with_id(
         "file",
         &serde_json::json!({"file_key": "file_xyz_789", "file_name": "report.pdf"}).to_string(),
@@ -684,13 +685,14 @@ async fn test_parse_file_message_success() {
     assert_eq!(msg.media_refs.len(), 1);
     assert_eq!(msg.media_refs[0].key, "file_xyz_789");
     assert!(msg.media_refs[0].url.contains("file_xyz_789"));
-    let _ = tokio::fs::remove_file(&msg.media_refs[0].url).await;
+    // TempDir dropped → files cleaned up automatically
 }
 
 #[tokio::test]
 async fn test_parse_audio_message_success() {
+    let tmp = TempDir::new().unwrap();
     let base_url = start_media_mock_server().await;
-    let adapter = make_adapter_with_cached_token(&base_url);
+    let adapter = make_adapter_with_temp_dir(&base_url, tmp.path().to_path_buf());
     let event = make_message_event_with_id(
         "audio",
         &serde_json::json!({"file_key": "audio_abc_456"}).to_string(),
@@ -702,7 +704,7 @@ async fn test_parse_audio_message_success() {
     assert_eq!(msg.media_refs.len(), 1);
     assert_eq!(msg.media_refs[0].key, "audio_abc_456");
     assert!(msg.media_refs[0].url.contains("audio_abc_456"));
-    let _ = tokio::fs::remove_file(&msg.media_refs[0].url).await;
+    // TempDir dropped → files cleaned up automatically
 }
 
 #[tokio::test]
