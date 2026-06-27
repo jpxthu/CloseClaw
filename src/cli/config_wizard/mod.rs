@@ -22,8 +22,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-#[cfg(test)]
-use crate::llm::ModelInfo;
+use crate::llm::model_info::ModelInfo;
 
 /// Parse user input for model selection into a vector of 0-based indices.
 ///
@@ -164,6 +163,75 @@ fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyhow::Result<(
     Ok(())
 }
 
+/// Merge selected models with existing models for a provider.
+///
+/// Strategy:
+/// - Existing models not in `selected_models` are preserved (not deleted)
+/// - Existing models matching by id are replaced entirely (name/enabled updated)
+/// - New models from `selected_models` are appended
+fn merge_models(
+    existing_models: Vec<ModelDefinition>,
+    selected_models: &[ModelInfo],
+) -> Vec<ModelDefinition> {
+    let mut merged: Vec<ModelDefinition> = existing_models;
+    for selected in selected_models {
+        if let Some(existing) = merged.iter_mut().find(|m| m.id == selected.id) {
+            *existing = ModelDefinition {
+                id: selected.id.clone(),
+                name: Some(selected.name.clone()),
+                enabled: Some(true),
+            };
+        } else {
+            merged.push(ModelDefinition {
+                id: selected.id.clone(),
+                name: Some(selected.name.clone()),
+                enabled: Some(true),
+            });
+        }
+    }
+    merged
+}
+
+/// Inherit base_url, api_key, api from an existing provider config if present.
+fn inherit_provider_fields(
+    existing_provider: &Option<ProviderConfig>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    existing_provider
+        .as_ref()
+        .map(|ep| (ep.base_url.clone(), ep.api_key.clone(), ep.api.clone()))
+        .unwrap_or((None, None, None))
+}
+
+/// Load existing models config or return a default.
+fn load_or_create_models_config(models_path: &Path) -> anyhow::Result<ModelsConfigData> {
+    if models_path.exists() {
+        let content = std::fs::read_to_string(models_path)?;
+        Ok(ModelsConfigData::from_json_str(&content)
+            .unwrap_or_else(|_| ModelsConfigData::default()))
+    } else {
+        Ok(ModelsConfigData::default())
+    }
+}
+
+/// Write provider credentials to `credentials/<provider_id>.json`.
+fn write_provider_credentials(
+    config_path: &Path,
+    provider_id: &str,
+    credential: &str,
+) -> anyhow::Result<PathBuf> {
+    let creds_dir = config_path.join("credentials");
+    std::fs::create_dir_all(&creds_dir)?;
+    let cred_file = creds_dir.join(format!("{}.json", provider_id));
+    let creds = AnyProviderCredentials::ApiKey(ApiKeyCredentials {
+        provider: provider_id.to_string(),
+        api_key: credential.to_string(),
+    });
+    let creds_json = serde_json::to_string_pretty(&creds)?;
+    std::fs::write(&cred_file, creds_json)
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", cred_file.display(), e))?;
+    Ok(cred_file)
+}
+
 /// Write wizard output to config files.
 ///
 /// Merging strategy:
@@ -180,98 +248,44 @@ fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyhow::Result<(
 //- against `tests/cli_config_wizard_test.py` (python3 E2E test using pexpect).
 pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(config_path)?;
-
-    // ── Load or create models.json ─────────────────────────────────────────────
     let models_path = config_path.join("models.json");
-    let existing: ModelsConfigData = if models_path.exists() {
-        let content = std::fs::read_to_string(&models_path)?;
-        ModelsConfigData::from_json_str(&content).unwrap_or_else(|_| ModelsConfigData::default())
-    } else {
-        ModelsConfigData::default()
-    };
-
-    // ── Merge: preserve all existing providers, replace selected provider ───────
+    let existing = load_or_create_models_config(&models_path)?;
     let mut providers = existing.providers;
-    // Save existing config before removal so we can inherit fields
     let existing_provider = providers.get(&output.provider_id).cloned();
-    // Remove entries for the selected provider so we can replace them
     providers.remove(&output.provider_id);
-
-    // ── Build the new provider config from WizardOutput.selected_models ────────
-    // Merge strategy: preserve existing models, update/append selected models.
-    // - Existing models not in selected_models are preserved (not deleted)
-    // - Existing models matching by id are replaced entirely (name/enabled updated)
-    // - New models from selected_models are appended
     let existing_models = existing_provider
         .as_ref()
         .map(|ep| ep.models.clone())
         .unwrap_or_default();
-
-    let mut merged_models: Vec<ModelDefinition> = existing_models;
-    for selected in &output.selected_models {
-        if let Some(existing) = merged_models.iter_mut().find(|m| m.id == selected.id) {
-            // Same id → replace entirely
-            *existing = ModelDefinition {
-                id: selected.id.clone(),
-                name: Some(selected.name.clone()),
-                enabled: Some(true),
-            };
-        } else {
-            // New id → append
-            merged_models.push(ModelDefinition {
-                id: selected.id.clone(),
-                name: Some(selected.name.clone()),
-                enabled: Some(true),
-            });
-        }
-    }
-
-    // ── Query recommended_protocol from knowledge base ────────────────────────
+    let merged_models = merge_models(existing_models, &output.selected_models);
     let recommended_protocol = output.selected_models.first().map(|m| {
         let kb = ProviderModelKnowledge::new();
         kb.recommended_protocol(&output.provider_id, &m.id)
             .to_string()
     });
-
-    // Inherit base_url, api_key, api from existing config if present
-    let (base_url, api_key, api) = existing_provider
-        .map(|ep| (ep.base_url, ep.api_key, ep.api))
-        .unwrap_or((None, None, None));
-
-    let new_provider_config = ProviderConfig {
-        base_url,
-        api_key,
-        api,
-        protocol: recommended_protocol,
-        credential_path: Some(format!("credentials/{}.json", output.provider_id)),
-        models: merged_models,
-    };
-    providers.insert(output.provider_id.clone(), new_provider_config);
-
+    let (base_url, api_key, api) = inherit_provider_fields(&existing_provider);
+    providers.insert(
+        output.provider_id.clone(),
+        ProviderConfig {
+            base_url,
+            api_key,
+            api,
+            protocol: recommended_protocol,
+            credential_path: Some(format!("credentials/{}.json", output.provider_id)),
+            models: merged_models,
+        },
+    );
     let merged = ModelsConfigData {
         mode: "merge".to_string(),
         providers,
     };
     <ModelsConfigData as crate::config::providers::ConfigProvider>::validate(&merged)
         .map_err(|e| anyhow::anyhow!("merged config validation failed: {}", e))?;
-
-    // ── Write models.json ─────────────────────────────────────────────────────
     let json = serde_json::to_string_pretty(&merged)?;
     std::fs::write(&models_path, json)
         .map_err(|e| anyhow::anyhow!("failed to write {}: {}", models_path.display(), e))?;
-
-    // ── Write credentials ────────────────────────────────────────────────────
-    let creds_dir = config_path.join("credentials");
-    std::fs::create_dir_all(&creds_dir)?;
-    let cred_file = creds_dir.join(format!("{}.json", output.provider_id));
-    let creds = AnyProviderCredentials::ApiKey(ApiKeyCredentials {
-        provider: output.provider_id.clone(),
-        api_key: output.credential.clone(),
-    });
-    let creds_json = serde_json::to_string_pretty(&creds)?;
-    std::fs::write(&cred_file, creds_json)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", cred_file.display(), e))?;
-
+    let cred_file =
+        write_provider_credentials(config_path, &output.provider_id, &output.credential)?;
     println!(
         "✅ Configuration written:\n   models: {}\n   credentials: {}",
         models_path.display(),
