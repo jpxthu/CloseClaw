@@ -535,6 +535,29 @@ impl SessionManager {
     }
 }
 
+// --- SessionLookup trait implementation ---
+
+use closeclaw_common::SessionLookup;
+
+#[async_trait::async_trait]
+impl SessionLookup for SessionManager {
+    async fn get_parent_of(&self, child_id: &str) -> Option<String> {
+        SessionManager::get_parent_of(self, child_id).await
+    }
+
+    async fn get_chat_id(&self, session_id: &str) -> Option<String> {
+        SessionManager::get_chat_id(self, session_id).await
+    }
+
+    async fn push_pending_message(
+        &self,
+        session_id: &str,
+        msg: PendingMessage,
+    ) -> Result<(), String> {
+        SessionManager::push_pending_message(self, session_id, msg).await
+    }
+}
+
 // Unit tests
 #[cfg(test)]
 mod announce_tests;

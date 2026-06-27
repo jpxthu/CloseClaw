@@ -7,7 +7,7 @@ use crate::Cli;
 use clap::CommandFactory;
 use closeclaw::cli::admin::*;
 use closeclaw::cli::args::{AgentAction, ConfigAction, RuleAction, SkillAction};
-use closeclaw::permission::{Rule, RuleSet};
+use closeclaw_permission::{Rule, RuleSet};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -287,7 +287,7 @@ async fn test_rule_check_file_not_found() {
 fn make_permissions(rules: Vec<Rule>) -> RuleSet {
     RuleSet {
         rules,
-        defaults: closeclaw::permission::Defaults::default(),
+        defaults: closeclaw_permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     }
@@ -297,8 +297,8 @@ fn make_rule(name: &str, agent: &str) -> Rule {
     Rule {
         name: name.to_string(),
         subject: Rule::parse_subject(agent),
-        effect: closeclaw::permission::Effect::Allow,
-        actions: vec![closeclaw::permission::Action::All],
+        effect: closeclaw_permission::Effect::Allow,
+        actions: vec![closeclaw_permission::Action::All],
         template: None,
         priority: 0,
     }

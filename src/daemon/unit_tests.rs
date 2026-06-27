@@ -137,9 +137,9 @@ fn test_build_permission_engine_empty_dir() {
     assert!(!Arc::ptr_eq(
         &engine,
         &Arc::new(PermissionEngine::new_with_default_data_root(
-            crate::permission::RuleSet {
+            closeclaw_permission::RuleSet {
                 rules: Vec::new(),
-                defaults: crate::permission::Defaults::default(),
+                defaults: closeclaw_permission::Defaults::default(),
                 template_includes: Vec::new(),
                 agent_creators: std::collections::HashMap::new(),
             }

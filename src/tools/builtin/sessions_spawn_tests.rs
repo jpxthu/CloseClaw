@@ -17,12 +17,12 @@ use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::SessionManager;
 use crate::gateway::{DmScope, GatewayConfig};
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::tools::builtin::sessions_spawn::SessionsSpawnTool;
 use crate::tools::{Tool, ToolCallError, ToolContext};
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::rules::RuleSetBuilder;
 
 use std::sync::Arc;
 

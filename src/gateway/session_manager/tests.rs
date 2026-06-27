@@ -269,11 +269,11 @@ async fn test_partial_bootstrap_files() {
 async fn test_find_or_create_with_tool_registry() {
     use crate::agent::spawn::SpawnController;
     use crate::config::ConfigManager;
-    use crate::permission::engine::engine_eval::PermissionEngine;
-    use crate::permission::rules::RuleSetBuilder;
     use crate::skills::DiskSkillRegistry;
     use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
     use crate::tools::ToolRegistry;
+    use closeclaw_permission::engine::engine_eval::PermissionEngine;
+    use closeclaw_permission::rules::RuleSetBuilder;
 
     clear_global_prompt_state();
 

@@ -10,7 +10,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 fn test_permission_engine() -> Arc<PermissionEngine> {
-    use crate::permission::rules::RuleSetBuilder;
+    use closeclaw_permission::rules::RuleSetBuilder;
     Arc::new(PermissionEngine::new_with_default_data_root(
         RuleSetBuilder::new().build().unwrap(),
     ))

@@ -15,10 +15,10 @@ use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use crate::gateway::{DmScope, GatewayConfig, Message, SessionManager};
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::rules::RuleSetBuilder;
 
 // ---------------------------------------------------------------------------
 // Helpers

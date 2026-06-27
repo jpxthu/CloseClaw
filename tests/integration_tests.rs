@@ -13,9 +13,9 @@ use std::sync::Arc;
 use closeclaw::agent::config::AgentConfig;
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
 use closeclaw::config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
-use closeclaw::permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
-use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
 use closeclaw::skills::Skill;
+use closeclaw_permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
+use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
 
 // ---------------------------------------------------------------------------
 // Helper builders

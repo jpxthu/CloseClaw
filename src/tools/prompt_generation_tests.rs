@@ -14,14 +14,14 @@ use std::sync::Arc;
 
 use crate::gateway::GatewayConfig;
 use crate::gateway::SessionManager;
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::system_prompt::WorkdirContext;
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::builtin::BashTool;
 use crate::tools::{PromptGenerationContext, Tool};
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::rules::RuleSetBuilder;
 use tempfile::TempDir;
 
 // --- Helpers (mirror the helpers in src/tools/builtin/bash_tests.rs) ---
