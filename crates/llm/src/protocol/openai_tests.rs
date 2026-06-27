@@ -452,6 +452,178 @@ fn test_build_request_default_does_not_inject_reasoning_effort() {
     );
 }
 
+// ── Gap 1: non-streaming tool_calls parsing ─────────────────────────────────
+
+#[test]
+fn test_parse_response_with_tool_calls() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "Let me check that.",
+                "tool_calls": [{
+                    "id": "call_001",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\": \"Beijing\"}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // Text block first, then ToolUse
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Let me check that.")
+    );
+    assert!(
+        matches!(&resp.content_blocks[1], RawContentBlock::ToolUse { id, name, input }
+            if id == "call_001" && name == "get_weather" && input == "{\"location\": \"Beijing\"}")
+    );
+}
+
+#[test]
+fn test_parse_response_with_tool_calls_only() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_002",
+                    "type": "function",
+                    "function": {
+                        "name": "search",
+                        "arguments": "{}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // content=null + no reasoning → empty Text + ToolUse
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert!(
+        matches!(&resp.content_blocks[1], RawContentBlock::ToolUse { id, .. } if id == "call_002")
+    );
+}
+
+#[test]
+fn test_parse_response_with_multiple_tool_calls() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                    {
+                        "id": "call_a",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"city\": \"Shanghai\"}"
+                        }
+                    },
+                    {
+                        "id": "call_b",
+                        "type": "function",
+                        "function": {
+                            "name": "get_time",
+                            "arguments": "{\"timezone\": \"CST\"}"
+                        }
+                    },
+                    {
+                        "id": "call_c",
+                        "type": "function",
+                        "function": {
+                            "name": "notify",
+                            "arguments": "{}"
+                        }
+                    }
+                ]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // empty Text + 3 ToolUse blocks
+    assert_eq!(resp.content_blocks.len(), 4);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert!(
+        matches!(&resp.content_blocks[1], RawContentBlock::ToolUse { id, name, .. }
+        if id == "call_a" && name == "get_weather")
+    );
+    assert!(
+        matches!(&resp.content_blocks[2], RawContentBlock::ToolUse { id, name, .. }
+        if id == "call_b" && name == "get_time")
+    );
+    assert!(
+        matches!(&resp.content_blocks[3], RawContentBlock::ToolUse { id, name, .. }
+        if id == "call_c" && name == "notify")
+    );
+}
+
+#[test]
+fn test_parse_response_tool_calls_with_reasoning() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "Here you go.",
+                "reasoning_content": "Thinking about the request...",
+                "tool_calls": [{
+                    "id": "call_r1",
+                    "type": "function",
+                    "function": {
+                        "name": "lookup",
+                        "arguments": "{\"q\": \"rust\"}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // Thinking + Text + ToolUse
+    assert_eq!(resp.content_blocks.len(), 3);
+    assert!(matches!(&resp.content_blocks[0],
+        RawContentBlock::Thinking { thinking, .. } if thinking == "Thinking about the request..."));
+    assert!(matches!(&resp.content_blocks[1], RawContentBlock::Text(s) if s == "Here you go."));
+    assert!(
+        matches!(&resp.content_blocks[2], RawContentBlock::ToolUse { id, name, .. }
+        if id == "call_r1" && name == "lookup")
+    );
+}
+
 #[test]
 fn test_parse_response_cached_tokens() {
     let proto = OpenAiProtocol::new();
