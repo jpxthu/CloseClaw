@@ -407,3 +407,36 @@ fn test_deepseek_interpreter_stream_event_passthrough() {
         Some(event)
     );
 }
+
+// ── Gap 2: DefaultInterpreter preserves signature ─────────────────────────────
+
+#[test]
+fn test_default_interpreter_preserves_signature() {
+    let sig = Some("test-signature-abc123".to_string());
+    let response = InternalResponse {
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "thinking with sig".into(),
+            signature: sig.clone(),
+        }],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = DefaultInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 1);
+    match &unified.content_blocks[0] {
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "thinking with sig");
+            assert_eq!(signature, &sig);
+        }
+        other => panic!("expected Thinking block, got {:?}", other),
+    }
+}

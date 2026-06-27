@@ -128,6 +128,33 @@ impl ChatProtocol for OpenAiProtocol {
             content_blocks.push(RawContentBlock::Text(String::new()));
         };
 
+        // Parse tool_calls from message (doc: choices[].message.tool_calls[] → ToolUse)
+        if let Some(tool_calls) = message
+            .and_then(|msg| msg.get("tool_calls"))
+            .and_then(|v| v.as_array())
+        {
+            for tc in tool_calls {
+                let id = tc
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let name = tc
+                    .get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let input = tc
+                    .get("function")
+                    .and_then(|f| f.get("arguments"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                content_blocks.push(RawContentBlock::ToolUse { id, name, input });
+            }
+        }
+
         Ok(InternalResponse {
             content_blocks,
             usage,
