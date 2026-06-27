@@ -115,10 +115,7 @@ impl LineBuffer {
     }
 
     fn force_emit(&mut self, emitted: &mut Vec<String>) {
-        if let Some((byte_idx, _)) = self.buffer.char_indices().nth(self.threshold) {
-            let line: String = self.buffer.drain(..byte_idx).collect();
-            emitted.push(line);
-        } else {
+        if !self.buffer.is_empty() {
             emitted.push(std::mem::take(&mut self.buffer));
         }
     }
