@@ -339,10 +339,26 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
     let mut ctx = WizardContext::default();
 
     // ── SelectProvider ──────────────────────────────────────────────────
-    let selection = tokio::task::spawn_blocking(|| {
+    let kb = ProviderModelKnowledge::new();
+    let provider_display: Vec<String> = PROVIDERS
+        .iter()
+        .map(|p| {
+            let proto = kb.recommended_protocol(p.id, "");
+            let proto_str = if proto.as_str().is_empty() {
+                "N/A"
+            } else {
+                proto.as_str()
+            };
+            format!(
+                "{} — {} (推荐协议: {})",
+                p.display_name, p.description, proto_str
+            )
+        })
+        .collect();
+    let selection = tokio::task::spawn_blocking(move || {
         Select::new()
             .with_prompt("Select a provider")
-            .items(&PROVIDERS.iter().map(|p| p.display_name).collect::<Vec<_>>())
+            .items(&provider_display)
             .default(0)
             .interact()
     })
