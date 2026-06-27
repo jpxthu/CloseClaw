@@ -46,8 +46,8 @@ pub(crate) async fn init_skill_hot_reload(
             // directly after hot-reload.
             if let Ok(guard) = registry_for_watcher.read() {
                 if let Some(ref old_reg) = *guard {
-                    if let Some(agent_reg) = old_reg.agent_registry() {
-                        new_registry.set_agent_registry(Arc::clone(agent_reg));
+                    if let Some(agent_reg) = old_reg.agent_skills_query() {
+                        new_registry.set_agent_skills_query(Arc::clone(agent_reg));
                     }
                 }
             }

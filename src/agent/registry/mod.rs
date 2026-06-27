@@ -100,5 +100,61 @@ impl closeclaw_common::agent_lookup::AgentLookup for AgentRegistry {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AgentSkillsQuery — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+impl closeclaw_common::AgentSkillsQuery for AgentRegistry {
+    fn get_agent_skills(&self, agent_id: &str) -> Option<Vec<String>> {
+        self.get(agent_id).and_then(|cfg| cfg.effective_skills())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AgentToolsConfigQuery — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[async_trait::async_trait]
+impl closeclaw_common::AgentToolsConfigQuery for AgentRegistry {
+    async fn get_agent_tools_config(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_common::AgentToolsConfig> {
+        self.get(agent_id).map(|cfg| {
+            let tools = if cfg.tools.is_empty() || cfg.tools == ["*"] {
+                None
+            } else {
+                Some(cfg.tools.clone())
+            };
+            let disallowed_tools = if cfg.disallowed_tools.is_empty() {
+                None
+            } else {
+                Some(cfg.disallowed_tools.clone())
+            };
+            closeclaw_common::AgentToolsConfig {
+                tools,
+                disallowed_tools,
+            }
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AgentConfigLookup — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[async_trait::async_trait]
+impl closeclaw_common::AgentConfigLookup for AgentRegistry {
+    async fn lookup_agent_config(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_common::AgentConfigInfo> {
+        self.get(agent_id)
+            .map(|cfg| closeclaw_common::AgentConfigInfo {
+                subagents_model: cfg.subagents.model.clone(),
+            })
+    }
+}
+
 #[cfg(test)]
 mod config_tests;
