@@ -468,6 +468,89 @@ mod tests {
     // config_path and version
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // credential_path tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_credential_path_serializes_as_camel_case() {
+        let json = r#"{
+            "providers": {
+                "openai": {
+                    "credentialPath": "credentials/openai.json",
+                    "models": [{"id": "gpt-4"}]
+                }
+            }
+        }"#;
+        let config = ModelsConfigData::from_json_str(json).unwrap();
+        let provider = config.providers.get("openai").unwrap();
+        assert_eq!(
+            provider.credential_path.as_deref(),
+            Some("credentials/openai.json")
+        );
+    }
+
+    #[test]
+    fn test_credential_path_absent_defaults_to_none() {
+        let json = r#"{
+            "providers": {
+                "openai": {
+                    "models": [{"id": "gpt-4"}]
+                }
+            }
+        }"#;
+        let config = ModelsConfigData::from_json_str(json).unwrap();
+        let provider = config.providers.get("openai").unwrap();
+        assert!(provider.credential_path.is_none());
+    }
+
+    #[test]
+    fn test_credential_path_roundtrip() {
+        let json = r#"{
+            "providers": {
+                "openai": {
+                    "credentialPath": "credentials/openai.json",
+                    "models": [{"id": "gpt-4"}]
+                }
+            }
+        }"#;
+        let config = ModelsConfigData::from_json_str(json).unwrap();
+        let serialized = serde_json::to_string(&config).unwrap();
+        let roundtripped: ModelsConfigData = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(
+            roundtripped
+                .providers
+                .get("openai")
+                .unwrap()
+                .credential_path
+                .as_deref(),
+            Some("credentials/openai.json")
+        );
+    }
+
+    #[test]
+    fn test_validate_empty_credential_path() {
+        let json = r#"{
+            "providers": {
+                "openai": {
+                    "credentialPath": "",
+                    "models": [{"id": "gpt-4"}]
+                }
+            }
+        }"#;
+        let config = ModelsConfigData::from_json_str(json).unwrap();
+        let result = config.validate();
+        assert!(
+            result.is_err(),
+            "empty credential_path should fail validation"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::ValueError { ref field, .. } if field == "credential_path"),
+            "error should be about credential_path field"
+        );
+    }
+
     #[test]
     fn test_config_path() {
         assert_eq!(ModelsConfigData::config_path(), "models.json");

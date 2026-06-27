@@ -373,6 +373,43 @@ mod write_wizard_config_tests {
         );
     }
 
+    /// Test: write_wizard_config includes credentialPath in ProviderConfig
+    #[test]
+    fn test_write_wizard_config_includes_credential_path() {
+        let tmp = TempDir::new().unwrap();
+        let output = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "MiniMax M2.7".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+
+        write_wizard_config_to(&output, tmp.path()).expect("write_wizard_config_to should succeed");
+
+        let models_path = tmp.path().join("models.json");
+        let content = std::fs::read_to_string(&models_path).expect("models.json should be written");
+
+        let parsed: ModelsConfigData =
+            serde_json::from_str(&content).expect("models.json should be valid JSON");
+
+        let provider = parsed
+            .providers
+            .get("minimax")
+            .expect("minimax provider should exist");
+        assert_eq!(
+            provider.credential_path.as_deref(),
+            Some("credentials/minimax.json"),
+            "credentialPath should be set to credentials/<provider_id>.json"
+        );
+    }
+
     /// Test: write_wizard_config handles empty selected_models gracefully
     #[test]
     fn test_write_wizard_config_with_no_selected_models() {
