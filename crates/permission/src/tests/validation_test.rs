@@ -1,6 +1,4 @@
-use crate::permission::engine::{
-    Action, MatchType, PermissionRequestBody, Rule, Subject, TemplateRef,
-};
+use crate::engine::{Action, MatchType, PermissionRequestBody, Rule, Subject, TemplateRef};
 
 #[test]
 fn test_validate_actions_only() {
@@ -10,7 +8,7 @@ fn test_validate_actions_only() {
             agent: "test".to_string(),
             match_type: MatchType::Exact,
         },
-        effect: crate::permission::engine::Effect::Allow,
+        effect: crate::engine::Effect::Allow,
         actions: vec![Action::File {
             operation: "read".to_string(),
             paths: vec!["**".to_string()],
@@ -29,7 +27,7 @@ fn test_validate_template_only() {
             agent: "test".to_string(),
             match_type: MatchType::Exact,
         },
-        effect: crate::permission::engine::Effect::Allow,
+        effect: crate::engine::Effect::Allow,
         actions: vec![],
         template: Some(TemplateRef {
             name: "developer".to_string(),
@@ -48,7 +46,7 @@ fn test_validate_actions_and_template_mutually_exclusive() {
             agent: "test".to_string(),
             match_type: MatchType::Exact,
         },
-        effect: crate::permission::engine::Effect::Allow,
+        effect: crate::engine::Effect::Allow,
         actions: vec![Action::File {
             operation: "read".to_string(),
             paths: vec!["**".to_string()],
@@ -71,7 +69,7 @@ fn test_validate_at_least_one_required() {
             agent: "test".to_string(),
             match_type: MatchType::Exact,
         },
-        effect: crate::permission::engine::Effect::Allow,
+        effect: crate::engine::Effect::Allow,
         actions: vec![],
         template: None,
         priority: 0,
@@ -106,7 +104,7 @@ fn test_action_all_matches_any_request() {
     ];
     for req in requests {
         assert!(
-            crate::permission::engine::action_matches_request(&action, &req),
+            crate::engine::action_matches_request(&action, &req),
             "Action::All should match {:?}",
             req
         );
@@ -123,7 +121,7 @@ fn test_validation_user_and_agent_subject() {
             user_match: MatchType::Exact,
             agent_match: MatchType::Exact,
         },
-        effect: crate::permission::engine::Effect::Allow,
+        effect: crate::engine::Effect::Allow,
         actions: vec![Action::File {
             operation: "read".to_string(),
             paths: vec!["**".to_string()],
@@ -131,7 +129,7 @@ fn test_validation_user_and_agent_subject() {
         template: None,
         priority: 0,
     };
-    let errors = crate::permission::rules::validation::validate_rule(&rule);
+    let errors = crate::rules::validation::validate_rule(&rule);
     assert!(errors.is_empty(), "expected no errors, got {:?}", errors);
 }
 
@@ -143,7 +141,7 @@ fn test_validation_with_template() {
             agent: "test".to_string(),
             match_type: MatchType::Exact,
         },
-        effect: crate::permission::engine::Effect::Allow,
+        effect: crate::engine::Effect::Allow,
         actions: vec![],
         template: Some(TemplateRef {
             name: "developer".to_string(),
@@ -151,6 +149,6 @@ fn test_validation_with_template() {
         }),
         priority: 0,
     };
-    let errors = crate::permission::rules::validation::validate_rule(&rule);
+    let errors = crate::rules::validation::validate_rule(&rule);
     assert!(errors.is_empty(), "expected no errors, got {:?}", errors);
 }

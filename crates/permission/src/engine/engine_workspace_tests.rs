@@ -6,8 +6,8 @@ use super::engine_eval::PermissionEngine;
 use super::engine_types::{
     Caller, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
-use crate::permission::actions::ActionBuilder;
-use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+use crate::actions::ActionBuilder;
+use crate::rules::{RuleBuilder, RuleSetBuilder};
 
 fn make_engine() -> PermissionEngine {
     let tmp = TempDir::new().unwrap();

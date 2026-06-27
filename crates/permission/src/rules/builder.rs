@@ -1,4 +1,4 @@
-use crate::permission::engine::{Action, Effect, MatchType, Rule, Subject, TemplateRef};
+use crate::engine::{Action, Effect, MatchType, Rule, Subject, TemplateRef};
 
 /// Builder for constructing [`Rule`] instances fluently.
 #[derive(Debug, Default)]

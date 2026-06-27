@@ -23,7 +23,7 @@ pub struct PermissionEngine {
     /// O(1) lookup index: "{user_id}:{agent_id}" -> list of rule indices
     user_agent_rule_index: HashMap<String, Vec<usize>>,
     /// Loaded templates: name -> Template
-    templates: HashMap<String, crate::permission::templates::Template>,
+    templates: HashMap<String, crate::templates::Template>,
     /// Data root directory for workspace path resolution
     data_root: PathBuf,
 }
@@ -78,10 +78,7 @@ impl PermissionEngine {
     }
 
     /// Load templates into the engine
-    pub fn load_templates(
-        &mut self,
-        templates: HashMap<String, crate::permission::templates::Template>,
-    ) {
+    pub fn load_templates(&mut self, templates: HashMap<String, crate::templates::Template>) {
         self.templates = templates;
     }
 }

@@ -2,7 +2,7 @@
 //! Subject matching tests (UserAndAgent, AgentOnly) and JSON deserialization
 //!
 
-use crate::permission::engine::{Caller, MatchType, Subject};
+use crate::engine::{Caller, MatchType, Subject};
 
 // --- Subject::UserAndAgent tests ---
 

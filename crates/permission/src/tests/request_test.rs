@@ -2,7 +2,7 @@
 //! PermissionRequest envelope tests
 //!
 
-use crate::permission::engine::{Caller, PermissionRequest, PermissionRequestBody};
+use crate::engine::{Caller, PermissionRequest, PermissionRequestBody};
 use tempfile::TempDir;
 
 #[test]

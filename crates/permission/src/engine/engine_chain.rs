@@ -8,8 +8,7 @@ use super::engine_eval::PermissionEngine;
 use super::engine_helpers::{collect_chain_deny_subjects, collect_chain_effective_permissions};
 use super::engine_risk::assess_risk_level;
 use super::engine_types::{PermissionRequest, PermissionResponse};
-use crate::agent::config::AgentPermissions;
-use crate::gateway::SessionManager;
+use closeclaw_common::{AgentPermissions, SessionLookup};
 use std::collections::HashMap;
 use tracing::info;
 
@@ -47,7 +46,7 @@ impl PermissionEngine {
     pub async fn evaluate_with_chain(
         &self,
         request: PermissionRequest,
-        session_manager: &SessionManager,
+        session_manager: &dyn SessionLookup,
         session_id: &str,
         agent_permissions: &HashMap<String, AgentPermissions>,
     ) -> PermissionResponse {
@@ -107,7 +106,7 @@ impl PermissionEngine {
     /// [`collect_chain_effective_permissions`].
     async fn collect_chain_effective(
         &self,
-        session_manager: &SessionManager,
+        session_manager: &dyn SessionLookup,
         session_id: &str,
         agent_permissions: &HashMap<String, AgentPermissions>,
     ) -> Option<AgentPermissions> {

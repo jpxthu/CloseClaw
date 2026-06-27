@@ -22,9 +22,9 @@ pub struct Template {
     pub subject: TemplateSubject,
     /// Default effect if not overridden.
     #[serde(default)]
-    pub effect: crate::permission::engine::Effect,
+    pub effect: crate::engine::Effect,
     /// List of action specifications.
-    pub actions: Vec<crate::permission::engine::Action>,
+    pub actions: Vec<crate::engine::Action>,
     /// Templates this template extends (single inheritance only).
     #[serde(default)]
     pub extends: Vec<String>,
@@ -38,14 +38,14 @@ pub enum TemplateSubject {
     /// Fixed agent pattern.
     Agent {
         agent: String,
-        match_type: crate::permission::engine::MatchType,
+        match_type: crate::engine::MatchType,
     },
     /// Fixed user+agent pattern.
     UserAndAgent {
         user_id: String,
         agent: String,
-        user_match: crate::permission::engine::MatchType,
-        agent_match: crate::permission::engine::MatchType,
+        user_match: crate::engine::MatchType,
+        agent_match: crate::engine::MatchType,
     },
 }
 
@@ -177,21 +177,21 @@ mod tests {
             description: "Standard development permissions".to_string(),
             subject: TemplateSubject::Agent {
                 agent: "dev-*".to_string(),
-                match_type: crate::permission::engine::MatchType::Glob,
+                match_type: crate::engine::MatchType::Glob,
             },
-            effect: crate::permission::engine::Effect::Allow,
+            effect: crate::engine::Effect::Allow,
             actions: vec![
-                crate::permission::engine::Action::File {
+                crate::engine::Action::File {
                     operation: "read".to_string(),
                     paths: vec!["**".to_string()],
                 },
-                crate::permission::engine::Action::File {
+                crate::engine::Action::File {
                     operation: "write".to_string(),
                     paths: vec!["/home/admin/code/**".to_string()],
                 },
-                crate::permission::engine::Action::Command {
+                crate::engine::Action::Command {
                     command: "git".to_string(),
-                    args: crate::permission::engine::CommandArgs::Allowed {
+                    args: crate::engine::CommandArgs::Allowed {
                         allowed: vec![
                             "status".to_string(),
                             "log".to_string(),
@@ -203,9 +203,9 @@ mod tests {
                         ],
                     },
                 },
-                crate::permission::engine::Action::Command {
+                crate::engine::Action::Command {
                     command: "cargo".to_string(),
-                    args: crate::permission::engine::CommandArgs::Any,
+                    args: crate::engine::CommandArgs::Any,
                 },
             ],
             extends: vec![],
@@ -217,8 +217,8 @@ mod tests {
             name: "readonly".to_string(),
             description: "Read-only access to all resources.".to_string(),
             subject: TemplateSubject::Any,
-            effect: crate::permission::engine::Effect::Allow,
-            actions: vec![crate::permission::engine::Action::File {
+            effect: crate::engine::Effect::Allow,
+            actions: vec![crate::engine::Action::File {
                 operation: "read".to_string(),
                 paths: vec!["**".to_string()],
             }],
@@ -233,10 +233,10 @@ mod tests {
                 .to_string(),
             subject: TemplateSubject::Agent {
                 agent: "admin-*".to_string(),
-                match_type: crate::permission::engine::MatchType::Glob,
+                match_type: crate::engine::MatchType::Glob,
             },
-            effect: crate::permission::engine::Effect::Allow,
-            actions: vec![crate::permission::engine::Action::ConfigWrite {
+            effect: crate::engine::Effect::Allow,
+            actions: vec![crate::engine::Action::ConfigWrite {
                 files: vec!["**".to_string()],
             }],
             extends: vec!["developer".to_string()],
@@ -302,8 +302,10 @@ mod tests {
         assert!(admin
             .actions
             .iter()
-            .any(|a| matches!(a, crate::permission::engine::Action::ConfigWrite { .. })));
-        assert!(admin.actions.iter().any(|a| matches!(a, crate::permission::engine::Action::Command { command, .. } if command == "cargo")));
+            .any(|a| matches!(a, crate::engine::Action::ConfigWrite { .. })));
+        assert!(admin.actions.iter().any(
+            |a| matches!(a, crate::engine::Action::Command { command, .. } if command == "cargo")
+        ));
     }
 
     #[test]
@@ -315,7 +317,7 @@ mod tests {
                 name: "a".to_string(),
                 description: "".to_string(),
                 subject: TemplateSubject::Any,
-                effect: crate::permission::engine::Effect::Allow,
+                effect: crate::engine::Effect::Allow,
                 actions: vec![],
                 extends: vec![],
             },
@@ -334,7 +336,7 @@ mod tests {
                 name: "a".to_string(),
                 description: "".to_string(),
                 subject: TemplateSubject::Any,
-                effect: crate::permission::engine::Effect::Allow,
+                effect: crate::engine::Effect::Allow,
                 actions: vec![],
                 extends: vec!["b".to_string()],
             },
@@ -345,7 +347,7 @@ mod tests {
                 name: "b".to_string(),
                 description: "".to_string(),
                 subject: TemplateSubject::Any,
-                effect: crate::permission::engine::Effect::Allow,
+                effect: crate::engine::Effect::Allow,
                 actions: vec![],
                 extends: vec!["a".to_string()],
             },
@@ -364,7 +366,7 @@ mod tests {
                 name: "child".to_string(),
                 description: "".to_string(),
                 subject: TemplateSubject::Any,
-                effect: crate::permission::engine::Effect::Allow,
+                effect: crate::engine::Effect::Allow,
                 actions: vec![],
                 extends: vec!["nonexistent".to_string()],
             },

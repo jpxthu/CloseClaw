@@ -1,6 +1,6 @@
 use super::*;
-use crate::permission::engine::engine_risk::RiskLevel;
-use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::engine::engine_risk::RiskLevel;
+use crate::engine::engine_types::{Caller, PermissionRequestBody};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 

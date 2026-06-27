@@ -2,7 +2,7 @@
 //!
 //! Provides builder patterns and validation for [`Action`] types.
 
-use crate::permission::engine::{Action, CommandArgs};
+use crate::engine::{Action, CommandArgs};
 
 /// Builder for constructing [`Action`] variants fluently.
 #[derive(Debug, Default)]

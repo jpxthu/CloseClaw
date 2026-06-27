@@ -2,15 +2,15 @@
 //!
 //! Provides risk level classification for permission requests.
 
-use crate::permission::engine::engine_types::PermissionRequestBody;
+use crate::engine::engine_types::PermissionRequestBody;
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
-use crate::permission::engine::engine_eval::PermissionEngine;
+use crate::engine::engine_eval::PermissionEngine;
 #[cfg(test)]
-use crate::permission::engine::engine_types::{Effect, PermissionRequest, PermissionResponse};
+use crate::engine::engine_types::{Effect, PermissionRequest, PermissionResponse};
 #[cfg(test)]
-use crate::permission::rules::RuleSetBuilder;
+use crate::rules::RuleSetBuilder;
 
 /// Risk level for permission requests.
 /// Used to annotate denied responses with severity information.

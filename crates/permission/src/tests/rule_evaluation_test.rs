@@ -2,11 +2,11 @@
 //! Rule evaluation tests (User+Agent matching, priority)
 //!
 
-use crate::permission::engine::{
+use crate::engine::{
     Action, Caller, Effect, MatchType, PermissionEngine, PermissionRequest, PermissionRequestBody,
     PermissionResponse,
 };
-use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+use crate::rules::{RuleBuilder, RuleSetBuilder};
 
 #[tokio::test]
 async fn test_user_and_agent_rule_matching() {

@@ -21,10 +21,9 @@
 
 use std::sync::Arc;
 
-use crate::gateway::session_manager::SessionManager;
-use crate::permission::engine::engine_risk::RiskLevel;
-use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
-use crate::session::persistence::PendingMessage;
+use crate::engine::engine_risk::RiskLevel;
+use crate::engine::engine_types::{Caller, PermissionRequestBody};
+use closeclaw_common::{PendingMessage, SessionLookup};
 
 use super::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
 
@@ -65,7 +64,7 @@ pub struct ApprovalFlow {
     /// The underlying approval queue.
     queue: ApprovalQueue,
     /// Session manager for pushing pending messages.
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SessionLookup>,
     /// Callback invoked to notify the owner about a pending approval.
     on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
     /// Tokio runtime handle for spawning async tasks from sync closures.
@@ -88,7 +87,7 @@ impl ApprovalFlow {
     /// * `on_notify_owner` - Callback to notify the owner about pending approvals.
     /// * `runtime_handle` - Tokio runtime handle for spawning async tasks.
     pub fn new(
-        session_manager: Arc<SessionManager>,
+        session_manager: Arc<dyn SessionLookup>,
         on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
         runtime_handle: tokio::runtime::Handle,
     ) -> Self {

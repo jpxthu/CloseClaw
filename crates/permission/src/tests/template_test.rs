@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 
-use crate::permission::engine::{Action, Effect};
-use crate::permission::templates::{expand_inheritance, Template, TemplateSubject};
+use crate::engine::{Action, Effect};
+use crate::templates::{expand_inheritance, Template, TemplateSubject};
 
 #[test]
 fn test_template_deserialize() {
@@ -80,7 +80,7 @@ fn test_template_inheritance_expansion() {
             effect: Effect::Allow,
             actions: vec![Action::Command {
                 command: "git".to_string(),
-                args: crate::permission::engine::CommandArgs::Any,
+                args: crate::engine::CommandArgs::Any,
             }],
             extends: vec!["base".to_string()],
         },

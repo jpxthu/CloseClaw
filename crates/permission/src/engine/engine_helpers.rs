@@ -1,9 +1,8 @@
 //! Permission Engine - Helper utilities.
 
+use super::engine_types::RuleSet;
 use super::engine_types::{Action, Effect, Subject};
-use crate::agent::config::AgentPermissions;
-use crate::gateway::SessionManager;
-use crate::permission::engine::engine_types::RuleSet;
+use closeclaw_common::{AgentPermissions, SessionLookup};
 use std::collections::HashMap;
 
 /// Extract AgentOnly + Deny subjects from parent agent, replacing agent with child_agent_id.
@@ -47,7 +46,7 @@ pub fn get_agent_deny_subjects(
 /// This implements the design doc requirement: "沿 spawn 链每增加一级深度，
 /// Deny 约束集只增不减".
 pub async fn collect_chain_deny_subjects(
-    session_manager: &SessionManager,
+    session_manager: &dyn SessionLookup,
     rules: &RuleSet,
     parent_session_id: &str,
     child_agent_id: &str,
@@ -97,7 +96,7 @@ pub async fn collect_chain_deny_subjects(
 /// Returns `None` if the direct parent has no configured permissions
 /// (caller should treat as no restriction, matching prior behavior).
 pub async fn collect_chain_effective_permissions(
-    session_manager: &SessionManager,
+    session_manager: &dyn SessionLookup,
     agent_permissions: &HashMap<String, AgentPermissions>,
     parent_session_id: &str,
     parent_agent_id: &str,
@@ -128,7 +127,7 @@ pub async fn collect_chain_effective_permissions(
 
 /// Resolve template actions with overrides applied.
 pub fn resolve_template_actions(
-    tmpl: &crate::permission::templates::Template,
+    tmpl: &crate::templates::Template,
     overrides: &HashMap<String, serde_json::Value>,
 ) -> Vec<Action> {
     if let Some(overridden_actions) = overrides.get("actions") {

@@ -2,9 +2,9 @@
 //! ApprovalQueue unit tests
 //!
 
-use crate::permission::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectReason};
-use crate::permission::engine::engine_risk::RiskLevel;
-use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectReason};
+use crate::engine::engine_risk::RiskLevel;
+use crate::engine::engine_types::{Caller, PermissionRequestBody};
 
 fn dummy_caller() -> Caller {
     Caller {

@@ -3,7 +3,7 @@
 use tempfile::TempDir;
 
 use super::*;
-use crate::permission::{Defaults, PermissionRequest, PermissionRequestBody, RuleSet};
+use crate::{Defaults, PermissionRequest, PermissionRequestBody, RuleSet};
 
 #[test]
 fn test_sandbox_state_default() {

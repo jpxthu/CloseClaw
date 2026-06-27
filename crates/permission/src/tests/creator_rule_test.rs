@@ -2,11 +2,11 @@
 //! Creator Rule short-circuit tests
 //!
 
-use crate::permission::engine::{
+use crate::engine::{
     Action, Caller, Effect, PermissionEngine, PermissionRequest, PermissionRequestBody,
     PermissionResponse,
 };
-use crate::permission::rules::RuleSetBuilder;
+use crate::rules::RuleSetBuilder;
 
 #[tokio::test]
 async fn test_creator_rule_short_circuit_caller_creator_id() {
@@ -91,7 +91,7 @@ async fn test_creator_rule_priority_over_explicit_deny() {
     let ruleset = RuleSetBuilder::new()
         .agent_creator("dev-agent-01", "ou_john")
         .rule(
-            crate::permission::rules::RuleBuilder::new()
+            crate::rules::RuleBuilder::new()
                 .name("deny-everything")
                 .subject_agent("dev-agent-01")
                 .deny()

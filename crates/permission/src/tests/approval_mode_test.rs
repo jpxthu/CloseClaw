@@ -2,11 +2,9 @@
 //! ApprovalMode + RiskLevel boundary tests
 //!
 
-use crate::permission::approval::{
-    ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason,
-};
-use crate::permission::engine::engine_risk::RiskLevel;
-use crate::permission::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
+use crate::engine::engine_risk::RiskLevel;
+use crate::engine::engine_types::{Caller, PermissionRequestBody};
 
 fn dummy_caller() -> Caller {
     Caller {
@@ -18,17 +16,17 @@ fn dummy_caller() -> Caller {
 
 fn make_file_op(body_variant: &str) -> PermissionRequestBody {
     match body_variant {
-        "a" => crate::permission::engine::engine_types::PermissionRequestBody::FileOp {
+        "a" => crate::engine::engine_types::PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/repo/a.txt".to_string(),
             op: "read".to_string(),
         },
-        "b" => crate::permission::engine::engine_types::PermissionRequestBody::FileOp {
+        "b" => crate::engine::engine_types::PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/repo/b.txt".to_string(),
             op: "read".to_string(),
         },
-        "c" => crate::permission::engine::engine_types::PermissionRequestBody::FileOp {
+        "c" => crate::engine::engine_types::PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
             path: "/repo/c.txt".to_string(),
             op: "read".to_string(),

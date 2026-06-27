@@ -2,8 +2,8 @@ use super::engine_eval::PermissionEngine;
 use super::engine_types::{
     Caller, Effect, MatchType, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
-use crate::permission::actions::ActionBuilder;
-use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+use crate::actions::ActionBuilder;
+use crate::rules::{RuleBuilder, RuleSetBuilder};
 
 // -------------------------------------------------------------------------
 // Owner shortcut tests

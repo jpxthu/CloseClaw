@@ -1,6 +1,6 @@
 //! Validation helpers for rules and rulesets.
 
-use crate::permission::engine::{Effect, Rule, RuleSet};
+use crate::engine::{Effect, Rule, RuleSet};
 
 /// Validate a single rule.
 pub fn validate_rule(rule: &Rule) -> Vec<RuleValidationError> {

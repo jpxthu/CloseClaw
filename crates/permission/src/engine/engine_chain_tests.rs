@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use super::engine_eval::PermissionEngine;
 use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, PermissionResponse};
+use crate::actions::ActionBuilder;
 use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits};
 use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use crate::gateway::{DmScope, GatewayConfig, Session, SessionManager};
-use crate::permission::actions::ActionBuilder;
-use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+use crate::rules::{RuleBuilder, RuleSetBuilder};
 use crate::session::bootstrap::BootstrapMode;
 
 // -------------------------------------------------------------------------

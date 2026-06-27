@@ -1,5 +1,5 @@
 use super::*;
-use crate::permission::actions::ActionBuilder;
+use crate::actions::ActionBuilder;
 use serde_json;
 
 #[test]

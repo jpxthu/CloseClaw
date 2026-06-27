@@ -15,7 +15,7 @@ use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::time::timeout;
 
-use crate::permission::{PermissionEngine, PermissionRequest, PermissionResponse, RuleSet};
+use crate::{PermissionEngine, PermissionRequest, PermissionResponse, RuleSet};
 
 // ---------------------------------------------------------------------------
 // IPC Constants
@@ -36,7 +36,7 @@ pub enum SandboxRequest {
     Evaluate {
         request: PermissionRequest,
         #[serde(default)]
-        extra_deny_subjects: Option<Vec<crate::permission::engine::engine_types::Subject>>,
+        extra_deny_subjects: Option<Vec<crate::engine::engine_types::Subject>>,
     },
     /// Ask the engine to reload its ruleset.
     ReloadRules { rules: RuleSet },
@@ -255,13 +255,11 @@ mod tests {
     #[test]
     fn test_sandbox_request_evaluate_serialization() {
         let req = SandboxRequest::Evaluate {
-            request: crate::permission::PermissionRequest::Bare(
-                crate::permission::PermissionRequestBody::FileOp {
-                    agent: "test-agent".to_string(),
-                    path: "/tmp/test.txt".to_string(),
-                    op: "read".to_string(),
-                },
-            ),
+            request: crate::PermissionRequest::Bare(crate::PermissionRequestBody::FileOp {
+                agent: "test-agent".to_string(),
+                path: "/tmp/test.txt".to_string(),
+                op: "read".to_string(),
+            }),
             extra_deny_subjects: None,
         };
         let json = serde_json::to_vec(&req).unwrap();
@@ -274,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_sandbox_request_reload_rules_serialization() {
-        let rules = crate::permission::engine::RuleSet {
+        let rules = crate::engine::RuleSet {
             rules: vec![],
             defaults: Default::default(),
             template_includes: vec![],
@@ -291,10 +289,9 @@ mod tests {
 
     #[test]
     fn test_sandbox_response_permission_allowed_serialization() {
-        let resp =
-            SandboxResponse::PermissionResponse(crate::permission::PermissionResponse::Allowed {
-                token: "token123".to_string(),
-            });
+        let resp = SandboxResponse::PermissionResponse(crate::PermissionResponse::Allowed {
+            token: "token123".to_string(),
+        });
         let json = serde_json::to_vec(&resp).unwrap();
         let deserialized: SandboxResponse = serde_json::from_slice(&json).unwrap();
         assert_eq!(

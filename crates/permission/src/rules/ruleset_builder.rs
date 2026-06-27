@@ -1,4 +1,4 @@
-use crate::permission::engine::{Defaults, Effect, Rule, RuleSet};
+use crate::engine::{Defaults, Effect, Rule, RuleSet};
 
 /// Builder for constructing [`RuleSet`] instances.
 #[derive(Debug, Default)]

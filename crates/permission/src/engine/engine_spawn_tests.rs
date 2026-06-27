@@ -4,12 +4,12 @@ use super::engine_spawn::SpawnPermissionError;
 use super::engine_types::{
     Effect, MatchType, PermissionRequest, PermissionRequestBody, PermissionResponse, Subject,
 };
+use crate::actions::ActionBuilder;
 use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits};
 use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use crate::gateway::{DmScope, GatewayConfig, Session, SessionManager};
-use crate::permission::actions::ActionBuilder;
-use crate::permission::rules::RuleBuilder;
-use crate::permission::rules::RuleSetBuilder;
+use crate::rules::RuleBuilder;
+use crate::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use std::collections::HashMap;
 

@@ -21,7 +21,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 
-use crate::permission::{PermissionEngine, PermissionRequest, PermissionResponse, RuleSet};
+use crate::{PermissionEngine, PermissionRequest, PermissionResponse, RuleSet};
 
 /// Maximum time to wait for the engine process to start.
 const ENGINE_SPAWN_TIMEOUT_MS: u64 = 5000;
@@ -214,7 +214,7 @@ impl Sandbox {
     pub async fn evaluate(
         &self,
         request: PermissionRequest,
-        extra_deny_subjects: Option<Vec<crate::permission::engine::engine_types::Subject>>,
+        extra_deny_subjects: Option<Vec<crate::engine::engine_types::Subject>>,
     ) -> Result<PermissionResponse, SandboxError> {
         let state = *self.state.read().await;
         if state != SandboxState::Running {

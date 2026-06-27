@@ -6,8 +6,8 @@ use super::engine_types::{
     Action, Caller, CommandArgs, Effect, MatchType, PermissionRequest, PermissionRequestBody,
     PermissionResponse, Rule, Subject,
 };
-use crate::permission::actions::ActionBuilder;
-use crate::permission::rules::{RuleBuilder, RuleSetBuilder};
+use crate::actions::ActionBuilder;
+use crate::rules::{RuleBuilder, RuleSetBuilder};
 
 // -------------------------------------------------------------------------
 // Glob matching tests
