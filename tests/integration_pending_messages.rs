@@ -15,14 +15,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use closeclaw::gateway::session_manager::SessionManager;
-use closeclaw::gateway::{DmScope, GatewayConfig, Message};
-use closeclaw::llm::fake::FakeProvider;
-use closeclaw::llm::provider::Provider;
-use closeclaw::llm::LLMRegistry;
-use closeclaw::session::bootstrap::BootstrapMode;
-use closeclaw::session::persistence::ReasoningLevel;
-use closeclaw::session::PendingMessage;
+use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_gateway::{DmScope, GatewayConfig, Message};
+use closeclaw_llm::fake::FakeProvider;
+use closeclaw_llm::provider::Provider;
+use closeclaw_llm::LLMRegistry;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::PendingMessage;
+use closeclaw_session::persistence::ReasoningLevel;
 
 /// Build a minimal GatewayConfig for testing.
 fn test_config() -> GatewayConfig {
@@ -117,7 +117,7 @@ async fn test_mark_sent_changes_flag() {
 
 #[tokio::test]
 async fn test_restore_skips_sent_true() {
-    use closeclaw::llm::session::ConversationSession;
+    use closeclaw_llm::session::ConversationSession;
 
     let test_root = TempDir::new().unwrap();
     let mut session = ConversationSession::new(

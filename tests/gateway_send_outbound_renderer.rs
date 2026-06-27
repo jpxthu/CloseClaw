@@ -6,15 +6,15 @@
 mod gateway_send_outbound_basic;
 
 use async_trait::async_trait;
-use closeclaw::gateway::{Gateway, GatewayError, SessionManager};
-use closeclaw::llm::types::ContentBlock;
 use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
-use closeclaw::session::bootstrap::BootstrapMode;
-use closeclaw::session::persistence::ReasoningLevel;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_gateway::{Gateway, GatewayError, SessionManager};
+use closeclaw_llm::types::ContentBlock;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::{Arc, Mutex};
 
 use gateway_send_outbound_basic::{make_config, make_outbound_gw, make_outbound_message};

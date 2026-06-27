@@ -10,21 +10,21 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::terminal::TerminalPlugin;
-use crate::config::providers::{ConfigProvider, CredentialsProvider};
-use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use crate::im_adapter::plugin::IMPlugin;
-use crate::llm::anthropic::AnthropicProvider;
-use crate::llm::fallback::{FallbackClient, ModelEntry};
-use crate::llm::minimax::MiniMaxProvider;
-use crate::llm::openai::OpenAIProvider;
-use crate::llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
-use crate::llm::LLMRegistry;
 use crate::processor_chain;
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::ReasoningLevel;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::registry::HandlerRegistry;
 use crate::slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
+use closeclaw_config::providers::{ConfigProvider, CredentialsProvider};
+use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
+use closeclaw_im_adapter::plugin::IMPlugin;
+use closeclaw_llm::anthropic::AnthropicProvider;
+use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
+use closeclaw_llm::minimax::MiniMaxProvider;
+use closeclaw_llm::openai::OpenAIProvider;
+use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+use closeclaw_llm::LLMRegistry;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 
 /// Why the REPL loop exited.
 enum ExitReason {
@@ -90,7 +90,7 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
         .await;
 
-    let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
+    let plugin: Arc<dyn closeclaw_im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
     gateway
         .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
         .await;
@@ -160,7 +160,7 @@ async fn try_register_provider(
     name: &str,
     creds_provider: &CredentialsProvider,
     env_var: &str,
-    create_fn: impl FnOnce(String) -> Arc<dyn crate::llm::provider::Provider>,
+    create_fn: impl FnOnce(String) -> Arc<dyn closeclaw_llm::provider::Provider>,
 ) {
     let key = creds_provider
         .get_api_key(name)
@@ -252,15 +252,15 @@ async fn build_unified_chain(
     providers
         .into_iter()
         .map(|(entry, provider)| {
-            let protocol = Arc::new(crate::llm::protocol::OpenAiProtocol::default());
-            let interpreter_registry = crate::llm::interpreter::InterpreterRegistry::new(vec![]);
-            let plugin_pipeline = crate::llm::plugin::PluginPipeline::new();
-            let client = Arc::new(crate::llm::client::UnifiedChatClient::new(
+            let protocol = Arc::new(closeclaw_llm::protocol::OpenAiProtocol::default());
+            let interpreter_registry = closeclaw_llm::interpreter::InterpreterRegistry::new(vec![]);
+            let plugin_pipeline = closeclaw_llm::plugin::PluginPipeline::new();
+            let client = Arc::new(closeclaw_llm::client::UnifiedChatClient::new(
                 provider,
                 protocol,
                 interpreter_registry,
                 plugin_pipeline,
-                crate::llm::cache_adapter::for_provider(&entry.provider),
+                closeclaw_llm::cache_adapter::for_provider(&entry.provider),
             ));
             ChainEntry {
                 provider_id: entry.provider.clone(),
@@ -276,7 +276,7 @@ async fn build_unified_chain(
 /// Returns `None` if no LLM providers are configured.
 async fn build_session_handler(
     session_manager: Arc<SessionManager>,
-) -> Option<crate::gateway::session_handler::SessionMessageHandler> {
+) -> Option<closeclaw_gateway::session_handler::SessionMessageHandler> {
     let llm_registry = init_llm_registry().await;
     let fallback_chain = build_fallback_chain();
     let valid_chain = filter_valid_chain(&llm_registry, fallback_chain).await?;
@@ -285,17 +285,19 @@ async fn build_session_handler(
         Arc::clone(&llm_registry),
         valid_chain.clone(),
     ));
-    let cooldown = Arc::new(crate::llm::retry::CooldownManager::new());
+    let cooldown = Arc::new(closeclaw_llm::retry::CooldownManager::new());
     let unified_chain = build_unified_chain(&llm_registry, &valid_chain).await;
     let unified_fallback_client = Arc::new(UnifiedFallbackClient::new(unified_chain, cooldown));
 
     let (output_tx, _output_rx) = tokio::sync::mpsc::channel(64);
-    Some(crate::gateway::session_handler::SessionMessageHandler::new(
-        session_manager,
-        fallback_client,
-        output_tx,
-        unified_fallback_client,
-    ))
+    Some(
+        closeclaw_gateway::session_handler::SessionMessageHandler::new(
+            session_manager,
+            fallback_client,
+            output_tx,
+            unified_fallback_client,
+        ),
+    )
 }
 /// Run the read-eval-print loop.
 ///
@@ -326,7 +328,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> 
         );
 
         // Run the inbound processor chain (ContentNormalizer, RawLog, etc.).
-        let input = crate::gateway::InboundChainInput {
+        let input = closeclaw_gateway::InboundChainInput {
             platform: "terminal".to_string(),
             sender_id: sender_id.to_string(),
             peer_id: "cli".to_string(),

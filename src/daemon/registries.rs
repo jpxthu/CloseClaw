@@ -2,13 +2,13 @@
 //! and ConfigHotReload during daemon startup.
 
 use crate::agent::spawn::SpawnController;
-use crate::config::ConfigManager;
 use crate::daemon::config_reload;
-use crate::gateway::SessionManager;
-use crate::skills::DiskSkillRegistry;
-use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
-use crate::tools::ToolRegistry;
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::SessionManager;
 use closeclaw_permission::PermissionEngine;
+use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_tools::builtin::{register_builtin_tools, BuiltinToolContext};
+use closeclaw_tools::ToolRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -144,7 +144,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
     });
     register_builtin_tools(ctx.tool_registry, builtin_ctx).await;
-    for tool in crate::im_adapter::platforms::feishu::tools::create_feishu_tools() {
+    for tool in closeclaw_im_adapter::platforms::feishu::tools::create_feishu_tools() {
         ctx.tool_registry.register(tool).await.ok();
     }
 }

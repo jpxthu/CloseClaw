@@ -1,8 +1,8 @@
 //! Spawn control — validates spawn requests against agent configuration.
 
-use crate::config::agents::ResolvedAgentConfig;
-use crate::config::ConfigManager;
-use crate::gateway::SessionManager;
+use closeclaw_config::agents::ResolvedAgentConfig;
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_helpers::collect_chain_deny_subjects;
 use closeclaw_permission::engine::engine_helpers::collect_chain_effective_permissions;

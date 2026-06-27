@@ -5,7 +5,7 @@
 
 use crate::common::test_helpers::TestStorage;
 use crate::memory::dreaming::DreamingPipeline;
-use crate::session::persistence::{DreamingStatus, SessionCheckpoint};
+use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

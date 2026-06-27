@@ -4,7 +4,7 @@
 //! `builder.rs` to keep that file under the 500-line limit.
 
 use super::sections::Section;
-use crate::tools::{PromptGenerationContext, ToolContext, ToolRegistry};
+use closeclaw_tools::{PromptGenerationContext, ToolContext, ToolRegistry};
 
 /// Task writing guidance appended to the tools section when spawn is available.
 /// Source: docs/design/agent/agent-spawn.md §父 Agent 的 Task 编写指引
@@ -77,14 +77,14 @@ pub async fn build_tools_section(
 mod tests {
     use super::*;
     use crate::agent::spawn::SpawnController;
-    use crate::config::ConfigManager;
-    use crate::gateway::{GatewayConfig, SessionManager};
-    use crate::session::bootstrap::BootstrapMode;
-    use crate::session::persistence::ReasoningLevel;
-    use crate::skills::DiskSkillRegistry;
-    use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
+    use closeclaw_config::ConfigManager;
+    use closeclaw_gateway::{GatewayConfig, SessionManager};
     use closeclaw_permission::engine::engine_eval::PermissionEngine;
     use closeclaw_permission::rules::RuleSetBuilder;
+    use closeclaw_session::bootstrap::BootstrapMode;
+    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_skills::DiskSkillRegistry;
+    use closeclaw_tools::builtin::{register_builtin_tools, BuiltinToolContext};
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -111,7 +111,7 @@ mod tests {
             name: "test".to_string(),
             rate_limit_per_minute: 100,
             max_message_size: 65536,
-            dm_scope: crate::gateway::DmScope::PerChannelPeer,
+            dm_scope: closeclaw_gateway::DmScope::PerChannelPeer,
             ..Default::default()
         };
         let session_manager = Arc::new(SessionManager::new(
@@ -140,13 +140,18 @@ mod tests {
         config_manager: Arc<ConfigManager>,
         agent_registry: Arc<crate::agent::registry::AgentRegistry>,
     ) -> Arc<BuiltinToolContext> {
+        let task_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
         Arc::new(BuiltinToolContext {
             config_manager,
-            agent_registry,
+            agent_tools_query: agent_registry.clone()
+                as Arc<dyn closeclaw_common::AgentToolsConfigQuery>,
+            agent_config_lookup: agent_registry.clone()
+                as Arc<dyn closeclaw_common::AgentConfigLookup>,
             disk_registry,
             permission_engine,
-            spawn_controller,
+            spawn_validator: spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
             session_manager,
+            task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
         })
     }
 
@@ -167,7 +172,7 @@ mod tests {
             ),
         )
         .await;
-        let ctx = crate::tools::ToolContext {
+        let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -198,7 +203,7 @@ mod tests {
             ),
         )
         .await;
-        let ctx = crate::tools::ToolContext {
+        let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -235,7 +240,7 @@ mod tests {
             ),
         )
         .await;
-        let ctx = crate::tools::ToolContext {
+        let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -282,7 +287,7 @@ mod tests {
             ),
         )
         .await;
-        let ctx = crate::tools::ToolContext {
+        let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -304,7 +309,7 @@ mod tests {
     #[tokio::test]
     async fn test_build_tools_section_empty_registry() {
         let registry = ToolRegistry::new();
-        let ctx = crate::tools::ToolContext {
+        let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -340,7 +345,7 @@ mod tests {
             ),
         )
         .await;
-        let ctx = crate::tools::ToolContext {
+        let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -371,7 +376,7 @@ mod tests {
     async fn test_task_writing_guidance_absent_when_spawn_unavailable() {
         // Empty registry → sessions_spawn is not in available_tool_names
         let registry = ToolRegistry::new();
-        let ctx = crate::tools::ToolContext {
+        let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,

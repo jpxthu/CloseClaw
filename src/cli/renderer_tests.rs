@@ -4,8 +4,8 @@
 //! code blocks, ANSI helpers, and edge cases.
 
 use crate::cli::renderer::{strip_ansi, TerminalRenderer, BOLD, CYAN, DIM, ITALIC};
-use crate::llm::types::ContentBlock;
-use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
+use closeclaw_common::processor::{DslInstruction, DslParseResult};
+use closeclaw_llm::types::ContentBlock;
 
 // ── Constructor tests ───────────────────────────────────────────────────────
 

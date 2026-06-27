@@ -1,19 +1,19 @@
 //! Tests for Gateway::send_outbound — basic (non-renderer) tests (issue #469).
 
 use async_trait::async_trait;
-use closeclaw::gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
-use closeclaw::im::IMAdapter;
-use closeclaw::im::{
-    AdapterError as LocalAdapterError, NormalizedMessage as LocalNormalizedMessage,
-};
-use closeclaw::llm::types::ContentBlock;
 use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
-use closeclaw::session::bootstrap::BootstrapMode;
-use closeclaw::session::persistence::ReasoningLevel;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
+use closeclaw_im_adapter::IMAdapter;
+use closeclaw_im_adapter::{
+    AdapterError as LocalAdapterError, NormalizedMessage as LocalNormalizedMessage,
+};
+use closeclaw_llm::types::ContentBlock;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

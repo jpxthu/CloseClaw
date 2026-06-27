@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use tempfile::TempDir;
 #[test]
 fn test_agent_config_save_load() {

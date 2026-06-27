@@ -10,13 +10,13 @@ use std::sync::Arc;
 
 use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig};
 use crate::agent::spawn::{SpawnController, SpawnError};
-use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::config::ConfigManager;
-use crate::gateway::{DmScope, GatewayConfig, Message, SessionManager};
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::ReasoningLevel;
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::{DmScope, GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_tests.rs to keep modules self-contained)

@@ -1,8 +1,8 @@
 //! Tests for [`build_processor_registry`].
 
-use crate::gateway::{DmScope, GatewayConfig};
 use crate::processor_chain::build_processor_registry;
 use crate::processor_chain::context::{ProcessedMessage, RawMessage};
+use closeclaw_gateway::{DmScope, GatewayConfig};
 
 use chrono::Utc;
 

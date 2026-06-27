@@ -3,9 +3,9 @@
 //! Tests the streaming SSE interface for MiniMax through the public API,
 //! using mockito to mock HTTP streaming responses.
 
-use closeclaw::llm::minimax::MiniMaxProvider;
-use closeclaw::llm::provider::{Provider, ProviderError};
-use closeclaw::llm::types::{InternalMessage, InternalRequest};
+use closeclaw_llm::minimax::MiniMaxProvider;
+use closeclaw_llm::provider::{Provider, ProviderError};
+use closeclaw_llm::types::{InternalMessage, InternalRequest};
 use mockito::Server;
 
 fn provider_url(server: &Server) -> String {
@@ -28,7 +28,7 @@ fn streaming_request(model: &str) -> InternalRequest {
         system_blocks: None,
         tools: None,
         session_id: None,
-        reasoning_level: closeclaw::session::persistence::ReasoningLevel::default(),
+        reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
         turn_count: None,
     }
 }

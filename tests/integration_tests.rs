@@ -12,10 +12,10 @@ use std::sync::Arc;
 // ---------------------------------------------------------------------------
 use closeclaw::agent::config::AgentConfig;
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
-use closeclaw::config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
-use closeclaw::skills::Skill;
+use closeclaw_config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
 use closeclaw_permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
 use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
+use closeclaw_skills::Skill;
 
 // ---------------------------------------------------------------------------
 // Helper builders
@@ -230,9 +230,9 @@ async fn test_config_validation_rejects_empty_id() {
 #[tokio::test]
 async fn test_skill_loading_and_execution_chain() {
     // Create skill registry and load built-in skills
-    let registry = Arc::new(closeclaw::skills::registry::SkillRegistry::new());
+    let registry = Arc::new(closeclaw_skills::registry::SkillRegistry::new());
 
-    for skill in closeclaw::skills::builtin::builtin_skills() {
+    for skill in closeclaw_skills::builtin::builtin_skills() {
         registry.register(skill).await;
     }
 
@@ -273,7 +273,7 @@ async fn test_skill_with_permission_engine_integration() {
     let engine = Arc::new(PermissionEngine::new_with_default_data_root(rules));
 
     // Create permission skill with engine reference
-    let perm_skill = closeclaw::skills::builtin::PermissionSkill::with_engine(engine.clone());
+    let perm_skill = closeclaw_skills::builtin::PermissionSkill::with_engine(engine.clone());
 
     // Populate registry with a test agent config
     let registry: SharedAgentRegistry = create_registry();
@@ -324,9 +324,9 @@ async fn test_skill_with_permission_engine_integration() {
 
 #[tokio::test]
 async fn test_skill_unregister_and_not_found() {
-    let registry = Arc::new(closeclaw::skills::registry::SkillRegistry::new());
+    let registry = Arc::new(closeclaw_skills::registry::SkillRegistry::new());
 
-    for skill in closeclaw::skills::builtin::builtin_skills() {
+    for skill in closeclaw_skills::builtin::builtin_skills() {
         registry.register(skill).await;
     }
 

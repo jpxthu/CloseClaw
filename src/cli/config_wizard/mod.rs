@@ -7,12 +7,12 @@ pub use fetch::*;
 pub use types::*;
 
 use crate::agent::config::AgentConfig;
-use crate::config::agents::{AgentsConfig, AgentsConfigProvider};
-use crate::config::providers::{
+use closeclaw_config::agents::{AgentsConfig, AgentsConfigProvider};
+use closeclaw_config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
-use crate::llm::{
+use closeclaw_llm::{
     DeepSeekProvider, GlmProvider, MiniMaxProvider, ModelDiscovery, ModelLister,
     ProviderModelKnowledge, VolcEngineProvider,
 };
@@ -22,7 +22,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::llm::model_info::ModelInfo;
+use closeclaw_llm::model_info::ModelInfo;
 
 /// Parse user input for model selection into a vector of 0-based indices.
 ///
@@ -281,7 +281,7 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         mode: "merge".to_string(),
         providers,
     };
-    <ModelsConfigData as crate::config::providers::ConfigProvider>::validate(&merged)
+    <ModelsConfigData as closeclaw_config::providers::ConfigProvider>::validate(&merged)
         .map_err(|e| anyhow::anyhow!("merged config validation failed: {}", e))?;
     let json = serde_json::to_string_pretty(&merged)?;
     std::fs::write(&models_path, json)

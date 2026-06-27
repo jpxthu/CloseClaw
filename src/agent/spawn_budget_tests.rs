@@ -5,16 +5,16 @@ use std::sync::Arc;
 
 use crate::agent::config::SubagentsConfig;
 use crate::agent::spawn::{SpawnController, SpawnError};
-use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::config::ConfigManager;
-use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
-use crate::gateway::{DmScope, GatewayConfig, SessionManager};
-use crate::session::bootstrap::BootstrapMode;
-use crate::session::persistence::{PersistenceService, SessionCheckpoint};
-use crate::session::storage::memory::MemoryStorage;
-use crate::session::ReasoningLevel;
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
+use closeclaw_gateway::{DmScope, GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
+use closeclaw_session::storage::memory::MemoryStorage;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_tests.rs to keep this file self-contained)
@@ -54,7 +54,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
 }
 
 async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
-    let msg = crate::gateway::Message {
+    let msg = closeclaw_gateway::Message {
         id: format!("msg-{}", agent_id),
         from: "user".to_string(),
         to: agent_id.to_string(),
@@ -190,7 +190,7 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     let child1_session_id = "child1-budget-zero";
     sm.sessions.write().await.insert(
         child1_session_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child1_session_id.to_string(),
             agent_id: "child1".to_string(),
             channel: "test".to_string(),
@@ -263,7 +263,7 @@ async fn test_depth_budget_child_narrows_via_min() {
     let child_session_id = "narrow-child-session";
     sm.sessions.write().await.insert(
         child_session_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_session_id.to_string(),
             agent_id: "narrow-child".to_string(),
             channel: "test".to_string(),
@@ -335,7 +335,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let child1_sid = "tree-child1";
     sm.sessions.write().await.insert(
         child1_sid.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child1_sid.to_string(),
             agent_id: "child1".to_string(),
             channel: "test".to_string(),
@@ -372,7 +372,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let child2_sid = "tree-child2";
     sm.sessions.write().await.insert(
         child2_sid.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child2_sid.to_string(),
             agent_id: "child2".to_string(),
             channel: "test".to_string(),
@@ -410,7 +410,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let child3_sid = "tree-child3";
     sm.sessions.write().await.insert(
         child3_sid.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child3_sid.to_string(),
             agent_id: "child3".to_string(),
             channel: "test".to_string(),
@@ -468,7 +468,7 @@ async fn test_kill_run_mode_child_succeeds() {
     );
 
     let parent_id = "parent-run-kill";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -480,7 +480,7 @@ async fn test_kill_run_mode_child_succeeds() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -490,7 +490,7 @@ async fn test_kill_run_mode_child_succeeds() {
     );
 
     let child_id = "run-child-to-kill";
-    let child_cs = crate::llm::session::ConversationSession::new(
+    let child_cs = closeclaw_llm::session::ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -502,7 +502,7 @@ async fn test_kill_run_mode_child_succeeds() {
         .insert(child_id.to_string(), child_arc);
     mgr.sessions.write().await.insert(
         child_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_id.to_string(),
             agent_id: "child-agent".to_string(),
             channel: "spawn".to_string(),
@@ -545,7 +545,7 @@ async fn test_kill_session_mode_child_succeeds() {
     );
 
     let parent_id = "parent-session-kill";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -557,7 +557,7 @@ async fn test_kill_session_mode_child_succeeds() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -567,7 +567,7 @@ async fn test_kill_session_mode_child_succeeds() {
     );
 
     let child_id = "session-child-to-kill";
-    let child_cs = crate::llm::session::ConversationSession::new(
+    let child_cs = closeclaw_llm::session::ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -579,7 +579,7 @@ async fn test_kill_session_mode_child_succeeds() {
         .insert(child_id.to_string(), child_arc);
     mgr.sessions.write().await.insert(
         child_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_id.to_string(),
             agent_id: "child-agent".to_string(),
             channel: "spawn".to_string(),
@@ -627,7 +627,7 @@ async fn test_cascade_terminate_all_children_simulation() {
     );
 
     let parent_id = "parent-cascade";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -639,7 +639,7 @@ async fn test_cascade_terminate_all_children_simulation() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -655,7 +655,7 @@ async fn test_cascade_terminate_all_children_simulation() {
         ("child-c", SpawnMode::Run),
     ];
     for (child_id, mode) in &children {
-        let cs = crate::llm::session::ConversationSession::new(
+        let cs = closeclaw_llm::session::ConversationSession::new(
             child_id.to_string(),
             "test-model".to_string(),
             tmp.path().to_path_buf(),
@@ -667,7 +667,7 @@ async fn test_cascade_terminate_all_children_simulation() {
             .insert(child_id.to_string(), arc);
         mgr.sessions.write().await.insert(
             child_id.to_string(),
-            crate::gateway::Session {
+            closeclaw_gateway::Session {
                 id: child_id.to_string(),
                 agent_id: "child-agent".to_string(),
                 channel: "spawn".to_string(),
@@ -720,7 +720,7 @@ async fn test_cascade_terminate_no_children_noop() {
     );
 
     let parent_id = "parent-no-children";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -797,7 +797,7 @@ async fn test_validate_child_ownership_all_modes() {
     let (sm, _) = make_session_manager_with_memory_storage();
 
     let parent_id = "parent-ownership";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -860,7 +860,7 @@ async fn test_kill_child_cascades_to_grandchild() {
     let (mgr, _) = make_session_manager_with_memory_storage();
 
     let parent_id = "parent-kill-cascade";
-    let parent_cs = crate::llm::session::ConversationSession::new(
+    let parent_cs = closeclaw_llm::session::ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -872,7 +872,7 @@ async fn test_kill_child_cascades_to_grandchild() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -883,7 +883,7 @@ async fn test_kill_child_cascades_to_grandchild() {
 
     // Create child with a grandchild registered under it
     let child_id = "child-kill-cascade";
-    let child_cs = crate::llm::session::ConversationSession::new(
+    let child_cs = closeclaw_llm::session::ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -895,7 +895,7 @@ async fn test_kill_child_cascades_to_grandchild() {
         .insert(child_id.to_string(), child_arc.clone());
     mgr.sessions.write().await.insert(
         child_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_id.to_string(),
             agent_id: "child-agent".to_string(),
             channel: "spawn".to_string(),
@@ -917,7 +917,7 @@ async fn test_kill_child_cascades_to_grandchild() {
 
     // Register grandchild under child
     let grandchild_id = "grandchild-kill-cascade";
-    let gc_cs = crate::llm::session::ConversationSession::new(
+    let gc_cs = closeclaw_llm::session::ConversationSession::new(
         grandchild_id.to_string(),
         "test-model".to_string(),
         tmp.path().to_path_buf(),
@@ -929,7 +929,7 @@ async fn test_kill_child_cascades_to_grandchild() {
         .insert(grandchild_id.to_string(), gc_arc.clone());
     mgr.sessions.write().await.insert(
         grandchild_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: grandchild_id.to_string(),
             agent_id: "grandchild-agent".to_string(),
             channel: "spawn".to_string(),

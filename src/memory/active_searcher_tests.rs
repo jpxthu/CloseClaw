@@ -8,11 +8,11 @@ use std::path::Path;
 
 use rusqlite::{params, Connection};
 
-use crate::llm::session::{InjectionPosition, MemoryInjection};
 use crate::memory::active_searcher::{
     ActiveSearcher, ActiveSearcherConfig, ActiveSearcherError, EventRecord,
 };
 use crate::memory::active_searcher_llm::{parse_concepts, should_trigger_role, LlmCaller};
+use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -494,7 +494,7 @@ fn test_summarize_empty_events_returns_empty() {
 
 #[test]
 fn test_memory_injection_set_and_take() {
-    let session = crate::llm::session::ConversationSession::new(
+    let session = closeclaw_llm::session::ConversationSession::new(
         "test-session".into(),
         "model".into(),
         tempfile::tempdir().unwrap().keep(),
@@ -540,7 +540,7 @@ fn test_memory_injection_event_id_dedup() {
 
 #[test]
 fn test_memory_injection_add_event_id_noop_when_empty_slot() {
-    let session = crate::llm::session::ConversationSession::new(
+    let session = closeclaw_llm::session::ConversationSession::new(
         "test".into(),
         "model".into(),
         tempfile::tempdir().unwrap().keep(),

@@ -40,7 +40,7 @@ pub use processor::{MessageProcessor, ProcessPhase};
 
 use std::sync::Arc;
 
-use crate::gateway::GatewayConfig;
+use closeclaw_gateway::GatewayConfig;
 
 use self::content_normalizer::ContentNormalizer;
 use self::outbound_raw_log::OutboundRawLogProcessor;
