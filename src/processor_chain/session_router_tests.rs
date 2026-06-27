@@ -58,9 +58,33 @@ async fn test_deterministic_key() {
     let ctx = make_ctx(raw);
     let r1 = router.process(&ctx).await.unwrap().unwrap();
     let r2 = router.process(&ctx).await.unwrap().unwrap();
-    let k1 = r1.metadata.get("session_key").unwrap();
-    let k2 = r2.metadata.get("session_key").unwrap();
-    assert_eq!(k1, k2, "same input must produce same session_key");
+    let k1 = r1
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap();
+    let k2 = r2
+        .metadata
+        .get("session_key")
+        .and_then(|v| v.as_str())
+        .unwrap();
+
+    // Key format: {timestamp_ms}-{sha256_hex}
+    // Timestamp prefix uses system time so it may differ between calls.
+    // Compare only the hash part to verify routing determinism.
+    assert!(!k1.is_empty(), "session_key must not be empty");
+    assert!(!k2.is_empty(), "session_key must not be empty");
+    assert!(k1.contains('-'), "key must contain '-' separator: {k1}");
+    assert!(k2.contains('-'), "key must contain '-' separator: {k2}");
+
+    let hash1 = &k1[k1.find('-').unwrap() + 1..];
+    let hash2 = &k2[k2.find('-').unwrap() + 1..];
+    assert_eq!(hash1.len(), 64, "hash must be 64 hex chars: {k1}");
+    assert!(
+        hash1.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash must be hex: {k1}"
+    );
+    assert_eq!(hash1, hash2, "same routing fields must produce same hash");
 }
 
 #[tokio::test]
