@@ -145,5 +145,12 @@
     "commit_time": "2026-06-26T17:48:33+08:00",
     "confirmed_time": "2026-06-26T17:55:59.491929+08:00",
     "comment": ""
+  },
+  {
+    "path": "docs/design/llm/protocol-mapping.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-06-27T14:47:02.621121+08:00",
+    "comment": "blocked: doc inaccuracies found in F2b"
   }
 ]
