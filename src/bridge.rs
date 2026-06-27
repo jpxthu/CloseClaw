@@ -250,9 +250,7 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
                         Some(skills) if skills.len() == 1 && skills[0] == "*" => {
                             all.into_iter().map(String::from).collect()
                         }
-                        Some(skills) if skills.is_empty() => {
-                            all.into_iter().map(String::from).collect()
-                        }
+                        Some([]) => all.into_iter().map(String::from).collect(),
                         Some(skills) => {
                             let set: std::collections::HashSet<&str> =
                                 skills.iter().map(|s| s.as_str()).collect();

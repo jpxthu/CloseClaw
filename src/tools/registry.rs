@@ -309,7 +309,7 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistry {
     ) -> Vec<closeclaw_common::tool_registry::ToolDescriptor> {
         let guard = self.tools.read().await;
         let allowed: Option<&[String]> =
-            agent_tools.filter(|t| !(t.len() == 1 && t[0] == "*") && !t.is_empty());
+            agent_tools.filter(|t| !(t.is_empty() || t.len() == 1 && t[0] == "*"));
         let disallowed: &[String] = agent_disallowed_tools.unwrap_or(&[]);
 
         guard

@@ -625,7 +625,7 @@ impl Daemon {
         mode: crate::daemon::shutdown::ShutdownMode,
     ) -> crate::gateway::session_manager::stop::StopResult {
         // Send initial progress card (no-op if no active sessions)
-        self.gateway.send_shutdown_progress_card(mode.into()).await;
+        self.gateway.send_shutdown_progress_card(mode).await;
 
         // Create progress channel for real-time session stop updates
         let (progress_tx, mut progress_rx) =
@@ -634,9 +634,7 @@ impl Daemon {
         // Spawn session stop as a background task
         let sm = self.gateway.session_manager().clone();
         let mut stop_handle =
-            tokio::spawn(
-                async move { sm.stop_all_sessions(mode.into(), Some(&progress_tx)).await },
-            );
+            tokio::spawn(async move { sm.stop_all_sessions(mode, Some(&progress_tx)).await });
 
         // Spawn fresh signal handlers for escalation monitoring during Phase 2.
         // Phase 1's handlers are consumed by its tokio::select! loop.
@@ -692,7 +690,7 @@ impl Daemon {
                         || now.duration_since(last_card_update) >= throttle_interval
                     {
                         let current_mode: closeclaw_common::shutdown::ShutdownMode =
-                            self.shutdown.mode().into();
+                            self.shutdown.mode();
                         self.gateway
                             .send_shutdown_progress_card(current_mode)
                             .await;
@@ -736,8 +734,7 @@ impl Daemon {
             }
 
             // Check if mode changed and update card
-            let current_mode: closeclaw_common::shutdown::ShutdownMode =
-                self.shutdown.mode().into();
+            let current_mode: closeclaw_common::shutdown::ShutdownMode = self.shutdown.mode();
             if current_mode != last_mode {
                 tracing::info!(
                     ?last_mode,
@@ -784,7 +781,7 @@ impl Daemon {
 
     /// Phase 4: Final persistence — ensure all session checkpoints are flushed.
     async fn phase_4_final_persist(&self, mode: crate::daemon::shutdown::ShutdownMode) {
-        match self.gateway.flush_all_sessions(mode.into()).await {
+        match self.gateway.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }

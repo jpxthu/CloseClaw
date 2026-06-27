@@ -143,10 +143,11 @@ where
             Poll::Ready(Some(Ok(event))) => {
                 if let Some(ref sink) = this.sink {
                     match &event {
-                        StreamEvent::BlockDelta { delta, .. } => {
-                            if let ContentDelta::Text { text } = delta {
-                                sink.send_text(text);
-                            }
+                        StreamEvent::BlockDelta {
+                            delta: ContentDelta::Text { text },
+                            ..
+                        } => {
+                            sink.send_text(text);
                         }
                         StreamEvent::MessageEnd { usage, .. } => {
                             sink.send_done(StreamDone {
