@@ -81,27 +81,40 @@ cargo build && cargo test
 
 ## 项目结构
 
+CloseClaw 采用 Cargo workspace，各模块为独立 crate：
+
 ```
-src/
-├── main.rs              # 入口点
-├── lib.rs               # pub mod 导出
-├── common/              # 跨模块共享的类型、工具
-│   ├── mod.rs
-│   ├── types.rs
-│   └── utils.rs
-├── <module>/
-│   ├── mod.rs           # pub use + pub mod
-│   ├── <module>.rs      # 核心逻辑
-│   └── <module>_tests.rs # 单元测试
+Cargo.toml               # workspace 根（members 声明）
+crates/
+├── common/              # closeclaw-common（共享类型、trait、常量）
+├── config/              # closeclaw-config
+├── session/             # closeclaw-session
+├── llm/                 # closeclaw-llm
+├── permission/          # closeclaw-permission
+├── gateway/             # closeclaw-gateway
+├── tools/               # closeclaw-tools
+├── skills/              # closeclaw-skills
+└── im_adapter/          # closeclaw-im-adapter
+src/                     # 主 crate（closeclaw，bin 入口 + 胶水代码）
+├── main.rs
+├── lib.rs
+├── ...
 tests/
 ├── integration/         # 集成测试
 ├── e2e/                 # E2E 测试
 └── fixtures/            # 共享测试数据
 ```
 
+**依赖规则**（分层，禁止逆向依赖）：
+- Layer 0（叶子）：`closeclaw-common`
+- Layer 1：`closeclaw-config`, `closeclaw-session`
+- Layer 2：`closeclaw-llm`, `closeclaw-permission`
+- Layer 3：`closeclaw-gateway`, `closeclaw-tools`, `closeclaw-skills`, `closeclaw-im-adapter`
+- Layer 4：主 crate（依赖所有层）
+
 **规则**：
-- 跨模块共享的类型和工具放 `src/common/`
-- 模块嵌套不超过 4 级目录
+- 跨模块共享的类型和 trait 放 `closeclaw-common`
+- 各 crate 内部模块嵌套不超过 4 级目录
 - 每个文件独立可读
 
 ---
@@ -143,7 +156,7 @@ tests/
 
 | 类型 | 位置 |
 |------|------|
-| 单元测试 | `src/<module>/<module>_tests.rs` |
+| 单元测试 | `crates/<crate>/src/<module>_tests.rs` |
 | 集成测试 | `tests/integration/` |
 | E2E | `tests/e2e/` |
 
