@@ -434,7 +434,9 @@ impl ConfigManager {
         if let Some(models_value) = sections.get(&ConfigSection::Models) {
             match serde_json::from_value::<ModelsConfigData>(models_value.clone()) {
                 Ok(models_config) => {
-                    if let Err(e) = creds_provider.validate_model_references(&models_config) {
+                    if let Err(e) =
+                        creds_provider.validate_model_references(&models_config, &self.config_dir)
+                    {
                         warn!(
                             error = %e,
                             "credentials-models cross-validation warning"

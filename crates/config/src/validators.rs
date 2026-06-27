@@ -81,6 +81,22 @@ fn validate_provider(provider_id: &str, provider: &serde_json::Value) -> Result<
             }
         }
     }
+    // Validate credentialPath format if present
+    if let Some(cred_path) = provider.get("credentialPath") {
+        if let Some(path_str) = cred_path.as_str() {
+            if path_str.is_empty() {
+                return Err(format!(
+                    "models.providers.{}.credentialPath cannot be empty",
+                    provider_id
+                ));
+            }
+        } else if !cred_path.is_null() {
+            return Err(format!(
+                "models.providers.{}.credentialPath must be a string",
+                provider_id
+            ));
+        }
+    }
     // Validate each model entry
     if let Some(models) = provider.get("models") {
         if let Some(arr) = models.as_array() {
