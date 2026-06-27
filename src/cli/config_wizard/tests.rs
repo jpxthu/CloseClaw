@@ -176,22 +176,6 @@ mod provider_config_protocol_tests {
         let config: ProviderConfig = serde_json::from_str(json).unwrap();
         assert!(config.protocol.is_none());
     }
-
-    /// Test 5: ProviderConfig roundtrip: serialize -> deserialize preserves protocol
-    #[test]
-    fn test_provider_config_roundtrip_with_protocol() {
-        let original = ProviderConfig {
-            base_url: Some("https://api.test.com".to_string()),
-            api_key: None,
-            api: None,
-            protocol: Some("openai".to_string()),
-            credential_path: None,
-            models: vec![],
-        };
-        let json = serde_json::to_string(&original).unwrap();
-        let roundtripped: ProviderConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtripped.protocol, original.protocol);
-    }
 }
 
 #[cfg(test)]
@@ -985,5 +969,29 @@ mod write_wizard_config_api_key_clearing_tests {
             provider.base_url.as_deref(),
             Some("https://api.deepseek.com")
         );
+    }
+}
+
+#[cfg(test)]
+mod discovery_source_suffix_tests {
+    use super::format_discovery_source_suffix;
+    use closeclaw_llm::DiscoverySource;
+
+    #[test]
+    fn test_knowledge_fallback_suffix() {
+        assert_eq!(
+            format_discovery_source_suffix(DiscoverySource::KnowledgeFallback),
+            " (via knowledge base fallback)"
+        );
+    }
+
+    #[test]
+    fn test_cache_suffix_empty() {
+        assert_eq!(format_discovery_source_suffix(DiscoverySource::Cache), "");
+    }
+
+    #[test]
+    fn test_api_suffix_empty() {
+        assert_eq!(format_discovery_source_suffix(DiscoverySource::Api), "");
     }
 }

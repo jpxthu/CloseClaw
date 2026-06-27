@@ -24,6 +24,17 @@ use std::sync::Arc;
 
 use closeclaw_llm::model_info::ModelInfo;
 
+/// Format a human-readable source suffix for the discovered model list.
+///
+/// Returns a string like `" (via knowledge base fallback)"` for
+/// `KnowledgeFallback`, or an empty string for other sources.
+pub(crate) fn format_discovery_source_suffix(source: DiscoverySource) -> &'static str {
+    match source {
+        DiscoverySource::KnowledgeFallback => " (via knowledge base fallback)",
+        _ => "",
+    }
+}
+
 /// Parse user input for model selection into a vector of 0-based indices.
 ///
 /// Supported formats:
@@ -437,10 +448,7 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
 
         // Display fetched model details
         if !ctx.fetched_models.is_empty() {
-            let source_suffix = match source {
-                DiscoverySource::KnowledgeFallback => " (via knowledge base fallback)",
-                _ => "",
-            };
+            let source_suffix = format_discovery_source_suffix(source);
             println!(
                 "\nFound {} model(s){}:\n",
                 ctx.fetched_models.len(),
