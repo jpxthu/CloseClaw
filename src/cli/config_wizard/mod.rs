@@ -494,10 +494,24 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
         }
         println!();
 
-        let input: String =
-            tokio::task::spawn_blocking(|| Input::new().with_prompt("Your selection").interact())
-                .await
-                .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
+        // Compute default selection for already-configured models
+        let configured_indices: Vec<String> = models
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| ctx.existing_config.contains_key(&m.id))
+            .map(|(i, _)| (i + 1).to_string())
+            .collect();
+        let default_selection = configured_indices.join(",");
+
+        let input: String = tokio::task::spawn_blocking(move || {
+            let mut prompt = Input::new().with_prompt("Your selection");
+            if !default_selection.is_empty() {
+                prompt = prompt.with_initial_text(default_selection);
+            }
+            prompt.interact()
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("dialoguer interrupted: {}", e))??;
 
         match parse_model_selection(&input, models.len()) {
             Ok(indices) => {
