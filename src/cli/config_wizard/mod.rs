@@ -210,13 +210,20 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
 
     // ── Merge: preserve all existing providers, replace selected provider ───────
     let mut providers = existing.providers;
+    // Save existing config before removal so we can inherit fields
+    let existing_provider = providers.get(&output.provider_id).cloned();
     // Remove entries for the selected provider so we can replace them
     providers.remove(&output.provider_id);
 
+    // Inherit base_url, api_key, api from existing config if present
+    let (base_url, api_key, api) = existing_provider
+        .map(|ep| (ep.base_url, ep.api_key, ep.api))
+        .unwrap_or((None, None, None));
+
     let new_provider_config = ProviderConfig {
-        base_url: None,
-        api_key: None,
-        api: None,
+        base_url,
+        api_key,
+        api,
         protocol: recommended_protocol,
         credential_path: Some(format!("credentials/{}.json", output.provider_id)),
         models: new_provider_models,
