@@ -10,13 +10,14 @@
 
 ```
 System Prompt 构建
-  → 加载静态区内容
-  → 组装动态区内容
-  → 缓存适配器（请求前置处理，在 Plugin Pipeline 之前）
+  ↓ 加载静态区内容
+  ↓ 组装动态区内容
+  ↓ system_prompt 模块切分静态区与动态区（通过 __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__ 边界标记）
+  ↓ 缓存适配器（请求前置处理，在 Plugin Pipeline 之前）
     ├─ Anthropic：静态区标记 cache_control（显式前缀缓存）
     └─ DeepSeek / OpenAI / 其他：无显式缓存参数（依赖前缀稳定性触发服务端自动前缀缓存）
-  → Plugin Pipeline（before_request → 后续 LLM Client 标准链路）
-  → 发送到 LLM API
+  ↓ Plugin Pipeline（before_request → 后续 LLM Client 标准链路）
+  ↓ 发送到 LLM API
 ```
 
 ### Anthropic 适配
@@ -31,17 +32,17 @@ DeepSeek 和 OpenAI 使用服务端自动前缀缓存，无需客户端显式标
 
 ### 边界标记
 
-缓存适配器依赖 system prompt 模块的 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记来切分可缓存前缀和不可缓存后缀。标记是缓存适配器的程序输入，而非仅供人类阅读的装饰文本。标记之前的内容作为静态区，标记之后的内容作为动态区；缓存适配器只对静态区标记缓存控制参数（Anthropic），对 DeepSeek / OpenAI 不做额外处理（service 端自动前缀缓存不依赖客户端标记），动态区内容统一透传不做修改。
+system prompt 模块通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记将 system prompt 切分为静态区和动态区，切分结果以预置字段传递给缓存适配器。缓存适配器不直接解析边界标记——它只消费上游已切分好的静态区和动态区内容，对静态区标记缓存控制参数（Anthropic），对动态区统一透传不做修改。DeepSeek / OpenAI 等服务端自动前缀缓存的供应商，静态区和动态区均透传不标记，命中率由 system prompt 模块保证的前缀稳定性覆盖。
+
+边界标记的定义、插入位置和切分规则详见 [system_prompt/kv-cache](../system_prompt/kv-cache.md)。
 
 ### 消息历史缓存
 
-缓存适配器仅处理静态区内容（system blocks）的缓存标记。messages 数组的 cache_control 标记由 Protocol 层在请求序列化时完成——Anthropic 协议在 messages 数组尾部标记 cache_control，使下一轮请求的完整前缀（上轮的 system prompt + 全部 messages）命中缓存。每轮请求只在消息序列的最尾部打一个 cache_control，指向前缀匹配点。
-
-DeepSeek 和 OpenAI 对消息历史部分按前缀匹配生效——消息数组只追加、前缀不变，历史消息的前缀部分与 system prompt 共同被服务端自动前缀缓存覆盖。每轮请求只需计费新增的消息尾部。
+消息历史的缓存标记（messages 数组尾部的 cache_control）由 Protocol 层在请求序列化时完成，不属于缓存适配器的职责。详见 [protocol-mapping](protocol-mapping.md) 的消息历史缓存策略。
 
 ### 工具 Schema 缓存
 
-当工具定义通过 API 的 `tools` 参数传递时，所有工具 Schema 统一标记 cache_control，使工具定义在整个 session 内被前缀缓存覆盖。额外加载的工具定义追加在 base Schema 之后，切换时仅损失追加部分的缓存，不影响 base Schema 的命中。
+当工具定义通过 API 的 `tools` 参数传递时（Anthropic），所有工具 Schema 统一标记 cache_control，使工具定义在整个 session 内被前缀缓存覆盖。额外加载的工具定义追加在 base Schema 之后，切换时仅损失追加部分的缓存，不影响 base Schema 的命中。
 
 当工具定义以文本形式嵌入 system prompt 时，它作为静态层的一部分自然被前缀缓存覆盖，无需在 tools 参数上单独标记。
 
@@ -49,13 +50,14 @@ DeepSeek 和 OpenAI 对消息历史部分按前缀匹配生效——消息数组
 
 ```
 system_prompt 模块构建 system prompt
-  → 拆分静态区（bootstrap 文件 + ToolsSection + SkillListingSection + MemorySection）与动态区（ChannelContext + WorkingDirectory + GitStatus）
-  → 缓存适配器接收（供应商 ID、静态区内容、动态区内容、会话 ID）
-    → Anthropic：静态区标记缓存控制 → 标准协议请求
-    → DeepSeek / OpenAI：无额外处理（前缀稳定性由 system prompt 模块保证）→ 标准协议请求
-  → 进入 LLM Client 标准调用链路
-  → 发送请求
-  → 从用量字段监控缓存命中（cached_tokens 计数）
+  ↓ 拆分静态区（bootstrap 文件 + ToolsSection + SkillListingSection + MemorySection）与动态区（ChannelContext + WorkingDirectory + GitStatus + 追加区）
+  ↓ 缓存适配器接收（供应商 ID、静态区内容、动态区内容、会话 ID）
+    ├─ Anthropic：静态区标记缓存控制 → 标准协议请求
+    └─ DeepSeek / OpenAI：无额外处理（前缀稳定性由 system prompt 模块保证）→ 标准协议请求
+  ↓ Plugin Pipeline（before_request）
+  ↓ LLM Client 标准调用链路
+  ↓ 发送请求
+  ↓ 从用量字段监控缓存命中（cached_tokens 计数）
 ```
 
 ## 模块关系
