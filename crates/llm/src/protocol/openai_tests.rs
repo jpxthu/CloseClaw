@@ -240,9 +240,10 @@ fn test_parse_response_with_reasoning_content() {
     let resp = proto.parse_response(body).unwrap();
     // Empty content + reasoning_content → single Text block (reasoning_content as Text)
     assert_eq!(resp.content_blocks.len(), 1);
-    assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Let me think about this...")
-    );
+    let RawContentBlock::Text(text) = &resp.content_blocks[0] else {
+        panic!("expected Text block");
+    };
+    assert_eq!(text, "Let me think about this...");
 }
 
 #[test]
@@ -266,9 +267,10 @@ fn test_parse_response_with_both_content_and_reasoning() {
     let resp = proto.parse_response(body).unwrap();
     // Both content and reasoning → Thinking + Text (thinking first)
     assert_eq!(resp.content_blocks.len(), 2);
-    assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Thinking { thinking: s, .. } if s == "Let me think about this...")
-    );
+    let RawContentBlock::Thinking { thinking, .. } = &resp.content_blocks[0] else {
+        panic!("expected Thinking block");
+    };
+    assert_eq!(thinking, "Let me think about this...");
     assert!(
         matches!(&resp.content_blocks[1], RawContentBlock::Text(s) if s == "The answer is 42.")
     );
