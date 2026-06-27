@@ -3,11 +3,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::gateway::SessionManager;
 use crate::slash::context::SlashContext;
 use crate::slash::handler::{SlashHandler, SlashResult, SystemAppendAction};
 use crate::slash::registry::HandlerRegistry;
 use crate::system_prompt::build_git_status_for;
+use closeclaw_gateway::SessionManager;
 use closeclaw_session::persistence::ReasoningLevel;
 
 // ── CompactHandler ──────────────────────────────────────────────────────────

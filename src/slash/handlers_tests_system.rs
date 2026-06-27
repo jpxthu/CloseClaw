@@ -2,19 +2,19 @@
 
 use std::sync::Arc;
 
-use crate::gateway::session_manager::SessionManager;
 use crate::slash::context::SlashContext;
 use crate::slash::handler::{SlashHandler, SlashResult};
 use crate::slash::handlers::SystemHandler;
+use closeclaw_gateway::session_manager::SessionManager;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn make_sm() -> Arc<SessionManager> {
-    use crate::gateway::DmScope;
+    use closeclaw_gateway::DmScope;
     use closeclaw_session::bootstrap::loader::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
 
-    let gc = crate::gateway::GatewayConfig {
+    let gc = closeclaw_gateway::GatewayConfig {
         name: String::new(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
@@ -31,7 +31,7 @@ fn make_sm() -> Arc<SessionManager> {
 }
 
 async fn create_test_session(sm: &SessionManager) -> String {
-    use crate::gateway::Message;
+    use closeclaw_gateway::Message;
 
     let msg = Message {
         id: "sys-test-msg-1".to_string(),

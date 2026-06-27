@@ -1,9 +1,9 @@
 //! Tests for daemon config hot-reload module.
 
 use super::*;
-use crate::config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
-use crate::config::manager::{ConfigManager, ConfigSection};
-use crate::gateway::{GatewayConfig, SessionManager};
+use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
+use closeclaw_config::manager::{ConfigManager, ConfigSection};
+use closeclaw_gateway::{GatewayConfig, SessionManager};
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;

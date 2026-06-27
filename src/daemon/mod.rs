@@ -10,10 +10,10 @@ pub mod skill_reload;
 pub mod startup;
 use crate::admin::client::admin_socket_path;
 use crate::admin::server::{AdminContext, AdminServer};
-use crate::config::migration::migrate_if_needed;
-use crate::config::providers::ConfigProvider;
-use crate::config::ConfigManager;
 use crate::daemon::startup::{all_component_entries, topo_sort_layers, StartupError};
+use closeclaw_config::migration::migrate_if_needed;
+use closeclaw_config::providers::ConfigProvider;
+use closeclaw_config::ConfigManager;
 
 /// Resolved startup plan: topo-sort layers plus validated phase components.
 /// Each outer element is a layer/phase; each inner element is a [`ComponentId`].
@@ -22,7 +22,6 @@ type StartupPlan = (
     Vec<Vec<crate::daemon::startup::ComponentId>>,
 );
 use crate::cli::terminal::TerminalPlugin;
-use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use crate::processor_chain;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
@@ -31,13 +30,11 @@ use crate::slash::{
     ClearHandler, CompactHandler, ExecHandler, HelpHandler, NewSessionHandler, StatusHandler,
     StopHandler, VerboseHandler,
 };
+use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 
 use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;
 use crate::session::sweeper::ArchiveSweeper;
-use crate::skills::builtin::builtin_skills_with_engine_and_approval_flow;
-use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
-use crate::tools::ToolRegistry;
 use closeclaw_common::SessionLookup;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
@@ -45,6 +42,9 @@ use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::storage::SqliteStorage;
+use closeclaw_skills::builtin::builtin_skills_with_engine_and_approval_flow;
+use closeclaw_skills::{DiskSkillRegistry, SkillWatcherHandle};
+use closeclaw_tools::ToolRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -286,7 +286,7 @@ impl Daemon {
         }
         let gateway = Arc::new(gateway);
         gateway.set_self_ref(Arc::clone(&gateway));
-        crate::im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
+        closeclaw_im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
         Self::init_terminal_plugin(&gateway).await;
         Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
         // Start the inbound queue consumer so webhook messages are buffered.
@@ -309,7 +309,7 @@ impl Daemon {
         gateway: &Arc<Gateway>,
         session_manager: &Arc<SessionManager>,
         permission_engine: &Arc<PermissionEngine>,
-        config_manager: &Arc<crate::config::ConfigManager>,
+        config_manager: &Arc<closeclaw_config::ConfigManager>,
     ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
@@ -386,7 +386,7 @@ impl Daemon {
             config_manager.session_config_provider().unwrap_or_else(|| {
                 tracing::warn!("session config provider not available, using defaults");
                 Arc::new(
-                    crate::config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
+                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
                 )
             });
         let dreaming_config_provider = Arc::clone(&session_config_provider);
@@ -623,13 +623,14 @@ impl Daemon {
     async fn phase_2_session_stop(
         &self,
         mode: crate::daemon::shutdown::ShutdownMode,
-    ) -> crate::gateway::session_manager::stop::StopResult {
+    ) -> closeclaw_gateway::session_manager::stop::StopResult {
         // Send initial progress card (no-op if no active sessions)
         self.gateway.send_shutdown_progress_card(mode).await;
 
         // Create progress channel for real-time session stop updates
-        let (progress_tx, mut progress_rx) =
-            tokio::sync::mpsc::channel::<crate::gateway::session_manager::stop::StopProgress>(64);
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<
+            closeclaw_gateway::session_manager::stop::StopProgress,
+        >(64);
 
         // Spawn session stop as a background task
         let sm = self.gateway.session_manager().clone();
@@ -676,7 +677,7 @@ impl Daemon {
                         Err(e) => {
                             tracing::error!(error = %e, "session stop task panicked");
                             stop_result = Some(
-                                crate::gateway::session_manager::stop::StopResult::default()
+                                closeclaw_gateway::session_manager::stop::StopResult::default()
                             );
                         }
                     }
@@ -922,7 +923,7 @@ impl Daemon {
 impl Daemon {
     /// Initialize the terminal (CLI) IM plugin and register with Gateway.
     async fn init_terminal_plugin(gateway: &Arc<Gateway>) {
-        let plugin: Arc<dyn crate::im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
+        let plugin: Arc<dyn closeclaw_im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
         gateway
             .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
             .await;

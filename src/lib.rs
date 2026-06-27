@@ -9,17 +9,11 @@
 pub mod admin;
 pub mod agent;
 pub mod cli;
-pub use closeclaw_config as config;
 pub mod config_reload;
 pub mod daemon;
-pub use closeclaw_gateway as gateway;
-pub use closeclaw_im_adapter as im_adapter;
-pub use closeclaw_permission;
 pub mod platform;
 pub mod processor_chain;
 pub mod session;
-pub use closeclaw_skills as skills;
-pub use closeclaw_tools as tools;
 pub mod slash;
 pub mod system_prompt;
 pub mod tasks;

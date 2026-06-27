@@ -4,7 +4,7 @@
 //! configuration (processor registry, slash dispatcher, session handler) and
 //! that the TerminalAdapter quit/exit detection logic works correctly.
 
-use crate::gateway::{GatewayConfig, InboundChainInput, SessionManager};
+use closeclaw_gateway::{GatewayConfig, InboundChainInput, SessionManager};
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
@@ -244,15 +244,15 @@ impl crate::processor_chain::MessageProcessor for SuppressProcessor {
 }
 
 /// Build a Gateway with the given ProcessorRegistry (shared across chat tests).
-fn make_gw_with_registry(registry: ProcessorRegistry) -> crate::gateway::Gateway {
+fn make_gw_with_registry(registry: ProcessorRegistry) -> closeclaw_gateway::Gateway {
     let config = GatewayConfig {
         name: "test".to_string(),
         ..Default::default()
     };
-    crate::gateway::Gateway::with_processor_registry(
+    closeclaw_gateway::Gateway::with_processor_registry(
         config,
-        Arc::new(crate::gateway::SessionManager::new(
-            &crate::gateway::GatewayConfig {
+        Arc::new(closeclaw_gateway::SessionManager::new(
+            &closeclaw_gateway::GatewayConfig {
                 name: "test".to_string(),
                 ..Default::default()
             },

@@ -2,10 +2,10 @@
 mod tests {
     use crate::cli::renderer::BOLD;
     use crate::cli::terminal::*;
-    use crate::im_adapter::plugin::IMPlugin;
-    use crate::im_adapter::NormalizedMessage;
-    use crate::im_adapter::RenderedOutput;
     use crate::processor_chain::dsl_parser::{DslInstruction, DslParseResult};
+    use closeclaw_im_adapter::plugin::IMPlugin;
+    use closeclaw_im_adapter::NormalizedMessage;
+    use closeclaw_im_adapter::RenderedOutput;
     use closeclaw_llm::types::ContentBlock;
 
     // =========================================================================

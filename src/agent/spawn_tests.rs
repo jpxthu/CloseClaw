@@ -11,10 +11,10 @@ use std::sync::Arc;
 
 use crate::agent::config::SubagentsConfig;
 use crate::agent::spawn::{SpawnController, SpawnError};
-use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::config::ConfigManager;
-use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
-use crate::gateway::{DmScope, GatewayConfig, Message, SessionManager};
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
+use closeclaw_gateway::{DmScope, GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -660,7 +660,7 @@ async fn test_validate_depth_before_agent_id_required() {
 /// Helper to create a minimal ConversationSession + register it in a
 /// SessionManager for cascade-kill tests.
 async fn setup_kill_test_session(
-    mgr: &crate::gateway::SessionManager,
+    mgr: &closeclaw_gateway::SessionManager,
     tmp: &tempfile::TempDir,
     session_id: &str,
     agent_id: &str,
@@ -677,7 +677,7 @@ async fn setup_kill_test_session(
     );
     mgr.sessions.write().await.insert(
         session_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: session_id.to_string(),
             agent_id: agent_id.to_string(),
             channel: "spawn".to_string(),

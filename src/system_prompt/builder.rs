@@ -5,8 +5,8 @@
 use super::sections::{get_cached_section, load_cached_file_section, read_file_section, Section};
 use super::tools_section::build_tools_section;
 use crate::agent::registry::AgentRegistry;
-use crate::skills::DiskSkillRegistry;
 use closeclaw_session::bootstrap::loader::load_bootstrap_files;
+use closeclaw_skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -97,7 +97,7 @@ fn append_append_section(base: String, append: Option<String>) -> String {
     }
 }
 
-use crate::tools::{ToolContext, ToolRegistry};
+use closeclaw_tools::{ToolContext, ToolRegistry};
 
 // ---------------------------------------------------------------------------
 // Convenience: build from file-based workspace sections
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn test_workspace_build_config_with_agent_registry() {
         use crate::agent::registry::AgentRegistry;
-        use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn test_agent_registry_query_bootstrap_mode_minimal() {
         use crate::agent::registry::AgentRegistry;
-        use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn test_agent_registry_query_bootstrap_mode_full() {
         use crate::agent::registry::AgentRegistry;
-        use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());

@@ -7,8 +7,8 @@ pub use fetch::*;
 pub use types::*;
 
 use crate::agent::config::AgentConfig;
-use crate::config::agents::{AgentsConfig, AgentsConfigProvider};
-use crate::config::providers::{
+use closeclaw_config::agents::{AgentsConfig, AgentsConfigProvider};
+use closeclaw_config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},
 };
@@ -281,7 +281,7 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         mode: "merge".to_string(),
         providers,
     };
-    <ModelsConfigData as crate::config::providers::ConfigProvider>::validate(&merged)
+    <ModelsConfigData as closeclaw_config::providers::ConfigProvider>::validate(&merged)
         .map_err(|e| anyhow::anyhow!("merged config validation failed: {}", e))?;
     let json = serde_json::to_string_pretty(&merged)?;
     std::fs::write(&models_path, json)

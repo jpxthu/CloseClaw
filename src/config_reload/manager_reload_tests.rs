@@ -1,9 +1,9 @@
 //! Tests for ConfigManager hot-reload methods (reload_section / reload_agents).
 
 use crate::common::test_helpers::write_mandatory_configs;
-use crate::config::events::ConfigChangeEvent;
-use crate::config::manager::*;
-use crate::config::SectionValidator;
+use closeclaw_config::events::ConfigChangeEvent;
+use closeclaw_config::manager::*;
+use closeclaw_config::SectionValidator;
 use std::fs;
 
 /// Helper: set up a valid config directory with all mandatory JSON files.
@@ -899,7 +899,7 @@ fn test_reload_session_provider_fallback_on_missing_file() {
     let provider = manager.session_config_provider().unwrap();
     assert_eq!(
         provider.sweeper_interval_secs(),
-        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+        closeclaw_config::session::DEFAULT_SWEEPER_INTERVAL_SECS
     );
 }
 
@@ -920,7 +920,7 @@ fn test_reload_session_provider_fallback_on_invalid_json() {
     let provider = manager.session_config_provider().unwrap();
     assert_eq!(
         provider.sweeper_interval_secs(),
-        crate::config::session::DEFAULT_SWEEPER_INTERVAL_SECS
+        closeclaw_config::session::DEFAULT_SWEEPER_INTERVAL_SECS
     );
 }
 

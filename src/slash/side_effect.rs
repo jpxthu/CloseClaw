@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use crate::gateway::session_manager::SessionManager;
+use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_llm::session::ChatSession;
 
 /// Action produced by [`SlashResult::execute`](super::SlashResult::execute)

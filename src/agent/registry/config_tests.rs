@@ -1,6 +1,6 @@
 use crate::agent::config::SubagentsConfig;
 use crate::agent::registry::AgentRegistry;
-use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_session::bootstrap::BootstrapMode;
 
 // ---- Construction tests ----

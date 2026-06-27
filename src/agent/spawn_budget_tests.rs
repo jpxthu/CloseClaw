@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use crate::agent::config::SubagentsConfig;
 use crate::agent::spawn::{SpawnController, SpawnError};
-use crate::config::agents::{ConfigSource, ResolvedAgentConfig};
-use crate::config::ConfigManager;
-use crate::gateway::session_manager::{ChildSessionInfo, SpawnMode};
-use crate::gateway::{DmScope, GatewayConfig, SessionManager};
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
+use closeclaw_gateway::{DmScope, GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -54,7 +54,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
 }
 
 async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
-    let msg = crate::gateway::Message {
+    let msg = closeclaw_gateway::Message {
         id: format!("msg-{}", agent_id),
         from: "user".to_string(),
         to: agent_id.to_string(),
@@ -190,7 +190,7 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     let child1_session_id = "child1-budget-zero";
     sm.sessions.write().await.insert(
         child1_session_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child1_session_id.to_string(),
             agent_id: "child1".to_string(),
             channel: "test".to_string(),
@@ -263,7 +263,7 @@ async fn test_depth_budget_child_narrows_via_min() {
     let child_session_id = "narrow-child-session";
     sm.sessions.write().await.insert(
         child_session_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_session_id.to_string(),
             agent_id: "narrow-child".to_string(),
             channel: "test".to_string(),
@@ -335,7 +335,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let child1_sid = "tree-child1";
     sm.sessions.write().await.insert(
         child1_sid.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child1_sid.to_string(),
             agent_id: "child1".to_string(),
             channel: "test".to_string(),
@@ -372,7 +372,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let child2_sid = "tree-child2";
     sm.sessions.write().await.insert(
         child2_sid.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child2_sid.to_string(),
             agent_id: "child2".to_string(),
             channel: "test".to_string(),
@@ -410,7 +410,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let child3_sid = "tree-child3";
     sm.sessions.write().await.insert(
         child3_sid.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child3_sid.to_string(),
             agent_id: "child3".to_string(),
             channel: "test".to_string(),
@@ -480,7 +480,7 @@ async fn test_kill_run_mode_child_succeeds() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -502,7 +502,7 @@ async fn test_kill_run_mode_child_succeeds() {
         .insert(child_id.to_string(), child_arc);
     mgr.sessions.write().await.insert(
         child_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_id.to_string(),
             agent_id: "child-agent".to_string(),
             channel: "spawn".to_string(),
@@ -557,7 +557,7 @@ async fn test_kill_session_mode_child_succeeds() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -579,7 +579,7 @@ async fn test_kill_session_mode_child_succeeds() {
         .insert(child_id.to_string(), child_arc);
     mgr.sessions.write().await.insert(
         child_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_id.to_string(),
             agent_id: "child-agent".to_string(),
             channel: "spawn".to_string(),
@@ -639,7 +639,7 @@ async fn test_cascade_terminate_all_children_simulation() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -667,7 +667,7 @@ async fn test_cascade_terminate_all_children_simulation() {
             .insert(child_id.to_string(), arc);
         mgr.sessions.write().await.insert(
             child_id.to_string(),
-            crate::gateway::Session {
+            closeclaw_gateway::Session {
                 id: child_id.to_string(),
                 agent_id: "child-agent".to_string(),
                 channel: "spawn".to_string(),
@@ -872,7 +872,7 @@ async fn test_kill_child_cascades_to_grandchild() {
         .insert(parent_id.to_string(), parent_arc);
     mgr.sessions.write().await.insert(
         parent_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: parent_id.to_string(),
             agent_id: "parent-agent".to_string(),
             channel: "test".to_string(),
@@ -895,7 +895,7 @@ async fn test_kill_child_cascades_to_grandchild() {
         .insert(child_id.to_string(), child_arc.clone());
     mgr.sessions.write().await.insert(
         child_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: child_id.to_string(),
             agent_id: "child-agent".to_string(),
             channel: "spawn".to_string(),
@@ -929,7 +929,7 @@ async fn test_kill_child_cascades_to_grandchild() {
         .insert(grandchild_id.to_string(), gc_arc.clone());
     mgr.sessions.write().await.insert(
         grandchild_id.to_string(),
-        crate::gateway::Session {
+        closeclaw_gateway::Session {
             id: grandchild_id.to_string(),
             agent_id: "grandchild-agent".to_string(),
             channel: "spawn".to_string(),

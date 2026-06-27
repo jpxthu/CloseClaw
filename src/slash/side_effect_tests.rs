@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
-use crate::gateway::session_manager::SessionManager;
-use crate::gateway::{DmScope, GatewayConfig};
 use crate::slash::handler::{SlashResult, SystemAppendAction};
 use crate::slash::side_effect::{ReplyAction, SideEffectContext};
+use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_gateway::{DmScope, GatewayConfig};
 use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use tokio::sync::mpsc;

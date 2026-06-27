@@ -5,11 +5,11 @@
 //! - [`TerminalPlugin`]: unified IM plugin with ANSI-aware rendering,
 //!   delegating outbound rendering to [`TerminalRenderer`].
 
-use crate::im_adapter::normalized::NormalizedMessage;
-use crate::im_adapter::plugin::{IMPlugin, RenderedOutput};
-use crate::im_adapter::AdapterError;
 use async_trait::async_trait;
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_im_adapter::normalized::NormalizedMessage;
+use closeclaw_im_adapter::plugin::{IMPlugin, RenderedOutput};
+use closeclaw_im_adapter::AdapterError;
 use closeclaw_llm::types::ContentBlock;
 use std::io::{self, BufRead, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -195,7 +195,7 @@ impl IMPlugin for TerminalPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+    ) -> &std::sync::Mutex<closeclaw_im_adapter::streaming::DefaultStreamingRenderer> {
         self.renderer.streaming_renderer()
     }
 }

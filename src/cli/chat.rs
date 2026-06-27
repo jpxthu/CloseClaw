@@ -10,13 +10,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::terminal::TerminalPlugin;
-use crate::config::providers::{ConfigProvider, CredentialsProvider};
-use crate::gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use crate::im_adapter::plugin::IMPlugin;
 use crate::processor_chain;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::registry::HandlerRegistry;
 use crate::slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
+use closeclaw_config::providers::{ConfigProvider, CredentialsProvider};
+use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
+use closeclaw_im_adapter::plugin::IMPlugin;
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
 use closeclaw_llm::minimax::MiniMaxProvider;
@@ -90,7 +90,7 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
         .await;
 
-    let plugin: Arc<dyn crate::im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
+    let plugin: Arc<dyn closeclaw_im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
     gateway
         .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
         .await;
@@ -276,7 +276,7 @@ async fn build_unified_chain(
 /// Returns `None` if no LLM providers are configured.
 async fn build_session_handler(
     session_manager: Arc<SessionManager>,
-) -> Option<crate::gateway::session_handler::SessionMessageHandler> {
+) -> Option<closeclaw_gateway::session_handler::SessionMessageHandler> {
     let llm_registry = init_llm_registry().await;
     let fallback_chain = build_fallback_chain();
     let valid_chain = filter_valid_chain(&llm_registry, fallback_chain).await?;
@@ -290,12 +290,14 @@ async fn build_session_handler(
     let unified_fallback_client = Arc::new(UnifiedFallbackClient::new(unified_chain, cooldown));
 
     let (output_tx, _output_rx) = tokio::sync::mpsc::channel(64);
-    Some(crate::gateway::session_handler::SessionMessageHandler::new(
-        session_manager,
-        fallback_client,
-        output_tx,
-        unified_fallback_client,
-    ))
+    Some(
+        closeclaw_gateway::session_handler::SessionMessageHandler::new(
+            session_manager,
+            fallback_client,
+            output_tx,
+            unified_fallback_client,
+        ),
+    )
 }
 /// Run the read-eval-print loop.
 ///
@@ -326,7 +328,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> 
         );
 
         // Run the inbound processor chain (ContentNormalizer, RawLog, etc.).
-        let input = crate::gateway::InboundChainInput {
+        let input = closeclaw_gateway::InboundChainInput {
             platform: "terminal".to_string(),
             sender_id: sender_id.to_string(),
             peer_id: "cli".to_string(),

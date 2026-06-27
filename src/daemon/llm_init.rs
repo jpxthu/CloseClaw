@@ -1,7 +1,7 @@
 //! LLM provider registration helpers
 
 use super::*;
-use crate::config::providers::CredentialsProvider;
+use closeclaw_config::providers::CredentialsProvider;
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::minimax::MiniMaxProvider;
 use closeclaw_llm::openai::OpenAIProvider;

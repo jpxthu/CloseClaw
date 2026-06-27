@@ -4,10 +4,10 @@
 //! into ANSI-formatted text for stdout. It handles markdown, code blocks,
 //! thinking blocks, tool use/result, and DSL element rendering.
 
-use crate::im_adapter::code_block::{parse_content_segments, ContentSegment};
-use crate::im_adapter::plugin::RenderedOutput;
-use crate::im_adapter::streaming::DefaultStreamingRenderer;
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_im_adapter::code_block::{parse_content_segments, ContentSegment};
+use closeclaw_im_adapter::plugin::RenderedOutput;
+use closeclaw_im_adapter::streaming::DefaultStreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
 use std::sync::Mutex;
 
