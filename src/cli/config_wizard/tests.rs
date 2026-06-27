@@ -243,6 +243,15 @@ mod write_wizard_config_tests {
         }
     }
 
+    /// Helper: create a simple ModelDefinition
+    fn make_model_def(id: &str, name: &str, enabled: bool) -> ModelDefinition {
+        ModelDefinition {
+            id: id.to_string(),
+            name: Some(name.to_string()),
+            enabled: Some(enabled),
+        }
+    }
+
     /// Helper: read and parse models.json
     fn read_parsed_config(tmp: &TempDir) -> ModelsConfigData {
         let models_path = tmp.path().join("models.json");
@@ -367,54 +376,25 @@ mod write_wizard_config_tests {
     #[test]
     fn test_write_wizard_config_to_preserves_existing_models() {
         let tmp = TempDir::new().unwrap();
-
         // First write: 1 model
-        let output1 = WizardOutput {
-            provider_id: "minimax".to_string(),
-            credential: "test-api-key".to_string(),
-            selected_models: vec![ModelInfo {
-                id: "MiniMax-M2.7".to_string(),
-                name: "MiniMax M2.7".to_string(),
-                context_window: 1000,
-                max_tokens: 1000,
-                default_temperature: None,
-                reasoning: false,
-                input_types: vec![],
-            }],
-        };
+        let output1 = make_wizard_output(
+            "minimax",
+            "test-api-key",
+            vec![make_model("MiniMax-M2.7", "MiniMax M2.7", 1000, 1000)],
+        );
         write_wizard_config_to(&output1, tmp.path()).unwrap();
-
         // Second write: 2 different models (MiniMax-M2.7 NOT selected)
-        let output2 = WizardOutput {
-            provider_id: "minimax".to_string(),
-            credential: "test-api-key-2".to_string(),
-            selected_models: vec![
-                ModelInfo {
-                    id: "abab6.5-chat".to_string(),
-                    name: "ABAB6.5 Chat".to_string(),
-                    context_window: 2000,
-                    max_tokens: 2000,
-                    default_temperature: None,
-                    reasoning: false,
-                    input_types: vec![],
-                },
-                ModelInfo {
-                    id: "abab6.5-chat-pro".to_string(),
-                    name: "ABAB6.5 Chat Pro".to_string(),
-                    context_window: 4000,
-                    max_tokens: 4000,
-                    default_temperature: None,
-                    reasoning: false,
-                    input_types: vec![],
-                },
+        let output2 = make_wizard_output(
+            "minimax",
+            "test-api-key-2",
+            vec![
+                make_model("abab6.5-chat", "ABAB6.5 Chat", 2000, 2000),
+                make_model("abab6.5-chat-pro", "ABAB6.5 Chat Pro", 4000, 4000),
             ],
-        };
+        );
         write_wizard_config_to(&output2, tmp.path()).unwrap();
-
         // Verify: first model preserved alongside 2 new ones = 3 total
-        let models_path = tmp.path().join("models.json");
-        let content = std::fs::read_to_string(&models_path).unwrap();
-        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let parsed = read_parsed_config(&tmp);
         let provider = parsed.providers.get("minimax").unwrap();
         assert_eq!(
             provider.models.len(),
@@ -530,21 +510,9 @@ mod write_wizard_config_tests {
                 protocol: None,
                 credential_path: Some("credentials/minimax.json".to_string()),
                 models: vec![
-                    ModelDefinition {
-                        id: "model-a".to_string(),
-                        name: Some("Model A".to_string()),
-                        enabled: Some(true),
-                    },
-                    ModelDefinition {
-                        id: "model-b".to_string(),
-                        name: Some("Model B".to_string()),
-                        enabled: Some(true),
-                    },
-                    ModelDefinition {
-                        id: "model-c".to_string(),
-                        name: Some("Model C".to_string()),
-                        enabled: Some(false),
-                    },
+                    make_model_def("model-a", "Model A", true),
+                    make_model_def("model-b", "Model B", true),
+                    make_model_def("model-c", "Model C", false),
                 ],
             },
         );
