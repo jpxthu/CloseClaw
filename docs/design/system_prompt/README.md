@@ -22,7 +22,7 @@ Session 创建 / 恢复 / Compaction
   ╔════════════════════════╗
   ║  静态层（session 持久）  ║  ← 走 Section 级缓存
   ╠════════════════════════╣
-  ║  __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__      ║  ← cache adapter 的切分点
+  ║  __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__      ║  ← 切分点（system_prompt 模块切分）
   ╠════════════════════════╣
   ║  动态层（每请求即时构建）  ║  ← 默认内容不变，不参与显式前缀缓存标记
   ╠════════════════════════╣
@@ -39,7 +39,7 @@ Session 创建 / 恢复 / Compaction
 |------|------|
 | [static-layer.md](static-layer.md) | 静态层：bootstrap 文件、系统生成的 Section、Section 级缓存与失效规则 |
 | [dynamic-layer.md](dynamic-layer.md) | 动态层：每请求即时注入的 ChannelContext / WorkingDirectory / GitStatus（可配置关闭） |
-| [kv-cache.md](kv-cache.md) | 边界标记 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 的位置和语义，作为 cache adapter 的切分合约 |
+| [kv-cache.md](kv-cache.md) | 边界标记 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 的位置和语义，作为静态/动态区切分的接口合约 |
 | [appends.md](appends.md) | 追加区：`/system` 指令管理的独立分区，持久化不受压缩影响 |
 
 ## 数据流
@@ -59,7 +59,9 @@ API 请求到达
   →
   拼接：静态层 + __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__ + 动态层 + 追加区
   →
-  cache adapter 以边界标记为切分点注入缓存控制参数
+  以边界标记为切分点，分离静态区和动态区为独立字段，传入 InternalRequest
+  →
+  cache adapter 接收已分离的字段，注入缓存控制参数
   →
   发送 LLM 请求
 ```
@@ -89,7 +91,7 @@ Archived session 被访问
 - **Bootstrap Loader**：提供 bootstrap 文件内容，按 Minimal/Full 模式加载。
 - **ToolRegistry**：提供 ToolsSection 的分组索引。
 - **DiskSkillRegistry**：按 agent 过滤并提供 skill 列表数据。
-- **Cache Adapter**：以边界标记为切分点，对静态层注入缓存控制参数。详见 [llm/cache-adapter](docs/design/llm/cache-adapter.md)。
+- **Cache Adapter**：接收已切分的静态区和动态区字段，对静态层注入缓存控制参数。详见 [llm/cache-adapter](docs/design/llm/cache-adapter.md)。
 
 ### 无关
 

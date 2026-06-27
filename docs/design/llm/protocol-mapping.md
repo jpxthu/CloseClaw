@@ -63,6 +63,16 @@ Anthropic SSE 事件序列的典型顺序：`message_start` → `content_block_s
 
 多轮场景的 fixture 使用 `turns` 结构记录每轮的完整 messages 数组和对应响应，展示消息列表在各轮之间的增量变化。
 
+### 消息历史缓存
+
+各协议在请求 messages 数组上的缓存标记策略不同。消息历史的缓存标记使下一轮请求的完整前缀（上轮的 system prompt + 全部 messages）命中 cache，仅新增的消息尾部按全价计费。
+
+**Anthropic 协议**：支持显式缓存标记。在 messages 数组的尾部消息上打 `cache_control: {"type": "ephemeral"}`，指向前缀匹配点。每轮请求只在尾部打一个标记——消息数组只追加不修改，前缀稳定使缓存持续命中。
+
+**OpenAI / DeepSeek 协议**：使用服务端自动前缀缓存，无需客户端在 messages 上显式标记。消息数组只追加、前缀不变，历史消息的前缀部分自动被服务端缓存覆盖。
+
+> 消息历史缓存标记属于 Protocol 层的序列化行为，与缓存适配器（处理 system prompt 静态区缓存）职责分离。缓存适配器详见 [cache-adapter](cache-adapter.md)。
+
 ## 数据流
 
 ```
