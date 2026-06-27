@@ -312,9 +312,9 @@ mod write_wizard_config_tests {
         );
     }
 
-    /// Test: write_wizard_config_to overwrites existing config (not appends)
+    /// Test: re-running wizard preserves existing models not in selected_models
     #[test]
-    fn test_write_wizard_config_to_overwrites_existing() {
+    fn test_write_wizard_config_to_preserves_existing_models() {
         let tmp = TempDir::new().unwrap();
 
         // First write: 1 model
@@ -333,7 +333,7 @@ mod write_wizard_config_tests {
         };
         write_wizard_config_to(&output1, tmp.path()).unwrap();
 
-        // Second write: 2 different models
+        // Second write: 2 different models (MiniMax-M2.7 NOT selected)
         let output2 = WizardOutput {
             provider_id: "minimax".to_string(),
             credential: "test-api-key-2".to_string(),
@@ -360,17 +360,237 @@ mod write_wizard_config_tests {
         };
         write_wizard_config_to(&output2, tmp.path()).unwrap();
 
-        // Verify: minimax provider should have exactly 2 models (overwrite, not append)
+        // Verify: first model preserved alongside 2 new ones = 3 total
         let models_path = tmp.path().join("models.json");
         let content = std::fs::read_to_string(&models_path).unwrap();
         let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
         let provider = parsed.providers.get("minimax").unwrap();
         assert_eq!(
             provider.models.len(),
-            2,
-            "should have exactly 2 models after overwrite, got: {}",
+            3,
+            "should have 3 models (1 existing + 2 new), got: {}",
             provider.models.len()
         );
+        let ids: Vec<&str> = provider.models.iter().map(|m| m.id.as_str()).collect();
+        assert!(
+            ids.contains(&"MiniMax-M2.7"),
+            "first write's model MiniMax-M2.7 should be preserved, got: {:?}",
+            ids
+        );
+    }
+
+    /// Test: re-running wizard with same model replaces it entirely
+    #[test]
+    fn test_write_wizard_config_to_replaces_existing_model_by_id() {
+        let tmp = TempDir::new().unwrap();
+
+        // First write: MiniMax-M2.7 with old name
+        let output1 = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "Old Name".to_string(),
+                context_window: 1000,
+                max_tokens: 1000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+        write_wizard_config_to(&output1, tmp.path()).unwrap();
+
+        // Second write: same id, new name
+        let output2 = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "MiniMax-M2.7".to_string(),
+                name: "New Name".to_string(),
+                context_window: 2000,
+                max_tokens: 2000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+        write_wizard_config_to(&output2, tmp.path()).unwrap();
+
+        // Verify: still 1 model, name updated to New Name
+        let models_path = tmp.path().join("models.json");
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let provider = parsed.providers.get("minimax").unwrap();
+        assert_eq!(provider.models.len(), 1);
+        assert_eq!(provider.models[0].name.as_deref(), Some("New Name"));
+        assert_eq!(provider.models[0].enabled, Some(true));
+    }
+
+    /// Test: existing provider's base_url/api_key/api are preserved after rewrite
+    #[test]
+    fn test_write_wizard_config_to_preserves_provider_base_fields() {
+        let tmp = TempDir::new().unwrap();
+
+        // Manually write initial config with custom base_url, api_key, api
+        let initial = ModelsConfigData {
+            mode: "merge".to_string(),
+            providers: {
+                let mut map = std::collections::HashMap::new();
+                map.insert(
+                    "minimax".to_string(),
+                    ProviderConfig {
+                        base_url: Some("https://custom.api.com/v1".to_string()),
+                        api_key: Some("sk-existing-key".to_string()),
+                        api: Some("v2".to_string()),
+                        protocol: Some("openai".to_string()),
+                        credential_path: Some("credentials/minimax.json".to_string()),
+                        models: vec![ModelDefinition {
+                            id: "MiniMax-M2.7".to_string(),
+                            name: Some("MiniMax M2.7".to_string()),
+                            enabled: Some(true),
+                        }],
+                    },
+                );
+                map
+            },
+        };
+        let models_path = tmp.path().join("models.json");
+        std::fs::create_dir_all(tmp.path()).unwrap();
+        std::fs::write(
+            &models_path,
+            serde_json::to_string_pretty(&initial).unwrap(),
+        )
+        .unwrap();
+
+        // Re-run wizard for minimax
+        let output = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "new-api-key".to_string(),
+            selected_models: vec![ModelInfo {
+                id: "abab6.5-chat".to_string(),
+                name: "ABAB6.5 Chat".to_string(),
+                context_window: 2000,
+                max_tokens: 2000,
+                default_temperature: None,
+                reasoning: false,
+                input_types: vec![],
+            }],
+        };
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        // Verify base_url, api_key, api are preserved
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let provider = parsed.providers.get("minimax").unwrap();
+        assert_eq!(
+            provider.base_url.as_deref(),
+            Some("https://custom.api.com/v1"),
+            "base_url should be preserved"
+        );
+        assert_eq!(
+            provider.api_key.as_deref(),
+            Some("sk-existing-key"),
+            "api_key should be preserved"
+        );
+        assert_eq!(
+            provider.api.as_deref(),
+            Some("v2"),
+            "api should be preserved"
+        );
+    }
+
+    /// Test: existing unselected models are preserved after rewrite
+    #[test]
+    fn test_write_wizard_config_to_preserves_unselected_models() {
+        let tmp = TempDir::new().unwrap();
+
+        // Manually write initial config with 3 models
+        let initial = ModelsConfigData {
+            mode: "merge".to_string(),
+            providers: {
+                let mut map = std::collections::HashMap::new();
+                map.insert(
+                    "minimax".to_string(),
+                    ProviderConfig {
+                        base_url: None,
+                        api_key: None,
+                        api: None,
+                        protocol: None,
+                        credential_path: Some("credentials/minimax.json".to_string()),
+                        models: vec![
+                            ModelDefinition {
+                                id: "model-a".to_string(),
+                                name: Some("Model A".to_string()),
+                                enabled: Some(true),
+                            },
+                            ModelDefinition {
+                                id: "model-b".to_string(),
+                                name: Some("Model B".to_string()),
+                                enabled: Some(true),
+                            },
+                            ModelDefinition {
+                                id: "model-c".to_string(),
+                                name: Some("Model C".to_string()),
+                                enabled: Some(false),
+                            },
+                        ],
+                    },
+                );
+                map
+            },
+        };
+        let models_path = tmp.path().join("models.json");
+        std::fs::create_dir_all(tmp.path()).unwrap();
+        std::fs::write(
+            &models_path,
+            serde_json::to_string_pretty(&initial).unwrap(),
+        )
+        .unwrap();
+
+        // Re-run wizard selecting only model-a and a new model-d
+        let output = WizardOutput {
+            provider_id: "minimax".to_string(),
+            credential: "test-key".to_string(),
+            selected_models: vec![
+                ModelInfo {
+                    id: "model-a".to_string(),
+                    name: "Model A Updated".to_string(),
+                    context_window: 1000,
+                    max_tokens: 1000,
+                    default_temperature: None,
+                    reasoning: false,
+                    input_types: vec![],
+                },
+                ModelInfo {
+                    id: "model-d".to_string(),
+                    name: "Model D".to_string(),
+                    context_window: 3000,
+                    max_tokens: 3000,
+                    default_temperature: None,
+                    reasoning: false,
+                    input_types: vec![],
+                },
+            ],
+        };
+        write_wizard_config_to(&output, tmp.path()).unwrap();
+
+        // Verify: model-b and model-c preserved, model-a updated, model-d added
+        let content = std::fs::read_to_string(&models_path).unwrap();
+        let parsed: ModelsConfigData = serde_json::from_str(&content).unwrap();
+        let provider = parsed.providers.get("minimax").unwrap();
+        assert_eq!(
+            provider.models.len(),
+            4,
+            "should have 4 models (model-a updated + model-b, model-c preserved + model-d new)"
+        );
+        let ids: Vec<&str> = provider.models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"model-b"), "model-b should be preserved");
+        assert!(ids.contains(&"model-c"), "model-c should be preserved");
+        assert!(ids.contains(&"model-d"), "model-d should be added");
+        // model-a should be updated
+        let model_a = provider.models.iter().find(|m| m.id == "model-a").unwrap();
+        assert_eq!(model_a.name.as_deref(), Some("Model A Updated"));
+        assert_eq!(model_a.enabled, Some(true));
     }
 
     /// Test: write_wizard_config includes credentialPath in ProviderConfig
