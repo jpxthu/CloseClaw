@@ -334,6 +334,9 @@ fn convert_common_adapter_error(
         closeclaw_im_adapter::error::AdapterError::IoError(e) => {
             closeclaw_common::im_plugin::AdapterError::IoError(e)
         }
+        closeclaw_im_adapter::error::AdapterError::MediaDownloadFailed(s) => {
+            closeclaw_common::im_plugin::AdapterError::SendFailed(s)
+        }
         closeclaw_im_adapter::error::AdapterError::UnsupportedOperation => {
             closeclaw_common::im_plugin::AdapterError::UnsupportedOperation
         }
