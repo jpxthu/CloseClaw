@@ -127,9 +127,9 @@
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-06-26T20:07:45.804053+08:00",
+    "commit": "64c74f4f368ef292d11b143a218603ac913402fc",
+    "commit_time": "2026-06-27T14:32:35+08:00",
+    "confirmed_time": "2026-06-27T14:39:39.852794+08:00",
     "comment": ""
   },
   {
