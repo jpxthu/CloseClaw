@@ -1,0 +1,55 @@
+[package]
+name = "closeclaw-llm"
+version = "0.1.0"
+edition.workspace = true
+description = "LLM provider abstraction and chat types for CloseClaw"
+license = "MIT"
+
+[features]
+fake-llm = []
+
+[dependencies]
+# Internal crates
+closeclaw-common = { path = "../common" }
+closeclaw-session = { path = "../session" }
+
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "=0.1.43"
+
+# Error handling
+thiserror = "2.0"
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Async trait
+async-trait = "0.1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Glob pattern matching
+glob = "0.3"
+
+# Hashing (for model cache)
+sha2 = "0.10"
+hex = "0.4"
+
+# Async stream
+async-stream = "0.3.6"
+
+[dev-dependencies]
+mockito = "1.2"
+tempfile = "3"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("server", "chat-legacy"))'] }

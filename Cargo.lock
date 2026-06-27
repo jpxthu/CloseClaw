@@ -444,6 +444,7 @@ dependencies = [
  "clap",
  "closeclaw-common",
  "closeclaw-config",
+ "closeclaw-llm",
  "closeclaw-session",
  "dashmap",
  "dialoguer",
@@ -512,6 +513,30 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "closeclaw-llm"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "chrono",
+ "closeclaw-common",
+ "closeclaw-session",
+ "futures",
+ "glob",
+ "hex",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

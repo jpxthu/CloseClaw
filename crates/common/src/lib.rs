@@ -3,6 +3,7 @@ pub mod bootstrap;
 pub mod communication;
 pub mod compaction;
 pub mod session_types;
+pub mod shutdown;
 pub mod verbosity;
 
 pub use agent_config::{
@@ -15,4 +16,5 @@ pub use communication::{
 };
 pub use compaction::CompactConfig;
 pub use session_types::{AgentRole, ReasoningLevel};
+pub use shutdown::ShutdownSignal;
 pub use verbosity::VerbosityLevel;

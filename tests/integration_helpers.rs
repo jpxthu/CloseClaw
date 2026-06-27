@@ -4,8 +4,6 @@
 //! All functions are inline (no dependency on `pub(crate)` functions from `src/`).
 
 #[cfg(feature = "fake-llm")]
-use std::path::PathBuf;
-#[cfg(feature = "fake-llm")]
 use std::sync::Arc;
 
 #[cfg(feature = "fake-llm")]
