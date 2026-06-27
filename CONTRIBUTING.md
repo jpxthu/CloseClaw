@@ -85,19 +85,24 @@ CloseClaw 采用 Cargo workspace，各模块为独立 crate：
 
 ```
 Cargo.toml               # workspace 根（members 声明）
-crates/
+crates/                  # 功能库 — 可独立编译、按依赖分层
 ├── common/              # closeclaw-common（共享类型、trait、常量）
 ├── config/              # closeclaw-config
-├── session/             # closeclaw-session
+├── session/             # closeclaw-session（持久化、bootstrap、recovery）
 ├── llm/                 # closeclaw-llm
 ├── permission/          # closeclaw-permission
 ├── gateway/             # closeclaw-gateway
 ├── tools/               # closeclaw-tools
 ├── skills/              # closeclaw-skills
 └── im_adapter/          # closeclaw-im-adapter
-src/                     # 主 crate（closeclaw，bin 入口 + 胶水代码）
-├── main.rs
-├── lib.rs
+src/                     # 主 crate（closeclaw）— 组合根
+│                         # 将各功能库组装为守护进程，包含应用级编排：
+├── main.rs              #   bin 入口、daemon 生命周期、CLI 交互、
+├── daemon/              #   斜杠命令、processor chain、记忆系统、
+├── cli/                 #   系统提示词、管理 API、后台任务等
+├── slash/               #
+├── processor_chain/     # 设计理念：功能逻辑下沉到 crates/，
+├── memory/              # 主 crate 只做组装和编排（composition root）
 ├── ...
 tests/
 ├── integration/         # 集成测试
@@ -110,7 +115,7 @@ tests/
 - Layer 1：`closeclaw-config`, `closeclaw-session`
 - Layer 2：`closeclaw-llm`, `closeclaw-permission`
 - Layer 3：`closeclaw-gateway`, `closeclaw-tools`, `closeclaw-skills`, `closeclaw-im-adapter`
-- Layer 4：主 crate（依赖所有层）
+- Layer 4：主 crate（依赖所有层，做组装和编排）
 
 **规则**：
 - 跨模块共享的类型和 trait 放 `closeclaw-common`
