@@ -14,8 +14,8 @@
 
 - text 类型消息：提取 `content.text` 字段作为消息正文
 - post 类型消息：展开 title 和 content blocks 为文本（含有序/无序列表、文本样式、图片占位符等）
-- 话题消息：提取 `thread_id`、`parent_id`、`root_id` 字段，用于出站定向回复
-- 非文本消息（图片、文件、语音等）：不产 NormalizedMessage
+- 话题消息：提取 `thread_id`、`parent_id`、`root_id`，按 `thread_id > root_id > parent_id` 优先级合并为一个 `thread_id` 值。该值不参与 session 路由，仅用于出站时作为飞书 API 的 `root_id` 参数定向回复到原话题
+- 非文本消息（图片、文件、语音等）：记录日志后静默丢弃，不产 NormalizedMessage。图片/文件/语音的语义理解暂未设计
 
 **消息发送**：接收 RenderedOutput，按 msg_type 选择发送路径——text 类型走飞书文本消息接口，interactive 类型走飞书卡片消息接口。发送目标由 Gateway 传入的 (peer_id, thread_id) 确定。
 
@@ -71,29 +71,6 @@ interactive 元素注入
 
 按钮指令由 Processor Chain 的 DslParser 解析后传入 Renderer。按钮渲染规则：首个按钮为 primary 样式，后续按钮为 default 样式，所有按钮平铺在单个 action 元素中。
 
-### 代码文件
-
-飞书插件代码位于 `src/im_adapter/platforms/feishu/`，各文件职责如下：
-
-```
-platforms/feishu/
-├── mod.rs         — FeishuPlugin 结构体， impl IMPlugin trait
-├── adapter.rs     — 入站：飞书 webhook 解析 → NormalizedMessage
-│                  — 出站：按 msg_type 选择发送路径（text 消息 / card 消息）
-│                  — token 管理与自动刷新
-├── renderer.rs    — ContentBlock[] + DSL → 飞书卡片 JSON / 飞书文本
-│                  — 输出类型决策（text vs card）
-│                  — markdown → 飞书元素映射（标题/粗体/代码块/列表/引用/链接/分割线）
-│                  — header 提取 + body 渲染
-│                  — DSL 按钮注入
-
-└── tools/         — 飞书工具注册
-    ├── mod.rs     — register_tools() 入口，注册所有飞书工具分组
-    └── ...        — 各工具分组实现文件（im/calendar/task/bitable/doc/drive/sheet）
-```
-
-新增飞书工具分组时，在 `tools/` 下新增文件并注册。
-
 ## 数据流
 
 ### 入站路径
@@ -117,7 +94,7 @@ Gateway 选择飞书插件
   ↓
 [Adapter] msg_type="text" → 飞书文本消息接口 / msg_type="interactive" → 飞书卡片消息接口
   ↓
-发送到目标 (chat_id, thread_id?)
+发送到目标 (peer_id, thread_id?)
 ```
 
 ### 对外工具
