@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::types::{
     ContentBlockType, ContentDelta, InternalMessage, InternalRequest, InternalResponse, ProtocolId,
-    RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
+    RawContentBlock, RawUsage, SseStateMachine, StreamEvent, ToolDefinition,
 };
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -139,6 +139,15 @@ fn build_request_body(request: &InternalRequest) -> Result<serde_json::Value> {
             .insert(key.clone(), value.clone());
     }
 
+    if let Some(ref tools) = request.tools {
+        if !tools.is_empty() {
+            body.as_object_mut().unwrap().insert(
+                "tools".to_string(),
+                serde_json::json!(build_tools_array(tools)),
+            );
+        }
+    }
+
     Ok(body)
 }
 
@@ -165,6 +174,34 @@ fn mark_last_message_cache_control(messages: &mut [serde_json::Value]) {
             );
         }
     }
+}
+
+/// Build an Anthropic tools array from tool definitions.
+///
+/// Each tool includes `name`, `description`, and `input_schema`.
+/// Tools with `cache: true` also include `cache_control`.
+fn build_tools_array(tools: &[ToolDefinition]) -> Vec<serde_json::Value> {
+    tools
+        .iter()
+        .map(|tool| {
+            let mut obj = serde_json::json!({
+                "name": tool.name,
+                "description": tool.description,
+            });
+            if let Some(ref schema) = tool.input_schema {
+                obj.as_object_mut()
+                    .unwrap()
+                    .insert("input_schema".to_string(), schema.clone());
+            }
+            if tool.cache {
+                obj.as_object_mut().unwrap().insert(
+                    "cache_control".to_string(),
+                    serde_json::json!({ "type": "ephemeral" }),
+                );
+            }
+            obj
+        })
+        .collect()
 }
 
 /// Build the Anthropic `system` array from system blocks.

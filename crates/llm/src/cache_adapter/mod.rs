@@ -251,10 +251,14 @@ mod tests {
         req.tools = Some(vec![
             ToolDefinition {
                 name: "read_file".to_owned(),
+                description: "Read a file from disk".to_owned(),
+                input_schema: None,
                 cache: false,
             },
             ToolDefinition {
                 name: "write_file".to_owned(),
+                description: "Write content to a file".to_owned(),
+                input_schema: None,
                 cache: false,
             },
         ]);
