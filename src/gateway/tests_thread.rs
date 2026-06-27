@@ -2,6 +2,7 @@
 
 use crate::gateway::{Gateway, SessionManager};
 use crate::im::{AdapterError, IMPlugin, NormalizedMessage};
+use crate::im_adapter::streaming::StreamingRenderer;
 use crate::llm::types::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage};
 use crate::processor_chain::DslParseResult;
 use crate::renderer::RenderedOutput;
@@ -10,7 +11,7 @@ use crate::session::persistence::{PersistenceService, ReasoningLevel, SessionChe
 use async_trait::async_trait;
 use futures::stream;
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Mutex;
 
 use super::{GatewayConfig, Message};
@@ -345,5 +346,149 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
         Some("omt_stream_tid"),
         "send_outbound_streaming should forward thread_id to \
          plugin.send"
+    );
+}
+
+// ── BlockDelta index forwarding tests ─────────────────────────────────────
+
+/// Mock plugin that captures the `index` field from each
+/// [`StreamEvent::BlockDelta`] it receives via `handle_stream_event`.
+struct IndexCapturingPlugin {
+    platform: String,
+    captured_index: StdMutex<Option<usize>>,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
+}
+
+impl IndexCapturingPlugin {
+    fn new(platform: &str) -> Self {
+        Self {
+            platform: platform.to_string(),
+            captured_index: StdMutex::new(None),
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
+        }
+    }
+
+    fn captured_index(&self) -> Option<usize> {
+        *self.captured_index.lock().unwrap()
+    }
+}
+
+#[async_trait]
+impl IMPlugin for IndexCapturingPlugin {
+    fn platform(&self) -> &str {
+        &self.platform
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: json!({"content": {"text": ""}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+
+    fn handle_stream_event(
+        &self,
+        event: StreamEvent,
+    ) -> crate::im_adapter::streaming::StreamingOutput {
+        if let StreamEvent::BlockDelta { index, .. } = &event {
+            *self.captured_index.lock().unwrap() = Some(*index);
+        }
+        self.streaming_renderer()
+            .lock()
+            .unwrap()
+            .handle_event(event)
+    }
+
+    fn streaming_renderer(
+        &self,
+    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
+        &self.renderer
+    }
+}
+
+#[tokio::test]
+async fn test_send_outbound_streaming_forwards_block_delta_index() {
+    let plugin = Arc::new(IndexCapturingPlugin::new("mock"));
+    let checkpoint = {
+        let mut cp = SessionCheckpoint::new("mock:ou_sender:agent-1".to_string());
+        cp.peer_id = Some("agent-1".to_string());
+        cp.platform = Some("mock".to_string());
+        cp.thread_id = None;
+        cp
+    };
+    let mock_storage = Arc::new(MockPersistService {
+        checkpoint: Mutex::new(Some(checkpoint)),
+    });
+    let sm = Arc::new(SessionManager::new(
+        &make_config(),
+        Some(mock_storage),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    let gw = Gateway::new(make_config(), Arc::clone(&sm));
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
+    let msg = make_message("agent-1", "hello");
+    let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
+    let events = vec![
+        Ok::<_, String>(StreamEvent::BlockStart {
+            index: 2,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 2,
+            delta: ContentDelta::Text {
+                text: "hello".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 2,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            }),
+            finish_reason: Some("stop".to_string()),
+        }),
+    ];
+    let stream = stream::iter(events);
+    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
+    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .await
+        .unwrap();
+    assert_eq!(
+        plugin.captured_index(),
+        Some(2),
+        "process_stream_event should forward the original BlockDelta index, \
+         not hardcode it to 0"
     );
 }
