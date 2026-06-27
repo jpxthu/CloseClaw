@@ -134,9 +134,9 @@
   },
   {
     "path": "docs/design/llm/cache-adapter.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-06-26T13:19:05.908214+08:00",
+    "commit": "3b8d190ee3037e1b995205d599ef6d92f67c07c1",
+    "commit_time": "2026-06-28T01:38:08+08:00",
+    "confirmed_time": "2026-06-28T01:45:28.520765+08:00",
     "comment": ""
   },
   {
