@@ -615,23 +615,9 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
     let out_credential = ctx.credential.clone().unwrap();
     let out_selected_models = ctx.selected_models.clone();
 
-    // Write output to config files
-    if let Err(e) = write_wizard_config(&WizardOutput {
-        provider_id: out_provider_id.clone(),
-        credential: out_credential.clone(),
-        selected_models: out_selected_models.clone(),
-    }) {
-        eprintln!("[ERROR] Failed to write config: {}", e);
-        anyhow::bail!("write_wizard_config failed: {}", e);
-    }
-
-    // Create initial master agent if it does not exist yet.
-    // Failure here is non-fatal: the wizard config (models + credentials) is
-    // already written and should not be rolled back.
-    let agents_dir = config_dir().parent().unwrap().join("agents");
-    if let Err(e) = ensure_master_agent(&config_dir(), &agents_dir) {
-        eprintln!("[WARNING] Failed to create master agent: {}", e);
-    }
+    // NOTE: write_wizard_config() and ensure_master_agent() are called by
+    // handle_config_setup() after Confirm — run_wizard() only builds and
+    // returns the WizardOutput.
 
     Ok(Some(WizardOutput {
         provider_id: out_provider_id,
