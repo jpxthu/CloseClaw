@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::providers::{ConfigError, ModelsConfigData};
 use crate::ConfigProvider;
@@ -53,6 +53,30 @@ pub struct CredentialsProvider {
 }
 
 impl CredentialsProvider {
+    /// Load a single credential file.
+    ///
+    /// The file should contain a single credentials object.
+    /// Returns an empty provider if the file does not exist.
+    pub fn load_from_file(file: &Path) -> Result<Self, ConfigError> {
+        let mut provider = CredentialsProvider::default();
+        if !file.exists() {
+            return Ok(provider);
+        }
+        let content = fs::read_to_string(file)?;
+        let creds: AnyProviderCredentials = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(_) => {
+                return Ok(provider);
+            }
+        };
+        let name = match &creds {
+            AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
+            AnyProviderCredentials::Feishu(c) => c.provider.clone(),
+        };
+        provider.providers.insert(name, creds);
+        Ok(provider)
+    }
+
     /// Load all credentials from a directory containing JSON files.
     ///
     /// Each file should contain a single credentials object.
@@ -121,25 +145,52 @@ impl CredentialsProvider {
     /// Cross-validate that every provider referenced in models.json has
     /// corresponding credentials defined.
     ///
-    /// Returns `Err` if any model provider is missing credentials.
+    /// Credential resolution priority:
+    /// 1. In-memory credentials (loaded from convention directory or
+    ///    credential_path during `load()`).
+    /// 2. `credential_path` in models.json — if set and the target file
+    ///    exists, the provider is considered valid.
+    /// 3. Convention directory `config/credentials/<provider>.json`.
+    ///
+    /// Returns `Err` if any model provider has none of the above.
     /// Extra credentials (providers defined in credentials but not in models)
     /// emit a warning but do not fail validation.
     pub fn validate_model_references(
         &self,
         models_provider: &ModelsConfigData,
+        config_dir: &Path,
     ) -> Result<(), ConfigError> {
         for provider_id in models_provider.providers.keys() {
-            if !self.providers.contains_key(provider_id) {
-                return Err(ConfigError::ValueError {
-                    field: format!("credentials.{}", provider_id),
-                    message: format!(
-                        "provider '{}' is referenced in models.json but has no credentials \
-                         (create a credentials file in config/credentials/ or check the \
-                         provider ID in models.json)",
-                        provider_id
-                    ),
-                });
+            if self.providers.contains_key(provider_id) {
+                continue;
             }
+
+            // Check if the provider has a credential_path in models.json.
+            if let Some(provider_cfg) = models_provider.get_provider(provider_id) {
+                if let Some(ref rel_path) = provider_cfg.credential_path {
+                    if !rel_path.is_empty() {
+                        let abs_path = config_dir.join(rel_path);
+                        if abs_path.exists() {
+                            info!(
+                                provider = %provider_id,
+                                path = %abs_path.display(),
+                                "provider '{}' has valid credential_path", provider_id
+                            );
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            return Err(ConfigError::ValueError {
+                field: format!("credentials.{}", provider_id),
+                message: format!(
+                    "provider '{}' is referenced in models.json but has no credentials \
+                     (set credentialPath in models.json, create a credentials file in \
+                     config/credentials/, or check the provider ID)",
+                    provider_id
+                ),
+            });
         }
 
         for cred_id in self.providers.keys() {
@@ -429,6 +480,7 @@ mod tests {
 
     #[test]
     fn test_validate_model_references_complete_match() {
+        let tmp = TempDir::new().unwrap();
         let creds_json = r#"{"providers":{
             "openai": {"provider":"openai","apiKey":"sk-test"},
             "anthropic": {"provider":"anthropic","apiKey":"sk-ant"}
@@ -442,11 +494,12 @@ mod tests {
             }
         }"#,
         );
-        assert!(creds.validate_model_references(&models).is_ok());
+        assert!(creds.validate_model_references(&models, tmp.path()).is_ok());
     }
 
     #[test]
     fn test_validate_model_references_missing_credential() {
+        let tmp = TempDir::new().unwrap();
         let creds_json = r#"{"providers":{
             "openai": {"provider":"openai","apiKey":"sk-test"}
         }}"#;
@@ -459,7 +512,7 @@ mod tests {
             }
         }"#,
         );
-        let result = creds.validate_model_references(&models);
+        let result = creds.validate_model_references(&models, tmp.path());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -471,6 +524,7 @@ mod tests {
 
     #[test]
     fn test_validate_model_references_extra_credentials_only_warn() {
+        let tmp = TempDir::new().unwrap();
         let creds_json = r#"{"providers":{
             "openai": {"provider":"openai","apiKey":"sk-test"},
             "backup": {"provider":"backup","apiKey":"sk-backup"}
@@ -483,21 +537,23 @@ mod tests {
             }
         }"#,
         );
-        assert!(creds.validate_model_references(&models).is_ok());
+        assert!(creds.validate_model_references(&models, tmp.path()).is_ok());
     }
 
     #[test]
     fn test_validate_model_references_empty_models() {
+        let tmp = TempDir::new().unwrap();
         let creds_json = r#"{"providers":{
             "openai": {"provider":"openai","apiKey":"sk-test"}
         }}"#;
         let creds = CredentialsProvider::from_json_str(creds_json).unwrap();
         let models = models_from_json(r#"{"providers": {}}"#);
-        assert!(creds.validate_model_references(&models).is_ok());
+        assert!(creds.validate_model_references(&models, tmp.path()).is_ok());
     }
 
     #[test]
     fn test_validate_model_references_empty_credentials_with_models() {
+        let tmp = TempDir::new().unwrap();
         let creds = CredentialsProvider::default();
         let models = models_from_json(
             r#"{
@@ -506,14 +562,84 @@ mod tests {
             }
         }"#,
         );
-        let result = creds.validate_model_references(&models);
+        let result = creds.validate_model_references(&models, tmp.path());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_model_references_empty_both() {
+        let tmp = TempDir::new().unwrap();
         let creds = CredentialsProvider::default();
         let models = models_from_json(r#"{"providers": {}}"#);
-        assert!(creds.validate_model_references(&models).is_ok());
+        assert!(creds.validate_model_references(&models, tmp.path()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_model_references_credential_path_valid() {
+        let tmp = TempDir::new().unwrap();
+        // Create a credential file at credentials/openai.json
+        let creds_dir = tmp.path().join("credentials");
+        std::fs::create_dir_all(&creds_dir).unwrap();
+        std::fs::write(
+            creds_dir.join("openai.json"),
+            r#"{"provider":"openai","apiKey":"sk-test"}"#,
+        )
+        .unwrap();
+
+        let creds = CredentialsProvider::default();
+        let models = models_from_json(
+            r#"{
+            "providers": {
+                "openai": {
+                    "credentialPath": "credentials/openai.json",
+                    "models": [{"id":"gpt-4"}]
+                }
+            }
+        }"#,
+        );
+        assert!(creds.validate_model_references(&models, tmp.path()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_model_references_credential_path_missing_file() {
+        let tmp = TempDir::new().unwrap();
+        // No credential file exists
+        let creds = CredentialsProvider::default();
+        let models = models_from_json(
+            r#"{
+            "providers": {
+                "openai": {
+                    "credentialPath": "credentials/openai.json",
+                    "models": [{"id":"gpt-4"}]
+                }
+            }
+        }"#,
+        );
+        let result = creds.validate_model_references(&models, tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::ValueError { ref field, .. } if field.contains("openai")),
+            "error should reference the missing provider: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_model_references_credential_path_empty() {
+        let tmp = TempDir::new().unwrap();
+        let creds = CredentialsProvider::default();
+        let models = models_from_json(
+            r#"{
+            "providers": {
+                "openai": {
+                    "credentialPath": "",
+                    "models": [{"id":"gpt-4"}]
+                }
+            }
+        }"#,
+        );
+        let result = creds.validate_model_references(&models, tmp.path());
+        assert!(result.is_err());
     }
 }
