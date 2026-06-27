@@ -1,12 +1,14 @@
-//! Unit tests for Feishu adapter: expand_post_content, parse_message_event,
-//! parse_inbound (message_type propagation), and send_message/send_card_json
-//! receive_id_type verification.
+//! Unit tests for Feishu adapter: expand_post_content, parse_message_event
+//! (text/post/image/file/audio with graceful degradation), parse_inbound,
+//! and send_message/send_card_json receive_id_type verification.
 
 use super::*;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use axum::{extract::Query, routing::post, Json, Router};
 use std::collections::HashMap as StdHashMap;
+
+use tempfile::TempDir;
 use tokio::net::TcpListener;
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
@@ -19,6 +21,7 @@ fn make_test_adapter() -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
+        temp_dir: std::env::temp_dir().join("closeclaw").join("media"),
     }
 }
 
@@ -32,6 +35,7 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
+        temp_dir: std::env::temp_dir().join("closeclaw").join("media"),
     }
 }
 
@@ -66,8 +70,80 @@ async fn start_mock_server(received_id_type: Arc<tokio::sync::Mutex<Option<Strin
     format!("http://{}", addr)
 }
 
+/// Start a mock Feishu server that handles token + media download.
+/// Returns the base URL.
+async fn start_media_mock_server() -> String {
+    use axum::extract::{Path, RawQuery};
+    use axum::http::StatusCode;
+
+    let app = Router::new()
+        .route(
+            "/auth/v3/tenant_access_token/internal",
+            post(|Json(_body): Json<serde_json::Value>| async {
+                Json(serde_json::json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "mock_token"
+                }))
+            }),
+        )
+        .route(
+            "/im/v1/messages/:message_id/resources/:file_key",
+            axum::routing::get(
+                move |Path((_message_id, file_key)): Path<(String, String)>,
+                      RawQuery(query): RawQuery| async move {
+                    let media_type = query
+                        .and_then(|q| {
+                            q.split('&')
+                                .find(|p| p.starts_with("type="))
+                                .map(|p| p[5..].to_string())
+                        })
+                        .unwrap_or_default();
+                    (
+                        StatusCode::OK,
+                        [(
+                            "content-type",
+                            match media_type.as_str() {
+                                "image" => "image/png",
+                                _ => "application/octet-stream",
+                            },
+                        )],
+                        format!("MOCK_FILE_CONTENT_{}", file_key),
+                    )
+                },
+            ),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{}", addr)
+}
+
+/// Create a FeishuAdapter pointing at a mock server with a custom temp_dir.
+fn make_adapter_with_temp_dir(base_url: &str, temp_dir: PathBuf) -> FeishuAdapter {
+    let http_client = reqwest::Client::new();
+    FeishuAdapter {
+        app_id: "test_app_id".to_string(),
+        app_secret: "test_secret".to_string(),
+        verification_token: "test_token".to_string(),
+        http_client,
+        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
+        base_url: base_url.to_string(),
+        temp_dir,
+    }
+}
+
 /// Build a minimal FeishuEvent for a message event.
 fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
+    make_message_event_with_id(message_type, content_json, None)
+}
+
+/// Build a FeishuEvent with an explicit message_id.
+fn make_message_event_with_id(
+    message_type: &str,
+    content_json: &str,
+    message_id: Option<&str>,
+) -> FeishuEvent {
     FeishuEvent {
         schema: "2.0".to_string(),
         header: FeishuHeader {
@@ -78,6 +154,7 @@ fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
             app_id: "test_app_id".to_string(),
         },
         event: FeishuMessageEvent {
+            message_id: message_id.map(String::from),
             sender: FeishuSender {
                 sender_id: FeishuSenderId {
                     open_id: "ou_sender".to_string(),
@@ -97,6 +174,18 @@ fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
 /// Build a webhook payload JSON from a message event.
 fn make_webhook_payload(message_type: &str, content_json: &str) -> Vec<u8> {
     let event = make_message_event(message_type, content_json);
+    let mut event_json = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": event.event.sender.sender_id.open_id },
+            "sender_type": event.event.sender.sender_type,
+        },
+        "content": event.event.content,
+        "chat_id": event.event.chat_id,
+        "message_type": event.event.message_type,
+    });
+    if let Some(ref mid) = event.event.message_id {
+        event_json["message_id"] = serde_json::json!(mid);
+    }
     let payload = serde_json::json!({
         "schema": event.schema,
         "header": {
@@ -106,15 +195,7 @@ fn make_webhook_payload(message_type: &str, content_json: &str) -> Vec<u8> {
             "token": event.header.token,
             "app_id": event.header.app_id,
         },
-        "event": {
-            "sender": {
-                "sender_id": { "open_id": event.event.sender.sender_id.open_id },
-                "sender_type": event.event.sender.sender_type,
-            },
-            "content": event.event.content,
-            "chat_id": event.event.chat_id,
-            "message_type": event.event.message_type,
-        },
+        "event": event_json,
     });
     serde_json::to_vec(&payload).unwrap()
 }
@@ -272,75 +353,86 @@ fn test_expand_post_title_with_mixed_elements() {
 // parse_message_event tests
 // ===========================================================================
 
-#[test]
-fn test_parse_message_event_text_type() {
+#[tokio::test]
+async fn test_parse_message_event_text_type() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "hello");
     assert_eq!(msg.message_type, "text");
+    assert!(msg.media_refs.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_post_type() {
+#[tokio::test]
+async fn test_parse_message_event_post_type() {
     let adapter = make_test_adapter();
     let content = serde_json::json!({
         "title": "T",
         "content": [[{"tag": "text", "text": "body"}]]
     });
     let event = make_message_event("post", &content.to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "T\nbody");
     assert_eq!(msg.message_type, "post");
+    assert!(msg.media_refs.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_image_returns_none() {
+#[tokio::test]
+async fn test_parse_message_event_image_graceful_degradation() {
     let adapter = make_test_adapter();
-    let event = make_message_event(
+    let event = make_message_event_with_id(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
+        Some("om_msg_001"),
     );
-    let result = adapter.parse_message_event(event).unwrap();
-    assert!(result.is_none());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+    assert!(msg.content.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_file_returns_none() {
+#[tokio::test]
+async fn test_parse_message_event_file_graceful_degradation() {
     let adapter = make_test_adapter();
-    let event = make_message_event(
+    let event = make_message_event_with_id(
         "file",
-        &serde_json::json!({"file_key": "file_xxx"}).to_string(),
+        &serde_json::json!({"file_key": "file_xxx", "file_name": "report.pdf"}).to_string(),
+        Some("om_msg_002"),
     );
-    let result = adapter.parse_message_event(event).unwrap();
-    assert!(result.is_none());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "file");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+    assert_eq!(msg.content, "report.pdf");
 }
 
-#[test]
-fn test_parse_message_event_audio_returns_none() {
+#[tokio::test]
+async fn test_parse_message_event_audio_graceful_degradation() {
     let adapter = make_test_adapter();
-    let event = make_message_event(
+    let event = make_message_event_with_id(
         "audio",
         &serde_json::json!({"file_key": "audio_xxx"}).to_string(),
+        Some("om_msg_003"),
     );
-    let result = adapter.parse_message_event(event).unwrap();
-    assert!(result.is_none());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "audio");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+    assert!(msg.content.is_empty());
 }
 
-#[test]
-fn test_parse_message_event_metadata_account_id() {
+#[tokio::test]
+async fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.account_id.as_deref(), Some("ou_sender"));
 }
 
-#[test]
-fn test_parse_message_event_thread_id_from_root_id() {
+#[tokio::test]
+async fn test_parse_message_event_thread_id_from_root_id() {
     let adapter = make_test_adapter();
     let mut event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     event.event.root_id = Some("om_root123".to_string());
-    let msg = adapter.parse_message_event(event).unwrap().unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.thread_id.as_deref(), Some("om_root123"));
 }
 
@@ -542,13 +634,96 @@ async fn test_parse_inbound_post_type() {
 }
 
 #[tokio::test]
-async fn test_parse_inbound_image_returns_none() {
+async fn test_parse_inbound_image_graceful_degradation() {
     let adapter = Arc::new(make_test_adapter());
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
     );
-    let result = plugin.parse_inbound(&payload).await.unwrap();
-    assert!(result.is_none());
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert!(msg.media_refs.is_empty(), "download should fail gracefully");
+}
+
+// ===========================================================================
+// Positive download tests (download succeeds → media_refs populated)
+// ===========================================================================
+
+#[tokio::test]
+async fn test_parse_image_message_success() {
+    let tmp = TempDir::new().unwrap();
+    let base_url = start_media_mock_server().await;
+    let adapter = make_adapter_with_temp_dir(&base_url, tmp.path().to_path_buf());
+    let event = make_message_event_with_id(
+        "image",
+        &serde_json::json!({"image_key": "img_test_123"}).to_string(),
+        Some("om_img_001"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert_eq!(msg.content, "");
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "img_test_123");
+    assert!(msg.media_refs[0].url.contains("img_test_123"));
+    // TempDir dropped → files cleaned up automatically
+}
+
+#[tokio::test]
+async fn test_parse_file_message_success() {
+    let tmp = TempDir::new().unwrap();
+    let base_url = start_media_mock_server().await;
+    let adapter = make_adapter_with_temp_dir(&base_url, tmp.path().to_path_buf());
+    let event = make_message_event_with_id(
+        "file",
+        &serde_json::json!({"file_key": "file_xyz_789", "file_name": "report.pdf"}).to_string(),
+        Some("om_file_002"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "file");
+    assert_eq!(msg.content, "report.pdf");
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "file_xyz_789");
+    assert!(msg.media_refs[0].url.contains("file_xyz_789"));
+    // TempDir dropped → files cleaned up automatically
+}
+
+#[tokio::test]
+async fn test_parse_audio_message_success() {
+    let tmp = TempDir::new().unwrap();
+    let base_url = start_media_mock_server().await;
+    let adapter = make_adapter_with_temp_dir(&base_url, tmp.path().to_path_buf());
+    let event = make_message_event_with_id(
+        "audio",
+        &serde_json::json!({"file_key": "audio_abc_456"}).to_string(),
+        Some("om_audio_003"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "audio");
+    assert!(msg.content.is_empty());
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "audio_abc_456");
+    assert!(msg.media_refs[0].url.contains("audio_abc_456"));
+    // TempDir dropped → files cleaned up automatically
+}
+
+#[tokio::test]
+async fn test_download_media_failure_graceful_degradation() {
+    let adapter = make_test_adapter();
+    let event = make_message_event_with_id(
+        "image",
+        &serde_json::json!({"image_key": "img_fail"}).to_string(),
+        Some("om_fail_001"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, "image");
+    assert!(
+        msg.media_refs.is_empty(),
+        "media_refs should be empty on download failure"
+    );
+    assert!(msg.content.is_empty());
+    // Message is still produced (not discarded)
+    assert_eq!(msg.platform, "feishu");
+    assert_eq!(msg.sender_id, "ou_sender");
+    assert_eq!(msg.peer_id, "oc_chat");
 }
