@@ -12,14 +12,16 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::gateway::{Gateway, GatewayConfig, HandleResult, SessionManager};
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::engine::engine_types::{Action, Defaults, Effect, Rule, RuleSet, Subject};
 use crate::session::bootstrap::loader::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
 use crate::slash::context::SlashContext;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handler::{SlashHandler, SlashResult};
 use crate::slash::registry::HandlerRegistry;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_types::{
+    Action, Defaults, Effect, Rule, RuleSet, Subject,
+};
 
 // ---------------------------------------------------------------------------
 // Mock handlers

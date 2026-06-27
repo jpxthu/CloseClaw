@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
-pub use closeclaw_common::{AgentRole, ReasoningLevel};
+pub use closeclaw_common::{AgentRole, PendingMessage, ReasoningLevel};
 
 /// Session Checkpoint — 用于持久化恢复的核心数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,36 +333,6 @@ impl ReasoningModeState {
     /// Mark reasoning as complete
     pub fn complete(&mut self) {
         self.is_complete = true;
-    }
-}
-
-/// Pending Message — 未最终确认的消息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PendingMessage {
-    /// 消息 ID
-    pub message_id: String,
-    /// 消息内容
-    pub content: String,
-    /// 创建时间
-    pub created_at: DateTime<Utc>,
-    /// 是否已发送
-    pub sent: bool,
-}
-
-impl PendingMessage {
-    /// Create a new pending message
-    pub fn new(message_id: String, content: String) -> Self {
-        Self {
-            message_id,
-            content,
-            created_at: Utc::now(),
-            sent: false,
-        }
-    }
-
-    /// Mark the message as sent
-    pub fn mark_sent(&mut self) {
-        self.sent = true;
     }
 }
 

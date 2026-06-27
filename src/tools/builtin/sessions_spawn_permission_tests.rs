@@ -14,11 +14,11 @@ use crate::agent::spawn::SpawnController;
 use crate::config::ConfigManager;
 use crate::gateway::session_manager::SessionManager;
 use crate::gateway::{DmScope, GatewayConfig, Session};
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::engine::engine_spawn::SpawnPermissionError;
-use crate::permission::rules::RuleSetBuilder;
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::ReasoningLevel;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_spawn::SpawnPermissionError;
+use closeclaw_permission::rules::RuleSetBuilder;
 use std::sync::Arc;
 use tempfile::TempDir;
 

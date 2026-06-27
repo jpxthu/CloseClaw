@@ -9,11 +9,11 @@
 use std::collections::HashMap;
 use tempfile::TempDir;
 
-use closeclaw::permission::engine::{
+use closeclaw_permission::engine::{
     Action, Caller, CommandArgs, Effect, MatchType, PermissionEngine, PermissionRequest,
     PermissionRequestBody, PermissionResponse, RuleSet,
 };
-use closeclaw::permission::rules::{RuleBuilder, RuleSetBuilder};
+use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
 
 /// Creates a ruleset that grants permissions to any agent.
 /// Uses both AgentOnly (glob) and UserAndAgent subjects so that the two-phase
@@ -374,10 +374,10 @@ async fn test_permission_engine_template_resolution() {
     let mut templates = HashMap::new();
     templates.insert(
         "developer".to_string(),
-        closeclaw::permission::templates::Template {
+        closeclaw_permission::templates::Template {
             name: "developer".to_string(),
             description: "Standard developer permissions".to_string(),
-            subject: closeclaw::permission::templates::TemplateSubject::Any,
+            subject: closeclaw_permission::templates::TemplateSubject::Any,
             effect: Effect::Allow,
             actions: vec![
                 Action::File {

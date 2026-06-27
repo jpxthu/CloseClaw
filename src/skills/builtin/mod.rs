@@ -17,8 +17,8 @@ pub use permission::PermissionSkill;
 pub use search::SearchSkill;
 
 use crate::gateway::SessionManager;
-use crate::permission::approval_flow::ApprovalFlow;
 use crate::skills::Skill;
+use closeclaw_permission::approval_flow::ApprovalFlow;
 use std::sync::Arc;
 
 /// Built-in skills registry
@@ -41,7 +41,7 @@ impl BuiltinSkills {
 
     /// Create all built-in skills with a shared permission engine injected.
     pub fn all_with_engine(
-        engine: Arc<crate::permission::PermissionEngine>,
+        engine: Arc<closeclaw_permission::PermissionEngine>,
     ) -> Vec<Arc<dyn Skill>> {
         vec![
             Arc::new(FileOpsSkill::with_engine(engine.clone())) as Arc<dyn Skill>,
@@ -56,7 +56,7 @@ impl BuiltinSkills {
 
     /// Create all built-in skills with a shared permission engine and approval flow injected.
     pub fn all_with_engine_and_approval_flow(
-        engine: Arc<crate::permission::PermissionEngine>,
+        engine: Arc<closeclaw_permission::PermissionEngine>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         session_manager: Option<Arc<SessionManager>>,
         agent_permissions: std::collections::HashMap<
@@ -102,14 +102,14 @@ pub fn builtin_skills() -> Vec<Arc<dyn Skill>> {
 
 /// Get all built-in skills with a shared permission engine injected.
 pub fn builtin_skills_with_engine(
-    engine: Arc<crate::permission::PermissionEngine>,
+    engine: Arc<closeclaw_permission::PermissionEngine>,
 ) -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all_with_engine(engine)
 }
 
 /// Get all built-in skills with a shared permission engine and approval flow injected.
 pub fn builtin_skills_with_engine_and_approval_flow(
-    engine: Arc<crate::permission::PermissionEngine>,
+    engine: Arc<closeclaw_permission::PermissionEngine>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     session_manager: Option<Arc<SessionManager>>,
     agent_permissions: std::collections::HashMap<String, crate::agent::config::AgentPermissions>,
@@ -165,15 +165,15 @@ mod extra_tests {
         assert_eq!(skills.len(), 7);
     }
 
-    fn make_engine() -> Arc<crate::permission::PermissionEngine> {
-        use crate::permission::engine::engine_types::{Defaults, RuleSet};
+    fn make_engine() -> Arc<closeclaw_permission::PermissionEngine> {
+        use closeclaw_permission::engine::engine_types::{Defaults, RuleSet};
         let rules = RuleSet {
             rules: vec![],
             defaults: Defaults::default(),
             template_includes: vec![],
             agent_creators: std::collections::HashMap::new(),
         };
-        Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(rules))
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules))
     }
 
     #[test]

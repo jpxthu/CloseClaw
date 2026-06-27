@@ -79,12 +79,12 @@ mod tests {
     use crate::agent::spawn::SpawnController;
     use crate::config::ConfigManager;
     use crate::gateway::{GatewayConfig, SessionManager};
-    use crate::permission::engine::engine_eval::PermissionEngine;
-    use crate::permission::rules::RuleSetBuilder;
     use crate::session::bootstrap::BootstrapMode;
     use crate::session::persistence::ReasoningLevel;
     use crate::skills::DiskSkillRegistry;
     use crate::tools::builtin::{register_builtin_tools, BuiltinToolContext};
+    use closeclaw_permission::engine::engine_eval::PermissionEngine;
+    use closeclaw_permission::rules::RuleSetBuilder;
     use std::sync::Arc;
     use tempfile::TempDir;
 

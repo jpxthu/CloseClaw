@@ -1,9 +1,9 @@
 //! Tests for built-in skills
-use crate::permission::{Action, Effect, MatchType, Rule, Subject};
 use crate::skills::builtin::{
     builtin_skills, BuiltinSkills, FileOpsSkill, GitOpsSkill, SearchSkill,
 };
 use crate::skills::Skill;
+use closeclaw_permission::{Action, Effect, MatchType, Rule, Subject};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -16,13 +16,14 @@ async fn test_file_ops_read_requires_agent_id_when_engine_set() {
     assert!(result.is_ok());
 
     // With engine, agent_id IS required
-    let ruleset = crate::permission::RuleSet {
+    let ruleset = closeclaw_permission::RuleSet {
         rules: vec![],
-        defaults: crate::permission::Defaults::default(),
+        defaults: closeclaw_permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
+    let engine =
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill_with = FileOpsSkill::with_engine(engine);
     let result = skill_with
         .execute("read", serde_json::json!({"path": "Cargo.toml"}))
@@ -64,13 +65,14 @@ async fn test_file_ops_read_with_permission() {
             priority: 0,
         },
     ];
-    let ruleset = crate::permission::RuleSet {
+    let ruleset = closeclaw_permission::RuleSet {
         rules,
-        defaults: crate::permission::Defaults::default(),
+        defaults: closeclaw_permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
+    let engine =
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill = FileOpsSkill::with_engine(engine);
     let result = skill
         .execute(
@@ -100,13 +102,14 @@ async fn test_file_ops_read_denied_without_permission() {
         template: None,
         priority: 0,
     };
-    let ruleset = crate::permission::RuleSet {
+    let ruleset = closeclaw_permission::RuleSet {
         rules: vec![rule],
-        defaults: crate::permission::Defaults::default(),
+        defaults: closeclaw_permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
+    let engine =
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill = FileOpsSkill::with_engine(engine);
     let result = skill
         .execute(
@@ -129,13 +132,14 @@ async fn test_file_ops_exists_requires_agent_id_when_engine_set() {
         .await;
     assert!(result.is_ok());
 
-    let ruleset = crate::permission::RuleSet {
+    let ruleset = closeclaw_permission::RuleSet {
         rules: vec![],
-        defaults: crate::permission::Defaults::default(),
+        defaults: closeclaw_permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
+    let engine =
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill_with = FileOpsSkill::with_engine(engine);
     let result = skill_with
         .execute("exists", serde_json::json!({"path": "Cargo.toml"}))
@@ -177,13 +181,14 @@ async fn test_file_ops_exists_with_permission() {
             priority: 0,
         },
     ];
-    let ruleset = crate::permission::RuleSet {
+    let ruleset = closeclaw_permission::RuleSet {
         rules,
-        defaults: crate::permission::Defaults::default(),
+        defaults: closeclaw_permission::Defaults::default(),
         template_includes: vec![],
         agent_creators: std::collections::HashMap::new(),
     };
-    let engine = Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(ruleset));
+    let engine =
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset));
     let skill = FileOpsSkill::with_engine(engine);
     let result = skill
         .execute(

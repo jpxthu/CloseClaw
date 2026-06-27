@@ -12,14 +12,14 @@
 
 use crate::config::ConfigManager;
 use crate::gateway::SessionManager;
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::engine::engine_types::{
-    PermissionRequest, PermissionRequestBody, PermissionResponse,
-};
 use crate::tasks::BackgroundTaskManager;
 use crate::tools::security::{BashSecurityAnalyzer, TrustLevel};
 use crate::tools::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
+};
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_types::{
+    PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 
 use async_trait::async_trait;

@@ -445,6 +445,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-llm",
+ "closeclaw-permission",
  "closeclaw-session",
  "dashmap",
  "dialoguer",
@@ -488,6 +489,8 @@ dependencies = [
 name = "closeclaw-common"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "chrono",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -537,6 +540,28 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "closeclaw-permission"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "closeclaw-common",
+ "closeclaw-config",
+ "closeclaw-session",
+ "hex",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

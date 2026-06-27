@@ -1,15 +1,15 @@
 //! Skill discovery skill - allows agents to search and install skills from ClawHub
-use crate::permission::approval_flow::ApprovalFlow;
-use crate::permission::engine::Caller;
-use crate::permission::engine::PermissionRequestBody;
-use crate::permission::{PermissionRequest, PermissionResponse};
 use crate::skills::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
+use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::engine::Caller;
+use closeclaw_permission::engine::PermissionRequestBody;
+use closeclaw_permission::{PermissionRequest, PermissionResponse};
 use std::sync::Arc;
 
 #[derive(Default)]
 pub struct SkillDiscoverySkill {
-    engine: Option<Arc<crate::permission::PermissionEngine>>,
+    engine: Option<Arc<closeclaw_permission::PermissionEngine>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
 }
 
@@ -21,7 +21,7 @@ impl SkillDiscoverySkill {
         }
     }
 
-    pub fn with_engine(engine: Arc<crate::permission::PermissionEngine>) -> Self {
+    pub fn with_engine(engine: Arc<closeclaw_permission::PermissionEngine>) -> Self {
         Self {
             engine: Some(engine),
             approval_flow: None,
@@ -29,7 +29,7 @@ impl SkillDiscoverySkill {
     }
 
     pub fn with_engine_and_approval_flow(
-        engine: Arc<crate::permission::PermissionEngine>,
+        engine: Arc<closeclaw_permission::PermissionEngine>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {
@@ -257,8 +257,8 @@ mod tests {
         }
     }
 
-    fn make_engine() -> Arc<crate::permission::PermissionEngine> {
-        use crate::permission::engine::engine_types::{
+    fn make_engine() -> Arc<closeclaw_permission::PermissionEngine> {
+        use closeclaw_permission::engine::engine_types::{
             Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
         };
         use std::collections::HashMap;
@@ -281,7 +281,7 @@ mod tests {
             template_includes: vec![],
             agent_creators: HashMap::new(),
         };
-        Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(rules))
+        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules))
     }
 
     #[tokio::test]
@@ -305,7 +305,7 @@ mod tests {
     /// Parent agent has deny rule → child agent install is denied
     #[tokio::test]
     async fn test_install_permission_with_extra_deny() {
-        use crate::permission::engine::engine_types::{
+        use closeclaw_permission::engine::engine_types::{
             Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
         };
         use std::collections::HashMap;
@@ -329,7 +329,7 @@ mod tests {
             agent_creators: HashMap::new(),
         };
         let engine =
-            Arc::new(crate::permission::PermissionEngine::new_with_default_data_root(rules));
+            Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules));
         let skill = SkillDiscoverySkill::with_engine(engine);
         // child-agent is spawned by parent-agent, child-agent tries to install a skill
         let result = skill

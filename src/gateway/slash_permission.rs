@@ -6,15 +6,15 @@
 
 use std::sync::Arc;
 
-use crate::permission::engine::engine_eval::PermissionEngine;
-use crate::permission::engine::engine_types::{
-    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
-};
 use crate::session::persistence::PendingMessage;
 use crate::slash::handler::SlashHandler;
 use crate::slash::side_effect::ReplyAction;
 use crate::slash::side_effect::SideEffectContext;
 use crate::slash::{parse_slash, SlashContext, SlashDispatcher};
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_types::{
+    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
+};
 
 use super::{Gateway, HandleResult};
 
@@ -164,7 +164,7 @@ impl Gateway {
         let response = engine
             .evaluate_with_chain(
                 request,
-                &self.session_manager,
+                &*self.session_manager,
                 session_id,
                 &agent_permissions,
             )

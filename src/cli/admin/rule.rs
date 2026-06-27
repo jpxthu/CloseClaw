@@ -5,8 +5,8 @@ use super::common::{
     RuleListOutput,
 };
 use crate::cli::args::RuleAction;
-use crate::permission::{Rule, RuleSet};
 use anyhow::Result;
+use closeclaw_permission::{Rule, RuleSet};
 use std::path::{Path, PathBuf};
 
 pub async fn handle_rule(action: RuleAction, json: bool) -> Result<()> {
@@ -21,7 +21,7 @@ pub async fn handle_rule_with(action: RuleAction, config_dir: PathBuf, json: boo
 }
 
 fn handle_rule_check(rule: &str, json: bool) -> Result<()> {
-    use crate::permission::rules::validation::validate_rule;
+    use closeclaw_permission::rules::validation::validate_rule;
     let is_file_path = rule.starts_with('/')
         || rule.starts_with("./")
         || rule.starts_with("../")

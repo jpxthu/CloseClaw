@@ -34,8 +34,8 @@ use std::sync::Arc;
 
 use crate::agent::spawn::SpawnController;
 use crate::gateway::SessionManager;
-use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::skills::DiskSkillRegistry;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 /// Shared dependencies for built-in tool registration.
 ///

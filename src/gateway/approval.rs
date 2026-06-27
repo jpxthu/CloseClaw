@@ -10,9 +10,9 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::im::IMPlugin;
-use crate::permission::approval::ApprovalMode;
-use crate::permission::approval_flow::{ApprovalFlow, ApprovalNotification};
 use crate::renderer::RenderedOutput;
+use closeclaw_permission::approval::ApprovalMode;
+use closeclaw_permission::approval_flow::{ApprovalFlow, ApprovalNotification};
 
 use super::{Gateway, HandleResult};
 

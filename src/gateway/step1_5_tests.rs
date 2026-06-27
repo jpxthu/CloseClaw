@@ -446,8 +446,8 @@ impl crate::slash::handler::SlashHandler for TimingHandler {
 }
 
 /// A PermissionEngine that always allows.
-fn allow_engine() -> Arc<crate::permission::engine::engine_eval::PermissionEngine> {
-    use crate::permission::engine::engine_types::{Defaults, RuleSet};
+fn allow_engine() -> Arc<closeclaw_permission::engine::engine_eval::PermissionEngine> {
+    use closeclaw_permission::engine::engine_types::{Defaults, RuleSet};
     let rules = RuleSet {
         rules: vec![],
         defaults: Defaults::default(),
@@ -455,7 +455,9 @@ fn allow_engine() -> Arc<crate::permission::engine::engine_eval::PermissionEngin
         agent_creators: HashMap::new(),
     };
     Arc::new(
-        crate::permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(rules),
+        closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
+            rules,
+        ),
     )
 }
 
@@ -526,7 +528,7 @@ async fn test_permission_denied_handler_still_invoked() {
     )))
     .await;
 
-    use crate::permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
+    use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
     let deny_rules = RuleSet {
         rules: vec![Rule {
             name: "deny-all".to_owned(),
@@ -544,7 +546,7 @@ async fn test_permission_denied_handler_still_invoked() {
         agent_creators: HashMap::new(),
     };
     gw.set_permission_engine(Arc::new(
-        crate::permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
+        closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
             deny_rules,
         ),
     ))

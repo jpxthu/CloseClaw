@@ -34,8 +34,6 @@ use crate::slash::{
 
 use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;
-use crate::permission::approval_flow::ApprovalFlow;
-use crate::permission::{Defaults, PermissionEngine, RuleSet};
 use crate::session::bootstrap::BootstrapMode;
 use crate::session::persistence::PersistenceService;
 use crate::session::persistence::ReasoningLevel;
@@ -44,6 +42,9 @@ use crate::session::sweeper::ArchiveSweeper;
 use crate::skills::builtin::builtin_skills_with_engine_and_approval_flow;
 use crate::skills::{DiskSkillRegistry, SkillWatcherHandle};
 use crate::tools::ToolRegistry;
+use closeclaw_common::SessionLookup;
+use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -311,7 +312,7 @@ impl Daemon {
         config_manager: &Arc<crate::config::ConfigManager>,
     ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
-            Arc::clone(session_manager),
+            Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
             tokio::runtime::Handle::current(),
         )));
@@ -880,7 +881,7 @@ impl Daemon {
         let templates_dir = std::path::Path::new(config_dir).join("templates");
         if templates_dir.exists() {
             if let Ok(templates) =
-                crate::permission::templates::load_templates_from_dir(&templates_dir)
+                closeclaw_permission::templates::load_templates_from_dir(&templates_dir)
             {
                 let count = templates.len();
                 if count > 0 {

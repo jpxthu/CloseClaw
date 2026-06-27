@@ -27,12 +27,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use crate::permission::approval_flow::ApprovalFlow;
-use crate::permission::engine::engine_eval::PermissionEngine;
 use crate::renderer::RenderedOutput;
 use crate::session::checkpoint_manager::CheckpointManager;
 use crate::session::persistence::PersistenceService;
 use crate::slash::SlashDispatcher;
+use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 use crate::processor_chain::context::{ProcessedMessage, RawMessage};
 pub use crate::processor_chain::ProcessorRegistry;
