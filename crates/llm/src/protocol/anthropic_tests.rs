@@ -5,7 +5,7 @@ use reqwest::header::{HeaderMap, CONTENT_TYPE};
 use crate::protocol::{AnthropicProtocol, ChatProtocol, IncomingSseStream};
 use crate::types::{
     ContentBlockType, ContentDelta, InternalMessage, InternalRequest, RawContentBlock, RawSseChunk,
-    StreamEvent,
+    StreamEvent, ToolDefinition,
 };
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -40,7 +40,6 @@ fn make_sse_chunk(event_type: &str, data: &str) -> RawSseChunk {
 }
 
 // ── build_request tests ───────────────────────────────────────────────────
-
 #[test]
 fn test_build_request_basic() {
     let proto = AnthropicProtocol::new();
@@ -71,7 +70,6 @@ fn test_build_request_stream_flag() {
 }
 
 // ── system_blocks serialization tests ─────────────────────────────────────
-
 #[test]
 fn test_build_request_system_blocks_with_cache() {
     use crate::types::SystemBlock;
@@ -89,10 +87,8 @@ fn test_build_request_system_blocks_with_cache() {
         },
     ]);
     let body = proto.build_request(&request).unwrap();
-
     let system = body.get("system").unwrap().as_array().unwrap();
     assert_eq!(system.len(), 2);
-
     let first = &system[0];
     assert_eq!(first.get("type").unwrap(), "text");
     assert_eq!(first.get("text").unwrap(), "You are a helpful assistant.");
@@ -125,7 +121,6 @@ fn test_build_request_no_system_blocks() {
 }
 
 // ── parse_response tests ──────────────────────────────────────────────────
-
 #[test]
 fn test_parse_response_normal() {
     let proto = AnthropicProtocol::new();
@@ -388,7 +383,6 @@ fn test_parse_response_mixed_blocks() {
 }
 
 // ── cache usage parsing tests ─────────────────────────────────────────────
-
 #[test]
 fn test_parse_usage_cache_fields() {
     let body = serde_json::json!({
@@ -422,20 +416,13 @@ fn test_parse_usage_no_cache_fields() {
 }
 
 // ── decorate_headers tests ────────────────────────────────────────────────
-
-/// x-api-key header should always be present after decorate_headers.
 #[test]
 fn test_decorate_headers_api_key() {
     let proto = AnthropicProtocol::new();
     let mut headers = HeaderMap::new();
     proto.decorate_headers(&mut headers).unwrap();
 
-    // decorate_headers always inserts x-api-key (empty string when env var is unset)
-    let key_header = headers.get("x-api-key");
-    assert!(
-        key_header.is_some(),
-        "x-api-key header should always be present"
-    );
+    assert!(headers.get("x-api-key").is_some());
 }
 
 #[test]
@@ -463,7 +450,6 @@ fn test_decorate_headers_content_type() {
 }
 
 // ── reasoning_level non-injection tests ─────────────────────────────────
-
 #[test]
 fn test_build_request_does_not_inject_reasoning_level_low() {
     let proto = AnthropicProtocol::new();
@@ -508,8 +494,6 @@ fn test_build_request_high_reasoning_level_no_injection() {
 }
 
 // ── messages cache_control tests ──────────────────────────────────────────
-
-/// Last message in the array should receive cache_control marker.
 #[test]
 fn test_messages_cache_control_single_message() {
     let proto = AnthropicProtocol::new();
@@ -519,7 +503,6 @@ fn test_messages_cache_control_single_message() {
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert_eq!(messages.len(), 1);
 
-    // Content should be a content blocks array with cache_control
     let content = messages[0].get("content").unwrap().as_array().unwrap();
     assert_eq!(content.len(), 1);
     assert_eq!(content[0].get("type").unwrap(), "text");
@@ -553,7 +536,6 @@ fn test_messages_cache_control_multiple_messages() {
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert_eq!(messages.len(), 3);
 
-    // First two messages should keep string content
     assert!(messages[0].get("content").unwrap().is_string());
     assert_eq!(messages[0].get("content").unwrap().as_str().unwrap(), "Hi");
     assert!(messages[1].get("content").unwrap().is_string());
@@ -562,7 +544,6 @@ fn test_messages_cache_control_multiple_messages() {
         "Hey!"
     );
 
-    // Last message should be content blocks with cache_control
     let last_content = messages[2].get("content").unwrap().as_array().unwrap();
     assert_eq!(last_content.len(), 1);
     assert_eq!(last_content[0].get("type").unwrap(), "text");
@@ -580,24 +561,16 @@ fn test_messages_cache_control_empty_messages() {
     request.messages = vec![];
     let body = proto.build_request(&request).unwrap();
 
-    // Empty messages should produce an empty array with no cache_control added
-    let messages = body.get("messages").unwrap().as_array().unwrap();
-    assert!(messages.is_empty());
+    assert!(body.get("messages").unwrap().as_array().unwrap().is_empty());
 }
 
-/// Verify that ToolsSection content in `system_blocks` produces `cache_control`
-/// in the Anthropic request body, confirming the prefix-cache path covers tool
-/// definitions embedded in the static layer.
 #[test]
 fn test_build_request_tools_section_cache_control() {
     use crate::types::SystemBlock;
 
     let proto = AnthropicProtocol::new();
     let mut request = make_request();
-    // Simulate a system prompt with role section followed by ToolsSection content
-    let system_static = "Role: You are a helpful assistant.";
-    let tools_section = "\n\n## Tools\n\n- web_search: search the web\n- read: read files";
-    let full_static = format!("{system_static}{tools_section}");
+    let full_static = format!("Role: You are a helpful assistant.\n\n## Tools\n\n- web_search: search the web\n- read: read files");
     request.system_blocks = Some(vec![SystemBlock {
         text: full_static,
         cache: true,
@@ -640,7 +613,6 @@ fn test_messages_cache_control_with_system_blocks() {
     }]);
     let body = proto.build_request(&request).unwrap();
 
-    // System should have cache_control
     let system = body.get("system").unwrap().as_array().unwrap();
     assert_eq!(system.len(), 1);
     assert_eq!(
@@ -648,7 +620,6 @@ fn test_messages_cache_control_with_system_blocks() {
         &serde_json::json!({ "type": "ephemeral" })
     );
 
-    // Messages should also have cache_control on the last message
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert_eq!(messages.len(), 1);
     let content = messages[0].get("content").unwrap().as_array().unwrap();
@@ -660,7 +631,6 @@ fn test_messages_cache_control_with_system_blocks() {
 }
 
 // ── parse_sse_stream tests ───────────────────────────────────────────────
-
 #[tokio::test]
 async fn test_sse_text_stream() {
     let proto = AnthropicProtocol::new();
@@ -693,47 +663,34 @@ async fn test_sse_text_stream() {
 
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
 
-    // BlockStart(Text)
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockStart {
             index: 0,
-            block_type: ContentBlockType::Text,
+            block_type: ContentBlockType::Text
         }
     ));
 
-    // Text delta "Hello"
     let evt = stream.next().await.unwrap().unwrap();
-    assert!(matches!(
-        evt,
-        StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text { text },
-        } if text == "Hello"
-    ));
+    assert!(
+        matches!(evt, StreamEvent::BlockDelta { index: 0, delta: ContentDelta::Text { text } } if text == "Hello")
+    );
 
-    // Text delta " world"
     let evt = stream.next().await.unwrap().unwrap();
-    assert!(matches!(
-        evt,
-        StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text { text },
-        } if text == " world"
-    ));
+    assert!(
+        matches!(evt, StreamEvent::BlockDelta { index: 0, delta: ContentDelta::Text { text } } if text == " world")
+    );
 
-    // BlockEnd(Text)
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
         StreamEvent::BlockEnd {
             index: 0,
-            block_type: ContentBlockType::Text,
+            block_type: ContentBlockType::Text
         }
     ));
 
-    // MessageEnd
     let evt = stream.next().await.unwrap().unwrap();
     match evt {
         StreamEvent::MessageEnd {
@@ -967,4 +924,77 @@ async fn test_sse_ping_ignored() {
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
 
     assert!(stream.next().await.is_none());
+}
+
+// ── tools serialization tests ────────────────────────────────────────────
+fn make_tool(name: &str, cache: bool) -> ToolDefinition {
+    ToolDefinition {
+        name: name.to_string(),
+        description: format!("{name} tool"),
+        input_schema: Some(serde_json::json!({ "type": "object" })),
+        cache,
+    }
+}
+
+fn tool_names(req: &InternalRequest) -> Vec<serde_json::Value> {
+    AnthropicProtocol::new()
+        .build_request(req)
+        .unwrap()
+        .get("tools")
+        .unwrap()
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn ep() -> serde_json::Value {
+    serde_json::json!({"type":"ephemeral"})
+}
+
+#[test]
+fn test_build_request_tools_none() {
+    assert!(AnthropicProtocol::new()
+        .build_request(&make_request())
+        .unwrap()
+        .get("tools")
+        .is_none());
+}
+
+#[test]
+fn test_build_request_tools_empty() {
+    let mut r = make_request();
+    r.tools = Some(vec![]);
+    assert!(AnthropicProtocol::new()
+        .build_request(&r)
+        .unwrap()
+        .get("tools")
+        .is_none());
+}
+
+#[test]
+fn test_build_request_tools_all_cached() {
+    let mut r = make_request();
+    r.tools = Some(vec![make_tool("a", true), make_tool("b", true)]);
+    let t = tool_names(&r);
+    assert_eq!(t.len(), 2);
+    assert_eq!(t[0].get("cache_control").unwrap(), &ep());
+    assert_eq!(t[1].get("cache_control").unwrap(), &ep());
+}
+
+#[test]
+fn test_build_request_tools_partial_cached() {
+    let mut r = make_request();
+    r.tools = Some(vec![make_tool("a", true), make_tool("b", false)]);
+    let t = tool_names(&r);
+    assert_eq!(t[0].get("cache_control").unwrap(), &ep());
+    assert!(t[1].get("cache_control").is_none());
+}
+
+#[test]
+fn test_build_request_tools_none_cached() {
+    let mut r = make_request();
+    r.tools = Some(vec![make_tool("a", false), make_tool("b", false)]);
+    let t = tool_names(&r);
+    assert!(t[0].get("cache_control").is_none());
+    assert!(t[1].get("cache_control").is_none());
 }
