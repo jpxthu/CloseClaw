@@ -12,15 +12,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::info;
 
-/// Shutdown mode — distinguishes graceful from forceful shutdown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ShutdownMode {
-    /// Graceful: wait for in-flight operations to complete
-    #[default]
-    Graceful,
-    /// Forceful: immediately terminate operations
-    Forceful,
-}
+// ShutdownMode is now defined in closeclaw_common and re-exported.
+pub use closeclaw_common::ShutdownMode;
 
 /// Shutdown state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

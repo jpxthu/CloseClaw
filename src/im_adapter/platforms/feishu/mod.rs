@@ -55,7 +55,9 @@ pub async fn register(gateway: &Arc<crate::gateway::Gateway>, _config_dir: &str)
     {
         let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
         let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(FeishuPlugin::new(adapter));
-        gateway.register_plugin(plugin).await;
+        gateway
+            .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
+            .await;
         info!("Feishu plugin registered");
     } else {
         info!("Feishu credentials not found in env — Feishu plugin not registered");

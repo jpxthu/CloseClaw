@@ -73,7 +73,8 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         ReasoningLevel::default(),
     ));
 
-    let processor_registry = Arc::new(processor_chain::build_processor_registry(&gateway_config));
+    let processor_registry = Arc::new(processor_chain::build_processor_registry(&gateway_config))
+        as Arc<dyn closeclaw_common::ProcessorChain>;
     let gateway = Gateway::with_processor_registry(
         gateway_config,
         Arc::clone(&session_manager),
@@ -85,10 +86,14 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
     let gateway = attach_session_handler(gateway, Arc::clone(&session_manager)).await;
     let gateway = Arc::new(gateway);
     gateway.set_self_ref(Arc::clone(&gateway));
-    gateway.set_slash_dispatcher(slash_dispatcher).await;
+    gateway
+        .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
+        .await;
 
     let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
-    gateway.register_plugin(plugin).await;
+    gateway
+        .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
+        .await;
 
     (gateway, session_manager)
 }

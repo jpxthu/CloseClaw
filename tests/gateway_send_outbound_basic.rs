@@ -2,15 +2,18 @@
 
 use async_trait::async_trait;
 use closeclaw::gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
-use closeclaw::im::{AdapterError, IMAdapter, IMPlugin, NormalizedMessage};
+use closeclaw::im::IMAdapter;
+use closeclaw::im::{
+    AdapterError as LocalAdapterError, NormalizedMessage as LocalNormalizedMessage,
+};
 use closeclaw::llm::types::ContentBlock;
-use closeclaw::processor_chain::dsl_parser::DslParseResult;
 use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
-use closeclaw::renderer::RenderedOutput;
 use closeclaw::session::bootstrap::BootstrapMode;
 use closeclaw::session::persistence::ReasoningLevel;
+use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
+use closeclaw_common::processor::DslParseResult;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -352,16 +355,23 @@ async fn test_feishu_adapter_send_card_json_default() {
         async fn handle_webhook(
             &self,
             _: &[u8],
-        ) -> Result<Option<NormalizedMessage>, AdapterError> {
-            Err(AdapterError::InvalidPayload("x".into()))
+        ) -> Result<Option<LocalNormalizedMessage>, LocalAdapterError> {
+            Err(LocalAdapterError::InvalidPayload("x".into()))
         }
-        async fn send_message(&self, _: &Message, _: Option<&str>) -> Result<(), AdapterError> {
-            Err(AdapterError::InvalidPayload("x".into()))
+        async fn send_message(
+            &self,
+            _: &Message,
+            _: Option<&str>,
+        ) -> Result<(), LocalAdapterError> {
+            Err(LocalAdapterError::InvalidPayload("x".into()))
         }
         async fn validate_signature(&self, _: &str, _: &[u8]) -> bool {
             true
         }
     }
     let result = DummyAdapter.send_card_json("chat_1", "{}", None).await;
-    assert!(matches!(result, Err(AdapterError::UnsupportedOperation)));
+    assert!(matches!(
+        result,
+        Err(LocalAdapterError::UnsupportedOperation)
+    ));
 }

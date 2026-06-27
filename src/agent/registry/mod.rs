@@ -81,5 +81,24 @@ pub fn create_registry() -> SharedAgentRegistry {
     Arc::new(AgentRegistry::new())
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AgentLookup — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[async_trait::async_trait]
+impl closeclaw_common::agent_lookup::AgentLookup for AgentRegistry {
+    async fn get_agent_model(&self, agent_id: &str) -> Option<String> {
+        self.get(agent_id).and_then(|cfg| cfg.model.clone())
+    }
+
+    async fn agent_exists(&self, agent_id: &str) -> bool {
+        self.get(agent_id).is_some()
+    }
+
+    async fn get_parent_id(&self, agent_id: &str) -> Option<String> {
+        self.get(agent_id).and_then(|cfg| cfg.parent_id.clone())
+    }
+}
+
 #[cfg(test)]
 mod config_tests;

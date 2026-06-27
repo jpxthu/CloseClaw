@@ -295,7 +295,7 @@ impl Daemon {
         // Wire shutdown handle into SessionManager for child-session
         // busy-count tracking during drain.
         session_manager
-            .set_shutdown_handle(Arc::new(shutdown.clone()))
+            .set_shutdown_handle(crate::bridge::common_shutdown_handle(&shutdown))
             .await;
         info!("Shutdown coordinator initialized");
         Ok((gateway, session_manager, shutdown))
@@ -361,10 +361,15 @@ impl Daemon {
         )
         .await;
         session_manager
-            .set_tool_registry(Arc::clone(tool_registry))
+            .set_tool_registry(
+                Arc::clone(tool_registry) as Arc<dyn closeclaw_common::ToolRegistryQuery>
+            )
             .await;
         session_manager
-            .set_skill_registry(skill_registry.clone())
+            .set_skill_registry(Arc::new(crate::bridge::SkillRegistryWrapper(
+                skill_registry.clone(),
+            ))
+                as Arc<dyn closeclaw_common::SkillRegistryQuery>)
             .await;
         Ok((sweeper_tx, dreaming_tx, config_watcher))
     }
@@ -443,10 +448,9 @@ impl Daemon {
 
         // Wire shutdown handle into Gateway and SessionManager for
         // busy-count tracking during drain.
-        gateway.set_shutdown_handle(Arc::clone(&shutdown));
-        session_manager
-            .set_shutdown_handle(Arc::clone(&shutdown))
-            .await;
+        let common_sh = crate::bridge::common_shutdown_handle(&shutdown);
+        gateway.set_shutdown_handle(Arc::clone(&common_sh));
+        session_manager.set_shutdown_handle(common_sh).await;
 
         let approval_flow = Self::init_phase_4_wiring(
             &gateway,
@@ -685,7 +689,8 @@ impl Daemon {
                     if progress.remaining == 0
                         || now.duration_since(last_card_update) >= throttle_interval
                     {
-                        let current_mode = self.shutdown.mode();
+                        let current_mode: closeclaw_common::shutdown::ShutdownMode =
+                            self.shutdown.mode();
                         self.gateway
                             .send_shutdown_progress_card(current_mode)
                             .await;
@@ -729,7 +734,7 @@ impl Daemon {
             }
 
             // Check if mode changed and update card
-            let current_mode = self.shutdown.mode();
+            let current_mode: closeclaw_common::shutdown::ShutdownMode = self.shutdown.mode();
             if current_mode != last_mode {
                 tracing::info!(
                     ?last_mode,
@@ -918,7 +923,9 @@ impl Daemon {
     /// Initialize the terminal (CLI) IM plugin and register with Gateway.
     async fn init_terminal_plugin(gateway: &Arc<Gateway>) {
         let plugin: Arc<dyn crate::im::IMPlugin> = Arc::new(TerminalPlugin::new());
-        gateway.register_plugin(plugin).await;
+        gateway
+            .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
+            .await;
         info!("Terminal plugin registered");
     }
 
@@ -942,7 +949,9 @@ impl Daemon {
         slash_registry.register(Arc::new(StopHandler));
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(session_manager))));
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
-        gateway.set_slash_dispatcher(slash_dispatcher).await;
+        gateway
+            .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
+            .await;
         // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
         // dispatch_slash 在 Branch 2 时能取到 engine。
         gateway
