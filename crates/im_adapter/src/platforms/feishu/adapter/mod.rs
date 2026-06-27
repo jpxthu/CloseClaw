@@ -404,7 +404,10 @@ impl FeishuAdapter {
                 "text".to_string(),
             ),
             "post" => (expand_post_content(&content), "post".to_string()),
-            _other => return Ok(None),
+            _other => {
+                tracing::debug!(message_type = _other, "Discarding unsupported message type");
+                return Ok(None);
+            }
         };
 
         let thread_id = event
