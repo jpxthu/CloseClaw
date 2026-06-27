@@ -17,7 +17,7 @@ IM Adapter 模块不包含业务逻辑，由三层组成：
 模块运行时注册表由 Gateway 维护：
 
 - **Plugin Registry**：platform → IMPlugin 的映射。Gateway 通过 platform 字段选择插件。
-- **插件注册机制**：Gateway 启动时自动扫描 `platforms/` 目录，发现所有实现了 IMPlugin trait 的插件并加载。不在 `platforms/` 下的插件（如 CLI 模块的 terminal）通过显式注册加入 Plugin Registry。用户可通过配置文件控制各平台的启用/禁用。新增 IM 平台 = 新增目录 + 实现 trait，Gateway 代码和配置均无需改动。
+- **插件注册机制**：编译期通过 build.rs 自动扫描 `platforms/` 目录发现所有插件，通过 compile-time registration 注册。不在 `platforms/` 下的插件（如 CLI 模块的 terminal）通过显式注册加入 Plugin Registry。启动时加载已注册插件，用户可通过配置文件控制各平台的启用/禁用。新增 IM 平台 = 新增目录 + 实现 trait，Gateway 代码和配置均无需改动。
 
 平台插件为自包含模块，内部结构统一：
 
