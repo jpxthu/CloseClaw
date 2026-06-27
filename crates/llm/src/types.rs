@@ -213,10 +213,19 @@ pub struct InternalMessage {
 /// A tool definition passed via the API `tools` parameter.
 ///
 /// Used by `CacheAdapter` to mark tool schemas as cacheable.
+/// When serialized to an Anthropic-compatible payload, the `name`,
+/// `description`, and `input_schema` fields map directly to the
+/// Anthropic `tools` array format.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDefinition {
     /// The name of the tool.
     pub name: String,
+    /// A human-readable description of what the tool does.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// The JSON Schema describing the tool's input parameters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<serde_json::Value>,
     /// Whether this tool's schema should be marked as cacheable.
     pub cache: bool,
 }
