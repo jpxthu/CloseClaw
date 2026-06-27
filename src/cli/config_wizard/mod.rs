@@ -190,16 +190,41 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         ModelsConfigData::default()
     };
 
+    // ── Merge: preserve all existing providers, replace selected provider ───────
+    let mut providers = existing.providers;
+    // Save existing config before removal so we can inherit fields
+    let existing_provider = providers.get(&output.provider_id).cloned();
+    // Remove entries for the selected provider so we can replace them
+    providers.remove(&output.provider_id);
+
     // ── Build the new provider config from WizardOutput.selected_models ────────
-    let new_provider_models: Vec<ModelDefinition> = output
-        .selected_models
-        .iter()
-        .map(|m| ModelDefinition {
-            id: m.id.clone(),
-            name: Some(m.name.clone()),
-            enabled: Some(true),
-        })
-        .collect();
+    // Merge strategy: preserve existing models, update/append selected models.
+    // - Existing models not in selected_models are preserved (not deleted)
+    // - Existing models matching by id are replaced entirely (name/enabled updated)
+    // - New models from selected_models are appended
+    let existing_models = existing_provider
+        .as_ref()
+        .map(|ep| ep.models.clone())
+        .unwrap_or_default();
+
+    let mut merged_models: Vec<ModelDefinition> = existing_models;
+    for selected in &output.selected_models {
+        if let Some(existing) = merged_models.iter_mut().find(|m| m.id == selected.id) {
+            // Same id → replace entirely
+            *existing = ModelDefinition {
+                id: selected.id.clone(),
+                name: Some(selected.name.clone()),
+                enabled: Some(true),
+            };
+        } else {
+            // New id → append
+            merged_models.push(ModelDefinition {
+                id: selected.id.clone(),
+                name: Some(selected.name.clone()),
+                enabled: Some(true),
+            });
+        }
+    }
 
     // ── Query recommended_protocol from knowledge base ────────────────────────
     let recommended_protocol = output.selected_models.first().map(|m| {
@@ -207,13 +232,6 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         kb.recommended_protocol(&output.provider_id, &m.id)
             .to_string()
     });
-
-    // ── Merge: preserve all existing providers, replace selected provider ───────
-    let mut providers = existing.providers;
-    // Save existing config before removal so we can inherit fields
-    let existing_provider = providers.get(&output.provider_id).cloned();
-    // Remove entries for the selected provider so we can replace them
-    providers.remove(&output.provider_id);
 
     // Inherit base_url, api_key, api from existing config if present
     let (base_url, api_key, api) = existing_provider
@@ -226,7 +244,7 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
         api,
         protocol: recommended_protocol,
         credential_path: Some(format!("credentials/{}.json", output.provider_id)),
-        models: new_provider_models,
+        models: merged_models,
     };
     providers.insert(output.provider_id.clone(), new_provider_config);
 
