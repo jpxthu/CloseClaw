@@ -1,6 +1,6 @@
-use crate::common::VerbosityLevel;
 use crate::slash::context::SlashContext;
 use crate::slash::side_effect::SideEffectContext;
+use closeclaw_common::VerbosityLevel;
 use closeclaw_session::persistence::ReasoningLevel;
 
 /// Action for the `SystemAppend` slash result.

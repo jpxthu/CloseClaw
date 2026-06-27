@@ -199,7 +199,7 @@ async fn test_execute_set_reasoning_no_session() {
 #[tokio::test]
 async fn test_execute_set_verbosity_no_session() {
     let result = SlashResult::SetVerbosity {
-        level: crate::common::VerbosityLevel::Off,
+        level: closeclaw_common::VerbosityLevel::Off,
     };
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);

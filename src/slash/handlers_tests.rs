@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use crate::common::VerbosityLevel;
 use crate::gateway::session_manager::SessionManager;
 use crate::slash::context::SlashContext;
 use crate::slash::dispatcher::SlashDispatcher;
@@ -12,6 +11,7 @@ use crate::slash::handlers::{
 };
 use crate::slash::registry::HandlerRegistry;
 use crate::slash::VerboseHandler;
+use closeclaw_common::VerbosityLevel;
 use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Mock handler ────────────────────────────────────────────────────────────
