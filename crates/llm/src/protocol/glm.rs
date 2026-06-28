@@ -225,9 +225,34 @@ impl ChatProtocol for GlmProtocol {
                                 index: idx,
                                 block_type: ContentBlockType::Thinking,
                             };
+                        } else if !buf.is_empty() {
+                            // Short reasoning — demote to Text, prepend to
+                            // the content block that follows.
+                            let idx = match current_block_index {
+                                Some(i) => i,
+                                None => {
+                                    let idx = next_block_index;
+                                    next_block_index += 1;
+                                    current_block_index = Some(idx);
+                                    current_block_type = Some(
+                                        ContentBlockType::Text,
+                                    );
+                                    yield StreamEvent::BlockStart {
+                                        index: idx,
+                                        block_type: ContentBlockType::Text,
+                                    };
+                                    idx
+                                }
+                            };
+                            yield StreamEvent::BlockDelta {
+                                index: idx,
+                                delta: ContentDelta::Text {
+                                    text: buf,
+                                },
+                            };
                         }
                     }
-                    // text_delta is Some — handle below
+                    // text_delta is Some — handled below
                 }
 
                 if let Some(text) = text_delta {
