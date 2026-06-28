@@ -49,11 +49,12 @@ async fn test_drain_waits_until_busy_count_zero() {
     assert!(handle.is_stopped());
 }
 
-/// Test 2: drain waits for busy_count to reach 0, then exits.
-/// (Drain timeout was removed in #1165 — graceful drain now waits indefinitely.)
+/// Test 2: drain completes after timeout, even if busy_count > 0.
+/// When the drain timeout fires, shutdown proceeds to Stopped state
+/// and busy_count is not cleared.
 #[tokio::test]
 async fn test_drain_waits_for_busy_count_zero() {
-    let handle = ShutdownHandle::new();
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(300));
     handle.increment_busy();
 
     let handle_clone = handle.clone();
@@ -62,18 +63,18 @@ async fn test_drain_waits_for_busy_count_zero() {
     });
 
     // Give it time to enter drain loop
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!handle.is_stopped(), "should still be draining");
 
-    // Release busy count — drain should complete
-    handle.decrement_busy();
-
-    let _ = tokio::time::timeout(Duration::from_secs(5), shutdown_task).await;
+    // Wait for timeout + buffer — drain should complete even though
+    // busy_count is still 1.
+    let _ = tokio::time::timeout(Duration::from_secs(3), shutdown_task).await;
     assert!(
         handle.is_stopped(),
-        "handle should be stopped after busy_count reaches 0"
+        "handle should be stopped after drain timeout"
     );
-    assert_eq!(handle.busy_count(), 0);
+    // busy_count was not cleared by the drain
+    assert_eq!(handle.busy_count(), 1);
 }
 
 /// Test 3: drain signal is broadcast to all subscribers.

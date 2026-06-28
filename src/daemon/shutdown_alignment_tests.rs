@@ -229,9 +229,9 @@ async fn test_forceful_mode_immediate_termination() {
 }
 
 #[tokio::test]
-async fn test_graceful_mode_no_timeout_no_forced_termination() {
-    // After Step 1.3, graceful mode waits indefinitely for busy_count
-    // to reach 0 (no hardcoded timeout forcing termination).
+async fn test_drain_completes_before_timeout() {
+    // When busy_count reaches 0, drain completes immediately
+    // without waiting for the full timeout to expire.
     let handle = ShutdownHandle::new();
     handle.increment_busy();
 
@@ -240,7 +240,8 @@ async fn test_graceful_mode_no_timeout_no_forced_termination() {
         h.initiate_shutdown().await;
     });
 
-    // Wait 1 second — drain should still be running (no timeout)
+    // Wait 1 second — drain should still be running (30s default timeout
+    // has not fired)
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     assert!(handle.is_shutting_down());
     assert!(!handle.is_stopped());
