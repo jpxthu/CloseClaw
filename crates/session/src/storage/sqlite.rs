@@ -567,6 +567,16 @@ impl PersistenceService for SqliteStorage {
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
 
+    /// Close the storage backend (no-op for SQLite).
+    ///
+    /// SqliteStorage opens temporary connections per operation and closes
+    /// them immediately — no persistent connection or file handle to release.
+    /// This method provides the explicit close interface for shutdown phase 6
+    /// while remaining a no-op for correctness.
+    async fn close(&self) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
     async fn list_idle_sessions_for_agent(
         &self,
         agent_id: &str,

@@ -384,6 +384,18 @@ impl SessionManager {
         storage.sync().await
     }
 
+    /// Explicitly close the storage backend and release resources.
+    ///
+    /// Called during Phase 6 of daemon shutdown. Releases persistent
+    /// connections or file handles held by the storage backend.
+    pub async fn close_storage(&self) -> Result<(), PersistenceError> {
+        let storage = self.storage.read().await;
+        let Some(storage) = storage.as_ref() else {
+            return Ok(());
+        };
+        storage.close().await
+    }
+
     /// Flush all active sessions to persistence.
     /// Returns the number of sessions successfully saved.
     pub async fn flush_all(&self, _mode: ShutdownMode) -> Result<usize, PersistenceError> {

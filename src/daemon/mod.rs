@@ -784,8 +784,7 @@ impl Daemon {
         self.approval_flow.lock().await.clear();
     }
 
-    /// Phase 4: Final persistence — ensure all session checkpoints are flushed
-    /// and WAL data is synced to disk.
+    /// Phase 4: Final persistence — flush checkpoints and sync WAL.
     async fn phase_4_final_persist(&self, mode: crate::daemon::shutdown::ShutdownMode) {
         match self.gateway.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
@@ -802,16 +801,15 @@ impl Daemon {
         self.gateway.close_outbound().await;
     }
 
-    /// Phase 6: Storage close.
+    /// Phase 6: Storage close — release persistent connections/handles.
     async fn phase_6_storage_close(&self) {
-        // SqliteStorage uses RAII — actual drop happens when Daemon is destroyed.
+        match self.gateway.close_storage().await {
+            Ok(()) => tracing::info!("storage closed"),
+            Err(e) => tracing::warn!(error = %e, "storage close failed"),
+        }
     }
 
-    /// Phase 7: Exit cleanup.
-    ///
-    /// - Check for abnormal sessions (non-Stopped) → log warning
-    /// - Clean up admin socket file
-    /// - Process exits when run() returns and Daemon is dropped
+    /// Phase 7: Exit cleanup — log warnings, remove admin socket.
     async fn phase_7_exit(&self) {
         // Check for sessions still in the active table — after
         // stop_all_sessions, only sessions that were NOT stopped

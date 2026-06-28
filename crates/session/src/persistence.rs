@@ -611,6 +611,15 @@ pub trait PersistenceService: Send + Sync {
     ) -> Result<(), PersistenceError> {
         Ok(())
     }
+
+    /// Explicitly close the storage backend and release resources.
+    ///
+    /// Called during Phase 6 of daemon shutdown. The default implementation
+    /// is a no-op (returns `Ok(())`). Concrete storage backends should
+    /// override this to close persistent connections or file handles.
+    async fn close(&self) -> Result<(), PersistenceError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

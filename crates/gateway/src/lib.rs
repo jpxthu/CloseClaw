@@ -430,6 +430,14 @@ impl Gateway {
         self.session_manager.sync_storage().await
     }
 
+    /// Close the storage backend and release resources (proxied to
+    /// SessionManager).  Called during Phase 6 of daemon shutdown.
+    pub async fn close_storage(
+        &self,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        self.session_manager.close_storage().await
+    }
+
     /// Close outbound connections and clean up routing tables.
     ///
     /// Calls `shutdown_outbound()` on every registered IM plugin,
