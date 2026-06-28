@@ -9,6 +9,7 @@ pub mod compaction;
 pub mod gateway_spawn;
 pub mod gateway_stop;
 pub mod gateway_types;
+pub mod identity;
 pub mod im_plugin;
 pub mod processor;
 pub mod session_lookup;
@@ -43,6 +44,7 @@ pub use gateway_types::{
     DmScope, GatewayConfig, GatewayError, HandleResult, InboundChainInput, InboundRequest, Message,
     Session,
 };
+pub use identity::{ConfigIdentityResolver, IdentityMapping, IdentityResolver};
 pub use im_plugin::{
     AdapterError, IMAdapter, IMPlugin, MediaRef, NormalizedMessage, QuotedMessage, RenderedOutput,
     StreamingOutput,
