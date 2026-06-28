@@ -19,6 +19,8 @@ pub mod skill_registry;
 pub mod slash_router;
 pub mod storage_provider;
 pub mod streaming;
+#[cfg(test)]
+pub mod streaming_tests;
 pub mod system_prompt;
 pub mod task_manager;
 pub mod tool_registry;
