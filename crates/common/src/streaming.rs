@@ -168,29 +168,52 @@ impl LineBuffer {
         self.in_code_block = false;
     }
 
-    fn feed(&mut self, text: &str) -> Vec<String> {
-        let mut lines = Vec::new();
-        for ch in text.chars() {
-            if ch == '\n' {
-                self.in_code_block = !self.in_code_block;
+    fn feed(&mut self, chunk: &str) -> Vec<String> {
+        if chunk.is_empty() {
+            return Vec::new();
+        }
+        let mut emitted: Vec<String> = Vec::new();
+        let mut current_line = std::mem::take(&mut self.buffer);
+        let mut in_code = self.in_code_block;
+        let mut backtick_run: usize = count_trailing_backticks(&current_line);
+
+        for ch in chunk.chars() {
+            if ch == '`' {
+                backtick_run += 1;
+                current_line.push(ch);
+                continue;
             }
-            self.buffer.push(ch);
-            if self.should_split() {
-                let line = self.buffer.trim().to_string();
+            if backtick_run >= 3 {
+                in_code = !in_code;
+            }
+            backtick_run = 0;
+            current_line.push(ch);
+
+            let emit = if in_code {
+                ch == '\n'
+            } else {
+                is_sentence_terminator(ch) || ch == '\n'
+            };
+            if emit {
+                let line = current_line.trim().to_string();
                 if !line.is_empty() {
-                    lines.push(line);
+                    emitted.push(line);
                 }
-                self.buffer.clear();
+                current_line.clear();
             }
         }
+
+        self.in_code_block = in_code;
+        self.buffer = current_line;
+
         if self.buffer.len() > LINE_THRESHOLD {
             let line = self.buffer.trim().to_string();
             if !line.is_empty() {
-                lines.push(line);
+                emitted.push(line);
             }
             self.buffer.clear();
         }
-        lines
+        emitted
     }
 
     fn flush(&mut self) -> Option<String> {
@@ -202,20 +225,14 @@ impl LineBuffer {
             Some(line)
         }
     }
+}
 
-    fn should_split(&self) -> bool {
-        if self.in_code_block {
-            self.buffer.ends_with('\n')
-        } else {
-            self.buffer.ends_with('。')
-                || self.buffer.ends_with('！')
-                || self.buffer.ends_with('？')
-                || self.buffer.ends_with('.')
-                || self.buffer.ends_with('!')
-                || self.buffer.ends_with('?')
-                || self.buffer.ends_with('\n')
-        }
-    }
+fn is_sentence_terminator(ch: char) -> bool {
+    matches!(ch, '。' | '！' | '？' | '.' | '!' | '?')
+}
+
+fn count_trailing_backticks(s: &str) -> usize {
+    s.chars().rev().take_while(|&c| c == '`').count()
 }
 
 // ── Block accumulator ───────────────────────────────────────────────────────
