@@ -109,7 +109,7 @@
     "commit": "3e2b0b7d29ebf4cf46cdb79fe33e5d3c34e70d54",
     "commit_time": "2026-06-26T02:45:41+08:00",
     "confirmed_time": "2026-06-26T02:54:54.436593+08:00",
-    "comment": ""
+    "comment": "blocked: 文档声称可通过配置文件控制各平台启用/禁用，但代码仅通过环境变量判断，不存在配置文件级启停机制。设计目标与实现矛盾。"
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
