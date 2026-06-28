@@ -89,10 +89,26 @@ impl SessionManager {
         let mut processed = 0usize;
 
         for level in &stop_order {
+            // Dynamically query the shutdown handle for the current mode.
+            // After escalation (e.g. graceful → forceful), the next level
+            // will use the escalated mode instead of the original `mode`.
+            let effective_mode = match self.get_shutdown_handle().await {
+                Some(sh) if sh.is_forceful() => {
+                    if mode != ShutdownMode::Forceful {
+                        tracing::info!(
+                            original_mode = ?mode,
+                            "escalation detected: switching to forceful mode"
+                        );
+                    }
+                    ShutdownMode::Forceful
+                }
+                _ => mode,
+            };
+
             processed += self
                 .process_stop_level(
                     level,
-                    mode,
+                    effective_mode,
                     &mut result,
                     progress_tx,
                     total_sessions.saturating_sub(processed),
