@@ -17,6 +17,7 @@ fn make_request() -> InternalRequest {
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: "Hello".to_string(),
+            ..Default::default()
         }],
         temperature: 0.7,
         max_tokens: Some(1024),
@@ -381,7 +382,6 @@ fn test_parse_response_mixed_blocks() {
         other => panic!("Expected ToolResult at index 3, got {:?}", other),
     }
 }
-
 // ── cache usage parsing tests ─────────────────────────────────────────────
 #[test]
 fn test_parse_usage_cache_fields() {
@@ -399,7 +399,6 @@ fn test_parse_usage_cache_fields() {
     assert_eq!(resp.usage.cache_read_tokens, Some(80));
     assert_eq!(resp.usage.cache_write_tokens, Some(20));
 }
-
 #[test]
 fn test_parse_usage_no_cache_fields() {
     let body = serde_json::json!({
@@ -424,7 +423,6 @@ fn test_decorate_headers_api_key() {
 
     assert!(headers.get("x-api-key").is_some());
 }
-
 #[test]
 fn test_decorate_headers_anthropic_version() {
     let proto = AnthropicProtocol::new();
@@ -448,7 +446,6 @@ fn test_decorate_headers_content_type() {
         "application/json"
     );
 }
-
 // ── reasoning_level non-injection tests ─────────────────────────────────
 #[test]
 fn test_build_request_does_not_inject_reasoning_level_low() {
@@ -482,7 +479,6 @@ fn test_build_request_does_not_inject_reasoning_level_max() {
     assert!(body.get("reasoning_effort").is_none());
     assert!(body.get("reasoning_level").is_none());
 }
-
 #[test]
 fn test_build_request_high_reasoning_level_no_injection() {
     let proto = AnthropicProtocol::new();
@@ -521,14 +517,17 @@ fn test_messages_cache_control_multiple_messages() {
         InternalMessage {
             role: "user".to_string(),
             content: "Hi".to_string(),
+            ..Default::default()
         },
         InternalMessage {
             role: "assistant".to_string(),
             content: "Hey!".to_string(),
+            ..Default::default()
         },
         InternalMessage {
             role: "user".to_string(),
             content: "What's up?".to_string(),
+            ..Default::default()
         },
     ];
     let body = proto.build_request(&request).unwrap();
@@ -606,6 +605,7 @@ fn test_messages_cache_control_with_system_blocks() {
     request.messages = vec![InternalMessage {
         role: "user".to_string(),
         content: "Hello".to_string(),
+        ..Default::default()
     }];
     request.system_blocks = Some(vec![SystemBlock {
         text: "System prompt".to_string(),

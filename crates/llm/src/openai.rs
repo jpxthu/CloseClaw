@@ -314,6 +314,7 @@ mod tests {
             messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content: "hi".to_string(),
+                ..Default::default()
             }],
             temperature: 0.0,
             max_tokens: None,

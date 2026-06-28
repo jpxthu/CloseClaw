@@ -52,6 +52,7 @@ pub async fn call_llm<M: LlmMeta>(
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
+            ..Default::default()
         }],
         temperature: 0.7,
         max_tokens: None,
@@ -91,6 +92,7 @@ pub async fn call_llm_streaming<M: LlmMeta>(
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
+            ..Default::default()
         }],
         temperature: 0.7,
         max_tokens: None,

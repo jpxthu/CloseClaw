@@ -151,6 +151,7 @@ impl ChatSession for ConversationSession {
             msgs.push(InternalMessage {
                 role: "system".into(),
                 content: prompt.clone(),
+                ..Default::default()
             });
         }
         let cleaned = Self::clean_thinking_content(&self.messages);
@@ -176,6 +177,7 @@ impl ChatSession for ConversationSession {
             msgs.push(InternalMessage {
                 role: msg.role.clone(),
                 content,
+                ..Default::default()
             });
         }
         InternalRequest {

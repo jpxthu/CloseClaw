@@ -97,6 +97,7 @@ impl FallbackClient {
                 .map(|m| InternalMessage {
                     role: m.role.clone(),
                     content: m.content.clone(),
+                    ..Default::default()
                 })
                 .collect(),
             temperature: request.temperature,

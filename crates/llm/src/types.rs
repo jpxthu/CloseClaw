@@ -208,6 +208,22 @@ pub struct InternalMessage {
     pub role: String,
     /// The content of the message.
     pub content: String,
+    /// Optional tool call ID for tool result messages.
+    /// When present, this message represents a tool result that should be
+    /// serialized in provider-native format by the protocol layer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
+}
+
+impl Default for InternalMessage {
+    fn default() -> Self {
+        Self {
+            role: String::new(),
+            content: String::new(),
+            tool_call_id: None,
+        }
+    }
 }
 
 /// A tool definition passed via the API `tools` parameter.
