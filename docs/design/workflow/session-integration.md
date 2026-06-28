@@ -22,49 +22,103 @@ WorkflowRun 作为 session 的附加状态随 session checkpoint 持久化：
 
 ### System Prompt 注入
 
-进入 workflow 模式后，Engine 向 system prompt 追加区注入 workflow context。复用 /system add 的注入路径，内容包含 workflow 名称、描述和三阶段协议约束。注入与其他追加条目共存于追加区，以 --- WORKFLOW --- 和 --- WORKFLOW END --- 边界标记分隔。
+进入 workflow 模式后，Engine 向 system prompt 追加区注入 workflow context，复用 /system add 的注入路径。
 
-注入时机：首次进入 workflow 模式（斜杠指令或工具调用）、Session 从归档恢复时（重新注入保证内容最新）、Compaction 完成后（system prompt 重建时重新注入）。
+注入内容：
+
+```
+--- WORKFLOW ---
+你正在执行受控工作流：{workflow_name}
+描述：{description}
+Engine 会通过 workflow 角色消息驱动步骤推进，必须遵守三阶段协议：
+1. 收到 goal → 执行步骤
+2. 收到 verify → 自查验收清单 → 完成则调 workflow_verify()，否则继续
+3. 收到 jump → 回答问题 → 调 workflow_jump({answers})
+不要自行跳步或跳过验证。
+--- WORKFLOW END ---
+```
+
+注入时机：
+
+1. 首次进入 workflow 模式（斜杠指令或工具调用）
+2. Session 从归档恢复时（重新注入，保证内容最新）
+3. Compaction 完成后（system prompt 重建时重新注入）
 
 ### 消息管理
 
-Workflow 控制消息（role: workflow）独立于普通对话消息：goal 消息保留在 context 中不参与压缩；verify 和 jump 消息在 Engine 处理完成后从消息历史中删除（含对应的 tool_call 和 tool_result）。
+Workflow 控制消息（role: workflow）与普通对话消息独立管理：
+
+- goal 消息：保留，不参与压缩
+- verify 消息：处理后删除（含对应的 tool_call 和 tool_result）
+- jump 消息：处理后删除（含对应的 tool_call 和 tool_result）
 
 ## 数据流
 
 ### 进入 Workflow 模式
 
-斜杠指令或 workflow_start 调用触发。Engine 加载定义并初始化 WorkflowRun（current_step 为 0，phase 为 executing，step_history 为空）。Engine 向 system prompt 追加区注入 workflow context，向消息历史注入 role 为 workflow 的 Step 0 goal 消息，Agent 开始执行。
+1. 用户输入 /workflow <name> 或 Agent 调用 workflow_start({name})
+2. Engine 加载定义，初始化 WorkflowRun：current_step 置 0，phase 置 executing
+3. Engine 向 system prompt 追加区注入 workflow context
+4. Engine 注入 role 为 workflow 的 Step 0 goal 消息
+5. Agent 开始执行
 
 ### 轮次间持久化
 
-每次 checkpoint 写入时 SessionCheckpoint 携带 WorkflowRun 的完整状态：workflow_id、definition_version、current_step、phase、step_history、step_data、pending_verify。
+每次 checkpoint 写入时附带 WorkflowRun 的完整字段：
+
+```
+workflow_id
+definition_version
+current_step
+phase
+step_history[]
+step_data
+pending_verify
+```
 
 ### 从归档恢复
 
-Session 从归档恢复后 SessionManager 重建 ConversationSession，System Prompt Builder 重新构建 system prompt。Engine 检测到 WorkflowRun 存在且 phase 不是 complete 时：注入 recovered 消息（role: workflow，说明正在执行的 workflow 名称和当前步骤编号），注入当前步骤 goal 消息（role: workflow），向 system prompt 追加区重新注入 workflow context。Agent 从中断点继续。恢复后 verify 和 jump 的交互流程由 Engine 管理（详见 execution-engine.md），Engine 根据当前 phase 决定注入 verify 还是 jump。
+1. Session 从归档恢复
+2. SessionManager 重建 ConversationSession
+3. System Prompt Builder 重新构建 system prompt
+4. Engine 检测 WorkflowRun 存在且 phase ≠ complete
+5. Engine 注入 recovered 消息（role: workflow）：
+   - "正在执行 {workflow_name}，当前 Step {N}。"
+6. Engine 注入当前步骤 goal 消息（role: workflow）
+7. Engine 重新注入 workflow context
+8. Agent 从中断点继续
+
+恢复后 verify/jump 流程由 Engine 管理（详见 execution-engine.md），Engine 根据当前 phase 决定注入内容。
 
 ### 退出 Workflow 模式
 
-Workflow 正常结束（phase 为 complete）时 Engine 执行清理：从 system prompt 追加区移除 workflow context，清理消息历史中的 workflow goal 消息，清空 WorkflowRun 状态，触发一次 checkpoint 写入将空状态持久化。Session 恢复为普通 session。
+1. Workflow 正常结束（phase = complete）
+2. Engine 从追加区移除 workflow context
+3. Engine 清理消息历史中的 workflow goal 消息
+4. Engine 清空 WorkflowRun 状态
+5. Engine 触发 checkpoint 写入，持久化空状态
+6. Session 恢复为普通 session
 
 ### 定义版本变更
 
-恢复时 Engine 检测到 definition_version 不匹配：当前步骤编号在新定义中仍存在则使用新定义继续；不存在则标记为 blocked 并通知 owner。
+恢复时检测到 definition_version 不匹配：
+
+- 当前步骤编号仍存在于新定义 → 使用新定义继续
+- 当前步骤编号不存在于新定义 → phase = blocked，通知 owner
 
 ## 模块关系
 
 ### 上游
 
-- **SessionManager**：session 创建和恢复时触发 Engine 初始化。checkpoint 持久化时 Engine 写入 WorkflowRun 状态。
+- **SessionManager**：session 创建/恢复时触发 Engine 初始化。checkpoint 持久化时 Engine 写入 WorkflowRun 状态。
 - **System Prompt Builder**：提供追加区注入接口，Engine 通过此接口管理 workflow context。
-- **Gateway**：session 恢复时如需注入 recovered 消息，通过 Gateway 路由。
+- **Gateway**：恢复时注入 recovered 消息需通过 Gateway 路由。
 
 ### 下游
 
-- **Execution Engine**：从 WorkflowRun 状态恢复后继续驱动步骤执行。verify 和 jump 的交互流程由执行引擎管理（详见 execution-engine.md）。
+- **Execution Engine**：从 WorkflowRun 状态恢复后继续驱动步骤执行。
 
 ### 无关
 
-- **Compaction**（无调用关系）：workflow 消息（除 goal）在完成后已删除，不参与压缩。Goal 消息为单条 workflow role 消息，压缩时保留。Compaction 完成后 system prompt 重建时 Engine 重新注入 workflow context。
-- **Memory**（无调用关系）：workflow 不参与记忆挖掘或搜索注入。
+- **Compaction**：workflow 消息（除 goal）在完成后已删除，不参与压缩。Goal 消息压缩时保留。Compaction 完成后 Engine 重新注入 workflow context。
+- **Memory**：workflow 不参与记忆挖掘或搜索注入。
