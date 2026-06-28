@@ -161,6 +161,7 @@ pub async fn build_request(
             .map(|m| closeclaw_llm::types::InternalMessage {
                 role: m.role.clone(),
                 content: m.content.clone(),
+                ..Default::default()
             })
             .collect(),
         temperature: 0.7,
