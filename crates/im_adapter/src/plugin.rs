@@ -199,6 +199,24 @@ pub trait IMPlugin: Send + Sync {
         Ok(())
     }
 
+    /// Shut down the inbound side of the plugin (webhook listeners,
+    /// websocket connections for receiving messages).
+    ///
+    /// Called during Phase 1 of daemon shutdown. The default implementation
+    /// delegates to [`shutdown`](IMPlugin::shutdown) for backward compatibility.
+    async fn shutdown_inbound(&self) -> Result<(), AdapterError> {
+        self.shutdown().await
+    }
+
+    /// Shut down the outbound side of the plugin (message sending channels,
+    /// API connections for delivering messages).
+    ///
+    /// Called during Phase 5 of daemon shutdown. The default implementation
+    /// delegates to [`shutdown`](IMPlugin::shutdown) for backward compatibility.
+    async fn shutdown_outbound(&self) -> Result<(), AdapterError> {
+        self.shutdown().await
+    }
+
     /// Process a single streaming [`StreamEvent`] and return incremental
     /// output.
     ///
