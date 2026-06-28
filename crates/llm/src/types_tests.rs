@@ -1,9 +1,20 @@
 //! Tests for LLM types (serde, roundtrip, etc.).
 
 use crate::types::{
-    ContentBlock, ContentBlockType, ContentDelta, InternalResponse, RawContentBlock, RawUsage,
-    SseStateMachine, StreamEvent, SystemBlock, UnifiedResponse, UnifiedUsage,
+    ContentBlock, ContentBlockType, ContentDelta, InternalMessage, InternalResponse,
+    RawContentBlock, RawUsage, SseStateMachine, StreamEvent, SystemBlock, UnifiedResponse,
+    UnifiedUsage,
 };
+
+// ── InternalMessage default test ─────────────────────────────────────────
+
+#[test]
+fn test_internal_message_default() {
+    let msg = InternalMessage::default();
+    assert_eq!(msg.role, "");
+    assert_eq!(msg.content, "");
+    assert!(msg.tool_call_id.is_none());
+}
 
 // ── ContentBlock serde symmetry tests ──────────────────────────────────────
 

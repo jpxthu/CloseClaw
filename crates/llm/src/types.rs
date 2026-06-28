@@ -202,7 +202,7 @@ pub struct SystemBlock {
 ///
 /// Contains the role and content of a chat message used internally
 /// by Protocol implementations when building provider requests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InternalMessage {
     /// The role of the message sender (e.g., "user", "assistant").
     pub role: String,
@@ -214,16 +214,6 @@ pub struct InternalMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub tool_call_id: Option<String>,
-}
-
-impl Default for InternalMessage {
-    fn default() -> Self {
-        Self {
-            role: String::new(),
-            content: String::new(),
-            tool_call_id: None,
-        }
-    }
 }
 
 /// A tool definition passed via the API `tools` parameter.
