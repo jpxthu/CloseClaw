@@ -522,3 +522,82 @@ async fn test_common_busy_count_delegation_drain_completes() {
     shutdown_handle.await.unwrap();
     assert!(daemon_handle.is_stopped());
 }
+
+// ── Step 1.1: Phase 0 gate timing in select branches ────────────────
+
+#[tokio::test]
+async fn test_phase0_gate_set_during_select_branch() {
+    // Verifies the fix: try_start_shutdown() is called INSIDE each
+    // tokio::select! branch, so the gate is set the instant the signal
+    // arrives — not after select returns.
+    let handle = ShutdownHandle::new();
+    use tokio::signal::unix::{signal, SignalKind};
+
+    // Spawn a task that mimics the run() method's Phase 0: register
+    // signal handlers and call try_start_shutdown inside select branches.
+    let h = handle.clone();
+    let select_result = tokio::spawn(async move {
+        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+
+        tokio::select! {
+            _ = sigint.recv() => {
+                // Gate set INSIDE the branch, before returning
+                h.try_start_shutdown();
+            }
+            _ = sigterm.recv() => {
+                h.try_start_shutdown();
+            }
+        }
+
+        // Gate must already be active after select returns
+        h.is_shutting_down()
+    });
+
+    // Give the task time to register signal handlers
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Send SIGTERM to trigger the select branch
+    unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
+
+    let gate_active = select_result.await.unwrap();
+    assert!(
+        gate_active,
+        "gate must be ShuttingDown immediately after signal (inside select branch)"
+    );
+}
+
+#[tokio::test]
+async fn test_phase0_gate_sigint_sets_gate_immediately() {
+    // Same as above but with SIGINT to cover both branches.
+    let handle = ShutdownHandle::new();
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let h = handle.clone();
+    let select_result = tokio::spawn(async move {
+        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+
+        tokio::select! {
+            _ = sigint.recv() => {
+                h.try_start_shutdown();
+            }
+            _ = sigterm.recv() => {
+                h.try_start_shutdown();
+            }
+        }
+
+        h.is_shutting_down()
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Send SIGINT
+    unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
+
+    let gate_active = select_result.await.unwrap();
+    assert!(
+        gate_active,
+        "gate must be ShuttingDown immediately after SIGINT (inside select branch)"
+    );
+}

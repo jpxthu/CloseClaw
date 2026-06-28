@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::{ShutdownHandle, ShutdownSignal};
+use super::{DrainStatus, ShutdownHandle, ShutdownSignal, ShutdownState};
 
 // ── Mock ShutdownSignal ────────────────────────────────────────────────
 
@@ -84,6 +84,24 @@ impl ShutdownSignal for MockSignal {
 
     fn is_forceful(&self) -> bool {
         self.is_forceful_val.load(Ordering::SeqCst)
+    }
+
+    fn drain_status(&self) -> DrainStatus {
+        let is_shutting = self.is_shutting_down_val.load(Ordering::SeqCst);
+        let busy = self.busy_count_val.load(Ordering::SeqCst);
+        DrainStatus {
+            state: if is_shutting {
+                if self.is_forceful_val.load(Ordering::SeqCst) {
+                    ShutdownState::ForcefulShuttingDown
+                } else {
+                    ShutdownState::ShuttingDown
+                }
+            } else {
+                ShutdownState::Running
+            },
+            busy_count: busy,
+            is_draining: false,
+        }
     }
 }
 
@@ -218,6 +236,38 @@ fn test_clone_shares_inner_signal() {
     // Mutation through one handle is visible through the other
     handle1.increment_busy();
     assert_eq!(handle2.busy_count(), 8);
+}
+
+// ── drain_status delegation ─────────────────────────────────────────────
+
+#[test]
+fn test_drain_status_delegates_to_inner_signal() {
+    let mock = Arc::new(MockSignal::with_busy_count(5));
+    let handle = ShutdownHandle::new(mock);
+    let status = handle.drain_status();
+    assert_eq!(status.busy_count, 5);
+    assert_eq!(status.state, ShutdownState::Running);
+    assert!(!status.is_draining);
+}
+
+#[test]
+fn test_drain_status_shutting_down() {
+    let mock = Arc::new(MockSignal::with_shutting_down(true));
+    let handle = ShutdownHandle::new(mock);
+    let status = handle.drain_status();
+    assert_eq!(status.state, ShutdownState::ShuttingDown);
+}
+
+#[test]
+fn test_drain_status_forceful() {
+    let mock = MockSignal::new();
+    mock.is_shutting_down_val
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    mock.is_forceful_val
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let handle = ShutdownHandle::new(Arc::new(mock));
+    let status = handle.drain_status();
+    assert_eq!(status.state, ShutdownState::ForcefulShuttingDown);
 }
 
 // ── ShutdownSignal impl on ShutdownHandle delegates correctly ──────────

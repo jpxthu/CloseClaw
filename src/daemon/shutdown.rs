@@ -13,56 +13,8 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::info;
 
-// ShutdownMode is now defined in closeclaw_common and re-exported.
-pub use closeclaw_common::ShutdownMode;
-
-/// Shutdown state machine
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ShutdownState {
-    /// Normal operation
-    #[default]
-    Running,
-    /// Shutdown signal received, stop accepting new work
-    ShuttingDown,
-    /// Waiting for in-flight operations to complete
-    Draining,
-    /// Clean exit
-    Stopped,
-    /// Forceful shutdown — skip drain, terminate immediately
-    ForcefulShuttingDown,
-}
-
-impl ShutdownState {
-    fn from_u8(v: u8) -> Self {
-        match v {
-            0 => ShutdownState::Running,
-            1 => ShutdownState::ShuttingDown,
-            2 => ShutdownState::Draining,
-            3 => ShutdownState::Stopped,
-            4 => ShutdownState::ForcefulShuttingDown,
-            _ => ShutdownState::Running,
-        }
-    }
-
-    /// Returns true if the state represents an active shutdown
-    /// (either graceful or forceful).
-    fn is_shutting_down_state(self) -> bool {
-        matches!(
-            self,
-            ShutdownState::ShuttingDown
-                | ShutdownState::Draining
-                | ShutdownState::ForcefulShuttingDown
-        )
-    }
-
-    /// Returns the shutdown mode for an active shutdown state.
-    fn mode(self) -> ShutdownMode {
-        match self {
-            ShutdownState::ForcefulShuttingDown => ShutdownMode::Forceful,
-            _ => ShutdownMode::Graceful,
-        }
-    }
-}
+// Re-export types defined in closeclaw-common.
+pub use closeclaw_common::{DrainStatus, ShutdownMode, ShutdownState};
 
 /// Returns the drain poll interval.
 #[cfg(not(test))]
@@ -326,6 +278,15 @@ impl ShutdownHandle {
     pub fn busy_count(&self) -> usize {
         self.busy_count.load(Ordering::SeqCst)
     }
+
+    /// Returns a structured snapshot of the current drain status.
+    pub fn drain_status(&self) -> DrainStatus {
+        DrainStatus {
+            state: self.coordinator.state(),
+            busy_count: self.busy_count(),
+            is_draining: self.coordinator.state() == ShutdownState::Draining,
+        }
+    }
 }
 
 impl Default for ShutdownHandle {
@@ -357,6 +318,14 @@ impl closeclaw_common::ShutdownSignal for ShutdownHandle {
 
     fn is_forceful(&self) -> bool {
         self.coordinator.state() == ShutdownState::ForcefulShuttingDown
+    }
+
+    fn drain_status(&self) -> DrainStatus {
+        DrainStatus {
+            state: self.coordinator.state(),
+            busy_count: self.busy_count(),
+            is_draining: self.coordinator.state() == ShutdownState::Draining,
+        }
     }
 }
 
@@ -742,5 +711,58 @@ mod tests {
         assert!(handle.is_stopped());
         // busy_count unchanged — forceful skips drain
         assert_eq!(handle.busy_count(), 50);
+    }
+
+    // ── Step 1.4: drain_status & Phase 0 gate tests ────────────────
+
+    #[test]
+    fn test_drain_status_running() {
+        let handle = ShutdownHandle::new();
+        let status = handle.drain_status();
+        assert_eq!(status.state, ShutdownState::Running);
+        assert_eq!(status.busy_count, 0);
+        assert!(!status.is_draining);
+    }
+
+    #[test]
+    fn test_drain_status_shutting_down() {
+        let handle = ShutdownHandle::new();
+        handle.try_start_shutdown();
+        let status = handle.drain_status();
+        assert_eq!(status.state, ShutdownState::ShuttingDown);
+        assert_eq!(status.busy_count, 0);
+        assert!(!status.is_draining);
+    }
+
+    #[test]
+    fn test_drain_status_with_busy_count() {
+        let handle = ShutdownHandle::new();
+        handle.increment_busy();
+        handle.increment_busy();
+        handle.increment_busy();
+        let status = handle.drain_status();
+        assert_eq!(status.state, ShutdownState::Running);
+        assert_eq!(status.busy_count, 3);
+        assert!(!status.is_draining);
+    }
+
+    #[test]
+    fn test_phase0_gate_set_on_signal() {
+        // Verify that try_start_shutdown() sets the gate to ShuttingDown
+        // synchronously — the gate must be active before any async drain
+        // logic begins (simulating Phase 0 in tokio::select!).
+        let handle = ShutdownHandle::new();
+        assert_eq!(handle.state(), ShutdownState::Running);
+        assert!(!handle.is_shutting_down());
+
+        // Simulate signal arrival: gate must flip immediately
+        handle.try_start_shutdown();
+        assert_eq!(handle.state(), ShutdownState::ShuttingDown);
+        assert!(handle.is_shutting_down());
+        assert_eq!(handle.mode(), ShutdownMode::Graceful);
+
+        // Verify drain_status reflects the gate being set
+        let status = handle.drain_status();
+        assert_eq!(status.state, ShutdownState::ShuttingDown);
     }
 }

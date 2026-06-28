@@ -656,15 +656,15 @@ impl Gateway {
                     };
                     drop(guard);
                     let label = if has_running_tool {
-                        "\u{1f527} \u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"
+                        "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"
                     } else if matches!(state, LlmState::Requesting | LlmState::Receiving) {
-                        "\u{1f4ac} LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}"
+                        "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}"
                     } else {
-                        "\u{2705} Idle"
+                        "\u{5df2}\u{5c31}\u{7eea}"
                     };
                     (label, activity)
                 }
-                None => ("\u{2705} Idle", session.created_at),
+                None => ("\u{5df2}\u{5c31}\u{7eea}", session.created_at),
             };
             drop(conv_sessions);
 
