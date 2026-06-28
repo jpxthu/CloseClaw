@@ -9,6 +9,7 @@
 
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -157,17 +158,27 @@ pub struct ShutdownHandle {
     /// Counter for in-flight operations — components increment before starting
     /// async work and decrement when complete. Drains exits early when 0.
     busy_count: Arc<AtomicUsize>,
+    /// Maximum time to wait for in-flight operations before proceeding
+    /// to Phase 2. Default: 30 seconds.
+    drain_timeout: Duration,
 }
 
 impl ShutdownHandle {
-    /// Create a new ShutdownHandle
+    /// Create a new ShutdownHandle with default drain timeout (30s).
     pub fn new() -> Self {
         let (drain_done_tx, _) = broadcast::channel(1);
         Self {
             coordinator: Arc::new(ShutdownCoordinator::new()),
             drain_done_tx,
             busy_count: Arc::new(AtomicUsize::new(0)),
+            drain_timeout: Duration::from_secs(30),
         }
+    }
+
+    /// Builder method: set a custom drain timeout.
+    pub fn with_drain_timeout(mut self, timeout: Duration) -> Self {
+        self.drain_timeout = timeout;
+        self
     }
 
     /// Returns the current state
