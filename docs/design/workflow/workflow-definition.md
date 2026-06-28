@@ -29,7 +29,7 @@ workspace/
 Workflow
   ├── id, name, description
   ├── step_data_schema    // 跨步骤共享数据的字段定义（键值对，由 Engine 在步骤间维护）
-  └── verify_retry_limit  // 验证重试上限（默认 3，--optional）
+  ├── verify_retry_limit  // 验证重试上限（默认 3，可选）
   └── steps: Step[]       // 步骤序列
 
 Step
@@ -44,15 +44,16 @@ Step
 JumpQuestion
   ├── id（键名，作为 workflow_jump 的参数键名）
   ├── prompt              // 问题描述
-  ├── type: boolean | enum | string
-  ├── options             // enum 类型的选项值（boolean 和 string 类型忽略此字段）
-  └── option_labels       // 注入时渲染为 ABCD 的显示标签
+  ├── type: boolean | enum
+  ├── options             // enum 类型的选项值（boolean 类型忽略此字段）
+  └── option_labels       // 注入时按 ABCD 顺序渲染标签（与 options 一一对应）
 
 Transition
-  ├── when: Condition     // 匹配条件，以 JumpQuestion.id 为键名匹配答案
-  │                         // 格式：{ <jump_id>: <expected_value>, ... }，多个条件为 AND
+  ├── when?: Condition    // 匹配条件，以 JumpQuestion.id 为键名匹配答案
+  │                         // 格式：{ <jump_id>: <expected_value>, ... }，多条件 AND
+  │                         // 最后一条省略 when 表示 default 兜底
   ├── action: goto | reexecute | complete
-  └── target_step         // goto/reexecute 时的目标步骤，最后一条可用 default 替代 when
+  └── target_step         // goto/reexecute 时的目标步骤
 ```
 
 ### 步骤类型
@@ -60,6 +61,10 @@ Transition
 `action`：标准步骤，Agent 执行 → Engine 验证 → 跳转。
 
 `blocking`：阻塞步骤，需要 owner 输入后才能继续。Engine 在 goal 注入后将步骤状态标记为 blocked，等 owner 输入到达后进入 verify 流程。
+
+### 验证重试
+
+`verify_retry_limit`（可选，默认 3）控制验证重试上限。Engine 每次注入验收清单后 pending_verify 计数 +1——Agent 继续执行未调 verify 则等下次 idle 重新注入，计数继续累加。计数 ≥ 上限时转为 blocked 并通知 owner。Agent 调用 workflow_verify 后计数归零（详见 execution-engine.md）。
 
 ### 跳转动作
 
