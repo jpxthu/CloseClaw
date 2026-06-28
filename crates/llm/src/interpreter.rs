@@ -198,18 +198,16 @@ impl ModelInterpreter for MinimaxInterpreter {
                 } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
             }
         }
-        let content_blocks: Vec<ContentBlock> = if text_parts.iter().all(|s| s.is_empty()) {
-            if !thinking_parts.is_empty() {
-                vec![ContentBlock::Thinking {
-                    thinking: thinking_parts.join(""),
-                    signature: None,
-                }]
-            } else {
-                vec![]
-            }
-        } else {
-            vec![ContentBlock::Text(text_parts.join(""))]
-        };
+        let mut content_blocks: Vec<ContentBlock> = vec![];
+        if !text_parts.iter().all(|s| s.is_empty()) {
+            content_blocks.push(ContentBlock::Text(text_parts.join("")));
+        }
+        if !thinking_parts.is_empty() {
+            content_blocks.push(ContentBlock::Thinking {
+                thinking: thinking_parts.join(""),
+                signature: None,
+            });
+        }
         UnifiedResponse {
             content_blocks,
             usage: UnifiedUsage {

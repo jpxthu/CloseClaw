@@ -198,6 +198,23 @@ fn test_minimax_interpreter_text_content_preferred() {
 }
 
 #[test]
+fn test_minimax_interpreter_both_empty() {
+    let response = InternalResponse {
+        content_blocks: vec![],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = MinimaxInterpreter.interpret_response(response);
+    assert!(unified.content_blocks.is_empty());
+}
+
+#[test]
 fn test_minimax_interpreter_stream_event_passthrough() {
     let event = StreamEvent::BlockStart {
         index: 0,

@@ -114,21 +114,30 @@ impl ChatProtocol for OpenAiProtocol {
         let usage = parse_usage(&body);
 
         // 按文档规则构建 content_blocks：
-        // content 非空 + reasoning_content 非空 → Text（content 优先，忽略 reasoning_content）
-        // content 非空 + reasoning_content 空 → Text
-        // content 空 + reasoning_content 非空 → Text（reasoning_content 降级为 Text）
+        // content 非空 + reasoning_content 非空 → Text(content) + Thinking(reasoning_content)
+        // content 非空 + reasoning_content 空 → Text(content)
+        // content 空 + reasoning_content 非空 → Text(reasoning_content)（降级）
         // 两者都空 → 空 Text
         let mut content_blocks = Vec::new();
         if let Some(ref text) = content {
-            // content 非空：content 优先，忽略 reasoning_content
             content_blocks.push(RawContentBlock::Text(text.clone()));
-        } else if let Some(thinking) = reasoning_content {
-            // content 空 + reasoning_content 非空 → reasoning_content 作为 Text 块
-            content_blocks.push(RawContentBlock::Text(thinking));
-        } else {
+        }
+        if let Some(thinking) = reasoning_content {
+            if content.is_some() {
+                // content 和 reasoning_content 同时非空 → 独立产出 Thinking 块
+                content_blocks.push(RawContentBlock::Thinking {
+                    thinking,
+                    signature: None,
+                });
+            } else {
+                // content 为空 → reasoning_content 降级为 Text 块
+                content_blocks.push(RawContentBlock::Text(thinking));
+            }
+        }
+        if content_blocks.is_empty() {
             // 两者都空 → 空 Text 块
             content_blocks.push(RawContentBlock::Text(String::new()));
-        };
+        }
 
         // Parse tool_calls from message (doc: choices[].message.tool_calls[] → ToolUse)
         if let Some(tool_calls) = message

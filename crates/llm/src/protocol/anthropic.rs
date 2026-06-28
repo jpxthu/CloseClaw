@@ -174,18 +174,46 @@ fn build_message(msg: &InternalMessage) -> serde_json::Value {
 }
 
 /// Mark the last message with `cache_control` for Anthropic prefix caching.
+///
+/// Handles both string and array content types:
+/// - String: wraps into a `[{type: "text", text: ..., cache_control: ...}]` array
+/// - Array: adds `cache_control` to the last element in the array
 fn mark_last_message_cache_control(messages: &mut [serde_json::Value]) {
-    if let Some(last_msg) = messages.last_mut() {
-        if let Some(content) = last_msg.get("content").and_then(|c| c.as_str()) {
-            let text = content.to_string();
-            last_msg.as_object_mut().unwrap().insert(
-                "content".to_string(),
-                serde_json::json!([{
-                    "type": "text",
-                    "text": text,
-                    "cache_control": { "type": "ephemeral" }
-                }]),
-            );
+    let Some(last_msg) = messages.last_mut() else {
+        return;
+    };
+    let Some(content) = last_msg.get("content") else {
+        return;
+    };
+
+    if let Some(text) = content.as_str() {
+        // String content → wrap into array with cache_control
+        let text = text.to_string();
+        last_msg.as_object_mut().unwrap().insert(
+            "content".to_string(),
+            serde_json::json!([{
+                "type": "text",
+                "text": text,
+                "cache_control": { "type": "ephemeral" }
+            }]),
+        );
+    } else if let Some(arr) = content.as_array() {
+        // Array content → add cache_control to the last element
+        if let Some(last_block) = arr.last().cloned() {
+            let mut last_block = last_block;
+            if let Some(obj) = last_block.as_object_mut() {
+                obj.insert(
+                    "cache_control".to_string(),
+                    serde_json::json!({ "type": "ephemeral" }),
+                );
+            }
+            let mut new_arr = arr.clone();
+            let len = new_arr.len();
+            new_arr[len - 1] = last_block;
+            last_msg
+                .as_object_mut()
+                .unwrap()
+                .insert("content".to_string(), serde_json::json!(new_arr));
         }
     }
 }
@@ -621,3 +649,7 @@ fn extract_error_message(parsed: &serde_json::Value) -> String {
         .unwrap_or("unknown error")
         .to_string()
 }
+
+#[cfg(test)]
+#[path = "anthropic_sse_tests.rs"]
+mod anthropic_sse_tests; // extracted to stay under 1000-line limit
