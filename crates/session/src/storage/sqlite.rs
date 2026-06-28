@@ -559,7 +559,7 @@ impl PersistenceService for SqliteStorage {
         spawn_blocking(move || {
             let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", [])
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
             Ok(())
         })
