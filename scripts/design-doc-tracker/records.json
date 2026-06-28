@@ -144,7 +144,7 @@
     "commit": "136edef20d57977748391e78287803c88180fc28",
     "commit_time": "2026-06-26T17:48:33+08:00",
     "confirmed_time": "2026-06-26T17:55:59.491929+08:00",
-    "comment": ""
+    "comment": "blocked: F2b found doc issues: (1) default_temperature field optionality not documented; (2) retry count mismatch (code=4, doc=3); (3) backoff ceiling mismatch (code=8s, doc=4s); (4) knowledge fill-vs-override semantic ambiguity."
   },
   {
     "path": "docs/design/llm/protocol-mapping.md",
