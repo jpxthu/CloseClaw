@@ -541,6 +541,42 @@ mod tests {
         assert_eq!(drain_poll_interval(), std::time::Duration::from_millis(100));
     }
 
+    // ── Step 1.3: try_start_forceful_shutdown unit tests ──────────────
+
+    #[test]
+    fn test_try_start_forceful_shutdown_success() {
+        let coordinator = ShutdownCoordinator::new();
+        assert_eq!(coordinator.state(), ShutdownState::Running);
+
+        assert!(coordinator.try_start_forceful_shutdown());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+    }
+
+    #[test]
+    fn test_try_start_forceful_shutdown_fails_when_not_running() {
+        let coordinator = ShutdownCoordinator::new();
+        // Transition to ShuttingDown first
+        coordinator.try_start_shutdown();
+        assert_eq!(coordinator.state(), ShutdownState::ShuttingDown);
+
+        // Should fail — not in Running state
+        assert!(!coordinator.try_start_forceful_shutdown());
+        // State unchanged
+        assert_eq!(coordinator.state(), ShutdownState::ShuttingDown);
+    }
+
+    #[test]
+    fn test_try_start_forceful_shutdown_fails_when_already_forceful() {
+        let coordinator = ShutdownCoordinator::new();
+        // First call succeeds
+        assert!(coordinator.try_start_forceful_shutdown());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+
+        // Second call fails — already ForcefulShuttingDown
+        assert!(!coordinator.try_start_forceful_shutdown());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+    }
+
     #[test]
     fn test_busy_count_unchanged_in_forceful_mode() {
         let handle = ShutdownHandle::new();
