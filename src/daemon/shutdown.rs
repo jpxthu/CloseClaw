@@ -62,6 +62,20 @@ impl ShutdownCoordinator {
             .is_ok()
     }
 
+    /// Atomically transition from Running → ForcefulShuttingDown.
+    /// Returns true if this call initiated forceful shutdown, false if
+    /// not in Running state.
+    pub fn try_start_forceful_shutdown(&self) -> bool {
+        self.state
+            .compare_exchange(
+                ShutdownState::Running as u8,
+                ShutdownState::ForcefulShuttingDown as u8,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+
     /// Atomically escalate from ShuttingDown → ForcefulShuttingDown.
     /// Returns true if the escalation succeeded, false if already in a
     /// non-ShuttingDown state.
@@ -157,6 +171,13 @@ impl ShutdownHandle {
     /// Returns true if this call initiated shutdown, false if already shutting down.
     pub fn try_start_shutdown(&self) -> bool {
         self.coordinator.try_start_shutdown()
+    }
+
+    /// Atomically transition from Running → ForcefulShuttingDown.
+    /// Returns true if this call initiated forceful shutdown, false if
+    /// not in Running state.
+    pub fn try_start_forceful_shutdown(&self) -> bool {
+        self.coordinator.try_start_forceful_shutdown()
     }
 
     /// Escalate a graceful shutdown to forceful.
