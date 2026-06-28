@@ -233,9 +233,14 @@ impl ShutdownHandle {
         self.wait_for_drain().await;
     }
 
-    /// Wait for busy_count to reach 0, then finalize shutdown.
+    /// Wait for busy_count to reach 0 or timeout, then finalize shutdown.
     /// In forceful mode, finalize immediately without waiting.
+    ///
+    /// Timeout does not trigger forceful escalation — it merely ends the
+    /// drain wait so the caller can proceed to Phase 2 normally.
     async fn wait_for_drain(&self) {
+        let start = tokio::time::Instant::now();
+
         loop {
             // If upgraded to forceful mid-drain, finalize immediately
             if self.is_forceful() {
@@ -248,6 +253,16 @@ impl ShutdownHandle {
             let count = self.busy_count.load(Ordering::SeqCst);
             if count == 0 {
                 info!("All in-flight operations complete, shutting down immediately");
+                self.coordinator.start_drain();
+                self.coordinator.mark_stopped();
+                return;
+            }
+
+            if start.elapsed() >= self.drain_timeout {
+                info!(
+                    "Drain timeout ({:?}) — {} operations still in-flight",
+                    self.drain_timeout, count
+                );
                 self.coordinator.start_drain();
                 self.coordinator.mark_stopped();
                 return;
