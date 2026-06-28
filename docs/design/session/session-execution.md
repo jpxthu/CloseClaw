@@ -170,8 +170,8 @@ Graceful 模式：
   ↓
   3. 等待 in-flight 操作完成：
       ├─ 当前 LLM stream → 收完
-      ├─ 当前工具调用 → 等完成
-      └─ 工具结果若触发新 turn → 执行最后这一轮（含工具→结果→LLM），限最多再触发一轮
+      └─ 当前工具调用 → 等完成
+      工具结果写入对话记录后持久化，不触发新 LLM turn——下次用户消息自然衔接
   ↓
   4. 超时处理：
       ├─ 超时前全部完成 → 正常结束
@@ -190,12 +190,12 @@ Forceful 模式：
   ↓
   3. cancel LLM 请求
   ↓
-  4. 清理：清空工具状态、清空子 session 状态、LLM 状态置 Idle
+  4. 清理运行时状态：清空内存中的工具状态和子 session 状态（进程句柄、运行时跟踪），不涉及 checkpoint 持久化字段——pending_operations 保持原样，下次启动由恢复扫描处理。LLM 状态置 Idle
   ↓
   5. 持久化最终状态
 ```
 
-系统关闭时，SessionManager 遍历所有活跃 session 构建父子树，对根 session 并发执行停止，级联机制处理子 session，无需额外排序。
+系统关闭时，SessionManager 遍历所有活跃 session 构建父子树，叶子→根顺序、同级 session 并行停止，级联机制同步处理子 session。
 
 ### 子 session 完成注入
 
