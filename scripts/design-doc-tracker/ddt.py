@@ -8,18 +8,27 @@ Commands
     Record that every ``.md`` file under *<path>* matches the merge-base
     of HEAD and origin/master.
     *<path>* can be a directory (recursively) or a single ``.md`` file.
-    Clears any existing comment for matched files.
+    Clears any existing comment and blocked_reason for matched files.
+
+- ``blocked <path> <reason>``
+    Mark a design doc as blocked with a reason.  If the file already
+    has a record, the blocked_reason is updated; otherwise a new record
+    is created.
+
+- ``check``
+    Scan ``docs/design/`` for ``.md`` files and report any that have
+    changed since their last confirmation.  Blocked docs that have NOT
+    been updated are silently skipped.  Blocked docs that HAVE been
+    updated are auto-unblocked and reported as normal changes.
+
+records.json lives alongside this script.  Each record has the fields:
+``path``, ``commit``, ``commit_time``, ``confirmed_time``, ``comment``,
+``blocked_reason``.
 
 - ``comment <path> <text>``
     Override the comment for a specific design doc file.  If the file already
     has a record the comment is updated; otherwise a new record is created
     with an empty commit.  ``<path>`` is relative to the repo root.
-
-- ``check``
-    Scan ``docs/design/`` for ``.md`` files and report any that have
-    changed since their last confirmation.
-
-records.json lives alongside this script.
 """
 
 from __future__ import annotations
@@ -72,7 +81,10 @@ def _merge_base_commit() -> str | None:
 def _load_records() -> List[Dict[str, str]]:
     if RECORDS_FILE.exists():
         with open(RECORDS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            records = json.load(f)
+        for rec in records:
+            rec.setdefault("blocked_reason", "")
+        return records
     return []
 
 
@@ -126,6 +138,28 @@ def _now_iso() -> str:
 # ── sub-commands ─────────────────────────────────────────────────────────
 
 
+def _upsert_record(records: List[Dict[str, str]], path: str, **fields: str) -> List[Dict[str, str]]:
+    """Find or create a record for *path*, then update it with *fields*.
+
+    Returns the mutated *records* list (same object).
+    """
+    existing: Dict[str, int] = {r["path"]: i for i, r in enumerate(records)}
+    if path in existing:
+        records[existing[path]].update(fields)
+    else:
+        entry: Dict[str, str] = {
+            "path": path,
+            "commit": "",
+            "commit_time": "",
+            "confirmed_time": "",
+            "comment": "",
+            "blocked_reason": "",
+        }
+        entry.update(fields)
+        records.append(entry)
+    return records
+
+
 def cmd_finished(args: SimpleNamespace) -> int:
     target = REPO_ROOT / args.dir
 
@@ -166,21 +200,17 @@ def cmd_finished(args: SimpleNamespace) -> int:
     confirmed_time = _now_iso()
 
     records = _load_records()
-    existing: Dict[str, int] = {r["path"]: i for i, r in enumerate(records)}
 
     for rel_path in md_files:
         key = str(rel_path)
-        entry: Dict[str, str] = {
-            "path": key,
-            "commit": commit,
-            "commit_time": commit_time,
-            "confirmed_time": confirmed_time,
-            "comment": "",
-        }
-        if key in existing:
-            records[existing[key]] = entry
-        else:
-            records.append(entry)
+        _upsert_record(
+            records, key,
+            commit=commit,
+            commit_time=commit_time,
+            confirmed_time=confirmed_time,
+            comment="",
+            blocked_reason="",
+        )
 
     _save_records(records)
     print(f"Recorded {len(md_files)} file(s) under '{args.dir}'")
@@ -194,24 +224,38 @@ def cmd_comment(args: SimpleNamespace) -> int:
     If no record exists yet, a new record is created with an empty commit.
     """
     records = _load_records()
-    for rec in records:
-        if rec["path"] == args.path:
-            rec["comment"] = args.text
-            _save_records(records)
-            print(f"Updated comment for '{args.path}'")
-            return 0
-    # No existing record — create a new one with empty commit fields
-    records.append(
-        {
-            "path": args.path,
-            "commit": "",
-            "commit_time": "",
-            "confirmed_time": _now_iso(),
-            "comment": args.text,
-        }
+    is_new = not any(r["path"] == args.path for r in records)
+    _upsert_record(
+        records, args.path,
+        comment=args.text,
+        confirmed_time=_now_iso(),
     )
     _save_records(records)
-    print(f"Created record for '{args.path}'")
+    if is_new:
+        print(f"Created record for '{args.path}'")
+    else:
+        print(f"Updated comment for '{args.path}'")
+    return 0
+
+
+def cmd_blocked(args: SimpleNamespace) -> int:
+    """Mark a design doc as blocked with a reason.
+
+    If the file already has a record, the blocked_reason is updated.
+    If no record exists yet, a new record is created.
+    """
+    records = _load_records()
+    is_new = not any(r["path"] == args.path for r in records)
+    _upsert_record(
+        records, args.path,
+        blocked_reason=args.reason,
+        confirmed_time=_now_iso(),
+    )
+    _save_records(records)
+    if is_new:
+        print(f"Created blocked record for '{args.path}'")
+    else:
+        print(f"Updated blocked reason for '{args.path}'")
     return 0
 
 
@@ -235,12 +279,41 @@ def cmd_check(args: SimpleNamespace) -> int:
             continue
         if rec["commit"] == "":
             # empty commit → treat as changed
+            blocked = rec.get("blocked_reason", "")
+            if blocked:
+                # blocked doc with empty commit → auto-unblock
+                _upsert_record(
+                    records, key,
+                    blocked_reason="",
+                )
+                _save_records(records)
+                record_map = {r["path"]: r for r in records}
             changed.append(key)
             continue
         # git diff --quiet exits 1 if there are changes
         r = _run(["git", "diff", "--quiet", f"{rec['commit']}..HEAD", "--", key])
         if r.returncode != 0:
+            # file changed since last record
+            blocked = rec.get("blocked_reason", "")
+            if blocked:
+                # blocked doc updated → auto-unblock
+                new_commit = _merge_base_commit() or rec["commit"]
+                _upsert_record(
+                    records, key,
+                    blocked_reason="",
+                    commit=new_commit,
+                    commit_time=_commit_committer_date(new_commit),
+                    confirmed_time=_now_iso(),
+                )
+                _save_records(records)
+                # refresh record_map after mutation
+                record_map = {r["path"]: r for r in records}
             changed.append(key)
+        else:
+            # no change — skip blocked docs entirely
+            blocked = rec.get("blocked_reason", "")
+            if blocked:
+                continue
 
     for p in changed:
         rec = record_map.get(p, {})
@@ -275,6 +348,14 @@ def finished_cmd(path: str) -> int:
 def comment_cmd(path: str, text: str) -> int:
     """为已记录的设计文档设置/覆盖评论。PATH 为文件路径，TEXT 为评论内容。"""
     return cmd_comment(SimpleNamespace(path=path, text=text))
+
+
+@main.command(name="blocked")
+@click.argument("path")
+@click.argument("reason")
+def blocked_cmd(path: str, reason: str) -> int:
+    """标记设计文档被阻塞。PATH 为文件路径，REASON 为阻塞原因。"""
+    return cmd_blocked(SimpleNamespace(path=path, reason=reason))
 
 
 @main.command(name="check")

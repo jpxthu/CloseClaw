@@ -100,7 +100,9 @@ class TestLoadSaveRecords(unittest.TestCase):
         data = [{"path": "a.md", "commit": "abc"}]
         _write_json(Path(self._tmp.name), data)
         result = ddt._load_records()
-        self.assertEqual(result, data)
+        # Migration adds blocked_reason to records that lack it
+        expected = [{"path": "a.md", "commit": "abc", "blocked_reason": ""}]
+        self.assertEqual(result, expected)
 
     def test_load_handles_empty_json_array(self):
         """Empty JSON array → []."""
@@ -136,10 +138,15 @@ class TestLoadSaveRecords(unittest.TestCase):
         ]
         ddt._save_records(records)
         loaded = ddt._load_records()
-        self.assertEqual(loaded, records)  # already sorted
+        # Migration adds blocked_reason to records that lack it
+        expected = [
+            {"path": "a.md", "commit": "a1", "blocked_reason": ""},
+            {"path": "c.md", "commit": "c1", "blocked_reason": ""},
+        ]
+        self.assertEqual(loaded, expected)  # already sorted
         ddt._save_records(loaded)
         loaded2 = ddt._load_records()
-        self.assertEqual(loaded2, records)
+        self.assertEqual(loaded2, expected)
 
     def test_save_overwrites_previous_content(self):
         """Calling save twice replaces old content entirely."""
@@ -833,6 +840,428 @@ class TestCmdCheck(unittest.TestCase):
         self.assertIn("docs/design/new.md", lines)
         self.assertIn("docs/design/old.md\tstale", lines)
         self.assertNotIn("docs/design/ok.md", output)
+
+
+# ---------------------------------------------------------------------------
+# Tests – cmd_blocked
+# ---------------------------------------------------------------------------
+
+
+class TestCmdBlocked(unittest.TestCase):
+    """Tests for cmd_blocked."""
+
+    def setUp(self):
+        self._orig_repo = ddt.REPO_ROOT
+        self._orig_records = ddt.RECORDS_FILE
+        self._tmpdir = tempfile.mkdtemp(prefix="ddt_blocked_")
+        self._fake_repo = Path(self._tmpdir) / "repo"
+        self._fake_repo.mkdir()
+        ddt.REPO_ROOT = self._fake_repo
+        ddt.RECORDS_FILE = self._fake_repo / "records.json"
+
+    def tearDown(self):
+        ddt.REPO_ROOT = self._orig_repo
+        ddt.RECORDS_FILE = self._orig_records
+        shutil.rmtree(self._tmpdir)
+
+    def _patch_now(self, iso: str = "2025-06-12T00:00:00+08:00"):
+        return mock.patch.object(ddt, "_now_iso", return_value=iso)
+
+    def test_blocked_creates_new_record(self):
+        """No existing record → creates a new one with blocked_reason."""
+        _write_json(ddt.RECORDS_FILE, [])
+        args = _make_args(path="docs/design/auth.md", reason="waiting on API")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = buf = io.StringIO()
+        try:
+            with self._patch_now():
+                rc = ddt.cmd_blocked(args)
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        self.assertIn("Created blocked record", buf.getvalue())
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["path"], "docs/design/auth.md")
+        self.assertEqual(records[0]["blocked_reason"], "waiting on API")
+        self.assertEqual(records[0]["commit"], "")
+        self.assertEqual(records[0]["comment"], "")
+
+    def test_blocked_updates_existing_record(self):
+        """Existing record → blocked_reason is updated, other fields preserved."""
+        _write_json(
+            ddt.RECORDS_FILE,
+            [{
+                "path": "docs/design/auth.md",
+                "commit": "aaa111",
+                "commit_time": "2025-01-01T00:00:00+00:00",
+                "confirmed_time": "2025-01-01T00:00:00+08:00",
+                "comment": "",
+                "blocked_reason": "",
+            }],
+        )
+        args = _make_args(path="docs/design/auth.md", reason="blocked by dep")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = buf = io.StringIO()
+        try:
+            with self._patch_now("2025-07-01T00:00:00+08:00"):
+                rc = ddt.cmd_blocked(args)
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        self.assertIn("Updated blocked reason", buf.getvalue())
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["blocked_reason"], "blocked by dep")
+        self.assertEqual(records[0]["commit"], "aaa111")  # preserved
+        self.assertEqual(records[0]["confirmed_time"], "2025-07-01T00:00:00+08:00")
+
+    def test_blocked_overwrites_existing_reason(self):
+        """Existing blocked_reason → overwritten with new reason."""
+        _write_json(
+            ddt.RECORDS_FILE,
+            [{
+                "path": "docs/design/auth.md",
+                "commit": "aaa111",
+                "commit_time": "",
+                "confirmed_time": "2025-01-01T00:00:00+08:00",
+                "comment": "",
+                "blocked_reason": "old reason",
+            }],
+        )
+        args = _make_args(path="docs/design/auth.md", reason="new reason")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_now():
+                ddt.cmd_blocked(args)
+        finally:
+            sys.stdout = old_stdout
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(records[0]["blocked_reason"], "new reason")
+
+    def test_blocked_preserves_existing_comment(self):
+        """Existing comment should not be cleared by blocked."""
+        _write_json(
+            ddt.RECORDS_FILE,
+            [{
+                "path": "docs/design/auth.md",
+                "commit": "aaa111",
+                "commit_time": "",
+                "confirmed_time": "2025-01-01T00:00:00+08:00",
+                "comment": "important doc",
+                "blocked_reason": "",
+            }],
+        )
+        args = _make_args(path="docs/design/auth.md", reason="waiting")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_now():
+                ddt.cmd_blocked(args)
+        finally:
+            sys.stdout = old_stdout
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(records[0]["comment"], "important doc")
+        self.assertEqual(records[0]["blocked_reason"], "waiting")
+
+    def test_blocked_idempotent(self):
+        """Running blocked twice with same args → single record updated."""
+        _write_json(ddt.RECORDS_FILE, [])
+        args = _make_args(path="docs/design/auth.md", reason="same reason")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with self._patch_now():
+                ddt.cmd_blocked(args)
+                ddt.cmd_blocked(args)
+        finally:
+            sys.stdout = old_stdout
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["blocked_reason"], "same reason")
+
+    def test_finished_clears_blocked_reason(self):
+        """cmd_finished should clear blocked_reason to empty."""
+        _write_json(
+            ddt.RECORDS_FILE,
+            [{
+                "path": "docs/design/auth.md",
+                "commit": "aaa111",
+                "commit_time": "2025-01-01T00:00:00+00:00",
+                "confirmed_time": "2025-01-01T00:00:00+08:00",
+                "comment": "",
+                "blocked_reason": "blocked because X",
+            }],
+        )
+
+        design_dir = self._fake_repo / "docs" / "design"
+        design_dir.mkdir(parents=True)
+        (design_dir / "auth.md").write_text("# Auth")
+
+        args = _make_args(dir="docs/design")
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            with mock.patch.object(ddt, "_merge_base_commit", return_value="newcommit"), \
+                 mock.patch.object(ddt, "_commit_committer_date", return_value="2025-07-01T00:00:00+00:00"), \
+                 mock.patch.object(ddt, "_now_iso", return_value="2025-07-01T00:00:00+08:00"):
+                ddt.cmd_finished(args)
+        finally:
+            sys.stdout = old_stdout
+
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(records[0]["blocked_reason"], "")
+
+
+# ---------------------------------------------------------------------------
+# Tests – cmd_check with blocked docs
+# ---------------------------------------------------------------------------
+
+
+class TestCmdCheckBlocked(unittest.TestCase):
+    """Tests for cmd_check behavior with blocked documents."""
+
+    def setUp(self):
+        self._orig_repo = ddt.REPO_ROOT
+        self._orig_records = ddt.RECORDS_FILE
+        self._orig_design = ddt.DESIGN_DOC_DIR
+        self._tmpdir = tempfile.mkdtemp(prefix="ddt_check_blocked_")
+        self._fake_repo = Path(self._tmpdir) / "repo"
+        self._fake_repo.mkdir()
+        ddt.REPO_ROOT = self._fake_repo
+        ddt.RECORDS_FILE = self._fake_repo / "records.json"
+        ddt.DESIGN_DOC_DIR = self._fake_repo / "docs" / "design"
+
+    def tearDown(self):
+        ddt.REPO_ROOT = self._orig_repo
+        ddt.RECORDS_FILE = self._orig_records
+        ddt.DESIGN_DOC_DIR = self._orig_design
+        shutil.rmtree(self._tmpdir)
+
+    def _create_design_docs(self, names: list[str]):
+        ddt.DESIGN_DOC_DIR.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            (ddt.DESIGN_DOC_DIR / name).write_text(f"# {name}")
+
+    def _write_records(self, records: list[dict]):
+        _write_json(ddt.RECORDS_FILE, records)
+
+    def test_blocked_unchanged_not_reported(self):
+        """Blocked doc with no git changes → should NOT appear in output."""
+        self._create_design_docs(["auth.md"])
+        self._write_records([
+            {
+                "path": "docs/design/auth.md",
+                "commit": "aaa111",
+                "commit_time": "2025-01-01T00:00:00+00:00",
+                "confirmed_time": "2025-01-01T00:00:00+08:00",
+                "comment": "",
+                "blocked_reason": "waiting on dependency",
+            }
+        ])
+        args = _make_args()
+
+        # git diff --quiet returns 0 → no change
+        with mock.patch.object(ddt, "_run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="", stderr=""
+            )
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(buf.getvalue().strip(), "")
+
+    def test_blocked_changed_auto_unblocks(self):
+        """Blocked doc with git changes → auto-unblock, reported as normal change."""
+        self._create_design_docs(["auth.md"])
+        self._write_records([
+            {
+                "path": "docs/design/auth.md",
+                "commit": "aaa111",
+                "commit_time": "2025-01-01T00:00:00+00:00",
+                "confirmed_time": "2025-01-01T00:00:00+08:00",
+                "comment": "",
+                "blocked_reason": "waiting on dependency",
+            }
+        ])
+        args = _make_args()
+
+        def fake_run(cmd, **kwargs):
+            # git diff --quiet → returncode=1 means changed
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr=""
+            )
+
+        with mock.patch.object(ddt, "_run", side_effect=fake_run), \
+             mock.patch.object(ddt, "_merge_base_commit", return_value="newcommit"), \
+             mock.patch.object(ddt, "_commit_committer_date", return_value="2025-07-01T00:00:00+00:00"), \
+             mock.patch.object(ddt, "_now_iso", return_value="2025-07-01T00:00:00+08:00"):
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        output = buf.getvalue().strip()
+        self.assertEqual(output, "docs/design/auth.md")
+
+        # Verify record was updated: blocked_reason cleared, commit updated
+        records = _read_json(ddt.RECORDS_FILE)
+        self.assertEqual(records[0]["blocked_reason"], "")
+        self.assertEqual(records[0]["commit"], "newcommit")
+
+    def test_blocked_changed_reported_without_blocked_marker(self):
+        """Auto-unblocked doc should not show blocked_reason in output."""
+        self._create_design_docs(["auth.md"])
+        self._write_records([
+            {
+                "path": "docs/design/auth.md",
+                "commit": "aaa111",
+                "commit_time": "",
+                "confirmed_time": "",
+                "comment": "some comment",
+                "blocked_reason": "was blocked",
+            }
+        ])
+        args = _make_args()
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr=""
+            )
+
+        with mock.patch.object(ddt, "_run", side_effect=fake_run), \
+             mock.patch.object(ddt, "_merge_base_commit", return_value="newcommit"), \
+             mock.patch.object(ddt, "_commit_committer_date", return_value="2025-07-01T00:00:00+00:00"), \
+             mock.patch.object(ddt, "_now_iso", return_value="2025-07-01T00:00:00+08:00"):
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        lines = [l.strip() for l in buf.getvalue().strip().splitlines()]
+        # Should show comment (if any) but not blocked_reason
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "docs/design/auth.md\tsome comment")
+
+    def test_mixed_blocked_and_normal(self):
+        """Mix of blocked-unchanged, blocked-changed, and normal-changed."""
+        self._create_design_docs(["a.md", "b.md", "c.md"])
+        self._write_records([
+            {
+                "path": "docs/design/a.md", "commit": "aaa",
+                "commit_time": "", "confirmed_time": "",
+                "comment": "", "blocked_reason": "blocked A",
+            },
+            {
+                "path": "docs/design/b.md", "commit": "bbb",
+                "commit_time": "", "confirmed_time": "",
+                "comment": "", "blocked_reason": "blocked B",
+            },
+            {
+                "path": "docs/design/c.md", "commit": "ccc",
+                "commit_time": "", "confirmed_time": "",
+                "comment": "", "blocked_reason": "",
+            },
+        ])
+        args = _make_args()
+
+        def fake_run(cmd, **kwargs):
+            cmd_str = " ".join(cmd)
+            if "a.md" in cmd_str:
+                # blocked + unchanged
+                return subprocess.CompletedProcess(args=cmd, returncode=0)
+            # b.md and c.md → changed
+            return subprocess.CompletedProcess(args=cmd, returncode=1)
+
+        with mock.patch.object(ddt, "_run", side_effect=fake_run), \
+             mock.patch.object(ddt, "_merge_base_commit", return_value="newcommit"), \
+             mock.patch.object(ddt, "_commit_committer_date", return_value="2025-07-01T00:00:00+00:00"), \
+             mock.patch.object(ddt, "_now_iso", return_value="2025-07-01T00:00:00+08:00"):
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        lines = [l.strip() for l in buf.getvalue().strip().splitlines()]
+        # a.md blocked+unchanged → NOT reported
+        self.assertNotIn("docs/design/a.md", lines)
+        # b.md blocked+changed → reported (auto-unblocked)
+        self.assertIn("docs/design/b.md", lines)
+        # c.md normal+changed → reported
+        self.assertIn("docs/design/c.md", lines)
+        self.assertEqual(len(lines), 2)
+
+        # Verify b.md was unblocked
+        records = _read_json(ddt.RECORDS_FILE)
+        by_path = {r["path"]: r for r in records}
+        self.assertEqual(by_path["docs/design/b.md"]["blocked_reason"], "")
+        self.assertEqual(by_path["docs/design/b.md"]["commit"], "newcommit")
+        # a.md still blocked
+        self.assertEqual(by_path["docs/design/a.md"]["blocked_reason"], "blocked A")
+
+    def test_blocked_with_empty_commit_treated_as_changed(self):
+        """Blocked doc with empty commit → treated as changed (auto-unblock)."""
+        self._create_design_docs(["auth.md"])
+        self._write_records([
+            {
+                "path": "docs/design/auth.md", "commit": "",
+                "commit_time": "", "confirmed_time": "",
+                "comment": "", "blocked_reason": "waiting",
+            }
+        ])
+        args = _make_args()
+
+        # _run should NOT be called (empty commit skips git diff)
+        with mock.patch.object(ddt, "_run") as mock_run, \
+             mock.patch.object(ddt, "_merge_base_commit", return_value="newcommit"), \
+             mock.patch.object(ddt, "_commit_committer_date", return_value="2025-07-01T00:00:00+00:00"), \
+             mock.patch.object(ddt, "_now_iso", return_value="2025-07-01T00:00:00+08:00"):
+            import io, sys
+            old_stdout = sys.stdout
+            sys.stdout = buf = io.StringIO()
+            try:
+                rc = ddt.cmd_check(args)
+            finally:
+                sys.stdout = old_stdout
+
+        self.assertEqual(rc, 0)
+        # Empty commit → treated as changed, so it's reported
+        self.assertIn("docs/design/auth.md", buf.getvalue())
+        # blocked_reason must be cleared by auto-unblock
+        records = ddt._load_records()
+        rec = next(r for r in records if r["path"] == "docs/design/auth.md")
+        self.assertEqual(rec["blocked_reason"], "")
+
 
 
 # ---------------------------------------------------------------------------
