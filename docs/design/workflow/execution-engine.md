@@ -12,39 +12,29 @@ Engine 管理五个 phase：
 
 1. **executing**
    Agent 正在执行步骤内容，Engine 不干预。
-   创建时进入此状态。每次 goto 或 reexecute 后也进入此状态。
+   - 创建 workflow 时进入
+   - goto 或 reexecute 后进入
+   - Agent turn 结束、session idle → verifying
 
 2. **verifying**
-   Agent turn 结束、session idle 后 Engine 注入验收清单。
-   Agent 自查：未完成则继续执行（等下次 idle Engine 再次注入），
-   完成则调用 workflow_verify 进入 jumping。
+   Engine 已注入验收清单，等待 Agent 响应。
+   - Agent 未完成 → 继续执行，等下次 idle 时 Engine 重新注入 → executing（循环）
+   - Agent 完成，调用 workflow_verify → jumping
+   - 超时（多次注入无响应）→ blocked
 
 3. **jumping**
-   Engine 注入跳转问题，等待 Agent 调用 workflow_jump 回答。
-
-4. **blocked**
-   阻塞状态。触发条件：
-   - blocking 类型步骤等待 owner 输入
-   - Agent 主动调用 workflow_blocked
-   - 死锁超时
-
-5. **complete**
-   Workflow 执行完毕。
-
-**状态转换规则**：
-
-1. 创建 workflow → executing
-2. Agent turn 结束、session idle → verifying
-3. 验证未完成 → executing（循环）
-4. 完成验证、调 verify → jumping
-5. Jump 回答后：
+   Engine 已注入跳转问题，等待 Agent 调用 workflow_jump 回答。
    - goto → executing
    - reexecute → executing
    - complete → complete
-6. 验证超时 → blocked
-7. Agent 主动阻塞 → blocked
-8. Owner 输入解除 blocked → verifying
-9. Owner 终止 → complete
+
+4. **blocked**
+   阻塞状态。触发来源：blocking 步骤等待 owner / Agent 调用 workflow_blocked / 验证超时。
+   - Owner 输入解除 → verifying
+   - Owner 终止 → complete
+
+5. **complete**
+   Workflow 执行完毕。终止状态，无离开转换。
 
 ### 三阶段协议
 
@@ -86,40 +76,28 @@ Engine 在 session 空闲时触发 verify。空闲需同时满足：
 
 ### 正常执行流程
 
-1. Engine 注入 goal 消息
-   - role: workflow, type: goal
-   - 内容：当前步骤的目标描述
+**Goal 阶段**
 
-2. Agent 执行步骤
-   - 连续工具调用完成步骤
-   - 可 spawn 子 session，可多轮思考
-   - Engine 不干预
+1. Engine 注入 goal 消息（role: workflow, type: goal），内容为当前步骤目标描述
+2. Agent 收到后连续工具调用完成步骤，可 spawn 子 session、多轮思考
+3. Agent turn 结束、session idle → 进入 Verify 阶段
 
-3. Agent turn 结束，session idle
-   Engine 注入 verify 消息
-   - role: workflow, type: verify
-   - 内容：
-     - 验收清单条目列表
-     - 引导语："如果全部满足，调用 workflow_verify；否则继续完成步骤。"
+**Verify 阶段**
 
-4. Agent 自查
-   - 未完成 → 继续执行 → 等下次 idle
-   - 完成 → workflow_verify()
+1. Engine 注入 verify 消息（role: workflow, type: verify），内容为验收清单条目 + 引导语
+2. Agent 自查：
+   - 未完成 → 继续执行 → 等下次 idle → Engine 重新注入（回到步骤 1）
+   - 完成 → 调用 workflow_verify()
+3. Engine 收到 verify → 抹除 verify 交互记录（注入消息 + tool_call + tool_result）→ 进入 Jump 阶段
 
-5. Engine 收到 verify
-   - 抹除 verify 交互记录（注入消息 + tool_call + tool_result）
-   - 注入 jump 消息
-     - role: workflow, type: jump
-     - 内容：跳转问题（问题和选项渲染为 ABCD 标签加文字解释，附调用提示）
+**Jump 阶段**
 
-6. Agent 回答
-   - workflow_jump({ answers })
-
-7. Engine 评估跳转
-   - 按 transitions 顺序匹配条件
-   - 抹除 jump 交互记录（注入消息 + tool_call + tool_result）
-   - 更新 WorkflowRun 状态
-   - 注入下一步 goal 或结束
+1. Engine 注入 jump 消息（role: workflow, type: jump），内容为跳转问题（ABCD 选项 + 调用提示）
+2. Agent 调用 workflow_jump({answers})
+3. Engine 按 transitions 顺序匹配条件，执行对应 action
+4. Engine 抹除 jump 交互记录（注入消息 + tool_call + tool_result）
+5. Engine 更新 WorkflowRun 状态
+6. Engine 注入下一步 goal（或结束）
 
 ### 跳转评估
 
