@@ -36,6 +36,7 @@ pub async fn call_llm(
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
+            tool_call_id: None,
         }],
         temperature: 0.7,
         max_tokens: None,
@@ -75,6 +76,7 @@ pub async fn call_llm_streaming(
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
+            tool_call_id: None,
         }],
         temperature: 0.7,
         max_tokens: None,
