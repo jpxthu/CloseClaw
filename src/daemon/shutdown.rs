@@ -506,13 +506,20 @@ mod tests {
         // Register a busy operation so drain doesn't complete immediately
         handle.busy_count.fetch_add(1, Ordering::SeqCst);
 
-        // First initiate succeeds
+        // Phase 0: set gate immediately (simulates signal reception)
+        handle.try_start_shutdown();
+        assert!(
+            handle.is_shutting_down(),
+            "gate should be active after Phase 0"
+        );
+
+        // First initiate succeeds (gate already set by Phase 0)
         let handle2 = handle.clone();
         tokio::spawn(async move {
             handle2.initiate_shutdown().await;
         });
 
-        // Give it a moment to start
+        // Give it a moment to enter the drain loop
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(handle.is_shutting_down());
 
