@@ -201,6 +201,12 @@ impl ShutdownHandle {
         self.coordinator.mode()
     }
 
+    /// Atomically transition from Running → ShuttingDown.
+    /// Returns true if this call initiated shutdown, false if already shutting down.
+    pub fn try_start_shutdown(&self) -> bool {
+        self.coordinator.try_start_shutdown()
+    }
+
     /// Escalate a graceful shutdown to forceful.
     /// Returns true if escalation succeeded, false if not in ShuttingDown state.
     pub fn escalate_to_forceful(&self) -> bool {
@@ -218,20 +224,29 @@ impl ShutdownHandle {
     /// If already shutting down, escalates to forceful.
     /// Only a forceful upgrade or busy_count reaching 0 can end the wait.
     pub async fn initiate_shutdown(&self) {
-        if !self.coordinator.try_start_shutdown() {
-            // Already shutting down — escalate to forceful on repeated signal
-            if self.escalate_to_forceful() {
-                self.wait_for_drain().await;
-            }
+        // Try to transition from Running → ShuttingDown
+        if self.coordinator.try_start_shutdown() {
+            // We initiated shutdown — normal graceful path
+            info!(
+                "Graceful shutdown initiated — waiting for in-flight operations \
+                    (forceful via repeated signal)"
+            );
+            let _ = self.drain_done_tx.send(());
+            self.wait_for_drain().await;
             return;
         }
 
-        info!(
-            "Graceful shutdown initiated — waiting for in-flight operations \
-                (forceful via repeated signal)"
-        );
+        // Already shutting down. If the gate was set by Phase 0 (graceful),
+        // just proceed with drain without escalating.
+        if !self.is_forceful() {
+            info!("Shutdown gate already set — proceeding with drain");
+            let _ = self.drain_done_tx.send(());
+            self.wait_for_drain().await;
+            return;
+        }
 
-        let _ = self.drain_done_tx.send(());
+        // Already forceful — just drain
+        info!("Forceful mode — drain");
         self.wait_for_drain().await;
     }
 
