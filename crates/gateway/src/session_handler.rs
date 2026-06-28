@@ -400,6 +400,7 @@ impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
             messages: vec![closeclaw_llm::types::InternalMessage {
                 role: "user".to_string(),
                 content: prompt.to_string(),
+                tool_call_id: None,
             }],
             temperature: 0.0,
             max_tokens: None,

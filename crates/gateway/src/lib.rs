@@ -9,6 +9,8 @@ pub mod inbound_queue;
 #[cfg(test)]
 mod inbound_queue_tests;
 mod llm_caller;
+#[cfg(test)]
+mod llm_caller_tests;
 mod memory;
 pub mod message;
 pub mod outbound;
