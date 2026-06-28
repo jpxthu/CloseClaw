@@ -8,8 +8,10 @@
 use crate::{DmScope, GatewayConfig, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
+use closeclaw_common::shutdown::{DrainStatus, ShutdownHandle, ShutdownSignal, ShutdownState};
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 // ── Mock infrastructure ──────────────────────────────────────────────────────
@@ -299,4 +301,110 @@ async fn test_close_storage_noop_without_storage() {
     let gw = crate::Gateway::new(config, sm);
 
     gw.close_storage().await.unwrap();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Card action forceful shutdown escalation tests (Step 1.2)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Mock `ShutdownSignal` that simulates CAS behavior for escalation.
+///
+/// The real `ShutdownCoordinator::escalate_to_forceful` uses an atomic
+/// CAS to accept `ShuttingDown`/`Draining`/`Stopped` as source states
+/// and reject `Running`/`ForcefulShuttingDown`. This mock reproduces
+/// that contract for unit testing without a full coordinator.
+struct MockStateSignal {
+    state: ShutdownState,
+    escalated: AtomicBool,
+}
+
+impl MockStateSignal {
+    fn new(state: ShutdownState) -> Self {
+        Self {
+            state,
+            escalated: AtomicBool::new(false),
+        }
+    }
+}
+
+impl ShutdownSignal for MockStateSignal {
+    fn is_shutting_down(&self) -> bool {
+        self.state.is_shutting_down_state()
+    }
+
+    fn increment_busy(&self) {}
+    fn decrement_busy(&self) {}
+    fn busy_count(&self) -> usize {
+        0
+    }
+
+    fn escalate_to_forceful(&self) -> bool {
+        // CAS: accept ShuttingDown/Draining/Stopped, reject Running/ForcefulShuttingDown
+        if matches!(
+            self.state,
+            ShutdownState::ShuttingDown | ShutdownState::Draining | ShutdownState::Stopped
+        ) {
+            self.escalated.store(true, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_forceful(&self) -> bool {
+        self.state == ShutdownState::ForcefulShuttingDown || self.escalated.load(Ordering::SeqCst)
+    }
+
+    fn drain_status(&self) -> DrainStatus {
+        DrainStatus {
+            state: self.state,
+            busy_count: 0,
+            is_draining: self.state == ShutdownState::Draining,
+        }
+    }
+}
+
+/// Card action escalation from `Stopped` state succeeds.
+///
+/// Phase 1 drain completes, state transitions to `Stopped`. The user
+/// clicks "Forceful shutdown" on the progress card. The CAS should
+/// accept `Stopped` as a valid source state.
+#[test]
+fn test_card_action_forceful_shutdown_from_stopped() {
+    let signal = Arc::new(MockStateSignal::new(ShutdownState::Stopped));
+    let handle = ShutdownHandle::new(signal.clone());
+
+    assert!(handle.escalate_to_forceful());
+    assert!(signal.escalated.load(Ordering::SeqCst));
+    assert!(handle.is_forceful());
+}
+
+/// Card action escalation from `Running` state returns false (safe).
+///
+/// If the card action somehow fires before shutdown starts, the CAS
+/// rejects `Running` and returns false. No state change occurs.
+#[test]
+fn test_card_action_forceful_shutdown_from_running() {
+    let signal = Arc::new(MockStateSignal::new(ShutdownState::Running));
+    let handle = ShutdownHandle::new(signal.clone());
+
+    assert!(!handle.escalate_to_forceful());
+    assert!(!signal.escalated.load(Ordering::SeqCst));
+    assert!(!handle.is_forceful());
+}
+
+/// Card action escalation when already forceful returns false (no-op).
+///
+/// If the user double-clicks or a second SIGTERM already triggered
+/// forceful mode, the CAS rejects `ForcefulShuttingDown` and returns
+/// false. No redundant state change.
+#[test]
+fn test_card_action_forceful_shutdown_already_forceful() {
+    let signal = Arc::new(MockStateSignal::new(ShutdownState::ForcefulShuttingDown));
+    let handle = ShutdownHandle::new(signal.clone());
+
+    assert!(!handle.escalate_to_forceful());
+    assert!(!signal.escalated.load(Ordering::SeqCst));
+    // is_forceful returns true because the state is ForcefulShuttingDown
+    assert!(handle.is_forceful());
 }
