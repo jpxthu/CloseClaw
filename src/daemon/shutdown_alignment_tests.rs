@@ -348,3 +348,177 @@ fn test_is_shutting_down_false_when_stopped() {
     // cycle to complete.
     assert!(handle.is_shutting_down());
 }
+
+// ── Step 1.5: Phase 0 gate timing ──────────────────────────────────────
+
+#[test]
+fn test_phase0_gate_set_immediately_after_signal() {
+    // Phase 0 sets the gate via try_start_shutdown() before Phase 1 begins.
+    // After the gate is set, is_shutting_down() should return true
+    // immediately — no drain or async work needed.
+    let handle = ShutdownHandle::new();
+    assert!(!handle.is_shutting_down());
+
+    // Simulate Phase 0: signal received, gate set immediately
+    let initiated = handle.try_start_shutdown();
+    assert!(initiated, "first try_start_shutdown should succeed");
+    assert!(
+        handle.is_shutting_down(),
+        "gate should be active after Phase 0"
+    );
+}
+
+#[test]
+fn test_phase0_gate_rejects_new_operations() {
+    // After Phase 0 gate is set, new operations should be rejected.
+    let handle = ShutdownHandle::new();
+    handle.try_start_shutdown();
+
+    fn try_accept(handle: &ShutdownHandle) -> Result<(), String> {
+        if handle.is_shutting_down() {
+            return Err("reject".into());
+        }
+        Ok(())
+    }
+
+    assert!(try_accept(&handle).is_err());
+}
+
+#[test]
+fn test_phase0_gate_idempotent() {
+    let handle = ShutdownHandle::new();
+    assert!(handle.try_start_shutdown());
+    assert!(!handle.try_start_shutdown(), "second call should fail");
+    assert!(handle.is_shutting_down());
+}
+
+// ── Step 1.5: ShutdownSignal impl delegation verification ───────────────
+
+#[test]
+fn test_daemon_shutdown_signal_busy_count_delegation() {
+    use closeclaw_common::ShutdownSignal;
+
+    let handle = ShutdownHandle::new();
+    let signal: &dyn ShutdownSignal = &handle;
+
+    handle.increment_busy();
+    handle.increment_busy();
+    assert_eq!(signal.busy_count(), 2);
+
+    signal.decrement_busy();
+    assert_eq!(handle.busy_count(), 1);
+}
+
+#[test]
+fn test_daemon_shutdown_signal_escalate_returns_correctly() {
+    use closeclaw_common::ShutdownSignal;
+
+    let handle = ShutdownHandle::new();
+    let signal: &dyn ShutdownSignal = &handle;
+
+    // Cannot escalate when Running
+    assert!(!signal.escalate_to_forceful());
+
+    // Can escalate after shutdown started
+    handle.try_start_shutdown();
+    assert!(signal.escalate_to_forceful());
+
+    // Cannot escalate again (already forceful)
+    assert!(!signal.escalate_to_forceful());
+}
+
+#[test]
+fn test_daemon_shutdown_signal_is_forceful_delegation() {
+    use closeclaw_common::ShutdownSignal;
+
+    let handle = ShutdownHandle::new();
+    let signal: &dyn ShutdownSignal = &handle;
+
+    assert!(!signal.is_forceful());
+    handle.try_start_shutdown();
+    assert!(!signal.is_forceful());
+    signal.escalate_to_forceful();
+    assert!(signal.is_forceful());
+}
+
+#[test]
+fn test_daemon_shutdown_signal_is_shutting_down_delegation() {
+    use closeclaw_common::ShutdownSignal;
+
+    let handle = ShutdownHandle::new();
+    let signal: &dyn ShutdownSignal = &handle;
+
+    assert!(!signal.is_shutting_down());
+    handle.try_start_shutdown();
+    assert!(signal.is_shutting_down());
+}
+
+// ── Step 1.5: Common layer delegation integration ──────────────────────
+
+#[tokio::test]
+async fn test_common_handle_delegates_drain_waits_for_busy_count() {
+    let daemon_handle = ShutdownHandle::new();
+    // Wrap daemon handle as common ShutdownSignal for testing delegation
+    let common_handle = crate::bridge::common_shutdown_handle(&daemon_handle);
+
+    // Increment busy count through common layer
+    common_handle.increment_busy();
+    common_handle.increment_busy();
+    assert_eq!(common_handle.busy_count(), 2);
+    // Daemon layer should reflect the same count
+    assert_eq!(daemon_handle.busy_count(), 2);
+
+    // Start shutdown via common layer — should gate immediately
+    let initiated = common_handle.is_shutting_down();
+    assert!(!initiated, "should not be shutting down yet");
+
+    // Start via daemon handle
+    daemon_handle.try_start_shutdown();
+    assert!(common_handle.is_shutting_down());
+}
+
+#[tokio::test]
+async fn test_common_escalate_to_forceful_propagates_to_daemon() {
+    let daemon_handle = ShutdownHandle::new();
+    let common_handle = crate::bridge::common_shutdown_handle(&daemon_handle);
+
+    // Start graceful shutdown
+    daemon_handle.try_start_shutdown();
+    assert!(!daemon_handle.is_forceful());
+
+    // Escalate via common layer
+    let escalated = common_handle.escalate_to_forceful();
+    assert!(escalated, "escalation should succeed");
+    // Daemon layer should reflect forceful state
+    assert!(daemon_handle.is_forceful());
+    assert!(common_handle.is_forceful());
+}
+
+#[tokio::test]
+async fn test_common_busy_count_delegation_drain_completes() {
+    let daemon_handle = ShutdownHandle::new();
+    let common_handle = crate::bridge::common_shutdown_handle(&daemon_handle);
+
+    // Increment via common layer
+    common_handle.increment_busy();
+    assert_eq!(daemon_handle.busy_count(), 1);
+
+    // Start shutdown via daemon
+    daemon_handle.try_start_shutdown();
+
+    // Spawn initiate_shutdown — it will block on drain
+    let h = daemon_handle.clone();
+    let shutdown_handle = tokio::spawn(async move {
+        h.initiate_shutdown().await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(!daemon_handle.is_stopped());
+
+    // Decrement via common layer
+    common_handle.decrement_busy();
+    assert_eq!(daemon_handle.busy_count(), 0);
+
+    shutdown_handle.await.unwrap();
+    assert!(daemon_handle.is_stopped());
+}
