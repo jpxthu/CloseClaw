@@ -76,18 +76,35 @@ impl ShutdownCoordinator {
             .is_ok()
     }
 
-    /// Atomically escalate from ShuttingDown → ForcefulShuttingDown.
-    /// Returns true if the escalation succeeded, false if already in a
-    /// non-ShuttingDown state.
+    /// Atomically escalate from any active shutdown state to ForcefulShuttingDown.
+    ///
+    /// Accepts `ShuttingDown`, `Draining`, and `Stopped` as source states.
+    /// Returns `true` if the escalation succeeded, `false` if already in
+    /// `ForcefulShuttingDown` or not yet shutting down (`Running`).
     pub fn escalate_to_forceful(&self) -> bool {
-        self.state
-            .compare_exchange(
-                ShutdownState::ShuttingDown as u8,
-                ShutdownState::ForcefulShuttingDown as u8,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            )
-            .is_ok()
+        for _ in 0..2 {
+            let current = self.state.load(Ordering::SeqCst);
+            match ShutdownState::from_u8(current) {
+                ShutdownState::ForcefulShuttingDown | ShutdownState::Running => {
+                    return false;
+                }
+                _ => {
+                    if self
+                        .state
+                        .compare_exchange(
+                            current,
+                            ShutdownState::ForcefulShuttingDown as u8,
+                            Ordering::SeqCst,
+                            Ordering::SeqCst,
+                        )
+                        .is_ok()
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Returns the current shutdown mode.
@@ -181,7 +198,8 @@ impl ShutdownHandle {
     }
 
     /// Escalate a graceful shutdown to forceful.
-    /// Returns true if escalation succeeded, false if not in ShuttingDown state.
+    /// Accepts ShuttingDown, Draining, and Stopped as source states.
+    /// Returns true if escalation succeeded, false if already forceful or Running.
     pub fn escalate_to_forceful(&self) -> bool {
         self.coordinator.escalate_to_forceful()
     }
@@ -417,13 +435,13 @@ mod tests {
     }
 
     #[test]
-    fn test_coordinator_escalate_to_forceful_fails_when_stopped() {
+    fn test_coordinator_escalate_to_forceful_succeeds_when_stopped() {
         let coordinator = ShutdownCoordinator::new();
         coordinator.try_start_shutdown();
         coordinator.start_drain();
         coordinator.mark_stopped();
-        assert!(!coordinator.escalate_to_forceful());
-        assert_eq!(coordinator.state(), ShutdownState::Stopped);
+        assert!(coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
     }
 
     #[test]
@@ -821,5 +839,30 @@ mod tests {
         // Verify drain_status reflects the gate being set
         let status = handle.drain_status();
         assert_eq!(status.state, ShutdownState::ShuttingDown);
+    }
+
+    // ── Step 1.3: escalate_to_forceful from Draining/Stopped ──────────
+
+    #[test]
+    fn test_escalate_from_draining() {
+        let coordinator = ShutdownCoordinator::new();
+        coordinator.try_start_shutdown();
+        coordinator.start_drain();
+        assert_eq!(coordinator.state(), ShutdownState::Draining);
+
+        assert!(coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+    }
+
+    #[test]
+    fn test_escalate_from_stopped() {
+        let coordinator = ShutdownCoordinator::new();
+        coordinator.try_start_shutdown();
+        coordinator.start_drain();
+        coordinator.mark_stopped();
+        assert_eq!(coordinator.state(), ShutdownState::Stopped);
+
+        assert!(coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
     }
 }
