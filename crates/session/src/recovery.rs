@@ -114,6 +114,85 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             }
         }
 
+        // Scan archived sessions for pending operations (defensive scan)
+        let archived_sessions = match self.storage.list_archived_sessions().await {
+            Ok(sessions) => sessions,
+            Err(e) => {
+                tracing::error!("Failed to list archived sessions: {}", e);
+                Vec::new()
+            }
+        };
+
+        for session_id in &archived_sessions {
+            // Skip if already recovered as active session
+            if recovered.contains(session_id) {
+                continue;
+            }
+            match self.storage.load_checkpoint(session_id).await {
+                Ok(Some(cp)) => {
+                    if cp.pending_operations.is_empty() {
+                        // Clean archived session — skip
+                        continue;
+                    }
+                    // Restore archived checkpoint to active state
+                    if let Err(e) = self.storage.restore_checkpoint(session_id).await {
+                        tracing::error!(
+                            session_id = %session_id,
+                            "Failed to restore archived session: {}",
+                            e
+                        );
+                        failed.push(session_id.clone());
+                        continue;
+                    }
+                    // Load the restored checkpoint for notification injection
+                    match self.storage.load_checkpoint(session_id).await {
+                        Ok(Some(mut restored_cp)) => {
+                            self.inject_recovery_notifications(session_id, &mut restored_cp);
+                            if let Err(e) = self.storage.save_checkpoint(&restored_cp).await {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    "Failed to persist restored checkpoint: {}",
+                                    e
+                                );
+                            }
+                            checkpoints.insert(session_id.clone(), restored_cp);
+                            recovered.push(session_id.clone());
+                        }
+                        Ok(None) => {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                "Restored checkpoint not found"
+                            );
+                            failed.push(session_id.clone());
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                session_id = %session_id,
+                                "Failed to load restored checkpoint: {}",
+                                e
+                            );
+                            failed.push(session_id.clone());
+                        }
+                    }
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "Archived session checkpoint not found"
+                    );
+                    failed.push(session_id.clone());
+                }
+                Err(e) => {
+                    tracing::error!(
+                        session_id = %session_id,
+                        "Failed to load archived checkpoint: {}",
+                        e
+                    );
+                    failed.push(session_id.clone());
+                }
+            }
+        }
+
         // Collect dirty sessions (those with pending operations)
         let dirty_sessions: Vec<String> = checkpoints
             .iter()
