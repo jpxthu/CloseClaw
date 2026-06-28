@@ -127,9 +127,9 @@
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
-    "commit": "64c74f4f368ef292d11b143a218603ac913402fc",
-    "commit_time": "2026-06-27T14:32:35+08:00",
-    "confirmed_time": "2026-06-27T14:39:39.852794+08:00",
+    "commit": "c523d70523dd409c80d16374843f1c000add5a6f",
+    "commit_time": "2026-06-28T09:10:53+08:00",
+    "confirmed_time": "2026-06-28T09:18:07.042310+08:00",
     "comment": ""
   },
   {
@@ -144,7 +144,7 @@
     "commit": "136edef20d57977748391e78287803c88180fc28",
     "commit_time": "2026-06-26T17:48:33+08:00",
     "confirmed_time": "2026-06-26T17:55:59.491929+08:00",
-    "comment": ""
+    "comment": "blocked: F2b found doc issues: (1) default_temperature field optionality not documented; (2) retry count mismatch (code=4, doc=3); (3) backoff ceiling mismatch (code=8s, doc=4s); (4) knowledge fill-vs-override semantic ambiguity."
   },
   {
     "path": "docs/design/llm/protocol-mapping.md",
