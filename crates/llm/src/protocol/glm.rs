@@ -4,7 +4,7 @@
 //! notable differences:
 //!   - `reasoning_content` field carries chain-of-thought / thinking content
 //!   - Error responses use a nested `{error: {code, message}}` structure
-//!   - SSE streaming prioritises `reasoning_content` delta over `content` delta
+//!   - SSE streaming prioritises `content` delta over `reasoning_content` delta
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -195,23 +195,25 @@ impl ChatProtocol for GlmProtocol {
                 // Filtering is only feasible in the non-streaming `parse_response`.
                 //
                 // GLM may emit `reasoning_content` delta or `content` delta.
-                // Prefer `reasoning_content` first, then fall back to `content`.
+                // Prefer `content` first, fall back to `reasoning_content`.
                 let (text_delta, thinking_delta) = (
                     delta.get("content").and_then(|v| v.as_str()),
                     delta.get("reasoning_content").and_then(|v| v.as_str()),
                 );
 
-                let content_to_yield = thinking_delta.or(text_delta);
+                let content_to_yield = text_delta.or(thinking_delta);
 
                 if let Some(text) = content_to_yield {
+                    // Block type determined by which delta won (content priority)
+                    let winning_is_content = text_delta.is_some();
                     let (idx, btype) = match current_block_index {
                         Some(i) => (i, current_block_type.unwrap()),
                         None => {
                             // First delta — emit BlockStart.
-                            let btype = if thinking_delta.is_some() {
-                                ContentBlockType::Thinking
-                            } else {
+                            let btype = if winning_is_content {
                                 ContentBlockType::Text
+                            } else {
+                                ContentBlockType::Thinking
                             };
                             let idx = next_block_index;
                             next_block_index += 1;

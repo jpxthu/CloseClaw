@@ -449,6 +449,51 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
     assert!(stream.next().await.is_none());
 }
 
+#[tokio::test]
+async fn test_parse_sse_content_priority_over_reasoning() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+    // Both content and reasoning_content in the same delta — content should win
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"content":"Final answer","reasoning_content":"Thinking trace"}}]}"#,
+        ),
+        make_sse_chunk("[DONE]"),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+    // BlockStart should be Text (content priority)
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockStart {
+            block_type: ContentBlockType::Text,
+            ..
+        }
+    ));
+    // Delta should be Text
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta {
+            delta: ContentDelta::Text { text: s },
+            ..
+        } if s == "Final answer"
+    ));
+    // BlockEnd Text
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockEnd {
+            block_type: ContentBlockType::Text,
+            ..
+        }
+    ));
+    // MessageEnd
+    let evt = stream.next().await.unwrap().unwrap();
+    assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
+    assert!(stream.next().await.is_none());
+}
+
 // ── short reasoning_content filtering tests ──────────────────────────────
 
 #[test]
