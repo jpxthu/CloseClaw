@@ -339,6 +339,10 @@ impl closeclaw_common::ShutdownSignal for ShutdownHandle {
     fn escalate_to_forceful(&self) -> bool {
         self.coordinator.escalate_to_forceful()
     }
+
+    fn is_forceful(&self) -> bool {
+        self.coordinator.state() == ShutdownState::ForcefulShuttingDown
+    }
 }
 
 #[cfg(test)]
