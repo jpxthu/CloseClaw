@@ -266,10 +266,14 @@ fn test_parse_response_with_both_content_and_reasoning() {
         }
     });
     let resp = proto.parse_response(body).unwrap();
-    // Both content and reasoning → only Text block (content priority)
-    assert_eq!(resp.content_blocks.len(), 1);
+    // Both content and reasoning → Text + Thinking (independent)
+    assert_eq!(resp.content_blocks.len(), 2);
     assert!(
         matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "The answer is 42.")
+    );
+    assert!(
+        matches!(&resp.content_blocks[1], RawContentBlock::Thinking { thinking, signature: None }
+            if thinking == "Let me think about this...")
     );
 }
 
@@ -365,13 +369,22 @@ fn test_parse_response_thinking_then_text_order() {
         }
     });
     let resp = proto.parse_response(body).unwrap();
-    // content + reasoning_content → only Text block (content priority)
-    assert_eq!(resp.content_blocks.len(), 1);
+    // content + reasoning_content → Text + Thinking (independent)
+    assert_eq!(resp.content_blocks.len(), 2);
     match &resp.content_blocks[0] {
         RawContentBlock::Text(text) => {
             assert_eq!(text, "The answer is 42.");
         }
-        _ => panic!("Expected Text block (content priority)"),
+        _ => panic!("Expected Text block"),
+    }
+    match &resp.content_blocks[1] {
+        RawContentBlock::Thinking {
+            thinking,
+            signature: None,
+        } => {
+            assert_eq!(thinking, "Let me think about this...");
+        }
+        _ => panic!("Expected Thinking block"),
     }
 }
 
@@ -599,11 +612,15 @@ fn test_parse_response_tool_calls_with_reasoning() {
         }
     });
     let resp = proto.parse_response(body).unwrap();
-    // Text + ToolUse (content priority, reasoning_content ignored)
-    assert_eq!(resp.content_blocks.len(), 2);
+    // Text + Thinking + ToolUse (content + reasoning independent)
+    assert_eq!(resp.content_blocks.len(), 3);
     assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Here you go."));
     assert!(
-        matches!(&resp.content_blocks[1], RawContentBlock::ToolUse { id, name, .. }
+        matches!(&resp.content_blocks[1], RawContentBlock::Thinking { thinking, .. }
+        if thinking == "Thinking about the request...")
+    );
+    assert!(
+        matches!(&resp.content_blocks[2], RawContentBlock::ToolUse { id, name, .. }
         if id == "call_r1" && name == "lookup")
     );
 }
