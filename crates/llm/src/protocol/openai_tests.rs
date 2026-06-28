@@ -625,6 +625,68 @@ fn test_parse_response_tool_calls_with_reasoning() {
     );
 }
 
+// ── build_message tool result serialization ──────────────────────────────────
+
+#[test]
+fn test_build_message_tool_result() {
+    let msg = super::InternalMessage {
+        role: "tool".to_string(),
+        content: r#"{"temperature": 22}"#.to_string(),
+        tool_call_id: Some("call_abc".to_string()),
+    };
+    let value = super::build_message(&msg);
+    assert_eq!(value["role"], "tool");
+    assert_eq!(value["tool_call_id"], "call_abc");
+    assert_eq!(value["content"], r#"{"temperature": 22}"#);
+}
+
+#[test]
+fn test_build_message_tool_result_no_id_falls_back() {
+    let msg = super::InternalMessage {
+        role: "tool".to_string(),
+        content: "result".to_string(),
+        tool_call_id: None,
+    };
+    let value = super::build_message(&msg);
+    assert_eq!(value["role"], "tool");
+    assert!(value.get("tool_call_id").is_none());
+}
+
+#[test]
+fn test_build_message_normal_user() {
+    let msg = super::InternalMessage {
+        role: "user".to_string(),
+        content: "Hello".to_string(),
+        tool_call_id: None,
+    };
+    let value = super::build_message(&msg);
+    assert_eq!(value["role"], "user");
+    assert_eq!(value["content"], "Hello");
+    assert!(value.get("tool_call_id").is_none());
+}
+
+#[test]
+fn test_build_request_includes_tool_result_message() {
+    let proto = OpenAiProtocol::new();
+    let mut request = make_request();
+    request.messages.push(super::InternalMessage {
+        role: "assistant".to_string(),
+        content: String::new(),
+        ..Default::default()
+    });
+    request.messages.push(super::InternalMessage {
+        role: "tool".to_string(),
+        content: r#"{"temp": 22}"#.to_string(),
+        tool_call_id: Some("call_xyz".to_string()),
+    });
+    let body = proto.build_request(&request).unwrap();
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+    let last = messages.last().unwrap();
+    assert_eq!(last["role"], "tool");
+    assert_eq!(last["tool_call_id"], "call_xyz");
+}
+
 #[test]
 fn test_parse_response_cached_tokens() {
     let proto = OpenAiProtocol::new();

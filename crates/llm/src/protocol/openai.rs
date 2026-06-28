@@ -38,10 +38,18 @@ impl Default for OpenAiProtocol {
 }
 
 fn build_message(msg: &InternalMessage) -> serde_json::Value {
-    serde_json::json!({
-        "role": msg.role,
-        "content": msg.content,
-    })
+    if let Some(ref tool_call_id) = msg.tool_call_id {
+        serde_json::json!({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": msg.content,
+        })
+    } else {
+        serde_json::json!({
+            "role": msg.role,
+            "content": msg.content,
+        })
+    }
 }
 
 #[async_trait]

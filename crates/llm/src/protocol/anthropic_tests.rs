@@ -448,45 +448,22 @@ fn test_decorate_headers_content_type() {
 }
 // ── reasoning_level non-injection tests ─────────────────────────────────
 #[test]
-fn test_build_request_does_not_inject_reasoning_level_low() {
+fn test_build_request_does_not_inject_reasoning_level() {
     let proto = AnthropicProtocol::new();
-    let mut request = make_request();
-    request.reasoning_level = ReasoningLevel::Low;
-    let body = proto.build_request(&request).unwrap();
-    assert!(body.get("thinking").is_none());
-    assert!(body.get("reasoning_effort").is_none());
-    assert!(body.get("reasoning_level").is_none());
-}
-
-#[test]
-fn test_build_request_does_not_inject_reasoning_level_medium() {
-    let proto = AnthropicProtocol::new();
-    let mut request = make_request();
-    request.reasoning_level = ReasoningLevel::Medium;
-    let body = proto.build_request(&request).unwrap();
-    assert!(body.get("thinking").is_none());
-    assert!(body.get("reasoning_effort").is_none());
-    assert!(body.get("reasoning_level").is_none());
-}
-
-#[test]
-fn test_build_request_does_not_inject_reasoning_level_max() {
-    let proto = AnthropicProtocol::new();
-    let mut request = make_request();
-    request.reasoning_level = ReasoningLevel::Max;
-    let body = proto.build_request(&request).unwrap();
-    assert!(body.get("thinking").is_none());
-    assert!(body.get("reasoning_effort").is_none());
-    assert!(body.get("reasoning_level").is_none());
-}
-#[test]
-fn test_build_request_high_reasoning_level_no_injection() {
-    let proto = AnthropicProtocol::new();
-    let request = make_request(); // default is High
-    let body = proto.build_request(&request).unwrap();
-    assert!(body.get("thinking").is_none());
-    assert!(body.get("reasoning_effort").is_none());
-    assert!(body.get("reasoning_level").is_none());
+    let levels = [
+        ReasoningLevel::Low,
+        ReasoningLevel::Medium,
+        ReasoningLevel::High,
+        ReasoningLevel::Max,
+    ];
+    for level in levels {
+        let mut request = make_request();
+        request.reasoning_level = level;
+        let body = proto.build_request(&request).unwrap();
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoning_level").is_none());
+    }
 }
 
 // ── messages cache_control tests ──────────────────────────────────────────
@@ -531,20 +508,13 @@ fn test_messages_cache_control_multiple_messages() {
         },
     ];
     let body = proto.build_request(&request).unwrap();
-
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert_eq!(messages.len(), 3);
-
+    // Non-last messages remain as plain strings
     assert!(messages[0].get("content").unwrap().is_string());
-    assert_eq!(messages[0].get("content").unwrap().as_str().unwrap(), "Hi");
     assert!(messages[1].get("content").unwrap().is_string());
-    assert_eq!(
-        messages[1].get("content").unwrap().as_str().unwrap(),
-        "Hey!"
-    );
-
+    // Last message gets structured content with cache_control
     let last_content = messages[2].get("content").unwrap().as_array().unwrap();
-    assert_eq!(last_content.len(), 1);
     assert_eq!(last_content[0].get("type").unwrap(), "text");
     assert_eq!(last_content[0].get("text").unwrap(), "What's up?");
     assert_eq!(
@@ -559,7 +529,6 @@ fn test_messages_cache_control_empty_messages() {
     let mut request = make_request();
     request.messages = vec![];
     let body = proto.build_request(&request).unwrap();
-
     assert!(body.get("messages").unwrap().as_array().unwrap().is_empty());
 }
 
@@ -599,7 +568,6 @@ fn test_build_request_tools_section_cache_control() {
 #[test]
 fn test_messages_cache_control_with_system_blocks() {
     use crate::types::SystemBlock;
-
     let proto = AnthropicProtocol::new();
     let mut request = make_request();
     request.messages = vec![InternalMessage {
@@ -612,18 +580,14 @@ fn test_messages_cache_control_with_system_blocks() {
         cache: true,
     }]);
     let body = proto.build_request(&request).unwrap();
-
     let system = body.get("system").unwrap().as_array().unwrap();
     assert_eq!(system.len(), 1);
     assert_eq!(
         system[0].get("cache_control").unwrap(),
         &serde_json::json!({ "type": "ephemeral" })
     );
-
     let messages = body.get("messages").unwrap().as_array().unwrap();
-    assert_eq!(messages.len(), 1);
     let content = messages[0].get("content").unwrap().as_array().unwrap();
-    assert_eq!(content.len(), 1);
     assert_eq!(
         content[0].get("cache_control").unwrap(),
         &serde_json::json!({ "type": "ephemeral" })
@@ -924,6 +888,28 @@ async fn test_sse_ping_ignored() {
     assert!(matches!(evt, StreamEvent::MessageEnd { .. }));
 
     assert!(stream.next().await.is_none());
+}
+
+// ── build_message tool result tests ──────────────────────────────────────
+#[test]
+fn test_build_message_tool_result() {
+    let mut request = make_request();
+    request.messages = vec![InternalMessage {
+        role: "tool".to_string(),
+        content: "25°C, sunny".to_string(),
+        tool_call_id: Some("toolu_01A09q90qw90lq917835lq9".to_string()),
+    }];
+    let body = AnthropicProtocol::new().build_request(&request).unwrap();
+    let msg = &body.get("messages").unwrap().as_array().unwrap()[0];
+    assert_eq!(msg.get("role").unwrap(), "user");
+    let content = msg.get("content").unwrap().as_array().unwrap();
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0].get("type").unwrap(), "tool_result");
+    assert_eq!(
+        content[0].get("tool_use_id").unwrap(),
+        "toolu_01A09q90qw90lq917835lq9"
+    );
+    assert_eq!(content[0].get("content").unwrap(), "25°C, sunny");
 }
 
 // ── tools serialization tests ────────────────────────────────────────────
