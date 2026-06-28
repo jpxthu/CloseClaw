@@ -743,6 +743,133 @@ mod tests {
     }
 
     // =====================================================================
+    // shutdown_inbound / shutdown_outbound default delegation tests
+    // =====================================================================
+
+    /// Mock plugin that tracks shutdown calls to verify delegation.
+    struct ShutdownTrackerPlugin {
+        shutdown_called: std::sync::atomic::AtomicBool,
+        inbound_called: std::sync::atomic::AtomicBool,
+        outbound_called: std::sync::atomic::AtomicBool,
+    }
+
+    impl ShutdownTrackerPlugin {
+        fn new() -> Self {
+            Self {
+                shutdown_called: std::sync::atomic::AtomicBool::new(false),
+                inbound_called: std::sync::atomic::AtomicBool::new(false),
+                outbound_called: std::sync::atomic::AtomicBool::new(false),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl IMPlugin for ShutdownTrackerPlugin {
+        fn platform(&self) -> &str {
+            "tracker"
+        }
+
+        async fn parse_inbound(
+            &self,
+            _payload: &[u8],
+        ) -> Result<Option<NormalizedMessage>, AdapterError> {
+            Ok(None)
+        }
+
+        async fn send(
+            &self,
+            _output: &RenderedOutput,
+            _peer_id: &str,
+            _thread_id: Option<&str>,
+        ) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        async fn shutdown(&self) -> Result<(), AdapterError> {
+            self.shutdown_called
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn shutdown_inbound(&self) -> Result<(), AdapterError> {
+            self.inbound_called
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            // Override to do something different from shutdown()
+            Ok(())
+        }
+
+        async fn shutdown_outbound(&self) -> Result<(), AdapterError> {
+            self.outbound_called
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            // Override to do something different from shutdown()
+            Ok(())
+        }
+    }
+
+    /// Default shutdown_inbound() delegates to shutdown().
+    #[tokio::test]
+    async fn test_default_shutdown_inbound_delegates_to_shutdown() {
+        let plugin = DefaultMockPlugin;
+        // DefaultMockPlugin uses trait defaults — shutdown_inbound calls shutdown
+        let result = plugin.shutdown_inbound().await;
+        assert!(result.is_ok());
+    }
+
+    /// Default shutdown_outbound() delegates to shutdown().
+    #[tokio::test]
+    async fn test_default_shutdown_outbound_delegates_to_shutdown() {
+        let plugin = DefaultMockPlugin;
+        let result = plugin.shutdown_outbound().await;
+        assert!(result.is_ok());
+    }
+
+    /// Custom shutdown_inbound() does NOT call shutdown().
+    #[tokio::test]
+    async fn test_custom_shutdown_inbound_does_not_call_shutdown() {
+        let plugin = ShutdownTrackerPlugin::new();
+        plugin.shutdown_inbound().await.unwrap();
+        assert!(
+            plugin
+                .inbound_called
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "inbound_called should be true"
+        );
+        assert!(
+            !plugin
+                .shutdown_called
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "shutdown should NOT be called when inbound is overridden"
+        );
+    }
+
+    /// Custom shutdown_outbound() does NOT call shutdown().
+    #[tokio::test]
+    async fn test_custom_shutdown_outbound_does_not_call_shutdown() {
+        let plugin = ShutdownTrackerPlugin::new();
+        plugin.shutdown_outbound().await.unwrap();
+        assert!(
+            plugin
+                .outbound_called
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "outbound_called should be true"
+        );
+        assert!(
+            !plugin
+                .shutdown_called
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "shutdown should NOT be called when outbound is overridden"
+        );
+    }
+
+    /// DefaultMockPlugin shutdown_inbound and shutdown_outbound both succeed.
+    #[tokio::test]
+    async fn test_default_shutdown_inbound_outbound_both_ok() {
+        let plugin = DefaultMockPlugin;
+        assert!(plugin.shutdown_inbound().await.is_ok());
+        assert!(plugin.shutdown_outbound().await.is_ok());
+    }
+
+    // =====================================================================
     // Auto-discovery mechanism tests
     // =====================================================================
 

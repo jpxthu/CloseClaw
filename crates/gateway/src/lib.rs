@@ -51,7 +51,7 @@ pub struct Gateway {
     config: GatewayConfig,
     plugins: RwLock<HashMap<String, Arc<dyn closeclaw_common::IMPlugin>>>,
     session_manager: Arc<SessionManager>,
-    processor_registry: Option<Arc<dyn ProcessorChain>>,
+    processor_registry: std::sync::RwLock<Option<Arc<dyn ProcessorChain>>>,
     checkpoint_manager: Option<Arc<CheckpointManager<dyn PersistenceService>>>,
     session_handler: Option<Arc<SessionMessageHandler>>,
     /// Daemon-level approval flow for intercepting `/approve` / `/deny` commands.
@@ -82,7 +82,7 @@ impl Gateway {
             config,
             plugins: RwLock::new(HashMap::new()),
             session_manager,
-            processor_registry: None,
+            processor_registry: std::sync::RwLock::new(None),
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
@@ -104,7 +104,7 @@ impl Gateway {
             config,
             plugins: RwLock::new(HashMap::new()),
             session_manager,
-            processor_registry: Some(registry),
+            processor_registry: std::sync::RwLock::new(Some(registry)),
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
@@ -205,7 +205,8 @@ impl Gateway {
 
     /// Returns `(inbound_count, outbound_count)` for the processor registry.
     pub fn processor_registry_len(&self) -> (usize, usize) {
-        match &self.processor_registry {
+        let guard = self.processor_registry.read().unwrap();
+        match guard.as_ref() {
             Some(registry) => (registry.inbound_len(), registry.outbound_len()),
             None => (0, 0),
         }
@@ -419,6 +420,55 @@ impl Gateway {
         mode: closeclaw_common::shutdown::ShutdownMode,
     ) -> Result<usize, closeclaw_session::persistence::PersistenceError> {
         self.session_manager.flush_all(mode).await
+    }
+
+    /// Force a WAL checkpoint via the persistence backend (proxied to
+    /// SessionManager).  Call after `flush_all_sessions` in Phase 4.
+    pub async fn sync_storage(
+        &self,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        self.session_manager.sync_storage().await
+    }
+
+    /// Close the storage backend and release resources (proxied to
+    /// SessionManager).  Called during Phase 6 of daemon shutdown.
+    pub async fn close_storage(
+        &self,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        self.session_manager.close_storage().await
+    }
+
+    /// Close outbound connections and clean up routing tables.
+    ///
+    /// Calls `shutdown_outbound()` on every registered IM plugin,
+    /// clears the plugin registry, and drops the processor chain.
+    /// Called during Phase 5 of daemon shutdown.
+    pub async fn close_outbound(&self) {
+        // Shutdown outbound for all registered plugins
+        let plugins = self.get_all_plugins().await;
+        for plugin in &plugins {
+            if let Err(e) = plugin.shutdown_outbound().await {
+                tracing::warn!(
+                    platform = plugin.platform(),
+                    error = %e,
+                    "failed to shutdown plugin outbound — continuing"
+                );
+            }
+        }
+
+        // Clear plugin registry
+        {
+            let mut plugins = self.plugins.write().await;
+            plugins.clear();
+        }
+
+        // Drop processor chain
+        {
+            let mut registry = self.processor_registry.write().unwrap();
+            *registry = None;
+        }
+
+        tracing::info!("gateway outbound closed, routing table and processor registry cleared");
     }
 
     /// Register an IM plugin.
@@ -774,7 +824,8 @@ impl Gateway {
     /// Runs the inbound processor chain on a [`RawMessage`] built from `input`.
     /// Falls back to raw content on registry absence or processor error.
     pub async fn process_inbound_chain(&self, input: &InboundChainInput) -> ProcessedMessage {
-        let Some(registry) = &self.processor_registry else {
+        let registry = self.processor_registry.read().unwrap().clone();
+        let Some(registry) = registry else {
             return ProcessedMessage {
                 content: input.content.to_string(),
                 metadata: serde_json::Map::new(),
@@ -818,6 +869,8 @@ pub mod priority_prompt_tests;
 pub mod session_handler_dynamic_tests;
 #[cfg(test)]
 pub mod session_handler_tests;
+#[cfg(test)]
+pub mod shutdown_phase_tests;
 #[cfg(feature = "full-tests")]
 pub mod step1_5_tests;
 #[cfg(feature = "full-tests")]

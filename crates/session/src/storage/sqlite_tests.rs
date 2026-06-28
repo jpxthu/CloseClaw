@@ -521,4 +521,54 @@ mod tests {
 
         Ok(())
     }
+
+    // ===================================================================
+    // sync() / close() tests
+    // ===================================================================
+
+    #[tokio::test]
+    async fn test_sqlite_sync_executes_successfully() {
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        // Save a checkpoint so WAL has data to checkpoint
+        let cp = make_checkpoint("sync-test", SessionStatus::Active);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        // sync() should succeed (issues PRAGMA wal_checkpoint(TRUNCATE))
+        let result = storage.sync().await;
+        assert!(result.is_ok(), "sync() should succeed: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_sync_succeeds_without_data() {
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        // sync() on empty database should also succeed
+        let result = storage.sync().await;
+        assert!(result.is_ok(), "sync() on empty DB should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_close_returns_ok() {
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        // close() is a no-op for SqliteStorage but should return Ok
+        let result = storage.close().await;
+        assert!(result.is_ok(), "close() should return Ok(())");
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_sync_then_close() {
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        let cp = make_checkpoint("sync-close-test", SessionStatus::Active);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        storage.sync().await.unwrap();
+        storage.close().await.unwrap();
+    }
 }

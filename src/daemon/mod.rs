@@ -578,14 +578,14 @@ impl Daemon {
         sigint: &mut tokio::signal::unix::Signal,
         sigterm: &mut tokio::signal::unix::Signal,
     ) {
-        // Shutdown all registered plugins
+        // Shutdown inbound for all registered plugins
         let plugins = self.gateway.get_all_plugins().await;
         for plugin in &plugins {
-            if let Err(e) = plugin.shutdown().await {
+            if let Err(e) = plugin.shutdown_inbound().await {
                 tracing::warn!(
                     platform = plugin.platform(),
                     error = %e,
-                    "failed to shutdown plugin — continuing"
+                    "failed to shutdown plugin inbound — continuing"
                 );
             }
         }
@@ -784,37 +784,32 @@ impl Daemon {
         self.approval_flow.lock().await.clear();
     }
 
-    /// Phase 4: Final persistence — ensure all session checkpoints are flushed.
+    /// Phase 4: Final persistence — flush checkpoints and sync WAL.
     async fn phase_4_final_persist(&self, mode: crate::daemon::shutdown::ShutdownMode) {
         match self.gateway.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
+        match self.gateway.sync_storage().await {
+            Ok(()) => tracing::info!("storage fsync complete"),
+            Err(e) => tracing::warn!(error = %e, "storage fsync failed"),
+        }
     }
 
     /// Phase 5: Outbound shutdown — clean up routing tables.
     async fn phase_5_outbound_close(&self) {
-        // Gateway routing tables and processor registry are cleaned up
-        // implicitly when the Gateway is dropped (end of run).
+        self.gateway.close_outbound().await;
     }
 
-    /// Phase 6: Storage close.
-    ///
-    /// SqliteStorage uses RAII (connection closes on drop). We explicitly
-    /// drop the Arc here to ensure the file handle is released before exit.
+    /// Phase 6: Storage close — release persistent connections/handles.
     async fn phase_6_storage_close(&self) {
-        // The storage Arc is held by the Daemon struct. To release it before
-        // exit we replace it with a dummy that immediately drops.
-        // Since we cannot mutate self.storage (immutable ref), the actual
-        // drop happens when the Daemon is destroyed after run() returns.
-        // This phase exists for documentation and future explicit cleanup.
+        match self.gateway.close_storage().await {
+            Ok(()) => tracing::info!("storage closed"),
+            Err(e) => tracing::warn!(error = %e, "storage close failed"),
+        }
     }
 
-    /// Phase 7: Exit cleanup.
-    ///
-    /// - Check for abnormal sessions (non-Stopped) → log warning
-    /// - Clean up admin socket file
-    /// - Process exits when run() returns and Daemon is dropped
+    /// Phase 7: Exit cleanup — log warnings, remove admin socket.
     async fn phase_7_exit(&self) {
         // Check for sessions still in the active table — after
         // stop_all_sessions, only sessions that were NOT stopped

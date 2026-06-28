@@ -223,7 +223,8 @@ impl Gateway {
         channel: &str,
         session_id: &str,
     ) -> Result<ProcessedMessage, GatewayError> {
-        let Some(ref registry) = self.processor_registry else {
+        let registry = self.processor_registry.read().unwrap().clone();
+        let Some(registry) = registry else {
             return Ok(ProcessedMessage {
                 content: raw_output.to_string(),
                 metadata: serde_json::Map::new(),

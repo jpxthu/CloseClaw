@@ -609,4 +609,38 @@ mod tests {
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().dreaming_status, DreamingStatus::InLight);
     }
+
+    // ===================================================================
+    // sync() / close() default trait implementation tests
+    // ===================================================================
+
+    /// MemoryStorage uses the trait default sync() — should return Ok(()).
+    #[tokio::test]
+    async fn test_memory_storage_sync_default_returns_ok() {
+        use crate::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+        let result = storage.sync().await;
+        assert!(result.is_ok(), "default sync() should return Ok(())");
+    }
+
+    /// MemoryStorage uses the trait default close() — should return Ok(()).
+    #[tokio::test]
+    async fn test_memory_storage_close_default_returns_ok() {
+        use crate::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+        let result = storage.close().await;
+        assert!(result.is_ok(), "default close() should return Ok(())");
+    }
+
+    /// sync() and close() are independent — calling both succeeds.
+    #[tokio::test]
+    async fn test_sync_then_close_both_succeed() {
+        use crate::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+        storage.sync().await.unwrap();
+        storage.close().await.unwrap();
+    }
 }

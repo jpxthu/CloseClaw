@@ -549,6 +549,15 @@ pub trait PersistenceService: Send + Sync {
         Ok(())
     }
 
+    /// Force a WAL checkpoint to ensure all pending writes are flushed to disk.
+    ///
+    /// The default implementation is a no-op (returns `Ok(())`). Concrete
+    /// storage backends should override this to issue a `PRAGMA wal_checkpoint`
+    /// or equivalent.
+    async fn sync(&self) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
     /// List IDs of active sessions for a specific agent/role idle for at least
     /// `idle_minutes`.
     async fn list_idle_sessions_for_agent(
@@ -600,6 +609,15 @@ pub trait PersistenceService: Send + Sync {
         _session_id: &str,
         _status: DreamingStatus,
     ) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    /// Explicitly close the storage backend and release resources.
+    ///
+    /// Called during Phase 6 of daemon shutdown. The default implementation
+    /// is a no-op (returns `Ok(())`). Concrete storage backends should
+    /// override this to close persistent connections or file handles.
+    async fn close(&self) -> Result<(), PersistenceError> {
         Ok(())
     }
 }
