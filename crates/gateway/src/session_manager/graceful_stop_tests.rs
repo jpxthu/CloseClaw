@@ -138,6 +138,24 @@ impl closeclaw_common::shutdown::ShutdownSignal for MockEscalationSignal {
     fn is_forceful(&self) -> bool {
         self.is_forceful.load(std::sync::atomic::Ordering::SeqCst)
     }
+    fn drain_status(&self) -> closeclaw_common::DrainStatus {
+        closeclaw_common::DrainStatus {
+            state: if self
+                .is_shutting_down
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                if self.is_forceful.load(std::sync::atomic::Ordering::SeqCst) {
+                    closeclaw_common::ShutdownState::ForcefulShuttingDown
+                } else {
+                    closeclaw_common::ShutdownState::ShuttingDown
+                }
+            } else {
+                closeclaw_common::ShutdownState::Running
+            },
+            busy_count: 0,
+            is_draining: false,
+        }
+    }
 }
 
 /// Install a mock shutdown handle on a `SessionManager`.
