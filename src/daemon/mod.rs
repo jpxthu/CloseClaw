@@ -525,6 +525,10 @@ impl Daemon {
             }
         }
 
+        // Set the gate flag immediately so new operations are rejected
+        // before Phase 1 begins drain.
+        self.shutdown.try_start_shutdown();
+
         // Phase 1: Inbound shutdown + drain
         self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
 
