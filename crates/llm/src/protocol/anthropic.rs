@@ -649,3 +649,7 @@ fn extract_error_message(parsed: &serde_json::Value) -> String {
         .unwrap_or("unknown error")
         .to_string()
 }
+
+#[cfg(test)]
+#[path = "anthropic_sse_tests.rs"]
+mod anthropic_sse_tests; // extracted to stay under 1000-line limit
