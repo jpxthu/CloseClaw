@@ -29,6 +29,7 @@ workspace/
 Workflow
   ├── id, name, description
   ├── step_data_schema    // 跨步骤共享数据的字段定义（键值对，由 Engine 在步骤间维护）
+  └── verify_retry_limit  // 验证重试上限（默认 3，--optional）
   └── steps: Step[]       // 步骤序列
 
 Step

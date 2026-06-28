@@ -52,7 +52,7 @@ Workflow 工具在 ToolRegistry 初始化时注册，属于系统级工具——
 
 verify 只是"我做完了"的信号。验收清单来源于 Step 定义中的 verify 字段（纯文本条目），Engine 不校验条目真伪。
 
-phase 从 executing 到 verifying 的转换由 Engine 自动管理：Agent turn 结束、session idle 时 Engine 转为 verifying 并注入验收清单。
+phase 从 executing 到 verifying 的转换由 Engine 自动管理：session idle 时（判定逻辑见 Session 模块）Engine 注入验收清单。
 
 ### workflow_jump
 

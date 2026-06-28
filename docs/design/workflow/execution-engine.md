@@ -18,9 +18,9 @@ Engine 管理五个 phase：
 
 2. **verifying**
    Engine 已注入验收清单，等待 Agent 响应。
-   - Agent 未完成 → 继续执行，等下次 idle 时 Engine 重新注入 → executing（循环）
+   - Agent 继续干活（调工具、spawn 子 session 等）→ 等下次 idle Engine 重新注入 → executing（循环）
    - Agent 完成，调用 workflow_verify → jumping
-   - 超时（多次注入无响应）→ blocked
+   - 注入次数超过重试上限 → blocked
 
 3. **jumping**
    Engine 已注入跳转问题，等待 Agent 调用 workflow_jump 回答。
@@ -29,7 +29,7 @@ Engine 管理五个 phase：
    - complete → complete
 
 4. **blocked**
-   阻塞状态。触发来源：blocking 步骤等待 owner / Agent 调用 workflow_blocked / 验证超时。
+   阻塞状态。触发来源：blocking 步骤等待 owner / Agent 调用 workflow_blocked / 验证重试耗尽。
    - Owner 输入解除 → verifying
    - Owner 终止 → complete
 
@@ -47,30 +47,22 @@ Engine 管理五个 phase：
    消息抹除：否
 
 2. **Verify**
-   触发：session idle
+   触发：session idle（判定逻辑见 Session 模块）
    注入：验收清单 + "如果全部满足，调用 workflow_verify；否则继续完成步骤"
-   Agent 动作：自查 → verify() 或继续执行
-   消息抹除：是（含 tool_call 和 tool_result）
+   Agent 动作：自查
+   - 未完成 → 继续执行（Engine 不干预，等下次 idle 重新注入）
+   - 完成 → workflow_verify()
+   消息抹除：条件性——如果 Agent 紧接着调了 workflow_verify，Engine 抹除 verify 注入消息 + tool_call + tool_result 三条消息。如果 Agent 没调 verify 而是继续干活，只保留注入的验收消息（无 tool call 可抹），等下一轮。
 
 3. **Jump**
-   触发：Agent 调用 verify
-   注入：跳转问题（ABCD 选项）
-   Agent 动作：回答 → jump({answers})
-   消息抹除：是（含 tool_call 和 tool_result）
+   触发：Agent 调用 workflow_verify
+   注入：跳转问题（ABCD 选项 + 调用提示）
+   Agent 动作：workflow_jump({answers})
+   消息抹除：是。Engine 抹除 jump 注入消息 + tool_call + tool_result 三条消息。效果等同于这次提问没有发生过，直接跳转。
 
-### 消息角色
+### Session 空闲
 
-所有 Engine 注入的消息使用独立的 workflow 角色，与 user、assistant、system、tool 并列。Agent 通过消息角色识别流程控制消息。
-
-### 空闲判定
-
-Engine 在 session 空闲时触发 verify。空闲需同时满足：
-
-1. LLM 不在请求中
-2. 没有前台阻塞的工具调用
-3. 所有子 session 已完成
-
-后台工具执行中不影响空闲判定。
+Engine 依赖 Session 的空闲判定决定何时进入 verify 阶段。Session 空闲的定义由 Session 模块统一管理——LLM 不在请求中、无前台阻塞工具、子 session 均已完成。多个功能（spawn、archive 等）共用此判定。
 
 ## 数据流
 
@@ -79,87 +71,71 @@ Engine 在 session 空闲时触发 verify。空闲需同时满足：
 **Goal 阶段**
 
 1. Engine 注入 goal 消息（role: workflow, type: goal），内容为当前步骤目标描述
-2. Agent 收到后连续工具调用完成步骤，可 spawn 子 session、多轮思考
+2. Agent 收到后连续工具调用完成步骤
 3. Agent turn 结束、session idle → 进入 Verify 阶段
 
 **Verify 阶段**
 
-1. Engine 注入 verify 消息（role: workflow, type: verify），内容为验收清单条目 + 引导语
-2. Agent 自查：
-   - 未完成 → 继续执行 → 等下次 idle → Engine 重新注入（回到步骤 1）
-   - 完成 → 调用 workflow_verify()
-3. Engine 收到 verify → 抹除 verify 交互记录（注入消息 + tool_call + tool_result）→ 进入 Jump 阶段
+Engine 注入验收清单（role: workflow, type: verify）。Agent 自查：
+
+- Agent 继续干活（调工具等）：Engine 等下次 idle 重新注入。上一条 verify 注入消息保留在 context 中（无 tool call 可抹除）。此循环计入 pending_verify 计数。
+- Agent 完成，调用 workflow_verify()：Engine 抹除 verify 注入消息 + tool_call + tool_result，进入 Jump 阶段。
 
 **Jump 阶段**
 
-1. Engine 注入 jump 消息（role: workflow, type: jump），内容为跳转问题（ABCD 选项 + 调用提示）
+1. Engine 注入 jump 消息（role: workflow, type: jump）
 2. Agent 调用 workflow_jump({answers})
 3. Engine 按 transitions 顺序匹配条件，执行对应 action
-4. Engine 抹除 jump 交互记录（注入消息 + tool_call + tool_result）
+4. Engine 抹除 jump 注入消息 + tool_call + tool_result
 5. Engine 更新 WorkflowRun 状态
 6. Engine 注入下一步 goal（或结束）
 
 ### 跳转评估
 
-Engine 收到 workflow_jump({answers}) 后的处理：
-
-1. 取第一条 transition
-2. 检查 when 中所有条件是否与 answers 匹配
-3. 全部匹配 → 执行该 transition 的 action
-4. 有任一不匹配 → 取下一个 transition
-5. 所有 when transition 都不匹配 → 执行 default
-
-匹配是纯硬编码的——布尔比对、枚举匹配、字符串比对。Engine 不做语义理解。
+Engine 收到 workflow_jump({answers}) 后按 transitions 顺序匹配条件（布尔比对、枚举匹配、字符串比对），第一个全部满足的 transition 生效，都不满足则执行 default。硬编码，不依赖 LLM。
 
 ### 跳转动作
 
 goto(N)
-: 前进到 Step N。清空 step_data，step_history 追加当前步骤完成记录。
+: 前进到 Step N。清空 step_data。step_history 追加当前步骤完成记录。
 
 reexecute(N)
-: 重入 Step N。保留 step_data，不追加完成记录。goal 注入时附加"重新执行（已保留数据：step_data 摘要）"提示。
+: 重入 Step N。保留 step_data。不追加完成记录。goal 注入时附加重新执行提示。
 
 complete
-: Workflow 结束。Engine 清理 workflow 上下文，session 可继续作为普通 session 使用。
+: Workflow 结束。Engine 清理上下文，session 回到普通模式。
 
 ### 验证重试
 
-正常情况：Agent 未完成验证时可继续执行，Engine 等下次 session idle 自动重新注入 verify。
+Engine 每次注入 verify 后 pending_verify 计数 +1。Agent 继续干活未调 verify → 等下次 idle 重新注入，计数继续累加。Agent 调了 verify → 计数归零。
 
-超时兜底：
-1. Engine 等待超时（默认 5 分钟）
-2. 超时 → 重新注入 verify（pending_verify 计数 +1）
-3. 超过重试上限（默认 3 次）
-4. → phase = blocked
-5. → 通知 owner
+计数超过上限（默认 3 次，可在 workflow 定义中配置）→ phase 转为 blocked，通知 owner。
+
+没有超时机制。Agent 只要还在执行步骤，不管多久 Engine 都等——步骤本身的长度由任务复杂度决定，Engine 不设时间上限。
 
 ### 阻塞处理
 
-Blocking 类型步骤：
-1. Engine 注入 goal
+Blocking 类型步骤等待 owner 输入：
+
+1. Engine 注入 goal（含等待 owner 的指引）
 2. Engine 标记为 blocked
-3. Owner 输入到达 → Engine 评估 → 转为 verifying → 正常 verify → jump 流程
+3. Owner 在对话中提供输入后，Engine 转为 verifying，正常 verify → jump 流程
 
-Agent 主动阻塞：
-1. Agent 调用 workflow_blocked({ reason })
-2. Engine 标记为 blocked，通知 owner
-3. Owner 回复后 → Engine 评估 → 转为 verifying → 正常 verify → jump 流程
-
-超时死锁导致的 blocked 同样走 owner 决策路径。
+Agent 主动阻塞：调用 workflow_blocked({reason}) → Engine 标记 blocked 并通知 owner → owner 回复后 → verifying。
 
 ## 模块关系
 
 ### 上游
 
 - **Workflow Definition**：提供 Workflow 结构体，Engine 按 Step 定义驱动执行。
-- **Session**：提供空闲判定，Engine 在 session idle 时触发 verify。
+- **Session**：提供空闲判定及持久化能力。
 - **Gateway**：blocked 状态通知 owner 时通过 Gateway 发送消息。
 
 ### 下游
 
-- **Session**：WorkflowRun 状态随 session checkpoint 持久化，由 Engine 写入。
+- **Session**：WorkflowRun 状态随 checkpoint 持久化，由 Engine 写入。
 - **Workflow Tools**：Engine 接收 workflow_verify/jump/blocked 工具调用并处理。
 
 ### 无关
 
-- **LLM Provider**（无调用关系）：Engine 不直接调用 LLM，通过注入 workflow 消息间接驱动。
+- **LLM Provider**：Engine 不直接调用 LLM，通过注入 workflow 消息间接驱动。
