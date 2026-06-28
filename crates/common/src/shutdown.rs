@@ -5,6 +5,66 @@
 //! `ShutdownHandle` (in the main crate) implements this trait; LLM
 //! code depends only on the trait object.
 
+/// Shutdown state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShutdownState {
+    /// Normal operation
+    #[default]
+    Running,
+    /// Shutdown signal received, stop accepting new work
+    ShuttingDown,
+    /// Waiting for in-flight operations to complete
+    Draining,
+    /// Clean exit
+    Stopped,
+    /// Forceful shutdown — skip drain, terminate immediately
+    ForcefulShuttingDown,
+}
+
+impl ShutdownState {
+    /// Convert from raw `u8` stored in an `AtomicU8`.
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            0 => ShutdownState::Running,
+            1 => ShutdownState::ShuttingDown,
+            2 => ShutdownState::Draining,
+            3 => ShutdownState::Stopped,
+            4 => ShutdownState::ForcefulShuttingDown,
+            _ => ShutdownState::Running,
+        }
+    }
+
+    /// Returns true if the state represents an active shutdown
+    /// (either graceful or forceful).
+    pub fn is_shutting_down_state(self) -> bool {
+        matches!(
+            self,
+            ShutdownState::ShuttingDown
+                | ShutdownState::Draining
+                | ShutdownState::ForcefulShuttingDown
+        )
+    }
+
+    /// Returns the shutdown mode for an active shutdown state.
+    pub fn mode(self) -> ShutdownMode {
+        match self {
+            ShutdownState::ForcefulShuttingDown => ShutdownMode::Forceful,
+            _ => ShutdownMode::Graceful,
+        }
+    }
+}
+
+/// Structured drain status returned by [`ShutdownSignal::drain_status`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DrainStatus {
+    /// Current shutdown state.
+    pub state: ShutdownState,
+    /// Number of in-flight operations.
+    pub busy_count: usize,
+    /// Whether the coordinator is actively draining.
+    pub is_draining: bool,
+}
+
 /// Shutdown mode — distinguishes graceful from forceful shutdown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShutdownMode {
@@ -40,6 +100,9 @@ pub trait ShutdownSignal: Send + Sync {
 
     /// Returns true if forceful shutdown has been escalated.
     fn is_forceful(&self) -> bool;
+
+    /// Returns a structured snapshot of the current drain status.
+    fn drain_status(&self) -> DrainStatus;
 }
 
 /// Shared shutdown handle with busy-count tracking.
@@ -88,6 +151,11 @@ impl ShutdownHandle {
     pub fn is_forceful(&self) -> bool {
         self.signal.is_forceful()
     }
+
+    /// Returns a structured snapshot of the current drain status.
+    pub fn drain_status(&self) -> DrainStatus {
+        self.signal.drain_status()
+    }
 }
 
 impl std::fmt::Debug for ShutdownHandle {
@@ -129,5 +197,9 @@ impl ShutdownSignal for ShutdownHandle {
 
     fn is_forceful(&self) -> bool {
         self.signal.is_forceful()
+    }
+
+    fn drain_status(&self) -> DrainStatus {
+        self.signal.drain_status()
     }
 }

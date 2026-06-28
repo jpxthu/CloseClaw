@@ -519,15 +519,17 @@ impl Daemon {
         tokio::select! {
             _ = sigint.recv() => {
                 info!("Received Ctrl+C, initiating graceful shutdown...");
+                // Set gate immediately so new operations are rejected
+                // at the same moment the signal is confirmed.
+                self.shutdown.try_start_shutdown();
             }
             _ = sigterm.recv() => {
                 info!("Received SIGTERM, initiating graceful shutdown...");
+                // Set gate immediately so new operations are rejected
+                // at the same moment the signal is confirmed.
+                self.shutdown.try_start_shutdown();
             }
         }
-
-        // Set the gate flag immediately so new operations are rejected
-        // before Phase 1 begins drain.
-        self.shutdown.try_start_shutdown();
 
         // Phase 1: Inbound shutdown + drain
         self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
