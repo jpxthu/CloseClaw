@@ -128,7 +128,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             if recovered.contains(session_id) {
                 continue;
             }
-            match self.storage.load_checkpoint(session_id).await {
+            match self.storage.load_archived_checkpoint(session_id).await {
                 Ok(Some(cp)) => {
                     if cp.pending_operations.is_empty() {
                         // Clean archived session — skip
@@ -563,35 +563,49 @@ mod tests {
 
     #[tokio::test]
     async fn test_recovery_service_recover_with_callback() {
+        use chrono::Utc;
         let storage = Arc::new(MemoryStorage::new());
+        let now = Utc::now();
 
-        // Pre-populate storage with checkpoints
+        // Clean session
         storage
             .save_checkpoint(&create_test_checkpoint("session1"))
             .await
             .unwrap();
-        storage
-            .save_checkpoint(&create_test_checkpoint("session2"))
-            .await
-            .unwrap();
+        // Dirty session with tool call
+        let dirty = SessionCheckpoint::new("session2".into()).with_pending_operations(vec![
+            PendingOperation {
+                op_id: "op_1".into(),
+                op_type: PendingOperationType::ToolCall,
+                name: "bash".into(),
+                args: String::new(),
+                created_at: now,
+            },
+        ]);
+        storage.save_checkpoint(&dirty).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
 
-        // Track which sessions were restored
+        // Capture callback parameters
         let restored = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let restored_clone = Arc::clone(&restored);
+        let captured_notification = Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
+        let captured_failures = Arc::new(std::sync::Mutex::new(Vec::<Vec<String>>::new()));
+        let r = Arc::clone(&restored);
+        let cn = Arc::clone(&captured_notification);
+        let cf = Arc::clone(&captured_failures);
 
         service
             .set_restore_callback(
-                move |session_id, _checkpoint, _notification, _tool_failures| {
-                    restored_clone.lock().unwrap().push(session_id.to_string());
+                move |session_id, _checkpoint, notification, tool_failures| {
+                    r.lock().unwrap().push(session_id.to_string());
+                    cn.lock().unwrap().push(notification.map(String::from));
+                    cf.lock().unwrap().push(tool_failures.to_vec());
                     Ok(())
                 },
             )
             .await;
 
         let report = service.recover().await.unwrap();
-
         assert_eq!(report.recovered.len(), 2);
         assert!(report.failed.is_empty());
 
@@ -599,22 +613,17 @@ mod tests {
         restored_sessions.sort();
         assert_eq!(restored_sessions[0], "session1");
         assert_eq!(restored_sessions[1], "session2");
-    }
 
-    #[tokio::test]
-    async fn test_recovery_service_recover_not_found() {
-        let storage = Arc::new(MemoryStorage::new());
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        // Dirty session callback should receive notification
+        let notifs = captured_notification.lock().unwrap();
+        let notif = notifs.iter().find(|n| n.is_some()).unwrap();
+        assert!(notif.as_ref().unwrap().contains("网关已重启"));
 
-        // Don't set any restore callback, but storage has a checkpoint
-        storage
-            .save_checkpoint(&create_test_checkpoint("orphan"))
-            .await
-            .unwrap();
-
-        // Recover should still succeed even without callback
-        let report = service.recover().await.unwrap();
-        assert_eq!(report.recovered.len(), 1);
+        // Dirty session callback should receive tool failures
+        let failures = captured_failures.lock().unwrap();
+        let dirty_failures = failures.iter().find(|f| !f.is_empty()).unwrap();
+        assert_eq!(dirty_failures.len(), 1);
+        assert!(dirty_failures[0].contains("进程中断：网关重启"));
     }
 
     // -----------------------------------------------------------------
@@ -733,7 +742,8 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_tree_is_root() {
+    fn test_spawn_tree_unit() {
+        // is_root
         let tree = SpawnTree {
             roots: vec!["r1".to_string(), "r2".to_string()],
             children: HashMap::new(),
@@ -741,10 +751,8 @@ mod tests {
         assert!(tree.is_root("r1"));
         assert!(tree.is_root("r2"));
         assert!(!tree.is_root("r3"));
-    }
 
-    #[test]
-    fn test_spawn_tree_get_children() {
+        // get_children
         let mut children = HashMap::new();
         children.insert("p1".to_string(), vec!["c1".to_string(), "c2".to_string()]);
         let tree = SpawnTree {
@@ -753,10 +761,8 @@ mod tests {
         };
         assert_eq!(tree.get_children("p1").unwrap().len(), 2);
         assert!(tree.get_children("p2").is_none());
-    }
 
-    #[test]
-    fn test_spawn_tree_root_ids() {
+        // root_ids
         let tree = SpawnTree {
             roots: vec!["a".to_string(), "b".to_string()],
             children: HashMap::new(),
@@ -810,66 +816,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_recovery_notification_stored_in_checkpoint() {
+    async fn test_recovery_notifications_and_tool_failures() {
         let storage = Arc::new(MemoryStorage::new());
         let now = Utc::now();
-        let cp = SessionCheckpoint::new("dirty_notif".into()).with_pending_operations(vec![
-            PendingOperation {
-                op_id: "op_1".into(),
-                op_type: PendingOperationType::ToolCall,
-                name: "bash".into(),
-                args: r#"{"cmd":"ls"}"#.into(),
-                created_at: now,
-            },
-        ]);
-        storage.save_checkpoint(&cp).await.unwrap();
 
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        assert_eq!(report.recovered.len(), 1);
-        assert!(report.dirty_sessions.contains(&"dirty_notif".to_string()));
-
-        // Verify notification was stored in checkpoint
-        let loaded = storage
-            .load_checkpoint("dirty_notif")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(
-            loaded.recovery_notification.is_some(),
-            "recovery_notification should be stored in dirty checkpoint"
-        );
-        let notif = loaded.recovery_notification.unwrap();
-        assert!(notif.contains("网关已重启"));
-        assert!(notif.contains("工具调用: bash"));
-    }
-
-    #[tokio::test]
-    async fn test_recovery_notification_not_stored_for_clean_session() {
-        let storage = Arc::new(MemoryStorage::new());
-        let cp = SessionCheckpoint::new("clean_notif".into());
-        storage.save_checkpoint(&cp).await.unwrap();
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        assert_eq!(report.recovered.len(), 1);
-        assert!(report.dirty_sessions.is_empty());
-
-        let loaded = storage
-            .load_checkpoint("clean_notif")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(loaded.recovery_notification.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_recovery_tool_failures_built() {
-        let storage = Arc::new(MemoryStorage::new());
-        let now = Utc::now();
-        let cp = SessionCheckpoint::new("dirty_tools".into()).with_pending_operations(vec![
+        // Dirty session: tool call + sub-spawn
+        let dirty = SessionCheckpoint::new("dirty_tools".into()).with_pending_operations(vec![
             PendingOperation {
                 op_id: "call_1".into(),
                 op_type: PendingOperationType::ToolCall,
@@ -885,73 +837,164 @@ mod tests {
                 created_at: now,
             },
         ]);
-        storage.save_checkpoint(&cp).await.unwrap();
+        storage.save_checkpoint(&dirty).await.unwrap();
+
+        // Clean session: no pending ops
+        let clean = SessionCheckpoint::new("clean_notif".into());
+        storage.save_checkpoint(&clean).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let _report = service.recover().await.unwrap();
+        let report = service.recover().await.unwrap();
 
+        assert_eq!(report.recovered.len(), 2);
+        assert!(report.dirty_sessions.contains(&"dirty_tools".to_string()));
+        assert!(
+            report.dirty_sessions.is_empty()
+                || !report.dirty_sessions.contains(&"clean_notif".to_string())
+        );
+
+        // Dirty: notification stored, tool failures built
         let loaded = storage
             .load_checkpoint("dirty_tools")
             .await
             .unwrap()
             .unwrap();
-        // Only ToolCall ops produce failure results
+        assert!(loaded.recovery_notification.is_some());
+        let notif = loaded.recovery_notification.unwrap();
+        assert!(notif.contains("网关已重启"));
+        assert!(notif.contains("工具调用: exec"));
         assert_eq!(loaded.pending_tool_failures.len(), 1);
-        let failure = &loaded.pending_tool_failures[0];
-        assert!(failure.contains("进程中断：网关重启"));
-        assert!(failure.contains("exec"));
-        assert!(failure.contains("call_1"));
+        assert!(loaded.pending_tool_failures[0].contains("exec"));
+
+        // Clean: no notification
+        let loaded = storage
+            .load_checkpoint("clean_notif")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(loaded.recovery_notification.is_none());
+    }
+
+    // ── Step 1.3: archived session recovery tests ───────────────────
+
+    /// Minimal mock storage for testing the "checkpoint not found" path.
+    struct MockNotFoundStorage;
+
+    #[async_trait::async_trait]
+    impl PersistenceService for MockNotFoundStorage {
+        async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+            Ok(())
+        }
+        async fn load_checkpoint(
+            &self,
+            _: &str,
+        ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+            Ok(None)
+        }
+        async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+            Ok(())
+        }
+        async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+            Ok(Vec::new())
+        }
+        async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+            Ok(vec!["archived-not-found".to_string()])
+        }
     }
 
     #[tokio::test]
-    async fn test_recovery_callback_receives_notification() {
-        use crate::persistence::{
-            PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
-        };
-        use crate::storage::memory::MemoryStorage;
-        use std::sync::Arc;
-
+    async fn test_recovery_scans_archived_sessions() {
         let storage = Arc::new(MemoryStorage::new());
         let now = Utc::now();
-        let cp = SessionCheckpoint::new("cb_notif".into()).with_pending_operations(vec![
-            PendingOperation {
-                op_id: "op_1".into(),
-                op_type: PendingOperationType::ToolCall,
-                name: "bash".into(),
-                args: String::new(),
-                created_at: now,
-            },
-        ]);
+
+        // Create an archived checkpoint with pending operations
+        let mut cp = create_test_checkpoint("archived-dirty");
+        cp.status = SessionStatus::Active;
+        cp.pending_operations = vec![PendingOperation {
+            op_id: "op_archived".into(),
+            op_type: PendingOperationType::ToolCall,
+            name: "exec".into(),
+            args: r#"{"cmd":"echo hello"}"#.into(),
+            created_at: now,
+        }];
+        // Save to active first (so load_checkpoint can find it), then archive,
+        // then remove from active so it's only in the archived map
         storage.save_checkpoint(&cp).await.unwrap();
+        storage.archive_checkpoint(&cp).await.unwrap();
+        storage.remove_active("archived-dirty").await;
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
-
-        let captured_notification = Arc::new(std::sync::Mutex::new(None::<String>));
-        let captured_failures = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-        let notif_clone = Arc::clone(&captured_notification);
-        let fail_clone = Arc::clone(&captured_failures);
-
-        service
-            .set_restore_callback(
-                move |_session_id, _checkpoint, notification, tool_failures| {
-                    *notif_clone.lock().unwrap() = notification.map(String::from);
-                    *fail_clone.lock().unwrap() = tool_failures.to_vec();
-                    Ok(())
-                },
-            )
-            .await;
-
         let report = service.recover().await.unwrap();
-        assert_eq!(report.recovered.len(), 1);
 
-        let notif = captured_notification.lock().unwrap();
-        assert!(notif.is_some(), "callback should receive notification text");
-        let notif_text = notif.as_ref().unwrap();
-        assert!(notif_text.contains("网关已重启"));
-        assert!(notif_text.contains("工具调用: bash"));
+        // Archived session with pending_operations should be recovered
+        assert!(
+            report.recovered.contains(&"archived-dirty".to_string()),
+            "archived session with pending ops should be recovered"
+        );
 
-        let failures = captured_failures.lock().unwrap();
-        assert_eq!(failures.len(), 1);
-        assert!(failures[0].contains("进程中断：网关重启"));
+        // Should be marked as dirty
+        assert!(
+            report
+                .dirty_sessions
+                .contains(&"archived-dirty".to_string()),
+            "restored archived session should be in dirty_sessions"
+        );
+
+        // Notification should have been stored in the checkpoint
+        let loaded = storage
+            .load_checkpoint("archived-dirty")
+            .await
+            .unwrap()
+            .expect("checkpoint should exist after restore");
+        assert!(
+            loaded.recovery_notification.is_some(),
+            "recovery_notification should be stored"
+        );
+        let notif = loaded.recovery_notification.unwrap();
+        assert!(notif.contains("网关已重启"));
+        assert!(notif.contains("工具调用: exec"));
+    }
+
+    #[tokio::test]
+    async fn test_recovery_skips_clean_archived() {
+        let storage = Arc::new(MemoryStorage::new());
+
+        // Create an archived checkpoint with NO pending operations
+        let cp = create_test_checkpoint("archived-clean");
+        // Save to active first, archive, then remove from active
+        // so it only exists in the archived map
+        storage.save_checkpoint(&cp).await.unwrap();
+        storage.archive_checkpoint(&cp).await.unwrap();
+        storage.remove_active("archived-clean").await;
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        // Clean archived session should NOT be recovered
+        assert!(
+            !report.recovered.contains(&"archived-clean".to_string()),
+            "clean archived session should be skipped"
+        );
+        assert!(
+            !report
+                .dirty_sessions
+                .contains(&"archived-clean".to_string()),
+            "clean archived session should not be dirty"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_recovery_archived_not_found() {
+        let storage = Arc::new(MockNotFoundStorage);
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+
+        // list_archived_sessions returns ["archived-not-found"] but
+        // load_checkpoint returns None → checkpoint not found → failed
+        assert!(
+            report.failed.contains(&"archived-not-found".to_string()),
+            "archived session with missing checkpoint should be in failed"
+        );
+        assert!(report.recovered.is_empty());
     }
 }

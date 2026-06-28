@@ -840,4 +840,29 @@ mod tests {
         let status = handle.drain_status();
         assert_eq!(status.state, ShutdownState::ShuttingDown);
     }
+
+    // ── Step 1.3: escalate_to_forceful from Draining/Stopped ──────────
+
+    #[test]
+    fn test_escalate_from_draining() {
+        let coordinator = ShutdownCoordinator::new();
+        coordinator.try_start_shutdown();
+        coordinator.start_drain();
+        assert_eq!(coordinator.state(), ShutdownState::Draining);
+
+        assert!(coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+    }
+
+    #[test]
+    fn test_escalate_from_stopped() {
+        let coordinator = ShutdownCoordinator::new();
+        coordinator.try_start_shutdown();
+        coordinator.start_drain();
+        coordinator.mark_stopped();
+        assert_eq!(coordinator.state(), ShutdownState::Stopped);
+
+        assert!(coordinator.escalate_to_forceful());
+        assert_eq!(coordinator.state(), ShutdownState::ForcefulShuttingDown);
+    }
 }

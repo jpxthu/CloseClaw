@@ -23,6 +23,36 @@ impl MemoryStorage {
             archived: RwLock::new(HashMap::new()),
         }
     }
+
+    /// Insert a session ID into the archived list without checkpoint data.
+    /// Used in tests to simulate a "checkpoint not found" scenario for archived sessions.
+    #[cfg(test)]
+    pub async fn insert_archived_id(&self, session_id: &str) {
+        let mut archived = self
+            .archived
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))
+            .unwrap();
+        // Use a dummy checkpoint with the given session_id so it appears in
+        // list_archived_sessions. The dummy will be removed by restore_checkpoint,
+        // but load_checkpoint will not find it in active, triggering the not-found path.
+        archived.insert(
+            session_id.to_string(),
+            SessionCheckpoint::new(session_id.to_string()),
+        );
+    }
+
+    /// Remove a session from the active checkpoint map.
+    /// Used in tests to simulate an archived-only session (not in active list).
+    #[cfg(test)]
+    pub async fn remove_active(&self, session_id: &str) {
+        let mut checkpoints = self
+            .checkpoints
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))
+            .unwrap();
+        checkpoints.remove(session_id);
+    }
 }
 
 impl Default for MemoryStorage {
@@ -100,11 +130,21 @@ impl PersistenceService for MemoryStorage {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        let archived = self
+        let mut archived = self
             .archived
-            .read()
-            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
-        Ok(archived.get(session_id).cloned())
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        match archived.remove(session_id) {
+            Some(cp) => {
+                let mut checkpoints = self
+                    .checkpoints
+                    .write()
+                    .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+                checkpoints.insert(session_id.to_string(), cp.clone());
+                Ok(Some(cp))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn purge_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
