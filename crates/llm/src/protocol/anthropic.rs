@@ -152,11 +152,25 @@ fn build_request_body(request: &InternalRequest) -> Result<serde_json::Value> {
 }
 
 /// Build a single message JSON for Anthropic.
+///
+/// Tool result messages use role "user" with structured content blocks,
+/// matching Anthropic's native tool_result format.
 fn build_message(msg: &InternalMessage) -> serde_json::Value {
-    serde_json::json!({
-        "role": msg.role,
-        "content": msg.content,
-    })
+    if let Some(ref tool_call_id) = msg.tool_call_id {
+        serde_json::json!({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_call_id,
+                "content": msg.content,
+            }],
+        })
+    } else {
+        serde_json::json!({
+            "role": msg.role,
+            "content": msg.content,
+        })
+    }
 }
 
 /// Mark the last message with `cache_control` for Anthropic prefix caching.

@@ -151,6 +151,7 @@ mod tests {
             messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content: "hello".to_string(),
+                ..Default::default()
             }],
             temperature: 0.7,
             max_tokens: None,
@@ -185,6 +186,7 @@ mod tests {
             messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content: "test".to_string(),
+                ..Default::default()
             }],
             temperature: 0.0,
             max_tokens: Some(100),

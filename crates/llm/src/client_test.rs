@@ -201,6 +201,7 @@ fn make_request() -> InternalRequest {
         messages: vec![InternalMessage {
             role: "user".into(),
             content: "hello".into(),
+            ..Default::default()
         }],
         temperature: 0.0,
         max_tokens: Some(256),

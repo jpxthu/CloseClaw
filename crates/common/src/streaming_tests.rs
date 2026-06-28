@@ -236,3 +236,97 @@ fn test_block_start_resets_line_buffer() {
     let out = r.handle_event(text_delta("new."));
     assert_eq!(out.text_messages, vec!["new."]);
 }
+
+// ── Thinking block signature capture ─────────────────────────────────────
+
+#[test]
+fn test_thinking_signature_captured_in_block() {
+    use super::streaming::*;
+    use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::Thinking));
+    r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::Thinking {
+            thinking: "reasoning...".to_string(),
+            signature: Some("sig-abc-123".to_string()),
+        },
+    });
+    let out = r.handle_event(block_end(0, ContentBlockType::Thinking));
+    assert_eq!(out.render_blocks.len(), 1);
+    match &out.render_blocks[0] {
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "reasoning...");
+            assert_eq!(signature.as_deref(), Some("sig-abc-123"));
+        }
+        other => panic!("expected Thinking block, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_thinking_without_signature_yields_none() {
+    use super::streaming::*;
+    use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::Thinking));
+    r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::Thinking {
+            thinking: "no sig".to_string(),
+            signature: None,
+        },
+    });
+    let out = r.handle_event(block_end(0, ContentBlockType::Thinking));
+    assert_eq!(out.render_blocks.len(), 1);
+    match &out.render_blocks[0] {
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "no sig");
+            assert!(signature.is_none());
+        }
+        other => panic!("expected Thinking block, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_thinking_signature_overwrites_across_deltas() {
+    use super::streaming::*;
+    use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::Thinking));
+    // First delta with signature
+    r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::Thinking {
+            thinking: "part1".to_string(),
+            signature: Some("sig1".to_string()),
+        },
+    });
+    // Second delta without signature — should keep previous
+    r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::Thinking {
+            thinking: "part2".to_string(),
+            signature: None,
+        },
+    });
+    let out = r.handle_event(block_end(0, ContentBlockType::Thinking));
+    match &out.render_blocks[0] {
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "part1part2");
+            assert_eq!(signature.as_deref(), Some("sig1"));
+        }
+        other => panic!("expected Thinking block, got {:?}", other),
+    }
+}

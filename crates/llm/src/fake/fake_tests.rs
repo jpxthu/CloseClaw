@@ -10,6 +10,7 @@ fn make_request() -> InternalRequest {
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: "hello".to_string(),
+            ..Default::default()
         }],
         temperature: 0.7,
         max_tokens: None,

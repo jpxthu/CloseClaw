@@ -66,6 +66,7 @@ fn create_internal_request(model: &str) -> InternalRequest {
         messages: vec![crate::types::InternalMessage {
             role: "user".into(),
             content: "hi".into(),
+            ..Default::default()
         }],
         temperature: 0.7,
         max_tokens: None,
@@ -225,6 +226,7 @@ fn create_streaming_request(model: &str) -> InternalRequest {
         messages: vec![crate::types::InternalMessage {
             role: "user".into(),
             content: "hi".into(),
+            ..Default::default()
         }],
         temperature: 0.7,
         max_tokens: None,
