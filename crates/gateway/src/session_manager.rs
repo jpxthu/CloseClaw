@@ -408,15 +408,19 @@ impl SessionManager {
         let session_ids: Vec<String> = sessions.keys().cloned().collect();
         drop(sessions);
 
-        // Collect pending messages using async RwLock read (no blocking_read)
-        let conv_sessions = self.conversation_sessions.read().await;
+        // Collect pending messages and system_appends using async RwLock read.
         let mut pending_map: HashMap<String, Vec<PendingMessage>> = HashMap::new();
-        for sid in &session_ids {
-            if let Some(cs) = conv_sessions.get(sid) {
-                let cs = cs.read().await;
-                pending_map.insert(sid.clone(), cs.get_pending_messages());
+        let mut appends_map: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            for sid in &session_ids {
+                if let Some(cs) = conv_sessions.get(sid) {
+                    let cs = cs.read().await;
+                    pending_map.insert(sid.clone(), cs.get_pending_messages());
+                    appends_map.insert(sid.clone(), cs.system_appends().to_vec());
+                }
             }
-        }
+        } // Drop conv_sessions read lock before checkpoint persistence
         let sessions = self.sessions.read().await;
         let mut saved = 0;
         for (session_id, session) in sessions.iter() {
@@ -444,9 +448,8 @@ impl SessionManager {
             };
             // Sync per-session append-section list from ConversationSession
             // (issue #860: archived session restore preserves append content).
-            if let Some(cs) = conv_sessions.get(session_id) {
-                let cs = cs.read().await;
-                cp.system_appends = cs.system_appends().to_vec();
+            if let Some(appends) = appends_map.get(session_id) {
+                cp.system_appends = appends.clone();
             }
             if storage.save_checkpoint(&cp).await.is_ok() {
                 saved += 1;
@@ -454,6 +457,16 @@ impl SessionManager {
                 warn!(session_id = %session_id, "failed to save session checkpoint");
             }
         }
+        drop(sessions);
+
+        // Phase 4 cleanup: remove sessions from tracking tables after
+        // all checkpoint persistence is complete. This ensures the
+        // "fallback persistence" path actually finds sessions that
+        // were stopped in Phase 2 but not yet removed from tracking.
+        for session_id in &session_ids {
+            self.remove_session(session_id).await;
+        }
+
         Ok(saved)
     }
 

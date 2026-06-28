@@ -211,9 +211,11 @@ async fn test_graceful_stop_streaming_with_tool_calls() {
         "expected >= 2 succeeded, got {:?}",
         result
     );
+    // Step 1.1 removed remove_session from stop_single_session;
+    // sessions stay in tracking tables until flush_all cleans them up.
     assert!(
-        !mgr.has_session(&child_id).await,
-        "child should be removed after graceful stop"
+        mgr.has_session(&child_id).await,
+        "session should remain in tracking tables after stop"
     );
 }
 
@@ -237,7 +239,8 @@ async fn test_graceful_stop_streaming_no_tool_calls() {
 
     let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
-    assert!(!mgr.has_session(&child_id).await);
+    // Sessions remain in tracking tables after stop (Step 1.1).
+    assert!(mgr.has_session(&child_id).await);
 }
 
 /// Idle session → direct stop, pending_operations should be empty.
@@ -252,7 +255,8 @@ async fn test_graceful_stop_idle() {
     // Default: LlmState::Idle, no tools running.
     let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
-    assert!(!mgr.has_session(&child_id).await);
+    // Sessions remain in tracking tables after stop (Step 1.1).
+    assert!(mgr.has_session(&child_id).await);
 }
 
 /// Tool is running → wait for tool to finish → pending_operations empty.
@@ -295,7 +299,8 @@ async fn test_graceful_stop_tool_running() {
 
     let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
-    assert!(!mgr.has_session(&child_id).await);
+    // Sessions remain in tracking tables after stop (Step 1.1).
+    assert!(mgr.has_session(&child_id).await);
 }
 
 /// Forceful mode should not be affected by the graceful state machine.
@@ -368,8 +373,9 @@ async fn test_forceful_mock_stops_streaming_immediately() {
         "forceful mode should be fast, took {:?}",
         elapsed
     );
-    assert!(!mgr.has_session(&parent_id).await);
-    assert!(!mgr.has_session(&child_id).await);
+    // Sessions remain in tracking tables after stop (Step 1.1).
+    assert!(mgr.has_session(&parent_id).await);
+    assert!(mgr.has_session(&child_id).await);
 }
 
 /// Verify escalation propagation: after graceful→forceful escalation,
@@ -417,6 +423,7 @@ async fn test_escalation_propagation_across_levels() {
         "expected >= 2 sessions stopped, got {:?}",
         result
     );
-    assert!(!mgr.has_session(&parent_id).await);
-    assert!(!mgr.has_session(&child_id).await);
+    // Sessions remain in tracking tables after stop (Step 1.1).
+    assert!(mgr.has_session(&parent_id).await);
+    assert!(mgr.has_session(&child_id).await);
 }
