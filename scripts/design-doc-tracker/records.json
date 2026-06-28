@@ -4,167 +4,191 @@
     "commit": "d87e6ec429bb0825a966fd96ee4da470e11436b8",
     "commit_time": "2026-06-20T11:14:23+08:00",
     "confirmed_time": "2026-06-20T11:22:10.692523+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/agent/agent-config.md",
     "commit": "84bbf35c650355d1264180f2d6754b3e84945d5e",
     "commit_time": "2026-06-25T04:19:02+08:00",
     "confirmed_time": "2026-06-25T04:27:37.984448+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/agent/agent-permissions.md",
     "commit": "ab5856a5b369d66bdaf67f65bc0ccb92fb1e70f2",
     "commit_time": "2026-06-25T21:00:43+08:00",
     "confirmed_time": "2026-06-25T21:12:30.811990+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/agent/agent-registry.md",
     "commit": "723c66236f8a5910e345b00f71e5691066cc9276",
     "commit_time": "2026-06-20T05:35:55+08:00",
     "confirmed_time": "2026-06-20T05:41:07.130591+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/agent/agent-spawn.md",
     "commit": "7974d2fc0877a97a0958fa7c5fc37d89cb46cbe6",
     "commit_time": "2026-06-25T23:39:39+08:00",
     "confirmed_time": "2026-06-25T23:47:47.295336+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/README.md",
     "commit": "d4104fca2cbc250468938cca7830976a3d0a7bbe",
     "commit_time": "2026-06-21T20:26:53+08:00",
     "confirmed_time": "2026-06-21T20:42:28.130366+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/admin.md",
     "commit": "86d1bd748fe6e027e9d769bd31bea5ddeee8b2fb",
     "commit_time": "2026-06-20T12:30:40+08:00",
     "confirmed_time": "2026-06-20T12:35:31.599807+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/chat.md",
     "commit": "2c6c7c7b187655eb3e53a328c13f841d50804760",
     "commit_time": "2026-06-26T00:42:32+08:00",
     "confirmed_time": "2026-06-26T00:51:49.160571+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/renderer.md",
-    "commit": "",
-    "commit_time": "",
+    "commit": "9fc9ebced947150360ab8a93e88825d8630232eb",
+    "commit_time": "2026-06-28T15:19:46+08:00",
     "confirmed_time": "2026-06-21T23:56:35.870722+08:00",
-    "comment": "blocked: 文档内部矛盾 - (1) 概述/数据流章节描述 TerminalRenderer 输出到 stdout 且流式输出，但代码实际为批量渲染器，I/O 由 TerminalPlugin.send 负责，流式由 DefaultStreamingRenderer 负责。(2) 数据流章节与模块关系章节对 Gateway-TerminalRenderer 调用链描述矛盾。另发现 ToolUse 参数摘要格式 must_fix：代码输出原始 JSON，文档要求 arg1=val1 arg2=val2 格式。"
+    "comment": "",
+    "blocked_reason": "文档内部矛盾 - (1) 概述/数据流章节描述 TerminalRenderer 输出到 stdout 且流式输出，但代码实际为批量渲染器，I/O 由 TerminalPlugin.send 负责，流式由 DefaultStreamingRenderer 负责。(2) 数据流章节与模块关系章节对 Gateway-TerminalRenderer 调用链描述矛盾。另发现 ToolUse 参数摘要格式 must_fix：代码输出原始 JSON，文档要求 arg1=val1 arg2=val2 格式。"
   },
   {
     "path": "docs/design/config/README.md",
     "commit": "117e37938f346bf4c9283d07863b7de8c4c38d17",
     "commit_time": "2026-06-22T13:36:48+08:00",
     "confirmed_time": "2026-06-22T13:41:43.097948+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/config/hot-reload.md",
     "commit": "aee38ce17dd9a76fa68b6bb7def602a9abc131b8",
     "commit_time": "2026-06-22T10:58:53+08:00",
     "confirmed_time": "2026-06-22T11:08:19.648114+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/daemon/README.md",
-    "commit": "",
-    "commit_time": "",
+    "commit": "9fc9ebced947150360ab8a93e88825d8630232eb",
+    "commit_time": "2026-06-28T15:19:46+08:00",
     "confirmed_time": "2026-06-22T18:44:05.434607+08:00",
-    "comment": "blocked: dependency declarations place SystemPromptBuilder at Layer 3 but layer table says Layer 4"
+    "comment": "",
+    "blocked_reason": "dependency declarations place SystemPromptBuilder at Layer 3 but layer table says Layer 4"
   },
   {
     "path": "docs/design/daemon/shutdown.md",
     "commit": "",
     "commit_time": "",
     "confirmed_time": "2026-06-23T12:18:20.902842+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/gateway/README.md",
     "commit": "0f33a8fce42745d8fb48d680e1939f3e1b42dab6",
     "commit_time": "2026-06-26T09:54:08+08:00",
     "confirmed_time": "2026-06-26T10:02:17.953062+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/gateway/inbound-flow.md",
     "commit": "55f3953a6e30d5585cc5800aa346ae97c0a5b068",
     "commit_time": "2026-06-26T19:58:25+08:00",
     "confirmed_time": "2026-06-26T20:04:35.556275+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/README.md",
-    "commit": "3e2b0b7d29ebf4cf46cdb79fe33e5d3c34e70d54",
-    "commit_time": "2026-06-26T02:45:41+08:00",
+    "commit": "9fc9ebced947150360ab8a93e88825d8630232eb",
+    "commit_time": "2026-06-28T15:19:46+08:00",
     "confirmed_time": "2026-06-26T02:54:54.436593+08:00",
-    "comment": "blocked: 文档声称可通过配置文件控制各平台启用/禁用，但代码仅通过环境变量判断，不存在配置文件级启停机制。设计目标与实现矛盾。"
+    "comment": "",
+    "blocked_reason": "文档声称可通过配置文件控制各平台启用/禁用，但代码仅通过环境变量判断，不存在配置文件级启停机制。设计目标与实现矛盾。"
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
     "commit": "7cff111af671176aec722634fa183328a3d3d9f8",
     "commit_time": "2026-06-24T00:32:37+08:00",
     "confirmed_time": "2026-06-24T00:40:07.513102+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/platforms/feishu.md",
     "commit": "61f9e65f0ef6aba4da6f1029f5982b2bea87b565",
     "commit_time": "2026-06-28T06:59:15+08:00",
     "confirmed_time": "2026-06-28T07:05:51.027994+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
     "commit": "c523d70523dd409c80d16374843f1c000add5a6f",
     "commit_time": "2026-06-28T09:10:53+08:00",
     "confirmed_time": "2026-06-28T09:18:07.042310+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/cache-adapter.md",
     "commit": "3b8d190ee3037e1b995205d599ef6d92f67c07c1",
     "commit_time": "2026-06-28T01:38:08+08:00",
     "confirmed_time": "2026-06-28T01:45:28.520765+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/model-discovery.md",
-    "commit": "136edef20d57977748391e78287803c88180fc28",
-    "commit_time": "2026-06-26T17:48:33+08:00",
+    "commit": "9fc9ebced947150360ab8a93e88825d8630232eb",
+    "commit_time": "2026-06-28T15:19:46+08:00",
     "confirmed_time": "2026-06-26T17:55:59.491929+08:00",
-    "comment": "blocked: F2b found doc issues: (1) default_temperature field optionality not documented; (2) retry count mismatch (code=4, doc=3); (3) backoff ceiling mismatch (code=8s, doc=4s); (4) knowledge fill-vs-override semantic ambiguity."
+    "comment": "",
+    "blocked_reason": "F2b found doc issues: (1) default_temperature field optionality not documented; (2) retry count mismatch (code=4, doc=3); (3) backoff ceiling mismatch (code=8s, doc=4s); (4) knowledge fill-vs-override semantic ambiguity."
   },
   {
     "path": "docs/design/llm/protocol-mapping.md",
     "commit": "",
     "commit_time": "",
     "confirmed_time": "2026-06-27T14:47:02.621121+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/provider-config-wizard.md",
     "commit": "07c9c6879df9bdef0982cf520481cb9f042413ea",
     "commit_time": "2026-06-28T01:46:15+08:00",
     "confirmed_time": "2026-06-28T01:53:33.164151+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/providers/deepseek.md",
     "commit": "9f383c5ff50ac98e2875827adc71ebccdd2e440d",
     "commit_time": "2026-06-28T03:48:32+08:00",
     "confirmed_time": "2026-06-28T03:55:52.948213+08:00",
-    "comment": ""
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
