@@ -32,8 +32,8 @@ WorkflowRun 作为 session 的附加状态随 session checkpoint 持久化：
 描述：{description}
 Engine 会通过 workflow 角色消息驱动步骤推进，必须遵守三阶段协议：
 1. 收到 goal → 执行步骤
-2. 收到 verify → 自查验收清单 → 完成则调 workflow_verify()，否则继续
-3. 收到 jump → 回答问题 → 调 workflow_jump({answers})
+2. 收到 verify → 自查验收清单 → 完成则调用验证完成工具，否则继续
+3. 收到 jump → 回答问题 → 调用跳转问答工具传递答案
 不要自行跳步或跳过验证。
 --- WORKFLOW END ---
 ```
@@ -49,6 +49,7 @@ Engine 会通过 workflow 角色消息驱动步骤推进，必须遵守三阶段
 Workflow 控制消息（role: workflow）与普通对话消息独立管理：
 
 - goal 消息：保留，不参与压缩
+- recovered 消息：保留，不参与压缩，退出时随 goal 消息一并清理
 - verify 消息：处理后删除（含对应的 tool_call 和 tool_result）
 - jump 消息：处理后删除（含对应的 tool_call 和 tool_result）
 
@@ -59,7 +60,7 @@ Workflow 控制消息（role: workflow）与普通对话消息独立管理：
 1. 用户输入 /workflow <name> 或 Agent 调用 workflow_start({name})
 2. Engine 加载定义，初始化 WorkflowRun：current_step 置 0，phase 置 executing
 3. Engine 向 system prompt 追加区注入 workflow context
-4. Engine 注入 role 为 workflow 的 Step 0 goal 消息
+4. Engine 注入 role 为 workflow 的 Step 0 goal 消息（通过 Gateway 路由，与普通 workflow 消息路由路径一致）
 5. Agent 开始执行
 
 ### 轮次间持久化
@@ -85,7 +86,7 @@ pending_verify
 5. Engine 注入 recovered 消息（role: workflow）：
    - "正在执行 {workflow_name}，当前 Step {N}。"
 6. Engine 注入当前步骤 goal 消息（role: workflow）
-7. Engine 重新注入 workflow context
+7. Engine 通过 System Prompt Builder 重新注入 workflow context
 8. Agent 从中断点继续
 
 恢复后 verify/jump 流程由 Engine 管理（详见 execution-engine.md），Engine 根据当前 phase 决定注入内容。
@@ -93,8 +94,8 @@ pending_verify
 ### 退出 Workflow 模式
 
 1. Workflow 正常结束（phase = complete）
-2. Engine 从追加区移除 workflow context
-3. Engine 清理消息历史中的 workflow goal 消息
+2. Engine 通过 System Prompt Builder 从追加区移除 workflow context
+3. Engine 清理消息历史中的 workflow 控制消息（goal + recovered）
 4. Engine 清空 WorkflowRun 状态
 5. Engine 触发 checkpoint 写入，持久化空状态
 6. Session 恢复为普通 session

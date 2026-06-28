@@ -61,7 +61,8 @@ phase 从 executing 到 verifying 的转换由 Engine 自动管理：session idl
    - ≠ jumping → 返回错误
    - = jumping → 继续
 3. Engine 取当前步骤定义的 transitions，按顺序匹配条件
-4. Engine 执行匹配到的 action
+4. 全部不匹配 → 执行 default transition
+5. Engine 执行匹配到的 action
 5. Engine 更新 WorkflowRun 状态
 6. Engine 注入下一步 goal 或结束
 7. 返回 tool result（被抹除）
@@ -77,9 +78,9 @@ phase 从 executing 到 verifying 的转换由 Engine 自动管理：session idl
 1. Agent 调用 workflow_blocked({ reason })
 2. Engine：phase = blocked
 3. Engine 通过 Gateway 向 owner 发送通知（含 reason）
-4. 返回 tool result
-5. Owner 通过对话消息回复
-6. Engine 评估回复 → 转为 verifying → 注入 verify 消息继续流程
+4. 返回 tool result（被抹除，与 verify/jump 一致）
+5. Owner 回复后 Engine 解除阻塞 → 转为 verifying → 注入 verify 消息（不等待 idle，立即注入原验收清单）
+6. Agent 按正常 verify → jump 流程继续
 
 ### 斜杠指令
 
