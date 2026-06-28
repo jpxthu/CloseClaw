@@ -569,7 +569,8 @@ async fn test_phase0_gate_set_during_select_branch() {
 
 #[tokio::test]
 async fn test_phase0_gate_sigint_sets_gate_immediately() {
-    // Same as above but with SIGINT to cover both branches.
+    // SIGINT should trigger forceful mode directly — assert is_forceful()
+    // rather than just is_shutting_down().
     let handle = ShutdownHandle::new();
     use tokio::signal::unix::{signal, SignalKind};
 
@@ -580,14 +581,14 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
 
         tokio::select! {
             _ = sigint.recv() => {
-                h.try_start_shutdown();
+                h.try_start_forceful_shutdown();
             }
             _ = sigterm.recv() => {
                 h.try_start_shutdown();
             }
         }
 
-        h.is_shutting_down()
+        h.is_forceful()
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -595,9 +596,9 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
     // Send SIGINT
     unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
 
-    let gate_active = select_result.await.unwrap();
+    let is_forceful = select_result.await.unwrap();
     assert!(
-        gate_active,
-        "gate must be ShuttingDown immediately after SIGINT (inside select branch)"
+        is_forceful,
+        "SIGINT must set ForcefulShuttingDown immediately (inside select branch)"
     );
 }

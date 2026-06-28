@@ -518,10 +518,10 @@ impl Daemon {
 
         tokio::select! {
             _ = sigint.recv() => {
-                info!("Received Ctrl+C, initiating graceful shutdown...");
-                // Set gate immediately so new operations are rejected
-                // at the same moment the signal is confirmed.
-                self.shutdown.try_start_shutdown();
+                info!("Received Ctrl+C, initiating forceful shutdown...");
+                // SIGINT → forceful mode: atomically transition
+                // from Running → ForcefulShuttingDown.
+                self.shutdown.try_start_forceful_shutdown();
             }
             _ = sigterm.recv() => {
                 info!("Received SIGTERM, initiating graceful shutdown...");
