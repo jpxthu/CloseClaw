@@ -167,6 +167,7 @@ async fn test_parse_sse_reasoning_content_delta() {
         make_sse_chunk("[DONE]"),
     ]));
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
+    // Buffered reasoning flushed as a single Thinking block at stream end.
     let evt1 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt1,
@@ -176,23 +177,20 @@ async fn test_parse_sse_reasoning_content_delta() {
         }
     ));
     let evt2 = stream.next().await.unwrap().unwrap();
+    // All reasoning deltas concatenated into one BlockDelta.
     assert!(
-        matches!(evt2, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "step 1")
+        matches!(evt2, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "step 1step 2")
     );
     let evt3 = stream.next().await.unwrap().unwrap();
-    assert!(
-        matches!(evt3, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "step 2")
-    );
-    let evt4 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
-        evt4,
+        evt3,
         StreamEvent::BlockEnd {
             block_type: ContentBlockType::Thinking,
             ..
         }
     ));
-    let evt5 = stream.next().await.unwrap().unwrap();
-    assert!(matches!(evt5, StreamEvent::MessageEnd { .. }));
+    let evt4 = stream.next().await.unwrap().unwrap();
+    assert!(matches!(evt4, StreamEvent::MessageEnd { .. }));
     assert!(stream.next().await.is_none());
 }
 
@@ -367,7 +365,7 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
         make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
     ]));
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
-    // Thinking BlockStart
+    // Buffered reasoning flushed as Thinking block at tool_calls transition.
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
@@ -376,21 +374,12 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
             ..
         }
     ));
-
-    // Thinking content 1
+    // All reasoning deltas concatenated into one BlockDelta.
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
-        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "Let me think..."
+        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "Let me think... done."
     ));
-
-    // Thinking content 2
-    let evt = stream.next().await.unwrap().unwrap();
-    assert!(matches!(
-        evt,
-        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == " done."
-    ));
-
     // Thinking BlockEnd
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
