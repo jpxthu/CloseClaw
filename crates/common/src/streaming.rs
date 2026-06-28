@@ -118,7 +118,17 @@ impl StreamingRenderer for DefaultStreamingRenderer {
             }
             StreamEvent::BlockDelta { delta, .. } => match delta {
                 ContentDelta::Text { text } => self.handle_text_delta(&text, &mut out),
-                ContentDelta::Thinking { thinking, .. } => self.handle_thinking_delta(&thinking),
+                ContentDelta::Thinking {
+                    thinking,
+                    signature,
+                } => {
+                    self.handle_thinking_delta(&thinking);
+                    if let Some(sig) = signature {
+                        if let Some(acc) = self.current_acc.as_mut() {
+                            acc.signature = Some(sig);
+                        }
+                    }
+                }
                 ContentDelta::ToolUseId { id } => self.handle_tool_id(id),
                 ContentDelta::ToolUseName { name } => self.handle_tool_name(name),
                 ContentDelta::ToolUseInputChunk { input } => self.handle_tool_input(&input),
@@ -241,6 +251,7 @@ fn count_trailing_backticks(s: &str) -> usize {
 #[derive(Default)]
 struct BlockAccumulator {
     text: String,
+    signature: Option<String>,
     tool_id: Option<String>,
     tool_name: Option<String>,
     tool_input: String,
@@ -251,7 +262,7 @@ impl BlockAccumulator {
         match block_type {
             ContentBlockType::Thinking => ContentBlock::Thinking {
                 thinking: self.text,
-                signature: None,
+                signature: self.signature,
             },
             ContentBlockType::ToolUse => ContentBlock::ToolUse {
                 id: self.tool_id.unwrap_or_default(),

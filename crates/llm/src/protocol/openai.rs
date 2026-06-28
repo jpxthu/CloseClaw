@@ -38,10 +38,18 @@ impl Default for OpenAiProtocol {
 }
 
 fn build_message(msg: &InternalMessage) -> serde_json::Value {
-    serde_json::json!({
-        "role": msg.role,
-        "content": msg.content,
-    })
+    if let Some(ref tool_call_id) = msg.tool_call_id {
+        serde_json::json!({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": msg.content,
+        })
+    } else {
+        serde_json::json!({
+            "role": msg.role,
+            "content": msg.content,
+        })
+    }
 }
 
 #[async_trait]
@@ -106,19 +114,13 @@ impl ChatProtocol for OpenAiProtocol {
         let usage = parse_usage(&body);
 
         // 按文档规则构建 content_blocks：
-        // content 非空 + reasoning_content 非空 → Thinking + Text
+        // content 非空 + reasoning_content 非空 → Text（content 优先，忽略 reasoning_content）
         // content 非空 + reasoning_content 空 → Text
-        // content 空 + reasoning_content 非空 → Text（reasoning_content 作为 Text 内容）
+        // content 空 + reasoning_content 非空 → Text（reasoning_content 降级为 Text）
         // 两者都空 → 空 Text
         let mut content_blocks = Vec::new();
         if let Some(ref text) = content {
-            // content 非空：两者独立产出各自块（Thinking 在前）
-            if let Some(thinking) = reasoning_content {
-                content_blocks.push(RawContentBlock::Thinking {
-                    thinking,
-                    signature: None,
-                });
-            }
+            // content 非空：content 优先，忽略 reasoning_content
             content_blocks.push(RawContentBlock::Text(text.clone()));
         } else if let Some(thinking) = reasoning_content {
             // content 空 + reasoning_content 非空 → reasoning_content 作为 Text 块

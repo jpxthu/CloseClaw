@@ -179,6 +179,7 @@ mod tests {
             messages: vec![InternalMessage {
                 role: "user".into(),
                 content: "hello".into(),
+                ..Default::default()
             }],
             temperature: 0.7,
             max_tokens: Some(100),
