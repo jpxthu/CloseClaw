@@ -392,5 +392,159 @@ async fn test_with_pending_messages_bulk_set() {
     assert_eq!(cp.pending_messages[1].message_id, "msg_3");
 }
 
+// ── Phase 4 fallback persistence tests ─────────────────────────────────────
+
+/// Verify that after Phase 2 stops sessions, `flush_all` (Phase 4)
+/// still finds them in the tracking tables and persists them.
+///
+/// This validates the fix: `stop_single_session` no longer calls
+/// `remove_session`, so Phase 4 fallback persistence actually
+/// processes stopped sessions.
+#[tokio::test]
+async fn test_flush_all_after_stop_preserves_sessions() {
+    let storage = Arc::new(FlushAllMockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    let session_ids = vec!["stopped-a", "stopped-b"];
+    for sid in &session_ids {
+        // Register session in tracking table
+        mgr.sessions
+            .write()
+            .await
+            .insert(sid.to_string(), make_test_session(sid));
+        // Register a ConversationSession (required by stop_single_session)
+        let cs = Arc::new(tokio::sync::RwLock::new(
+            closeclaw_llm::session::ConversationSession::new(
+                sid.to_string(),
+                "gpt-4o".to_string(),
+                std::path::PathBuf::from("/tmp"),
+            ),
+        ));
+        mgr.conversation_sessions
+            .write()
+            .await
+            .insert(sid.to_string(), cs);
+    }
+
+    // Phase 2: stop all sessions
+    use closeclaw_common::shutdown::ShutdownMode;
+    let stop_result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
+    assert_eq!(
+        stop_result.succeeded, 2,
+        "both sessions should be stopped successfully"
+    );
+
+    // Sessions should still be in tracking tables after stop
+    assert!(
+        mgr.has_session("stopped-a").await,
+        "session-a should still exist after Phase 2 stop"
+    );
+    assert!(
+        mgr.has_session("stopped-b").await,
+        "session-b should still exist after Phase 2 stop"
+    );
+
+    // Phase 4: flush_all should find and persist the stopped sessions
+    let saved = mgr.flush_all(ShutdownMode::Graceful).await;
+    assert!(saved.is_ok());
+    assert_eq!(
+        saved.unwrap(),
+        2,
+        "flush_all should persist both stopped sessions"
+    );
+
+    // Verify checkpoints were saved
+    let persisted = storage.saved_checkpoints.lock().await;
+    let persisted_ids: std::collections::HashSet<_> =
+        persisted.iter().map(|cp| cp.session_id.clone()).collect();
+    for sid in &session_ids {
+        assert!(
+            persisted_ids.contains(*sid),
+            "checkpoint for {} should have been persisted",
+            sid
+        );
+    }
+}
+
+/// Verify that `flush_all` cleans up tracking tables after persistence.
+///
+/// After `flush_all` completes, all sessions should be removed from
+/// `sessions`, `conversation_sessions`, and `channel_active_sessions`.
+#[tokio::test]
+async fn test_flush_all_clears_tracking_after_persist() {
+    let storage = Arc::new(FlushAllMockStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    let session_ids = vec!["persist-a", "persist-b", "persist-c"];
+    for sid in &session_ids {
+        mgr.sessions
+            .write()
+            .await
+            .insert(sid.to_string(), make_test_session(sid));
+        let cs = Arc::new(tokio::sync::RwLock::new(
+            closeclaw_llm::session::ConversationSession::new(
+                sid.to_string(),
+                "gpt-4o".to_string(),
+                std::path::PathBuf::from("/tmp"),
+            ),
+        ));
+        mgr.conversation_sessions
+            .write()
+            .await
+            .insert(sid.to_string(), cs);
+    }
+    // Register a channel_active_sessions entry for one session
+    mgr.channel_active_sessions
+        .write()
+        .await
+        .insert("feishu".to_string(), "persist-a".to_string());
+
+    // Verify sessions exist before flush
+    assert!(mgr.has_session("persist-a").await);
+    assert!(mgr.has_session("persist-b").await);
+    assert!(mgr.has_session("persist-c").await);
+
+    // Phase 4: flush_all persists and cleans up
+    let saved = mgr
+        .flush_all(closeclaw_common::shutdown::ShutdownMode::Graceful)
+        .await;
+    assert!(saved.is_ok());
+    assert_eq!(saved.unwrap(), 3);
+
+    // Verify sessions are removed from sessions tracking table
+    assert!(!mgr.has_session("persist-a").await);
+    assert!(!mgr.has_session("persist-b").await);
+    assert!(!mgr.has_session("persist-c").await);
+
+    // Verify sessions are removed from conversation_sessions
+    {
+        let conv = mgr.conversation_sessions.read().await;
+        assert!(!conv.contains_key("persist-a"));
+        assert!(!conv.contains_key("persist-b"));
+        assert!(!conv.contains_key("persist-c"));
+    }
+
+    // Verify channel_active_sessions is cleaned up
+    {
+        let channel_map = mgr.channel_active_sessions.read().await;
+        assert!(
+            channel_map.get("feishu").is_none(),
+            "channel_active_sessions should be cleared after flush_all"
+        );
+    }
+}
+
 // rebuild tests moved to rebuild_tests.rs (file kept under 500 lines)
 // Bug #904 tests moved to bug904_tests.rs

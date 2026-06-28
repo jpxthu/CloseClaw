@@ -433,9 +433,6 @@ impl SessionManager {
             return Err(StopError::Failed);
         }
 
-        // Remove from active sessions.
-        self.remove_session(session_id).await;
-
         Ok(())
     }
 
@@ -520,7 +517,7 @@ impl SessionManager {
     }
 
     /// Remove a session from all active-tracking tables.
-    async fn remove_session(&self, session_id: &str) {
+    pub(crate) async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
         self.conversation_sessions.write().await.remove(session_id);
         self.channel_active_sessions
