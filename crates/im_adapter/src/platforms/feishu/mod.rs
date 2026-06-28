@@ -16,6 +16,7 @@ use crate::plugin::{IMPlugin, RenderedOutput};
 use crate::streaming::DefaultStreamingRenderer;
 use crate::IMAdapter;
 use async_trait::async_trait;
+use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_gateway::Message;
@@ -216,6 +217,7 @@ fn convert_to_common_normalized(
 pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
     renderer: std::sync::Mutex<DefaultStreamingRenderer>,
+    identity_resolver: Option<Arc<dyn IdentityResolver>>,
 }
 
 impl FeishuPlugin {
@@ -223,6 +225,20 @@ impl FeishuPlugin {
         Self {
             adapter,
             renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            identity_resolver: None,
+        }
+    }
+
+    /// Create a Feishu plugin with an optional identity resolver.
+    #[allow(dead_code)]
+    pub(crate) fn with_identity_resolver(
+        adapter: Arc<FeishuAdapter>,
+        identity_resolver: Option<Arc<dyn IdentityResolver>>,
+    ) -> Self {
+        Self {
+            adapter,
+            renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            identity_resolver,
         }
     }
 }
@@ -233,6 +249,10 @@ impl IMPlugin for FeishuPlugin {
         "feishu"
     }
 
+    fn identity_resolver(&self) -> Option<&dyn IdentityResolver> {
+        self.identity_resolver.as_deref()
+    }
+
     async fn parse_inbound(
         &self,
         payload: &[u8],
@@ -241,6 +261,12 @@ impl IMPlugin for FeishuPlugin {
         if let Some(ref mut m) = msg {
             m.content = normalize_urls(&m.content);
             m.content = add_code_block_language_hint(&m.content);
+            // Apply identity mapping: map (platform, sender_id) → account_id
+            if let Some(resolver) = self.identity_resolver() {
+                m.account_id = resolver
+                    .resolve(&m.platform, &m.sender_id)
+                    .or_else(|| m.account_id.take());
+            }
         }
         Ok(msg)
     }

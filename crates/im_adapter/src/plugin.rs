@@ -14,6 +14,7 @@ use crate::error::AdapterError;
 use crate::normalized::NormalizedMessage;
 use crate::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRenderer};
 use async_trait::async_trait;
+use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -65,6 +66,16 @@ pub struct RenderedOutput {
 pub trait IMPlugin: Send + Sync {
     /// Returns the platform identifier, e.g. `"feishu"` or `"discord"`.
     fn platform(&self) -> &str;
+
+    /// Returns the identity resolver for cross-platform account mapping.
+    ///
+    /// The default implementation returns `None`, meaning no identity
+    /// mapping is applied and `account_id` falls back to `sender_id`.
+    /// Platforms that support identity mapping override this to return
+    /// a resolver instance.
+    fn identity_resolver(&self) -> Option<&dyn IdentityResolver> {
+        None
+    }
 
     /// Parse an inbound webhook payload into a [`NormalizedMessage`].
     ///
