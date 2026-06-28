@@ -799,7 +799,7 @@ impl Daemon {
 
     /// Phase 5: Outbound shutdown — clean up routing tables.
     async fn phase_5_outbound_close(&self) {
-        // Cleaned up implicitly when Gateway is dropped.
+        self.gateway.close_outbound().await;
     }
 
     /// Phase 6: Storage close.
