@@ -578,14 +578,14 @@ impl Daemon {
         sigint: &mut tokio::signal::unix::Signal,
         sigterm: &mut tokio::signal::unix::Signal,
     ) {
-        // Shutdown all registered plugins
+        // Shutdown inbound for all registered plugins
         let plugins = self.gateway.get_all_plugins().await;
         for plugin in &plugins {
-            if let Err(e) = plugin.shutdown().await {
+            if let Err(e) = plugin.shutdown_inbound().await {
                 tracing::warn!(
                     platform = plugin.platform(),
                     error = %e,
-                    "failed to shutdown plugin — continuing"
+                    "failed to shutdown plugin inbound — continuing"
                 );
             }
         }

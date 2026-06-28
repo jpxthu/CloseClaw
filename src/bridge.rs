@@ -446,6 +446,20 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
             .map_err(convert_common_adapter_error)
     }
 
+    async fn shutdown_inbound(&self) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
+        self.inner
+            .shutdown_inbound()
+            .await
+            .map_err(convert_common_adapter_error)
+    }
+
+    async fn shutdown_outbound(&self) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
+        self.inner
+            .shutdown_outbound()
+            .await
+            .map_err(convert_common_adapter_error)
+    }
+
     fn render(
         &self,
         content_blocks: &[closeclaw_common::processor::ContentBlock],
