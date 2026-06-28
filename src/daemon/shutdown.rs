@@ -602,10 +602,58 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_graceful_drain_no_timeout_waits_indefinitely() {
-        // After removing the drain timeout, graceful mode waits for busy_count
-        // to reach 0 with no time limit.
-        let handle = ShutdownHandle::new();
+    async fn test_graceful_drain_timeout() {
+        // After timeout, drain completes even if busy_count > 0.
+        let handle =
+            ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_millis(300));
+        // Register two pending operations — neither will complete
+        handle.increment_busy();
+        handle.increment_busy();
+        assert_eq!(handle.busy_count(), 2);
+
+        let h = handle.clone();
+        let shutdown_handle = tokio::spawn(async move {
+            h.initiate_shutdown().await;
+        });
+
+        // Wait for timeout to fire + buffer
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+        // Shutdown should have completed despite busy_count > 0
+        shutdown_handle.await.unwrap();
+        assert!(handle.is_stopped(), "drain should complete after timeout");
+        // busy_count was not cleared by the drain
+        assert_eq!(handle.busy_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_drain_timeout_returns_remaining_count() {
+        // Timeout leaves busy_count intact — caller gets the remaining count.
+        let handle =
+            ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_millis(200));
+        handle.increment_busy();
+        handle.increment_busy();
+        handle.increment_busy();
+        assert_eq!(handle.busy_count(), 3);
+
+        let h = handle.clone();
+        tokio::spawn(async move {
+            h.initiate_shutdown().await;
+        });
+
+        // Wait for timeout + buffer
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        assert!(handle.is_stopped());
+        // busy_count still reflects the 3 in-flight operations
+        assert_eq!(handle.busy_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_drain_completes_before_timeout() {
+        // When busy_count reaches 0, drain completes immediately
+        // without waiting for the full timeout.
+        let handle = ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_secs(10));
+        handle.increment_busy();
         handle.increment_busy();
 
         let h = handle.clone();
@@ -613,15 +661,47 @@ mod tests {
             h.initiate_shutdown().await;
         });
 
-        // Wait 800ms — well beyond any reasonable test timeout,
-        // but the drain should still be waiting.
-        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        // Let it enter the drain loop
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(!handle.is_stopped());
+
+        // Complete both operations
+        handle.decrement_busy();
+        handle.decrement_busy();
+
+        // Should complete quickly, not wait for 10s timeout
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), shutdown_handle).await;
+        assert!(
+            result.is_ok(),
+            "drain should complete when busy_count hits 0"
+        );
+        assert!(handle.is_stopped());
+        assert_eq!(handle.busy_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_forceful_skips_drain() {
+        // Forceful mode terminates immediately, ignoring busy_count.
+        let handle = ShutdownHandle::new();
+        for _ in 0..50 {
+            handle.increment_busy();
+        }
+
+        let h = handle.clone();
+        let shutdown_handle = tokio::spawn(async move {
+            h.initiate_shutdown().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         assert!(handle.is_shutting_down());
         assert!(!handle.is_stopped());
 
-        // Release the busy count — drain should complete naturally.
-        handle.decrement_busy();
+        // Escalate to forceful — should terminate immediately
+        handle.escalate_to_forceful();
         shutdown_handle.await.unwrap();
+
         assert!(handle.is_stopped());
+        // busy_count unchanged — forceful skips drain
+        assert_eq!(handle.busy_count(), 50);
     }
 }
