@@ -281,12 +281,14 @@ impl Gateway {
         // even when the daemon is already shutting down.
         if content.starts_with("/__card_action:forceful_shutdown") {
             if let Some(sh) = self.get_shutdown_handle() {
-                if sh.is_shutting_down() {
+                // escalate_to_forceful() is an atomic CAS that accepts
+                // ShuttingDown/Draining/Stopped and safely returns false
+                // for Running/ForcefulShuttingDown. No pre-check needed.
+                if sh.escalate_to_forceful() {
                     tracing::info!(
                         session_id = %session_id,
                         "card action: escalating to forceful shutdown"
                     );
-                    sh.escalate_to_forceful();
                 }
             }
             return None;
