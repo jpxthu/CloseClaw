@@ -16,7 +16,7 @@ use crate::plugin::{IMPlugin, RenderedOutput};
 use crate::streaming::DefaultStreamingRenderer;
 use crate::IMAdapter;
 use async_trait::async_trait;
-use closeclaw_common::identity::IdentityResolver;
+use closeclaw_common::identity::{ConfigIdentityResolver, IdentityResolver};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_gateway::Message;
@@ -45,7 +45,11 @@ inventory::submit!(PlatformEntry {
 ///
 /// Reads credentials from environment variables.  If any required
 /// variable is missing the plugin is silently not registered.
-pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, _config_dir: &str) {
+///
+/// Identity mapping is loaded from `{config_dir}/config/identity.json`
+/// (if the file exists).  A missing or empty file results in no
+/// mapping — the fallback uses `sender_id` as `account_id`.
+pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &str) {
     let app_id = std::env::var("FEISHU_APP_ID").ok();
     let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
     let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
@@ -53,15 +57,66 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, _config_dir: &s
         (app_id, app_secret, verification_token)
     {
         let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
-        // Wrap our IMPlugin for the gateway's trait (closeclaw_common::IMPlugin).
-        // The bridge module in the main crate provides IMPluginAdapter for this.
-        // Here we use a simple wrapper that delegates directly.
-        let plugin: Arc<dyn crate::plugin::IMPlugin> = Arc::new(FeishuPlugin::new(adapter));
+
+        // Load identity mapping from config file (best-effort).
+        let identity_resolver: Option<Arc<dyn IdentityResolver>> =
+            load_identity_resolver(config_dir);
+
+        let plugin: Arc<dyn crate::plugin::IMPlugin> = Arc::new(
+            FeishuPlugin::with_identity_resolver(adapter, identity_resolver),
+        );
         let wrapped = wrap_plugin_for_gateway(plugin);
         gateway.register_plugin(wrapped).await;
         info!("Feishu plugin registered");
     } else {
         info!("Feishu credentials not found in env — Feishu plugin not registered");
+    }
+}
+
+/// Try to load identity mappings from `{config_dir}/config/identity.json`.
+///
+/// Returns `Some(Arc<ConfigIdentityResolver>)` when the file exists and
+/// contains a valid JSON array, or `None` on any error / missing file.
+fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>> {
+    let path = std::path::Path::new(config_dir)
+        .join("config")
+        .join("identity.json");
+    match std::fs::read_to_string(&path) {
+        Ok(json) => match ConfigIdentityResolver::from_json(&json) {
+            Ok(resolver) => {
+                if resolver.is_empty() {
+                    info!("identity.json loaded but empty — no mappings configured");
+                    None
+                } else {
+                    info!(
+                        count = resolver.len(),
+                        "identity mapping loaded from {}",
+                        path.display()
+                    );
+                    Some(Arc::new(resolver))
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    path = %path.display(),
+                    "failed to parse identity.json — skipping identity mapping"
+                );
+                None
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            info!("identity.json not found — identity mapping disabled");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                path = %path.display(),
+                "failed to read identity.json — skipping identity mapping"
+            );
+            None
+        }
     }
 }
 
@@ -221,6 +276,7 @@ pub struct FeishuPlugin {
 }
 
 impl FeishuPlugin {
+    #[allow(dead_code)]
     pub(crate) fn new(adapter: Arc<FeishuAdapter>) -> Self {
         Self {
             adapter,
