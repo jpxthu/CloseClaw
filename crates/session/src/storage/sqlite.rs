@@ -554,6 +554,19 @@ impl PersistenceService for SqliteStorage {
         Ok(())
     }
 
+    async fn sync(&self) -> Result<(), PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", [])
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
     async fn list_idle_sessions_for_agent(
         &self,
         agent_id: &str,

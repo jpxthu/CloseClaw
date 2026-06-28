@@ -372,6 +372,18 @@ impl SessionManager {
         sessions.get(session_id).map(|s| s.agent_id.clone())
     }
 
+    /// Force a WAL checkpoint via the persistence backend.
+    ///
+    /// Should be called after `flush_all` in Phase 4 to ensure all
+    /// session writes are durable on disk.
+    pub async fn sync_storage(&self) -> Result<(), PersistenceError> {
+        let storage = self.storage.read().await;
+        let Some(storage) = storage.as_ref() else {
+            return Ok(());
+        };
+        storage.sync().await
+    }
+
     /// Flush all active sessions to persistence.
     /// Returns the number of sessions successfully saved.
     pub async fn flush_all(&self, _mode: ShutdownMode) -> Result<usize, PersistenceError> {

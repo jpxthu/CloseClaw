@@ -421,6 +421,14 @@ impl Gateway {
         self.session_manager.flush_all(mode).await
     }
 
+    /// Force a WAL checkpoint via the persistence backend (proxied to
+    /// SessionManager).  Call after `flush_all_sessions` in Phase 4.
+    pub async fn sync_storage(
+        &self,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        self.session_manager.sync_storage().await
+    }
+
     /// Register an IM plugin.
     ///
     /// The plugin's [`platform`](closeclaw_common::IMPlugin::platform) identifier is

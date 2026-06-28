@@ -784,30 +784,27 @@ impl Daemon {
         self.approval_flow.lock().await.clear();
     }
 
-    /// Phase 4: Final persistence — ensure all session checkpoints are flushed.
+    /// Phase 4: Final persistence — ensure all session checkpoints are flushed
+    /// and WAL data is synced to disk.
     async fn phase_4_final_persist(&self, mode: crate::daemon::shutdown::ShutdownMode) {
         match self.gateway.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
+        match self.gateway.sync_storage().await {
+            Ok(()) => tracing::info!("storage fsync complete"),
+            Err(e) => tracing::warn!(error = %e, "storage fsync failed"),
+        }
     }
 
     /// Phase 5: Outbound shutdown — clean up routing tables.
     async fn phase_5_outbound_close(&self) {
-        // Gateway routing tables and processor registry are cleaned up
-        // implicitly when the Gateway is dropped (end of run).
+        // Cleaned up implicitly when Gateway is dropped.
     }
 
     /// Phase 6: Storage close.
-    ///
-    /// SqliteStorage uses RAII (connection closes on drop). We explicitly
-    /// drop the Arc here to ensure the file handle is released before exit.
     async fn phase_6_storage_close(&self) {
-        // The storage Arc is held by the Daemon struct. To release it before
-        // exit we replace it with a dummy that immediately drops.
-        // Since we cannot mutate self.storage (immutable ref), the actual
-        // drop happens when the Daemon is destroyed after run() returns.
-        // This phase exists for documentation and future explicit cleanup.
+        // SqliteStorage uses RAII — actual drop happens when Daemon is destroyed.
     }
 
     /// Phase 7: Exit cleanup.
