@@ -32,6 +32,13 @@ pub trait ShutdownSignal: Send + Sync {
 
     /// Decrement the busy count after async work completes.
     fn decrement_busy(&self);
+
+    /// Get the current busy count.
+    fn busy_count(&self) -> usize;
+
+    /// Atomically escalate from graceful to forceful shutdown.
+    /// Returns true if escalation succeeded, false if already escalated.
+    fn escalate_to_forceful(&self) -> bool;
 }
 
 /// Shared shutdown handle with busy-count tracking.
@@ -121,5 +128,15 @@ impl ShutdownSignal for ShutdownHandle {
 
     fn decrement_busy(&self) {
         self.busy_count.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    fn busy_count(&self) -> usize {
+        self.busy_count.load(Ordering::SeqCst)
+    }
+
+    fn escalate_to_forceful(&self) -> bool {
+        self.escalated
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
     }
 }

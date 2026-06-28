@@ -331,6 +331,14 @@ impl closeclaw_common::ShutdownSignal for ShutdownHandle {
     fn decrement_busy(&self) {
         self.busy_count.fetch_sub(1, Ordering::SeqCst);
     }
+
+    fn busy_count(&self) -> usize {
+        self.busy_count.load(Ordering::SeqCst)
+    }
+
+    fn escalate_to_forceful(&self) -> bool {
+        self.coordinator.escalate_to_forceful()
+    }
 }
 
 #[cfg(test)]
