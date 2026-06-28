@@ -601,8 +601,8 @@ mod tests;
 // mod announce_tests;  // DISABLED: imports from full-tests only modules
 #[cfg(test)]
 mod flush_tests;
-// #[cfg(test)]
-// mod graceful_stop_tests;  // DISABLED: imports from full-tests only modules
+#[cfg(test)]
+mod graceful_stop_tests;
 #[cfg(test)]
 // mod resolve_tests;  // DISABLED: imports from full-tests only modules
 #[cfg(test)]

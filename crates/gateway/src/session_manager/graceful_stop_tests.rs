@@ -114,6 +114,45 @@ async fn append_assistant_message(
     });
 }
 
+/// A mock `ShutdownSignal` for escalation tests.
+struct MockEscalationSignal {
+    is_shutting_down: std::sync::atomic::AtomicBool,
+    is_forceful: std::sync::atomic::AtomicBool,
+}
+
+impl closeclaw_common::shutdown::ShutdownSignal for MockEscalationSignal {
+    fn is_shutting_down(&self) -> bool {
+        self.is_shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn increment_busy(&self) {}
+    fn decrement_busy(&self) {}
+    fn busy_count(&self) -> usize {
+        0
+    }
+    fn escalate_to_forceful(&self) -> bool {
+        self.is_forceful
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        true
+    }
+    fn is_forceful(&self) -> bool {
+        self.is_forceful.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Install a mock shutdown handle on a `SessionManager`.
+async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<MockEscalationSignal> {
+    let mock = Arc::new(MockEscalationSignal {
+        is_shutting_down: std::sync::atomic::AtomicBool::new(true),
+        is_forceful: std::sync::atomic::AtomicBool::new(is_forceful),
+    });
+    let handle = Arc::new(closeclaw_common::shutdown::ShutdownHandle::new(
+        mock.clone() as Arc<dyn closeclaw_common::shutdown::ShutdownSignal>,
+    ));
+    mgr.set_shutdown_handle(handle).await;
+    mock
+}
+
 // ── Step 1.2: graceful stop scenarios ────────────────────────────────────
 
 /// Session ends with ToolUse in the last assistant message →
@@ -264,4 +303,102 @@ async fn test_forceful_stop_unchanged() {
         "forceful mode should complete quickly, took {:?}",
         elapsed
     );
+}
+
+// ── Step 1.1: escalation propagation tests ─────────────────────────────
+
+/// Verify that the escalation detection in `stop_all_sessions` works:
+/// when the shutdown handle reports forceful, `stop_all_sessions`
+/// uses forceful mode even when called with Graceful.
+///
+/// This test verifies the core escalation detection mechanism. A
+/// streaming session (LlmState::Receiving) would hang in graceful
+/// mode forever. The forceful mock causes `stop_all_sessions` to
+/// detect forceful and skip the graceful polling loop.
+#[tokio::test]
+async fn test_forceful_mock_stops_streaming_immediately() {
+    let mgr = make_test_session_manager();
+    let parent_id = "parent_forceful_mock";
+    setup_parent_with_conv(&mgr, parent_id).await;
+    let child_id = "child_forceful_mock";
+    setup_child_with_conv(&mgr, parent_id, child_id).await;
+
+    // Parent is streaming — would hang in graceful mode.
+    set_llm_state(&mgr, parent_id, LlmState::Receiving).await;
+
+    // Install a mock that reports forceful from the start.
+    let _mock = install_mock_handle(&mgr, true).await;
+
+    // Should complete quickly because mock is forceful.
+    let start = tokio::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        mgr.stop_all_sessions(ShutdownMode::Graceful, None),
+    )
+    .await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok(), "forceful mock should not hang");
+    let result = result.unwrap();
+    assert!(
+        result.succeeded >= 2,
+        "expected >= 2 stopped, got {:?}",
+        result
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "forceful mode should be fast, took {:?}",
+        elapsed
+    );
+    assert!(!mgr.has_session(&parent_id).await);
+    assert!(!mgr.has_session(&child_id).await);
+}
+
+/// Verify escalation propagation: after graceful→forceful escalation,
+/// `stop_all_sessions` switches to forceful mode for remaining levels.
+///
+/// Setup: child → parent (two levels, leaf-to-root). The child is idle
+/// (stops quickly in graceful). The parent is streaming (would block in
+/// graceful forever). The mock starts as forceful (simulating escalation
+/// that happened before stop_all_sessions was called).
+///
+/// Uses `tokio::time::timeout` to detect hangs — if escalation does
+/// not propagate, the parent hangs and the test times out.
+#[tokio::test]
+async fn test_escalation_propagation_across_levels() {
+    let mgr = make_test_session_manager();
+
+    // ── set up two-level tree: child → parent ───────────────────────
+    let parent_id = "parent_esc_prop";
+    setup_parent_with_conv(&mgr, parent_id).await;
+    let child_id = "child_esc_prop";
+    setup_child_with_conv(&mgr, parent_id, child_id).await;
+
+    // child: idle (will stop quickly in graceful mode).
+    // parent: streaming — would block forever in graceful mode.
+    set_llm_state(&mgr, parent_id, LlmState::Receiving).await;
+
+    // Install forceful mock — simulates escalation happened before
+    // stop_all_sessions was called.
+    let _mock = install_mock_handle(&mgr, true).await;
+
+    // ── run with timeout to detect hangs ─────────────────────────────
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        mgr.stop_all_sessions(ShutdownMode::Graceful, None),
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "escalation did not propagate: parent session hung in graceful mode (timeout)"
+    );
+    let result = result.unwrap();
+    assert!(
+        result.succeeded >= 2,
+        "expected >= 2 sessions stopped, got {:?}",
+        result
+    );
+    assert!(!mgr.has_session(&parent_id).await);
+    assert!(!mgr.has_session(&child_id).await);
 }
