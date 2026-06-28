@@ -206,7 +206,9 @@ impl ShutdownHandle {
     pub fn escalate_to_forceful(&self) -> bool {
         self.coordinator.escalate_to_forceful()
     }
+}
 
+impl ShutdownHandle {
     /// Initiate graceful shutdown — called when SIGTERM/SIGINT is received.
     ///
     /// 1. Transition to ShuttingDown
@@ -273,7 +275,9 @@ impl ShutdownHandle {
             tokio::time::sleep(drain_poll_interval()).await;
         }
     }
+}
 
+impl ShutdownHandle {
     /// Subscribe to the drain signal (called by components)
     pub fn subscribe_drain(&self) -> broadcast::Receiver<()> {
         self.drain_done_tx.subscribe()
@@ -283,9 +287,10 @@ impl ShutdownHandle {
     pub fn is_stopped(&self) -> bool {
         self.coordinator.state() == ShutdownState::Stopped
     }
+}
 
-    /// Test-only: start shutdown without blocking (for intermediate state assertions).
-    #[cfg(test)]
+#[cfg(test)]
+impl ShutdownHandle {
     pub fn start_shutdown_for_test(&self) {
         self.coordinator.try_start_shutdown();
     }
@@ -605,7 +610,7 @@ mod tests {
     async fn test_graceful_drain_timeout() {
         // After timeout, drain completes even if busy_count > 0.
         let handle =
-            ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_millis(300));
+            ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_millis(100));
         // Register two pending operations — neither will complete
         handle.increment_busy();
         handle.increment_busy();
@@ -617,7 +622,7 @@ mod tests {
         });
 
         // Wait for timeout to fire + buffer
-        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
         // Shutdown should have completed despite busy_count > 0
         shutdown_handle.await.unwrap();
@@ -649,7 +654,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_drain_completes_before_timeout() {
+    async fn test_drain_completes_on_zero_count() {
         // When busy_count reaches 0, drain completes immediately
         // without waiting for the full timeout.
         let handle = ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_secs(10));
