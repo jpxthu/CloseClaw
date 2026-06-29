@@ -5,6 +5,12 @@ use serde::Deserialize;
 use crate::provider::{ProviderError, Result};
 use crate::types::{InternalResponse, RawContentBlock, RawUsage};
 
+/// Minimum trimmed length for `reasoning_content` to be treated as a
+/// genuine reasoning block. Values at or below this threshold are
+/// demoted to plain Text (per design doc: "极短的 reasoning_content
+/// 不视为推理块").
+const MIN_REASONING_LENGTH: usize = 2;
+
 use super::GlmProvider;
 
 // ── Internal response types ──────────────────────────────────────────────────
@@ -166,6 +172,9 @@ impl GlmProvider {
     ///
     /// Prefer `content`; if it's empty or pure whitespace,
     /// fall back to `reasoning_content`.
+    ///
+    /// Used in unit tests to verify extraction logic independently.
+    #[allow(dead_code)]
     pub(crate) fn extract_content(msg: &GlmMessage) -> String {
         if !msg.content.trim().is_empty() {
             msg.content.trim().to_string()
@@ -195,22 +204,41 @@ impl GlmProvider {
             .map(|c| &c.message)
             .ok_or_else(|| ProviderError::Legacy("no choices in GLM response".to_string()))?;
 
-        let content = Self::extract_content(msg);
+        // ── Build content blocks per protocol-mapping spec ──
+        //
+        // 1. content non-empty + reasoning non-empty & long enough
+        //    → Text(content) + Thinking(reasoning)
+        // 2. content non-empty + reasoning empty/short
+        //    → Text(content)
+        // 3. content empty + reasoning non-empty
+        //    → Text(reasoning)  (degrade — no Thinking block)
+        // 4. both empty → empty Text block
+        let content_is_empty = msg.content.trim().is_empty();
+        let trimmed_reasoning = msg
+            .reasoning_content
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
 
-        // Build content blocks:
-        // Thinking from reasoning_content,
-        // Text from content
         let mut content_blocks = Vec::new();
-        if let Some(ref rc) = msg.reasoning_content {
-            if !rc.trim().is_empty() {
+        if !content_is_empty {
+            content_blocks.push(RawContentBlock::Text(msg.content.trim().to_string()));
+        }
+        if let Some(rc) = trimmed_reasoning {
+            if content_is_empty {
+                // Degraded: reasoning_content becomes visible text
+                content_blocks.push(RawContentBlock::Text(rc.to_string()));
+            } else if rc.len() > MIN_REASONING_LENGTH {
+                // Both content and reasoning present and substantive
                 content_blocks.push(RawContentBlock::Thinking {
-                    thinking: rc.trim().to_string(),
+                    thinking: rc.to_string(),
                     signature: None,
                 });
             }
+            // else: content present but reasoning too short — skip it
         }
-        if !content.is_empty() {
-            content_blocks.push(RawContentBlock::Text(content));
+        if content_blocks.is_empty() {
+            content_blocks.push(RawContentBlock::Text(String::new()));
         }
 
         let usage = api_resp.usage.as_ref();

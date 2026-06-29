@@ -87,6 +87,106 @@ fn test_extract_content_both_empty() {
     assert_eq!(extracted, "");
 }
 
+// --- parse_chat_response tests ---
+
+/// Build a GlmResponse with one choice, optional content, and
+/// optional reasoning_content.
+fn make_glm_response(content: &str, reasoning: Option<&str>) -> GlmResponse {
+    GlmResponse {
+        choices: Some(vec![GlmChoice {
+            message: GlmMessage {
+                role: "assistant".to_string(),
+                content: content.to_string(),
+                reasoning_content: reasoning.map(String::from),
+            },
+        }]),
+        usage: Some(GlmUsage {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            total_tokens: 30,
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
+        }),
+        model: "glm-5.1".to_string(),
+        error: None,
+    }
+}
+
+/// 1. Normal path: content + reasoning both present and long enough
+///    → Text(content) + Thinking(reasoning)
+#[test]
+fn test_parse_chat_response_content_and_reasoning() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response(
+        "Final answer",
+        Some("Let me think step by step..."),
+    ));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Final answer".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Thinking {
+            thinking: "Let me think step by step...".to_string(),
+            signature: None,
+        }
+    );
+}
+
+/// 2. Degrade path: content empty + reasoning non-empty
+///    → Text(reasoning) only, no Thinking block
+#[test]
+fn test_parse_chat_response_content_empty_reasoning_degraded() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response(
+        "",
+        Some("Hidden reasoning that becomes visible"),
+    ));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hidden reasoning that becomes visible".to_string())
+    );
+}
+
+/// 3. Short reasoning filtered: reasoning_content is 1 char (below
+///    MIN_REASONING_LENGTH=2) → Thinking block not emitted.
+#[test]
+fn test_parse_chat_response_short_reasoning_filtered() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some(".")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+}
+
+/// 4. Plain text: content non-empty, no reasoning_content
+///    → Text(content) only
+#[test]
+fn test_parse_chat_response_text_only() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Just text", None));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Just text".to_string())
+    );
+}
+
+/// 5. Empty response: content empty, no reasoning_content
+///    → empty Text block (fallback)
+#[test]
+fn test_parse_chat_response_empty_response() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("", None));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(resp.content_blocks[0], RawContentBlock::Text(String::new()));
+}
+
 // --- Token details deserialization ---
 
 // TODO: Rewrite with v2 fixture (glm/glm-5.2/openai/glm-thinking.json, etc.)
