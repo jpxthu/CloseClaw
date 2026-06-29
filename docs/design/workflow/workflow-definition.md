@@ -28,14 +28,15 @@ workspace/
 ```
 Workflow
   ├── id, name, description
-  ├── step_data_schema    // 跨步骤共享数据的字段定义（键值对，由 Engine 在步骤间维护）
-  ├── verify_retry_limit  // 验证重试上限（默认 3，可选）
-  └── steps: Step[]       // 步骤序列
+  ├── allow_blocked        // 是否允许 Agent 调用 workflow_blocked（默认 false，可选）
+  ├── verify_retry_limit   // 验证重试上限（默认 3，可选）
+  ├── step_data_schema     // 跨步骤共享数据的字段定义（键值对，由 Engine 在步骤间维护）
+  └── steps: Step[]        // 步骤序列
 
 Step
   ├── id（从 0 开始的整数）
   ├── name
-  ├── type: action | blocking
+  ├── allow_blocked        // 覆盖 workflow 级别的 allow_blocked（可选）
   ├── goal                 // 步骤目标（纯文本）
   ├── verify: string[]     // 验收清单条目（Agent 自查，Engine 不验证真伪）
   ├── jump: JumpQuestion[] // 跳转条件问题
@@ -56,15 +57,11 @@ Transition
   └── target_step         // goto/reexecute 时的目标步骤
 ```
 
-### 步骤类型
+### 配置项
 
-`action`：标准步骤，Agent 执行 → Engine 验证 → 跳转。
+`allow_blocked`（默认 false）：控制 Agent 是否可以在 verify 阶段调用 workflow_blocked 主动请求阻塞。可在 workflow 级别设置默认值，step 级别覆盖。为 true 时，Engine 在 verify 消息末尾附加 "如果确认任务无法继续，调用 workflow_blocked({reason: "原因"})"。为 false 时 Agent 调用 workflow_blocked 直接返回错误。
 
-`blocking`：阻塞步骤，需要 owner 输入后才能继续。Engine 在 goal 注入后将步骤状态标记为 blocked，等 owner 输入到达后进入 verify 流程。
-
-### 验证重试
-
-`verify_retry_limit`（可选，默认 3）控制验证重试上限。Engine 每次注入验收清单后 pending_verify 计数 +1——Agent 继续执行未调 verify 则等下次 idle 重新注入，计数继续累加。计数 ≥ 上限时转为 blocked 并通知 owner。Agent 调用 workflow_verify 后计数归零（详见 execution-engine.md）。
+`verify_retry_limit`（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数 +1。Agent 继续执行未调 verify 则等下次 idle 重新注入，计数继续累加。计数 ≥ 上限 → phase 转为 blocked 并通知 owner。Agent 调用 workflow_verify 后计数归零（详见 execution-engine.md）。
 
 ### 跳转动作
 

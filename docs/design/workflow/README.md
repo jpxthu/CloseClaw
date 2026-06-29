@@ -45,9 +45,9 @@ WorkflowRun 跟踪运行时状态：workflow_id 和 definition_version 关联定
 
 ### 暂停与恢复
 
-Agent 未完成验证时可继续执行，Engine 等下次 session idle 自动重新注入 verify。每次注入 pending_verify 计数 +1，超过上限（可在 workflow 定义中配置，默认 3 次）则标记为 blocked 并通知 owner。
+Agent 未完成验证时可继续执行，Engine 等下次 session idle 自动重新注入 verify。每次注入 pending_verify 计数 +1，超过上限（可在 workflow 定义中配置，默认 3 次）→ blocked 并通知 owner。
 
-Agent 可主动调用 workflow_blocked 请求阻塞，等待 owner 回复后恢复。Blocking 类型步骤同样由 owner 输入后解除。
+当前步骤 allow_blocked 为 true 时，Agent 可在 verify 阶段调用 workflow_blocked 主动请求阻塞，等待 owner 回复后恢复。
 
 工作流正常结束后 Engine 清理：移除追加区中的 workflow context、清理 goal 消息、清空 WorkflowRun 状态并触发 checkpoint 持久化。
 

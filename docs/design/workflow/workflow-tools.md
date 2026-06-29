@@ -76,11 +76,14 @@ phase 从 executing 到 verifying 的转换由 Engine 自动管理：session idl
 ### workflow_blocked
 
 1. Agent 调用 workflow_blocked({ reason })
-2. Engine：phase = blocked
-3. Engine 通过 Gateway 向 owner 发送通知（含 reason）
-4. 返回 tool result（被抹除，与 verify/jump 一致）
-5. Owner 回复后 Engine 解除阻塞 → 转为 verifying → 注入 verify 消息（不等待 idle，立即注入原验收清单）
-6. Agent 按正常 verify → jump 流程继续
+2. Engine 检查当前 step 的 allow_blocked：
+   - false → 返回错误，Agent 继续 verify 循环
+   - true → 继续
+3. Engine：phase = blocked
+4. Engine 通过 Gateway 向 owner 发送通知（含 reason）
+5. 返回 tool result（被抹除，与 verify/jump 一致）
+6. Owner 回复后 Engine 解除阻塞 → 移除旧 goal → 立即注入 verify 消息（不等 idle）
+7. Agent 按正常 verify → jump 流程继续
 
 ### 斜杠指令
 

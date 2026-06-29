@@ -4,7 +4,7 @@
 
 Execution Engine 是 workflow 的运行时核心，按定义驱动状态机转换、注入三阶段协议消息、硬编码评估跳转条件。
 
-Agent 负责执行步骤内容，Engine 负责流程结构：追踪当前 phase（executing/verifying/jumping/blocked/complete），在 session idle 时注入验收清单，Agent 完成验证后注入跳转问题并评估条件匹配。
+Agent 负责执行步骤内容，Engine 负责流程结构：追踪当前 phase，在 session idle 时注入验收清单，Agent 完成验证后注入跳转问题并评估条件匹配。
 
 ## 架构
 
@@ -20,8 +20,9 @@ Engine 管理五个 phase：
 
 2. **verifying**
    Engine 已注入验收清单，等待 Agent 响应。
-   - Agent 继续干活（调工具、spawn 子 session 等）→ 等下次 idle Engine 重新注入 → executing（循环）
+   - Agent 继续干活（调工具、spawn 子 session 等）→ 等下次 idle 重新注入 verify → 循环
    - Agent 完成，调用 workflow_verify → jumping
+   - Agent 调用 workflow_blocked（当前步骤允许时）→ blocked
    - 注入次数超过重试上限 → blocked
 
 3. **jumping**
@@ -31,9 +32,13 @@ Engine 管理五个 phase：
    - complete → complete
 
 4. **blocked**
-   阻塞状态。触发来源：blocking 步骤等待 owner / Agent 调用 workflow_blocked / 验证重试耗尽。
-   - Owner 输入解除 → Engine 移除旧 goal，转为 verifying
-   - Owner 终止 → complete
+   阻塞状态，等待 owner 介入。触发来源：
+   - Agent 调用 workflow_blocked（当前步骤 allow_blocked 为 true）
+   - verify 连续注入次数超过上限
+
+   离开转换：
+   - Owner 输入解除 → Engine 移除旧 goal，立即注入 verify
+   - Owner 终止 workflow → complete
 
 5. **complete**
    Workflow 执行完毕。终止状态，无离开转换。
@@ -50,11 +55,12 @@ Engine 管理五个 phase：
 
 2. **Verify**
    触发：session idle（判定逻辑见 Session 模块）
-   注入：验收清单 + "如果全部满足，调用 workflow_verify；否则继续完成步骤"
+   注入：验收清单。如果当前步骤 allow_blocked 为 true，末尾附加 "如果确认任务无法继续，调用 workflow_blocked({reason: "原因"})"。否则只注入验收清单 + "如果全部满足，调用 workflow_verify；否则继续完成步骤"。
    Agent 动作：自查
-   - 未完成 → 继续执行（Engine 不干预，等下次 idle 重新注入）
+   - 未完成 → 继续执行。Engine 等下次 idle 重新注入。重新注入前先移除上一条 verify 消息（旧消息不再有意义），注入新消息，pending_verify 计数 +1。
    - 完成 → workflow_verify()
-   消息抹除：条件性——如果 Agent 紧接着调了 workflow_verify，Engine 抹除 verify 注入消息 + tool_call + tool_result 三条消息。如果 Agent 没调 verify 而是继续干活，只保留注入的验收消息（无 tool call 可抹），等下一轮。
+   - 无法继续且 allow_blocked → workflow_blocked()
+   消息抹除：Agent 调用 workflow_verify 或 workflow_blocked 后，Engine 抹除 verify 注入消息 + tool_call + tool_result 三条消息。Agent 未调任何 workflow 工具而继续干活 → 旧 verify 消息保留，下轮注入前移除。
 
 3. **Jump**
    触发：Agent 调用 workflow_verify
@@ -78,14 +84,15 @@ Engine 依赖 Session 的空闲判定决定何时进入 verify 阶段。Session 
 
 **Verify 阶段**
 
-Engine 注入验收清单（role: workflow, type: verify）。Agent 自查：
-
-- Agent 继续干活（调工具等）：Engine 等下次 idle 重新注入。上一条 verify 注入消息保留在 context 中（无 tool call 可抹除）。此循环计入 pending_verify 计数。
-- Agent 完成，调用 workflow_verify()：Engine 抹除 verify 注入消息 + tool_call + tool_result，进入 Jump 阶段。
+1. Engine 注入 verify 消息（role: workflow, type: verify），内容为验收清单。如果当前步骤 allow_blocked，末尾附加 blocked 提示
+2. Agent 自查：
+   - 继续干活 → Engine 等下次 idle。注入新 verify 前先移除上一条 verify 消息。pending_verify +1
+   - 完成 → workflow_verify() → Engine 抹除 verify 消息对 → 进入 Jump 阶段
+   - 无法继续且 allow_blocked → workflow_blocked() → Engine 抹除 verify 消息对 → 进入 Blocked 阶段
 
 **Jump 阶段**
 
-1. Engine 注入 jump 消息（role: workflow, type: jump），内容为跳转问题。选项直接来自当前步骤定义中的 jump 问题，与 transitions 的 when 条件对应。
+1. Engine 注入 jump 消息（role: workflow, type: jump），内容为跳转问题
 2. Agent 调用 workflow_jump({answers})
 3. Engine 按 transitions 顺序匹配条件，执行对应 action
 4. Engine 抹除 jump 注入消息 + tool_call + tool_result
@@ -109,24 +116,29 @@ complete
 
 ### 验证重试
 
-Engine 每次注入 verify 后 pending_verify 计数 +1。Agent 继续干活未调 verify → 等下次 idle 重新注入（注入前先移除上一条 verify 消息，避免堆积），计数继续累加。Agent 调了 verify → 计数归零。
-
-计数 ≥ 上限（默认 3，可在 workflow 定义中配置）→ phase 转为 blocked，通知 owner。
+Engine 每次注入 verify 后 pending_verify 计数 +1。Agent 调了 verify → 计数归零。计数 ≥ 上限（默认 3，可在 workflow 定义中配置，每个 workflow 一个上限值）→ phase 转为 blocked，通知 owner。
 
 pending_verify 在以下情况下归零：Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤。
 
-没有超时机制。Agent 只要还在执行步骤，不管多久 Engine 都等——步骤本身的长度由任务复杂度决定，Engine 不设时间上限。
+没有超时机制。Agent 只要还在执行步骤内容，不管多久 Engine 都等——步骤长度由任务复杂度决定，Engine 不设时间上限。
 
 ### 阻塞处理
 
-Blocking 类型步骤等待 owner 输入：
+**Agent 主动阻塞**（当前步骤 allow_blocked 为 true）：
 
-1. Engine 注入 goal（含"提交给 owner 确认，等待回复"的指引）
-2. Engine 标记为 blocked
-3. Owner 回复后，Engine 转为 verifying
-4. Agent 收到 verify（检查清单："owner 已提供输入"）→ 调用 workflow_verify → jump
+1. Agent 在 verify 阶段调用 workflow_blocked({reason})
+2. Engine：phase = blocked
+3. Engine 通过 Gateway 通知 owner（含 reason）
+4. Owner 回复后 Engine 解除阻塞 → 移除旧 goal → 立即注入 verify（不等 idle）→ verifying
 
-Agent 主动阻塞同理——调用 workflow_blocked({reason}) → Engine 标记 blocked 并通知 owner → owner 回复后 verifying。
+如果不允许 blocked（allow_blocked 为 false）而 Agent 调了 workflow_blocked → Engine 返回错误，Agent 继续 verify 循环。
+
+**verify 重试耗尽**：
+
+1. pending_verify 计数 ≥ 上限
+2. Engine：phase = blocked
+3. Engine 通过 Gateway 通知 owner
+4. Owner 回复后 Engine 解除阻塞 → 移除旧 goal → 立即注入 verify → verifying
 
 ## 模块关系
 
