@@ -3,10 +3,13 @@
 //! Conditionally injects `reasoning_split` into [`InternalRequest::extra_body`]
 //! when the request involves multi-turn tool calls, allowing the Anthropic
 //! protocol layer to forward it to the MiniMax API.
+//!
+//! For M3 models, injects `thinking: {type: "enabled"}` to enable thinking
+//! block output as required by the MiniMax API.
 
 use crate::plugin::ModelPlugin;
 use crate::types::InternalRequest;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// Plugin that enriches MiniMax requests with provider-specific parameters.
 ///
@@ -30,6 +33,13 @@ impl ModelPlugin for MiniMaxPlugin {
             request
                 .extra_body
                 .insert("reasoning_split".to_string(), Value::Bool(true));
+        }
+
+        // M3 requires explicit `thinking` parameter to produce thinking blocks.
+        if request.model.starts_with("MiniMax-M3") {
+            request
+                .extra_body
+                .insert("thinking".to_string(), json!({"type": "enabled"}));
         }
     }
 }
