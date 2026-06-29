@@ -209,10 +209,10 @@
   },
   {
     "path": "docs/design/llm/providers/minimax.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-06-29T23:17:06.531374+08:00",
+    "commit": "344fa533983dc5c94b9f74074150de97ec54335d",
+    "commit_time": "2026-06-29T23:18:05+08:00",
+    "confirmed_time": "2026-06-29T23:25:20.045255+08:00",
     "comment": "",
-    "blocked_reason": "reasoning_split reasoning_details description ambiguity causing internal contradiction"
+    "blocked_reason": ""
   }
 ]
