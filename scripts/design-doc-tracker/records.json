@@ -57,11 +57,11 @@
   },
   {
     "path": "docs/design/cli/chat.md",
-    "commit": "2c6c7c7b187655eb3e53a328c13f841d50804760",
-    "commit_time": "2026-06-26T00:42:32+08:00",
-    "confirmed_time": "2026-06-30T04:03:23.458646+08:00",
+    "commit": "eb06f68bfed0cc41fa29b1539e4fca60c8309d29",
+    "commit_time": "2026-06-30T04:04:19+08:00",
+    "confirmed_time": "2026-06-30T04:14:04.203193+08:00",
     "comment": "",
-    "blocked_reason": "F2b深度对比3轮未达成一致: card_action字段列举完整性和account_id大小写差异是否构成设计目标不清晰, 正向与反向分身判断分歧无法收敛"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/renderer.md",
