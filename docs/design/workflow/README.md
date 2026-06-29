@@ -41,9 +41,9 @@ Workflow Engine 由四个子功能组成：
 
 ### 暂停与恢复
 
-Agent 未完成验证时可继续执行。Engine 等待下次 session idle 自动重新注入 verify 消息。每次注入 pending_verify 计数加一，超过上限（默认 3 次，可在 workflow 定义中配置）则 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，pending_verify 归零，移除旧 goal，立即注入 verify 消息。
+Agent 未完成验证时可继续执行。Engine 等待下次 session idle 自动重新注入 verify 消息。每次注入 pending_verify 计数加一，超过上限（默认 3 次，可在 workflow 定义中配置）则 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，pending_verify 归零，移除旧 goal，清理残留 verify 消息，立即注入 verify。
 
-当前步骤 allow_blocked 为 true 时，verify 消息末尾附加 "如果确认任务无法继续，调用 workflow_blocked" 提示。Agent 调用 workflow_blocked 后 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，pending_verify 归零，移除旧 goal，立即注入 verify 消息。如果 Agent 调用 workflow_blocked 时当前步骤不允许 blocked，Engine 返回错误，Agent 继续 verify 循环。
+当前步骤 allow_blocked 为 true 时，verify 消息末尾附加 "如果确认任务无法继续，调用 workflow_blocked({reason: "原因"})" 提示。Agent 调用 workflow_blocked 后 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，pending_verify 归零，移除旧 goal，清理残留 verify 消息，立即注入 verify。如果 Agent 调用 workflow_blocked 时当前步骤不允许 blocked，Engine 返回错误，Agent 继续 verify 循环。
 
 若 owner 选择终止 workflow，phase 转为 complete，Engine 执行退出清理。
 

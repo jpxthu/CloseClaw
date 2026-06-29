@@ -62,7 +62,7 @@ Transition
 
 allow_blocked（默认 false）：控制 Agent 是否可以在 verify 阶段调用 workflow_blocked 主动请求阻塞。可在 workflow 级别设置默认值，step 级别覆盖。为 true 时，Engine 在 verify 消息末尾附加 blocked 提示；为 false 时 Agent 调用 workflow_blocked 直接返回错误。
 
-verify_retry_limit（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调 verify 则等下次 idle 重新注入，计数继续累加。计数超过上限 → phase 转为 blocked 并通知 owner。Agent 调用 workflow_verify 或 owner 解除 blocked 后计数归零（详见 execution-engine.md）。
+verify_retry_limit（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调 verify 则等下次 idle 重新注入，计数继续累加。计数超过上限 → phase 转为 blocked 并通知 owner。Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、或 owner 解除 blocked 后计数归零（详见 execution-engine.md）。
 
 ### 跳转动作
 
