@@ -49,11 +49,18 @@ pub(crate) fn strip_ansi(text: &str) -> String {
     result
 }
 
-/// Return the terminal width in columns, falling back to 120.
+/// Resolve terminal width from an optional size pair.
+///
+/// When `terminal_size()` returns `Some`, we use the width;
+/// otherwise we fall back to the documented default of 80 columns.
+pub(crate) fn resolve_terminal_width_from(size: Option<(u16, u16)>) -> usize {
+    size.map(|(w, _)| w as usize).unwrap_or(80)
+}
+
+/// Return the terminal width in columns, falling back to 80.
 pub(crate) fn get_terminal_width() -> usize {
-    terminal_size::terminal_size()
-        .map(|(w, _)| w.0 as usize)
-        .unwrap_or(120)
+    let size = terminal_size::terminal_size().map(|(w, h)| (w.0, h.0));
+    resolve_terminal_width_from(size)
 }
 
 // ---------------------------------------------------------------------------
