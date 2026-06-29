@@ -13,6 +13,19 @@ fn provider_url(server: &mockito::Server) -> String {
     server.url()
 }
 
+fn make_sse_body(data_lines: &[&str]) -> String {
+    let events: Vec<String> = data_lines.iter().map(|d| format!("data: {}", d)).collect();
+    events.join("\n\n") + "\n\n"
+}
+
+async fn collect_chunks(rx: &mut mpsc::Receiver<RawSseChunk>) -> Vec<RawSseChunk> {
+    let mut chunks = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+        chunks.push(chunk);
+    }
+    chunks
+}
+
 fn make_request(model: &str) -> InternalRequest {
     InternalRequest {
         model: model.to_string(),
@@ -360,16 +373,10 @@ async fn test_send_error_500() {
 async fn test_send_streaming_success() {
     let mut server = mockito::Server::new_async().await;
 
-    let sse_body = "\
-data: {\"id\":\"mimo-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-7b\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}
-
-data: {\"id\":\"mimo-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-7b\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}
-
-data: {\"id\":\"mimo-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"mimo-7b\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}
-
-data: [DONE]
-
-";
+    let d1 = r#"{"id":"m","object":"c","choices":[{"delta":{"content":"Hello"},"fin":null}]}"#;
+    let d2 = r#"{"id":"m","object":"c","choices":[{"delta":{"content":" world"},"fin":null}]}"#;
+    let d3 = r#"{"id":"m","object":"c","choices":[{"delta":{},"finish_reason":"stop"}]}"#;
+    let sse_body = make_sse_body(&[d1, d2, d3, "[DONE]"]);
 
     let m = server
         .mock("POST", "/chat/completions")
@@ -389,7 +396,7 @@ data: [DONE]
     let body = json!({
         "model": "mimo-7b",
         "messages": [{"role": "user", "content": "Hello"}],
-        "stream": true
+        "stream": true,
     });
 
     let mut rx = provider
@@ -398,18 +405,9 @@ data: [DONE]
         .expect("send_streaming should succeed");
 
     m.assert_async().await;
+    let chunks = collect_chunks(&mut rx).await;
 
-    let mut chunks = Vec::new();
-    while let Some(chunk) = rx.recv().await {
-        chunks.push(chunk);
-    }
-
-    assert_eq!(
-        chunks.len(),
-        3,
-        "expected 3 SSE chunks, got {}",
-        chunks.len()
-    );
+    assert_eq!(chunks.len(), 3);
     assert!(chunks[0].data.contains("Hello"));
     assert!(chunks[1].data.contains(" world"));
     assert!(chunks[2].data.contains("finish_reason"));
