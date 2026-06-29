@@ -40,6 +40,10 @@ enum Commands {
     Run {
         #[arg(short, long, default_value = "")]
         config_dir: String,
+
+        /// Internal flag: run daemon in the foreground (no child spawn).
+        #[arg(long, hide = true, default_value_t = false)]
+        foreground: bool,
     },
     Stop {
         #[arg(short, long)]
@@ -57,7 +61,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Rule { action } => handle_rule(action, cli.json).await?,
         Commands::Skill { action } => handle_skill(action, cli.json).await?,
         Commands::Chat(args) => closeclaw::cli::chat::run_chat(&args.agent_id).await?,
-        Commands::Run { config_dir } => handle_run(config_dir, cli.json).await?,
+        Commands::Run {
+            config_dir,
+            foreground,
+        } => handle_run(config_dir, cli.json, foreground).await?,
         Commands::Stop { force } => handle_stop(force, cli.json).await?,
     }
     Ok(())
