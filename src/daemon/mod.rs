@@ -88,6 +88,8 @@ pub struct Daemon {
     pub agent_registry: Arc<crate::agent::registry::AgentRegistry>,
     pub permission_engine: Arc<PermissionEngine>,
     pub shutdown: Arc<shutdown::ShutdownHandle>,
+    /// Session manager for session lifecycle management
+    pub session_manager: Arc<SessionManager>,
     /// SQLite storage for session persistence
     pub storage: Arc<SqliteStorage>,
     /// Shutdown sender for ArchiveSweeper
@@ -492,6 +494,7 @@ impl Daemon {
             agent_registry,
             permission_engine,
             shutdown,
+            session_manager,
             storage,
             sweeper_shutdown_tx: sweeper_tx,
             dreaming_scheduler_shutdown_tx: dreaming_tx,
