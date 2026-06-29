@@ -49,11 +49,11 @@ pub(crate) fn strip_ansi(text: &str) -> String {
     result
 }
 
-/// Return the terminal width in columns, falling back to 120.
+/// Return the terminal width in columns, falling back to 80.
 pub(crate) fn get_terminal_width() -> usize {
     terminal_size::terminal_size()
         .map(|(w, _)| w.0 as usize)
-        .unwrap_or(120)
+        .unwrap_or(80)
 }
 
 // ---------------------------------------------------------------------------
