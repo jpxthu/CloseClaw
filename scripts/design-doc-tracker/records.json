@@ -206,5 +206,13 @@
     "confirmed_time": "2026-06-29T20:32:21.013600+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/llm/providers/minimax.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-06-29T23:17:06.531374+08:00",
+    "comment": "",
+    "blocked_reason": "reasoning_split reasoning_details description ambiguity causing internal contradiction"
   }
 ]
