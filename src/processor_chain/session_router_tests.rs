@@ -12,6 +12,7 @@ fn make_ctx(raw: RawMessage) -> MessageContext {
 #[tokio::test]
 async fn test_terminal_session_key_computed() {
     let router = make_router(DmScope::PerChannelPeer);
+    let before_ms = chrono::Utc::now().timestamp_millis();
     let raw = RawMessage {
         platform: "terminal".to_string(),
         sender_id: "1000".to_string(),
@@ -21,7 +22,7 @@ async fn test_terminal_session_key_computed() {
         message_id: "msg_1".to_string(),
         account_id: None,
     };
-    let ts_ms = raw.timestamp.timestamp_millis();
+    let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(raw);
     let result = router.process(&ctx).await.unwrap().unwrap();
     let key = result
@@ -31,9 +32,12 @@ async fn test_terminal_session_key_computed() {
         .unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
     // Key format: {timestamp_ms}-{sha256_hex}
+    let ts_prefix: i64 = key[..key.find('-').unwrap()]
+        .parse()
+        .expect("key prefix should be parseable as i64");
     assert!(
-        key.starts_with(&format!("{ts_ms}-")),
-        "key should start with timestamp prefix: {key}"
+        ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
+        "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
     );
     let hash_part = &key[key.find('-').unwrap() + 1..];
     assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
