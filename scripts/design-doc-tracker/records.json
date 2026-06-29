@@ -190,5 +190,13 @@
     "confirmed_time": "2026-06-28T03:55:52.948213+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/llm/providers/glm.md",
+    "commit": "e9ae4180656e8d519a72219efb80b9013613dc55",
+    "commit_time": "2026-06-29T15:56:25+08:00",
+    "confirmed_time": "2026-06-29T16:57:07.005267+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
