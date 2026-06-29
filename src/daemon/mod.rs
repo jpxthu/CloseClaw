@@ -358,17 +358,17 @@ impl Daemon {
             Arc::clone(permission_engine),
         ));
         let config_subdir = PathBuf::from(data_dir).join("config");
-        let config_watcher = Self::populate_registries(
+        let ctx = registries::RegistryContext {
             config_manager,
             agent_registry,
             skill_registry,
             tool_registry,
             session_manager,
             permission_engine,
-            &spawn_controller,
-            &config_subdir,
-        )
-        .await;
+            spawn_controller: Arc::clone(&spawn_controller),
+            config_subdir: &config_subdir,
+        };
+        let config_watcher = registries::populate_registries(&ctx).await;
         session_manager
             .set_tool_registry(
                 Arc::clone(tool_registry) as Arc<dyn closeclaw_common::ToolRegistryQuery>
@@ -961,32 +961,6 @@ impl Daemon {
             .set_permission_engine(Arc::clone(permission_engine))
             .await;
         info!("Slash dispatcher installed");
-    }
-
-    /// Populate AgentRegistry, SkillRegistry, ToolRegistry, and wire them
-    /// into SessionManager.  Also starts ConfigHotReload watcher.
-    #[allow(dead_code)]
-    async fn populate_registries(
-        config_manager: &Arc<ConfigManager>,
-        agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
-        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
-        tool_registry: &Arc<ToolRegistry>,
-        session_manager: &Arc<SessionManager>,
-        permission_engine: &Arc<PermissionEngine>,
-        spawn_controller: &Arc<crate::agent::spawn::SpawnController>,
-        config_subdir: &Path,
-    ) -> Option<config_reload::ConfigWatcherHandle> {
-        let ctx = registries::RegistryContext {
-            config_manager,
-            agent_registry,
-            skill_registry,
-            tool_registry,
-            session_manager,
-            permission_engine,
-            spawn_controller: Arc::clone(spawn_controller),
-            config_subdir,
-        };
-        registries::populate_registries(&ctx).await
     }
 }
 
