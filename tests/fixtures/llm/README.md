@@ -92,6 +92,12 @@ tests/fixtures/llm/
 3. **知识库更新**：将参数写入 `src/llm/assets/<provider>.json`
 4. **适配验证**：确认 fixture 数据完整
 
+### ⚠️ 安全红线
+
+- **API Key 禁止落盘**：Key 只能通过 CLI 参数 `--api-key` 或环境变量 `LLM_API_KEY` 传入采集脚本，绝不出现在任何脚本文件、配置文件、fixture 文件中
+- **采集后审查**：每次采集完成后，必须对新增的 fixture 文件做安全审核（`grep` 检查不含 key 片段），确认无凭据泄露才能提交
+- **临时文件清理**：采集过程中产生的任何含 key 的中间文件（如 wrapper 脚本）必须立即删除
+
 ## Phase 0 深挖文档
 
 各 provider 的完整 API 格式说明见 `docs/` 目录（调研记录，非设计文档）：
