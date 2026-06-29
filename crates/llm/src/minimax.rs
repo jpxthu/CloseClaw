@@ -12,6 +12,8 @@ use std::sync::OnceLock;
 
 #[path = "minimax_stream.rs"]
 pub(crate) mod minimax_stream;
+pub(crate) mod plugin;
+pub use plugin::MiniMaxPlugin;
 
 // ---------------------------------------------------------------------------//
 // Constants                                                                  //
