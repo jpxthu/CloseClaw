@@ -98,6 +98,7 @@ impl ProviderModelKnowledge {
         load_provider!("glm", "glm.json");
         load_provider!("minimax", "minimax.json");
         load_provider!("volcengine", "volcengine.json");
+        load_provider!("mimo", "mimo.json");
 
         Self { inner }
     }
@@ -196,7 +197,7 @@ mod tests {
     #[test]
     fn test_all_models_all_providers() {
         let kb = kb();
-        for p in &["minimax", "glm", "volcengine", "deepseek"] {
+        for p in &["minimax", "glm", "volcengine", "deepseek", "mimo"] {
             let models = kb.all_models(p);
             assert!(!models.is_empty(), "provider {p} should have models");
         }
@@ -353,5 +354,58 @@ mod tests {
         let kb = kb();
         let proto = kb.recommended_protocol("unknown", "unknown-model");
         assert_eq!(proto.as_str(), "openai");
+    }
+
+    // ── mimo provider ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_find_mimo_v25_pro() {
+        let kb = kb();
+        let p = kb.find("mimo", "mimo-v2.5-pro");
+        assert!(p.is_some(), "mimo-v2.5-pro should be in knowledge base");
+        let p = p.unwrap();
+        assert_eq!(p.context_window, 1_000_000);
+        assert!(p.reasoning);
+        assert!(matches!(
+            p.reasoning_levels,
+            ReasoningLevels::Toggle { on: true }
+        ));
+    }
+
+    #[test]
+    fn test_find_mimo_v2_flash() {
+        let kb = kb();
+        let p = kb.find("mimo", "mimo-v2-flash");
+        assert!(p.is_some(), "mimo-v2-flash should be in knowledge base");
+        let p = p.unwrap();
+        assert!(p.reasoning);
+        assert!(matches!(
+            p.reasoning_levels,
+            ReasoningLevels::Toggle { on: false }
+        ));
+    }
+
+    #[test]
+    fn test_all_models_mimo() {
+        let kb = kb();
+        let models = kb.all_models("mimo");
+        assert_eq!(models.len(), 5, "mimo should have 5 models");
+    }
+
+    #[test]
+    fn test_recommended_protocol_mimo() {
+        let kb = kb();
+        let models = kb.all_models("mimo");
+        for model in models {
+            let proto = kb.recommended_protocol("mimo", model);
+            assert_eq!(proto.as_str(), "openai", "{model} should recommend openai");
+        }
+    }
+
+    #[test]
+    fn test_json_load_mimo_model_count() {
+        let kb = kb();
+        let models = kb.all_models("mimo");
+        assert_eq!(models.len(), 5, "mimo should have 5 models from JSON");
     }
 }
