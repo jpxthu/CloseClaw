@@ -91,7 +91,7 @@ pub struct StopOutput {
 pub struct RunOutput {
     pub pid: u32,
     pub config_dir: String,
-    pub stopped: bool,
+    pub started: bool,
 }
 
 #[derive(Serialize)]
