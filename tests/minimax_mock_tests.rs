@@ -49,16 +49,13 @@ async fn test_provider_send_success_mock() {
     let mut server = Server::new_async().await;
     let m = server
         .mock("POST", "/")
-        .match_header(
-            "Authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
+        .match_header("x-api-key", mockito::Matcher::Regex(r".+".to_string()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
             r#"{
-            "choices":[{"message":{"role":"assistant","content":"Hello!"}}],
-            "usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}
+            "content":[{"type":"text","text":"Hello!"}],
+            "usage":{"input_tokens":5,"output_tokens":3}
         }"#,
         )
         .create_async()
@@ -78,7 +75,7 @@ async fn test_provider_send_success_mock() {
     }
     assert_eq!(resp.usage.prompt_tokens, 5);
     assert_eq!(resp.usage.completion_tokens, 3);
-    assert_eq!(resp.usage.total_tokens, Some(8));
+    assert_eq!(resp.usage.total_tokens, None);
 }
 
 #[tokio::test]
@@ -90,9 +87,8 @@ async fn test_provider_send_reasoning_content_mock() {
         .with_header("Content-Type", "application/json")
         .with_body(
             r#"{
-            "choices":[{"message":{"role":"assistant",
-            "content":"","reasoning_content":"thinking..."}}],
-            "usage":{"prompt_tokens":5,"completion_tokens":10,"total_tokens":15}
+            "content":[{"type":"thinking","thinking":"thinking..."}],
+            "usage":{"input_tokens":5,"output_tokens":10}
         }"#,
         )
         .create_async()
@@ -117,6 +113,7 @@ async fn test_provider_send_auth_failure_mock() {
     let mut server = Server::new_async().await;
     let m = server
         .mock("POST", "/")
+        .match_header("x-api-key", mockito::Matcher::Regex(r".+".to_string()))
         .with_status(401)
         .with_header("Content-Type", "application/json")
         .with_body(r#"{"base_resp":{"status_code":1004,"status_msg":"auth failed"}}"#)
@@ -138,6 +135,7 @@ async fn test_provider_send_rate_limit_mock() {
     let mut server = Server::new_async().await;
     let m = server
         .mock("POST", "/")
+        .match_header("x-api-key", mockito::Matcher::Regex(r".+".to_string()))
         .with_status(429)
         .with_header("Content-Type", "application/json")
         .with_body(r#"{"error":"rate limit exceeded"}"#)
@@ -159,6 +157,7 @@ async fn test_provider_send_business_error_mock() {
     let mut server = Server::new_async().await;
     let m = server
         .mock("POST", "/")
+        .match_header("x-api-key", mockito::Matcher::Regex(r".+".to_string()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(r#"{"base_resp":{"status_code":1004,"status_msg":"token invalid"}}"#)
