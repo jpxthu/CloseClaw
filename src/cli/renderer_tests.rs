@@ -459,3 +459,166 @@ fn test_get_terminal_width_returns_positive() {
     let width = get_terminal_width();
     assert!(width > 0, "get_terminal_width() should always be > 0");
 }
+
+// ── Truncation tests (Step 1.2) ───────────────────────────────────────────
+
+/// render_thinking truncation — short content passes through unchanged.
+#[test]
+fn test_render_thinking_short_no_truncation() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let short = "hello";
+    let result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: short.into(),
+        signature: None,
+    });
+    assert!(result.contains("hello"));
+    assert!(
+        !result.contains("... (truncated)"),
+        "short thinking should not be truncated"
+    );
+    assert!(result.contains("[end of thinking]"));
+}
+
+/// render_thinking truncation — content exactly at terminal width is not truncated.
+#[test]
+fn test_render_thinking_boundary_no_truncation() {
+    let width = get_terminal_width();
+    let renderer = TerminalRenderer::with_ansi(false);
+    let content: String = "x".repeat(width);
+    let result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: content,
+        signature: None,
+    });
+    assert!(
+        !result.contains("... (truncated)"),
+        "content at terminal width should not be truncated"
+    );
+    assert!(result.contains("[end of thinking]"));
+}
+
+/// render_thinking truncation — content exceeding terminal width is truncated.
+#[test]
+fn test_render_thinking_boundary_overflows_truncation() {
+    let width = get_terminal_width();
+    let renderer = TerminalRenderer::with_ansi(false);
+    let content: String = "x".repeat(width + 1);
+    let result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: content,
+        signature: None,
+    });
+    assert!(
+        result.contains("... (truncated)"),
+        "overwidth thinking should be truncated"
+    );
+    assert!(result.contains("[end of thinking]"));
+}
+
+/// render_thinking truncation — long text shows truncated marker and boundaries.
+#[test]
+fn test_render_thinking_long_truncated_with_end_marker() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let long_text = "a".repeat(200);
+    let result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: long_text,
+        signature: None,
+    });
+    assert!(result.contains("[Thinking]"));
+    assert!(result.contains("... (truncated)"));
+    assert!(result.contains("[end of thinking]"));
+    let stripped = strip_ansi(&result);
+    assert!(stripped.contains("[end of thinking]"));
+}
+
+/// render_tool_use truncation — short input is not truncated.
+#[test]
+fn test_render_tool_use_short_no_truncation() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let result = renderer.render_block(&ContentBlock::ToolUse {
+        id: "t1".into(),
+        name: "exec".into(),
+        input: "ls -la".into(),
+    });
+    assert!(result.contains("exec"));
+    assert!(result.contains("ls -la"));
+    assert!(
+        !result.contains("... (truncated)"),
+        "short input should not be truncated"
+    );
+}
+
+/// render_tool_use truncation — long input is truncated, tool name preserved.
+#[test]
+fn test_render_tool_use_long_truncated() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let long_input = "b".repeat(200);
+    let result = renderer.render_block(&ContentBlock::ToolUse {
+        id: "t1".into(),
+        name: "exec".into(),
+        input: long_input,
+    });
+    assert!(
+        result.contains("... (truncated)"),
+        "long input should be truncated"
+    );
+    assert!(result.contains("exec"), "tool name must be preserved");
+    assert!(result.contains("⚙"));
+}
+
+/// render_tool_result truncation — regression after refactoring to truncate_to_width.
+#[test]
+fn test_render_tool_result_truncation_regression() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let short = "ok";
+    let result = renderer.render_block(&ContentBlock::ToolResult {
+        tool_call_id: "t1".into(),
+        content: short.into(),
+    });
+    assert!(result.contains("ok"));
+    assert!(
+        !result.contains("... (truncated)"),
+        "short result should not be truncated"
+    );
+    let width = get_terminal_width();
+    let long = "d".repeat(width + 1);
+    let result = renderer.render_block(&ContentBlock::ToolResult {
+        tool_call_id: "t2".into(),
+        content: long,
+    });
+    assert!(
+        result.contains("... (truncated)"),
+        "long result should be truncated"
+    );
+}
+
+/// Truncation works correctly when ANSI mode is disabled (plain text).
+#[test]
+fn test_truncation_works_in_plain_text_mode() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let long_thinking = "c".repeat(200);
+    let thinking_result = renderer.render_block(&ContentBlock::Thinking {
+        thinking: long_thinking,
+        signature: None,
+    });
+    let stripped = strip_ansi(&thinking_result);
+    assert!(stripped.contains("... (truncated)"));
+    assert!(stripped.contains("[end of thinking]"));
+    assert!(stripped.contains("[Thinking]"));
+
+    let long_input = "e".repeat(200);
+    let tool_result = renderer.render_block(&ContentBlock::ToolUse {
+        id: "t1".into(),
+        name: "fetch".into(),
+        input: long_input,
+    });
+    let stripped = strip_ansi(&tool_result);
+    assert!(stripped.contains("... (truncated)"));
+    assert!(stripped.contains("fetch"));
+
+    let long_content = "f".repeat(200);
+    let result_result = renderer.render_block(&ContentBlock::ToolResult {
+        tool_call_id: "t1".into(),
+        content: long_content,
+    });
+    let stripped = strip_ansi(&result_result);
+    assert!(stripped.contains("... (truncated)"));
+}

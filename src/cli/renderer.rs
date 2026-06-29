@@ -649,40 +649,46 @@ impl TerminalRenderer {
         }
     }
 
+    /// Truncate `content` to terminal width and append `... (truncated)` if needed.
+    fn truncate_to_width(&self, content: &str) -> String {
+        let max_width = get_terminal_width();
+        if content.chars().count() > max_width {
+            let truncated: String = content.chars().take(max_width).collect();
+            format!("{}... (truncated)", truncated)
+        } else {
+            content.to_string()
+        }
+    }
+
     /// Render a Thinking block with boundary markers.
     fn render_thinking(&self, text: &str) -> String {
+        let truncated = self.truncate_to_width(text);
         if self.ansi {
             format!(
                 "{}[Thinking]{}\n  {}{}{}[end of thinking]{}\n",
-                DIM, RESET, DIM, text, DIM, RESET
+                DIM, RESET, DIM, truncated, DIM, RESET
             )
         } else {
-            format!("[Thinking]\n  {}\n[end of thinking]\n", text)
+            format!("[Thinking]\n  {}\n[end of thinking]\n", truncated)
         }
     }
 
     /// Render a ToolUse block: `⚙ tool_name(args)`.
     fn render_tool_use(&self, name: &str, input: &str) -> String {
+        let truncated = self.truncate_to_width(input);
         if self.ansi {
             format!(
                 "{}⚙ {}{}{}{}({}{}){}{}\n",
-                DIM, BOLD, CYAN, name, RESET, DIM, input, DIM, RESET
+                DIM, BOLD, CYAN, name, RESET, DIM, truncated, DIM, RESET
             )
         } else {
-            format!("⚙ {}({})\n", name, input)
+            format!("⚙ {}({})\n", name, truncated)
         }
     }
 
     /// Render a ToolResult block, truncating at terminal width.
     fn render_tool_result(&self, content: &str) -> String {
-        let max_width = get_terminal_width();
-        let display = if content.chars().count() > max_width {
-            let truncated: String = content.chars().take(max_width).collect();
-            format!("{}... (truncated)", truncated)
-        } else {
-            content.to_string()
-        };
-
+        let display = self.truncate_to_width(content);
         if self.ansi {
             format!("{}{}{}\n", DIM, display, RESET)
         } else {
