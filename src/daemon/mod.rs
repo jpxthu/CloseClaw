@@ -528,7 +528,7 @@ impl Daemon {
         })
     }
 
-    /// Run the daemon — blocks until shutdown signal.
+    /// Run the daemon — blocks until shutdown signal is received, then executes Phase 0–7 shutdown sequence
     pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
 
@@ -804,7 +804,7 @@ impl Daemon {
         self.gateway.close_outbound().await;
     }
 
-    /// Phase 6: Storage close — release persistent connections.
+    /// Phase 6: Storage close — release persistent connections/handles.
     async fn phase_6_storage_close(&self) {
         match self.gateway.close_storage().await {
             Ok(()) => tracing::info!("storage closed"),
