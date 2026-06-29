@@ -332,7 +332,7 @@ async fn build_session_handler(
 /// gets its own Gateway + SessionManager in [`build_gateway()`], so `agent_id`
 /// does not participate in session_key calculation. The parameter is kept for API
 /// clarity and forward compatibility.
-async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> ExitReason {
+async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> ExitReason {
     let _ = agent_id; // unused; isolation handled by upstream Gateway/SessionManager
     let plugin = TerminalPlugin::new();
 
@@ -350,22 +350,21 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> E
             }
         };
 
-        let content = message.content;
-        let message_id = format!(
-            "cli-{}-{}",
-            sender_id,
-            chrono::Utc::now().timestamp_millis()
-        );
+        // Save fields before moving into InboundChainInput.
+        let msg_sender_id = message.sender_id.clone();
+        let msg_platform = message.platform.clone();
+
+        let message_id = format!("cli-{}-{}", msg_sender_id, message.timestamp);
 
         // Run the inbound processor chain (ContentNormalizer, RawLog, etc.).
         let input = closeclaw_gateway::InboundChainInput {
-            platform: "terminal".to_string(),
-            sender_id: sender_id.to_string(),
-            peer_id: "cli".to_string(),
-            content,
+            platform: message.platform,
+            sender_id: message.sender_id,
+            peer_id: message.peer_id,
+            content: message.content,
             message_id,
-            timestamp_ms: chrono::Utc::now().timestamp_millis(),
-            account_id: Some("owner".to_string()),
+            timestamp_ms: message.timestamp,
+            account_id: message.account_id,
         };
         let processed = gateway.process_inbound_chain(&input).await;
 
@@ -386,7 +385,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> E
         }
 
         let result = gateway
-            .handle_inbound_message(processed, Some(sender_id), "terminal")
+            .handle_inbound_message(processed, Some(&msg_sender_id), &msg_platform)
             .await;
 
         if result.is_none() {
