@@ -664,11 +664,18 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
     assert_eq!(adapter.name(), "anthropic");
     let mut request = InternalRequest {
         model: "MiniMax-M2.7".into(),
-        messages: vec![crate::types::InternalMessage {
-            role: "user".into(),
-            content: "hi".into(),
-            ..Default::default()
-        }],
+        messages: vec![
+            crate::types::InternalMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            },
+            crate::types::InternalMessage {
+                role: "tool".into(),
+                content: "sunny".into(),
+                tool_call_id: Some("call_001".into()),
+            },
+        ],
         temperature: 0.7,
         max_tokens: Some(1024),
         stream: false,
@@ -676,7 +683,12 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
         system_static: Some("You are a helpful assistant.".to_string()),
         system_dynamic: None,
         system_blocks: None,
-        tools: None,
+        tools: Some(vec![crate::types::ToolDefinition {
+            name: "get_weather".into(),
+            description: "Get weather".into(),
+            input_schema: None,
+            cache: false,
+        }]),
         session_id: None,
         reasoning_level: ReasoningLevel::default(),
         turn_count: None,
@@ -717,9 +729,10 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
     );
     // last message should have cache_control
     let messages = body.get("messages").unwrap().as_array().unwrap();
-    let last_content = messages[0].get("content").unwrap().as_array().unwrap();
+    let last_msg = messages.last().unwrap();
+    let last_content = last_msg.get("content").unwrap().as_array().unwrap();
     assert_eq!(
-        last_content[0].get("cache_control"),
+        last_content.last().unwrap().get("cache_control"),
         Some(&serde_json::json!({"type": "ephemeral"})),
         "last message should have cache_control"
     );
