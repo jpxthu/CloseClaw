@@ -68,7 +68,7 @@ impl TerminalAdapter {
     }
 
     /// Build a [`NormalizedMessage`] from raw text content.
-    fn make_message(&self, content: String) -> NormalizedMessage {
+    pub(crate) fn make_message(&self, content: String) -> NormalizedMessage {
         NormalizedMessage {
             platform: "terminal".to_string(),
             sender_id: crate::platform::current_uid(),
