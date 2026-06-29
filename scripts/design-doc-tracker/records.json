@@ -89,11 +89,11 @@
   },
   {
     "path": "docs/design/daemon/README.md",
-    "commit": "9fc9ebced947150360ab8a93e88825d8630232eb",
-    "commit_time": "2026-06-28T15:19:46+08:00",
-    "confirmed_time": "2026-06-22T18:44:05.434607+08:00",
+    "commit": "304a588c09a54c5dbdf9e60c35735a3a54c79e7b",
+    "commit_time": "2026-06-29T21:32:50+08:00",
+    "confirmed_time": "2026-06-29T21:35:22.452072+08:00",
     "comment": "",
-    "blocked_reason": "dependency declarations place SystemPromptBuilder at Layer 3 but layer table says Layer 4"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/daemon/shutdown.md",

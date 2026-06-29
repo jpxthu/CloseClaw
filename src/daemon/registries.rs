@@ -29,6 +29,8 @@ pub(crate) struct RegistryContext<'a> {
     pub session_manager: &'a Arc<SessionManager>,
     /// Permission engine for builtin tool context.
     pub permission_engine: &'a Arc<PermissionEngine>,
+    /// SpawnController for validating agent spawn requests.
+    pub spawn_controller: Arc<SpawnController>,
     /// Path to the config subdirectory (for hot-reload).
     pub config_subdir: &'a Path,
 }
@@ -123,13 +125,8 @@ fn init_config_hot_reload(ctx: &RegistryContext<'_>) -> Option<config_reload::Co
     }
 }
 
-/// Create SpawnController and register builtin tools.
+/// Register builtin tools using the provided SpawnController.
 async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
-    let spawn_controller = Arc::new(SpawnController::new(
-        Arc::clone(ctx.config_manager),
-        Arc::clone(ctx.session_manager),
-        Arc::clone(ctx.permission_engine),
-    ));
     let task_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
     let builtin_ctx = Arc::new(BuiltinToolContext {
         config_manager: Arc::clone(ctx.config_manager),
@@ -139,7 +136,8 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
             as Arc<dyn closeclaw_common::AgentConfigLookup>,
         disk_registry: Arc::clone(disk_reg),
         permission_engine: Arc::clone(ctx.permission_engine),
-        spawn_validator: Arc::clone(&spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
+        spawn_validator: Arc::clone(&ctx.spawn_controller)
+            as Arc<dyn closeclaw_tools::SpawnValidator>,
         session_manager: Arc::clone(ctx.session_manager),
         task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
     });

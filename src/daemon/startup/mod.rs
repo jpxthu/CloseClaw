@@ -46,6 +46,10 @@ pub enum ComponentId {
     ApprovalFlow,
     /// Top-level message router.
     Gateway,
+    /// Validates Agent spawn permissions, injected into ToolRegistry.
+    SpawnController,
+    /// Unix domain socket management service for CLI Admin commands.
+    AdminRpcServer,
 }
 
 impl ComponentId {
@@ -71,6 +75,8 @@ impl ComponentId {
             Self::SystemPromptBuilder => "SystemPromptBuilder",
             Self::ApprovalFlow => "ApprovalFlow",
             Self::Gateway => "Gateway",
+            Self::SpawnController => "SpawnController",
+            Self::AdminRpcServer => "AdminRpcServer",
         }
     }
 }
@@ -118,11 +124,13 @@ impl ComponentDeps for ComponentId {
             SystemPromptBuilder => &[AgentRegistry, SkillsRegistry],
             ApprovalFlow => &[PermissionEngine, AgentRegistry],
             Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
+            SpawnController => &[AgentRegistry],
+            AdminRpcServer => &[Gateway],
         }
     }
 }
 
-/// Returns [`ComponentEntry`]s for all 17 daemon components.
+/// Returns [`ComponentEntry`]s for all 19 daemon components.
 ///
 /// Each entry bundles the component identity, its human-readable name,
 /// and the dependencies declared via [`ComponentDeps`].
@@ -146,6 +154,8 @@ pub fn all_component_entries() -> Vec<ComponentEntry> {
         SystemPromptBuilder,
         ApprovalFlow,
         Gateway,
+        SpawnController,
+        AdminRpcServer,
     ]
     .into_iter()
     .map(|id| ComponentEntry {
@@ -282,6 +292,8 @@ pub enum StartupPhase {
     Wiring,
     /// ArchiveSweeper, DreamingScheduler, registry population, approval flow.
     BackgroundAndFinal,
+    /// SpawnController, AdminRpcServer — depend on Gateway.
+    PostGateway,
 }
 
 impl StartupPhase {
@@ -303,11 +315,13 @@ impl StartupPhase {
                 IMAdapters,
                 PermissionEngine,
                 SkillWatcher,
+                SpawnController,
                 SystemPromptBuilder,
                 ToolsRegistry,
             ],
             Self::Wiring => &[ApprovalFlow, SessionManager],
             Self::BackgroundAndFinal => &[Gateway],
+            Self::PostGateway => &[AdminRpcServer],
         }
     }
 }
@@ -319,6 +333,7 @@ const STARTUP_PHASE_ORDER: &[StartupPhase] = &[
     StartupPhase::CoreServices,
     StartupPhase::Wiring,
     StartupPhase::BackgroundAndFinal,
+    StartupPhase::PostGateway,
 ];
 
 /// Validate that the topological sort layers match the expected phase order.
