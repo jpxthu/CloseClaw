@@ -99,10 +99,13 @@ fn test_provider_supported_protocols_returns_openai() {
 }
 
 #[test]
-fn test_provider_http_client_is_available() {
+fn test_provider_http_client_has_no_custom_headers() {
     let provider = MimoProvider::new("sk-test".into());
-    let _ = provider.http_client();
-    assert!(provider.default_headers().is_empty());
+    // MimoProvider uses no custom default headers; Bearer auth is added per-request.
+    assert!(
+        provider.default_headers().is_empty(),
+        "MimoProvider should have no default headers"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -120,15 +123,6 @@ fn test_chat_url_default_base_url() {
 
 #[test]
 fn test_chat_url_custom_base_url() {
-    let provider = MimoProvider::with_base_url("sk-test".into(), "https://custom.example.com/v1");
-    assert_eq!(
-        provider.chat_url(),
-        "https://custom.example.com/v1/chat/completions"
-    );
-}
-
-#[test]
-fn test_chat_url_custom_base_url_no_trailing_slash() {
     let provider = MimoProvider::with_base_url("sk-test".into(), "https://custom.example.com/v1");
     assert_eq!(
         provider.chat_url(),
