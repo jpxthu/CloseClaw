@@ -19,61 +19,53 @@ pub use plugin::MiniMaxPlugin;
 // Constants                                                                  //
 // ---------------------------------------------------------------------------//
 
-const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/chat/completions";
+const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/messages";
 
 // ---------------------------------------------------------------------------//
 // Request / Response types                                                    //
 // ---------------------------------------------------------------------------//
 
-/// MiniMax API response body
+/// MiniMax API response body (Anthropic protocol format)
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxResponse {
     #[serde(default)]
-    choices: Option<Vec<MiniMaxChoice>>,
+    content: Option<Vec<MiniMaxContentBlock>>,
     #[serde(default)]
     usage: Option<MiniMaxUsage>,
     #[serde(default)]
     #[allow(dead_code)]
     model: String,
     #[serde(default)]
+    stop_reason: Option<String>,
+    #[serde(default)]
     base_resp: Option<MiniMaxBaseResp>,
 }
 
 #[derive(Debug, Deserialize)]
-struct MiniMaxChoice {
-    message: MiniMaxMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct MiniMaxMessage {
-    #[allow(dead_code)]
-    role: String,
-    content: String,
-    /// MiniMax reasoning content for M2.5/M2.7 models.
-    /// When content is empty, the visible reply is in this field.
+struct MiniMaxContentBlock {
+    #[serde(rename = "type")]
+    block_type: String,
     #[serde(default)]
-    reasoning_content: Option<String>,
+    text: Option<String>,
+    #[serde(default)]
+    thinking: Option<String>,
+    #[serde(default)]
+    signature: Option<String>,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 struct MiniMaxUsage {
-    #[serde(default)]
+    #[serde(default, rename = "input_tokens")]
     prompt_tokens: u32,
-    #[serde(default)]
+    #[serde(default, rename = "output_tokens")]
     completion_tokens: u32,
     #[serde(default)]
-    total_tokens: u32,
-    #[serde(default)]
-    completion_tokens_details: Option<MiniMaxCompletionTokensDetails>,
-}
-
-/// MiniMax completion tokens details
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct MiniMaxCompletionTokensDetails {
-    #[serde(default)]
-    reasoning_tokens: Option<u32>,
+    total_tokens: Option<u32>,
+    #[serde(default, rename = "cache_read_input_tokens")]
+    cache_read_tokens: Option<u32>,
+    #[serde(default, rename = "cache_creation_input_tokens")]
+    cache_write_tokens: Option<u32>,
 }
 
 /// MiniMax base response (business error status)
@@ -140,24 +132,11 @@ impl MiniMaxProvider {
 
     // ── Content extraction ──────────────────────────────────────────────
 
-    /// Extract visible content from a MiniMax message.
-    /// Prefer `content`; if empty/whitespace, fall back to
-    /// `reasoning_content`.
-    fn extract_content(msg: &MiniMaxMessage) -> String {
-        if !msg.content.trim().is_empty() {
-            msg.content.trim().to_string()
-        } else {
-            msg.reasoning_content
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_default()
-        }
-    }
+    // (removed — Anthropic content blocks are parsed directly)
 
     // ── Response parsing (Provider) ─────────────────────────────────────
 
-    /// Parse a MiniMax chat response into InternalResponse.
+    /// Parse a MiniMax Anthropic-format response into InternalResponse.
     pub(crate) fn parse_chat_response(api_resp: MiniMaxResponse) -> Result<InternalResponse> {
         // Check base_resp business errors
         if let Some(ref base_resp) = api_resp.base_resp {
@@ -169,28 +148,30 @@ impl MiniMaxProvider {
             }
         }
 
-        let msg = api_resp
-            .choices
-            .as_ref()
-            .and_then(|c| c.first())
-            .map(|c| &c.message)
-            .ok_or_else(|| ProviderError::Legacy("no choices in MiniMax response".to_string()))?;
-
-        let content = Self::extract_content(msg);
-
-        // Build content blocks: Thinking from
-        // reasoning_content, Text from content
         let mut content_blocks = Vec::new();
-        if let Some(ref rc) = msg.reasoning_content {
-            if !rc.trim().is_empty() {
-                content_blocks.push(RawContentBlock::Thinking {
-                    thinking: rc.trim().to_string(),
-                    signature: None,
-                });
+        if let Some(ref blocks) = api_resp.content {
+            for block in blocks {
+                match block.block_type.as_str() {
+                    "text" => {
+                        if let Some(ref text) = block.text {
+                            if !text.is_empty() {
+                                content_blocks.push(RawContentBlock::Text(text.clone()));
+                            }
+                        }
+                    }
+                    "thinking" => {
+                        let thinking = block.thinking.as_deref().unwrap_or("");
+                        let signature = block.signature.clone();
+                        if !thinking.is_empty() {
+                            content_blocks.push(RawContentBlock::Thinking {
+                                thinking: thinking.to_string(),
+                                signature,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
             }
-        }
-        if !content.is_empty() {
-            content_blocks.push(RawContentBlock::Text(content));
         }
 
         let usage = api_resp.usage.as_ref();
@@ -199,11 +180,11 @@ impl MiniMaxProvider {
             usage: RawUsage {
                 prompt_tokens: usage.map(|u| u.prompt_tokens).unwrap_or(0),
                 completion_tokens: usage.map(|u| u.completion_tokens).unwrap_or(0),
-                total_tokens: usage.map(|u| u.total_tokens),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
+                total_tokens: usage.and_then(|u| u.total_tokens),
+                cache_read_tokens: usage.and_then(|u| u.cache_read_tokens),
+                cache_write_tokens: usage.and_then(|u| u.cache_write_tokens),
             },
-            finish_reason: None,
+            finish_reason: api_resp.stop_reason,
         })
     }
 }
@@ -247,7 +228,8 @@ impl Provider for MiniMaxProvider {
         let response = self
             .client
             .post(&self.base_url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
             .json(&body)
             .send()

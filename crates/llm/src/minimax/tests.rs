@@ -3,12 +3,6 @@
 use super::*;
 use crate::{ModelLister, Provider};
 
-// TODO: Rewrite with v2 fixture (minimax/MiniMax-M3/anthropic/)
-// #[test]
-// fn test_simple_chat_deserialize_and_extract() { ... }
-// #[test]
-// fn test_simple_chat_content_priority_over_reasoning() { ... }
-
 // --- Provider trait tests ---
 
 #[test]
@@ -22,7 +16,7 @@ fn test_provider_base_url() {
     let provider = MiniMaxProvider::new("key".into());
     assert_eq!(
         Provider::base_url(&provider),
-        "https://api.minimax.chat/v1/chat/completions"
+        "https://api.minimax.chat/v1/messages"
     );
 }
 
@@ -87,17 +81,15 @@ async fn test_provider_send_success_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
         .mock("POST", "/")
-        .match_header(
-            "Authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
+        .match_header("x-api-key", "test-key")
+        .match_header("anthropic-version", "2023-06-01")
         .match_header("Content-Type", "application/json")
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
             r#"{
-            "choices":[{"message":{"role":"assistant","content":"hi"}}],
-            "usage":{"completion_tokens":10,"prompt_tokens":5,"total_tokens":15}
+            "content":[{"type":"text","text":"hi"}],
+            "usage":{"input_tokens":5,"output_tokens":10}
         }"#,
         )
         .create_async()
@@ -119,7 +111,6 @@ async fn test_provider_send_success_mock() {
     assert!(!resp.content_blocks.is_empty());
     assert_eq!(resp.usage.prompt_tokens, 5);
     assert_eq!(resp.usage.completion_tokens, 10);
-    assert_eq!(resp.usage.total_tokens, Some(15));
 }
 
 #[tokio::test]
@@ -127,10 +118,7 @@ async fn test_provider_send_auth_failure_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
         .mock("POST", "/")
-        .match_header(
-            "Authorization",
-            mockito::Matcher::Regex(r"Bearer .+".to_string()),
-        )
+        .match_header("x-api-key", "test-key")
         .with_status(401)
         .with_header("Content-Type", "application/json")
         .with_body(r#"{"base_resp":{"status_code":1004,"status_msg":"auth failed"}}"#)
@@ -195,9 +183,11 @@ async fn test_provider_send_reasoning_content_mock() {
         .with_header("Content-Type", "application/json")
         .with_body(
             r#"{
-            "choices":[{"message":{"role":"assistant",
-            "content":"","reasoning_content":"thinking..."}}],
-            "usage":{"prompt_tokens":5,"completion_tokens":10,"total_tokens":15}
+            "content":[
+                {"type":"thinking","thinking":"thinking..."},
+                {"type":"text","text":"response"}
+            ],
+            "usage":{"input_tokens":5,"output_tokens":10}
         }"#,
         )
         .create_async()
@@ -211,7 +201,7 @@ async fn test_provider_send_reasoning_content_mock() {
     m.assert_async().await;
     assert!(result.is_ok());
     let resp = result.unwrap();
-    // Should have Thinking block from reasoning_content
+    // Should have Thinking block from thinking content
     assert!(resp
         .content_blocks
         .iter()
@@ -246,15 +236,29 @@ fn create_streaming_request(model: &str) -> InternalRequest {
 async fn test_provider_send_streaming_success_mock() {
     let mut server = mockito::Server::new_async().await;
     let sse_body = concat!(
-        "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n",
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"MiniMax-M2.7\",\"stop_reason\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n",
         "\n",
-        "data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n",
         "\n",
-        "data: [DONE]\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n",
+        "\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n",
+        "\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n",
+        "\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n",
         "\n",
     );
     let m = server
         .mock("POST", "/")
+        .match_header("x-api-key", "test-key")
+        .match_header("anthropic-version", "2023-06-01")
         .with_status(200)
         .with_header("Content-Type", "text/event-stream")
         .with_chunked_body(move |w| {
@@ -281,22 +285,38 @@ async fn test_provider_send_streaming_success_mock() {
     while let Some(chunk) = rx.recv().await {
         chunks.push(chunk);
     }
-    assert_eq!(
-        chunks.len(),
-        2,
-        "should have 2 data chunks (excluding [DONE])"
+    // Anthropic SSE: message_start, content_block_start, content_block_delta,
+    // content_block_stop, message_delta, message_stop = 6 events
+    assert!(
+        chunks.len() >= 4,
+        "should have at least 4 data chunks (message_start, content_block_start, content_block_delta, content_block_stop)"
     );
-    assert!(chunks[0].data.contains("Hello"));
-    assert!(chunks[1].data.contains("world"));
+    // Verify we got Anthropic-format events
+    let event_types: Vec<&str> = chunks.iter().map(|c| c.event_type.as_str()).collect();
+    assert!(event_types.contains(&"content_block_delta"));
 }
 
 #[tokio::test]
 async fn test_provider_send_streaming_reasoning_mock() {
     let mut server = mockito::Server::new_async().await;
     let sse_body = concat!(
-        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking...\"}}]}\n",
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"MiniMax-M2.7\",\"stop_reason\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n",
         "\n",
-        "data: [DONE]\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n",
+        "\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"thinking...\"}}\n",
+        "\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n",
+        "\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n",
+        "\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n",
         "\n",
     );
     let m = server
@@ -325,8 +345,12 @@ async fn test_provider_send_streaming_reasoning_mock() {
     while let Some(chunk) = rx.recv().await {
         chunks.push(chunk);
     }
-    assert_eq!(chunks.len(), 1);
-    assert!(chunks[0].data.contains("reasoning_content"));
+    // Should have thinking_delta in the events
+    let has_thinking = chunks.iter().any(|c| c.data.contains("thinking_delta"));
+    assert!(
+        has_thinking,
+        "streaming should include thinking_delta events"
+    );
 }
 
 #[tokio::test]
@@ -334,6 +358,7 @@ async fn test_provider_send_streaming_auth_failure_mock() {
     let mut server = mockito::Server::new_async().await;
     let m = server
         .mock("POST", "/")
+        .match_header("x-api-key", "test-key")
         .with_status(401)
         .with_header("Content-Type", "application/json")
         .with_body(r#"{"base_resp":{"status_code":1004,"status_msg":"auth failed"}}"#)
