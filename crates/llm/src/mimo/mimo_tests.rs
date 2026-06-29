@@ -91,11 +91,12 @@ fn test_provider_id_returns_mimo() {
 }
 
 #[test]
-fn test_provider_supported_protocols_returns_openai() {
+fn test_provider_supported_protocols_returns_openai_and_anthropic() {
     let provider = MimoProvider::new("sk-test".into());
     let protocols = provider.supported_protocols();
-    assert_eq!(protocols.len(), 1);
+    assert_eq!(protocols.len(), 2);
     assert_eq!(protocols[0].as_str(), "openai");
+    assert_eq!(protocols[1].as_str(), "anthropic");
 }
 
 #[test]
@@ -127,6 +128,28 @@ fn test_chat_url_custom_base_url() {
     assert_eq!(
         provider.chat_url(),
         "https://custom.example.com/v1/chat/completions"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// messages_url construction tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_messages_url_default_base_url() {
+    let provider = MimoProvider::new("sk-test".into());
+    assert_eq!(
+        provider.messages_url(),
+        "https://api.xiaomimimo.com/v1/messages"
+    );
+}
+
+#[test]
+fn test_messages_url_custom_base_url() {
+    let provider = MimoProvider::with_base_url("sk-test".into(), "https://custom.example.com/v1");
+    assert_eq!(
+        provider.messages_url(),
+        "https://custom.example.com/v1/messages"
     );
 }
 
@@ -224,10 +247,17 @@ async fn test_send_success_with_reasoning_content() {
     let resp = provider.send(req, body).await.expect("send should succeed");
 
     m.assert_async().await;
-    // MimoProvider currently only parses content, not reasoning_content
-    assert_eq!(resp.content_blocks.len(), 1);
+    // Now correctly parses reasoning_content into a Thinking block (signature: None)
+    assert_eq!(resp.content_blocks.len(), 2);
     assert_eq!(
         resp.content_blocks[0],
+        crate::types::RawContentBlock::Thinking {
+            thinking: "Let me think step by step...".into(),
+            signature: None,
+        }
+    );
+    assert_eq!(
+        resp.content_blocks[1],
         crate::types::RawContentBlock::Text("The answer is 42.".into())
     );
 }
@@ -433,4 +463,356 @@ async fn test_send_streaming_error_401() {
         }
         other => panic!("expected Legacy error for 401, got: {:?}", other),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic response parsing tests (via send() with mock)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_send_anthropic_success_text_only() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "id": "mimo-ant-001",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            { "type": "text", "text": "Hello from Anthropic!" }
+        ],
+        "model": "mimo-7b",
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 20
+        }
+    });
+
+    let m = server
+        .mock("POST", "/messages")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let req = make_request("mimo-7b");
+    let body = json!({
+        "model": "mimo-7b",
+        "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hello" }] }],
+        "max_tokens": 100
+    });
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
+
+    m.assert_async().await;
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        crate::types::RawContentBlock::Text("Hello from Anthropic!".into())
+    );
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 20);
+    assert_eq!(resp.finish_reason.as_deref(), Some("end_turn"));
+}
+
+#[tokio::test]
+async fn test_send_anthropic_success_with_thinking() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "id": "mimo-ant-002",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            { "type": "thinking", "thinking": "Analyzing the question..." },
+            { "type": "text", "text": "The answer is 42." }
+        ],
+        "model": "mimo-7b",
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 15,
+            "output_tokens": 30
+        }
+    });
+
+    let m = server
+        .mock("POST", "/messages")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let req = make_request("mimo-7b");
+    let body = json!({
+        "model": "mimo-7b",
+        "messages": [{ "role": "user", "content": [{ "type": "text", "text": "What is the answer?" }] }],
+        "max_tokens": 100
+    });
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
+
+    m.assert_async().await;
+    assert_eq!(resp.content_blocks.len(), 2);
+    // Thinking block: signature must be Some(String::new()) per MiMo docs
+    assert_eq!(
+        resp.content_blocks[0],
+        crate::types::RawContentBlock::Thinking {
+            thinking: "Analyzing the question...".into(),
+            signature: Some(String::new()),
+        }
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        crate::types::RawContentBlock::Text("The answer is 42.".into())
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic response parsing (direct unit tests)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_parse_anthropic_response_text_only() {
+    let body = json!({
+        "id": "msg-001",
+        "content": [
+            { "type": "text", "text": "Hello!" }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5
+        }
+    });
+
+    let resp = parse_anthropic_response(body).expect("parse should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        crate::types::RawContentBlock::Text("Hello!".into())
+    );
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 5);
+    assert_eq!(resp.finish_reason.as_deref(), Some("end_turn"));
+}
+
+#[test]
+fn test_parse_anthropic_response_thinking_signature_always_empty() {
+    let body = json!({
+        "content": [
+            { "type": "thinking", "thinking": "Let me think..." },
+            { "type": "text", "text": "Result" }
+        ],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 1, "output_tokens": 1 }
+    });
+
+    let resp = parse_anthropic_response(body).expect("parse should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    // Doc requirement: signature is always an empty string for Anthropic protocol
+    assert_eq!(
+        resp.content_blocks[0],
+        crate::types::RawContentBlock::Thinking {
+            thinking: "Let me think...".into(),
+            signature: Some(String::new()),
+        }
+    );
+}
+
+#[test]
+fn test_parse_anthropic_usage_with_cache_read_tokens() {
+    let body = json!({
+        "content": [{ "type": "text", "text": "Hi" }],
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+            "cache_read_input_tokens": 30
+        }
+    });
+
+    let resp = parse_anthropic_response(body).expect("parse should succeed");
+    assert_eq!(resp.usage.prompt_tokens, 100);
+    assert_eq!(resp.usage.completion_tokens, 50);
+    assert_eq!(resp.usage.total_tokens, Some(150));
+    assert_eq!(resp.usage.cache_read_tokens, Some(30));
+    assert_eq!(resp.usage.cache_write_tokens, None);
+}
+
+#[test]
+fn test_parse_anthropic_usage_without_optional_fields() {
+    let body = json!({
+        "content": [{ "type": "text", "text": "Hi" }],
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5
+        }
+    });
+
+    let resp = parse_anthropic_response(body).expect("parse should succeed");
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 5);
+    assert_eq!(resp.usage.total_tokens, None);
+    assert_eq!(resp.usage.cache_read_tokens, None);
+}
+
+#[test]
+fn test_parse_content_block_unknown_type_returns_none() {
+    let item = json!({ "type": "image", "source": "..." });
+    assert!(parse_content_block(&item).is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Protocol detection tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_detect_is_anthropic_openai_format_returns_false() {
+    // OpenAI: plain string content, no system field
+    let body = json!({
+        "model": "mimo-7b",
+        "messages": [{ "role": "user", "content": "Hello" }]
+    });
+    assert!(!detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_is_anthropic_array_content_returns_true() {
+    // Anthropic: content is an array
+    let body = json!({
+        "model": "mimo-7b",
+        "messages": [{ "role": "user", "content": [
+            { "type": "text", "text": "Hello" }
+        ] }]
+    });
+    assert!(detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_is_anthropic_system_field_returns_true() {
+    // Anthropic: has top-level system field
+    let body = json!({
+        "model": "mimo-7b",
+        "system": "You are helpful.",
+        "messages": [{ "role": "user", "content": "Hi" }]
+    });
+    assert!(detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_is_anthropic_empty_messages_returns_false() {
+    let body = json!({ "model": "mimo-7b", "messages": [] });
+    assert!(!detect_is_anthropic(&body));
+}
+
+#[test]
+fn test_detect_is_anthropic_no_messages_returns_false() {
+    let body = json!({ "model": "mimo-7b" });
+    assert!(!detect_is_anthropic(&body));
+}
+
+// ---------------------------------------------------------------------------
+// URL routing tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_send_anthropic_routes_to_messages_endpoint() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "id": "msg-route",
+        "content": [{ "type": "text", "text": "routed" }],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 1, "output_tokens": 1 }
+    });
+
+    // Only mock /messages — /chat/completions is NOT mocked.
+    // If routing is wrong, this test will fail with a connection error.
+    let m = server
+        .mock("POST", "/messages")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let req = make_request("mimo-7b");
+    let body = json!({
+        "model": "mimo-7b",
+        "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }],
+        "max_tokens": 100
+    });
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
+    m.assert_async().await;
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        crate::types::RawContentBlock::Text("routed".into())
+    );
+}
+
+#[tokio::test]
+async fn test_send_openai_routes_to_chat_endpoint() {
+    let mut server = mockito::Server::new_async().await;
+
+    let response_body = json!({
+        "id": "mimo-001",
+        "model": "mimo-7b",
+        "choices": [{
+            "message": { "role": "assistant", "content": "Hello!" },
+            "finish_reason": "stop"
+        }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+    });
+
+    // Only mock /chat/completions — /messages is NOT mocked.
+    let m = server
+        .mock("POST", "/chat/completions")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(response_body.to_string())
+        .create_async()
+        .await;
+
+    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let req = make_request("mimo-7b");
+    let body = json!({
+        "model": "mimo-7b",
+        "messages": [{ "role": "user", "content": "Hi" }]
+    });
+
+    let resp = provider.send(req, body).await.expect("send should succeed");
+    m.assert_async().await;
+    assert_eq!(resp.content_blocks.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// supported_protocols tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_supported_protocols_contains_openai() {
+    let provider = MimoProvider::new("sk-test".into());
+    let protocols = provider.supported_protocols();
+    assert!(
+        protocols.iter().any(|p| p.as_str() == "openai"),
+        "supported_protocols must contain 'openai'"
+    );
+}
+
+#[test]
+fn test_supported_protocols_contains_anthropic() {
+    let provider = MimoProvider::new("sk-test".into());
+    let protocols = provider.supported_protocols();
+    assert!(
+        protocols.iter().any(|p| p.as_str() == "anthropic"),
+        "supported_protocols must contain 'anthropic'"
+    );
 }
