@@ -1,15 +1,25 @@
-//! MiniMax streaming chat implementation.
+//! MiniMax streaming chat implementation via Anthropic protocol.
 //!
-//! MiniMax SSE stream format:
+//! MiniMax Anthropic SSE stream format:
 //! ```text
-//! data: {"id":"...","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"..."}}]}
-//! data: {"id":"...","choices":[{"finish_reason":"length","index":0,"delta":{"role":"assistant","reasoning_content":"..."}}]}
-//! data: {"id":"...","choices":[{"finish_reason":"length","index":0,"message":{...}}]}
-//! data: [DONE]
+//! event: message_start
+//! data: {"type":"message_start","message":{"id":"...","type":"message","role":"assistant","content":[],"model":"...","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+//!
+//! event: content_block_start
+//! data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+//!
+//! event: content_block_delta
+//! data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+//!
+//! event: content_block_stop
+//! data: {"type":"content_block_stop","index":0}
+//!
+//! event: message_delta
+//! data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":15}}
+//!
+//! event: message_stop
+//! data: {"type":"message_stop"}
 //! ```
-//! - Delta chunks contain `delta.reasoning_content` (or `delta.content`)
-//! - The final chunk contains `message` (not `delta`) with full fields + `usage` + `base_resp`
-//! - `[DONE]` is the termination marker
 
 use tokio::sync::mpsc;
 
@@ -18,7 +28,7 @@ use crate::types::RawSseChunk;
 
 use crate::MiniMaxProvider;
 
-/// Send a streaming chat request to MiniMax.
+/// Send a streaming chat request to MiniMax (Anthropic protocol).
 ///
 /// Sends a POST request with the provided body and returns an
 /// SSE event stream as [`SseStream`].
@@ -29,7 +39,8 @@ pub(crate) async fn send_streaming_request(
     let response = provider
         .http_client()
         .post(provider.base_url())
-        .header("Authorization", format!("Bearer {}", provider.api_key()))
+        .header("x-api-key", provider.api_key())
+        .header("anthropic-version", "2023-06-01")
         .header("Content-Type", "application/json")
         .header("Accept", "text/event-stream")
         .json(&body)
@@ -47,7 +58,7 @@ pub(crate) async fn send_streaming_request(
     Ok(rx)
 }
 
-/// Process an SSE byte stream from a MiniMax streaming response,
+/// Process an SSE byte stream from a MiniMax Anthropic-format streaming response,
 /// forwarding parsed chunks to the channel.
 pub(crate) async fn run_sse_stream(response: reqwest::Response, tx: mpsc::Sender<RawSseChunk>) {
     use futures::StreamExt;
@@ -67,39 +78,34 @@ pub(crate) async fn run_sse_stream(response: reqwest::Response, tx: mpsc::Sender
         while let Some(pos) = buffer.find("\n\n") {
             let event_block = buffer[..pos].to_string();
             buffer = buffer[pos + 2..].to_string();
-
-            for line in event_block.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    let data = data.trim().to_string();
-                    if data == "[DONE]" {
-                        return;
-                    }
-                    let _ = tx
-                        .send(RawSseChunk {
-                            event_type: "message".into(),
-                            data,
-                        })
-                        .await;
-                }
+            let (event_type, data) = parse_sse_block(&event_block);
+            if !event_type.is_empty() {
+                let _ = tx.send(RawSseChunk { event_type, data }).await;
             }
         }
     }
 
     // Process any remaining data in buffer
     if !buffer.is_empty() {
-        for line in buffer.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                let data = data.trim().to_string();
-                if data == "[DONE]" {
-                    return;
-                }
-                let _ = tx
-                    .send(RawSseChunk {
-                        event_type: "message".into(),
-                        data,
-                    })
-                    .await;
-            }
+        let (event_type, data) = parse_sse_block(&buffer);
+        if !event_type.is_empty() {
+            let _ = tx.send(RawSseChunk { event_type, data }).await;
         }
     }
+}
+
+/// Parse a single SSE event block into (event_type, data).
+fn parse_sse_block(block: &str) -> (String, String) {
+    let mut event_type = String::new();
+    let mut data = String::new();
+
+    for line in block.lines() {
+        if let Some(value) = line.strip_prefix("event: ") {
+            event_type = value.trim().to_string();
+        } else if let Some(value) = line.strip_prefix("data: ") {
+            data = value.trim().to_string();
+        }
+    }
+
+    (event_type, data)
 }
