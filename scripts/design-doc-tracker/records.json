@@ -198,5 +198,13 @@
     "confirmed_time": "2026-06-29T16:57:07.005267+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/llm/providers/mimo.md",
+    "commit": "4407c4dad3c0beb40173f04039ab5cc557b1d8ba",
+    "commit_time": "2026-06-29T20:24:48+08:00",
+    "confirmed_time": "2026-06-29T20:32:21.013600+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
