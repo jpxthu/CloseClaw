@@ -437,13 +437,30 @@ def _collect() -> Dict[str, list]:
     }
 
 
+DATA_FILE = SCRIPT_DIR / "data" / "daily_stats.json"
+
+
 def get_data() -> Dict[str, list]:
-    """Collect fresh statistics and return the result dict."""
+    """Return cached data from disk, or collect fresh if missing."""
+    import json as _json
+    if DATA_FILE.exists():
+        with open(DATA_FILE) as f:
+            return _json.load(f)
     return _collect()
 
 
+def collect_and_save() -> Dict[str, list]:
+    """Collect fresh statistics, save to disk, and return."""
+    import json as _json
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = _collect()
+    with open(DATA_FILE, "w") as f:
+        _json.dump(data, f)
+    return data
+
+
 if __name__ == "__main__":
-    data = get_data()
+    data = collect_and_save()
     n = len(data["dates"])
     print(f"Collected {n} days ({data['dates'][0]} -> {data['dates'][-1]})")
     if n:
