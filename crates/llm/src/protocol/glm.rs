@@ -165,6 +165,7 @@ impl ChatProtocol for GlmProtocol {
             let mut current_block_index: Option<usize> = None;
             let mut current_block_type: Option<ContentBlockType> = None;
             let mut next_block_index: usize = 0;
+            let mut reasoning_buffer: String = String::new();
 
             while let Some(chunk) = stream.next().await {
                 let data = chunk.data.trim();
@@ -189,104 +190,273 @@ impl ChatProtocol for GlmProtocol {
                     None => continue,
                 };
 
-                // NOTE: Short-reasoning filtering is intentionally NOT applied
-                // here. In streaming mode, reasoning_content arrives incrementally
-                // per delta — we cannot know the total length at emit time.
-                // Filtering is only feasible in the non-streaming `parse_response`.
-                //
-                // GLM may emit `reasoning_content` delta or `content` delta.
-                // Prefer `content` first, fall back to `reasoning_content`.
-                let (text_delta, thinking_delta) = (
-                    delta.get("content").and_then(|v| v.as_str()),
-                    delta.get("reasoning_content").and_then(|v| v.as_str()),
-                );
+                let text_delta = delta.get("content").and_then(|v| v.as_str());
+                let thinking_delta = delta.get("reasoning_content").and_then(|v| v.as_str());
 
-                let content_to_yield = text_delta.or(thinking_delta);
-
-                if let Some(text) = content_to_yield {
-                    // Block type determined by which delta won (content priority)
-                    let winning_is_content = text_delta.is_some();
-                    let (idx, btype) = match current_block_index {
-                        Some(i) => (i, current_block_type.unwrap()),
-                        None => {
-                            // First delta — emit BlockStart.
-                            let btype = if winning_is_content {
-                                ContentBlockType::Text
-                            } else {
-                                ContentBlockType::Thinking
+                // Buffer reasoning_content deltas; emit at content transition
+                // or stream end, enabling short-reasoning filtering equivalent
+                // to the non-streaming path.
+                if text_delta.is_none() {
+                    if let Some(rc) = thinking_delta {
+                        if !rc.is_empty() {
+                            reasoning_buffer.push_str(rc);
+                        }
+                    }
+                } else {
+                    // Content delta — flush reasoning buffer first
+                    if !reasoning_buffer.is_empty() {
+                        let buf = std::mem::take(&mut reasoning_buffer);
+                        let trimmed_len = buf.trim().len();
+                        if trimmed_len > MIN_REASONING_LENGTH {
+                            let idx = next_block_index;
+                            next_block_index += 1;
+                            yield StreamEvent::BlockStart {
+                                index: idx,
+                                block_type: ContentBlockType::Thinking,
                             };
+                            yield StreamEvent::BlockDelta {
+                                index: idx,
+                                delta: ContentDelta::Thinking {
+                                    thinking: buf,
+                                    signature: None,
+                                },
+                            };
+                            yield StreamEvent::BlockEnd {
+                                index: idx,
+                                block_type: ContentBlockType::Thinking,
+                            };
+                        } else if !buf.is_empty() {
+                            // Short reasoning — demote to Text, prepend to
+                            // the content block that follows.
+                            let idx = match current_block_index {
+                                Some(i) => i,
+                                None => {
+                                    let idx = next_block_index;
+                                    next_block_index += 1;
+                                    current_block_index = Some(idx);
+                                    current_block_type = Some(
+                                        ContentBlockType::Text,
+                                    );
+                                    yield StreamEvent::BlockStart {
+                                        index: idx,
+                                        block_type: ContentBlockType::Text,
+                                    };
+                                    idx
+                                }
+                            };
+                            yield StreamEvent::BlockDelta {
+                                index: idx,
+                                delta: ContentDelta::Text {
+                                    text: buf,
+                                },
+                            };
+                        }
+                    }
+                    // text_delta is Some — handled below
+                }
+
+                if let Some(text) = text_delta {
+                    let idx = match current_block_index {
+                        Some(i) => i,
+                        None => {
                             let idx = next_block_index;
                             next_block_index += 1;
                             current_block_index = Some(idx);
-                            current_block_type = Some(btype);
-                            yield StreamEvent::BlockStart { index: idx, block_type: btype };
-                            (idx, btype)
+                            current_block_type = Some(ContentBlockType::Text);
+                            yield StreamEvent::BlockStart {
+                                index: idx,
+                                block_type: ContentBlockType::Text,
+                            };
+                            idx
                         }
                     };
-
-                    let delta = match btype {
-                        ContentBlockType::Thinking => {
-                            ContentDelta::Thinking { thinking: text.to_string(), signature: None }
-                        }
-                        _ => ContentDelta::Text { text: text.to_string() },
+                    yield StreamEvent::BlockDelta {
+                        index: idx,
+                        delta: ContentDelta::Text {
+                            text: text.to_string(),
+                        },
                     };
-
-                    yield StreamEvent::BlockDelta { index: idx, delta };
                 }
 
                 // tool_calls delta
-                if let Some(tool_calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+                if let Some(tool_calls) = delta.get("tool_calls") {
+                    let tool_calls = match tool_calls.as_array() {
+                        Some(arr) => arr,
+                        None => continue,
+                    };
+
+                    // Flush reasoning buffer before tool_calls
+                    if !reasoning_buffer.is_empty() {
+                        let buf = std::mem::take(&mut reasoning_buffer);
+                        let trimmed_len = buf.trim().len();
+                        if trimmed_len > MIN_REASONING_LENGTH {
+                            let idx = next_block_index;
+                            next_block_index += 1;
+                            yield StreamEvent::BlockStart {
+                                index: idx,
+                                block_type: ContentBlockType::Thinking,
+                            };
+                            yield StreamEvent::BlockDelta {
+                                index: idx,
+                                delta: ContentDelta::Thinking {
+                                    thinking: buf,
+                                    signature: None,
+                                },
+                            };
+                            yield StreamEvent::BlockEnd {
+                                index: idx,
+                                block_type: ContentBlockType::Thinking,
+                            };
+                        }
+                    }
+
                     // End current block when transitioning to tool_calls
                     if let Some(idx) = current_block_index {
-                        // Only end non-tool blocks (text/thinking → tool_calls transition)
                         if current_block_type != Some(ContentBlockType::ToolUse) {
-                            let cur_type = current_block_type.unwrap_or(ContentBlockType::Text);
-                            yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
+                            let cur_type = current_block_type
+                                .unwrap_or(ContentBlockType::Text);
+                            yield StreamEvent::BlockEnd {
+                                index: idx,
+                                block_type: cur_type,
+                            };
                             current_block_index = None;
                             current_block_type = None;
                         }
                     }
 
                     for tc in tool_calls.iter() {
-                        if let Some(tc_id) = tc.get("id").and_then(|v| v.as_str()) {
-                            // Start new tool block
+                        if let Some(tc_id) = tc.get("id")
+                            .and_then(|v| v.as_str())
+                        {
                             let idx = next_block_index;
                             next_block_index += 1;
                             current_block_index = Some(idx);
                             current_block_type = Some(ContentBlockType::ToolUse);
-                            yield StreamEvent::BlockStart { index: idx, block_type: ContentBlockType::ToolUse };
-                            yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseId { id: tc_id.to_string() } };
-
-                            if let Some(name) = tc.get("function").and_then(|f| f.get("name")).and_then(|v| v.as_str()).filter(|n| !n.is_empty()) {
-                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseName { name: name.to_string() } };
+                            yield StreamEvent::BlockStart {
+                                index: idx,
+                                block_type: ContentBlockType::ToolUse,
+                            };
+                            yield StreamEvent::BlockDelta {
+                                index: idx,
+                                delta: ContentDelta::ToolUseId {
+                                    id: tc_id.to_string(),
+                                },
+                            };
+                            if let Some(name) = tc.get("function")
+                                .and_then(|f| f.get("name"))
+                                .and_then(|v| v.as_str())
+                                .filter(|n| !n.is_empty())
+                            {
+                                yield StreamEvent::BlockDelta {
+                                    index: idx,
+                                    delta: ContentDelta::ToolUseName {
+                                        name: name.to_string(),
+                                    },
+                                };
                             }
-                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
-                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                            if let Some(args) = tc.get("function")
+                                .and_then(|f| f.get("arguments"))
+                                .and_then(|v| v.as_str())
+                                .filter(|a| !a.is_empty())
+                            {
+                                yield StreamEvent::BlockDelta {
+                                    index: idx,
+                                    delta: ContentDelta::ToolUseInputChunk {
+                                        input: args.to_string(),
+                                    },
+                                };
                             }
-                        } else if current_block_type == Some(ContentBlockType::ToolUse) {
-                            // Continuation: arguments chunk
-                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
-                                yield StreamEvent::BlockDelta { index: current_block_index.unwrap(), delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                        } else if current_block_type
+                            == Some(ContentBlockType::ToolUse)
+                        {
+                            if let Some(args) = tc.get("function")
+                                .and_then(|f| f.get("arguments"))
+                                .and_then(|v| v.as_str())
+                                .filter(|a| !a.is_empty())
+                            {
+                                let idx = current_block_index.unwrap();
+                                yield StreamEvent::BlockDelta {
+                                    index: idx,
+                                    delta: ContentDelta::ToolUseInputChunk {
+                                        input: args.to_string(),
+                                    },
+                                };
                             }
                         }
                     }
                 }
 
                 // finish_reason = "tool_calls" ends the tool block
-                if parsed.get("choices").and_then(|v| v.as_array()).and_then(|arr| arr.first()).and_then(|c| c.get("finish_reason")).and_then(|v| v.as_str()) == Some("tool_calls") {
+                let is_tool_calls_finish = parsed
+                    .get("choices")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|c| c.get("finish_reason"))
+                    .and_then(|v| v.as_str())
+                    == Some("tool_calls");
+                if is_tool_calls_finish {
                     if let Some(idx) = current_block_index {
-                        yield StreamEvent::BlockEnd { index: idx, block_type: ContentBlockType::ToolUse };
+                        yield StreamEvent::BlockEnd {
+                            index: idx,
+                            block_type: ContentBlockType::ToolUse,
+                        };
                         current_block_index = None;
                         current_block_type = None;
                     }
-                    yield StreamEvent::MessageEnd { usage: None, finish_reason: Some("tool_calls".to_string()) };
+                    yield StreamEvent::MessageEnd {
+                        usage: None,
+                        finish_reason: Some("tool_calls".to_string()),
+                    };
                     break;
+                }
+            }
+
+            // Flush any remaining reasoning buffer at stream end
+            if !reasoning_buffer.is_empty() {
+                let buf = std::mem::take(&mut reasoning_buffer);
+                let trimmed_len = buf.trim().len();
+                let idx = next_block_index;
+                if trimmed_len > MIN_REASONING_LENGTH {
+                    yield StreamEvent::BlockStart {
+                        index: idx,
+                        block_type: ContentBlockType::Thinking,
+                    };
+                    yield StreamEvent::BlockDelta {
+                        index: idx,
+                        delta: ContentDelta::Thinking {
+                            thinking: buf,
+                            signature: None,
+                        },
+                    };
+                    yield StreamEvent::BlockEnd {
+                        index: idx,
+                        block_type: ContentBlockType::Thinking,
+                    };
+                } else {
+                    // Short reasoning — demote to Text block
+                    yield StreamEvent::BlockStart {
+                        index: idx,
+                        block_type: ContentBlockType::Text,
+                    };
+                    yield StreamEvent::BlockDelta {
+                        index: idx,
+                        delta: ContentDelta::Text {
+                            text: buf,
+                        },
+                    };
+                    yield StreamEvent::BlockEnd {
+                        index: idx,
+                        block_type: ContentBlockType::Text,
+                    };
                 }
             }
 
             if let Some(idx) = current_block_index {
                 if let Some(btype) = current_block_type {
-                    yield StreamEvent::BlockEnd { index: idx, block_type: btype };
+                    yield StreamEvent::BlockEnd {
+                        index: idx,
+                        block_type: btype,
+                    };
                 }
             }
 
