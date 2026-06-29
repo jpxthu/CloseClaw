@@ -34,6 +34,7 @@ pub mod types;
 mod types_tests;
 
 pub mod deepseek;
+pub mod mimo;
 pub mod volcengine;
 
 pub mod client;
@@ -56,6 +57,7 @@ pub use glm::GlmPlugin;
 pub use glm::GlmProvider;
 pub use http_client::{HttpClient, ReqwestHttpClient};
 pub use knowledge::{ModelRecommendParams, ProviderModelKnowledge, ReasoningLevels};
+pub use mimo::MimoProvider;
 pub use minimax::MiniMaxProvider;
 pub use model_cache::{CacheEntry, ModelCache};
 pub use model_discovery::ModelDiscovery;
