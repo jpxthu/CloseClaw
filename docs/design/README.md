@@ -21,3 +21,4 @@
 | [memory](memory/README.md) | Agent 长期记忆体系：两段式会话挖掘、实体级升格浓缩、SQLite 索引实时搜索注入，构建跨 session 概念网络 |
 | [system_prompt](system_prompt/README.md) | 每次 API 调用的固定前缀：静态/动态层划分、Section 类型、缓存策略、构建与注入入口 |
 | [tools](tools/README.md) | Agent 能力层：工具注册基础设施（ToolRegistry 注册中心、索引构建、工具发现）、文件操作工具（Read/Write/Edit）、Bash 工具、后台任务、多工具并行调度 |
+| [workflow](workflow/README.md) | Workflow Engine：流程控制层，将多步骤流程从 prompt 驱动转为 Engine 驱动的状态机执行，管理 goal→verify→jump 三阶段协议和步骤跳转 |

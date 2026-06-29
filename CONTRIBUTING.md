@@ -97,12 +97,13 @@ crates/                  # 功能库 — 可独立编译、按依赖分层
 └── im_adapter/          # closeclaw-im-adapter
 src/                     # 主 crate（closeclaw）— 组合根
 │                         # 将各功能库组装为守护进程，包含应用级编排：
-├── main.rs              #   bin 入口、daemon 生命周期、CLI 交互、
-├── daemon/              #   斜杠命令、processor chain、记忆系统、
-├── cli/                 #   系统提示词、管理 API、后台任务等
-├── slash/               #
-├── processor_chain/     # 设计理念：功能逻辑下沉到 crates/，
-├── memory/              # 主 crate 只做组装和编排（composition root）
+├── cli/                 #   CLI 交互（管理命令、chat 会话）
+├── daemon/              #   进程入口、后台任务、启动/关闭
+├── main.rs              #   bin 入口
+├── memory/              #   长期记忆系统（mining、搜索注入）
+├── processor_chain/     #   出入站消息处理链
+├── slash/               #   斜杠指令系统
+├── workflow/            #   workflow engine（状态机、三阶段协议、步骤推进与跳转）
 ├── ...
 tests/
 ├── integration/         # 集成测试
