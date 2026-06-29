@@ -236,13 +236,11 @@ impl Provider for MimoProvider {
                 };
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
                 if process_sse_buffer(&mut buffer, &tx).await {
-                    return;
+                    break;
                 }
             }
 
-            if process_sse_buffer(&mut buffer, &tx).await {
-                return;
-            }
+            let _ = process_sse_buffer(&mut buffer, &tx).await;
         });
 
         Ok(rx)
