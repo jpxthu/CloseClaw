@@ -43,9 +43,9 @@
     "path": "docs/design/cli/README.md",
     "commit": "d4104fca2cbc250468938cca7830976a3d0a7bbe",
     "commit_time": "2026-06-21T20:26:53+08:00",
-    "confirmed_time": "2026-06-21T20:42:28.130366+08:00",
+    "confirmed_time": "2026-06-30T04:20:31.991079+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "DSL_rendering_contradiction"
   },
   {
     "path": "docs/design/cli/admin.md",
