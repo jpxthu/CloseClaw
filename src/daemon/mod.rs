@@ -114,9 +114,6 @@ pub struct Daemon {
 // --- Topological startup orchestration ---
 impl Daemon {
     /// Resolve the deterministic startup order from the component dependency graph.
-    ///
-    /// Returns the layers produced by [`topo_sort_layers`].  If the dependency
-    /// graph contains a cycle the daemon must refuse to start.
     fn resolve_startup_order() -> Result<StartupPlan, StartupError> {
         let entries = all_component_entries();
         let layers = topo_sort_layers(&entries)?;
@@ -145,11 +142,13 @@ impl Daemon {
                 IMAdapters,
                 PermissionEngine,
                 SkillWatcher,
+                SpawnController,
                 SystemPromptBuilder,
                 ToolsRegistry,
             ],
             vec![ApprovalFlow, SessionManager],
             vec![Gateway],
+            vec![AdminRpcServer],
         ]
         .into_iter()
         .collect();
@@ -351,6 +350,12 @@ impl Daemon {
             sweeper_rx,
             dreaming_rx,
         );
+        // Create SpawnController as an independent component (depends on AgentRegistry).
+        let spawn_controller = Arc::new(crate::agent::spawn::SpawnController::new(
+            Arc::clone(config_manager),
+            Arc::clone(session_manager),
+            Arc::clone(permission_engine),
+        ));
         let config_subdir = PathBuf::from(data_dir).join("config");
         let config_watcher = Self::populate_registries(
             config_manager,
@@ -359,6 +364,7 @@ impl Daemon {
             tool_registry,
             session_manager,
             permission_engine,
+            &spawn_controller,
             &config_subdir,
         )
         .await;
@@ -420,6 +426,30 @@ impl Daemon {
         });
         info!("DreamingScheduler spawned");
     }
+
+    /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
+    async fn init_phase_6_admin_rpc(
+        agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
+        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+        config_manager: &Arc<ConfigManager>,
+        config_dir: &str,
+    ) -> (tokio::task::JoinHandle<()>, PathBuf) {
+        let admin_sock_path = admin_socket_path(Path::new(config_dir));
+        let admin_context = AdminContext {
+            agent_registry: Arc::clone(agent_registry),
+            skill_registry: skill_registry.clone(),
+            config_manager: Arc::clone(config_manager),
+            config_dir: PathBuf::from(config_dir),
+        };
+        let admin_server = AdminServer::new(&admin_sock_path, admin_context);
+        let admin_handle = tokio::spawn(async move {
+            if let Err(e) = admin_server.serve().await {
+                tracing::error!(error = %e, "admin RPC server failed");
+            }
+        });
+        info!("admin RPC server started on {}", admin_sock_path.display());
+        (admin_handle, admin_sock_path)
+    }
 }
 
 // --- Lifecycle: start, run ---
@@ -471,20 +501,13 @@ impl Daemon {
             &data_dir,
         )
         .await?;
-        let admin_sock_path = admin_socket_path(Path::new(config_dir));
-        let admin_context = AdminContext {
-            agent_registry: Arc::clone(&agent_registry),
-            skill_registry: skill_registry.clone(),
-            config_manager: Arc::clone(&config_manager),
-            config_dir: PathBuf::from(config_dir),
-        };
-        let admin_server = AdminServer::new(&admin_sock_path, admin_context);
-        let admin_handle = tokio::spawn(async move {
-            if let Err(e) = admin_server.serve().await {
-                tracing::error!(error = %e, "admin RPC server failed");
-            }
-        });
-        info!("admin RPC server started on {}", admin_sock_path.display());
+        let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
+            &agent_registry,
+            &skill_registry,
+            &config_manager,
+            config_dir,
+        )
+        .await;
         info!(
             "Gateway initialized — CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -507,8 +530,7 @@ impl Daemon {
         })
     }
 
-    /// Run the daemon — blocks until shutdown signal is received, then
-    /// executes Phase 0–7 shutdown sequence.
+    /// Run the daemon — blocks until shutdown signal.
     pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
 
@@ -536,7 +558,6 @@ impl Daemon {
 
         // Phase 1: Inbound shutdown + drain
         self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
-
         let mode = self.shutdown.mode();
         info!(phase = 1, "inbound shutdown complete");
 
@@ -574,10 +595,6 @@ impl Daemon {
     }
 
     /// Phase 1: Inbound shutdown + drain.
-    ///
-    /// - Calls `shutdown()` on all registered IM plugins
-    /// - Initiates graceful drain (waits for in-flight operations)
-    /// - Monitors for escalation signals (repeated SIGTERM/SIGINT)
     async fn phase_1_inbound_drain(
         &self,
         sigint: &mut tokio::signal::unix::Signal,
@@ -625,10 +642,6 @@ impl Daemon {
     }
 
     /// Phase 2: Session stop (leaf → root) with progress card updates.
-    ///
-    /// Sends a progress notification card at the start, monitors for
-    /// graceful → forceful escalation to update the card, and sends a
-    /// final card when all sessions have stopped.
     async fn phase_2_session_stop(
         &self,
         mode: crate::daemon::shutdown::ShutdownMode,
@@ -649,22 +662,8 @@ impl Daemon {
         // Spawn fresh signal handlers for escalation monitoring during Phase 2.
         // Phase 1's handlers are consumed by its tokio::select! loop.
         use tokio::signal::unix::{signal, SignalKind};
-        let sigint_result = signal(SignalKind::interrupt());
-        let sigterm_result = signal(SignalKind::terminate());
-        let mut sigint = match sigint_result {
-            Ok(s) => Some(s),
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to register SIGINT handler for Phase 2");
-                None
-            }
-        };
-        let mut sigterm = match sigterm_result {
-            Ok(s) => Some(s),
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to register SIGTERM handler for Phase 2");
-                None
-            }
-        };
+        let mut sigint = signal(SignalKind::interrupt()).ok();
+        let mut sigterm = signal(SignalKind::terminate()).ok();
 
         // Monitor for escalation and update card
         let mut last_mode = mode;
@@ -764,10 +763,6 @@ impl Daemon {
     }
 
     /// Phase 3: Background task stop.
-    ///
-    /// - Drops SkillWatcher and ConfigWatcher (RAII) via `take()`
-    /// - Signals ArchiveSweeper and DreamingScheduler to stop
-    /// - Clears pending approval requests
     async fn phase_3_background_stop(&mut self) {
         // SkillWatcher and ConfigWatcher are RAII — stop on drop.
         // Explicitly take() and drop here to match Phase 3 ordering
@@ -806,7 +801,7 @@ impl Daemon {
         self.gateway.close_outbound().await;
     }
 
-    /// Phase 6: Storage close — release persistent connections/handles.
+    /// Phase 6: Storage close — release persistent connections.
     async fn phase_6_storage_close(&self) {
         match self.gateway.close_storage().await {
             Ok(()) => tracing::info!("storage closed"),
@@ -965,8 +960,8 @@ impl Daemon {
         info!("Slash dispatcher installed");
     }
 
-    /// Populate AgentRegistry, SkillRegistry, ToolRegistry, and wire them into
-    /// SessionManager.  Also starts ConfigHotReload watcher.
+    /// Populate AgentRegistry, SkillRegistry, ToolRegistry, and wire them
+    /// into SessionManager.  Also starts ConfigHotReload watcher.
     #[allow(dead_code)]
     async fn populate_registries(
         config_manager: &Arc<ConfigManager>,
@@ -975,6 +970,7 @@ impl Daemon {
         tool_registry: &Arc<ToolRegistry>,
         session_manager: &Arc<SessionManager>,
         permission_engine: &Arc<PermissionEngine>,
+        spawn_controller: &Arc<crate::agent::spawn::SpawnController>,
         config_subdir: &Path,
     ) -> Option<config_reload::ConfigWatcherHandle> {
         let ctx = registries::RegistryContext {
@@ -984,6 +980,7 @@ impl Daemon {
             tool_registry,
             session_manager,
             permission_engine,
+            spawn_controller: Arc::clone(spawn_controller),
             config_subdir,
         };
         registries::populate_registries(&ctx).await
