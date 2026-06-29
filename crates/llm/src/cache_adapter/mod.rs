@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn for_provider_unknown_returns_noop() {
-        for provider_id in ["openai", "deepseek", ""] {
+        for provider_id in ["openai", "deepseek", "mimo", ""] {
             let adapter = for_provider(provider_id);
             assert_eq!(
                 adapter.name(),

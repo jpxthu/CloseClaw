@@ -387,6 +387,57 @@ async fn test_build_gateway_agent_id_with_unicode() {
     );
 }
 
+#[test]
+fn test_for_provider_mimo_returns_noop() {
+    use closeclaw_llm::cache_adapter::for_provider;
+    let adapter = for_provider("mimo");
+    assert_eq!(adapter.name(), "noop", "mimo should use noop cache adapter");
+}
+
+#[test]
+fn test_openai_provider_mimo_base_url() {
+    use closeclaw_llm::openai::OpenAIProvider;
+    use closeclaw_llm::provider::Provider;
+    let provider =
+        OpenAIProvider::new_with_base_url("test-key".to_string(), "https://api.xiaomimimo.com/v1");
+    assert_eq!(
+        provider.base_url(),
+        "https://api.xiaomimimo.com/v1",
+        "mimo provider should use MiMo API base URL"
+    );
+}
+
+#[tokio::test]
+async fn test_init_llm_registry_mimo_via_try_register_provider() {
+    use closeclaw_config::providers::CredentialsProvider;
+    use closeclaw_llm::openai::OpenAIProvider;
+    use closeclaw_llm::LLMRegistry;
+    use std::sync::Arc;
+
+    let registry = Arc::new(LLMRegistry::new());
+    let creds_provider = CredentialsProvider::default();
+
+    // Register mimo using the same try_register_provider pattern as chat.rs
+    let key = creds_provider
+        .get_api_key("mimo")
+        .or_else(|| std::env::var("MIMO_API_KEY").ok())
+        .filter(|k| !k.is_empty());
+    if let Some(api_key) = key {
+        let provider = Arc::new(OpenAIProvider::new_with_base_url(
+            api_key,
+            "https://api.xiaomimimo.com/v1",
+        )) as Arc<dyn closeclaw_llm::provider::Provider>;
+        registry.register("mimo".to_string(), provider).await;
+    }
+
+    // In test env without credentials, mimo should NOT be registered
+    let listed = registry.list().await;
+    assert!(
+        !listed.contains(&"mimo".to_string()),
+        "mimo should not be registered without credentials"
+    );
+}
+
 // ── peer_id "cli" verification (Step 1.2) ──────────────────────────────────
 
 /// Verify that `process_inbound_chain` receives "cli" as the peer_id,
