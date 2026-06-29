@@ -215,7 +215,10 @@ fn test_render_with_dsl_button() {
         .and_then(|c| c.get("text"))
         .and_then(|t| t.as_str())
         .unwrap();
-    assert!(text.contains("[Button: Click (action: go, value: ok)]"));
+    assert!(
+        !text.contains("[Button:"),
+        "DSL button should NOT appear in output"
+    );
     assert!(text.contains("body"));
 }
 
@@ -237,7 +240,10 @@ fn test_render_with_dsl_selector() {
         .and_then(|c| c.get("text"))
         .and_then(|t| t.as_str())
         .unwrap();
-    assert!(text.contains("[Selector: Pick one (options: a, b; action: select)]"));
+    assert!(
+        !text.contains("[Selector:"),
+        "DSL selector should NOT appear in output"
+    );
 }
 
 #[test]

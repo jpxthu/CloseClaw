@@ -402,8 +402,8 @@ mod tests {
             .unwrap();
         assert!(text.contains("Some text"));
         assert!(
-            text.contains("[Button: Click (action: go, value: ok)]"),
-            "DSL button should appear as plain-text hint in output"
+            !text.contains("[Button:"),
+            "DSL button text should NOT appear in output (skipped by renderer)"
         );
     }
 }

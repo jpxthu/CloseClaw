@@ -10,6 +10,7 @@ use closeclaw_im_adapter::plugin::RenderedOutput;
 use closeclaw_im_adapter::streaming::DefaultStreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
 use std::sync::Mutex;
+use tracing::warn;
 
 // ---------------------------------------------------------------------------
 // ANSI escape codes
@@ -682,9 +683,9 @@ impl TerminalRenderer {
         }
     }
 
-    /// Render DSL instructions as plain-text hints for the terminal channel.
+    /// Skip DSL instructions — terminals cannot render interactive elements.
+    /// Each instruction is logged as a warning and omitted from the output.
     fn render_dsl(&self, dsl_result: &DslParseResult) -> String {
-        let mut out = String::new();
         for inst in &dsl_result.instructions {
             match inst {
                 closeclaw_common::processor::DslInstruction::Button {
@@ -692,30 +693,32 @@ impl TerminalRenderer {
                     action,
                     value,
                 } => {
-                    let line =
-                        format!("[Button: {} (action: {}, value: {})]", label, action, value);
-                    out.push_str(&self.dim_or_plain(&line));
-                    out.push('\n');
+                    warn!(
+                        label = %label,
+                        action = %action,
+                        value = %value,
+                        "terminal does not support interactive DSL (Button), skipped"
+                    );
                 }
                 closeclaw_common::processor::DslInstruction::Selector {
                     label,
                     options,
                     action,
                 } => {
-                    let options_str = options.join(", ");
-                    let line = format!(
-                        "[Selector: {} (options: {}; action: {})]",
-                        label, options_str, action
+                    warn!(
+                        label = %label,
+                        options = ?options,
+                        action = %action,
+                        "terminal does not support interactive DSL (Selector), skipped"
                     );
-                    out.push_str(&self.dim_or_plain(&line));
-                    out.push('\n');
                 }
             }
         }
-        out
+        String::new()
     }
 
     /// Wrap `text` with DIM/RESET when ANSI is enabled, otherwise plain.
+    #[allow(dead_code)]
     fn dim_or_plain(&self, text: &str) -> String {
         if self.ansi {
             format!("{}{}{}", DIM, text, RESET)
