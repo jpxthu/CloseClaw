@@ -55,6 +55,27 @@ pub async fn handle_run_foreground(config_dir: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Build the [`std::process::Command`] that spawns the daemon child process.
+///
+/// Extracted so that tests can verify argument construction without
+/// actually spawning a process.
+pub(crate) fn build_daemon_command(
+    current_exe: &std::path::Path,
+    config_dir: &std::path::Path,
+) -> std::process::Command {
+    let mut cmd = std::process::Command::new(current_exe);
+    cmd.arg("run")
+        .arg("--config-dir")
+        .arg(config_dir)
+        .arg("--foreground");
+
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+
+    cmd
+}
+
 /// Start the daemon process.
 ///
 /// When `foreground` is true, runs the daemon in the current process
@@ -74,22 +95,13 @@ pub async fn handle_run(config_dir: String, json: bool, foreground: bool) -> Res
     let current_exe =
         std::env::current_exe().context("failed to resolve current executable path")?;
 
-    let mut cmd = std::process::Command::new(&current_exe);
-    cmd.arg("run")
-        .arg("--config-dir")
-        .arg(&config_dir_path)
-        .arg("--foreground");
-
-    // Spawn the child process (detached so it survives parent exit).
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    let mut cmd = build_daemon_command(&current_exe, &config_dir_path);
 
     let _child = cmd.spawn().context("failed to spawn daemon process")?;
 
     // Wait for the admin socket to become available.
     let admin_socket = crate::admin::client::admin_socket_path(&config_dir_path);
-    wait_for_socket(&admin_socket)?;
+    wait_for_socket(&admin_socket, SOCKET_WAIT_TIMEOUT_MS)?;
 
     // Read the PID that the child process wrote to the PID file.
     let pid = crate::platform::process::read_pid_file(&pid_file)
@@ -114,9 +126,8 @@ pub async fn handle_run(config_dir: String, json: bool, foreground: bool) -> Res
 
 /// Poll the given Unix socket path until a connection succeeds or the
 /// timeout expires.
-fn wait_for_socket(path: &Path) -> Result<()> {
-    let deadline =
-        std::time::Instant::now() + std::time::Duration::from_millis(SOCKET_WAIT_TIMEOUT_MS);
+pub(crate) fn wait_for_socket(path: &Path, timeout_ms: u64) -> Result<()> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
 
     loop {
         // Attempt a synchronous connection to the socket.
@@ -137,7 +148,7 @@ fn wait_for_socket(path: &Path) -> Result<()> {
 
 /// Try connecting to the given Unix socket path once.
 #[cfg(unix)]
-fn try_connect(path: &Path) -> Result<()> {
+pub(crate) fn try_connect(path: &Path) -> Result<()> {
     use std::os::unix::net::UnixStream;
     UnixStream::connect(path)
         .with_context(|| format!("socket connect failed: {}", path.display()))?;
@@ -145,6 +156,6 @@ fn try_connect(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn try_connect(_path: &Path) -> Result<()> {
+pub(crate) fn try_connect(_path: &Path) -> Result<()> {
     anyhow::bail!("Unix sockets are not supported on this platform")
 }
