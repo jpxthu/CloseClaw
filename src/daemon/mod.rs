@@ -110,10 +110,12 @@ pub struct Daemon {
     /// Path to the admin RPC socket file (cleaned up on shutdown)
     admin_socket_path: PathBuf,
 }
-
 // --- Topological startup orchestration ---
 impl Daemon {
     /// Resolve the deterministic startup order from the component dependency graph.
+    ///
+    /// Returns the layers produced by [`topo_sort_layers`].  If the dependency
+    /// graph contains a cycle the daemon must refuse to start.
     fn resolve_startup_order() -> Result<StartupPlan, StartupError> {
         let entries = all_component_entries();
         let layers = topo_sort_layers(&entries)?;
@@ -467,23 +469,19 @@ impl Daemon {
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
-
         let (startup_layers, _phase_components) = Self::resolve_startup_order()?;
         Self::log_startup_order(&startup_layers);
-
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
         let (agent_registry, skill_registry, tool_registry, skill_watcher) =
             Self::init_phase_2_registries(config_dir).await?;
         let (gateway, session_manager, shutdown) =
             Self::init_phase_3_core_services(config_dir, &storage, &permission_engine).await?;
         let shutdown = Arc::new(shutdown);
-
         // Wire shutdown handle into Gateway and SessionManager for
         // busy-count tracking during drain.
         let common_sh = crate::bridge::common_shutdown_handle(&shutdown);
         gateway.set_shutdown_handle(Arc::clone(&common_sh));
         session_manager.set_shutdown_handle(common_sh).await;
-
         let approval_flow = Self::init_phase_4_wiring(
             &gateway,
             &session_manager,
@@ -560,7 +558,6 @@ impl Daemon {
         self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
         let mode = self.shutdown.mode();
         info!(phase = 1, "inbound shutdown complete");
-
         // Phase 2: Session stop
         let stop_result = self.phase_2_session_stop(mode).await;
         info!(
@@ -570,31 +567,29 @@ impl Daemon {
             skipped = stop_result.skipped,
             "session stop complete"
         );
-
         // Phase 3: Background task stop
         self.phase_3_background_stop().await;
         info!(phase = 3, "background tasks stopped");
-
         // Phase 4: Final persistence
         self.phase_4_final_persist(mode).await;
         info!(phase = 4, "final persistence complete");
-
         // Phase 5: Outbound shutdown
         self.phase_5_outbound_close().await;
         info!(phase = 5, "outbound shutdown complete");
-
         // Phase 6: Storage close (RAII — explicit drop for ordering)
         self.phase_6_storage_close().await;
         info!(phase = 6, "storage closed");
-
         // Phase 7: Exit cleanup
         self.phase_7_exit().await;
         info!(phase = 7, "shutdown complete — exiting");
-
         Ok(())
     }
 
     /// Phase 1: Inbound shutdown + drain.
+    ///
+    /// - Calls `shutdown()` on all registered IM plugins
+    /// - Initiates graceful drain (waits for in-flight operations)
+    /// - Monitors for escalation signals (repeated SIGTERM/SIGINT)
     async fn phase_1_inbound_drain(
         &self,
         sigint: &mut tokio::signal::unix::Signal,
@@ -642,6 +637,10 @@ impl Daemon {
     }
 
     /// Phase 2: Session stop (leaf → root) with progress card updates.
+    ///
+    /// Sends a progress notification card at the start, monitors for
+    /// graceful → forceful escalation to update the card, and sends a
+    /// final card when all sessions have stopped.
     async fn phase_2_session_stop(
         &self,
         mode: crate::daemon::shutdown::ShutdownMode,
@@ -763,6 +762,10 @@ impl Daemon {
     }
 
     /// Phase 3: Background task stop.
+    ///
+    /// - Drops SkillWatcher and ConfigWatcher (RAII) via `take()`
+    /// - Signals ArchiveSweeper and DreamingScheduler to stop
+    /// - Clears pending approval requests
     async fn phase_3_background_stop(&mut self) {
         // SkillWatcher and ConfigWatcher are RAII — stop on drop.
         // Explicitly take() and drop here to match Phase 3 ordering
