@@ -49,9 +49,11 @@ fn streaming_body(model: &str) -> serde_json::Value {
 async fn test_provider_send_streaming_success_mock() {
     let mut server = Server::new_async().await;
     let sse_body = "\
-data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n\
-data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n\
-data: [DONE]\n\n";
+event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n\
+event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" world\"}}\n\n\
+event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
     let m = server
         .mock("POST", "/")
         .with_status(200)
@@ -81,19 +83,23 @@ data: [DONE]\n\n";
     }
     assert_eq!(
         chunks.len(),
-        2,
-        "should have 2 data chunks (excluding [DONE])"
+        5,
+        "should have 5 data chunks (start, 2 deltas, stop, message_stop)"
     );
-    assert!(chunks[0].data.contains("Hello"));
-    assert!(chunks[1].data.contains("world"));
+    assert!(chunks[1].data.contains("text_delta"));
+    assert!(chunks[1].data.contains("Hello"));
+    assert!(chunks[2].data.contains("text_delta"));
+    assert!(chunks[2].data.contains("world"));
 }
 
 #[tokio::test]
 async fn test_provider_send_streaming_reasoning_mock() {
     let mut server = Server::new_async().await;
     let sse_body = "\
-data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking...\"}}]}\n\n\
-data: [DONE]\n\n";
+event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n\
+event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"thinking...\"}}\n\n\
+event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
     let m = server
         .mock("POST", "/")
         .with_status(200)
@@ -121,8 +127,13 @@ data: [DONE]\n\n";
     while let Some(chunk) = rx.recv().await {
         chunks.push(chunk);
     }
-    assert_eq!(chunks.len(), 1);
-    assert!(chunks[0].data.contains("reasoning_content"));
+    assert_eq!(
+        chunks.len(),
+        4,
+        "should have 4 data chunks (start, thinking delta, stop, message_stop)"
+    );
+    assert!(chunks[1].data.contains("thinking_delta"));
+    assert!(chunks[1].data.contains("thinking..."));
 }
 
 // --- send_streaming() error cases ---
