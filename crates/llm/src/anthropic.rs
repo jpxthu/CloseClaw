@@ -320,6 +320,54 @@ mod tests {
         }
     }
 
+    fn thinking_response_body() -> &'static str {
+        r#"{
+            "content": [
+                {"type": "thinking", "thinking": "Let me think..."},
+                {"type": "text", "text": "The answer is 42."}
+            ],
+            "usage": {"input_tokens": 20, "output_tokens": 15},
+            "stop_reason": "end_turn"
+        }"#
+    }
+
+    fn sse_mock_body() -> String {
+        "event: message_start\n".to_owned()
+            + "data: {\"message\":{\"usage\":{\"input_tokens\":10,"
+            + "\"output_tokens\":0}}}\n\n"
+            + "event: content_block_start\n"
+            + "data: {\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
+            + "event: content_block_delta\n"
+            + "data: {\"index\":0,\"delta\":{\"type\":"
+            + "\"text_delta\",\"text\":\"Hello\"}}\n\n"
+            + "event: content_block_stop\n"
+            + "data: {\"index\":0}\n\n"
+            + "event: message_delta\n"
+            + "data: {\"delta\":{\"stop_reason\":\"end_turn\"},"
+            + "\"usage\":{\"output_tokens\":1}}\n\n"
+            + "event: message_stop\n"
+            + "data: {}\n\n"
+    }
+
+    async fn assert_chunk(
+        stream: &mut SseStream,
+        expected_event: &str,
+        expected_data_substring: Option<&str>,
+    ) {
+        let chunk = stream
+            .recv()
+            .await
+            .unwrap_or_else(|| panic!("expected chunk with event '{expected_event}'"));
+        assert_eq!(chunk.event_type, expected_event);
+        if let Some(sub) = expected_data_substring {
+            assert!(
+                chunk.data.contains(sub),
+                "chunk data '{}' does not contain '{sub}'",
+                chunk.data
+            );
+        }
+    }
+
     // ── send() success tests ─────────────────────────────────────────────────
 
     #[tokio::test]
@@ -371,28 +419,15 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/messages")
             .with_status(200)
-            .with_body(
-                r#"{
-                    "content": [
-                        {"type": "thinking", "thinking": "Let me think..."},
-                        {"type": "text", "text": "The answer is 42."}
-                    ],
-                    "usage": {"input_tokens": 20, "output_tokens": 15},
-                    "stop_reason": "end_turn"
-                }"#,
-            )
+            .with_body(thinking_response_body())
             .create_async()
             .await;
 
         let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
-        let request = make_request();
         let response = provider
             .send(
-                request,
-                serde_json::json!({
-                    "model": "claude-3-opus",
-                    "messages": []
-                }),
+                make_request(),
+                serde_json::json!({"model": "claude-3-opus"}),
             )
             .await
             .unwrap();
@@ -407,14 +442,10 @@ mod tests {
                 assert_eq!(thinking, "Let me think...");
                 assert!(signature.is_none());
             }
-            other => {
-                panic!("Expected Thinking block, got: {:?}", other)
-            }
+            other => panic!("Expected Thinking block, got: {:?}", other),
         }
         match &response.content_blocks[1] {
-            RawContentBlock::Text(s) => {
-                assert_eq!(s, "The answer is 42.")
-            }
+            RawContentBlock::Text(s) => assert_eq!(s, "The answer is 42."),
             other => panic!("Expected Text block, got: {:?}", other),
         }
         assert_eq!(response.usage.prompt_tokens, 20);
@@ -573,23 +604,7 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/messages")
             .with_status(200)
-            .with_body(
-                "event: message_start\n".to_owned()
-                    + "data: {\"message\":{\"usage\":{\"input_tokens\":10,"
-                    + "\"output_tokens\":0}}}\n\n"
-                    + "event: content_block_start\n"
-                    + "data: {\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
-                    + "event: content_block_delta\n"
-                    + "data: {\"index\":0,\"delta\":{\"type\":"
-                    + "\"text_delta\",\"text\":\"Hello\"}}\n\n"
-                    + "event: content_block_stop\n"
-                    + "data: {\"index\":0}\n\n"
-                    + "event: message_delta\n"
-                    + "data: {\"delta\":{\"stop_reason\":\"end_turn\"},"
-                    + "\"usage\":{\"output_tokens\":1}}\n\n"
-                    + "event: message_stop\n"
-                    + "data: {}\n\n",
-            )
+            .with_body(sse_mock_body())
             .create_async()
             .await;
 
@@ -603,27 +618,12 @@ mod tests {
             .unwrap();
         mock.assert_async().await;
 
-        let chunk1 = stream.recv().await.expect("should receive chunk 1");
-        assert_eq!(chunk1.event_type, "message_start");
-        assert!(chunk1.data.contains("input_tokens"));
-
-        let chunk2 = stream.recv().await.expect("should receive chunk 2");
-        assert_eq!(chunk2.event_type, "content_block_start");
-        assert!(chunk2.data.contains("text"));
-
-        let chunk3 = stream.recv().await.expect("should receive chunk 3");
-        assert_eq!(chunk3.event_type, "content_block_delta");
-        assert!(chunk3.data.contains("Hello"));
-
-        let chunk4 = stream.recv().await.expect("should receive chunk 4");
-        assert_eq!(chunk4.event_type, "content_block_stop");
-
-        let chunk5 = stream.recv().await.expect("should receive chunk 5");
-        assert_eq!(chunk5.event_type, "message_delta");
-        assert!(chunk5.data.contains("end_turn"));
-
-        let chunk6 = stream.recv().await.expect("should receive chunk 6");
-        assert_eq!(chunk6.event_type, "message_stop");
+        assert_chunk(&mut stream, "message_start", Some("input_tokens")).await;
+        assert_chunk(&mut stream, "content_block_start", Some("text")).await;
+        assert_chunk(&mut stream, "content_block_delta", Some("Hello")).await;
+        assert_chunk(&mut stream, "content_block_stop", None).await;
+        assert_chunk(&mut stream, "message_delta", Some("end_turn")).await;
+        assert_chunk(&mut stream, "message_stop", None).await;
 
         let done = stream.recv().await;
         assert!(
