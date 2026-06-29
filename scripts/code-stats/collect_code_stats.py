@@ -185,6 +185,18 @@ def _classify(path: str) -> str | None:
     return None
 
 
+# ---------- Test file detection via #[path] convention --------------------------
+
+# Files ending with ``_tests.rs`` that are NOT in the ``tests/`` directory.
+# These are test module files included via ``#[path = "xxx_tests.rs"]`` in
+# the parent module.  They contain real test code but have no inner
+# ``#[cfg(test)]`` gate — the gate lives in the referencing parent file.
+# Convention: suffix ``_tests.rs``, located next to the module that includes them.
+def _is_path_included_test(path: str) -> bool:
+    """Return True for *_tests.rs files outside the tests/ directory."""
+    return path.endswith("_tests.rs") and not path.startswith("tests/")
+
+
 # ---------- Counting ------------------------------------------------------------
 
 # Matches ``#[cfg(test)]`` (Rust test module gate).
@@ -269,6 +281,10 @@ def _snapshot(commit: str) -> Dict[str, int]:
             test_cases += tests
             if f.startswith("tests/"):
                 # Integration test files: entire file is test code.
+                test_loc += loc
+            elif _is_path_included_test(f):
+                # Test module files included via #[path = "xxx_tests.rs"]:
+                # entire file is test code (no inner #[cfg(test)] wrapper).
                 test_loc += loc
             else:
                 test_loc += tloc
@@ -421,13 +437,30 @@ def _collect() -> Dict[str, list]:
     }
 
 
+DATA_FILE = SCRIPT_DIR / "data" / "daily_stats.json"
+
+
 def get_data() -> Dict[str, list]:
-    """Collect fresh statistics and return the result dict."""
+    """Return cached data from disk, or collect fresh if missing."""
+    import json as _json
+    if DATA_FILE.exists():
+        with open(DATA_FILE) as f:
+            return _json.load(f)
     return _collect()
 
 
+def collect_and_save() -> Dict[str, list]:
+    """Collect fresh statistics, save to disk, and return."""
+    import json as _json
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = _collect()
+    with open(DATA_FILE, "w") as f:
+        _json.dump(data, f)
+    return data
+
+
 if __name__ == "__main__":
-    data = get_data()
+    data = collect_and_save()
     n = len(data["dates"])
     print(f"Collected {n} days ({data['dates'][0]} -> {data['dates'][-1]})")
     if n:
