@@ -187,9 +187,13 @@ def _classify(path: str) -> str | None:
 
 # ---------- Counting ------------------------------------------------------------
 
+# Matches ``#[cfg(test)]`` (Rust test module gate).
+_CFG_TEST_RE = re.compile(r"^#\[\s*cfg\s*\(\s*test\s*\)\s*\]$")
+
+
 def _count_loc_and_tests(content: str) -> tuple:
     """
-    Return (loc, test_count) for the given file content.
+    Return (loc, test_count, test_loc) for the given file content.
 
     LOC rules (per spec, mirrors the original script):
       - skip blank lines
@@ -198,17 +202,21 @@ def _count_loc_and_tests(content: str) -> tuple:
       - do NOT handle inline ``//`` or string literals
     Test rules (Rust only — caller decides whether to call this):
       - line is a test attribute if TEST_ATTR_RE matches.
+    Test LOC rules:
+      - lines inside a ``#[cfg(test)]`` block (Rust test modules).
     """
     loc = 0
     tests = 0
+    test_loc = 0
     in_block = False
+    in_cfg_test = False
+    brace_depth = 0
     for line in content.splitlines():
         s = line.strip()
         if not s:
             continue
         if not in_block:
             if s.startswith("/*"):
-                # Block comment: may close on same line.
                 after_open = s[s.index("/*") + 2:]
                 if "*/" in after_open:
                     continue
@@ -219,11 +227,22 @@ def _count_loc_and_tests(content: str) -> tuple:
             loc += 1
             if TEST_ATTR_RE.match(s):
                 tests += 1
+            if in_cfg_test:
+                test_loc += 1
+                prev_depth = brace_depth
+                brace_depth += s.count('{') - s.count('}')
+                if not _entered and brace_depth > prev_depth and brace_depth >= 1:
+                    _entered = True
+                if _entered and brace_depth <= 0:
+                    in_cfg_test = False
+            elif _CFG_TEST_RE.match(s):
+                in_cfg_test = True
+                brace_depth = 0
+                _entered = False
         else:
             if "*/" in s:
                 in_block = False
-            # do not count either way
-    return loc, tests
+    return loc, tests, test_loc
 
 
 def _snapshot(commit: str) -> Dict[str, int]:
@@ -239,14 +258,20 @@ def _snapshot(commit: str) -> Dict[str, int]:
 
     total_loc = 0
     test_cases = 0
+    test_loc = 0
     for f in code_files:
         content = _show_file(commit, f)
         if not content:
             continue
-        loc, tests = _count_loc_and_tests(content)
+        loc, tests, tloc = _count_loc_and_tests(content)
         total_loc += loc
         if f.endswith(".rs"):
             test_cases += tests
+            if f.startswith("tests/"):
+                # Integration test files: entire file is test code.
+                test_loc += loc
+            else:
+                test_loc += tloc
 
     doc_lines = 0
     for f in doc_files:
@@ -258,6 +283,7 @@ def _snapshot(commit: str) -> Dict[str, int]:
     return {
         "code_total_loc": total_loc,
         "test_cases": test_cases,
+        "test_loc": test_loc,
         "code_files": len(code_files),
         "doc_total_loc": doc_lines,
         "doc_files": len(doc_files),
@@ -309,6 +335,7 @@ def _empty_dict() -> Dict[str, list]:
         "code_files": [],
         "doc_files": [],
         "test_cases": [],
+        "test_loc": [],
     }
 
 
@@ -347,6 +374,7 @@ def _collect() -> Dict[str, list]:
     code_files: List[int] = []
     doc_files: List[int] = []
     test_cases: List[int] = []
+    test_loc_list: List[int] = []
 
     cum_code = 0
     last_snap: Dict[str, int] | None = None
@@ -365,8 +393,8 @@ def _collect() -> Dict[str, list]:
         if last_snap is None:
             # Shouldn't happen (oldest_date came from a commit), but stay safe.
             last_snap = {
-                "code_total_loc": 0, "test_cases": 0, "code_files": 0,
-                "doc_total_loc": 0, "doc_files": 0,
+                "code_total_loc": 0, "test_cases": 0, "test_loc": 0,
+                "code_files": 0, "doc_total_loc": 0, "doc_files": 0,
             }
 
         cum_code += day_code_changed.get(day, 0)
@@ -377,6 +405,7 @@ def _collect() -> Dict[str, list]:
         code_files.append(last_snap["code_files"])
         doc_files.append(last_snap["doc_files"])
         test_cases.append(last_snap["test_cases"])
+        test_loc_list.append(last_snap["test_loc"])
 
         dt += timedelta(days=1)
 
@@ -388,6 +417,7 @@ def _collect() -> Dict[str, list]:
         "code_files": code_files,
         "doc_files": doc_files,
         "test_cases": test_cases,
+        "test_loc": test_loc_list,
     }
 
 
@@ -409,7 +439,8 @@ if __name__ == "__main__":
             f"doc_loc={data['doc_total_loc'][i0]} "
             f"code_files={data['code_files'][i0]} "
             f"doc_files={data['doc_files'][i0]} "
-            f"tests={data['test_cases'][i0]}"
+            f"tests={data['test_cases'][i0]} "
+            f"test_loc={data['test_loc'][i0]}"
         )
         print(
             f"  [{iN:>3}] {data['dates'][iN]}: "
@@ -418,5 +449,6 @@ if __name__ == "__main__":
             f"doc_loc={data['doc_total_loc'][iN]} "
             f"code_files={data['code_files'][iN]} "
             f"doc_files={data['doc_files'][iN]} "
-            f"tests={data['test_cases'][iN]}"
+            f"tests={data['test_cases'][iN]} "
+            f"test_loc={data['test_loc'][iN]}"
         )

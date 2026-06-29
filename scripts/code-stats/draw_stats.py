@@ -123,9 +123,10 @@ def build_html(data):
     code_files       = forward_fill(data["code_files"])
     doc_files        = forward_fill(data["doc_files"])
     test_cases       = forward_fill(data["test_cases"])
+    test_loc         = forward_fill(data.get("test_loc", []))
 
     # Pre-computed axis max (avoids Chart.js auto-scaling desync on dual axes).
-    max_code_loc    = max(code_total_loc)   if code_total_loc   else 0
+    max_code_loc    = max(max(code_total_loc), max(test_loc) if test_loc else 0) if code_total_loc else 0
     max_code_cum    = max(code_changed_cum) if code_changed_cum else 0
     max_code_files  = max(code_files)       if code_files       else 0
     max_doc_files   = max(doc_files)        if doc_files        else 0
@@ -137,6 +138,7 @@ def build_html(data):
     latest_code_files = code_files[-1]
     latest_doc_files  = doc_files[-1]
     latest_tests      = test_cases[-1]
+    latest_test_loc   = test_loc[-1] if test_loc else 0
 
     # Serialize to JSON for JS injection
     d  = json.dumps(dates)
@@ -146,6 +148,7 @@ def build_html(data):
     cf = json.dumps(code_files)
     df = json.dumps(doc_files)
     tc = json.dumps(test_cases)
+    tl = json.dumps(test_loc)
 
     pt_radius = min(3, max(2, len(dates) // 15))
 
@@ -179,7 +182,7 @@ def build_html(data):
 
 <div class="charts">
   <div class="chart-box wide">
-    <div class="chart-title">① 代码行数 &nbsp;|&nbsp; 左轴: 代码总行数 <b style="color:#4285f4">{latest_code_loc:,}</b> 行 &nbsp;|&nbsp; 右轴: 累计改动 <b style="color:#ea4335">{latest_code_cum:,}</b> 行</div>
+    <div class="chart-title">① 代码行数 &nbsp;|&nbsp; 左轴: 代码总行数 <b style="color:#4285f4">{latest_code_loc:,}</b> 行 &nbsp;|&nbsp; 测试代码 <b style="color:#4285f4">{latest_test_loc:,}</b> 行 &nbsp;|&nbsp; 右轴: 累计改动 <b style="color:#ea4335">{latest_code_cum:,}</b> 行</div>
     <canvas id="codeLocChart"></canvas>
   </div>
   <div class="chart-box wide">
@@ -237,6 +240,16 @@ new Chart(document.getElementById('codeLocChart'), {{
         tension: 0.4,
         pointRadius: 0,
         yAxisID: 'yRight'
+      }},
+      {{
+        label: '测试代码行数',
+        data: {tl},
+        borderColor: '#4285f4',
+        borderDash: [6, 4],
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0,
+        yAxisID: 'yLeft'
       }}
     ]
   }},
