@@ -356,7 +356,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> 
             content,
             message_id,
             timestamp_ms: chrono::Utc::now().timestamp_millis(),
-            account_id: None,
+            account_id: Some("owner".to_string()),
         };
         let processed = gateway.process_inbound_chain(&input).await;
 
