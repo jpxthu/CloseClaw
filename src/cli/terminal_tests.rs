@@ -332,6 +332,51 @@ mod tests {
         plugin.init().await.unwrap();
     }
 
+    // =========================================================================
+    // account_id mapping tests (Step 1.3)
+    // =========================================================================
+
+    /// make_message produces account_id = Some("owner") for any content,
+    /// aligning with the design doc: "local user defaults to Owner".
+    #[test]
+    fn test_make_message_account_id_is_owner() {
+        let adapter = TerminalAdapter::new();
+        let msg = adapter.make_message("hello world".to_string());
+        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+    }
+
+    /// Empty content still receives the correct account_id.
+    #[test]
+    fn test_make_message_empty_content_account_id() {
+        let adapter = TerminalAdapter::new();
+        let msg = adapter.make_message(String::new());
+        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+    }
+
+    /// make_message preserves platform, peer_id, sender_id, and message_type.
+    #[test]
+    fn test_make_message_other_fields_unchanged() {
+        let adapter = TerminalAdapter::new();
+        let msg = adapter.make_message("test".to_string());
+        assert_eq!(msg.platform, "terminal");
+        assert_eq!(msg.peer_id, "cli");
+        assert_eq!(msg.sender_id, crate::platform::current_uid());
+        assert_eq!(msg.message_type, "text");
+        assert!(msg.media_refs.is_empty());
+        assert!(msg.quoted_message.is_none());
+        assert!(msg.thread_id.is_none());
+        assert!(msg.card_action.is_none());
+    }
+
+    /// Multiline content is preserved correctly.
+    #[test]
+    fn test_make_message_multiline_content_preserved() {
+        let adapter = TerminalAdapter::new();
+        let msg = adapter.make_message("line1\nline2\nline3".to_string());
+        assert_eq!(msg.content, "line1\nline2\nline3");
+        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+    }
+
     // DSL skip rendering tests (Step 1.7) — plugin-level
     // =========================================================================
 

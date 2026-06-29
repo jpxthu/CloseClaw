@@ -324,7 +324,16 @@ async fn build_session_handler(
 ///
 /// Returns [`ExitReason::Quit`] when the user exits normally, or
 /// [`ExitReason::Error`] on I/O failure.
-async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> ExitReason {
+///
+/// # Note on `agent_id`
+///
+/// `agent_id` is intentionally not used within this function. Per-agent session
+/// isolation is provided by independent [`SessionManager`] instances — each agent
+/// gets its own Gateway + SessionManager in [`build_gateway()`], so `agent_id`
+/// does not participate in session_key calculation. The parameter is kept for API
+/// clarity and forward compatibility.
+async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, sender_id: &str) -> ExitReason {
+    let _ = agent_id; // unused; isolation handled by upstream Gateway/SessionManager
     let plugin = TerminalPlugin::new();
 
     loop {
@@ -356,7 +365,7 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str, sender_id: &str) -> 
             content,
             message_id,
             timestamp_ms: chrono::Utc::now().timestamp_millis(),
-            account_id: None,
+            account_id: Some("owner".to_string()),
         };
         let processed = gateway.process_inbound_chain(&input).await;
 
