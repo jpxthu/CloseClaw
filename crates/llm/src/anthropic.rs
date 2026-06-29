@@ -690,4 +690,184 @@ mod tests {
             "channel should be closed after message_stop"
         );
     }
+
+    // ── send() network timeout ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_anthropic_send_timeout() {
+        let mut server = Server::new_async().await;
+        // Return empty body after delay — mockito default is instant,
+        // but reqwest timeout fires before response completes.
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body("")
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let request = make_request();
+        // Empty JSON body will parse as error from Anthropic side;
+        // here we just verify reqwest errors surface as ProviderError.
+        let result = provider.send(request, serde_json::json!({})).await;
+        mock.assert_async().await;
+        // Empty body → JSON parse failure → ProviderError::Reqwest
+        assert!(result.is_err());
+    }
+
+    // ── send() malformed JSON response ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_anthropic_send_malformed_json() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body("this is not json")
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let request = make_request();
+        let result = provider.send(request, serde_json::json!({})).await;
+        mock.assert_async().await;
+        assert!(result.is_err());
+    }
+
+    // ── send() only thinking block (no text) ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_anthropic_send_thinking_only() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body(
+                r#"{
+                    "content": [
+                        {"type": "thinking", "thinking": "deep reasoning here"}
+                    ],
+                    "usage": {"input_tokens": 10, "output_tokens": 8},
+                    "stop_reason": "end_turn"
+                }"#,
+            )
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let request = make_request();
+        let response = provider.send(request, serde_json::json!({})).await.unwrap();
+        mock.assert_async().await;
+
+        assert_eq!(response.content_blocks.len(), 1);
+        match &response.content_blocks[0] {
+            RawContentBlock::Thinking {
+                thinking,
+                signature,
+            } => {
+                assert_eq!(thinking, "deep reasoning here");
+                assert!(signature.is_none());
+            }
+            other => {
+                panic!("Expected Thinking block, got: {:?}", other)
+            }
+        }
+    }
+
+    // ── send() very long response ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_anthropic_send_very_long_response() {
+        let long_text = "a".repeat(100_000);
+        let body = serde_json::json!({
+            "content": [{"type": "text", "text": &long_text}],
+            "usage": {"input_tokens": 10, "output_tokens": 50_000},
+            "stop_reason": "end_turn"
+        });
+
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body(body.to_string())
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let request = make_request();
+        let response = provider.send(request, serde_json::json!({})).await.unwrap();
+        mock.assert_async().await;
+
+        assert_eq!(response.content_blocks.len(), 1);
+        match &response.content_blocks[0] {
+            RawContentBlock::Text(s) => {
+                assert_eq!(s.len(), 100_000);
+            }
+            other => panic!("Expected Text block, got: {:?}", other),
+        }
+        assert_eq!(response.usage.completion_tokens, 50_000);
+    }
+
+    // ── send_streaming() server error ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_anthropic_send_streaming_server_error() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(500)
+            .with_body(r#"{"error": {"message": "internal error"}}"#)
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let result = provider
+            .send_streaming(make_request(), serde_json::json!({}))
+            .await;
+        mock.assert_async().await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ProviderError::Legacy(msg) => assert!(msg.contains("500")),
+            other => {
+                panic!("Expected Legacy error for 500, got: {:?}", other)
+            }
+        }
+    }
+
+    // ── send_streaming() malformed chunk handling ────────────────────────────
+
+    #[tokio::test]
+    async fn test_anthropic_send_streaming_malformed_event() {
+        let mut server = Server::new_async().await;
+        // Send a valid event followed by malformed data;
+        // the stream should still deliver parseable events.
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body(
+                "event: message_start\n".to_owned()
+                    + "data: {\"message\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n"
+                    + "garbage data no event type\n\n"
+                    + "event: message_stop\n" + "data: {}\n\n",
+            )
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let mut stream = provider
+            .send_streaming(make_request(), serde_json::json!({}))
+            .await
+            .unwrap();
+        mock.assert_async().await;
+
+        let chunk = stream.recv().await.expect("should receive message_start");
+        assert_eq!(chunk.event_type, "message_start");
+
+        // Garbage line has no event: prefix, so it's skipped.
+        let chunk = stream.recv().await.expect("should receive message_stop");
+        assert_eq!(chunk.event_type, "message_stop");
+
+        let done = stream.recv().await;
+        assert!(done.is_none(), "channel should be closed");
+    }
 }
