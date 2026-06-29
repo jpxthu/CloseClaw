@@ -167,6 +167,7 @@ async fn test_parse_sse_reasoning_content_delta() {
         make_sse_chunk("[DONE]"),
     ]));
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
+    // Buffered reasoning flushed as a single Thinking block at stream end.
     let evt1 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt1,
@@ -176,23 +177,20 @@ async fn test_parse_sse_reasoning_content_delta() {
         }
     ));
     let evt2 = stream.next().await.unwrap().unwrap();
+    // All reasoning deltas concatenated into one BlockDelta.
     assert!(
-        matches!(evt2, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "step 1")
+        matches!(evt2, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "step 1step 2")
     );
     let evt3 = stream.next().await.unwrap().unwrap();
-    assert!(
-        matches!(evt3, StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "step 2")
-    );
-    let evt4 = stream.next().await.unwrap().unwrap();
     assert!(matches!(
-        evt4,
+        evt3,
         StreamEvent::BlockEnd {
             block_type: ContentBlockType::Thinking,
             ..
         }
     ));
-    let evt5 = stream.next().await.unwrap().unwrap();
-    assert!(matches!(evt5, StreamEvent::MessageEnd { .. }));
+    let evt4 = stream.next().await.unwrap().unwrap();
+    assert!(matches!(evt4, StreamEvent::MessageEnd { .. }));
     assert!(stream.next().await.is_none());
 }
 
@@ -367,7 +365,7 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
         make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
     ]));
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
-    // Thinking BlockStart
+    // Buffered reasoning flushed as Thinking block at tool_calls transition.
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
@@ -376,21 +374,12 @@ async fn test_parse_sse_reasoning_then_tool_calls() {
             ..
         }
     ));
-
-    // Thinking content 1
+    // All reasoning deltas concatenated into one BlockDelta.
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         evt,
-        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "Let me think..."
+        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == "Let me think... done."
     ));
-
-    // Thinking content 2
-    let evt = stream.next().await.unwrap().unwrap();
-    assert!(matches!(
-        evt,
-        StreamEvent::BlockDelta { delta: ContentDelta::Thinking { thinking: s, .. }, .. } if s == " done."
-    ));
-
     // Thinking BlockEnd
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
@@ -620,4 +609,282 @@ fn test_build_request_extra_body_passthrough_non_thinking() {
     let body = proto.build_request(&request).unwrap();
     assert_eq!(body.get("custom_key").unwrap(), &serde_json::json!(42));
     assert!(body.get("thinking").is_none());
+}
+
+// ── streaming short reasoning filtering tests (Step 1.2) ─────────────────
+
+#[tokio::test]
+async fn test_parse_sse_short_reasoning_demotes_to_text_with_content() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":" "}}]}"#),
+        make_sse_chunk(r#"{"choices":[{"delta":{"content":"Hello"}}]}"#),
+        make_sse_chunk("[DONE]"),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+
+    let mut events = Vec::new();
+    while let Some(evt) = stream.next().await {
+        events.push(evt.unwrap());
+    }
+
+    // No Thinking block
+    let has_thinking = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::Thinking,
+                ..
+            } | StreamEvent::BlockDelta {
+                delta: ContentDelta::Thinking { .. },
+                ..
+            }
+        )
+    });
+    assert!(
+        !has_thinking,
+        "Short reasoning should not produce Thinking block"
+    );
+
+    // Reasoning content " " demoted to Text, appears alongside content
+    let text_deltas: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            StreamEvent::BlockDelta {
+                delta: ContentDelta::Text { text },
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        text_deltas.contains(&" "),
+        "Short reasoning should be demoted to Text"
+    );
+    assert!(
+        text_deltas.contains(&"Hello"),
+        "Content should appear as Text"
+    );
+}
+
+#[tokio::test]
+async fn test_parse_sse_short_reasoning_no_content_demotes_to_text() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":"a"}}]}"#),
+        make_sse_chunk("[DONE]"),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+
+    let mut events = Vec::new();
+    while let Some(evt) = stream.next().await {
+        events.push(evt.unwrap());
+    }
+
+    // Should produce a Text block, not Thinking
+    let has_thinking = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::Thinking,
+                ..
+            }
+        )
+    });
+    assert!(
+        !has_thinking,
+        "Short reasoning should not produce Thinking block"
+    );
+
+    let has_text_start = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::Text,
+                ..
+            }
+        )
+    });
+    assert!(has_text_start, "Short reasoning should produce Text block");
+
+    let text_deltas: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            StreamEvent::BlockDelta {
+                delta: ContentDelta::Text { text },
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        text_deltas.contains(&"a"),
+        "Reasoning content should appear as Text"
+    );
+}
+
+#[tokio::test]
+async fn test_parse_sse_normal_reasoning_keeps_thinking_with_content() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"reasoning_content":"Let me think about this."}}]}"#,
+        ),
+        make_sse_chunk(r#"{"choices":[{"delta":{"content":"Hello"}}]}"#),
+        make_sse_chunk("[DONE]"),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+
+    let mut events = Vec::new();
+    while let Some(evt) = stream.next().await {
+        events.push(evt.unwrap());
+    }
+
+    // Should have Thinking block
+    let has_thinking_start = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::Thinking,
+                ..
+            }
+        )
+    });
+    assert!(
+        has_thinking_start,
+        "Normal reasoning should produce Thinking block"
+    );
+
+    let thinking_deltas: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            StreamEvent::BlockDelta {
+                delta: ContentDelta::Thinking { thinking, .. },
+                ..
+            } => Some(thinking.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        thinking_deltas.contains(&"Let me think about this."),
+        "Thinking content should be preserved"
+    );
+
+    // Should have Text block for content
+    let has_text_start = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::Text,
+                ..
+            }
+        )
+    });
+    assert!(has_text_start, "Content should produce Text block");
+
+    let text_deltas: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            StreamEvent::BlockDelta {
+                delta: ContentDelta::Text { text },
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        text_deltas.contains(&"Hello"),
+        "Content should appear as Text"
+    );
+}
+
+#[tokio::test]
+async fn test_parse_sse_empty_reasoning_delta_ignored() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(r#"{"choices":[{"delta":{"reasoning_content":""}}]}"#),
+        make_sse_chunk("[DONE]"),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+
+    let mut events = Vec::new();
+    while let Some(evt) = stream.next().await {
+        events.push(evt.unwrap());
+    }
+
+    // Should have no block start/delta events (only MessageEnd)
+    let has_block = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart { .. } | StreamEvent::BlockDelta { .. }
+        )
+    });
+    assert!(
+        !has_block,
+        "Empty reasoning delta should not produce any blocks"
+    );
+}
+
+#[tokio::test]
+async fn test_parse_sse_normal_reasoning_no_content_keeps_thinking() {
+    let proto = GlmProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"reasoning_content":"Let me think step by step..."}}]}"#,
+        ),
+        make_sse_chunk("[DONE]"),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+
+    let mut events = Vec::new();
+    while let Some(evt) = stream.next().await {
+        events.push(evt.unwrap());
+    }
+
+    // Should have Thinking block
+    let has_thinking_start = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::Thinking,
+                ..
+            }
+        )
+    });
+    assert!(
+        has_thinking_start,
+        "Normal reasoning without content should produce Thinking block"
+    );
+
+    let thinking_deltas: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            StreamEvent::BlockDelta {
+                delta: ContentDelta::Thinking { thinking, .. },
+                ..
+            } => Some(thinking.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        thinking_deltas.contains(&"Let me think step by step..."),
+        "Thinking content should be preserved"
+    );
+
+    // Should NOT have Text block
+    let has_text = events.iter().any(|e| {
+        matches!(
+            e,
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::Text,
+                ..
+            }
+        )
+    });
+    assert!(!has_text, "No content should not produce Text block");
 }
