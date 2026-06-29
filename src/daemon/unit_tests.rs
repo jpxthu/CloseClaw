@@ -231,6 +231,7 @@ async fn test_init_llm_registry_both_absent_no_registration() {
         ("OPENAI_API_KEY", ""),
         ("ANTHROPIC_API_KEY", ""),
         ("MINIMAX_API_KEY", ""),
+        ("MIMO_API_KEY", ""),
     ]);
 
     // Act
@@ -241,5 +242,69 @@ async fn test_init_llm_registry_both_absent_no_registration() {
     assert!(
         listed.is_empty(),
         "no provider should be registered when no credentials or env vars"
+    );
+}
+
+// ============================================================
+// MiMo provider registration tests (Step 1.4)
+// ============================================================
+
+#[tokio::test]
+async fn test_init_llm_registry_mimo_via_env_override() {
+    let tmp = TempDir::new().unwrap();
+    let overrides: HashMap<&str, &str> = HashMap::from([("MIMO_API_KEY", "mimo-env-key-789")]);
+
+    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+
+    let listed = registry.list().await;
+    assert!(
+        listed.contains(&"mimo".to_string()),
+        "mimo should be registered from env override"
+    );
+    assert!(
+        registry.get("mimo").await.is_some(),
+        "mimo provider should be retrievable"
+    );
+}
+
+#[tokio::test]
+async fn test_init_llm_registry_mimo_via_credentials_file() {
+    let tmp = TempDir::new().unwrap();
+    let creds_dir = tmp.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+    std::fs::write(
+        creds_dir.join("mimo.json"),
+        r#"{"provider":"mimo","apiKey":"mimo-file-key-101"}"#,
+    )
+    .unwrap();
+
+    let registry = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+
+    let listed = registry.list().await;
+    assert!(
+        listed.contains(&"mimo".to_string()),
+        "mimo should be registered from credentials file"
+    );
+    assert!(
+        registry.get("mimo").await.is_some(),
+        "mimo provider should be retrievable"
+    );
+}
+
+#[tokio::test]
+async fn test_init_llm_registry_mimo_not_registered_when_absent() {
+    let tmp = TempDir::new().unwrap();
+    let overrides: HashMap<&str, &str> = HashMap::from([("MIMO_API_KEY", "")]);
+
+    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+
+    let listed = registry.list().await;
+    assert!(
+        !listed.contains(&"mimo".to_string()),
+        "mimo should NOT be registered when credentials are missing"
+    );
+    assert!(
+        registry.get("mimo").await.is_none(),
+        "mimo provider should not be retrievable"
     );
 }
