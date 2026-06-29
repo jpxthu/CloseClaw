@@ -13,9 +13,9 @@ closeclaw <command>
 
 ├── Chat 层（消息链路内）
 │   └── closeclaw chat
-│       └── TerminalPlugin（实现 IMPlugin trait，platform="terminal"）
+│       └── TerminalPlugin（实现 IM 插件接口，以 terminal 渠道注册）
 │           ├── 入站：stdin → TerminalAdapter → NormalizedMessage
-│           └── 出站：ContentBlock[] → TerminalRenderer → stdout
+│           └── 出站：ContentBlock[] → TerminalRenderer → RenderedOutput → TerminalPlugin 发送 → stdout
 │
 └── Admin 层（消息链路外）
     ├── closeclaw run          — 启动 daemon
@@ -33,7 +33,7 @@ CLI Chat 与飞书、Discord 等 IM 渠道实现同一个 IMPlugin trait，在 G
 - 出站渠道：stdout（无 IM API）
 - 权限：调用者默认为 Owner（单用户），无需鉴权
 
-斜杠指令和普通对话的语义与其他渠道完全一致——同一套 SlashDispatcher 处理，Gateway 按统一规则路由。
+斜杠指令和普通对话的语义与其他渠道完全一致——同一套 SlashDispatcher 处理，Gateway 按统一规则路由。斜杠指令回复和 LLM 回复均以 ContentBlock[] 形式进入出站链路，经 Processor Chain 处理后渲染发送。
 
 ### 跨操作系统
 
@@ -43,7 +43,7 @@ CLI 支持 Linux、macOS、Windows。OS 差异通过 [platform 模块](../platfo
 
 | 文档 | 内容 |
 |------|------|
-| [CLI Chat](chat.md) | TerminalPlugin：从 stdin 解析 NormalizedMessage，经出站链后渲染到 stdout |
+| [CLI Chat](chat.md) | TerminalPlugin：terminal 渠道的 IM 插件实现，入站解析 stdin 到 NormalizedMessage，出站渲染后发送到 stdout |
 | [Terminal Renderer](renderer.md) | ContentBlock[] 到 ANSI 终端文本的渲染策略 |
 | [CLI Admin](admin.md) | 管理命令体系：daemon 生命周期、配置管理、资源查询 |
 
@@ -54,13 +54,15 @@ CLI 支持 Linux、macOS、Windows。OS 差异通过 [platform 模块](../platfo
 ```
 stdin 输入
   ↓
-TerminalAdapter.parse() → NormalizedMessage { platform: "terminal", sender_id, peer_id, content, timestamp }
+TerminalAdapter 解析输入 → NormalizedMessage（包含 platform、sender_id、peer_id 等字段，terminal 渠道专用字段值见 chat.md）
   ↓
-Processor Chain 入站 → ProcessedMessage → Gateway 路由
-  ├── / 开头 → SlashDispatcher
+Processor Chain 入站 → 处理后消息 → Gateway 路由
+  ├── / 开头 → SlashDispatcher → SlashResult → ContentBlock[]（进入出站）
   └── 普通文本 → Session → LLM → ContentBlock[]
   ↓
-Processor Chain 出站 → TerminalRenderer → ANSI 文本
+Processor Chain 出站 → TerminalPlugin（渲染 → 发送）
+  ├── TerminalRenderer 渲染 → RenderedOutput（ANSI 文本数据）
+  └── TerminalPlugin 发送 → stdout
   ↓
 stdout
 ```
