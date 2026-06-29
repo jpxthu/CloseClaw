@@ -79,6 +79,91 @@ impl AnthropicProvider {
     fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
         ProviderError::Legacy(format!("Anthropic API error {}: {}", status, body))
     }
+
+    fn build_headers(&self) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-api-key",
+            HeaderValue::from_str(&self.api_key)
+                .unwrap_or_else(|_| HeaderValue::from_static("invalid")),
+        );
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+        headers
+    }
+
+    fn parse_content_blocks(blocks: Vec<AnthropicContentBlock>) -> Vec<RawContentBlock> {
+        blocks
+            .into_iter()
+            .map(|block| match block {
+                AnthropicContentBlock::Text { text } => RawContentBlock::Text(text),
+                AnthropicContentBlock::Thinking {
+                    thinking,
+                    signature,
+                } => RawContentBlock::Thinking {
+                    thinking,
+                    signature,
+                },
+                AnthropicContentBlock::ToolUse { id, name, input } => RawContentBlock::ToolUse {
+                    id,
+                    name,
+                    input: input.to_string(),
+                },
+            })
+            .collect()
+    }
+
+    fn parse_usage(usage: AnthropicUsage) -> RawUsage {
+        RawUsage {
+            prompt_tokens: usage.input_tokens,
+            completion_tokens: usage.output_tokens,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        }
+    }
+
+    fn parse_sse_block(block: &str) -> (String, String) {
+        let mut event_type = String::new();
+        let mut data = String::new();
+        for line in block.lines() {
+            if let Some(et) = line.strip_prefix("event: ") {
+                event_type = et.trim().to_string();
+            } else if let Some(d) = line.strip_prefix("data: ") {
+                data = d.trim().to_string();
+            }
+        }
+        (event_type, data)
+    }
+
+    async fn handle_sse_stream(response: reqwest::Response, tx: mpsc::Sender<RawSseChunk>) {
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = match chunk_result {
+                Ok(c) => c,
+                Err(_) => break,
+            };
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(pos) = buffer.find("\n\n") {
+                let event_block = buffer[..pos].to_string();
+                buffer = buffer[pos + 2..].to_string();
+                let (event_type, data) = Self::parse_sse_block(&event_block);
+                if !event_type.is_empty() {
+                    let _ = tx.send(RawSseChunk { event_type, data }).await;
+                }
+            }
+        }
+
+        if !buffer.is_empty() {
+            let (event_type, data) = Self::parse_sse_block(&buffer);
+            if !event_type.is_empty() {
+                let _ = tx.send(RawSseChunk { event_type, data }).await;
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -114,15 +199,7 @@ impl Provider for AnthropicProvider {
         body: serde_json::Value,
     ) -> Result<InternalResponse> {
         let url = self.messages_url();
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-api-key",
-            HeaderValue::from_str(&self.api_key)
-                .unwrap_or_else(|_| HeaderValue::from_static("invalid")),
-        );
-        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-        headers.insert("content-type", HeaderValue::from_static("application/json"));
+        let headers = self.build_headers();
 
         let response = self
             .client
@@ -141,35 +218,9 @@ impl Provider for AnthropicProvider {
         let anthropic_resp: AnthropicResponse =
             response.json().await.map_err(ProviderError::Reqwest)?;
 
-        let content_blocks: Vec<RawContentBlock> = anthropic_resp
-            .content
-            .into_iter()
-            .map(|block| match block {
-                AnthropicContentBlock::Text { text } => RawContentBlock::Text(text),
-                AnthropicContentBlock::Thinking {
-                    thinking,
-                    signature,
-                } => RawContentBlock::Thinking {
-                    thinking,
-                    signature,
-                },
-                AnthropicContentBlock::ToolUse { id, name, input } => RawContentBlock::ToolUse {
-                    id,
-                    name,
-                    input: input.to_string(),
-                },
-            })
-            .collect();
-
         Ok(InternalResponse {
-            content_blocks,
-            usage: RawUsage {
-                prompt_tokens: anthropic_resp.usage.input_tokens,
-                completion_tokens: anthropic_resp.usage.output_tokens,
-                total_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
+            content_blocks: Self::parse_content_blocks(anthropic_resp.content),
+            usage: Self::parse_usage(anthropic_resp.usage),
             finish_reason: anthropic_resp.stop_reason,
         })
     }
@@ -180,15 +231,7 @@ impl Provider for AnthropicProvider {
         body: serde_json::Value,
     ) -> Result<SseStream> {
         let url = self.messages_url();
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-api-key",
-            HeaderValue::from_str(&self.api_key)
-                .unwrap_or_else(|_| HeaderValue::from_static("invalid")),
-        );
-        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-        headers.insert("content-type", HeaderValue::from_static("application/json"));
+        let headers = self.build_headers();
 
         let response = self
             .client
@@ -205,60 +248,7 @@ impl Provider for AnthropicProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
-
-        tokio::spawn(async move {
-            let mut stream = response.bytes_stream();
-            let mut buffer = String::new();
-
-            while let Some(chunk_result) = stream.next().await {
-                let chunk = match chunk_result {
-                    Ok(c) => c,
-                    Err(_) => break,
-                };
-
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                // Process complete SSE events (separated by \n\n)
-                while let Some(pos) = buffer.find("\n\n") {
-                    let event_block = buffer[..pos].to_string();
-                    buffer = buffer[pos + 2..].to_string();
-
-                    let mut event_type = String::new();
-                    let mut data = String::new();
-
-                    for line in event_block.lines() {
-                        if let Some(et) = line.strip_prefix("event: ") {
-                            event_type = et.trim().to_string();
-                        } else if let Some(d) = line.strip_prefix("data: ") {
-                            data = d.trim().to_string();
-                        }
-                    }
-
-                    if !event_type.is_empty() {
-                        let _ = tx.send(RawSseChunk { event_type, data }).await;
-                    }
-                }
-            }
-
-            // Process any remaining data in buffer
-            if !buffer.is_empty() {
-                let mut event_type = String::new();
-                let mut data = String::new();
-
-                for line in buffer.lines() {
-                    if let Some(et) = line.strip_prefix("event: ") {
-                        event_type = et.trim().to_string();
-                    } else if let Some(d) = line.strip_prefix("data: ") {
-                        data = d.trim().to_string();
-                    }
-                }
-
-                if !event_type.is_empty() {
-                    let _ = tx.send(RawSseChunk { event_type, data }).await;
-                }
-            }
-        });
-
+        tokio::spawn(Self::handle_sse_stream(response, tx));
         Ok(rx)
     }
 }
@@ -581,15 +571,18 @@ mod tests {
             .with_status(200)
             .with_body(
                 "event: message_start\n".to_owned()
-                    + "data: {\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n"
+                    + "data: {\"message\":{\"usage\":{\"input_tokens\":10,"
+                    + "\"output_tokens\":0}}}\n\n"
                     + "event: content_block_start\n"
                     + "data: {\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
                     + "event: content_block_delta\n"
-                    + "data: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n"
+                    + "data: {\"index\":0,\"delta\":{\"type\":"
+                    + "\"text_delta\",\"text\":\"Hello\"}}\n\n"
                     + "event: content_block_stop\n"
                     + "data: {\"index\":0}\n\n"
                     + "event: message_delta\n"
-                    + "data: {\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n"
+                    + "data: {\"delta\":{\"stop_reason\":\"end_turn\"},"
+                    + "\"usage\":{\"output_tokens\":1}}\n\n"
                     + "event: message_stop\n"
                     + "data: {}\n\n",
             )
