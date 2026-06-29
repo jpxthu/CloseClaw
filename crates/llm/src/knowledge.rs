@@ -381,7 +381,7 @@ mod tests {
         assert!(p.reasoning);
         assert!(matches!(
             p.reasoning_levels,
-            ReasoningLevels::Toggle { on: false }
+            ReasoningLevels::Toggle { on: true }
         ));
     }
 

@@ -40,7 +40,7 @@
     "max_tokens": 65536,
     "default_temperature": 1.0,
     "reasoning": true,
-    "reasoning_levels": { "type": "toggle", "value": { "on": false } },
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
     "input_types": ["text"],
     "recommended_protocol": "openai"
   }
