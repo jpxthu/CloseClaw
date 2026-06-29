@@ -79,6 +79,20 @@ impl Daemon {
             info!("MiniMax provider registered");
         }
 
+        // Register MiMo provider: credentials file first, then env override, then env var
+        let mimo_key = creds_provider
+            .get_api_key("mimo")
+            .or_else(|| env_overrides.get("MIMO_API_KEY").map(|s| s.to_string()))
+            .or_else(|| std::env::var("MIMO_API_KEY").ok())
+            .filter(|k| !k.is_empty());
+        if let Some(api_key) = mimo_key {
+            let provider: Arc<dyn closeclaw_llm::provider::Provider> = Arc::new(
+                OpenAIProvider::new_with_base_url(api_key, "https://api.xiaomimimo.com/v1"),
+            );
+            registry.register("mimo".to_string(), provider).await;
+            info!("MiMo provider registered");
+        }
+
         registry
     }
 }
