@@ -1,7 +1,12 @@
 //! Unit tests for the MiniMax provider.
 
 use super::*;
+use crate::cache_adapter::for_provider as cache_for_provider;
+use crate::plugin::ModelPlugin;
+use crate::protocol::{AnthropicProtocol, ChatProtocol};
+use crate::types::InternalRequest;
 use crate::{ModelLister, Provider};
+use closeclaw_session::persistence::ReasoningLevel;
 
 // --- Provider trait tests ---
 
@@ -71,8 +76,26 @@ fn create_internal_request(model: &str) -> InternalRequest {
         system_blocks: None,
         tools: None,
         session_id: None,
-        reasoning_level: Default::default(),
+        reasoning_level: ReasoningLevel::default(),
         turn_count: None,
+    }
+}
+
+fn make_minimax_response(
+    content: Vec<serde_json::Value>,
+    usage: Option<serde_json::Value>,
+    stop_reason: Option<&str>,
+) -> MiniMaxResponse {
+    MiniMaxResponse {
+        content: if content.is_empty() {
+            None
+        } else {
+            Some(serde_json::from_value(serde_json::Value::Array(content)).unwrap())
+        },
+        usage: usage.and_then(|u| serde_json::from_value(u).ok()),
+        model: "MiniMax-M2.7".to_string(),
+        stop_reason: stop_reason.map(|s| s.to_string()),
+        base_resp: None,
     }
 }
 
@@ -227,7 +250,7 @@ fn create_streaming_request(model: &str) -> InternalRequest {
         tools: None,
         system_blocks: None,
         session_id: None,
-        reasoning_level: Default::default(),
+        reasoning_level: ReasoningLevel::default(),
         turn_count: None,
     }
 }
@@ -476,4 +499,263 @@ async fn test_fetch_model_list_unknown_model_uses_fallback() {
     assert_eq!(model.id, "unknown-future-model");
     assert_eq!(model.context_window, 32_768);
     assert!(!model.reasoning);
+}
+
+// ===========================================================================
+// parse_chat_response unit tests (Anthropic protocol format)
+// ===========================================================================
+
+#[test]
+fn test_parse_chat_response_text_only() {
+    let resp = make_minimax_response(
+        vec![serde_json::json!({"type": "text", "text": "Hello world"})],
+        Some(serde_json::json!({"input_tokens": 10, "output_tokens": 5})),
+        Some("end_turn"),
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "Hello world"));
+    assert_eq!(result.usage.prompt_tokens, 10);
+    assert_eq!(result.usage.completion_tokens, 5);
+    assert_eq!(result.finish_reason.as_deref(), Some("end_turn"));
+}
+
+#[test]
+fn test_parse_chat_response_thinking_and_text() {
+    let resp = make_minimax_response(
+        vec![
+            serde_json::json!({"type": "thinking", "thinking": "reasoning...", "signature": "sig_123"}),
+            serde_json::json!({"type": "text", "text": "Final answer"}),
+        ],
+        Some(serde_json::json!({"input_tokens": 20, "output_tokens": 15})),
+        Some("end_turn"),
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(matches!(
+        &result.content_blocks[0],
+        RawContentBlock::Thinking { thinking, signature }
+            if thinking == "reasoning..." && signature.as_deref() == Some("sig_123")
+    ));
+    assert!(matches!(&result.content_blocks[1], RawContentBlock::Text(s) if s == "Final answer"));
+}
+
+#[test]
+fn test_parse_chat_response_empty_content() {
+    let resp = make_minimax_response(
+        vec![],
+        Some(serde_json::json!({"input_tokens": 5, "output_tokens": 0})),
+        Some("end_turn"),
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    assert!(result.content_blocks.is_empty());
+    assert_eq!(result.usage.prompt_tokens, 5);
+    assert_eq!(result.usage.completion_tokens, 0);
+}
+
+#[test]
+fn test_parse_chat_response_cache_usage_fields() {
+    let resp = make_minimax_response(
+        vec![serde_json::json!({"type": "text", "text": "cached"})],
+        Some(serde_json::json!({
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_read_input_tokens": 80,
+            "cache_creation_input_tokens": 20
+        })),
+        Some("end_turn"),
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    assert_eq!(result.usage.prompt_tokens, 100);
+    assert_eq!(result.usage.completion_tokens, 50);
+    assert_eq!(result.usage.cache_read_tokens, Some(80));
+    assert_eq!(result.usage.cache_write_tokens, Some(20));
+}
+
+#[test]
+fn test_parse_chat_response_no_usage() {
+    let resp = make_minimax_response(
+        vec![serde_json::json!({"type": "text", "text": "hi"})],
+        None,
+        Some("end_turn"),
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    assert_eq!(result.usage.prompt_tokens, 0);
+    assert_eq!(result.usage.completion_tokens, 0);
+}
+
+#[test]
+fn test_parse_chat_response_empty_thinking_is_skipped() {
+    let resp = make_minimax_response(
+        vec![
+            serde_json::json!({"type": "thinking", "thinking": ""}),
+            serde_json::json!({"type": "text", "text": "response"}),
+        ],
+        None,
+        None,
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    // Empty thinking block should be skipped
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "response"));
+}
+
+#[test]
+fn test_parse_chat_response_unknown_block_type_is_skipped() {
+    let resp = make_minimax_response(
+        vec![
+            serde_json::json!({"type": "unknown_type", "text": "ignored"}),
+            serde_json::json!({"type": "text", "text": "kept"}),
+        ],
+        None,
+        None,
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "kept"));
+}
+
+#[test]
+fn test_parse_chat_response_business_error() {
+    let resp = MiniMaxResponse {
+        content: None,
+        usage: None,
+        model: "MiniMax-M2.7".to_string(),
+        stop_reason: None,
+        base_resp: Some(MiniMaxBaseResp {
+            status_code: 1004,
+            status_msg: "token invalid".to_string(),
+        }),
+    };
+    let err = MiniMaxProvider::parse_chat_response(resp).unwrap_err();
+    assert!(matches!(err, ProviderError::Legacy(ref msg) if msg.contains("1004")));
+}
+
+#[test]
+fn test_parse_chat_response_multiple_text_blocks() {
+    let resp = make_minimax_response(
+        vec![
+            serde_json::json!({"type": "text", "text": "Part 1"}),
+            serde_json::json!({"type": "text", "text": "Part 2"}),
+            serde_json::json!({"type": "text", "text": "Part 3"}),
+        ],
+        None,
+        None,
+    );
+    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
+    assert_eq!(result.content_blocks.len(), 3);
+    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "Part 1"));
+    assert!(matches!(&result.content_blocks[1], RawContentBlock::Text(s) if s == "Part 2"));
+    assert!(matches!(&result.content_blocks[2], RawContentBlock::Text(s) if s == "Part 3"));
+}
+
+// ===========================================================================
+// Integration test: full call chain with mock HTTP
+// ===========================================================================
+
+/// Verify the full MiniMax call chain: CacheAdapter + Plugin + Protocol serialization,
+/// all wired together via mock HTTP.
+#[tokio::test]
+async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
+    let mut server = mockito::Server::new_async().await;
+
+    // 1. Apply CacheAdapter
+    let adapter = cache_for_provider("minimax");
+    assert_eq!(adapter.name(), "anthropic");
+    let mut request = InternalRequest {
+        model: "MiniMax-M2.7".into(),
+        messages: vec![crate::types::InternalMessage {
+            role: "user".into(),
+            content: "hi".into(),
+            ..Default::default()
+        }],
+        temperature: 0.7,
+        max_tokens: Some(1024),
+        stream: false,
+        extra_body: serde_json::Map::new(),
+        system_static: Some("You are a helpful assistant.".to_string()),
+        system_dynamic: None,
+        system_blocks: None,
+        tools: None,
+        session_id: None,
+        reasoning_level: ReasoningLevel::default(),
+        turn_count: None,
+    };
+    adapter.apply(&mut request);
+    assert!(
+        request.system_blocks.is_some(),
+        "CacheAdapter should have set system_blocks"
+    );
+
+    // 2. Apply MiniMaxPlugin
+    let plugin = MiniMaxPlugin;
+    plugin.before_request(&mut request);
+    assert_eq!(
+        request.extra_body.get("reasoning_split"),
+        Some(&serde_json::Value::Bool(true)),
+        "Plugin should inject reasoning_split"
+    );
+
+    // 3. Build request via AnthropicProtocol
+    let protocol = AnthropicProtocol::new();
+    let body = protocol.build_request(&request).unwrap();
+    assert_eq!(body.get("model").unwrap(), "MiniMax-M2.7");
+    assert_eq!(body.get("max_tokens").unwrap(), &serde_json::json!(1024));
+    // reasoning_split should be in extra_body
+    assert_eq!(
+        body.get("reasoning_split").unwrap(),
+        &serde_json::json!(true)
+    );
+    // system blocks should be present
+    assert!(body.get("system").is_some());
+    let system = body.get("system").unwrap().as_array().unwrap();
+    assert_eq!(system.len(), 1);
+    assert_eq!(
+        system[0].get("cache_control"),
+        Some(&serde_json::json!({"type": "ephemeral"})),
+        "static system block should have cache_control"
+    );
+    // last message should have cache_control
+    let messages = body.get("messages").unwrap().as_array().unwrap();
+    let last_content = messages[0].get("content").unwrap().as_array().unwrap();
+    assert_eq!(
+        last_content[0].get("cache_control"),
+        Some(&serde_json::json!({"type": "ephemeral"})),
+        "last message should have cache_control"
+    );
+
+    // 4. Mock the HTTP response
+    let m = server
+        .mock("POST", "/")
+        .match_header("x-api-key", "test-key")
+        .match_header("anthropic-version", "2023-06-01")
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(
+            serde_json::json!({
+                "content": [{"type": "text", "text": "Hello from MiniMax!"}],
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "stop_reason": "end_turn",
+                "model": "MiniMax-M2.7"
+            })
+            .to_string(),
+        )
+        .create_async()
+        .await;
+
+    // 5. Send via MiniMaxProvider
+    let provider =
+        MiniMaxProvider::with_http_client("test-key".into(), server.url(), reqwest::Client::new());
+    let result = Provider::send(&provider, request, body).await;
+
+    m.assert_async().await;
+    assert!(result.is_ok(), "send should succeed: {:?}", result.err());
+    let resp = result.unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello from MiniMax!")
+    );
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 5);
+    assert_eq!(resp.finish_reason.as_deref(), Some("end_turn"));
 }
