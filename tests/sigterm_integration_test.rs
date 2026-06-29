@@ -1,13 +1,17 @@
 //! Integration test for SIGTERM graceful shutdown
 //!
-//! Verifies that `closeclaw stop` (SIGTERM) triggers graceful shutdown
-//! instead of hard-killing the daemon.
+//! Verifies that `closeclaw run --foreground` + SIGTERM/SIGINT
+//! triggers graceful shutdown instead of hard-killing the daemon.
 
 use closeclaw::common::test_helpers::write_mandatory_configs;
+use std::os::unix::net::UnixStream;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
+
+const SOCKET_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
+const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Returns the path to the `closeclaw` daemon binary (not the test binary).
 fn closeclaw_binary() -> std::path::PathBuf {
@@ -15,20 +19,37 @@ fn closeclaw_binary() -> std::path::PathBuf {
     manifest_dir.join("target/debug/closeclaw")
 }
 
+/// Polls the admin RPC Unix socket until it accepts connections or times out.
+/// Returns Ok(()) when the socket is ready, Err if timeout is exceeded.
+async fn wait_for_daemon_ready(config_dir: &std::path::Path) {
+    let socket_path = config_dir.join("admin.sock");
+    let deadline = tokio::time::Instant::now() + SOCKET_WAIT_TIMEOUT;
+
+    loop {
+        if UnixStream::connect(&socket_path).is_ok() {
+            return;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "daemon admin socket not ready after {:?}: {}",
+                SOCKET_WAIT_TIMEOUT,
+                socket_path.display()
+            );
+        }
+        tokio::time::sleep(SOCKET_POLL_INTERVAL).await;
+    }
+}
+
 /// Verifies that SIGTERM triggers graceful shutdown (not hard kill).
-/// The daemon should exit with SIGTERM signal (exit code = 128 + 15 = 143).
+/// The daemon should exit with code 0 after drain timeout.
 #[tokio::test]
 #[cfg(unix)]
 async fn test_sigterm_triggers_graceful_shutdown() {
-    // Build the daemon binary path (test binary != closeclaw daemon)
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let daemon_bin = manifest_dir.join("target/debug/closeclaw");
+    let daemon_bin = closeclaw_binary();
 
-    // Create a temporary config directory with minimal config
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_dir = temp_dir.path();
 
-    // Write a minimal agents.json so daemon doesn't fail to load config
     let agents_dir = config_dir.join("config");
     std::fs::create_dir_all(&agents_dir).expect("create config dir");
     std::fs::write(
@@ -36,26 +57,25 @@ async fn test_sigterm_triggers_graceful_shutdown() {
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write test agents.json");
-
     write_mandatory_configs(&agents_dir).expect("write mandatory config");
 
-    // Start the daemon
+    // Start daemon in --foreground mode so test process owns the daemon PID
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
         .arg(config_dir.as_os_str())
+        .arg("--foreground")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .expect("failed to spawn daemon");
 
-    // Wait for daemon to fully initialize
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for daemon admin socket to be ready
+    wait_for_daemon_ready(config_dir).await;
 
     // Verify daemon is still running (not crashed on startup)
     match daemon.try_wait() {
         Ok(Some(status)) => {
-            // Daemon crashed — capture output for diagnosis
             let output = daemon.wait_with_output().await.expect("can capture output");
             panic!(
                 "daemon exited prematurely during startup: {:?}\nstdout: {}\nstderr: {}",
@@ -70,10 +90,9 @@ async fn test_sigterm_triggers_graceful_shutdown() {
         }
     }
 
-    // Get the PID to send signal
     let pid = daemon.id().expect("daemon has a PID");
 
-    // Send SIGTERM using libc::kill
+    // Send SIGTERM
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGTERM);
     }
@@ -85,8 +104,6 @@ async fn test_sigterm_triggers_graceful_shutdown() {
 
     let status = result.expect("daemon should exit");
 
-    // After graceful shutdown (drain timeout 30s), daemon exits with code 0
-    // The key is that SIGTERM triggers graceful shutdown, not immediate kill
     assert!(
         status.success(),
         "daemon should exit successfully after graceful shutdown, got: {:?}",
@@ -103,25 +120,28 @@ async fn test_sigint_triggers_graceful_shutdown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_dir = temp_dir.path();
 
-    std::fs::create_dir_all(config_dir.join("config")).expect("create config dir");
+    let agents_dir = config_dir.join("config");
+    std::fs::create_dir_all(&agents_dir).expect("create config dir");
     std::fs::write(
-        config_dir.join("config").join("agents.json"),
+        agents_dir.join("agents.json"),
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write test agents.json");
+    write_mandatory_configs(&agents_dir).expect("write mandatory config");
 
-    write_mandatory_configs(&config_dir.join("config")).expect("write mandatory config");
-
+    // Start daemon in --foreground mode so test process owns the daemon PID
     let mut daemon = Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
         .arg(config_dir.as_os_str())
+        .arg("--foreground")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .expect("failed to spawn daemon");
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for daemon admin socket to be ready
+    wait_for_daemon_ready(config_dir).await;
 
     // Verify daemon is still running
     match daemon.try_wait() {
@@ -138,8 +158,9 @@ async fn test_sigint_triggers_graceful_shutdown() {
         Err(e) => panic!("error checking daemon status: {}", e),
     }
 
-    // Send SIGINT using libc::kill
     let pid = daemon.id().expect("daemon has a PID");
+
+    // Send SIGINT
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGINT);
     }
@@ -150,7 +171,6 @@ async fn test_sigint_triggers_graceful_shutdown() {
 
     let status = result.expect("daemon should exit");
 
-    // After graceful shutdown (drain timeout 30s), daemon exits with code 0
     assert!(
         status.success(),
         "daemon should exit successfully after graceful shutdown, got: {:?}",
