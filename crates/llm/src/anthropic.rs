@@ -1,13 +1,17 @@
 //! Anthropic LLM Provider — pure HTTP transport for the Anthropic Messages API.
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::OnceLock;
+use tokio::sync::mpsc;
 
 use crate::provider::{Provider, ProviderError, Result, SseStream};
-use crate::types::{InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawUsage};
+use crate::types::{
+    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
+};
 
 pub struct AnthropicProvider {
     api_key: String,
@@ -173,11 +177,89 @@ impl Provider for AnthropicProvider {
     async fn send_streaming(
         &self,
         _request: InternalRequest,
-        _body: serde_json::Value,
+        body: serde_json::Value,
     ) -> Result<SseStream> {
-        Err(ProviderError::Legacy(
-            "Anthropic streaming not yet implemented".into(),
-        ))
+        let url = self.messages_url();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-api-key",
+            HeaderValue::from_str(&self.api_key)
+                .unwrap_or_else(|_| HeaderValue::from_static("invalid")),
+        );
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+
+        let response = self
+            .client
+            .post(&url)
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_error(status, body));
+        }
+
+        let (tx, rx) = mpsc::channel(64);
+
+        tokio::spawn(async move {
+            let mut stream = response.bytes_stream();
+            let mut buffer = String::new();
+
+            while let Some(chunk_result) = stream.next().await {
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(_) => break,
+                };
+
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                // Process complete SSE events (separated by \n\n)
+                while let Some(pos) = buffer.find("\n\n") {
+                    let event_block = buffer[..pos].to_string();
+                    buffer = buffer[pos + 2..].to_string();
+
+                    let mut event_type = String::new();
+                    let mut data = String::new();
+
+                    for line in event_block.lines() {
+                        if let Some(et) = line.strip_prefix("event: ") {
+                            event_type = et.trim().to_string();
+                        } else if let Some(d) = line.strip_prefix("data: ") {
+                            data = d.trim().to_string();
+                        }
+                    }
+
+                    if !event_type.is_empty() {
+                        let _ = tx.send(RawSseChunk { event_type, data }).await;
+                    }
+                }
+            }
+
+            // Process any remaining data in buffer
+            if !buffer.is_empty() {
+                let mut event_type = String::new();
+                let mut data = String::new();
+
+                for line in buffer.lines() {
+                    if let Some(et) = line.strip_prefix("event: ") {
+                        event_type = et.trim().to_string();
+                    } else if let Some(d) = line.strip_prefix("data: ") {
+                        data = d.trim().to_string();
+                    }
+                }
+
+                if !event_type.is_empty() {
+                    let _ = tx.send(RawSseChunk { event_type, data }).await;
+                }
+            }
+        });
+
+        Ok(rx)
     }
 }
 
@@ -489,23 +571,123 @@ mod tests {
         }
     }
 
-    // ── send_streaming() stub ────────────────────────────────────────────────
+    // ── send_streaming() success tests ──────────────────────────────────────
 
     #[tokio::test]
-    async fn test_anthropic_send_streaming_not_implemented() {
-        let provider = AnthropicProvider::new("key".to_string());
-        let request = make_request();
-        let result = provider
-            .send_streaming(request, serde_json::json!({}))
+    async fn test_anthropic_send_streaming_success() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body(
+                "event: message_start\n".to_owned()
+                    + "data: {\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n"
+                    + "event: content_block_start\n"
+                    + "data: {\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
+                    + "event: content_block_delta\n"
+                    + "data: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n"
+                    + "event: content_block_stop\n"
+                    + "data: {\"index\":0}\n\n"
+                    + "event: message_delta\n"
+                    + "data: {\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n"
+                    + "event: message_stop\n"
+                    + "data: {}\n\n",
+            )
+            .create_async()
             .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let mut stream = provider
+            .send_streaming(
+                make_request(),
+                serde_json::json!({"model": "claude-3-opus", "stream": true}),
+            )
+            .await
+            .unwrap();
+        mock.assert_async().await;
+
+        let chunk1 = stream.recv().await.expect("should receive chunk 1");
+        assert_eq!(chunk1.event_type, "message_start");
+        assert!(chunk1.data.contains("input_tokens"));
+
+        let chunk2 = stream.recv().await.expect("should receive chunk 2");
+        assert_eq!(chunk2.event_type, "content_block_start");
+        assert!(chunk2.data.contains("text"));
+
+        let chunk3 = stream.recv().await.expect("should receive chunk 3");
+        assert_eq!(chunk3.event_type, "content_block_delta");
+        assert!(chunk3.data.contains("Hello"));
+
+        let chunk4 = stream.recv().await.expect("should receive chunk 4");
+        assert_eq!(chunk4.event_type, "content_block_stop");
+
+        let chunk5 = stream.recv().await.expect("should receive chunk 5");
+        assert_eq!(chunk5.event_type, "message_delta");
+        assert!(chunk5.data.contains("end_turn"));
+
+        let chunk6 = stream.recv().await.expect("should receive chunk 6");
+        assert_eq!(chunk6.event_type, "message_stop");
+
+        let done = stream.recv().await;
+        assert!(
+            done.is_none(),
+            "channel should be closed after message_stop"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_anthropic_send_streaming_auth_error() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(401)
+            .with_body(r#"{"error": {"message": "invalid API key"}}"#)
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("bad-key".to_string(), &server.url());
+        let result = provider
+            .send_streaming(make_request(), serde_json::json!({}))
+            .await;
+        mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => {
-                assert!(msg.contains("not yet implemented"))
-            }
-            other => {
-                panic!("Expected Legacy error, got: {:?}", other)
-            }
+            ProviderError::Legacy(msg) => assert!(msg.contains("401")),
+            other => panic!("Expected Legacy error for 401, got: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn test_anthropic_send_streaming_channel_closes_on_disconnect() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body(
+                "event: message_start\n".to_owned()
+                    + "data: {\"message\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n"
+                    + "event: message_stop\n" + "data: {}\n\n",
+            )
+            .create_async()
+            .await;
+
+        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let mut stream = provider
+            .send_streaming(make_request(), serde_json::json!({}))
+            .await
+            .unwrap();
+        mock.assert_async().await;
+
+        let chunk = stream.recv().await.expect("should receive message_start");
+        assert_eq!(chunk.event_type, "message_start");
+
+        let chunk = stream.recv().await.expect("should receive message_stop");
+        assert_eq!(chunk.event_type, "message_stop");
+
+        let done = stream.recv().await;
+        assert!(
+            done.is_none(),
+            "channel should be closed after message_stop"
+        );
     }
 }
