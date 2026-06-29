@@ -11,20 +11,20 @@ MiniMax 供应商对接以 **Anthropic 协议**为主推荐。M2.7 下 thinking 
 | 模型 | 推荐协议 | 说明 |
 |------|---------|------|
 | MiniMax-M2.7 | Anthropic | thinking 默认以 `type: thinking` 块独立输出，含 `signature` 签名字段 |
-| MiniMax-M3 | Anthropic | 需显式传 `thinking: {type: "enabled"}` 才产出 thinking 块；禁掉 thinking 后返回空内容 |
+| MiniMax-M3 | Anthropic | 需显式传 `thinking: {type: "enabled"}` 才产出 thinking 块；默认或 `disabled` 时仅产 `type: text`，不产出 thinking 块 |
 | MiniMax-M2.1 / M2.5 | Anthropic | 理由同 M2.7 |
 
 Anthropic 协议下 `content` 为类型化结构数组，thinking 以 `type: thinking` 块独立于 `type: text` 块输出，`signature` 字段可追溯。OpenAI 协议下 thinking 以 `<think>...</think>` 标签嵌入 `content`，无法干净分离
 
 M3 差异：
 - Anthropic 协议下必须显式传 `thinking: {type: "enabled"}` 才产出 `type: thinking` 块；不传时仅产 `type: text`
-- 设 `thinking: {type: "disabled"}` 时返回空 content（仅 1 output token）
+- 默认或 `thinking: {type: "disabled"}` 时仅产 `type: text` 块，不产出 thinking
 - 标准协议映射见 [protocol-mapping](../protocol-mapping.md)
 
 ### thinking 行为
 
 - **Anthropic 协议（M2.7）**：thinking 以 `content[{type: thinking, thinking: "...", signature: "..."}]` 默认输出。工具调用多轮时，Plugin 向 `extra_body` 注入 `reasoning_split: true` 确保 thinking 以独立块输出
-- **Anthropic 协议（M3）**：需显式传 `thinking: {type: "enabled"}` 才产出 `type: thinking` 块；不传仅产 `type: text`；传 `disabled` 返回空
+- **Anthropic 协议（M3）**：需显式传 `thinking: {type: "enabled"}` 才产出 `type: thinking` 块；不传或传 `disabled` 时仅产 `type: text`
 - **OpenAI 协议**：thinking 以 `<think>...</think>` 标签嵌入 `content`。`reasoning_split` 参数不影响响应结构
 - MiniMax 不支持 `reasoning_effort` 等 reasoning 等级控制参数；M3 支持 thinking 的 enabled/disabled 二元开关
 
