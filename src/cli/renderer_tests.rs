@@ -3,7 +3,10 @@
 //! Covers direct rendering of content blocks, DSL elements, markdown,
 //! code blocks, ANSI helpers, and edge cases.
 
-use crate::cli::renderer::{strip_ansi, TerminalRenderer, BOLD, CYAN, DIM, ITALIC};
+use crate::cli::renderer::{
+    get_terminal_width, resolve_terminal_width_from, strip_ansi, TerminalRenderer, BOLD, CYAN, DIM,
+    ITALIC,
+};
 use closeclaw_common::processor::{DslInstruction, DslParseResult};
 use closeclaw_llm::types::ContentBlock;
 
@@ -423,4 +426,36 @@ fn test_streaming_renderer_access() {
     let sr = renderer.streaming_renderer();
     // Just verify we can lock and get a reference
     let _lock = sr.lock().unwrap();
+}
+
+// ── get_terminal_width / resolve_terminal_width_from tests ────────────────
+
+/// Normal path: terminal size is available → return actual width.
+#[test]
+fn test_resolve_terminal_width_from_some_returns_width() {
+    assert_eq!(resolve_terminal_width_from(Some((120, 40))), 120);
+    assert_eq!(resolve_terminal_width_from(Some((80, 24))), 80);
+    assert_eq!(resolve_terminal_width_from(Some((200, 60))), 200);
+}
+
+/// Fallback path: no terminal → return 80 (documented default).
+#[test]
+fn test_resolve_terminal_width_from_none_returns_80() {
+    assert_eq!(resolve_terminal_width_from(None), 80);
+}
+
+/// Edge case: terminal reports zero width → return 0 (not 80).
+/// Zero width is technically a valid `Some` value from `terminal_size`.
+#[test]
+fn test_resolve_terminal_width_from_zero_returns_zero() {
+    assert_eq!(resolve_terminal_width_from(Some((0, 0))), 0);
+}
+
+/// Integration: `get_terminal_width()` always returns a positive value.
+/// In CI (no terminal) this tests the fallback; locally it may test the
+/// actual terminal path.
+#[test]
+fn test_get_terminal_width_returns_positive() {
+    let width = get_terminal_width();
+    assert!(width > 0, "get_terminal_width() should always be > 0");
 }
