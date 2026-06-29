@@ -1,0 +1,41 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "minimax-thinking-disabled",
+  "model": "MiniMax-M3",
+  "expect": "reasoning",
+  "request": {
+    "model": "MiniMax-M3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "0691eb37410f262333f1ce2ab1a61dd7",
+    "type": "message",
+    "role": "assistant",
+    "model": "MiniMax-M3",
+    "content": [
+      {
+        "text": "# 17 × 23\n\n**Step 1: Break it down using the distributive property**\n17 × 23 = 17 × (20 + 3)\n\n**Step 2: Distribute**\n= (17 × 20) + (17 × 3)\n\n**Step 3: Calculate each part**\n- 17 × 20 = 340\n- 17 × 3 = 51\n\n**Step 4: Add them together**\n- 340 + 51 = **391**\n\n---\n\n**Verification (the other way around):**\n- 23 × 10 = 230\n- 23 × 7 = 161\n- 230 + 161 = **391** ✓\n\n**Answer: 17 × 23 = 391**",
+        "type": "text"
+      }
+    ],
+    "usage": {
+      "input_tokens": 49,
+      "output_tokens": 160,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 128,
+      "service_tier": "standard"
+    },
+    "stop_reason": "end_turn",
+    "base_resp": {
+      "status_code": 0,
+      "status_msg": ""
+    }
+  },
+  "max_tokens_sent": 2048
+}

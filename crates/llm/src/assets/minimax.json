@@ -1,4 +1,13 @@
 {
+  "MiniMax-M3": {
+    "context_window": 1000000,
+    "max_tokens": 8192,
+    "default_temperature": 1.0,
+    "reasoning": true,
+    "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "input_types": ["text", "image"],
+    "recommended_protocol": "anthropic"
+  },
   "MiniMax-M2.7": {
     "context_window": 204800,
     "max_tokens": 131072,

@@ -6,7 +6,7 @@
 
 | 协议 | Thinking 处理 | 工具调用 | Cache 字段 | 推荐场景 |
 |------|-------------|---------|-----------|---------|
-| **Anthropic** ✅ | M2.7: `[{type:"thinking"},{type:"text"}]`；M3: `[{type:"text"}]`（无 thinking） | M2.7: `[{type:"thinking"},{type:"tool_use"}]`；M3: `[{type:"text"},{type:"tool_use"}]` | `usage.cache_read_input_tokens`（存在，即使为 0） | 优先使用 |
+| **Anthropic** ✅ | M2.7: `[{type:"thinking"},{type:"text"}]`；M3: 需传 `thinking: {type: "enabled"}` 才产出 `[{type:"thinking"},{type:"text"}]`，不传仅 `[{type:"text"}]` | M2.7: `[{type:"thinking"},{type:"tool_use"}]`；M3: `[{type:"text"},{type:"tool_use"}]`（或传 thinking enabled 时含 thinking block） | `usage.cache_read_input_tokens`（存在，即使为 0） | 优先使用 |
 | OpenAI | `content` 内含 `<think>...</think>` 标签，混在一起 | `finish_reason: "tool_calls"` + `tool_calls` 数组 | `prompt_tokens_details.cached_tokens`（存在，即使为 0） | 仅在必须用 OpenAI 时使用 |
 
 ---
@@ -23,20 +23,29 @@
 
 **Anthropic** — `anthropic/anthropic-simple.json`
 - M2.7: `content[0].type = "thinking"`（独立 block）+ `content[1].type = "text"`（最终回复）
-- M3: `content[0].type = "text"`（仅文本块，无 thinking block，见上方 M3 行为变更）
+- M3: `content[0].type = "text"`（默认不含 thinking block；传 `thinking: {type: "enabled"}` 后为 `[thinking, text]`，见下方 M3 thinking 控制）
 - `usage.cache_read_input_tokens`: 有字段（值可能为 0）
 - `stop_reason = "end_turn"`
 
 ### thinking（推理过程）
 
-**Anthropic** — `anthropic/anthropic-thinking.json`
-- `content[0].type = "thinking"`: 含 signature 字段（**M2.7 行为**；M3 下不返回 thinking block，仅 `content: [{type: "text"}]`，见上方 M3 行为变更说明）
-- `content[1].type = "text"`: 含 markdown 格式的详细推理步骤（M2.7）
+**Anthropic** — `anthropic/anthropic-thinking.json`（默认参数，M2.7 走此场景产出 thinking；M3 默认不产 thinking）
+- `content[0].type = "thinking"`: 含 signature 字段（**M2.7 行为**）
+- `content[1].type = "text"`: 含详细推理步骤
+- `stop_reason = "end_turn"`
+
+**Anthropic + thinking enabled（M3）** — `anthropic/minimax-thinking-enabled.json`
+- 请求传 `thinking: {type: "enabled"}` 后，M3 产出 `[{type: "thinking", signature: "..."}, {type: "text"}]`
+- `signature` 有值
+- `stop_reason = "end_turn"`
+
+**Anthropic + thinking disabled（M3）** — `anthropic/minimax-thinking-disabled.json`
+- 请求传 `thinking: {type: "disabled"}` 后，M3 仅产 `[{type: "text"}]`，不产 thinking 块
 - `stop_reason = "end_turn"`
 
 > OpenAI 协议下无独立 thinking block，thinking 内容嵌入 `choices[].message.content` 的 `<think>` 标签中。
 
-> **M3 行为变化**（重要）：MiniMax-M3 在 Anthropic 协议下**不再返回独立的 thinking block**。`content[]` 只含 `text` block（thinking 信息丢失）。OpenAI 协议仍返回 `<think>` 标签格式。`usage.completion_tokens_details.reasoning_tokens` 仍正常返回。适配 M3 时不应依赖 Anthropic thinking block 解析。
+> **M3 thinking 控制**：MiniMax-M3 在 Anthropic 协议下**需要显式传 `thinking: {type: "enabled"}` 才产出 `type: thinking` 块**。默认不传或传 `disabled` 时仅产 `type: text` 块。`signature` 字段在 thinking enabled 时有值。
 
 
 ### streaming（SSE 流式）
@@ -121,17 +130,19 @@ MiniMax-M3/                  # 最新模型（行为有变化，详见上方 M3 
 │   ├── tool-use-streaming-meta.json
 │   ├── multi-turn.json
 │   └── error-auth.json / error-empty.json / error-model.json / error-tool-format.json
-└── anthropic/              # 13 场景
+└── anthropic/              # 15 场景
     ├── anthropic-simple.json
-    ├── anthropic-thinking.json          # ⚠️ M3 下不再含 thinking block
+    ├── anthropic-thinking.json          # ⚠️ M3 默认不产 thinking block，传 thinking enabled 后产
     ├── anthropic-context-pressure.json  # M3 新增
     ├── anthropic-streaming.txt
     ├── anthropic-streaming-meta.json
-    ├── anthropic-tool-use.json          # ⚠️ M3 下 thinking 被替换为 text
-    ├── anthropic-tool-result.json       # ⚠️ M3 下 thinking 被替换为 text
+    ├── anthropic-tool-use.json          # ⚠️ M3 默认 thinking 被替换为 text
+    ├── anthropic-tool-result.json       # ⚠️ M3 默认 thinking 被替换为 text
     ├── anthropic-tool-use-streaming.txt
     ├── anthropic-tool-use-streaming-meta.json
     ├── anthropic-cache.json
+    ├── minimax-thinking-enabled.json    # M3 新增：thinking enabled 响应
+    ├── minimax-thinking-disabled.json   # M3 新增：thinking disabled 响应
     └── anthropic-error-auth.json / anthropic-error-empty.json / anthropic-error-model.json
 
 MiniMax-M2.7/               # 历史模型，结构同上（含完整 thinking block）

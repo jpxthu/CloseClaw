@@ -351,6 +351,22 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "expect": "reasoning",
         "extra_body": {"reasoning_split": True},
     },
+    "minimax-thinking-enabled": {
+        "protocol": "anthropic",
+        "provider": "minimax",
+        "messages": [{"role": "user", "content": "What is 17*23? Show your work step by step."}],
+        "expect": "reasoning",
+        "max_tokens": 2048,
+        "thinking": {"type": "enabled"},
+    },
+    "minimax-thinking-disabled": {
+        "protocol": "anthropic",
+        "provider": "minimax",
+        "messages": [{"role": "user", "content": "What is 17*23? Show your work step by step."}],
+        "expect": "reasoning",
+        "max_tokens": 2048,
+        "thinking": {"type": "disabled"},
+    },
     "glm-thinking": {
         "protocol": "openai",
         "provider": "glm",
@@ -493,7 +509,7 @@ def _build_request_kwargs(spec: dict[str, Any], messages: list[dict]) -> dict[st
     protocol = spec["protocol"]
 
     if protocol == "anthropic":
-        for field in ("max_tokens", "system", "temperature", "top_p"):
+        for field in ("max_tokens", "system", "temperature", "top_p", "thinking"):
             if field in spec:
                 kwargs[field] = spec[field]
         if spec.get("tools"):
