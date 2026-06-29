@@ -71,7 +71,6 @@ fn parse_env_file(path: &std::path::Path) -> std::io::Result<Vec<(String, String
     }
     Ok(pairs)
 }
-
 /// Load key=value pairs from a .env file and set them as environment variables.
 /// Lines starting with # are treated as comments and ignored.
 fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
@@ -528,7 +527,8 @@ impl Daemon {
         })
     }
 
-    /// Run the daemon — blocks until shutdown signal is received, then executes Phase 0–7 shutdown sequence
+    /// Run the daemon — blocks until shutdown signal is received, then
+    /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
 
