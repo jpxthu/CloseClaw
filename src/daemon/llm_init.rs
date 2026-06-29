@@ -3,6 +3,7 @@
 use super::*;
 use closeclaw_config::providers::CredentialsProvider;
 use closeclaw_llm::anthropic::AnthropicProvider;
+use closeclaw_llm::mimo::MimoProvider;
 use closeclaw_llm::minimax::MiniMaxProvider;
 use closeclaw_llm::openai::OpenAIProvider;
 use closeclaw_llm::LLMRegistry;
@@ -86,9 +87,8 @@ impl Daemon {
             .or_else(|| std::env::var("MIMO_API_KEY").ok())
             .filter(|k| !k.is_empty());
         if let Some(api_key) = mimo_key {
-            let provider: Arc<dyn closeclaw_llm::provider::Provider> = Arc::new(
-                OpenAIProvider::new_with_base_url(api_key, "https://api.xiaomimimo.com/v1"),
-            );
+            let provider: Arc<dyn closeclaw_llm::provider::Provider> =
+                Arc::new(MimoProvider::new(api_key));
             registry.register("mimo".to_string(), provider).await;
             info!("MiMo provider registered");
         }

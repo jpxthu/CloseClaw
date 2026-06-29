@@ -19,6 +19,7 @@ use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use closeclaw_im_adapter::plugin::IMPlugin;
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
+use closeclaw_llm::mimo::MimoProvider;
 use closeclaw_llm::minimax::MiniMaxProvider;
 use closeclaw_llm::openai::OpenAIProvider;
 use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
@@ -202,10 +203,7 @@ async fn init_llm_registry() -> Arc<LLMRegistry> {
     )
     .await;
     try_register_provider(&registry, "mimo", &creds_provider, "MIMO_API_KEY", |k| {
-        Arc::new(OpenAIProvider::new_with_base_url(
-            k,
-            "https://api.xiaomimimo.com/v1",
-        ))
+        Arc::new(MimoProvider::new(k))
     })
     .await;
 
