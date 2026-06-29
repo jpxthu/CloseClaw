@@ -10,7 +10,7 @@ fn test_component_id_name() {
 #[test]
 fn test_all_component_entries_count() {
     let entries = all_component_entries();
-    assert_eq!(entries.len(), 17);
+    assert_eq!(entries.len(), 19);
 }
 
 #[test]
@@ -47,6 +47,7 @@ fn test_all_component_entries_deps_match_design_doc() {
         dep_map[&DreamingScheduler],
         vec![Storage, SessionConfigProvider]
     );
+    assert_eq!(dep_map[&SpawnController], vec![AgentRegistry]);
 
     // Layer 4
     assert_eq!(
@@ -67,14 +68,15 @@ fn test_all_component_entries_deps_match_design_doc() {
         dep_map[&Gateway],
         vec![SessionManager, IMAdapters, PermissionEngine, ApprovalFlow]
     );
+    assert_eq!(dep_map[&AdminRpcServer], vec![Gateway]);
 }
 
 #[test]
-fn test_topo_sort_five_layers_match_design_doc() {
+fn test_topo_sort_six_layers_match_design_doc() {
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
-    assert_eq!(layers.len(), 5, "expected exactly 5 layers");
+    assert_eq!(layers.len(), 6, "expected exactly 6 layers");
 
     use ComponentId::*;
 
@@ -96,7 +98,8 @@ fn test_topo_sort_five_layers_match_design_doc() {
     );
 
     // Layer 3: ArchiveSweeper, DreamingScheduler, IMAdapters,
-    //          PermissionEngine, SkillWatcher, SystemPromptBuilder, ToolsRegistry
+    //          PermissionEngine, SkillWatcher, SpawnController,
+    //          SystemPromptBuilder, ToolsRegistry
     assert_eq!(
         layers[2],
         vec![
@@ -105,6 +108,7 @@ fn test_topo_sort_five_layers_match_design_doc() {
             IMAdapters,
             PermissionEngine,
             SkillWatcher,
+            SpawnController,
             SystemPromptBuilder,
             ToolsRegistry,
         ],
@@ -120,6 +124,9 @@ fn test_topo_sort_five_layers_match_design_doc() {
 
     // Layer 5: Gateway
     assert_eq!(layers[4], vec![Gateway], "Layer 5 mismatch");
+
+    // Layer 6: AdminRpcServer (depends on Gateway)
+    assert_eq!(layers[5], vec![AdminRpcServer], "Layer 6 mismatch");
 }
 
 // --------------------------------------------------------------------------
