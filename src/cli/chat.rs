@@ -201,6 +201,13 @@ async fn init_llm_registry() -> Arc<LLMRegistry> {
         |k| Arc::new(MiniMaxProvider::new(k)),
     )
     .await;
+    try_register_provider(&registry, "mimo", &creds_provider, "MIMO_API_KEY", |k| {
+        Arc::new(OpenAIProvider::new_with_base_url(
+            k,
+            "https://api.xiaomimimo.com/v1",
+        ))
+    })
+    .await;
 
     registry
 }
