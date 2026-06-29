@@ -5,6 +5,7 @@
 //! that the TerminalAdapter quit/exit detection logic works correctly.
 
 use closeclaw_gateway::{GatewayConfig, InboundChainInput, SessionManager};
+use closeclaw_im_adapter::NormalizedMessage;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
@@ -472,4 +473,184 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
         peer_id_argument, "cli",
         "peer_id must be 'cli' per design doc"
     );
+}
+
+// ── NormalizedMessage → InboundChainInput field mapping (Step 1.3) ─────
+
+/// Helper: simulate the field extraction logic in repl_loop.
+///
+/// This mirrors the code in `chat.rs:repl_loop` that constructs
+/// `InboundChainInput` from `NormalizedMessage` fields.
+fn normalized_to_inbound(msg: &NormalizedMessage) -> InboundChainInput {
+    let message_id = format!("cli-{}-{}", msg.sender_id, msg.timestamp);
+    InboundChainInput {
+        platform: msg.platform.clone(),
+        sender_id: msg.sender_id.clone(),
+        peer_id: msg.peer_id.clone(),
+        content: msg.content.clone(),
+        message_id,
+        timestamp_ms: msg.timestamp,
+        account_id: msg.account_id.clone(),
+    }
+}
+
+/// Verify that platform from NormalizedMessage flows into InboundChainInput.
+#[test]
+fn test_normalized_to_inbound_platform() {
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "1000".to_string(),
+        peer_id: "cli".to_string(),
+        content: "hello".to_string(),
+        timestamp: 1_700_000_000_000,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: Some("owner".to_string()),
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert_eq!(input.platform, "terminal");
+}
+
+/// Verify that peer_id from NormalizedMessage flows into InboundChainInput.
+#[test]
+fn test_normalized_to_inbound_peer_id() {
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "1000".to_string(),
+        peer_id: "cli".to_string(),
+        content: "hello".to_string(),
+        timestamp: 1_700_000_000_000,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: Some("owner".to_string()),
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert_eq!(input.peer_id, "cli");
+}
+
+/// Verify that sender_id from NormalizedMessage flows into InboundChainInput.
+#[test]
+fn test_normalized_to_inbound_sender_id() {
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "custom-sender-42".to_string(),
+        peer_id: "cli".to_string(),
+        content: "hello".to_string(),
+        timestamp: 1_700_000_000_000,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: Some("owner".to_string()),
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert_eq!(input.sender_id, "custom-sender-42");
+}
+
+/// Verify that timestamp maps to timestamp_ms.
+#[test]
+fn test_normalized_to_inbound_timestamp() {
+    let ts = 1_700_000_123_456_i64;
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "1000".to_string(),
+        peer_id: "cli".to_string(),
+        content: "hello".to_string(),
+        timestamp: ts,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: Some("owner".to_string()),
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert_eq!(input.timestamp_ms, ts);
+}
+
+/// Verify that account_id Some("owner") flows through.
+#[test]
+fn test_normalized_to_inbound_account_id_some() {
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "1000".to_string(),
+        peer_id: "cli".to_string(),
+        content: "hello".to_string(),
+        timestamp: 1_700_000_000_000,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: Some("owner".to_string()),
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert_eq!(input.account_id.as_deref(), Some("owner"));
+}
+
+/// Verify that account_id None flows through.
+#[test]
+fn test_normalized_to_inbound_account_id_none() {
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "1000".to_string(),
+        peer_id: "cli".to_string(),
+        content: "hello".to_string(),
+        timestamp: 1_700_000_000_000,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: None,
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert!(input.account_id.is_none());
+}
+
+/// Verify that content is preserved exactly.
+#[test]
+fn test_normalized_to_inbound_content_preserved() {
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "1000".to_string(),
+        peer_id: "cli".to_string(),
+        content: "line1\nline2".to_string(),
+        timestamp: 1_700_000_000_000,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: Some("owner".to_string()),
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert_eq!(input.content, "line1\nline2");
+}
+
+/// Verify message_id format: cli-{sender_id}-{timestamp}.
+#[test]
+fn test_normalized_to_inbound_message_id_format() {
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "u99".to_string(),
+        peer_id: "cli".to_string(),
+        content: "hi".to_string(),
+        timestamp: 42,
+        message_type: "text".to_string(),
+        media_refs: vec![],
+        quoted_message: None,
+        thread_id: None,
+        account_id: None,
+        card_action: None,
+    };
+    let input = normalized_to_inbound(&msg);
+    assert_eq!(input.message_id, "cli-u99-42");
 }
