@@ -254,3 +254,6 @@ impl Provider for MimoProvider {
         Ok(rx)
     }
 }
+
+#[cfg(test)]
+mod mimo_tests;
