@@ -10,7 +10,11 @@ fn test_component_id_name() {
 #[test]
 fn test_all_component_entries_count() {
     let entries = all_component_entries();
-    assert_eq!(entries.len(), 19);
+    assert_eq!(
+        entries.len(),
+        19,
+        "expected 19 components (17 original + SpawnController + AdminRpcServer)"
+    );
 }
 
 #[test]
@@ -287,6 +291,143 @@ fn test_diamond_dependency_alphabetical_in_layer() {
 
     // L1 must be sorted by name: C=Gateway < B=Storage
     assert_eq!(layers[1], vec![Gateway, Storage]);
+}
+
+// --------------------------------------------------------------------------
+// SpawnController and AdminRpcServer dependency validation
+// --------------------------------------------------------------------------
+
+#[test]
+fn test_spawn_controller_depends_on_agent_registry() {
+    use ComponentId::*;
+    let entries = all_component_entries();
+    let dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        entries.iter().map(|e| (e.id, e.deps.clone())).collect();
+
+    assert_eq!(
+        dep_map[&SpawnController],
+        vec![AgentRegistry],
+        "SpawnController must depend on AgentRegistry per design doc Layer 3"
+    );
+}
+
+#[test]
+fn test_admin_rpc_server_depends_on_gateway() {
+    use ComponentId::*;
+    let entries = all_component_entries();
+    let dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        entries.iter().map(|e| (e.id, e.deps.clone())).collect();
+
+    assert_eq!(
+        dep_map[&AdminRpcServer],
+        vec![Gateway],
+        "AdminRpcServer must depend on Gateway per design doc Layer 5/6"
+    );
+}
+
+#[test]
+fn test_spawn_controller_in_core_services_layer() {
+    use ComponentId::*;
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    // SpawnController is in Layer 3 (CoreServices phase)
+    // Layer index 2 = third layer
+    assert!(
+        layers[2].contains(&SpawnController),
+        "SpawnController must be in Layer 3 (CoreServices), got layers: {:?}",
+        layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (i, l.iter().map(|c| c.name()).collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_admin_rpc_server_in_post_gateway_layer() {
+    use ComponentId::*;
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    // AdminRpcServer is in Layer 6 (PostGateway phase)
+    // Layer index 5 = sixth layer
+    assert!(
+        layers[5].contains(&AdminRpcServer),
+        "AdminRpcServer must be in Layer 6 (PostGateway), got layers: {:?}",
+        layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (i, l.iter().map(|c| c.name()).collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_validate_layers_catches_wrong_spawn_controller_layer() {
+    use ComponentId::*;
+    // Manually build layers with SpawnController misplaced into Layer 1
+    let wrong_layers: Vec<Vec<ComponentId>> = vec![
+        vec![ConfigManager, Storage, SpawnController], // Wrong: SpawnController here
+        vec![
+            AgentRegistry,
+            ConfigHotReload,
+            RenderersPlugins,
+            SessionConfigProvider,
+            SkillsRegistry,
+        ],
+        vec![
+            ArchiveSweeper,
+            DreamingScheduler,
+            IMAdapters,
+            PermissionEngine,
+            SkillWatcher,
+            SystemPromptBuilder,
+            ToolsRegistry,
+        ],
+        vec![ApprovalFlow, SessionManager],
+        vec![Gateway],
+        vec![AdminRpcServer],
+    ];
+    let err = validate_startup_layers(&wrong_layers).unwrap_err();
+    assert!(
+        matches!(err, StartupError::CircularDependency),
+        "validation should reject wrong SpawnController layer placement"
+    );
+}
+
+#[test]
+fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
+    use ComponentId::*;
+    // Manually build layers with AdminRpcServer misplaced into Layer 4
+    let wrong_layers: Vec<Vec<ComponentId>> = vec![
+        vec![ConfigManager, Storage],
+        vec![
+            AgentRegistry,
+            ConfigHotReload,
+            RenderersPlugins,
+            SessionConfigProvider,
+            SkillsRegistry,
+        ],
+        vec![
+            ArchiveSweeper,
+            DreamingScheduler,
+            IMAdapters,
+            PermissionEngine,
+            SkillWatcher,
+            SpawnController,
+            SystemPromptBuilder,
+            ToolsRegistry,
+        ],
+        vec![ApprovalFlow, SessionManager, AdminRpcServer], // Wrong: AdminRpcServer here
+        vec![Gateway],
+        vec![],
+    ];
+    let err = validate_startup_layers(&wrong_layers).unwrap_err();
+    assert!(
+        matches!(err, StartupError::CircularDependency),
+        "validation should reject wrong AdminRpcServer layer placement"
+    );
 }
 
 // --------------------------------------------------------------------------
