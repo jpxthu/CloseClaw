@@ -128,6 +128,7 @@ impl CacheAdapter for KimiCacheAdapter {
 pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
     match provider_id {
         "anthropic" => Arc::new(AnthropicCacheAdapter),
+        "minimax" => Arc::new(AnthropicCacheAdapter),
         "kimi" => Arc::new(KimiCacheAdapter),
         _ => Arc::new(NoopCacheAdapter),
     }
@@ -338,6 +339,12 @@ mod tests {
                 "expected noop for provider_id: {provider_id:?}"
             );
         }
+    }
+
+    #[test]
+    fn for_provider_minimax_returns_anthropic_adapter() {
+        let adapter = for_provider("minimax");
+        assert_eq!(adapter.name(), "anthropic");
     }
 
     #[test]

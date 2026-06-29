@@ -259,7 +259,12 @@ async fn build_unified_chain(
     providers
         .into_iter()
         .map(|(entry, provider)| {
-            let protocol = Arc::new(closeclaw_llm::protocol::OpenAiProtocol::default());
+            let protocol: Arc<dyn closeclaw_llm::protocol::ChatProtocol> =
+                if entry.provider == "minimax" {
+                    Arc::new(closeclaw_llm::protocol::AnthropicProtocol::default())
+                } else {
+                    Arc::new(closeclaw_llm::protocol::OpenAiProtocol::default())
+                };
             let interpreter_registry = closeclaw_llm::interpreter::InterpreterRegistry::new(vec![]);
             let plugin_pipeline = if entry.provider == "deepseek" {
                 closeclaw_llm::plugin::PluginPipeline::new()
@@ -267,6 +272,9 @@ async fn build_unified_chain(
             } else if entry.provider == "glm" {
                 closeclaw_llm::plugin::PluginPipeline::new()
                     .add(Box::new(closeclaw_llm::glm::GlmPlugin))
+            } else if entry.provider == "minimax" {
+                closeclaw_llm::plugin::PluginPipeline::new()
+                    .add(Box::new(closeclaw_llm::minimax::MiniMaxPlugin))
             } else {
                 closeclaw_llm::plugin::PluginPipeline::new()
             };
