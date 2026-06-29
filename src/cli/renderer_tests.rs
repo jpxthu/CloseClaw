@@ -219,8 +219,8 @@ fn test_render_with_dsl_button() {
         .and_then(|t| t.as_str())
         .unwrap();
     assert!(
-        !text.contains("[Button:"),
-        "DSL button should NOT appear in output"
+        text.contains("[Button:"),
+        "DSL button should appear in output"
     );
     assert!(text.contains("body"));
 }
@@ -244,8 +244,8 @@ fn test_render_with_dsl_selector() {
         .and_then(|t| t.as_str())
         .unwrap();
     assert!(
-        !text.contains("[Selector:"),
-        "DSL selector should NOT appear in output"
+        text.contains("[Selector:"),
+        "DSL selector should appear in output"
     );
 }
 

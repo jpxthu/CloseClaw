@@ -690,9 +690,13 @@ impl TerminalRenderer {
         }
     }
 
-    /// Skip DSL instructions — terminals cannot render interactive elements.
-    /// Each instruction is logged as a warning and omitted from the output.
+    /// Render DSL instructions as plain-text hint lines.
+    ///
+    /// Terminals cannot render interactive elements, so each instruction
+    /// is formatted as a human-readable hint line (e.g. `[Button: ...]`)
+    /// and appended to the output. A warning is still logged for diagnostics.
     fn render_dsl(&self, dsl_result: &DslParseResult) -> String {
+        let mut lines = Vec::new();
         for inst in &dsl_result.instructions {
             match inst {
                 closeclaw_common::processor::DslInstruction::Button {
@@ -706,6 +710,7 @@ impl TerminalRenderer {
                         value = %value,
                         "terminal does not support interactive DSL (Button), skipped"
                     );
+                    lines.push(format!("[Button: {} (action: {})]", label, action));
                 }
                 closeclaw_common::processor::DslInstruction::Selector {
                     label,
@@ -718,10 +723,23 @@ impl TerminalRenderer {
                         action = %action,
                         "terminal does not support interactive DSL (Selector), skipped"
                     );
+                    let opts = options.join(", ");
+                    lines.push(format!(
+                        "[Selector: {} (options: {}) (action: {})]",
+                        label, opts, action
+                    ));
                 }
             }
         }
-        String::new()
+        if lines.is_empty() {
+            return String::new();
+        }
+        let joined = lines.join("\n");
+        if self.ansi {
+            format!("{}{}{}\n", DIM, joined, RESET)
+        } else {
+            format!("{}\n", joined)
+        }
     }
 
     /// Wrap `text` with DIM/RESET when ANSI is enabled, otherwise plain.

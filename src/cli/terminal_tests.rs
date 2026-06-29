@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(msg.account_id.as_deref(), Some("owner"));
     }
 
-    // DSL skip rendering tests (Step 1.7) — plugin-level
+    // DSL rendering tests — plugin-level
     // =========================================================================
 
     /// Verify DSL Button text appears in plugin-level render output.
@@ -402,8 +402,93 @@ mod tests {
             .unwrap();
         assert!(text.contains("Some text"));
         assert!(
-            !text.contains("[Button:"),
-            "DSL button text should NOT appear in output (skipped by renderer)"
+            text.contains("[Button: Click (action: go)]"),
+            "DSL button hint should appear in output"
         );
+    }
+
+    /// Verify DSL Selector text appears in plugin-level render output.
+    #[test]
+    fn test_plugin_render_dsl_selector_in_output() {
+        let plugin = TerminalPlugin::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Reply here".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Selector {
+                label: "Pick one".to_string(),
+                options: vec!["a".into(), "b".into(), "c".into()],
+                action: "choose".to_string(),
+            }],
+        };
+        let output = plugin.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("Reply here"));
+        assert!(
+            text.contains("[Selector: Pick one (options: a, b, c) (action: choose)]"),
+            "DSL selector hint should appear in output"
+        );
+    }
+
+    /// Verify multiple DSL instructions each generate their own hint line.
+    #[test]
+    fn test_plugin_render_dsl_multiple_instructions() {
+        let plugin = TerminalPlugin::with_ansi(false);
+        let blocks = vec![ContentBlock::Text("Content".into())];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![
+                DslInstruction::Button {
+                    label: "OK".to_string(),
+                    action: "confirm".to_string(),
+                    value: String::new(),
+                },
+                DslInstruction::Selector {
+                    label: "Mode".to_string(),
+                    options: vec!["fast".into(), "slow".into()],
+                    action: "set_mode".to_string(),
+                },
+            ],
+        };
+        let output = plugin.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains("[Button: OK (action: confirm)]"));
+        assert!(text.contains("[Selector: Mode (options: fast, slow) (action: set_mode)]"));
+    }
+
+    /// Verify DSL hints are wrapped in ANSI dim when ansi=true.
+    #[test]
+    fn test_plugin_render_dsl_ansi_dim() {
+        use crate::cli::renderer::DIM;
+        use crate::cli::renderer::RESET;
+        let plugin = TerminalPlugin::with_ansi(true);
+        let blocks = vec![];
+        let dsl = DslParseResult {
+            clean_content: String::new(),
+            instructions: vec![DslInstruction::Button {
+                label: "Go".to_string(),
+                action: "start".to_string(),
+                value: String::new(),
+            }],
+        };
+        let output = plugin.render(&blocks, Some(&dsl));
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap();
+        assert!(text.contains(DIM));
+        assert!(text.contains(RESET));
+        assert!(text.contains("[Button: Go (action: start)]"));
     }
 }
