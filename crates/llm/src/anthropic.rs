@@ -91,7 +91,11 @@ impl AnthropicProvider {
         headers.insert("content-type", HeaderValue::from_static("application/json"));
         headers
     }
+}
 
+// ── Response / SSE parsing helpers ──────────────────────────────────────────
+
+impl AnthropicProvider {
     fn parse_content_blocks(blocks: Vec<AnthropicContentBlock>) -> Vec<RawContentBlock> {
         blocks
             .into_iter()
