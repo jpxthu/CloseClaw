@@ -81,12 +81,12 @@ pending_verify
 
 1. Session 从归档恢复
 2. SessionManager 重建 ConversationSession
-3. System Prompt Builder 重新构建 system prompt
+3. System Prompt 重新构建 system prompt
 4. Engine 检测 WorkflowRun 存在且 phase ≠ complete
 5. Engine 注入 recovered 消息（role: workflow）：
    - "正在执行 {workflow_name}，当前 Step {N}。"
 6. Engine 注入当前步骤 goal 消息（role: workflow）
-7. Engine 通过 System Prompt Builder 重新注入 workflow context
+7. Engine 通过 System Prompt 重新注入 workflow context
 8. Agent 从中断点继续
 
 恢复后 verify/jump 流程由 Engine 管理（详见 execution-engine.md），Engine 根据当前 phase 决定注入内容。
@@ -94,7 +94,7 @@ pending_verify
 ### 退出 Workflow 模式
 
 1. Workflow 正常结束（phase = complete）
-2. Engine 通过 System Prompt Builder 从追加区移除 workflow context
+2. Engine 通过 System Prompt 从追加区移除 workflow context
 3. Engine 清理消息历史中的 workflow 控制消息（goal + recovered）
 4. Engine 清空 WorkflowRun 状态
 5. Engine 触发 checkpoint 写入，持久化空状态
@@ -112,7 +112,7 @@ pending_verify
 ### 上游
 
 - **SessionManager**：session 创建/恢复时触发 Engine 初始化。checkpoint 持久化时 Engine 写入 WorkflowRun 状态。
-- **System Prompt Builder**：提供追加区注入接口，Engine 通过此接口管理 workflow context。
+- **System Prompt**：提供追加区注入接口，Engine 通过此接口管理 workflow context。
 - **Gateway**：恢复时注入 recovered 消息需通过 Gateway 路由。
 
 ### 下游
