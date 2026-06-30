@@ -1,10 +1,9 @@
 //! Agent handler functions for CLI admin.
 
 use super::common::{config_dir, json_error, json_output, AgentCreateOutput};
+use crate::admin::{admin_socket_path, AdminClient, AdminRequest, AdminResponse};
 use crate::args::AgentAction;
 use anyhow::Result;
-use closeclaw_admin::client::admin_socket_path;
-use closeclaw_admin::{AdminClient, AdminRequest, AdminResponse};
 use std::path::PathBuf;
 
 pub async fn handle_agent(action: AgentAction, json: bool) -> Result<()> {

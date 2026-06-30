@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::client::{admin_socket_path, AdminClient};
-use crate::protocol::AdminRequest;
+use crate::admin::rpc::client::{admin_socket_path, AdminClient};
+use crate::admin::rpc::protocol::AdminRequest;
 
 const ADMIN_TIMEOUT_MS: u64 = 5000;
 
