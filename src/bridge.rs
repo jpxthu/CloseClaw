@@ -12,6 +12,10 @@ use crate::slash::{
     SlashDispatcher,
 };
 
+/// Newtype wrapper around `SlashDispatcher` to satisfy the orphan rule
+/// when implementing `closeclaw_common::slash_router::SlashRouter`.
+pub struct SlashDispatcherWrapper(pub SlashDispatcher);
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ProcessorChain
 // ═══════════════════════════════════════════════════════════════════════════
@@ -95,26 +99,26 @@ impl closeclaw_common::slash_router::SlashHandler for SlashHandlerAdapter {
 }
 
 #[async_trait]
-impl closeclaw_common::slash_router::SlashRouter for SlashDispatcher {
+impl closeclaw_common::slash_router::SlashRouter for SlashDispatcherWrapper {
     async fn dispatch(
         &self,
         content: &str,
         ctx: &closeclaw_common::slash_router::SlashContext,
     ) -> Option<closeclaw_common::slash_router::SlashResult> {
         let main_ctx = convert_slash_context(ctx);
-        let result = self.dispatch(content, &main_ctx).await;
+        let result = self.0.dispatch(content, &main_ctx).await;
         Some(convert_slash_result(result))
     }
 
     fn is_immediate(&self, command: &str) -> bool {
-        self.is_immediate(command)
+        self.0.is_immediate(command)
     }
 
     fn get_handler(
         &self,
         command: &str,
     ) -> Option<Box<dyn closeclaw_common::slash_router::SlashHandler>> {
-        self.get_handler(command).map(|h| {
+        self.0.get_handler(command).map(|h| {
             Box::new(SlashHandlerAdapter { inner: h })
                 as Box<dyn closeclaw_common::slash_router::SlashHandler>
         })

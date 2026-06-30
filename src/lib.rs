@@ -14,7 +14,7 @@ pub mod daemon;
 pub use closeclaw_platform as platform;
 pub use closeclaw_processor_chain as processor_chain;
 pub mod session;
-pub mod slash;
+pub use closeclaw_slash as slash;
 pub mod system_prompt;
 pub use closeclaw_tasks as tasks;
 

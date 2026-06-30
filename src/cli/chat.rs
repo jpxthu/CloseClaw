@@ -136,7 +136,9 @@ async fn filter_valid_chain(
 }
 
 /// Build a [`SlashDispatcher`] with core command handlers.
-fn build_slash_dispatcher(session_manager: Arc<SessionManager>) -> Arc<SlashDispatcher> {
+fn build_slash_dispatcher(
+    session_manager: Arc<SessionManager>,
+) -> Arc<crate::bridge::SlashDispatcherWrapper> {
     let slash_registry = Arc::new(HandlerRegistry::new());
     slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&session_manager))));
     let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
@@ -144,7 +146,9 @@ fn build_slash_dispatcher(session_manager: Arc<SessionManager>) -> Arc<SlashDisp
     slash_registry.register(Arc::new(NewSessionHandler));
     slash_registry.register(Arc::new(StopHandler));
     slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&session_manager))));
-    Arc::new(SlashDispatcher::from_shared(slash_registry))
+    Arc::new(crate::bridge::SlashDispatcherWrapper(
+        SlashDispatcher::from_shared(slash_registry),
+    ))
 }
 
 /// Attach a [`SessionMessageHandler`] to the gateway if LLM providers are available.

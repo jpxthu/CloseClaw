@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::slash::context::SlashContext;
-use crate::slash::handler::{SlashHandler, SlashResult};
-use crate::slash::handlers::SystemHandler;
+use crate::context::SlashContext;
+use crate::handler::{SlashHandler, SlashResult};
+use crate::handlers::SystemHandler;
 use closeclaw_gateway::session_manager::SessionManager;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

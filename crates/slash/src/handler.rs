@@ -1,5 +1,5 @@
-use crate::slash::context::SlashContext;
-use crate::slash::side_effect::SideEffectContext;
+use crate::context::SlashContext;
+use crate::side_effect::SideEffectContext;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -72,13 +72,13 @@ impl SlashResult {
                 }
             }
             SlashResult::SystemAppend { action } => {
-                crate::slash::side_effect::execute_system_append(ctx, action).await;
+                crate::side_effect::execute_system_append(ctx, action).await;
             }
             SlashResult::NewSession => {
-                crate::slash::side_effect::execute_new_session(ctx).await;
+                crate::side_effect::execute_new_session(ctx).await;
             }
             SlashResult::Stop => {
-                crate::slash::side_effect::execute_stop(ctx).await;
+                crate::side_effect::execute_stop(ctx).await;
             }
             SlashResult::SetMode(_) => {
                 tracing::warn!("SlashResult::SetMode not yet routed through dispatch_slash");

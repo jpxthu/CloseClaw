@@ -951,7 +951,9 @@ impl Daemon {
         slash_registry.register(Arc::new(NewSessionHandler));
         slash_registry.register(Arc::new(StopHandler));
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(session_manager))));
-        let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry));
+        let slash_dispatcher = Arc::new(crate::bridge::SlashDispatcherWrapper(
+            SlashDispatcher::from_shared(slash_registry),
+        ));
         gateway
             .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
             .await;
