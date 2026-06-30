@@ -111,7 +111,8 @@ IM 渠道 webhook
 [IMPlugin 入站]
   平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, content, ... }
   ↓
-Processor Chain 入站（RawLog → SessionRouter → ContentNormalizer）
+Processor Chain 入站
+  RawLog → SessionRouter → ContentNormalizer
   ↓
 ProcessedMessage → Gateway 路由决策
 ```
@@ -128,17 +129,20 @@ ProcessedMessage { content_blocks, metadata[dsl_result] }
 Gateway 记录出站日志
   ↓
 [IMPlugin 渲染]
-  Renderer.render(content_blocks, dsl_result) → RenderedOutput { msg_type, payload }
+  Renderer.render(content_blocks, dsl_result)
+  ↓
+  RenderedOutput { msg_type, payload }
   ↓
 [IMPlugin 发送]
-  Adapter.send(payload, peer_id, thread_id) → IM 渠道
+  Adapter.send(payload, peer_id, thread_id)
+  ↓
+  IM 渠道
 ```
 
 出站路径中，Renderer 不属 Processor Chain——渲染是终结操作，输出后无后续处理器接力。Gateway 根据目标 platform 选择对应插件，调用插件内部的 Renderer 完成渲染，再通过 Adapter 发送。
 
 ## 模块关系
 
-- **互相调用**：Processor Chain——入站方向 IM Adapter 产出 NormalizedMessage 供 Processor Chain 消费；出站方向 Processor Chain 产出 ProcessedMessage 后，IM Adapter 渲染并发送
-- **互相调用**：Gateway——入站方向 IM Adapter 解析 webhook 产出 NormalizedMessage，经 Processor Chain 处理后传入 Gateway 路由决策；出站方向 Gateway 选择对应平台插件调用渲染和发送
-- **下游**：无——渠道插件是链路终点，负责与外部平台通信
+- **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）
+- **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）
 - **无关**：Session（IMPlugin 不参与 session 生命周期管理）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）

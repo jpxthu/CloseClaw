@@ -2,16 +2,16 @@
 
 ## 概述
 
-出站 Processor 链在 LLM 生成响应后运行。它从 Session 中读取 UnifiedResponse（ContentBlock[]），解析 DSL 指令，然后将处理结果交付渲染。
+出站 Processor 链在 LLM 生成响应后解析 DSL 指令，完成内容变换后交付渲染。Gateway 从 Session 读取 ContentBlock[] 构造 ProcessedMessage 传入链。
 
-出站链的职责仅限于**内容变换**（提取 DSL 指令），不负责展示格式的生成和出站日志。渲染和日志由 Gateway 层处理。
+出站链的职责仅限于**内容变换**（提取 DSL 指令），不负责展示格式的生成和出站日志。渲染由 Gateway 协调、委托 IM Adapter 的 Renderer 完成，日志由 Gateway 统一记录。
 
 ## 架构
 
-出站链由一个 Processor 组成：DslParser。渲染和日志由 Gateway 处理，各平台有各自的 IM 插件（如飞书插件包含飞书 Adapter + 飞书 Renderer），Gateway 根据目标平台选择对应插件：
+出站链由一个 Processor 组成：DslParser。渲染由 Gateway 协调、委托各平台 IM Adapter 的 Renderer 完成，日志由 Gateway 统一记录。各平台有各自的 IM Adapter（如飞书 Adapter + 飞书 Renderer），Gateway 根据目标平台选择对应 IM Adapter：
 
 ```
-Session 消息（ContentBlock[]）
+Gateway 从 Session 读取 ContentBlock[]，构造 ProcessedMessage
   ↓
 Processor 链（出站，按 priority 升序执行）
   └── DslParser（priority 10）
@@ -44,12 +44,13 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
   → Session 写入 messages[]
     → Gateway 从 Session 读取 ContentBlock[]
       → 构造 ProcessedMessage，启动出站 Processor 链
-        → DslParser.process(ctx)遍历 ContentBlock[]：
+        → DslParser 遍历 ContentBlock[]：
               ├── Text 块 → 逐行扫描 DSL → 解析 → 剥离 DSL 行
               ├── Thinking 块 → 透传
               ├── ToolUse 块 → 透传
               └── ToolResult 块 → 透传
             输出：更新的 ContentBlock[] + metadata["dsl_result"]
+            ↓
       → 链输出 ProcessedMessage
         → Gateway 记录出站日志
         → Gateway 选择目标平台 IM 插件
