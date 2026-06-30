@@ -64,7 +64,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Run {
             config_dir,
             foreground,
-        } => handle_run(config_dir, cli.json, foreground).await?,
+        } => {
+            let runner = closeclaw::daemon::bridge::DaemonRunnerImpl;
+            handle_run(config_dir, cli.json, foreground, &runner).await?
+        }
         Commands::Stop { force } => handle_stop(force, cli.json).await?,
     }
     Ok(())
