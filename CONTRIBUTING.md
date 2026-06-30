@@ -83,34 +83,13 @@ cargo build && cargo test
 
 CloseClaw 采用 Cargo workspace，每个 design doc 模块对应一个独立 crate。
 
-### 依赖分层
-
-```
-Layer 0（叶子）：closeclaw-common
-Layer 1：closeclaw-config, closeclaw-session
-Layer 2：closeclaw-llm, closeclaw-permission
-Layer 3：closeclaw-gateway, closeclaw-tools, closeclaw-skills, closeclaw-im-adapter
-Layer 4：closeclaw-agent, closeclaw-memory, closeclaw-processor-chain, closeclaw-slash, closeclaw-system-prompt, closeclaw-platform, closeclaw-tasks
-Layer 5：closeclaw-cli, closeclaw-daemon
-Layer 6：closeclaw（主 crate，纯组合根，仅 main.rs + lib.rs）
-```
-
-**规则**：
-- 跨模块共享的类型和 trait 放 `closeclaw-common`
-- 各 crate 内部模块嵌套不超过 4 级目录
-- 每个文件独立可读
-- 禁止逆向依赖（高层 → 低层允许，反向禁止）
-- 循环依赖通过 trait 抽象解耦
-
 ### 目标目录结构
 
 ```
 Cargo.toml               # workspace 根
 src/                     # 主 crate（closeclaw）— 纯组合根
 ├── lib.rs               #   pub mod + init()
-├── main.rs              #   bin 入口
-├── bridge.rs            #   模块间桥接（临时，逐步消除）
-└── common/              #   共享类型（逐步下沉到 closeclaw-common）
+└── main.rs              #   bin 入口
 crates/
 ├── common/              # closeclaw-common — 共享类型、trait、常量
 ├── config/              # closeclaw-config — 配置管理、热重载
@@ -136,28 +115,10 @@ tests/
 └── fixtures/            # 共享测试数据
 ```
 
-### Crate 拆分标准
-
-**拆分原则**：
-- 一个 design doc 模块 = 一个 crate
-- 根 crate 最终只保留 main.rs + lib.rs（纯组合根）
-- 每次只拆分一个模块，一个 PR
-- 每个 PR 必须通过 `cargo build` + `cargo test`
-- 禁止修改 design doc
-
-**拆分流程**：
-1. 创建 `refactor/<module>` 分支
-2. 将 `src/<module>/` 移动到 `crates/<module>/src/`
-3. 创建 `crates/<module>/Cargo.toml`，声明最小依赖集
-4. 更新 workspace `members` 和根 crate 依赖
-5. 处理跨模块依赖（类型下沉 / trait 抽象 / pub use 桥接）
-6. `cargo build && cargo test` 通过
-7. 按 Git 工作流提 PR
-
-**跨模块依赖处理**：
-- 共享类型 → 下沉到 `closeclaw-common`
-- 双向依赖 → 通过 trait 抽象解耦，低层 crate 定义 trait，高层 crate 实现
-- 过渡期允许 `pub use` re-export 桥接，后续 PR 消除
+**依赖规则**：
+- 跨模块共享的类型和 trait 放 `closeclaw-common`
+- 依赖方向：高层 → 低层，禁止逆向
+- 各 crate 内部模块嵌套不超过 4 级目录
 
 ---
 
@@ -217,8 +178,6 @@ tests/
 - ❌ `thread::sleep` 等待异步事件
 - ❌ 测试后残留进程、端口、临时文件
 - ❌ 依赖前序测试的副作用
-- ❌ 访问真实外部网络
-- ❌ UT 中出现 >1s 的等待
 
 ### 性能约束
 
@@ -308,16 +267,6 @@ git checkout master && git pull
 
 > `--body-file` 确保 PR body 准确传递为 squash commit body。`--delete-branch` 同时删除远程和本地分支。不用 `--subject`——PR title 自动成为 commit subject。
 
----
-
-## 工具链
-
-```bash
-cargo fmt --check    # CI 格式检查
-cargo fmt            # 自动修复
-cargo clippy --all -- -D warnings
-cargo test
-```
 
 ---
 
