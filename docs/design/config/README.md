@@ -15,6 +15,7 @@
 ├── config/
 │   ├── models.json          # LLM 供应商与模型定义
 │   ├── channels.json        # 渠道配置与绑定
+│   ├── accounts.json        # 账户注册与 IM 平台身份绑定
 │   ├── gateway.json         # Gateway 服务配置
 │   ├── plugins.json         # 插件列表与配置
 │   ├── session.json         # 会话生命周期配置（idle 超时、purge TTL、compaction 阈值等）
@@ -46,7 +47,7 @@
 ### 核心组件
 
 - **ConfigManager**：所有配置读写的统一入口。负责加载所有子配置文件到内存、提供读写接口、管理写入流程（校验 → 备份 → 原子写入 → 更新内存）、启动时自动回退损坏文件。
-- **ConfigProvider 体系**：每个子配置文件对应一个 Provider 实现，封装该子配置的数据结构、校验规则和文件路径。session.json 对应 SessionConfigProvider，负责解析 idle 超时、purge TTL 等会话生命周期参数。
+- **ConfigProvider 体系**：每个子配置文件对应一个 Provider 实现，封装该子配置的数据结构、校验规则和文件路径。session.json 对应 SessionConfigProvider，负责解析 idle 超时、purge TTL 等会话生命周期参数。accounts.json 对应 AccountsConfigProvider，负责加载账户身份绑定、校验 sender_id 与平台对应关系。
 - **BackupManager**：滚动备份管理，每次写入前创建备份，在 `.backups/` 下维护每个配置文件最近 N 份历史备份（命名格式 `<文件名>.<时间戳>.json`），支持回退到最近可用备份。ConfigManager 和 ConfigReloadManager 共用 BackupManager 进行回退保护。
 - **ConfigReloadManager**：文件变更监控与热重载，监听配置目录变更事件，增量重载变更文件，校验通过后更新内存配置并推送变更通知到已有会话（详见 hot-reload.md）。
 - **凭据分离**：credentials 作为 config 子目录，按供应商分文件存储敏感凭据，与业务配置物理隔离。models 等业务配置只引用供应商名称，凭据由 CredentialsProvider 动态注入。凭据加载失败不阻塞 daemon 启动，仅影响需要该供应商的功能。
@@ -66,25 +67,26 @@
 
 ```
 Config 模块启动时
-  │
-  ├─→ 加载 config/ 下所有配置文件
-  │     │     │
-  │     │     ├─ 解析成功 & 校验通过 → 加载到内存
-  │     │     │
-  │     │     ├─ 解析失败 → BackupManager 查找最近备份
-  │     │     │     ├─ 备份存在 → 回退到备份文件 → 重试加载
-  │     │     │     │     ├─ 成功 → 记录 WARN，继续
-  │     │     │     │     └─ 仍失败 → 返回 Err，拒绝启动
-  │     │     │     └─ 无备份 → 返回 Err，拒绝启动
-  │     │     │
-  │     │     └─ 校验失败 → 同上回退流程
+  ↓
+加载 config/ 下所有配置文件
   │     │
-  │     ├─ 加载 credentials/ 目录
-  │     │     └─ 加载失败 → 使用空凭据，记录 WARN（不阻塞启动）
+  │     ├─ 解析成功 & 校验通过 → 加载到内存
   │     │
-  │     └─ 全部加载成功 → 启动 ConfigReloadManager（注册文件监听、热重载）
+  │     ├─ 解析失败 → BackupManager 查找最近备份
+  │     │     ├─ 备份存在 → 回退到备份文件 → 重试加载
+  │     │     │     ├─ 成功 → 记录 WARN，继续
+  │     │     │     └─ 仍失败 → 返回 Err，拒绝启动
+  │     │     └─ 无备份 → 返回 Err，拒绝启动
+  │     │
+  │     └─ 校验失败 → 同上回退流程
+  ↓
+加载 credentials/ 目录
   │
-  └─→ Daemon 正常运行，热重载监听器后台运行
+  └─ 加载失败 → 使用空凭据，记录 WARN（不阻塞启动）
+  ↓
+全部加载成功 → 启动 ConfigReloadManager（注册文件监听、热重载）
+  ↓
+Daemon 正常运行，热重载监听器后台运行
 ```
 
 ### Agent 配置加载
@@ -137,6 +139,7 @@ Config 模块启动时
 | plugins | 插件名非空、插件可解析 |
 | session | idleMinutes 非负、purgeAfterMinutes 非负、sweeperIntervalSeconds 为正 |
 | system | 版本号非空、cron 表达式合法 |
+| accounts | 账户 ID 非空且唯一、平台名与 channels 中的渠道对应、sender_id 非空 |
 | credentials | 供应商 ID 与 models 引用匹配、api_key 非空 |
 | agents | ID 列表为有效 JSONC 格式、每个 ID 对应的 config.json 可解析、parentId 引用的 ID 已注册 |
 
