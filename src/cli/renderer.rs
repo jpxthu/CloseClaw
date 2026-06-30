@@ -779,17 +779,18 @@ impl TerminalRenderer {
     ) -> RenderedOutput {
         let mut output_text = String::new();
 
-        for block in content_blocks {
-            let rendered = self.render_block(block);
-            output_text.push_str(&rendered);
-            output_text.push('\n');
-        }
-
+        // DSL preprocessing before ContentBlock traversal (design doc requirement)
         if let Some(dsl) = dsl_result {
             let dsl_text = self.render_dsl(dsl);
             if !dsl_text.is_empty() {
                 output_text.push_str(&dsl_text);
             }
+        }
+
+        for block in content_blocks {
+            let rendered = self.render_block(block);
+            output_text.push_str(&rendered);
+            output_text.push('\n');
         }
 
         let text = if self.ansi {
