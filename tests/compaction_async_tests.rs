@@ -1,12 +1,13 @@
 //! Async tests for compaction module (requires fake-llm feature)
 
-#[cfg(all(test, feature = "fake-llm"))]
+#[cfg(feature = "fake-llm")]
 mod tests {
-    use crate::session::compaction::{execute_compact, CompactionError};
+    use closeclaw::session::compaction::execute_compact;
     use closeclaw_llm::fake::FakeProvider;
     use closeclaw_llm::fallback::FallbackClient;
     use closeclaw_llm::LLMRegistry;
     use closeclaw_llm::Message;
+    use closeclaw_session::compaction::CompactionError;
     use std::sync::Arc;
 
     /// Wrap a FakeProvider into an `Arc<dyn Provider>`.
