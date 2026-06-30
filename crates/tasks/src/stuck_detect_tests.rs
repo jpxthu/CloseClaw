@@ -4,7 +4,7 @@
 //! `stuck_detect.rs`'s `#[cfg(test)] mod tests`.
 
 use super::*;
-use crate::tasks::background::{CompletionNotification, TaskHandle, TaskMap, TaskState};
+use crate::background::{CompletionNotification, TaskHandle, TaskMap, TaskState};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;

@@ -450,6 +450,7 @@ dependencies = [
  "closeclaw-processor-chain",
  "closeclaw-session",
  "closeclaw-skills",
+ "closeclaw-tasks",
  "closeclaw-tools",
  "dashmap",
  "dialoguer",
@@ -689,6 +690,19 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "closeclaw-tasks"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "closeclaw-common",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

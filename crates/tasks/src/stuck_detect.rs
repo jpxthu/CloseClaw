@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use tokio::sync::Mutex;
 
-use super::background::{CompletionNotification, NotificationPriority, TaskMap, TaskState};
+use crate::background::{CompletionNotification, NotificationPriority, TaskMap, TaskState};
 
 /// Check interval between stuck detection polls.
 const CHECK_INTERVAL_SECS: u64 = 5;
