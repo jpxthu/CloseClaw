@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::session::sweeper::*;
+    use crate::sweeper::*;
     use async_trait::async_trait;
     use closeclaw_config::session::PerAgentSessionConfig;
     use closeclaw_config::SessionConfigProvider;
@@ -174,8 +174,8 @@ mod tests {
             self.agents.lock().unwrap().clone()
         }
 
-        fn compact_config(&self) -> crate::session::CompactConfig {
-            crate::session::CompactConfig::default()
+        fn compact_config(&self) -> closeclaw_common::CompactConfig {
+            closeclaw_common::CompactConfig::default()
         }
     }
 

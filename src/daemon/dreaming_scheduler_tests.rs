@@ -6,7 +6,7 @@ use tokio::sync::watch;
 
 use crate::common::test_helpers::TestStorage;
 use crate::daemon::dreaming_scheduler::DreamingScheduler;
-use crate::session::compaction::CompactConfig;
+use closeclaw_common::CompactConfig;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::PerAgentSessionConfig;
 use closeclaw_memory::dreaming::DreamingPipeline;

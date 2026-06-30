@@ -4,15 +4,12 @@
 //! LLM-calling `execute_compact` function that bridges session types
 //! to the actual LLM client.
 
-pub use closeclaw_session::compaction::{
-    build_compact_prompt, estimate_messages_tokens, estimate_tokens, extract_summary,
-    format_boundary_message, get_context_window, CompactConfig, CompactionError, CompactionMessage,
-    CompactionResult, CompactionService, TokenWarningState, BASE_COMPACT_PROMPT,
-    MODEL_CONTEXT_WINDOWS, NO_TOOLS_PREAMBLE, NO_TOOLS_TRAILER,
-};
-
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::{ChatRequest, Message};
+use closeclaw_session::compaction::{
+    build_compact_prompt, estimate_messages_tokens, estimate_tokens, extract_summary,
+    format_boundary_message, CompactionError, CompactionMessage, CompactionResult,
+};
 
 /// Executes session compaction: builds prompt, calls LLM, parses summary, formats result.
 ///
