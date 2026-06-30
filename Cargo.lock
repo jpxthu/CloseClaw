@@ -440,6 +440,7 @@ dependencies = [
  "cargo-llvm-cov",
  "chrono",
  "clap",
+ "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-gateway",
@@ -477,6 +478,24 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "closeclaw-agent"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "closeclaw-common",
+ "closeclaw-config",
+ "closeclaw-gateway",
+ "closeclaw-permission",
+ "closeclaw-session",
+ "closeclaw-tools",
+ "dashmap",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
