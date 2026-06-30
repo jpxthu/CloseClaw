@@ -6,7 +6,7 @@ TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlo
 
 ## 架构
 
-TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染由 IM Adapter 模块的 DefaultStreamingRenderer 驱动——TerminalRenderer 持有 DefaultStreamingRenderer 实例，TerminalPlugin 在流式路径中直接取用该实例逐行产生增量输出，不经过 TerminalRenderer 自身的批量渲染。
+TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染由 IM Adapter 模块的流式渲染组件驱动——TerminalRenderer 引用流式渲染器，TerminalPlugin 在流式模式中通过该渲染器逐行产生增量输出，不经过 TerminalRenderer 自身的批量渲染。
 
 ```
 ContentBlock[] + DslParseResult
@@ -100,12 +100,12 @@ RenderedOutput { msg_type: "text", payload: ANSI 文本 }
 TerminalPlugin 的 send 方法将 payload 写入 stdout
 ```
 
-> **流式路径**：不走上述 TerminalRenderer 的批量渲染逻辑。TerminalPlugin 在流式路径中直接取用 TerminalRenderer 持有的 DefaultStreamingRenderer 实例，Gateway 通过 IMPlugin trait 流式默认方法驱动，逐行产生增量 RenderedOutput 后立即写入 stdout。流式机制详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+> **流式路径**：不走 TerminalRenderer 的批量渲染逻辑。ContentBlock[] 经统一预处理（Verbosity → DslParser → 出站日志）后，IM Adapter 以流式模式驱动渲染。TerminalPlugin 逐行产生增量 RenderedOutput 后立即写入 stdout。流式机制详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
 
 ## 模块关系
 
 - **上游**：TerminalPlugin（调用 TerminalRenderer 完成渲染，消费产出的 RenderedOutput 并通过 send 写入 stdout）
 - **下游**：无——渲染是纯数据转换，不调用其他模块
-- **与模块内其他子功能**：被 TerminalPlugin 持有和调用，作为 IMPlugin 渲染职责的 terminal 渠道实现。TerminalPlugin 在流式路径中直接取用 TerminalRenderer 持有的 DefaultStreamingRenderer 实例
-- **与 IM Adapter 的关系**：TerminalRenderer 是 IM Adapter 框架下 terminal 渠道的渲染实现，遵循 IMPlugin 约定——渲染返回 RenderedOutput，发送由插件完成。流式渲染使用 IM Adapter 模块的 DefaultStreamingRenderer 作为共享组件
+- **与模块内其他子功能**：被 TerminalPlugin 持有和调用，作为 IMPlugin 渲染职责的 terminal 渠道实现。TerminalPlugin 在流式模式中取用流式渲染组件逐行产生增量输出
+- **与 IM Adapter 的关系**：TerminalRenderer 是 IM Adapter 框架下 terminal 渠道的渲染实现，遵循 IMPlugin 约定——渲染返回 RenderedOutput，发送由插件完成。流式渲染使用 IM Adapter 模块的流式渲染组件作为共享渲染器
 - **无关**：IM Adapter 各平台渲染实现（飞书、Discord 等）——渲染策略和目标格式不同，无共享逻辑
