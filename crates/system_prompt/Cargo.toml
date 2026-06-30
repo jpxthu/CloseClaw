@@ -1,0 +1,34 @@
+[package]
+name = "closeclaw-system-prompt"
+version = "0.1.0"
+edition = "2021"
+description = "System Prompt construction"
+license = "MIT"
+
+[lib]
+name = "closeclaw_system_prompt"
+path = "src/lib.rs"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+closeclaw-common = { path = "../common" }
+closeclaw-agent = { path = "../agent" }
+closeclaw-gateway = { path = "../gateway" }
+closeclaw-tools = { path = "../tools" }
+closeclaw-session = { path = "../session" }
+closeclaw-skills = { path = "../skills" }
+async-trait = "0.1"
+dashmap = "5"
+thiserror = "2.0"
+tokio = { version = "=1.35.0", features = ["full"] }
+tracing = "=0.1.43"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3.10"
+closeclaw-config = { path = "../config" }
+closeclaw-permission = { path = "../permission" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-tasks = { path = "../tasks" }
+serde_json = "1.0"

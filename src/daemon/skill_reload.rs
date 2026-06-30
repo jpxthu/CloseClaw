@@ -2,10 +2,10 @@
 //!
 //! Initializes the skill registry and file watcher at daemon startup.
 
-use crate::system_prompt::sections::invalidate_skill_listing;
 use closeclaw_skills::{
     init_disk_skills, start_skill_watcher, DiskSkillRegistry, ScanConfig, SkillWatcherHandle,
 };
+use closeclaw_system_prompt::sections::invalidate_skill_listing;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tracing::info;
