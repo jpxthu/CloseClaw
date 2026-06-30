@@ -59,7 +59,9 @@ Agent 回复内容（含思考块、工具调用块、文本块）
   ↓
 过滤后内容进入出站 Processor Chain
   ↓
-Processor Chain 处理（DslParser → RawLog）
+Processor Chain 处理（DslParser）
+  ↓
+Gateway 记录出站日志
   ↓
 经处理后消息 → IM 插件渲染 → 发送
 ```
