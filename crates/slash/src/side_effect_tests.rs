@@ -333,3 +333,100 @@ fn test_reply_action_debug() {
     let _ = format!("{:?}", ReplyAction::TriggerCompact { instruction: None });
     let _ = format!("{:?}", ReplyAction::Nothing);
 }
+
+// ---------------------------------------------------------------------------
+// Side effects with active sessions
+// ---------------------------------------------------------------------------
+
+/// Helper: create a SideEffectContext backed by a real SessionManager
+/// with an active conversation session.
+async fn make_active_ctx() -> (SideEffectContext, mpsc::Receiver<ReplyAction>, String) {
+    let sm = make_sm();
+    let msg = closeclaw_gateway::Message {
+        id: "se-test-msg".to_string(),
+        from: "user-a".to_string(),
+        to: "agent-b".to_string(),
+        content: "hello".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: 0,
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+    };
+    let session_id = sm.find_or_create("feishu", &msg, None).await.unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel(16);
+    let ctx = SideEffectContext::new(session_id.clone(), "feishu".to_owned(), sm, reply_tx);
+    (ctx, reply_rx, session_id)
+}
+
+#[tokio::test]
+async fn test_execute_set_reasoning_with_session() {
+    let (ctx, mut rx, _sid) = make_active_ctx().await;
+    let result = SlashResult::SetReasoning {
+        level: ReasoningLevel::Low,
+    };
+    result.execute(&ctx).await;
+    drop(ctx);
+    let action = rx.recv().await.expect("reply action");
+    match action {
+        ReplyAction::Reply(text) => assert!(text.contains("推理深度已设置为"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_execute_set_verbosity_with_session() {
+    let (ctx, mut rx, _sid) = make_active_ctx().await;
+    let result = SlashResult::SetVerbosity {
+        level: closeclaw_common::VerbosityLevel::Normal,
+    };
+    result.execute(&ctx).await;
+    drop(ctx);
+    let action = rx.recv().await.expect("reply action");
+    match action {
+        ReplyAction::Reply(text) => assert!(text.contains("输出详细度已设置为"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_execute_system_append_add_with_session() {
+    let (ctx, mut rx, _sid) = make_active_ctx().await;
+    let result = SlashResult::SystemAppend {
+        action: SystemAppendAction::Add("new instruction".to_owned()),
+    };
+    result.execute(&ctx).await;
+    drop(ctx);
+    let action = rx.recv().await.expect("reply action");
+    match action {
+        ReplyAction::Reply(text) => assert!(text.contains("已追加指令"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_execute_system_append_clear_with_session() {
+    let (ctx, mut rx, _sid) = make_active_ctx().await;
+    let result = SlashResult::SystemAppend {
+        action: SystemAppendAction::Clear,
+    };
+    result.execute(&ctx).await;
+    drop(ctx);
+    let action = rx.recv().await.expect("reply action");
+    match action {
+        ReplyAction::Reply(text) => assert!(text.contains("已清除"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_execute_stop_with_session_not_busy() {
+    let (ctx, mut rx, _sid) = make_active_ctx().await;
+    let result = SlashResult::Stop;
+    result.execute(&ctx).await;
+    drop(ctx);
+    let action = rx.recv().await.expect("reply action");
+    match action {
+        ReplyAction::Reply(text) => assert!(text.contains("已停止当前任务"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}

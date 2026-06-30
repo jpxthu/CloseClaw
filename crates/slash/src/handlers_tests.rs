@@ -361,6 +361,52 @@ async fn test_workdir_handler_pwd_and_git() {
     }
 }
 
+#[tokio::test]
+async fn test_workdir_handler_cd_no_session() {
+    let sm = make_workdir_session_manager();
+    let h = WorkdirHandler::new(sm);
+    let ctx = SlashContext {
+        command: "cd".to_owned(),
+        sender_id: "u".to_owned(),
+        session_id: "nonexistent".to_owned(),
+        channel: "c".to_owned(),
+    };
+    match h.handle("/tmp", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
+        other => panic!("expected Reply with no-session, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_workdir_handler_pwd_no_session() {
+    let sm = make_workdir_session_manager();
+    let h = WorkdirHandler::new(sm);
+    let ctx = SlashContext {
+        command: "pwd".to_owned(),
+        sender_id: "u".to_owned(),
+        session_id: "nonexistent".to_owned(),
+        channel: "c".to_owned(),
+    };
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
+        other => panic!("expected Reply with no-session, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_workdir_handler_cd_root_path() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    ctx.command = "cd".to_owned();
+    match h.handle("/", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("工作目录已变更为"), "got: {t}"),
+        _other => panic!("expected Reply"),
+    }
+}
+
 // ── ReasoningHandler tests ─────────────────────────────────────────────────
 
 #[test]
@@ -420,6 +466,37 @@ async fn test_reasoning_handler_invalid_level() {
     }
 }
 
+#[tokio::test]
+async fn test_reasoning_handler_no_session_no_args() {
+    let sm = make_workdir_session_manager();
+    let h = ReasoningHandler::new(sm);
+    let ctx = SlashContext {
+        command: String::new(),
+        sender_id: "u".to_owned(),
+        session_id: "nonexistent".to_owned(),
+        channel: "c".to_owned(),
+    };
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
+        other => panic!("expected Reply with no-session, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_reasoning_handler_with_whitespace_args() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("  high  ", &ctx).await {
+        SlashResult::SetReasoning { level } => {
+            assert_eq!(level, closeclaw_session::persistence::ReasoningLevel::High)
+        }
+        other => panic!("expected SetReasoning, got {other:?}"),
+    }
+}
+
 // ── SystemHandler tests ─────────────────────────────────────────────────────
 
 #[test]
@@ -468,6 +545,57 @@ async fn test_system_unknown_subcommand() {
     match h.handle("foo", &dummy_ctx()).await {
         SlashResult::Reply(t) => assert!(t.contains("未知子指令"), "got: {t}"),
         _ => panic!("expected Reply with unknown"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_plus_syntax_returns_append() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    let ctx = dummy_ctx();
+    match h.handle("+ 追加指令", &ctx).await {
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Add(t),
+        } => assert_eq!(t, "追加指令"),
+        _ => panic!("expected SystemAppend::Add for + syntax"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_plus_empty_returns_usage() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    match h.handle("+", &dummy_ctx()).await {
+        SlashResult::Reply(t) => assert!(t.contains("用法"), "got: {t}"),
+        _ => panic!("expected Reply with usage for empty +"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_list_no_session() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    let ctx = SlashContext {
+        command: String::new(),
+        sender_id: "u".to_owned(),
+        session_id: "nonexistent".to_owned(),
+        channel: "c".to_owned(),
+    };
+    match h.handle("list", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
+        other => panic!("expected Reply with no-session, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_no_args_no_session() {
+    let h = SystemHandler::new(make_workdir_session_manager());
+    let ctx = SlashContext {
+        command: String::new(),
+        sender_id: "u".to_owned(),
+        session_id: "nonexistent".to_owned(),
+        channel: "c".to_owned(),
+    };
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
+        other => panic!("expected Reply with no-session, got {other:?}"),
     }
 }
 
@@ -555,5 +683,36 @@ async fn test_verbose_set_invalid_arg() {
             assert!(t.contains("off"), "should list valid options, got: {t}");
         }
         other => panic!("expected Reply error, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_verbose_handler_no_session_no_args() {
+    let sm = make_workdir_session_manager();
+    let h = VerboseHandler::new(sm);
+    let ctx = SlashContext {
+        command: String::new(),
+        sender_id: "u".to_owned(),
+        session_id: "nonexistent".to_owned(),
+        channel: "c".to_owned(),
+    };
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
+        other => panic!("expected Reply with no-session, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_verbose_set_with_whitespace_args() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = VerboseHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("  normal  ", &ctx).await {
+        SlashResult::SetVerbosity { level } => {
+            assert_eq!(level, closeclaw_common::VerbosityLevel::Normal)
+        }
+        other => panic!("expected SetVerbosity, got {other:?}"),
     }
 }
