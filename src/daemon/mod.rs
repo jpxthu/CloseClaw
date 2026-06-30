@@ -22,7 +22,6 @@ type StartupPlan = (
     Vec<Vec<crate::daemon::startup::ComponentId>>,
 );
 use crate::cli::terminal::TerminalPlugin;
-use crate::processor_chain;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
 use crate::slash::registry::HandlerRegistry;
@@ -31,6 +30,7 @@ use crate::slash::{
     StopHandler, VerboseHandler,
 };
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
+use closeclaw_processor_chain as processor_chain;
 
 use crate::memory::dreaming::DreamingPipeline;
 use crate::memory::miner::MemoryMiner;

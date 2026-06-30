@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::terminal::TerminalPlugin;
-use crate::processor_chain;
 use crate::slash::dispatcher::SlashDispatcher;
 use crate::slash::registry::HandlerRegistry;
 use crate::slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
@@ -24,6 +23,7 @@ use closeclaw_llm::minimax::MiniMaxProvider;
 use closeclaw_llm::openai::OpenAIProvider;
 use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use closeclaw_llm::LLMRegistry;
+use closeclaw_processor_chain as processor_chain;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
