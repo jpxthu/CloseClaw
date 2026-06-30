@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway", "crates/skills", "crates/tools", "crates/im_adapter", "crates/processor_chain", "crates/platform", "crates/tasks", "crates/memory", "crates/slash", "crates/agent", "crates/admin", "crates/system_prompt"]
+members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway", "crates/skills", "crates/tools", "crates/im_adapter", "crates/processor_chain", "crates/platform", "crates/tasks", "crates/memory", "crates/slash", "crates/agent", "crates/admin", "crates/system_prompt", "crates/cli"]
 
 [workspace.package]
 edition = "2021"

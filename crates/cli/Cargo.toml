@@ -1,0 +1,36 @@
+[package]
+name = "closeclaw-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI interface for CloseClaw"
+license = "MIT"
+
+[lib]
+name = "closeclaw_cli"
+path = "src/lib.rs"
+
+[dependencies]
+closeclaw-common = { path = "../common" }
+closeclaw-config = { path = "../config" }
+closeclaw-slash = { path = "../slash" }
+closeclaw-agent = { path = "../agent" }
+closeclaw-admin = { path = "../admin" }
+closeclaw-permission = { path = "../permission" }
+closeclaw-im-adapter = { path = "../im_adapter" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-gateway = { path = "../gateway" }
+closeclaw-processor-chain = { path = "../processor_chain" }
+closeclaw-session = { path = "../session" }
+closeclaw-platform = { path = "../platform" }
+clap = { version = "4.4", features = ["derive"] }
+dialoguer = "0.11"
+tokio = { version = "=1.35.0", features = ["full"] }
+tracing = "=0.1.43"
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3.10"
