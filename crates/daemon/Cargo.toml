@@ -1,0 +1,59 @@
+[package]
+name = "closeclaw-daemon"
+version = "0.1.0"
+edition.workspace = true
+authors = ["CloseClaw Team"]
+description = "Daemon orchestration: startup, shutdown, and component wiring"
+license.workspace = true
+repository.workspace = true
+rust-version = "1.80"
+
+[lib]
+name = "closeclaw_daemon"
+path = "src/mod.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+
+# Logging
+tracing = "=0.1.43"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async trait
+async-trait = "0.1"
+
+# Temp files (for tests)
+tempfile = "3"
+
+# File watching (hot reload)
+notify = "6.1"
+
+# Internal crates
+closeclaw-common = { path = "../common" }
+closeclaw-config = { path = "../config" }
+closeclaw-agent = { path = "../agent" }
+closeclaw-admin = { path = "../admin" }
+closeclaw-cli = { path = "../cli" }
+closeclaw-gateway = { path = "../gateway" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-memory = { path = "../memory" }
+closeclaw-permission = { path = "../permission" }
+closeclaw-processor-chain = { path = "../processor_chain" }
+closeclaw-session = { path = "../session" }
+closeclaw-skills = { path = "../skills" }
+closeclaw-system-prompt = { path = "../system_prompt" }
+closeclaw-tools = { path = "../tools" }
+closeclaw-im-adapter = { path = "../im_adapter" }
+closeclaw-slash = { path = "../slash" }
+closeclaw-tasks = { path = "../tasks" }
+
+[dev-dependencies]
+libc = "0.2"

@@ -445,6 +445,7 @@ dependencies = [
  "closeclaw-cli",
  "closeclaw-common",
  "closeclaw-config",
+ "closeclaw-daemon",
  "closeclaw-gateway",
  "closeclaw-im-adapter",
  "closeclaw-llm",
@@ -472,7 +473,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "terminal_size",
- "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
@@ -577,6 +577,39 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "closeclaw-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "closeclaw-admin",
+ "closeclaw-agent",
+ "closeclaw-cli",
+ "closeclaw-common",
+ "closeclaw-config",
+ "closeclaw-gateway",
+ "closeclaw-im-adapter",
+ "closeclaw-llm",
+ "closeclaw-memory",
+ "closeclaw-permission",
+ "closeclaw-processor-chain",
+ "closeclaw-session",
+ "closeclaw-skills",
+ "closeclaw-slash",
+ "closeclaw-system-prompt",
+ "closeclaw-tasks",
+ "closeclaw-tools",
+ "libc",
+ "notify",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

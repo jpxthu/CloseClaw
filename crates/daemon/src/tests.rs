@@ -1,7 +1,7 @@
 //! Daemon unit tests.
 
-use crate::common::test_helpers::write_mandatory_configs;
-use crate::daemon::Daemon;
+use super::*;
+use crate::test_helpers::write_mandatory_configs;
 use closeclaw_session::persistence::PersistenceService;
 
 /// Create only `config/agents.json` (without mandatory config files)

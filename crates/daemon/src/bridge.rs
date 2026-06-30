@@ -1,24 +1,111 @@
-//! Bridge implementations — adapts main-crate concrete types to
+//! Bridge implementations — adapts daemon-crate concrete types to
 //! `closeclaw_common` trait objects used by the gateway.
+//!
+//! Duplicated from root crate's `bridge.rs` because the daemon crate
+//! cannot depend on the root crate (circular dependency).
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::slash::{
-    context::SlashContext as MainSlashContext,
-    handler::{SlashHandler as MainSlashHandler, SlashResult as MainSlashResult},
-    SlashDispatcher,
+use crate::shutdown::ShutdownHandle as DaemonShutdownHandle;
+use closeclaw_slash::context::SlashContext as MainSlashContext;
+use closeclaw_slash::handler::{
+    SlashHandler as MainSlashHandler, SlashResult as MainSlashResult, SystemAppendAction,
 };
-use closeclaw_daemon::shutdown::ShutdownHandle as DaemonShutdownHandle;
+use closeclaw_slash::SlashDispatcher;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ShutdownHandle conversion
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Create a `closeclaw_common::shutdown::ShutdownHandle` from the daemon's
+/// `ShutdownHandle`.
+pub fn common_shutdown_handle(
+    daemon_handle: &DaemonShutdownHandle,
+) -> Arc<closeclaw_common::shutdown::ShutdownHandle> {
+    Arc::new(closeclaw_common::shutdown::ShutdownHandle::new(Arc::new(
+        daemon_handle.clone(),
+    )))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SkillRegistryQuery
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Newtype wrapper around `Arc<RwLock<Option<DiskSkillRegistry>>>` to
+/// satisfy the orphan rule when implementing `SkillRegistryQuery`.
+pub struct SkillRegistryWrapper(
+    pub Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+);
+
+#[async_trait]
+impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapper {
+    async fn has_skill(&self, name: &str) -> bool {
+        self.0
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.contains(name)))
+            .unwrap_or(false)
+    }
+
+    async fn list_skills(&self) -> Vec<String> {
+        self.0
+            .read()
+            .ok()
+            .and_then(|g| {
+                g.as_ref()
+                    .map(|r| r.list().into_iter().map(String::from).collect())
+            })
+            .unwrap_or_default()
+    }
+
+    async fn list_skills_for_agent(&self, agent_skills: Option<&[String]>) -> Vec<String> {
+        self.0
+            .read()
+            .ok()
+            .and_then(|g| {
+                g.as_ref().map(|r| {
+                    let all = r.list();
+                    match agent_skills {
+                        Some(skills) if skills.len() == 1 && skills[0] == "*" => {
+                            all.into_iter().map(String::from).collect()
+                        }
+                        Some([]) => all.into_iter().map(String::from).collect(),
+                        Some(skills) => {
+                            let set: std::collections::HashSet<&str> =
+                                skills.iter().map(|s| s.as_str()).collect();
+                            all.into_iter()
+                                .filter(|name| set.contains(*name))
+                                .map(String::from)
+                                .collect()
+                        }
+                        None => all.into_iter().map(String::from).collect(),
+                    }
+                })
+            })
+            .unwrap_or_default()
+    }
+
+    fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
+        self.0
+            .read()
+            .ok()
+            .and_then(|g| {
+                g.as_ref()
+                    .map(|r| r.generate_listing(agent_id, agent_skills))
+            })
+            .unwrap_or_default()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SlashRouter adapter
+// ═══════════════════════════════════════════════════════════════════════════
 
 /// Newtype wrapper around `SlashDispatcher` to satisfy the orphan rule
-/// when implementing `closeclaw_common::slash_router::SlashRouter`.
+/// when implementing `closeclaw_common::SlashRouter`.
 pub struct SlashDispatcherWrapper(pub SlashDispatcher);
-
-// ═══════════════════════════════════════════════════════════════════════════
-// ProcessorChain
-// ═══════════════════════════════════════════════════════════════════════════
 
 fn convert_slash_context(ctx: &closeclaw_common::slash_router::SlashContext) -> MainSlashContext {
     MainSlashContext {
@@ -40,10 +127,10 @@ fn convert_slash_result(result: MainSlashResult) -> closeclaw_common::slash_rout
         }
         MainSlashResult::SystemAppend { action } => {
             let common_action = match action {
-                crate::slash::handler::SystemAppendAction::Add(s) => {
+                SystemAppendAction::Add(s) => {
                     closeclaw_common::slash_router::SystemAppendAction::Add(s)
                 }
-                crate::slash::handler::SystemAppendAction::Clear => {
+                SystemAppendAction::Clear => {
                     closeclaw_common::slash_router::SystemAppendAction::Clear
                 }
             };
@@ -126,105 +213,17 @@ impl closeclaw_common::slash_router::SlashRouter for SlashDispatcherWrapper {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SkillRegistryQuery — newtype wrapper (orphan rule)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Newtype wrapper around `Arc<RwLock<Option<DiskSkillRegistry>>>` to
-/// satisfy the orphan rule when implementing `SkillRegistryQuery`.
-pub struct SkillRegistryWrapper(
-    pub Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
-);
-
-#[async_trait]
-impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapper {
-    async fn has_skill(&self, name: &str) -> bool {
-        self.0
-            .read()
-            .ok()
-            .and_then(|g| g.as_ref().map(|r| r.contains(name)))
-            .unwrap_or(false)
-    }
-
-    async fn list_skills(&self) -> Vec<String> {
-        self.0
-            .read()
-            .ok()
-            .and_then(|g| {
-                g.as_ref()
-                    .map(|r| r.list().into_iter().map(String::from).collect())
-            })
-            .unwrap_or_default()
-    }
-
-    async fn list_skills_for_agent(&self, agent_skills: Option<&[String]>) -> Vec<String> {
-        self.0
-            .read()
-            .ok()
-            .and_then(|g| {
-                g.as_ref().map(|r| {
-                    let all = r.list();
-                    match agent_skills {
-                        Some(skills) if skills.len() == 1 && skills[0] == "*" => {
-                            all.into_iter().map(String::from).collect()
-                        }
-                        Some([]) => all.into_iter().map(String::from).collect(),
-                        Some(skills) => {
-                            let set: std::collections::HashSet<&str> =
-                                skills.iter().map(|s| s.as_str()).collect();
-                            all.into_iter()
-                                .filter(|name| set.contains(*name))
-                                .map(String::from)
-                                .collect()
-                        }
-                        None => all.into_iter().map(String::from).collect(),
-                    }
-                })
-            })
-            .unwrap_or_default()
-    }
-
-    fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
-        self.0
-            .read()
-            .ok()
-            .and_then(|g| {
-                g.as_ref()
-                    .map(|r| r.generate_listing(agent_id, agent_skills))
-            })
-            .unwrap_or_default()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// ShutdownHandle conversion
-// ═══════════════════════════════════════════════════════════════════════════
-
-// DaemonShutdownMode is now a re-export of closeclaw_common::ShutdownMode,
-// so no conversion is needed.
-
-/// Create a `closeclaw_common::shutdown::ShutdownHandle` from the daemon's
-/// `ShutdownHandle`. The common handle wraps the daemon's handle as a
-/// `dyn ShutdownSignal`.
-pub fn common_shutdown_handle(
-    daemon_handle: &DaemonShutdownHandle,
-) -> Arc<closeclaw_common::shutdown::ShutdownHandle> {
-    Arc::new(closeclaw_common::shutdown::ShutdownHandle::new(Arc::new(
-        daemon_handle.clone(),
-    )))
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // IMPlugin adapter
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Adapter that wraps a main-crate `IMPlugin` and implements the common
-/// `IMPlugin` trait for gateway registration.
+/// Adapter wrapping a closeclaw_im_adapter `IMPlugin` and implementing
+/// the common `IMPlugin` trait for gateway registration.
 pub struct IMPluginAdapter {
     inner: Arc<dyn closeclaw_im_adapter::plugin::IMPlugin>,
 }
 
 impl IMPluginAdapter {
-    /// Wrap a main-crate IMPlugin for use with the gateway.
+    /// Wrap a closeclaw_im_adapter IMPlugin for use with the gateway.
     pub fn wrap(
         plugin: Arc<dyn closeclaw_im_adapter::plugin::IMPlugin>,
     ) -> Arc<dyn closeclaw_common::IMPlugin> {
@@ -382,7 +381,6 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
         content_blocks: &[closeclaw_common::processor::ContentBlock],
         dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
     ) -> closeclaw_common::im_plugin::RenderedOutput {
-        // The new crate uses closeclaw_common types directly — no conversion needed.
         let result = self.inner.render(content_blocks, dsl_result);
         closeclaw_common::im_plugin::RenderedOutput {
             msg_type: result.msg_type,
@@ -394,7 +392,6 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
         &self,
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
-        // The new crate uses closeclaw_common types directly — no conversion needed.
         let result = self.inner.handle_stream_event(event);
         convert_common_streaming_output(result)
     }
