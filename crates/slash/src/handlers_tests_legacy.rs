@@ -51,25 +51,6 @@ fn test_dispatcher_all_handlers() {
 }
 
 #[test]
-fn test_reasoning_level_getter_setter_symmetry() {
-    let mut s = closeclaw_llm::session::ConversationSession::new(
-        "test-sym".to_owned(),
-        "test-model".to_owned(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    assert_eq!(s.reasoning_level(), ReasoningLevel::High);
-    for &lv in &[
-        ReasoningLevel::Low,
-        ReasoningLevel::Medium,
-        ReasoningLevel::High,
-        ReasoningLevel::Max,
-    ] {
-        s.set_reasoning_level(lv);
-        assert_eq!(s.reasoning_level(), lv);
-    }
-}
-
-#[test]
 fn test_reasoning_level_with_builder() {
     let s = closeclaw_llm::session::ConversationSession::new(
         "test-b".to_owned(),

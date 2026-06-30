@@ -14,6 +14,9 @@ pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, Verbos
 pub use side_effect::SideEffectContext;
 
 #[cfg(test)]
+mod tests;
+
+#[cfg(test)]
 mod handlers_tests;
 
 #[cfg(test)]

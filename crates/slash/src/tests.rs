@@ -6,6 +6,7 @@ use crate::context::SlashContext;
 use crate::dispatcher::parse_slash;
 use crate::handler::{SlashHandler, SlashResult};
 use crate::registry::HandlerRegistry;
+use crate::ExecHandler;
 
 // ---------------------------------------------------------------------------
 // Mock handlers
