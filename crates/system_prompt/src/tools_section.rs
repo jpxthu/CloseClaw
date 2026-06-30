@@ -3,7 +3,7 @@
 //! Owns the `build_tools_section` function and its tests. Extracted from
 //! `builder.rs` to keep that file under the 500-line limit.
 
-use super::sections::Section;
+use crate::sections::Section;
 use closeclaw_tools::{PromptGenerationContext, ToolContext, ToolRegistry};
 
 /// Task writing guidance appended to the tools section when spawn is available.
@@ -76,7 +76,8 @@ pub async fn build_tools_section(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::spawn::SpawnController;
+    use closeclaw_agent::registry::AgentRegistry;
+    use closeclaw_agent::spawn::SpawnController;
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::{GatewayConfig, SessionManager};
     use closeclaw_permission::engine::engine_eval::PermissionEngine;
@@ -84,6 +85,7 @@ mod tests {
     use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_skills::DiskSkillRegistry;
+    use closeclaw_tasks::BackgroundTaskManager;
     use closeclaw_tools::builtin::{register_builtin_tools, BuiltinToolContext};
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -100,7 +102,7 @@ mod tests {
         Arc<SpawnController>,
         Arc<SessionManager>,
         Arc<ConfigManager>,
-        Arc<crate::agent::registry::AgentRegistry>,
+        Arc<AgentRegistry>,
     ) {
         let tmp = TempDir::new().expect("tempdir for test");
         let cfg_mgr = Arc::new(
@@ -128,7 +130,7 @@ mod tests {
                 RuleSetBuilder::new().build().unwrap(),
             )),
         ));
-        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
+        let agent_registry = Arc::new(AgentRegistry::new());
         (spawn_controller, session_manager, cfg_mgr, agent_registry)
     }
 
@@ -138,9 +140,9 @@ mod tests {
         spawn_controller: Arc<SpawnController>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
-        agent_registry: Arc<crate::agent::registry::AgentRegistry>,
+        agent_registry: Arc<AgentRegistry>,
     ) -> Arc<BuiltinToolContext> {
-        let task_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
+        let task_manager = Arc::new(BackgroundTaskManager::new());
         Arc::new(BuiltinToolContext {
             config_manager,
             agent_tools_query: agent_registry.clone()

@@ -2,9 +2,9 @@
 //!
 //! Orchestrates section assembly and renders the final system prompt string.
 
-use super::sections::{get_cached_section, load_cached_file_section, read_file_section, Section};
-use super::tools_section::build_tools_section;
-use crate::agent::registry::AgentRegistry;
+use crate::sections::{get_cached_section, load_cached_file_section, read_file_section, Section};
+use crate::tools_section::build_tools_section;
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_session::bootstrap::loader::load_bootstrap_files;
 use closeclaw_skills::DiskSkillRegistry;
 use std::path::Path;
@@ -78,7 +78,7 @@ fn render_section(section: Section) -> String {
                     cached
                 } else {
                     let rendered = section.render();
-                    super::sections::put_cached_section(name, rendered.clone(), None);
+                    crate::sections::put_cached_section(name, rendered.clone(), None);
                     rendered
                 }
             }
@@ -270,7 +270,7 @@ mod tests {
 
     /// Clear cached sections to prevent cross-test pollution.
     #[cfg(test)]
-    use crate::system_prompt::sections::invalidate_all_sections;
+    use crate::sections::invalidate_all_sections;
 
     fn reset_sections() {
         invalidate_all_sections();
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_workspace_build_config_with_agent_registry() {
-        use crate::agent::registry::AgentRegistry;
+        use closeclaw_agent::registry::AgentRegistry;
         use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn test_agent_registry_query_bootstrap_mode_minimal() {
-        use crate::agent::registry::AgentRegistry;
+        use closeclaw_agent::registry::AgentRegistry;
         use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_agent_registry_query_bootstrap_mode_full() {
-        use crate::agent::registry::AgentRegistry;
+        use closeclaw_agent::registry::AgentRegistry;
         use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_agent_registry_query_bootstrap_mode_not_found() {
-        use crate::agent::registry::AgentRegistry;
+        use closeclaw_agent::registry::AgentRegistry;
 
         let agent_reg = Arc::new(AgentRegistry::new());
         let mode = agent_reg.query_bootstrap_mode("missing-agent");

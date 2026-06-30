@@ -6,8 +6,8 @@
 //! Migrated from `gateway::system_prompt_inject` — these functions logically
 //! belong to the `system_prompt` module.
 
-use crate::system_prompt::sections::Section;
-use crate::system_prompt::workdir;
+use crate::sections::Section;
+use crate::workdir;
 use closeclaw_common::system_prompt::PromptOverrides;
 use closeclaw_gateway::session_handler::MessageMetadata;
 
@@ -23,7 +23,7 @@ use closeclaw_gateway::session_handler::MessageMetadata;
 /// subcommand). When non-empty, a single `AppendSection` is pushed at
 /// the end of the section list, formatted as a `[N] 内容` numbered
 /// list in insertion order.
-pub(crate) fn build_dynamic_sections(
+pub fn build_dynamic_sections(
     meta: &MessageMetadata,
     workdir_path: Option<&str>,
     system_appends: &[String],
@@ -74,7 +74,7 @@ pub(crate) fn build_dynamic_sections(
 /// - Content **after** the first marker → `Some(dynamic)` (leading whitespace trimmed)
 /// - No marker → `(Some(full_prompt.to_owned()), None)`
 /// - Empty string → `(None, None)`
-pub(crate) fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option<String>) {
+pub fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option<String>) {
     if full_prompt.is_empty() {
         return (None, None);
     }
@@ -114,7 +114,7 @@ pub(crate) fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option
 /// On a priority hit the matched prompt **replaces** the static layer and
 /// dynamic layers (ChannelContext / SessionState / GitStatus) are **not**
 /// injected — only `AppendSection` entries are appended.
-pub(crate) fn build_full_system_prompt(
+pub fn build_full_system_prompt(
     static_prompt: Option<&str>,
     dynamic_sections: &[Section],
     overrides: Option<&PromptOverrides>,
