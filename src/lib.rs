@@ -6,7 +6,7 @@
 //! - **Gateway**: IM protocol adapters (Feishu, Wecom, QQ, DingTalk, etc.)
 //! - **Config System**: Hot-reloadable JSON configs with validation and rollback
 
-pub mod admin;
+pub use closeclaw_admin as admin;
 pub use closeclaw_agent as agent;
 pub mod cli;
 pub mod config_reload;

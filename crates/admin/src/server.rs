@@ -8,9 +8,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::admin::protocol::{AdminRequest, AdminResponse, SkillInfo};
-use crate::agent::config::AgentConfig;
-use crate::agent::registry::AgentRegistry;
+use crate::protocol::{AdminRequest, AdminResponse, AgentInfo, SkillInfo};
+use closeclaw_agent::config::AgentConfig;
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::manager::write_atomically;
 use closeclaw_config::ConfigManager;
 use closeclaw_skills::DiskSkillRegistry;
@@ -116,7 +116,7 @@ async fn handle_connection(stream: UnixStream, context: Arc<AdminContext>) -> st
 }
 
 /// Dispatch a request to the appropriate handler.
-async fn dispatch(request: AdminRequest, context: &AdminContext) -> AdminResponse {
+pub(crate) async fn dispatch(request: AdminRequest, context: &AdminContext) -> AdminResponse {
     match request {
         AdminRequest::AgentList => dispatch_agent_list(context),
         AdminRequest::AgentInfo { name } => dispatch_agent_info(&name, context),
@@ -130,11 +130,11 @@ async fn dispatch(request: AdminRequest, context: &AdminContext) -> AdminRespons
 }
 
 /// List all agents — returns agent ID + model for each registered agent.
-fn dispatch_agent_list(context: &AdminContext) -> AdminResponse {
-    let agents: Vec<crate::admin::protocol::AgentInfo> = context
+pub(crate) fn dispatch_agent_list(context: &AdminContext) -> AdminResponse {
+    let agents: Vec<AgentInfo> = context
         .agent_registry
         .iter()
-        .map(|entry| crate::admin::protocol::AgentInfo {
+        .map(|entry| AgentInfo {
             id: entry.key().clone(),
             name: entry.name.clone(),
             model: entry.model.clone(),
@@ -144,7 +144,7 @@ fn dispatch_agent_list(context: &AdminContext) -> AdminResponse {
 }
 
 /// Get info for a specific agent — returns detailed config information.
-fn dispatch_agent_info(name: &str, context: &AdminContext) -> AdminResponse {
+pub(crate) fn dispatch_agent_info(name: &str, context: &AdminContext) -> AdminResponse {
     match context.agent_registry.get(name) {
         Some(entry) => AdminResponse::AgentInfoResult {
             id: entry.id.clone(),
@@ -251,7 +251,7 @@ fn reload_registry(context: &AdminContext) -> Result<(), AdminResponse> {
 }
 
 /// Create a new agent — creates config file and registers in AgentRegistry.
-async fn dispatch_agent_create(
+pub(crate) async fn dispatch_agent_create(
     name: &str,
     model: Option<String>,
     context: &AdminContext,
@@ -273,7 +273,7 @@ async fn dispatch_agent_create(
 }
 
 /// List all skills from the DiskSkillRegistry with version info.
-async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse {
+pub(crate) async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse {
     let guard = context
         .skill_registry
         .read()
@@ -341,7 +341,7 @@ async fn validate_skill_install_paths(
 }
 
 /// Install a skill from the global skills directory to the bundled directory.
-async fn dispatch_skill_install(name: &str, context: &AdminContext) -> AdminResponse {
+pub(crate) async fn dispatch_skill_install(name: &str, context: &AdminContext) -> AdminResponse {
     let (source_skill_dir, dest_skill_dir) = match validate_skill_install_paths(name, context).await
     {
         Ok(paths) => paths,
@@ -386,114 +386,4 @@ async fn send_response(
     writer.write_all(&json).await?;
     writer.flush().await?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent::registry::AgentRegistry;
-    use closeclaw_skills::DiskSkillRegistry;
-
-    fn make_test_context() -> AdminContext {
-        let config_dir = tempfile::tempdir().unwrap().keep();
-        let config_sub = config_dir.join("config");
-        std::fs::create_dir_all(&config_sub).unwrap();
-        // agents.json lives in the config subdirectory
-        // (ConfigManager.config_dir = config_sub)
-        std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
-        let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
-        AdminContext {
-            agent_registry: Arc::new(AgentRegistry::new()),
-            skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
-            config_manager,
-            config_dir,
-        }
-    }
-
-    #[test]
-    fn test_dispatch_agent_list_empty() {
-        let ctx = make_test_context();
-        let resp = dispatch_agent_list(&ctx);
-        match resp {
-            AdminResponse::AgentListResult { agents } => assert!(agents.is_empty()),
-            _ => panic!("expected AgentListResult"),
-        }
-    }
-
-    #[test]
-    fn test_dispatch_agent_info_not_found() {
-        let ctx = make_test_context();
-        let resp = dispatch_agent_info("nonexistent", &ctx);
-        match resp {
-            AdminResponse::Error { message } => {
-                assert!(message.contains("not found"));
-            }
-            _ => panic!("expected Error"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_dispatch_skill_list_empty() {
-        let ctx = make_test_context();
-        let resp = dispatch_skill_list(&ctx).await;
-        match resp {
-            AdminResponse::SkillListResult { skills } => assert!(skills.is_empty()),
-            _ => panic!("expected SkillListResult"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_dispatch_skill_install_not_found() {
-        let ctx = make_test_context();
-        let resp = dispatch_skill_install("test-skill", &ctx).await;
-        match resp {
-            AdminResponse::Error { message } => {
-                assert!(message.contains("not found"));
-            }
-            _ => panic!("expected Error for missing skill"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_dispatch_agent_create_empty_name() {
-        let ctx = make_test_context();
-        let resp = dispatch_agent_create("", Some("gpt-4".into()), &ctx).await;
-        match resp {
-            AdminResponse::Error { message } => {
-                assert!(message.contains("empty"));
-            }
-            _ => panic!("expected Error for empty name"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_dispatch_agent_create_success() {
-        let ctx = make_test_context();
-        let resp = dispatch_agent_create("test-agent", Some("gpt-4".into()), &ctx).await;
-        assert!(matches!(resp, AdminResponse::Ok));
-        // Verify agent was created
-        assert!(ctx.agent_registry.get("test-agent").is_some());
-    }
-
-    #[tokio::test]
-    async fn test_dispatch_agent_create_duplicate() {
-        let ctx = make_test_context();
-        let resp = dispatch_agent_create("dup-agent", None, &ctx).await;
-        assert!(matches!(resp, AdminResponse::Ok));
-        // Try creating same agent again
-        let resp = dispatch_agent_create("dup-agent", None, &ctx).await;
-        match resp {
-            AdminResponse::Error { message } => {
-                assert!(message.contains("already exists"));
-            }
-            _ => panic!("expected Error for duplicate"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_dispatch_ping() {
-        let ctx = make_test_context();
-        let resp = dispatch(AdminRequest::Ping, &ctx).await;
-        assert!(matches!(resp, AdminResponse::Pong));
-    }
 }

@@ -8,15 +8,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
-use crate::admin::protocol::{AdminRequest, AdminResponse};
+use crate::protocol::{AdminRequest, AdminResponse};
 
 /// Default timeout for admin RPC operations (milliseconds).
 const ADMIN_TIMEOUT_MS: u64 = 5000;
 
 /// Admin RPC client that connects to the daemon's admin socket.
 pub struct AdminClient {
-    path: String,
-    timeout_ms: u64,
+    pub(crate) path: String,
+    pub(crate) timeout_ms: u64,
 }
 
 impl AdminClient {
@@ -82,44 +82,4 @@ impl AdminClient {
 /// Resolve the admin socket path from the config directory.
 pub fn admin_socket_path(config_dir: &Path) -> std::path::PathBuf {
     config_dir.join("admin.sock")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_admin_client_new() {
-        let client = AdminClient::new("/tmp/test.sock");
-        assert_eq!(client.path, "/tmp/test.sock");
-        assert_eq!(client.timeout_ms, ADMIN_TIMEOUT_MS);
-    }
-
-    #[test]
-    fn test_admin_client_with_timeout() {
-        let client = AdminClient::with_timeout("/tmp/test.sock", 1000);
-        assert_eq!(client.timeout_ms, 1000);
-    }
-
-    #[test]
-    fn test_admin_socket_path() {
-        let path = admin_socket_path(Path::new("/home/user/.closeclaw"));
-        assert_eq!(
-            path,
-            std::path::PathBuf::from("/home/user/.closeclaw/admin.sock")
-        );
-    }
-
-    #[tokio::test]
-    async fn test_client_connect_to_nonexistent_socket() {
-        let client = AdminClient::new("/tmp/nonexistent-admin-test.sock");
-        let result = client.call(&AdminRequest::Ping).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_client_ping_to_nonexistent_socket() {
-        let client = AdminClient::new("/tmp/nonexistent-admin-test.sock");
-        assert!(!client.ping().await);
-    }
 }

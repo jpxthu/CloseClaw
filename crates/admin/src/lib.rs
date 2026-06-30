@@ -10,3 +10,8 @@ pub mod server;
 pub use client::AdminClient;
 pub use protocol::{AdminRequest, AdminResponse};
 pub use server::AdminServer;
+
+#[cfg(test)]
+mod client_tests;
+#[cfg(test)]
+mod server_tests;
