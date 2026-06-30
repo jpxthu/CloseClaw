@@ -9,10 +9,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::cli::terminal::TerminalPlugin;
-use crate::slash::dispatcher::SlashDispatcher;
-use crate::slash::registry::HandlerRegistry;
-use crate::slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
+use crate::terminal::TerminalPlugin;
 use closeclaw_config::providers::{ConfigProvider, CredentialsProvider};
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use closeclaw_im_adapter::plugin::IMPlugin;
@@ -26,6 +23,9 @@ use closeclaw_llm::LLMRegistry;
 use closeclaw_processor_chain as processor_chain;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_slash::dispatcher::SlashDispatcher;
+use closeclaw_slash::registry::HandlerRegistry;
+use closeclaw_slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
 
 /// Why the REPL loop exited.
 enum ExitReason {

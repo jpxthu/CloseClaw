@@ -442,6 +442,7 @@ dependencies = [
  "clap",
  "closeclaw-admin",
  "closeclaw-agent",
+ "closeclaw-cli",
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-gateway",
@@ -457,7 +458,6 @@ dependencies = [
  "closeclaw-system-prompt",
  "closeclaw-tasks",
  "closeclaw-tools",
- "dialoguer",
  "dirs",
  "futures",
  "hex",
@@ -510,6 +510,35 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "closeclaw-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "closeclaw-admin",
+ "closeclaw-agent",
+ "closeclaw-common",
+ "closeclaw-config",
+ "closeclaw-gateway",
+ "closeclaw-im-adapter",
+ "closeclaw-llm",
+ "closeclaw-permission",
+ "closeclaw-platform",
+ "closeclaw-processor-chain",
+ "closeclaw-session",
+ "closeclaw-slash",
+ "dialoguer",
+ "dirs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "terminal_size",
  "tokio",
  "tracing",
 ]
