@@ -446,6 +446,7 @@ dependencies = [
  "closeclaw-im-adapter",
  "closeclaw-llm",
  "closeclaw-permission",
+ "closeclaw-processor-chain",
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-tools",
@@ -609,6 +610,26 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "closeclaw-processor-chain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "closeclaw-common",
+ "closeclaw-gateway",
+ "closeclaw-im-adapter",
+ "closeclaw-llm",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

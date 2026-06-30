@@ -12,7 +12,7 @@ pub mod cli;
 pub mod config_reload;
 pub mod daemon;
 pub mod platform;
-pub mod processor_chain;
+pub use closeclaw_processor_chain as processor_chain;
 pub mod session;
 pub mod slash;
 pub mod system_prompt;

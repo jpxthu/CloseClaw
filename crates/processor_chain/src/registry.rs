@@ -5,6 +5,7 @@ use std::sync::Arc;
 use super::context::{MessageContext, ProcessedMessage, RawMessage};
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
+use async_trait::async_trait;
 
 /// Registry holding inbound and outbound processor chains.
 ///
@@ -158,5 +159,82 @@ impl ProcessorRegistry {
             suppress: ctx.skip,
             content_blocks: ctx.content_blocks,
         })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// closeclaw_common::ProcessorChain impl
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn convert_processed_message(m: ProcessedMessage) -> closeclaw_common::processor::ProcessedMessage {
+    closeclaw_common::processor::ProcessedMessage {
+        content: m.content,
+        metadata: m.metadata,
+        suppress: m.suppress,
+        content_blocks: m.content_blocks,
+    }
+}
+
+fn convert_process_error(e: ProcessError) -> closeclaw_common::processor::ProcessError {
+    match e {
+        ProcessError::ProcessorFailed { name, source } => {
+            closeclaw_common::processor::ProcessError::ProcessorFailed { name, source }
+        }
+        ProcessError::InvalidMessage(s) => {
+            closeclaw_common::processor::ProcessError::InvalidMessage(s)
+        }
+        ProcessError::ChainFailed(s) => closeclaw_common::processor::ProcessError::ChainFailed(s),
+    }
+}
+
+#[async_trait]
+impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
+    async fn process_inbound(
+        &self,
+        raw: closeclaw_common::processor::RawMessage,
+    ) -> Result<
+        closeclaw_common::processor::ProcessedMessage,
+        closeclaw_common::processor::ProcessError,
+    > {
+        let main_raw = RawMessage {
+            platform: raw.platform,
+            sender_id: raw.sender_id,
+            peer_id: raw.peer_id,
+            content: raw.content,
+            timestamp: raw.timestamp,
+            message_id: raw.message_id,
+            account_id: raw.account_id,
+        };
+        self.process_inbound(main_raw)
+            .await
+            .map(convert_processed_message)
+            .map_err(convert_process_error)
+    }
+
+    async fn process_outbound(
+        &self,
+        msg: closeclaw_common::processor::ProcessedMessage,
+    ) -> Result<
+        closeclaw_common::processor::ProcessedMessage,
+        closeclaw_common::processor::ProcessError,
+    > {
+        let main_msg = ProcessedMessage {
+            content: msg.content,
+            metadata: msg.metadata,
+            suppress: msg.suppress,
+            content_blocks: msg.content_blocks,
+        };
+        self.process_outbound(main_msg)
+            .await
+            .map(convert_processed_message)
+            .map_err(convert_process_error)
+    }
+
+    fn inbound_len(&self) -> usize {
+        self.inbound_len()
+    }
+
+    fn outbound_len(&self) -> usize {
+        self.outbound_len()
     }
 }
