@@ -8,7 +8,7 @@
 
 ## 架构
 
-出站链由一个 Processor 组成：DslParser。渲染由 Gateway 协调、委托各平台 IM Adapter 的 Renderer 完成，日志由 Gateway 统一记录。各平台有各自的 IM Adapter（如飞书 Adapter + 飞书 Renderer），Gateway 根据目标平台选择对应 IM Adapter：
+出站链由一个 Processor 组成：DslParser。各平台有各自的 IM Adapter（如飞书 Adapter + 飞书 Renderer），Gateway 根据目标平台选择对应 IM Adapter：
 
 ```
 Gateway 从 Session 读取 ContentBlock[]，构造 ProcessedMessage
@@ -30,12 +30,7 @@ IM Adapter 模块
   → 按块类型选择渲染策略
   → 输出平台原生格式并发送
 
-IM Adapter 不在 Processor 链内：
-- 渲染和发送是终结操作，输出后不再有下一步传递给其他 Processor
-- 渲染需要携带 msg_type 路由信息（text / interactive），这和链的"变换传递"语义不符
-- 各平台 IM 插件由 Gateway 根据目标平台选择
-
-出站日志由 Gateway 在渲染前统一记录，不属 Processor 链——日志是横切审计基础设施，应覆盖所有出站消息（含流式最终消息）。
+IM Adapter 不在 Processor 链内——渲染是终结操作，输出后无后续处理器接力。出站日志由 Gateway 在渲染前统一记录。
 
 ## 数据流
 

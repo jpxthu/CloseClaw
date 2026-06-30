@@ -10,12 +10,12 @@ Gateway 自身不含业务逻辑，通过编排下游模块完成消息流转。
 
 Gateway 由六个职责组成：
 
-- **IM Adapter 管理**：注册和维护各平台插件。入站方向将平台原始格式归一化为统一结构，出站方向调用插件完成渲染和发送。
+- **IM Adapter 管理**：注册和维护各平台插件，入站方向将平台原始格式归一化为统一结构。
 - **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息归一化和日志记录，出站链完成 DSL 解析。
 - **出站日志**：出站方向在渲染前统一记录出站消息到日志。批量和流式出站均经过此步骤——批量在 Processor Chain 之后记录，流式在流结束后记录最终消息。
 - **Verbosity 过滤**：出站方向 ContentBlock[] 进入 Processor Chain 之前，按当前 Session 的 Verbosity 等级过滤信息块（详见 [slash 模块 verbose 指令](../slash/verbose.md)）。
 - **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给 SlashDispatcher（其中 Immediate 指令绕过 Session 队列立即执行），否则路由到 Session 进入 LLM 对话流程。
-- **IM Adapter 选择**：根据目标平台选择对应 IM Adapter，插件内部完成 ContentBlock[] 到平台原生格式的渲染和发送。
+- **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，IM Adapter 完成 ContentBlock[] 到平台原生格式的渲染和发送。
 
 Gateway 维护以下运行时注册表：
 

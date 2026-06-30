@@ -47,7 +47,7 @@ TerminalAdapter 从 stdin 读取用户输入，封装为 NormalizedMessage：
 - quoted_message 不适用，固定为空
 - timestamp 取消息接收时的系统时间
 
-消息过滤规则与其他渠道一致：空内容不产 NormalizedMessage。
+消息过滤规则与其他渠道一致：空内容不产出 NormalizedMessage。
 
 ### 出站：TerminalRenderer
 
@@ -64,7 +64,7 @@ TerminalRenderer 接收 ContentBlock[] 和 DSL 解析结果，转换为 ANSI 格
 ```
 stdin 逐行/逐段读取用户输入
   ↓
-TerminalAdapter 解析并封装 NormalizedMessage（内部含空内容过滤，空内容不产 NormalizedMessage）
+TerminalAdapter 解析并封装 NormalizedMessage（内部含空内容过滤，空内容不产出 NormalizedMessage）
   │  { platform: "terminal", sender_id, peer_id: "cli", account_id, thread_id, content, message_type, media_refs, quoted_message, timestamp }
   ↓
 Processor Chain 入站
