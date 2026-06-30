@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::agent::config::{ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig};
-use crate::agent::spawn::{SpawnController, SpawnError};
+use crate::config::{ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig};
+use crate::spawn::{SpawnController, SpawnError};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::{DmScope, GatewayConfig, Message, SessionManager};
