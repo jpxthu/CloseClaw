@@ -185,10 +185,19 @@ impl ModelInterpreter for MinimaxInterpreter {
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
         let mut text_parts: Vec<String> = vec![];
         let mut thinking_parts: Vec<String> = vec![];
+        let mut last_signature: Option<String> = None;
         for block in response.content_blocks {
             match block {
                 RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking { thinking: s, .. } => thinking_parts.push(s),
+                RawContentBlock::Thinking {
+                    thinking: s,
+                    signature,
+                } => {
+                    thinking_parts.push(s);
+                    if signature.is_some() {
+                        last_signature = signature;
+                    }
+                }
                 RawContentBlock::ToolUse { id, name, input } => {
                     text_parts.push(format!("id:{id} name:{name} input:{input}"))
                 }
@@ -205,7 +214,7 @@ impl ModelInterpreter for MinimaxInterpreter {
         if !thinking_parts.is_empty() {
             content_blocks.push(ContentBlock::Thinking {
                 thinking: thinking_parts.join(""),
-                signature: None,
+                signature: last_signature,
             });
         }
         UnifiedResponse {
@@ -215,8 +224,8 @@ impl ModelInterpreter for MinimaxInterpreter {
                 completion_tokens: response.usage.completion_tokens,
                 total_tokens: response.usage.total_tokens,
                 reasoning_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
+                cache_read_tokens: response.usage.cache_read_tokens,
+                cache_write_tokens: response.usage.cache_write_tokens,
             },
             finish_reason: response.finish_reason,
         }

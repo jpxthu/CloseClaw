@@ -2,9 +2,10 @@
 
 use super::*;
 use crate::cache_adapter::for_provider as cache_for_provider;
+use crate::interpreter::{MinimaxInterpreter, ModelInterpreter};
 use crate::plugin::ModelPlugin;
 use crate::protocol::{AnthropicProtocol, ChatProtocol};
-use crate::types::InternalRequest;
+use crate::types::{ContentBlock, InternalRequest, InternalResponse, RawContentBlock, RawUsage};
 use crate::{ModelLister, Provider};
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -771,4 +772,198 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
     assert_eq!(resp.usage.prompt_tokens, 10);
     assert_eq!(resp.usage.completion_tokens, 5);
     assert_eq!(resp.finish_reason.as_deref(), Some("end_turn"));
+}
+
+// ===========================================================================
+// MinimaxInterpreter::interpret_response unit tests
+// ===========================================================================
+
+/// Helper to create an InternalResponse with given content blocks and usage.
+fn make_internal_response(
+    content_blocks: Vec<RawContentBlock>,
+    cache_read: Option<u32>,
+    cache_write: Option<u32>,
+) -> InternalResponse {
+    InternalResponse {
+        content_blocks,
+        usage: RawUsage {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: Some(150),
+            cache_read_tokens: cache_read,
+            cache_write_tokens: cache_write,
+        },
+        finish_reason: Some("end_turn".to_string()),
+    }
+}
+
+/// Normal path: thinking block with signature → output preserves signature.
+#[test]
+fn test_interpreter_thinking_preserves_signature() {
+    let resp = make_internal_response(
+        vec![
+            RawContentBlock::Thinking {
+                thinking: "reasoning...".to_string(),
+                signature: Some("sig_abc".to_string()),
+            },
+            RawContentBlock::Text("answer".to_string()),
+        ],
+        None,
+        None,
+    );
+    let interp = MinimaxInterpreter;
+    let out = interp.interpret_response(resp);
+    // Minimax merges: text first, then thinking
+    assert_eq!(out.content_blocks.len(), 2);
+    let thinking = out
+        .content_blocks
+        .iter()
+        .find(|b| matches!(b, ContentBlock::Thinking { .. }));
+    assert!(thinking.is_some(), "should have a Thinking block");
+    match thinking.unwrap() {
+        ContentBlock::Thinking { signature, .. } => {
+            assert_eq!(signature.as_deref(), Some("sig_abc"));
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Normal path: RawUsage with cache tokens → output preserves them.
+#[test]
+fn test_interpreter_usage_preserves_cache_tokens() {
+    let resp = make_internal_response(
+        vec![RawContentBlock::Text("hi".to_string())],
+        Some(80),
+        Some(20),
+    );
+    let interp = MinimaxInterpreter;
+    let out = interp.interpret_response(resp);
+    assert_eq!(out.usage.cache_read_tokens, Some(80));
+    assert_eq!(out.usage.cache_write_tokens, Some(20));
+}
+
+/// Boundary: mixed thinking blocks, some with signature, some without.
+/// Should take the last non-None signature.
+#[test]
+fn test_interpreter_mixed_thinking_signatures() {
+    let resp = make_internal_response(
+        vec![
+            RawContentBlock::Thinking {
+                thinking: "step1".to_string(),
+                signature: None,
+            },
+            RawContentBlock::Thinking {
+                thinking: "step2".to_string(),
+                signature: Some("sig_first".to_string()),
+            },
+            RawContentBlock::Thinking {
+                thinking: "step3".to_string(),
+                signature: None,
+            },
+            RawContentBlock::Text("done".to_string()),
+        ],
+        None,
+        None,
+    );
+    let interp = MinimaxInterpreter;
+    let out = interp.interpret_response(resp);
+    let thinking = out
+        .content_blocks
+        .iter()
+        .find(|b| matches!(b, ContentBlock::Thinking { .. }));
+    match thinking.unwrap() {
+        ContentBlock::Thinking {
+            signature,
+            thinking,
+        } => {
+            // last non-None signature
+            assert_eq!(signature.as_deref(), Some("sig_first"));
+            // thinking content is concatenated
+            assert_eq!(thinking, "step1step2step3");
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Boundary: thinking blocks with no signature at all → output signature is None.
+#[test]
+fn test_interpreter_thinking_no_signature() {
+    let resp = make_internal_response(
+        vec![
+            RawContentBlock::Thinking {
+                thinking: "thinking".to_string(),
+                signature: None,
+            },
+            RawContentBlock::Text("text".to_string()),
+        ],
+        None,
+        None,
+    );
+    let interp = MinimaxInterpreter;
+    let out = interp.interpret_response(resp);
+    match out
+        .content_blocks
+        .iter()
+        .find(|b| matches!(b, ContentBlock::Thinking { .. }))
+        .unwrap()
+    {
+        ContentBlock::Thinking { signature, .. } => {
+            assert!(signature.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Boundary: RawUsage with no cache tokens → output has None (no panic).
+#[test]
+fn test_interpreter_usage_no_cache_tokens() {
+    let resp = make_internal_response(vec![RawContentBlock::Text("hi".to_string())], None, None);
+    let interp = MinimaxInterpreter;
+    let out = interp.interpret_response(resp);
+    assert!(out.usage.cache_read_tokens.is_none());
+    assert!(out.usage.cache_write_tokens.is_none());
+}
+
+/// Regression: existing text/thinking merge behavior is preserved.
+/// Multiple text blocks → single Text, multiple thinking → single Thinking.
+#[test]
+fn test_interpreter_regression_merge_behavior() {
+    let resp = make_internal_response(
+        vec![
+            RawContentBlock::Text("Part1 ".to_string()),
+            RawContentBlock::Text("Part2".to_string()),
+            RawContentBlock::Thinking {
+                thinking: "think1".to_string(),
+                signature: None,
+            },
+            RawContentBlock::Thinking {
+                thinking: "think2".to_string(),
+                signature: None,
+            },
+            RawContentBlock::Text(" Part3".to_string()),
+        ],
+        None,
+        None,
+    );
+    let interp = MinimaxInterpreter;
+    let out = interp.interpret_response(resp);
+    // Minimax merges: text first, then thinking
+    let text = out
+        .content_blocks
+        .iter()
+        .find(|b| matches!(b, ContentBlock::Text(_)));
+    let thinking = out
+        .content_blocks
+        .iter()
+        .find(|b| matches!(b, ContentBlock::Thinking { .. }));
+    assert!(text.is_some(), "should have a Text block");
+    assert!(thinking.is_some(), "should have a Thinking block");
+    match text.unwrap() {
+        ContentBlock::Text(s) => assert_eq!(s, "Part1 Part2 Part3"),
+        _ => unreachable!(),
+    }
+    match thinking.unwrap() {
+        ContentBlock::Thinking { thinking, .. } => assert_eq!(thinking, "think1think2"),
+        _ => unreachable!(),
+    }
 }
