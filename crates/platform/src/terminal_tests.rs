@@ -1,4 +1,4 @@
-use crate::platform::terminal::{current_uid, supports_ansi};
+use crate::terminal::{current_uid, supports_ansi};
 
 #[test]
 fn test_current_uid_non_empty() {

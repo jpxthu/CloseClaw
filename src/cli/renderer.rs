@@ -625,7 +625,7 @@ impl TerminalRenderer {
     /// Create a new renderer with auto-detected ANSI capability.
     pub(crate) fn new() -> Self {
         Self {
-            ansi: crate::platform::terminal::supports_ansi(),
+            ansi: closeclaw_platform::terminal::supports_ansi(),
             renderer: Mutex::new(DefaultStreamingRenderer::new()),
         }
     }

@@ -360,7 +360,7 @@ mod tests {
         let msg = adapter.make_message("test".to_string());
         assert_eq!(msg.platform, "terminal");
         assert_eq!(msg.peer_id, "cli");
-        assert_eq!(msg.sender_id, crate::platform::current_uid());
+        assert_eq!(msg.sender_id, closeclaw_platform::current_uid());
         assert_eq!(msg.message_type, "text");
         assert!(msg.media_refs.is_empty());
         assert!(msg.quoted_message.is_none());
