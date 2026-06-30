@@ -170,28 +170,28 @@ fn test_m3_high_reasoning_injects_thinking() {
 }
 
 #[test]
-fn test_m3_medium_reasoning_injects_thinking() {
+fn test_m3_medium_reasoning_injects_thinking_disabled() {
     let plugin = MiniMaxPlugin;
     let mut req = make_m3_request(ReasoningLevel::Medium);
     plugin.before_request(&mut req);
 
     assert_eq!(
         req.extra_body.get("thinking"),
-        Some(&json!({"type": "enabled"})),
-        "M3 + Medium should inject thinking enabled"
+        Some(&json!({"type": "disabled"})),
+        "M3 + Medium should inject thinking disabled"
     );
 }
 
 #[test]
-fn test_m3_low_reasoning_injects_thinking() {
+fn test_m3_low_reasoning_injects_thinking_disabled() {
     let plugin = MiniMaxPlugin;
     let mut req = make_m3_request(ReasoningLevel::Low);
     plugin.before_request(&mut req);
 
     assert_eq!(
         req.extra_body.get("thinking"),
-        Some(&json!({"type": "enabled"})),
-        "M3 + Low should inject thinking enabled"
+        Some(&json!({"type": "disabled"})),
+        "M3 + Low should inject thinking disabled"
     );
 }
 
@@ -205,6 +205,19 @@ fn test_m3_max_reasoning_injects_thinking() {
         req.extra_body.get("thinking"),
         Some(&json!({"type": "enabled"})),
         "M3 + Max should inject thinking enabled"
+    );
+}
+
+#[test]
+fn test_m3_default_reasoning_injects_thinking_enabled() {
+    let plugin = MiniMaxPlugin;
+    let mut req = make_m3_request(ReasoningLevel::default());
+    plugin.before_request(&mut req);
+
+    assert_eq!(
+        req.extra_body.get("thinking"),
+        Some(&json!({"type": "enabled"})),
+        "M3 + default (High) should inject thinking enabled"
     );
 }
 
@@ -252,6 +265,24 @@ fn test_m3_multiturn_tool_calls_injects_thinking_and_reasoning_split() {
         req.extra_body.get("reasoning_split"),
         Some(&Value::Bool(true)),
         "M3 multi-turn should also inject reasoning_split"
+    );
+}
+
+#[test]
+fn test_m3_multiturn_tool_calls_low_injects_thinking_disabled_and_reasoning_split() {
+    let plugin = MiniMaxPlugin;
+    let mut req = make_m3_request_with_tools(ReasoningLevel::Low, true);
+    plugin.before_request(&mut req);
+
+    assert_eq!(
+        req.extra_body.get("thinking"),
+        Some(&json!({"type": "disabled"})),
+        "M3 multi-turn + Low should inject thinking disabled"
+    );
+    assert_eq!(
+        req.extra_body.get("reasoning_split"),
+        Some(&Value::Bool(true)),
+        "M3 multi-turn + Low should also inject reasoning_split"
     );
 }
 

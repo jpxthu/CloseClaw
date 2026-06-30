@@ -4,11 +4,13 @@
 //! when the request involves multi-turn tool calls, allowing the Anthropic
 //! protocol layer to forward it to the MiniMax API.
 //!
-//! For M3 models, injects `thinking: {type: "enabled"}` to enable thinking
-//! block output as required by the MiniMax API.
+//! For M3 models, injects `thinking: {type: "enabled"}` when reasoning level
+//! is High/Max, or `thinking: {type: "disabled"}` when reasoning level is
+//! Low/Medium, as required by the MiniMax API.
 
 use crate::plugin::ModelPlugin;
 use crate::types::InternalRequest;
+use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::{json, Value};
 
 /// Plugin that enriches MiniMax requests with provider-specific parameters.
@@ -36,10 +38,15 @@ impl ModelPlugin for MiniMaxPlugin {
         }
 
         // M3 requires explicit `thinking` parameter to produce thinking blocks.
+        // High/Max → enabled, Low/Medium → disabled (binary toggle per design doc).
         if request.model.starts_with("MiniMax-M3") {
+            let thinking_type = match request.reasoning_level {
+                ReasoningLevel::High | ReasoningLevel::Max => "enabled",
+                ReasoningLevel::Low | ReasoningLevel::Medium => "disabled",
+            };
             request
                 .extra_body
-                .insert("thinking".to_string(), json!({"type": "enabled"}));
+                .insert("thinking".to_string(), json!({"type": thinking_type}));
         }
     }
 }
