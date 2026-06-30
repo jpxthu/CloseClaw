@@ -79,11 +79,10 @@ closeclaw-system-prompt = { path = "crates/system_prompt" }
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }
 
-# Interactive prompts for setup wizard
-dialoguer = "0.11"
-
 # For getting home directory
 dirs = "5"
+
+closeclaw-cli = { path = "crates/cli" }
 
 
 [dev-dependencies]
