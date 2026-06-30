@@ -25,6 +25,7 @@ pub mod streaming;
 pub mod streaming_tests;
 pub mod system_prompt;
 pub mod task_manager;
+pub mod test_helpers;
 pub mod tool_registry;
 pub mod verbosity;
 pub mod workdir_context;
