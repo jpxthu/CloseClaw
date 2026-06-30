@@ -1,0 +1,23 @@
+[package]
+name = "closeclaw-admin"
+version = "0.1.0"
+edition = "2021"
+description = "Admin CLI-to-daemon RPC layer over Unix domain sockets"
+license = "MIT"
+
+[lib]
+name = "closeclaw_admin"
+path = "src/lib.rs"
+
+[dependencies]
+closeclaw-agent = { path = "../agent" }
+closeclaw-config = { path = "../config" }
+closeclaw-skills = { path = "../skills" }
+tokio = { version = "=1.35.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "=0.1.43"
+async-trait = "0.1"
+
+[dev-dependencies]
+tempfile = "3.10"
