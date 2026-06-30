@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use crate::slash::context::SlashContext;
-use crate::slash::handler::SlashHandler;
-use crate::slash::handler::SlashResult;
-use crate::slash::registry::HandlerRegistry;
+use crate::context::SlashContext;
+use crate::handler::SlashHandler;
+use crate::handler::SlashResult;
+use crate::registry::HandlerRegistry;
 
 /// Parses a slash command from raw message content.
 ///

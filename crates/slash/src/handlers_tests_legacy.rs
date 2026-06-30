@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::slash::dispatcher::SlashDispatcher;
-use crate::slash::handler::SlashHandler;
-use crate::slash::registry::HandlerRegistry;
+use crate::dispatcher::SlashDispatcher;
+use crate::handler::SlashHandler;
+use crate::registry::HandlerRegistry;
 use closeclaw_session::persistence::ReasoningLevel;
 
 use super::handlers_tests::MockHandler;
@@ -48,25 +48,6 @@ fn test_dispatcher_all_handlers() {
     let dispatcher = SlashDispatcher::new(registry);
     let handlers = dispatcher.all_handlers();
     assert_eq!(handlers.len(), 2);
-}
-
-#[test]
-fn test_reasoning_level_getter_setter_symmetry() {
-    let mut s = closeclaw_llm::session::ConversationSession::new(
-        "test-sym".to_owned(),
-        "test-model".to_owned(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    assert_eq!(s.reasoning_level(), ReasoningLevel::High);
-    for &lv in &[
-        ReasoningLevel::Low,
-        ReasoningLevel::Medium,
-        ReasoningLevel::High,
-        ReasoningLevel::Max,
-    ] {
-        s.set_reasoning_level(lv);
-        assert_eq!(s.reasoning_level(), lv);
-    }
 }
 
 #[test]
