@@ -20,7 +20,7 @@ pub mod sweeper;
 #[cfg(test)]
 pub mod sweeper_tests;
 
-// Re-export local module types
-pub use compaction::{CompactConfig, CompactionResult, CompactionService, TokenWarningState};
-// Note: closeclaw_session types (persistence, bootstrap, recovery, storage, etc.)
-// are no longer re-exported here. Use closeclaw_session:: directly.
+// Re-export session compaction types directly from the session crate
+pub use closeclaw_session::compaction::{
+    CompactConfig, CompactionResult, CompactionService, TokenWarningState,
+};
