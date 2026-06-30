@@ -515,6 +515,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "closeclaw-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "closeclaw-admin",
+ "closeclaw-agent",
+ "closeclaw-common",
+ "closeclaw-config",
+ "closeclaw-gateway",
+ "closeclaw-im-adapter",
+ "closeclaw-llm",
+ "closeclaw-permission",
+ "closeclaw-platform",
+ "closeclaw-processor-chain",
+ "closeclaw-session",
+ "closeclaw-slash",
+ "dialoguer",
+ "dirs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "terminal_size",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "closeclaw-common"
 version = "0.1.0"
 dependencies = [

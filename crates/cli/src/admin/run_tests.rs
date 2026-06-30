@@ -3,9 +3,9 @@
 //! Covers config_dir resolution, PID file writing, subprocess command
 //! construction, socket readiness detection, and RunOutput serialization.
 
-use crate::cli::admin::config_dir_for;
-use crate::cli::admin::run::{build_daemon_command, prepare_run, try_connect, wait_for_socket};
-use crate::cli::admin::RunOutput;
+use crate::admin::config_dir_for;
+use crate::admin::run::{build_daemon_command, prepare_run, try_connect, wait_for_socket};
+use crate::admin::RunOutput;
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------

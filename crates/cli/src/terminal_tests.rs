@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::cli::renderer::BOLD;
-    use crate::cli::terminal::*;
+    use crate::renderer::BOLD;
+    use crate::terminal::*;
     use closeclaw_common::processor::{DslInstruction, DslParseResult};
     use closeclaw_im_adapter::plugin::IMPlugin;
     use closeclaw_im_adapter::NormalizedMessage;
@@ -468,8 +468,8 @@ mod tests {
     /// Verify DSL hints are wrapped in ANSI dim when ansi=true.
     #[test]
     fn test_plugin_render_dsl_ansi_dim() {
-        use crate::cli::renderer::DIM;
-        use crate::cli::renderer::RESET;
+        use crate::renderer::DIM;
+        use crate::renderer::RESET;
         let plugin = TerminalPlugin::with_ansi(true);
         let blocks = vec![];
         let dsl = DslParseResult {
