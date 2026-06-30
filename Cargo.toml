@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway", "crates/skills", "crates/tools", "crates/im_adapter", "crates/processor_chain", "crates/platform"]
+members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway", "crates/skills", "crates/tools", "crates/im_adapter", "crates/processor_chain", "crates/platform", "crates/tasks", "crates/memory"]
 
 [workspace.package]
 edition = "2021"
@@ -59,12 +59,12 @@ async-trait = "0.1"
 # Concurrent HashMap (used by AgentRegistry for lock-free reads)
 dashmap = "5"
 
-# SQLite for memory active searcher (bundled to avoid system SQLite dependency)
-rusqlite = { version = "0.31", features = ["bundled"] }
+
 
 # File watching (hot reload)
 notify = "6.1"
 # Internal crates
+closeclaw-memory = { path = "crates/memory" }
 closeclaw-common = { path = "crates/common" }
 closeclaw-config = { path = "crates/config" }
 closeclaw-session = { path = "crates/session" }
@@ -76,6 +76,7 @@ closeclaw-tools = { path = "crates/tools" }
 closeclaw-im-adapter = { path = "crates/im_adapter" }
 closeclaw-processor-chain = { path = "crates/processor_chain" }
 closeclaw-platform = { path = "crates/platform" }
+closeclaw-tasks = { path = "crates/tasks" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

@@ -16,11 +16,11 @@ pub use closeclaw_processor_chain as processor_chain;
 pub mod session;
 pub mod slash;
 pub mod system_prompt;
-pub mod tasks;
+pub use closeclaw_tasks as tasks;
 
 pub mod bridge;
 pub mod common;
-pub mod memory;
+pub use closeclaw_memory as memory;
 
 use tracing::info;
 
