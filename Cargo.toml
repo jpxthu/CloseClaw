@@ -45,19 +45,13 @@ libc = "0.2"
 # Terminal size detection for dynamic width truncation
 terminal_size = "0.4"
 
-# UUID generation
-uuid = { version = "1.6", features = ["v4", "serde"] }
-
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }
 
-# Regex
-regex = "1.10"
 # Async trait (for IMAdapter)
 async-trait = "0.1"
 
-# Concurrent HashMap (used by AgentRegistry for lock-free reads)
-dashmap = "5"
+
 
 
 

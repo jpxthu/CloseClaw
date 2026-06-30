@@ -455,7 +455,6 @@ dependencies = [
  "closeclaw-slash",
  "closeclaw-tasks",
  "closeclaw-tools",
- "dashmap",
  "dialoguer",
  "dirs",
  "futures",
@@ -464,7 +463,6 @@ dependencies = [
  "mockito",
  "notify",
  "proptest",
- "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -477,7 +475,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

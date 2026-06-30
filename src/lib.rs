@@ -7,7 +7,7 @@
 //! - **Config System**: Hot-reloadable JSON configs with validation and rollback
 
 pub mod admin;
-pub mod agent;
+pub use closeclaw_agent as agent;
 pub mod cli;
 pub mod config_reload;
 pub mod daemon;
