@@ -15,7 +15,7 @@ pub use common::{
 };
 pub use config::{handle_config, handle_config_with, read_config_files};
 pub use rule::{handle_rule, handle_rule_with};
-pub use run::{handle_run, handle_run_foreground};
+pub use run::{handle_run, handle_run_foreground, DaemonRunner};
 pub use skill::{handle_skill, handle_skill_with};
 pub use stop::handle_stop;
 
