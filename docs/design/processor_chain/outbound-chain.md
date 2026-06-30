@@ -2,29 +2,28 @@
 
 ## 概述
 
-出站 Processor 链在 LLM 生成响应后运行。它从 Session 中读取 UnifiedResponse（ContentBlock[]），解析 DSL 指令，然后将处理结果交付给 IM Adapter 模块渲染。
+出站 Processor 链在 LLM 生成响应后运行。它从 Session 中读取 UnifiedResponse（ContentBlock[]），解析 DSL 指令，然后将处理结果交付渲染。
 
-出站链的职责仅限于**内容变换**（提取 DSL 指令、记录日志），不负责展示格式的生成。渲染由 IM Adapter 模块完成。
+出站链的职责仅限于**内容变换**（提取 DSL 指令），不负责展示格式的生成和出站日志。渲染和日志由 Gateway 层处理。
 
 ## 架构
 
-出站链由两个 Processor 组成。渲染由 IM Adapter 模块完成，各平台有各自的 IM 插件（如飞书插件包含飞书 Adapter + 飞书 Renderer），Gateway 根据目标平台选择对应插件：
+出站链由一个 Processor 组成：DslParser。渲染和日志由 Gateway 处理，各平台有各自的 IM 插件（如飞书插件包含飞书 Adapter + 飞书 Renderer），Gateway 根据目标平台选择对应插件：
 
 ```
 Session 消息（ContentBlock[]）
   ↓
 Processor 链（出站，按 priority 升序执行）
-  ├── DslParser（priority 10）
-  │     → 遍历 ContentBlock[] 中的 Text 块
-  │     → 匹配并解析 DSL 指令行（::button[...] 等）
-  │     → 从 Text 块中剥离 DSL 行
-  │     → 解析结果写入 metadata
-  │     → Thinking / ToolUse / ToolResult 块直接透传
-  │
-  └── RawLogProcessor（priority 20）
-        → 出站消息写入日志
+  └── DslParser（priority 10）
+        → 遍历 ContentBlock[] 中的 Text 块
+        → 匹配并解析 DSL 指令行（::button[...] 等）
+        → 从 Text 块中剥离 DSL 行
+        → 解析结果写入 metadata
+        → Thinking / ToolUse / ToolResult 块直接透传
   ↓
 ProcessedMessage { content_blocks, metadata }
+  ↓
+Gateway 记录出站日志
   ↓
 IM Adapter 模块
   → 接收 ContentBlock[] + DslParseResult
@@ -35,6 +34,8 @@ IM Adapter 不在 Processor 链内：
 - 渲染和发送是终结操作，输出后不再有下一步传递给其他 Processor
 - 渲染需要携带 msg_type 路由信息（text / interactive），这和链的"变换传递"语义不符
 - 各平台 IM 插件由 Gateway 根据目标平台选择
+
+出站日志由 Gateway 在渲染前统一记录，不属 Processor 链——日志是横切审计基础设施，应覆盖所有出站消息（含流式最终消息）。
 
 ## 数据流
 
@@ -49,9 +50,8 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
               ├── ToolUse 块 → 透传
               └── ToolResult 块 → 透传
             输出：更新的 ContentBlock[] + metadata["dsl_result"]
-        → RawLogProcessor.process(ctx)
-            输出：日志记录，内容不变
       → 链输出 ProcessedMessage
+        → Gateway 记录出站日志
         → Gateway 选择目标平台 IM 插件
           → 插件内部渲染(content_blocks, dsl_result)：
               ├── Text 块 → 平台文本 / 富文本格式
@@ -73,5 +73,4 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
 - **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费 ContentBlock[] + DslParseResult，渲染为平台格式并发送）
 - **链内**：
   - DslParser — 解析 DSL 指令，为渲染提供交互数据
-  - RawLogProcessor — 出站日志
 - **无关**：入站 Processor 链（独立链路，与出站互不干扰）
