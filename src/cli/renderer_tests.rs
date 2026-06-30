@@ -622,3 +622,150 @@ fn test_truncation_works_in_plain_text_mode() {
     let stripped = strip_ansi(&result_result);
     assert!(stripped.contains("... (truncated)"));
 }
+
+// ── DSL rendering order tests ───────────────────────────────────────────────
+//
+// Verifies that DSL preprocessing lines appear BEFORE ContentBlock output,
+// matching the design doc requirement: "DSL preprocessing before ContentBlock
+// traversal".
+
+/// Normal path: DSL with Button + ContentBlocks → DSL line appears before block output.
+#[test]
+fn test_dsl_before_content_blocks_button() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let dsl = DslParseResult {
+        clean_content: String::new(),
+        instructions: vec![DslInstruction::Button {
+            label: "Go".into(),
+            action: "navigate".into(),
+            value: "url".into(),
+        }],
+    };
+    let blocks = vec![ContentBlock::Text("body text".into())];
+    let output = renderer.render(&blocks, Some(&dsl));
+    let text = output
+        .payload
+        .get("content")
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap();
+    let dsl_pos = text
+        .find("[Button:")
+        .expect("DSL button line must be present");
+    let block_pos = text
+        .find("body text")
+        .expect("ContentBlock text must be present");
+    assert!(
+        dsl_pos < block_pos,
+        "DSL button line (pos {}) must appear before ContentBlock (pos {})",
+        dsl_pos,
+        block_pos
+    );
+}
+
+/// Normal path: DSL with Selector + ContentBlocks → DSL line appears before block output.
+#[test]
+fn test_dsl_before_content_blocks_selector() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let dsl = DslParseResult {
+        clean_content: String::new(),
+        instructions: vec![DslInstruction::Selector {
+            label: "Pick".into(),
+            options: vec!["x".into(), "y".into()],
+            action: "choose".into(),
+        }],
+    };
+    let blocks = vec![
+        ContentBlock::Text("first".into()),
+        ContentBlock::Text("second".into()),
+    ];
+    let output = renderer.render(&blocks, Some(&dsl));
+    let text = output
+        .payload
+        .get("content")
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap();
+    let dsl_pos = text
+        .find("[Selector:")
+        .expect("DSL selector line must be present");
+    let block_pos = text
+        .find("first")
+        .expect("ContentBlock text must be present");
+    assert!(
+        dsl_pos < block_pos,
+        "DSL selector line (pos {}) must appear before ContentBlock (pos {})",
+        dsl_pos,
+        block_pos
+    );
+}
+
+/// No DSL: dsl_result = None → output only contains ContentBlock rendering.
+#[test]
+fn test_no_dsl_content_blocks_only() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let blocks = vec![
+        ContentBlock::Text("hello".into()),
+        ContentBlock::ToolUse {
+            id: "t1".into(),
+            name: "run".into(),
+            input: "ls".into(),
+        },
+    ];
+    let output = renderer.render(&blocks, None);
+    let text = output
+        .payload
+        .get("content")
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap();
+    assert!(text.contains("hello"));
+    assert!(text.contains("run"));
+    assert!(!text.contains("[Button:"));
+    assert!(!text.contains("[Selector:"));
+}
+
+/// Empty DSL: DslParseResult with no Button/Selector → output only contains ContentBlock rendering.
+#[test]
+fn test_empty_dsl_content_blocks_only() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let dsl = DslParseResult {
+        clean_content: String::new(),
+        instructions: vec![],
+    };
+    let blocks = vec![ContentBlock::Text("content here".into())];
+    let output = renderer.render(&blocks, Some(&dsl));
+    let text = output
+        .payload
+        .get("content")
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap();
+    assert!(text.contains("content here"));
+    assert!(!text.contains("[Button:"));
+    assert!(!text.contains("[Selector:"));
+}
+
+/// Boundary: empty ContentBlocks + DSL → output only contains DSL hint lines.
+#[test]
+fn test_empty_blocks_with_dsl() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let dsl = DslParseResult {
+        clean_content: String::new(),
+        instructions: vec![DslInstruction::Button {
+            label: "Submit".into(),
+            action: "confirm".into(),
+            value: "yes".into(),
+        }],
+    };
+    let output = renderer.render(&[], Some(&dsl));
+    let text = output
+        .payload
+        .get("content")
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap();
+    assert!(text.contains("[Button:"), "DSL button must be present");
+    assert!(text.contains("Submit"));
+    assert!(text.contains("confirm"));
+}
