@@ -6,10 +6,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::daemon::shutdown::ShutdownHandle as DaemonShutdownHandle;
-use crate::processor_chain::{
-    context::{ProcessedMessage as MainProcessedMessage, RawMessage as MainRawMessage},
-    error::ProcessError as MainProcessError,
-};
 use crate::slash::{
     context::SlashContext as MainSlashContext,
     handler::{SlashHandler as MainSlashHandler, SlashResult as MainSlashResult},
@@ -18,89 +14,6 @@ use crate::slash::{
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ProcessorChain
-// ═══════════════════════════════════════════════════════════════════════════
-
-fn convert_processed_message(
-    m: MainProcessedMessage,
-) -> closeclaw_common::processor::ProcessedMessage {
-    closeclaw_common::processor::ProcessedMessage {
-        content: m.content,
-        metadata: m.metadata,
-        suppress: m.suppress,
-        content_blocks: m.content_blocks,
-    }
-}
-
-fn convert_process_error(e: MainProcessError) -> closeclaw_common::processor::ProcessError {
-    match e {
-        MainProcessError::ProcessorFailed { name, source } => {
-            closeclaw_common::processor::ProcessError::ProcessorFailed { name, source }
-        }
-        MainProcessError::InvalidMessage(s) => {
-            closeclaw_common::processor::ProcessError::InvalidMessage(s)
-        }
-        MainProcessError::ChainFailed(s) => {
-            closeclaw_common::processor::ProcessError::ChainFailed(s)
-        }
-    }
-}
-
-#[async_trait]
-impl closeclaw_common::processor::ProcessorChain
-    for crate::processor_chain::registry::ProcessorRegistry
-{
-    async fn process_inbound(
-        &self,
-        raw: closeclaw_common::processor::RawMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        let main_raw = MainRawMessage {
-            platform: raw.platform,
-            sender_id: raw.sender_id,
-            peer_id: raw.peer_id,
-            content: raw.content,
-            timestamp: raw.timestamp,
-            message_id: raw.message_id,
-            account_id: raw.account_id,
-        };
-        self.process_inbound(main_raw)
-            .await
-            .map(convert_processed_message)
-            .map_err(convert_process_error)
-    }
-
-    async fn process_outbound(
-        &self,
-        msg: closeclaw_common::processor::ProcessedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        let main_msg = MainProcessedMessage {
-            content: msg.content,
-            metadata: msg.metadata,
-            suppress: msg.suppress,
-            content_blocks: msg.content_blocks,
-        };
-        self.process_outbound(main_msg)
-            .await
-            .map(convert_processed_message)
-            .map_err(convert_process_error)
-    }
-
-    fn inbound_len(&self) -> usize {
-        self.inbound_len()
-    }
-
-    fn outbound_len(&self) -> usize {
-        self.outbound_len()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// SlashRouter
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn convert_slash_context(ctx: &closeclaw_common::slash_router::SlashContext) -> MainSlashContext {

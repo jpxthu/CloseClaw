@@ -11,7 +11,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
 use super::chat::build_gateway;
-use crate::processor_chain::build_processor_registry;
+use closeclaw_processor_chain::build_processor_registry;
 
 // ── Processor Registry tests ────────────────────────────────────────────────
 
@@ -209,22 +209,22 @@ fn test_stop_detection() {
 
 // ── Inbound Processor Chain integration tests ─────────────────────────────
 
-use crate::processor_chain::content_normalizer::ContentNormalizer;
-use crate::processor_chain::context::ProcessedMessage;
-use crate::processor_chain::{MessageContext, ProcessError, ProcessorRegistry};
 use async_trait::async_trait;
+use closeclaw_processor_chain::content_normalizer::ContentNormalizer;
+use closeclaw_processor_chain::context::ProcessedMessage;
+use closeclaw_processor_chain::{MessageContext, ProcessError, ProcessorRegistry};
 
 /// A mock processor that suppresses messages (for testing suppress behavior).
 struct SuppressProcessor;
 
 #[async_trait]
-impl crate::processor_chain::MessageProcessor for SuppressProcessor {
+impl closeclaw_processor_chain::MessageProcessor for SuppressProcessor {
     fn name(&self) -> &str {
         "suppress-processor"
     }
 
-    fn phase(&self) -> crate::processor_chain::ProcessPhase {
-        crate::processor_chain::ProcessPhase::Inbound
+    fn phase(&self) -> closeclaw_processor_chain::ProcessPhase {
+        closeclaw_processor_chain::ProcessPhase::Inbound
     }
 
     fn priority(&self) -> u8 {
