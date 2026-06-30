@@ -5,7 +5,7 @@
 processor_chain 模块管理入站消息的内容标准化/session_key 计算和出站消息的 DSL 解析。入站方向对 IM Adapter 归一化后的 NormalizedMessage 做内容清洗和 session_key 计算，出站方向解析 LLM 输出中的 DSL 指令。流式出站同样经 Processor 链——DslParser 对流式增量文本零开销透传（无 DSL 指令）。渲染和出站日志由 Gateway 层处理，不属于 Processor 链。
 
 核心职责：
-- 入站：接收 IM Adapter 产出的 NormalizedMessage → 内容清洗 → metadata 填充 → 交付上层
+- 入站：接收 IM Adapter 产出的 NormalizedMessage → 内容清洗 → metadata 填充 → 交付上层。非文本消息（image/file/audio）经 ContentNormalizer 时跳过文本标准化，直接透传
 - 出站：接收 LLM 的结构化输出 → 解析 DSL 指令 → 交付渲染
 
 ## 架构
@@ -22,7 +22,7 @@ IM Adapter（入站）
 Processor 链（入站，按 priority 顺序执行，纯变换）
   ├── RawLogProcessor（priority 10）→ 原始消息写入日志
   ├── SessionRouter（priority 20）   → 计算 session_key，写入 metadata
-  └── ContentNormalizer（priority 30）→ 文本标准化（去控制字符、压缩空行、去尾空格）
+  └── ContentNormalizer（priority 30）→ 文本标准化（去控制字符、压缩空行、去尾空格）。非文本消息跳过标准化
   ↓
 Gateway
   → 提取稳定路由键 → SessionManager.resolve(稳定路由键) 获得 session_id

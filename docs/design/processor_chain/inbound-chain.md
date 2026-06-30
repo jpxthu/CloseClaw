@@ -35,6 +35,7 @@ Processor Chain（按 priority 升序执行，纯变换）
   │
   └── ContentNormalizer（priority 30）
         → 文本标准化：去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格
+        → 非文本消息（image/file/audio）跳过标准化，直接透传
   ↓
 ProcessedMessage
   ↓
@@ -65,7 +66,7 @@ SessionRouter 不区分私聊和群聊。会话粒度由 IM Adapter 通过 peer_
 | RawLog 写入失败 | 记录错误日志，消息流程不受影响 |
 | SessionRouter 计算 key 失败 | 记录告警日志，session_key 留空，消息继续流转 |
 | ContentNormalizer 异常 | 记录告警日志，丢弃变换结果，透传原始 content |
-| IM Adapter 解析失败 | 由 IM Adapter 自身处理（不产 NormalizedMessage 即丢弃消息） |
+| IM Adapter 解析失败 | 由 IM Adapter 自身处理（不产 NormalizedMessage 即丢弃消息）。非文本消息正常产 NormalizedMessage，不做丢弃处理 |
 
 ## 数据流
 
@@ -73,7 +74,7 @@ SessionRouter 不区分私聊和群聊。会话粒度由 IM Adapter 通过 peer_
 IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, timestamp }
   → RawLogProcessor：记录原始内容到日志 → 透传（保留所有字段）
     → SessionRouter：计算 session_key（算法见上文 session_key 算法节）→ 写入 metadata.session_key
-      → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）
+      → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）。非文本消息跳过标准化，直接透传 content
         → ProcessedMessage { content, metadata { session_key, thread_id } }
           → Gateway
             → 调用 SessionManager.resolve()，SessionManager 从消息路由字段提取稳定路由键做查找 → 获得 session_id
