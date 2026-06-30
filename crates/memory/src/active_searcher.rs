@@ -115,7 +115,7 @@ impl ActiveSearcherConfig {
     /// Priority: `memory.active_searcher.*` override > `agent_model` > defaults.
     pub fn from_agent_config(
         agent_model: Option<&str>,
-        memory_override: Option<&crate::agent::config::MemoryConfig>,
+        memory_override: Option<&closeclaw_common::agent_config::MemoryConfig>,
     ) -> Self {
         let override_as = memory_override.and_then(|m| m.active_searcher.as_ref());
         Self {

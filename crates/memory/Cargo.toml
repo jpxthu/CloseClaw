@@ -1,0 +1,36 @@
+[package]
+name = "closeclaw-memory"
+version = "0.1.0"
+edition.workspace = true
+description = "Long-term memory for CloseClaw agents"
+license = "MIT"
+
+[dependencies]
+# Internal crates
+closeclaw-common = { path = "../common" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-session = { path = "../session" }
+
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+
+# Async trait
+async-trait = "0.1"
+
+# Error handling
+thiserror = "2.0"
+
+# Serialization
+serde_json = "1.0"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+tracing = "=0.1.43"
+
+# SQLite for active searcher (bundled to avoid system SQLite dependency)
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3.10"

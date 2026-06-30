@@ -32,10 +32,10 @@ use crate::slash::{
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use closeclaw_processor_chain as processor_chain;
 
-use crate::memory::dreaming::DreamingPipeline;
-use crate::memory::miner::MemoryMiner;
 use crate::session::sweeper::ArchiveSweeper;
 use closeclaw_common::SessionLookup;
+use closeclaw_memory::dreaming::DreamingPipeline;
+use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use closeclaw_session::bootstrap::BootstrapMode;

@@ -8,6 +8,9 @@ pub mod active_searcher_llm;
 pub mod dreaming;
 pub mod miner;
 
+#[cfg(test)]
+pub mod test_helpers;
+
 pub use active_searcher::{ActiveSearcher, ActiveSearcherConfig};
 pub use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
 

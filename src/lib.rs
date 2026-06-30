@@ -20,7 +20,7 @@ pub use closeclaw_tasks as tasks;
 
 pub mod bridge;
 pub mod common;
-pub mod memory;
+pub use closeclaw_memory as memory;
 
 use tracing::info;
 
