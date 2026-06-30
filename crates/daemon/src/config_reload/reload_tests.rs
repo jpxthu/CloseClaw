@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod reload_tests {
-    use crate::agent::registry::AgentRegistry;
     use crate::config_reload::reload::{
         dispatch_change, filename_to_section, is_agents_path, ConfigReloadManager, DEFAULT_DEBOUNCE,
     };
+    use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_config::manager::{ConfigManager, ConfigSection};
     use std::path::Path;
     use std::sync::{mpsc, Arc};

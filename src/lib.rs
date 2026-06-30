@@ -9,11 +9,9 @@
 pub use closeclaw_admin as admin;
 pub use closeclaw_agent as agent;
 pub use closeclaw_cli as cli;
-pub mod config_reload;
-pub mod daemon;
+pub use closeclaw_daemon as daemon;
 pub use closeclaw_platform as platform;
 pub use closeclaw_processor_chain as processor_chain;
-pub mod session;
 pub use closeclaw_slash as slash;
 pub use closeclaw_system_prompt as system_prompt;
 pub use closeclaw_tasks as tasks;

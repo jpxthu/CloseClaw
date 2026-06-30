@@ -5,7 +5,8 @@
 //! - Step 1.2: shutdown gate checks (is_shutting_down gating)
 //! - Step 1.3: hard timeout removal (graceful waits, forceful immediate)
 
-use crate::daemon::shutdown::{ShutdownHandle, ShutdownMode};
+use crate::shutdown::{ShutdownHandle, ShutdownMode};
+use crate::test_helpers::common_shutdown_handle;
 
 // ── Step 1.1: busy_count registration ──────────────────────────────────
 
@@ -459,7 +460,7 @@ fn test_daemon_shutdown_signal_is_shutting_down_delegation() {
 async fn test_common_handle_delegates_drain_waits_for_busy_count() {
     let daemon_handle = ShutdownHandle::new();
     // Wrap daemon handle as common ShutdownSignal for testing delegation
-    let common_handle = crate::bridge::common_shutdown_handle(&daemon_handle);
+    let common_handle = common_shutdown_handle(&daemon_handle);
 
     // Increment busy count through common layer
     common_handle.increment_busy();
@@ -480,7 +481,7 @@ async fn test_common_handle_delegates_drain_waits_for_busy_count() {
 #[tokio::test]
 async fn test_common_escalate_to_forceful_propagates_to_daemon() {
     let daemon_handle = ShutdownHandle::new();
-    let common_handle = crate::bridge::common_shutdown_handle(&daemon_handle);
+    let common_handle = common_shutdown_handle(&daemon_handle);
 
     // Start graceful shutdown
     daemon_handle.try_start_shutdown();
@@ -497,7 +498,7 @@ async fn test_common_escalate_to_forceful_propagates_to_daemon() {
 #[tokio::test]
 async fn test_common_busy_count_delegation_drain_completes() {
     let daemon_handle = ShutdownHandle::new();
-    let common_handle = crate::bridge::common_shutdown_handle(&daemon_handle);
+    let common_handle = common_shutdown_handle(&daemon_handle);
 
     // Increment via common layer
     common_handle.increment_busy();

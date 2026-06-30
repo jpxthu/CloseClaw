@@ -14,7 +14,7 @@ use notify::{
 };
 use tracing::{debug, info, warn};
 
-use crate::agent::registry::AgentRegistry;
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::events::ConfigChangeEvent;
 use closeclaw_config::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 

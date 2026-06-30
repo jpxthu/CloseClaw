@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use crate::common::test_helpers::TestStorage;
-use crate::daemon::dreaming_scheduler::DreamingScheduler;
+use crate::dreaming_scheduler::DreamingScheduler;
+use crate::test_helpers::TestStorage;
 use closeclaw_common::CompactConfig;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::PerAgentSessionConfig;
