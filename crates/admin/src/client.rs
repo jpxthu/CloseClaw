@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
-use crate::admin::protocol::{AdminRequest, AdminResponse};
+use crate::protocol::{AdminRequest, AdminResponse};
 
 /// Default timeout for admin RPC operations (milliseconds).
 const ADMIN_TIMEOUT_MS: u64 = 5000;

@@ -8,9 +8,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::admin::protocol::{AdminRequest, AdminResponse, SkillInfo};
-use crate::agent::config::AgentConfig;
-use crate::agent::registry::AgentRegistry;
+use crate::protocol::{AdminRequest, AdminResponse, SkillInfo};
+use closeclaw_agent::config::AgentConfig;
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::manager::write_atomically;
 use closeclaw_config::ConfigManager;
 use closeclaw_skills::DiskSkillRegistry;
@@ -131,10 +131,10 @@ async fn dispatch(request: AdminRequest, context: &AdminContext) -> AdminRespons
 
 /// List all agents — returns agent ID + model for each registered agent.
 fn dispatch_agent_list(context: &AdminContext) -> AdminResponse {
-    let agents: Vec<crate::admin::protocol::AgentInfo> = context
+    let agents: Vec<crate::protocol::AgentInfo> = context
         .agent_registry
         .iter()
-        .map(|entry| crate::admin::protocol::AgentInfo {
+        .map(|entry| crate::protocol::AgentInfo {
             id: entry.key().clone(),
             name: entry.name.clone(),
             model: entry.model.clone(),
@@ -391,7 +391,7 @@ async fn send_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::registry::AgentRegistry;
+    use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_skills::DiskSkillRegistry;
 
     fn make_test_context() -> AdminContext {
