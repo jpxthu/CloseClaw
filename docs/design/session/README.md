@@ -123,7 +123,7 @@ Gateway / SessionManager  ← session 生命周期协调者
      → 检查 memory_injection 槽位，按模式插入记忆摘要到消息列表
      → LLM 状态设为 Requesting
      → LLM provider 调用
-       → 流式模式下：通过 StreamingSink 推送 Text chunks，状态 Receiving
+       → 流式模式下：ContentBlock[] 经统一出站路径（Verbosity → Processor Chain → 出站日志）后，由 IM Adapter 以流式模式渲染发送，状态 Receiving
        → 非流式：返回完整响应
      → 剥离 thinking 标签，提取纯文本
      → 新增消息写入 message history
@@ -224,7 +224,7 @@ active-searcher 写入槽位（tool role 摘要 + 位置模式）
 - **Permission 模块**：Session 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）。工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
 - **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。sessions_spawn 等工具执行时读取 subagents 和 communication 配置做前置检查。
-- **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析和日志记录。非直接调用，属数据流下游依赖。
+- **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站日志由 Gateway 在链后统一记录。非直接调用，属数据流下游依赖。
 - **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 session 进行记忆搜索；在消息组装时消费 `memory_injection` 槽位中的 tool role 记忆摘要。
 
 ### 无关
