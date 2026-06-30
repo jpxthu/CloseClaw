@@ -6,7 +6,6 @@
 mod chat_protocol;
 // Placeholder stubs — real implementations added in subsequent steps
 pub mod anthropic;
-pub mod glm;
 pub mod openai;
 
 // Re-export trait + types from chat_protocol
@@ -16,7 +15,6 @@ pub use chat_protocol::{
 
 // Re-export concrete protocol implementations
 pub use anthropic::AnthropicProtocol;
-pub use glm::GlmProtocol;
 pub use openai::OpenAiProtocol;
 
 #[cfg(test)]
