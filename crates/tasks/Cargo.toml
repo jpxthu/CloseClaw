@@ -1,0 +1,17 @@
+[package]
+name = "closeclaw-tasks"
+version = "0.1.0"
+edition.workspace = true
+description = "Background task management for CloseClaw"
+license.workspace = true
+
+[dependencies]
+closeclaw-common = { path = "../common" }
+tokio = { version = "=1.35.0", features = ["full"] }
+thiserror = "2.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+async-trait = "0.1"
+tracing = "=0.1.43"
+
+[dev-dependencies]
+tempfile = "3.10"

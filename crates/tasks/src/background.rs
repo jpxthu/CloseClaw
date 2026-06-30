@@ -10,7 +10,7 @@ use tokio::process::Command;
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
-use super::stuck_detect::{self, StuckDetectConfig};
+use crate::stuck_detect::{self, StuckDetectConfig};
 
 pub(crate) type TaskMap = Arc<Mutex<HashMap<String, TaskHandle>>>;
 
