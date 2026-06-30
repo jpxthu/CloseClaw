@@ -5,6 +5,7 @@
 | 模块 | 简述 |
 |------|------|
 | [agent](agent/README.md) | Agent 配置档案（目录式、注册清单、permissions 独立）、spawn 协调与权限沿链路继承 |
+| [common](common/README.md) | 跨模块共享的纯数据结构和核心 trait 定义——是业务模块间的唯一接口依赖层 |
 | [cli](cli/README.md) | 命令行接口模块：CLI Chat（terminal 渠道的 IMPlugin 实现）和 CLI Admin（daemon 管理命令） |
 | [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 注册清单与多级加载、热重载 |
 | [daemon](daemon/README.md) | 进程入口和组件胶水层：依赖驱动启动、后台任务管理、graceful/forceful 双模关闭 |
