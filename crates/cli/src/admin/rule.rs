@@ -4,7 +4,7 @@ use super::common::{
     config_dir, effect_to_str, json_error, json_output, RuleCheckOutput, RuleListEntry,
     RuleListOutput,
 };
-use crate::cli::args::RuleAction;
+use crate::args::RuleAction;
 use anyhow::Result;
 use closeclaw_permission::{Rule, RuleSet};
 use std::path::{Path, PathBuf};

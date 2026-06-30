@@ -8,7 +8,7 @@
 
 pub use closeclaw_admin as admin;
 pub use closeclaw_agent as agent;
-pub mod cli;
+pub use closeclaw_cli as cli;
 pub mod config_reload;
 pub mod daemon;
 pub use closeclaw_platform as platform;

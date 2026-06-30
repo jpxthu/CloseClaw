@@ -3,7 +3,7 @@
 use super::common::{
     config_dir, json_error, json_output, ConfigListFile, ConfigListOutput, ConfigValidateOutput,
 };
-use crate::cli::args::ConfigAction;
+use crate::args::ConfigAction;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
@@ -133,7 +133,7 @@ fn handle_config_list(config_dir: &Path, json: bool) -> Result<()> {
 }
 
 pub async fn handle_config_setup(skip: bool) -> Result<()> {
-    use crate::cli::config_wizard;
+    use crate::config_wizard;
 
     println!("\n=== CloseClaw Setup Wizard ===\n");
 

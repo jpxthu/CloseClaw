@@ -91,9 +91,9 @@ async fn test_build_gateway_has_slash_dispatcher() {
 
 #[tokio::test]
 async fn test_build_gateway_slash_help_dispatchable() {
-    use crate::slash::dispatcher::SlashDispatcher;
+    use closeclaw_slash::dispatcher::SlashDispatcher;
 
-    let slash_registry = Arc::new(crate::slash::registry::HandlerRegistry::new());
+    let slash_registry = Arc::new(closeclaw_slash::registry::HandlerRegistry::new());
     let session_manager = Arc::new(SessionManager::new(
         &GatewayConfig {
             name: "test".to_string(),
@@ -104,14 +104,14 @@ async fn test_build_gateway_slash_help_dispatchable() {
         BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
-    slash_registry.register(Arc::new(crate::slash::ClearHandler::new(Arc::clone(
+    slash_registry.register(Arc::new(closeclaw_slash::ClearHandler::new(Arc::clone(
         &session_manager,
     ))));
-    let help_handler = crate::slash::HelpHandler::new(Arc::clone(&slash_registry));
+    let help_handler = closeclaw_slash::HelpHandler::new(Arc::clone(&slash_registry));
     slash_registry.register(Arc::new(help_handler));
-    slash_registry.register(Arc::new(crate::slash::NewSessionHandler));
-    slash_registry.register(Arc::new(crate::slash::StopHandler));
-    slash_registry.register(Arc::new(crate::slash::StatusHandler::new(Arc::clone(
+    slash_registry.register(Arc::new(closeclaw_slash::NewSessionHandler));
+    slash_registry.register(Arc::new(closeclaw_slash::StopHandler));
+    slash_registry.register(Arc::new(closeclaw_slash::StatusHandler::new(Arc::clone(
         &session_manager,
     ))));
 

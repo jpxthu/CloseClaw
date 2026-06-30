@@ -27,19 +27,27 @@ pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     Ok((config_dir, pid_file))
 }
 
-/// Foreground daemon runner — runs the daemon event loop in the current
-/// process and writes the current PID to disk.  Called when
-/// `--foreground` is passed.
+/// Foreground daemon runner — spawns the daemon in a subprocess.
+/// Called when `--foreground` is passed.
 pub async fn handle_run_foreground(config_dir: &str, json: bool) -> Result<()> {
     let (config_dir, pid_file) = prepare_run(config_dir)?;
 
-    let pid = std::process::id();
-    closeclaw_platform::process::write_pid_file(&pid_file, pid)?;
+    let current_exe =
+        std::env::current_exe().context("failed to resolve current executable path")?;
 
-    crate::daemon::Daemon::start(config_dir.to_string_lossy().as_ref())
-        .await?
-        .run()
-        .await?;
+    let mut cmd = build_daemon_command(&current_exe, &config_dir);
+    // In foreground mode, don't suppress output so logs are visible.
+    cmd.stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+
+    let _child = cmd.spawn().context("failed to spawn daemon process")?;
+
+    // Wait for the admin socket to become available.
+    let admin_socket = closeclaw_admin::client::admin_socket_path(&config_dir);
+    wait_for_socket(&admin_socket, SOCKET_WAIT_TIMEOUT_MS)?;
+
+    let pid = closeclaw_platform::process::read_pid_file(&pid_file)
+        .context("failed to read daemon PID file after spawn")?;
 
     if json {
         json_output(&RunOutput {
@@ -51,7 +59,7 @@ pub async fn handle_run_foreground(config_dir: &str, json: bool) -> Result<()> {
     }
 
     println!("PID {} written to {}", pid, pid_file.display());
-    println!("Daemon stopped.");
+    println!("Daemon started.");
     Ok(())
 }
 

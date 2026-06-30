@@ -3,7 +3,7 @@
 //! Covers direct rendering of content blocks, DSL elements, markdown,
 //! code blocks, ANSI helpers, and edge cases.
 
-use crate::cli::renderer::{
+use crate::renderer::{
     get_terminal_width, resolve_terminal_width_from, strip_ansi, TerminalRenderer, BOLD, CYAN, DIM,
     ITALIC,
 };

@@ -1,7 +1,7 @@
 //! Skill handler functions for CLI admin.
 
 use super::common::{config_dir, json_error, json_output, SkillInstallOutput};
-use crate::cli::args::SkillAction;
+use crate::args::SkillAction;
 use anyhow::Result;
 use closeclaw_admin::client::admin_socket_path;
 use closeclaw_admin::{AdminClient, AdminRequest, AdminResponse};
