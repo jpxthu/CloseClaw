@@ -3,7 +3,7 @@
 //! Verifies that `closeclaw run --foreground` + SIGTERM/SIGINT
 //! triggers graceful shutdown instead of hard-killing the daemon.
 
-use closeclaw::common::test_helpers::write_mandatory_configs;
+use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::os::unix::net::UnixStream;
 use std::process::Stdio;
 use std::time::Duration;
