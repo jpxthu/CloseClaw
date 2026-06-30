@@ -1,8 +1,8 @@
 //! Registry population: wiring AgentRegistry, SkillRegistry, ToolRegistry,
 //! and ConfigHotReload during daemon startup.
 
-use crate::agent::spawn::SpawnController;
-use crate::daemon::config_reload;
+use crate::config_watcher;
+use closeclaw_agent::spawn::SpawnController;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::PermissionEngine;
@@ -20,7 +20,7 @@ pub(crate) struct RegistryContext<'a> {
     /// Config manager providing agent and skill configurations.
     pub config_manager: &'a Arc<ConfigManager>,
     /// Agent registry to be populated.
-    pub agent_registry: &'a Arc<crate::agent::registry::AgentRegistry>,
+    pub agent_registry: &'a Arc<closeclaw_agent::registry::AgentRegistry>,
     /// Shared skill registry handle (may or may not contain a DiskSkillRegistry).
     pub skill_registry: &'a Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Tool registry to be wired.
@@ -40,7 +40,7 @@ pub(crate) struct RegistryContext<'a> {
 /// Returns an optional [`ConfigWatcherHandle`] for config hot-reload.
 pub(crate) async fn populate_registries(
     ctx: &RegistryContext<'_>,
-) -> Option<config_reload::ConfigWatcherHandle> {
+) -> Option<config_watcher::ConfigWatcherHandle> {
     let disk_reg = acquire_disk_registry(ctx.skill_registry)?;
     load_and_populate_agents(ctx, &disk_reg);
     inject_agent_registry_into_skill_registry(ctx.skill_registry, ctx.agent_registry);
@@ -75,7 +75,7 @@ fn load_and_populate_agents(ctx: &RegistryContext<'_>, _disk_reg: &DiskSkillRegi
 /// Inject AgentRegistry into DiskSkillRegistry.
 fn inject_agent_registry_into_skill_registry(
     skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
-    agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
+    agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
 ) {
     let mut guard = skill_registry.write().unwrap();
     if let Some(ref mut disk_reg) = *guard {
@@ -88,7 +88,7 @@ fn inject_agent_registry_into_skill_registry(
 /// Inject AgentRegistry into ToolRegistry.
 fn inject_agent_registry_into_tool_registry(
     tool_registry: &Arc<ToolRegistry>,
-    agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
+    agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
 ) {
     tool_registry.set_agent_tools_query(
         Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentToolsConfigQuery>
@@ -106,8 +106,10 @@ async fn wire_session_manager(ctx: &RegistryContext<'_>) {
 }
 
 /// Initialize config hot-reload watcher.
-fn init_config_hot_reload(ctx: &RegistryContext<'_>) -> Option<config_reload::ConfigWatcherHandle> {
-    match config_reload::init_config_hot_reload(
+fn init_config_hot_reload(
+    ctx: &RegistryContext<'_>,
+) -> Option<config_watcher::ConfigWatcherHandle> {
+    match config_watcher::init_config_hot_reload(
         &ctx.config_subdir.to_string_lossy(),
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.agent_registry),
@@ -127,7 +129,7 @@ fn init_config_hot_reload(ctx: &RegistryContext<'_>) -> Option<config_reload::Co
 
 /// Register builtin tools using the provided SpawnController.
 async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
-    let task_manager = Arc::new(crate::tasks::BackgroundTaskManager::new());
+    let task_manager = Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
     let builtin_ctx = Arc::new(BuiltinToolContext {
         config_manager: Arc::clone(ctx.config_manager),
         agent_tools_query: Arc::clone(ctx.agent_registry)

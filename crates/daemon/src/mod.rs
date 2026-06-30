@@ -2,13 +2,15 @@
 //!
 //! Orchestrates all components: Gateway, AgentRegistry, PermissionEngine.
 //! Handles graceful shutdown via ShutdownCoordinator.
+pub mod bridge;
 pub mod config_reload;
+pub mod config_watcher;
 pub mod dreaming_scheduler;
 pub mod registries;
 pub mod shutdown;
 pub mod skill_reload;
 pub mod startup;
-use crate::daemon::startup::{all_component_entries, topo_sort_layers, StartupError};
+use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_admin::client::admin_socket_path;
 use closeclaw_admin::server::{AdminContext, AdminServer};
 use closeclaw_config::migration::migrate_if_needed;
@@ -18,19 +20,19 @@ use closeclaw_config::ConfigManager;
 /// Resolved startup plan: topo-sort layers plus validated phase components.
 /// Each outer element is a layer/phase; each inner element is a [`ComponentId`].
 type StartupPlan = (
-    Vec<Vec<crate::daemon::startup::ComponentId>>,
-    Vec<Vec<crate::daemon::startup::ComponentId>>,
+    Vec<Vec<crate::startup::ComponentId>>,
+    Vec<Vec<crate::startup::ComponentId>>,
 );
-use crate::cli::terminal::TerminalPlugin;
-use crate::slash::dispatcher::SlashDispatcher;
-use crate::slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
-use crate::slash::registry::HandlerRegistry;
-use crate::slash::{
+use closeclaw_cli::terminal::TerminalPlugin;
+use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
+use closeclaw_processor_chain as processor_chain;
+use closeclaw_slash::dispatcher::SlashDispatcher;
+use closeclaw_slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
+use closeclaw_slash::registry::HandlerRegistry;
+use closeclaw_slash::{
     ClearHandler, CompactHandler, ExecHandler, HelpHandler, NewSessionHandler, StatusHandler,
     StopHandler, VerboseHandler,
 };
-use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use closeclaw_processor_chain as processor_chain;
 
 use closeclaw_common::SessionLookup;
 use closeclaw_gateway::sweeper::ArchiveSweeper;
@@ -75,16 +77,18 @@ fn parse_env_file(path: &std::path::Path) -> std::io::Result<Vec<(String, String
 /// Lines starting with # are treated as comments and ignored.
 fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
     for (key, value) in parse_env_file(path)? {
-        std::env::set_var(&key, &value);
+        std::env::set_var(&key, &value); // load_env_file: allowed exception per CONTRIBUTING.md
     }
     Ok(())
 }
 mod llm_init;
+#[cfg(test)]
+pub mod test_helpers;
 
 /// Global daemon state
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
-    pub agent_registry: Arc<crate::agent::registry::AgentRegistry>,
+    pub agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
     pub permission_engine: Arc<PermissionEngine>,
     pub shutdown: Arc<shutdown::ShutdownHandle>,
     /// Session manager for session lifecycle management
@@ -100,7 +104,7 @@ pub struct Daemon {
     /// Skill file watcher handle (RAII: stops on drop)
     _skill_watcher: Option<SkillWatcherHandle>,
     /// Config file watcher handle (RAII: stops on drop)
-    _config_watcher: Option<config_reload::ConfigWatcherHandle>,
+    _config_watcher: Option<config_watcher::ConfigWatcherHandle>,
     /// Daemon-level approval orchestrator
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     /// Admin RPC server task handle (drop cancels the task)
@@ -125,9 +129,9 @@ impl Daemon {
     /// Map each [`StartupPhase`] to its resolved [`ComponentId`] set,
     /// validated against the topo-sort result.
     fn validate_phase_components(
-        layers: &[Vec<crate::daemon::startup::ComponentId>],
-    ) -> Result<Vec<Vec<crate::daemon::startup::ComponentId>>, StartupError> {
-        use crate::daemon::startup::ComponentId::*;
+        layers: &[Vec<crate::startup::ComponentId>],
+    ) -> Result<Vec<Vec<crate::startup::ComponentId>>, StartupError> {
+        use crate::startup::ComponentId::*;
         let expected: Vec<_> = [
             vec![ConfigManager, Storage],
             vec![
@@ -166,7 +170,7 @@ impl Daemon {
     }
 
     /// Log the resolved startup order at `info` level for operational visibility.
-    fn log_startup_order(layers: &[Vec<crate::daemon::startup::ComponentId>]) {
+    fn log_startup_order(layers: &[Vec<crate::startup::ComponentId>]) {
         for (i, layer) in layers.iter().enumerate() {
             let names: Vec<&str> = layer.iter().map(|id| id.name()).collect();
             info!(layer = i + 1, components = ?names, "startup layer resolved");
@@ -202,12 +206,12 @@ impl Daemon {
     async fn init_phase_2_registries(
         config_dir: &str,
     ) -> anyhow::Result<(
-        Arc<crate::agent::registry::AgentRegistry>,
+        Arc<closeclaw_agent::registry::AgentRegistry>,
         Arc<RwLock<Option<DiskSkillRegistry>>>,
         Arc<ToolRegistry>,
         SkillWatcherHandle,
     )> {
-        let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
+        let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let (skill_registry, skill_watcher) =
             skill_reload::init_skill_hot_reload(config_dir).await?;
@@ -331,7 +335,7 @@ impl Daemon {
     /// Phase 5: Background services — ArchiveSweeper, DreamingScheduler, registry population.
     async fn init_phase_5_background(
         config_manager: &Arc<ConfigManager>,
-        agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
+        agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
         tool_registry: &Arc<ToolRegistry>,
         session_manager: &Arc<SessionManager>,
@@ -340,7 +344,7 @@ impl Daemon {
     ) -> anyhow::Result<(
         watch::Sender<()>,
         watch::Sender<()>,
-        Option<config_reload::ConfigWatcherHandle>,
+        Option<config_watcher::ConfigWatcherHandle>,
     )> {
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
@@ -352,7 +356,7 @@ impl Daemon {
             dreaming_rx,
         );
         // Create SpawnController as an independent component (depends on AgentRegistry).
-        let spawn_controller = Arc::new(crate::agent::spawn::SpawnController::new(
+        let spawn_controller = Arc::new(closeclaw_agent::spawn::SpawnController::new(
             Arc::clone(config_manager),
             Arc::clone(session_manager),
             Arc::clone(permission_engine),
@@ -416,7 +420,7 @@ impl Daemon {
         info!("ArchiveSweeper spawned");
         let dreaming_pipeline = Arc::new(DreamingPipeline::new());
         let memory_miner = Arc::new(MemoryMiner::new());
-        let dreaming_scheduler = crate::daemon::dreaming_scheduler::DreamingScheduler::new(
+        let dreaming_scheduler = crate::dreaming_scheduler::DreamingScheduler::new(
             storage,
             dreaming_config_provider,
             dreaming_pipeline,
@@ -430,7 +434,7 @@ impl Daemon {
 
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
     async fn init_phase_6_admin_rpc(
-        agent_registry: &Arc<crate::agent::registry::AgentRegistry>,
+        agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
         config_manager: &Arc<ConfigManager>,
         config_dir: &str,
@@ -643,7 +647,7 @@ impl Daemon {
     /// final card when all sessions have stopped.
     async fn phase_2_session_stop(
         &self,
-        mode: crate::daemon::shutdown::ShutdownMode,
+        mode: crate::shutdown::ShutdownMode,
     ) -> closeclaw_gateway::session_manager::stop::StopResult {
         // Send initial progress card (no-op if no active sessions)
         self.gateway.send_shutdown_progress_card(mode).await;
@@ -788,7 +792,7 @@ impl Daemon {
     }
 
     /// Phase 4: Final persistence — flush checkpoints and sync WAL.
-    async fn phase_4_final_persist(&self, mode: crate::daemon::shutdown::ShutdownMode) {
+    async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
         match self.gateway.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),

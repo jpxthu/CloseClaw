@@ -1,6 +1,6 @@
 //! Tests for ConfigManager hot-reload methods (reload_section / reload_agents).
 
-use crate::common::test_helpers::write_mandatory_configs;
+use crate::test_helpers::write_mandatory_configs;
 use closeclaw_config::events::ConfigChangeEvent;
 use closeclaw_config::manager::*;
 use closeclaw_config::SectionValidator;

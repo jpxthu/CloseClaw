@@ -3,8 +3,8 @@
 //! Thin initialization entry point for config hot-reload at daemon startup.
 //! Delegates file watching and event dispatch to [`ConfigReloadManager`].
 
-use crate::agent::registry::AgentRegistry;
 use crate::config_reload::reload::{ConfigReloadManager, WatcherHandle};
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::events::ConfigChangeEvent;
 use closeclaw_config::manager::ConfigManager;
 use closeclaw_gateway::SessionManager;
