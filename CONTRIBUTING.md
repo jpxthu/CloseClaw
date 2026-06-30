@@ -81,47 +81,83 @@ cargo build && cargo test
 
 ## 项目结构
 
-CloseClaw 采用 Cargo workspace，各模块为独立 crate：
+CloseClaw 采用 Cargo workspace，每个 design doc 模块对应一个独立 crate。
+
+### 依赖分层
 
 ```
-Cargo.toml               # workspace 根（members 声明）
-crates/                  # 功能库 — 可独立编译、按依赖分层
-├── common/              # closeclaw-common（共享类型、trait、常量）
-├── config/              # closeclaw-config
-├── session/             # closeclaw-session（持久化、bootstrap、recovery）
-├── llm/                 # closeclaw-llm
-├── permission/          # closeclaw-permission
-├── gateway/             # closeclaw-gateway
-├── tools/               # closeclaw-tools
-├── skills/              # closeclaw-skills
-└── im_adapter/          # closeclaw-im-adapter
-src/                     # 主 crate（closeclaw）— 组合根
-│                         # 将各功能库组装为守护进程，包含应用级编排：
-├── cli/                 #   CLI 交互（管理命令、chat 会话）
-├── daemon/              #   进程入口、后台任务、启动/关闭
+Layer 0（叶子）：closeclaw-common
+Layer 1：closeclaw-config, closeclaw-session
+Layer 2：closeclaw-llm, closeclaw-permission
+Layer 3：closeclaw-gateway, closeclaw-tools, closeclaw-skills, closeclaw-im-adapter
+Layer 4：closeclaw-agent, closeclaw-memory, closeclaw-processor-chain, closeclaw-slash, closeclaw-system-prompt, closeclaw-platform, closeclaw-tasks
+Layer 5：closeclaw-cli, closeclaw-daemon
+Layer 6：closeclaw（主 crate，纯组合根，仅 main.rs + lib.rs）
+```
+
+**规则**：
+- 跨模块共享的类型和 trait 放 `closeclaw-common`
+- 各 crate 内部模块嵌套不超过 4 级目录
+- 每个文件独立可读
+- 禁止逆向依赖（高层 → 低层允许，反向禁止）
+- 循环依赖通过 trait 抽象解耦
+
+### 目标目录结构
+
+```
+Cargo.toml               # workspace 根
+src/                     # 主 crate（closeclaw）— 纯组合根
+├── lib.rs               #   pub mod + init()
 ├── main.rs              #   bin 入口
-├── memory/              #   长期记忆系统（mining、搜索注入）
-├── processor_chain/     #   出入站消息处理链
-├── slash/               #   斜杠指令系统
-├── workflow/            #   workflow engine（状态机、三阶段协议、步骤推进与跳转）
-├── ...
+├── bridge.rs            #   模块间桥接（临时，逐步消除）
+└── common/              #   共享类型（逐步下沉到 closeclaw-common）
+crates/
+├── common/              # closeclaw-common — 共享类型、trait、常量
+├── config/              # closeclaw-config — 配置管理、热重载
+├── session/             # closeclaw-session — 持久化、bootstrap、recovery、compaction
+├── llm/                 # closeclaw-llm — 多供应商 LLM 抽象
+├── permission/          # closeclaw-permission — 权限引擎、审批流
+├── gateway/             # closeclaw-gateway — 消息路由、IM 插件管理
+├── tools/               # closeclaw-tools — 工具注册、内置工具
+├── skills/              # closeclaw-skills — skill 注册、加载
+├── im_adapter/          # closeclaw-im-adapter — IM 平台适配
+├── agent/               # closeclaw-agent — Agent 配置档案、注册表、spawn
+├── memory/              # closeclaw-memory — 长期记忆（mining、dreaming、active search）
+├── processor_chain/     # closeclaw-processor-chain — 出入站消息处理链
+├── slash/               # closeclaw-slash — 斜杠指令系统
+├── system_prompt/       # closeclaw-system-prompt — System Prompt 构建
+├── platform/            # closeclaw-platform — OS 抽象层
+├── tasks/               # closeclaw-tasks — 后台任务管理
+├── cli/                 # closeclaw-cli — 命令行接口
+└── daemon/              # closeclaw-daemon — 进程入口、启动编排、优雅关闭
 tests/
 ├── integration/         # 集成测试
 ├── e2e/                 # E2E 测试
 └── fixtures/            # 共享测试数据
 ```
 
-**依赖规则**（分层，禁止逆向依赖）：
-- Layer 0（叶子）：`closeclaw-common`
-- Layer 1：`closeclaw-config`, `closeclaw-session`
-- Layer 2：`closeclaw-llm`, `closeclaw-permission`
-- Layer 3：`closeclaw-gateway`, `closeclaw-tools`, `closeclaw-skills`, `closeclaw-im-adapter`
-- Layer 4：主 crate（依赖所有层，做组装和编排）
+### Crate 拆分标准
 
-**规则**：
-- 跨模块共享的类型和 trait 放 `closeclaw-common`
-- 各 crate 内部模块嵌套不超过 4 级目录
-- 每个文件独立可读
+**拆分原则**：
+- 一个 design doc 模块 = 一个 crate
+- 根 crate 最终只保留 main.rs + lib.rs（纯组合根）
+- 每次只拆分一个模块，一个 PR
+- 每个 PR 必须通过 `cargo build` + `cargo test`
+- 禁止修改 design doc
+
+**拆分流程**：
+1. 创建 `refactor/<module>` 分支
+2. 将 `src/<module>/` 移动到 `crates/<module>/src/`
+3. 创建 `crates/<module>/Cargo.toml`，声明最小依赖集
+4. 更新 workspace `members` 和根 crate 依赖
+5. 处理跨模块依赖（类型下沉 / trait 抽象 / pub use 桥接）
+6. `cargo build && cargo test` 通过
+7. 按 Git 工作流提 PR
+
+**跨模块依赖处理**：
+- 共享类型 → 下沉到 `closeclaw-common`
+- 双向依赖 → 通过 trait 抽象解耦，低层 crate 定义 trait，高层 crate 实现
+- 过渡期允许 `pub use` re-export 桥接，后续 PR 消除
 
 ---
 
