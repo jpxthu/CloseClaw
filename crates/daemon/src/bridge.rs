@@ -400,3 +400,23 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
         convert_common_streaming_output(self.inner.flush_stream())
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DaemonRunner — in-process daemon execution for --foreground mode
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Unit struct implementing [`closeclaw_cli::admin::DaemonRunner`].
+///
+/// Pass an instance to `handle_run` / `handle_run_foreground` so the CLI
+/// can run the daemon in-process without spawning a subprocess (and without
+/// a circular crate dependency on `closeclaw-daemon`).
+pub struct DaemonRunnerImpl;
+
+#[async_trait]
+impl closeclaw_cli::admin::DaemonRunner for DaemonRunnerImpl {
+    async fn start_and_run(&self, config_dir: &str) -> anyhow::Result<()> {
+        use crate::Daemon;
+        let mut daemon = Daemon::start(config_dir).await?;
+        daemon.run().await
+    }
+}

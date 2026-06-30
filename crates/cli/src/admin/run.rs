@@ -2,6 +2,7 @@
 
 use super::common::{json_output, RunOutput};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 
 /// Default timeout for waiting on the admin socket (milliseconds).
@@ -9,6 +10,17 @@ const SOCKET_WAIT_TIMEOUT_MS: u64 = 30_000;
 
 /// Interval between admin socket connection attempts (milliseconds).
 const SOCKET_POLL_INTERVAL_MS: u64 = 200;
+
+/// Trait abstraction for running the daemon in-process.
+///
+/// This breaks the circular dependency between `closeclaw-cli` and
+/// `closeclaw-daemon`: the CLI crate defines the trait, the daemon crate
+/// implements it, and `main.rs` wires them together.
+#[async_trait]
+pub trait DaemonRunner: Send + Sync {
+    /// Start and run the daemon event loop with the given config directory.
+    async fn start_and_run(&self, config_dir: &str) -> Result<()>;
+}
 
 /// Returns the resolved config directory and the path to the PID file.
 ///
@@ -27,27 +39,28 @@ pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     Ok((config_dir, pid_file))
 }
 
-/// Foreground daemon runner — spawns the daemon in a subprocess.
+/// Foreground daemon runner — runs the daemon in the current process.
 /// Called when `--foreground` is passed.
-pub async fn handle_run_foreground(config_dir: &str, json: bool) -> Result<()> {
+pub async fn handle_run_foreground(
+    config_dir: &str,
+    json: bool,
+    daemon_runner: &dyn DaemonRunner,
+) -> Result<()> {
     let (config_dir, pid_file) = prepare_run(config_dir)?;
 
-    let current_exe =
-        std::env::current_exe().context("failed to resolve current executable path")?;
+    // Write PID file BEFORE running the daemon so integration tests can
+    // find the daemon's PID after startup.
+    let pid = std::process::id();
+    closeclaw_platform::process::write_pid_file(&pid_file, pid)?;
 
-    let mut cmd = build_daemon_command(&current_exe, &config_dir);
-    // In foreground mode, don't suppress output so logs are visible.
-    cmd.stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit());
+    // Run daemon in-process (no subprocess spawn).
+    daemon_runner
+        .start_and_run(config_dir.to_str().unwrap_or("."))
+        .await?;
 
-    let _child = cmd.spawn().context("failed to spawn daemon process")?;
-
-    // Wait for the admin socket to become available.
-    let admin_socket = closeclaw_admin::client::admin_socket_path(&config_dir);
-    wait_for_socket(&admin_socket, SOCKET_WAIT_TIMEOUT_MS)?;
-
+    // After daemon shuts down, read the PID file it wrote.
     let pid = closeclaw_platform::process::read_pid_file(&pid_file)
-        .context("failed to read daemon PID file after spawn")?;
+        .context("failed to read daemon PID file after run")?;
 
     if json {
         json_output(&RunOutput {
@@ -92,9 +105,14 @@ pub(crate) fn build_daemon_command(
 ///
 /// In JSON mode a [`RunOutput`] is printed instead of human-readable
 /// text.
-pub async fn handle_run(config_dir: String, json: bool, foreground: bool) -> Result<()> {
+pub async fn handle_run(
+    config_dir: String,
+    json: bool,
+    foreground: bool,
+    daemon_runner: &dyn DaemonRunner,
+) -> Result<()> {
     if foreground {
-        return handle_run_foreground(&config_dir, json).await;
+        return handle_run_foreground(&config_dir, json, daemon_runner).await;
     }
 
     // Background mode: spawn child process running the daemon.
