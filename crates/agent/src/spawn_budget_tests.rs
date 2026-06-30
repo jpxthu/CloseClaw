@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use crate::agent::config::SubagentsConfig;
-use crate::agent::spawn::{SpawnController, SpawnError};
+use crate::config::SubagentsConfig;
+use crate::spawn::{SpawnController, SpawnError};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};

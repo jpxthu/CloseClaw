@@ -1,7 +1,13 @@
-use crate::agent::config::SubagentsConfig;
-use crate::agent::registry::AgentRegistry;
+use crate::config::SubagentsConfig;
+use crate::registry::AgentRegistry;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_session::bootstrap::BootstrapMode;
+
+// Trait imports for AgentLookup / AgentSkillsQuery / AgentToolsConfigQuery / AgentConfigLookup tests
+use closeclaw_common::AgentConfigLookup;
+use closeclaw_common::AgentLookup;
+use closeclaw_common::AgentSkillsQuery;
+use closeclaw_common::AgentToolsConfigQuery;
 
 // ---- Construction tests ----
 
@@ -331,4 +337,235 @@ fn test_concurrent_query_bootstrap_mode() {
     for h in handles {
         h.join().expect("thread should not panic");
     }
+}
+
+// ---- AgentLookup trait tests ----
+
+#[tokio::test]
+async fn test_agent_lookup_get_agent_model() {
+    let registry = AgentRegistry::new();
+    let mut cfg = make_config("agent-model");
+    cfg.model = Some("gpt-4o".to_string());
+    registry.populate(vec![cfg]);
+
+    let model = registry.get_agent_model("agent-model").await;
+    assert_eq!(model, Some("gpt-4o".to_string()));
+}
+
+#[tokio::test]
+async fn test_agent_lookup_get_agent_model_no_model() {
+    let registry = AgentRegistry::new();
+    registry.populate(vec![make_config("no-model")]);
+
+    let model = registry.get_agent_model("no-model").await;
+    assert_eq!(model, None);
+}
+
+#[tokio::test]
+async fn test_agent_lookup_get_agent_model_not_found() {
+    let registry = AgentRegistry::new();
+    registry.populate(vec![]);
+
+    let model = registry.get_agent_model("missing").await;
+    assert_eq!(model, None);
+}
+
+#[tokio::test]
+async fn test_agent_lookup_agent_exists() {
+    let registry = AgentRegistry::new();
+    registry.populate(vec![make_config("exists")]);
+
+    assert!(registry.agent_exists("exists").await);
+    assert!(!registry.agent_exists("missing").await);
+}
+
+#[tokio::test]
+async fn test_agent_lookup_get_parent_id() {
+    let registry = AgentRegistry::new();
+    let mut cfg = make_config("child");
+    cfg.parent_id = Some("parent".to_string());
+    registry.populate(vec![cfg]);
+
+    let parent = registry.get_parent_id("child").await;
+    assert_eq!(parent, Some("parent".to_string()));
+}
+
+#[tokio::test]
+async fn test_agent_lookup_get_parent_id_none() {
+    let registry = AgentRegistry::new();
+    registry.populate(vec![make_config("root")]);
+
+    let parent = registry.get_parent_id("root").await;
+    assert_eq!(parent, None);
+}
+
+#[tokio::test]
+async fn test_agent_lookup_get_parent_id_not_found() {
+    let registry = AgentRegistry::new();
+
+    let parent = registry.get_parent_id("missing").await;
+    assert_eq!(parent, None);
+}
+
+// ---- AgentSkillsQuery trait tests ----
+
+#[test]
+fn test_agent_skills_query_wildcard() {
+    let registry = AgentRegistry::new();
+    // Default skills = ["*"]
+    registry.populate(vec![make_config("wildcard-agent")]);
+
+    // Wildcard → effective_skills() returns None → get_agent_skills returns None
+    let skills = registry.get_agent_skills("wildcard-agent");
+    assert_eq!(skills, None);
+}
+
+#[test]
+fn test_agent_skills_query_specific_skills() {
+    let registry = AgentRegistry::new();
+    let mut cfg = make_config("specific-agent");
+    cfg.skills = vec!["coding".to_string(), "search".to_string()];
+    registry.populate(vec![cfg]);
+
+    let skills = registry.get_agent_skills("specific-agent");
+    assert_eq!(
+        skills,
+        Some(vec!["coding".to_string(), "search".to_string()])
+    );
+}
+
+#[test]
+fn test_agent_skills_query_not_found() {
+    let registry = AgentRegistry::new();
+    let skills = registry.get_agent_skills("missing");
+    assert_eq!(skills, None);
+}
+
+#[test]
+fn test_agent_skills_query_empty_skills() {
+    let registry = AgentRegistry::new();
+    let mut cfg = make_config("empty-skills");
+    cfg.skills = vec![];
+    registry.populate(vec![cfg]);
+
+    // Empty skills list is treated as wildcard (no filtering) → None
+    let skills = registry.get_agent_skills("empty-skills");
+    assert_eq!(skills, None);
+}
+
+// ---- AgentToolsConfigQuery trait tests ----
+
+#[tokio::test]
+async fn test_agent_tools_query_wildcard_tools() {
+    let registry = AgentRegistry::new();
+    // Default tools = ["*"]
+    registry.populate(vec![make_config("wildcard-tools")]);
+
+    let config = registry.get_agent_tools_config("wildcard-tools").await;
+    assert!(config.is_some());
+    let cfg = config.unwrap();
+    // Wildcard → tools=None (no filtering)
+    assert_eq!(cfg.tools, None);
+    // Default disallowed_tools = [] → None
+    assert_eq!(cfg.disallowed_tools, None);
+}
+
+#[tokio::test]
+async fn test_agent_tools_query_specific_tools() {
+    let registry = AgentRegistry::new();
+    let mut cfg = make_config("specific-tools");
+    cfg.tools = vec!["read".to_string(), "write".to_string()];
+    registry.populate(vec![cfg]);
+
+    let config = registry.get_agent_tools_config("specific-tools").await;
+    assert!(config.is_some());
+    let cfg = config.unwrap();
+    assert_eq!(
+        cfg.tools,
+        Some(vec!["read".to_string(), "write".to_string()])
+    );
+    assert_eq!(cfg.disallowed_tools, None);
+}
+
+#[tokio::test]
+async fn test_agent_tools_query_with_disallowed() {
+    let registry = AgentRegistry::new();
+    let mut cfg = make_config("disallowed-tools");
+    cfg.tools = vec!["read".to_string()];
+    cfg.disallowed_tools = vec!["exec".to_string(), "web_search".to_string()];
+    registry.populate(vec![cfg]);
+
+    let config = registry.get_agent_tools_config("disallowed-tools").await;
+    assert!(config.is_some());
+    let cfg = config.unwrap();
+    assert_eq!(cfg.tools, Some(vec!["read".to_string()]));
+    assert_eq!(
+        cfg.disallowed_tools,
+        Some(vec!["exec".to_string(), "web_search".to_string()])
+    );
+}
+
+#[tokio::test]
+async fn test_agent_tools_query_not_found() {
+    let registry = AgentRegistry::new();
+    let config = registry.get_agent_tools_config("missing").await;
+    assert!(config.is_none());
+}
+
+#[tokio::test]
+async fn test_agent_tools_query_empty_disallowed_is_none() {
+    let registry = AgentRegistry::new();
+    let mut cfg = make_config("empty-disallowed");
+    cfg.tools = vec!["read".to_string()];
+    cfg.disallowed_tools = vec![];
+    registry.populate(vec![cfg]);
+
+    let config = registry.get_agent_tools_config("empty-disallowed").await;
+    let cfg = config.unwrap();
+    assert_eq!(cfg.disallowed_tools, None);
+}
+
+// ---- AgentConfigLookup trait tests ----
+
+#[tokio::test]
+async fn test_agent_config_lookup_with_model() {
+    let registry = AgentRegistry::new();
+    let mut subagents = SubagentsConfig::default();
+    subagents.model = Some("claude-3".to_string());
+    let mut cfg = make_config("config-lookup");
+    cfg.subagents = subagents;
+    registry.populate(vec![cfg]);
+
+    let info = registry.lookup_agent_config("config-lookup").await;
+    assert!(info.is_some());
+    assert_eq!(info.unwrap().subagents_model, Some("claude-3".to_string()));
+}
+
+#[tokio::test]
+async fn test_agent_config_lookup_no_model() {
+    let registry = AgentRegistry::new();
+    registry.populate(vec![make_config("no-model-lookup")]);
+
+    let info = registry.lookup_agent_config("no-model-lookup").await;
+    assert!(info.is_some());
+    assert_eq!(info.unwrap().subagents_model, None);
+}
+
+#[tokio::test]
+async fn test_agent_config_lookup_not_found() {
+    let registry = AgentRegistry::new();
+    let info = registry.lookup_agent_config("missing").await;
+    assert!(info.is_none());
+}
+
+// ---- create_registry helper test ----
+
+#[test]
+fn test_create_registry_helper() {
+    let registry = crate::registry::create_registry();
+    // Should be a shared, empty registry
+    assert!(registry.get("anything").is_none());
+    // Populate and verify
+    registry.populate(vec![make_config("helper-test")]);
+    assert!(registry.get("helper-test").is_some());
 }
