@@ -149,6 +149,20 @@ Layer 5: daemon（composition root，允许全量依赖）
 - 各 crate 内部模块嵌套不超过 4 级目录
 - `daemon` 是唯一的 composition root，负责依赖注入和模块编排
 
+### `closeclaw-common` 内容准入标准
+
+不是"被两个 crate 用到就放 common"。按跨模块消费范围分为三类：
+
+| 类别 | 定义 | 放进 common |
+|------|------|------------|
+| 骨架类型 | 真正的跨领域概念，无单一领域归属，2+ 模块通过它交互 | ✅ 放 common |
+| DI trait | 领域注入接口（如 ToolRegistryQuery），trait 虽放在 common 供多方消费，但概念上归属具体领域模块 | ✅ 放 common，标注归属领域 |
+| 单消费类型 | 仅被一个 crate 消费的配置/错误/内部类型 | ❌ 不放 common，回到领域 crate |
+
+**判断原则**：一个类型被谁定义、被谁理解。如果只有 gateway crate 理解 `HandleResult` 的含义，那它就属于 gateway——即使其他 crate 因为类型依赖需要引用它，也应通过接口抽象而非搬进 common。
+
+参考：Rust 社区大型项目（rust-analyzer、swc、Bevy）倾向于按消费范围拆分共享层，而非一个大 common 装一切。
+
 ---
 
 ## unsafe 代码
