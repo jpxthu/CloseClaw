@@ -3,10 +3,9 @@
 //! Covers config validate, config list, rule check, rule list, and JSON output paths.
 //! All tests use tempfile::TempDir to avoid hardcoded paths.
 
-use crate::Cli;
-use clap::CommandFactory;
-use closeclaw::cli::admin::*;
-use closeclaw::cli::args::{AgentAction, ConfigAction, RuleAction, SkillAction};
+use clap::{Arg, ArgAction, Command as ClapCommand};
+use closeclaw_cli::admin::*;
+use closeclaw_cli::args::{AgentAction, ConfigAction, RuleAction, SkillAction};
 use closeclaw_permission::{Rule, RuleSet};
 use std::fs;
 use std::path::PathBuf;
@@ -379,15 +378,15 @@ async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHa
     // ConfigManager receives the config subdirectory
     let config_sub = config_dir.join("config");
     let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
-    let context = closeclaw::admin::server::AdminContext {
-        agent_registry: Arc::new(closeclaw::agent::registry::AgentRegistry::new()),
+    let context = closeclaw_admin::server::AdminContext {
+        agent_registry: Arc::new(closeclaw_agent::registry::AgentRegistry::new()),
         skill_registry: Arc::new(std::sync::RwLock::new(Some(
             closeclaw_skills::DiskSkillRegistry::default(),
         ))),
         config_manager,
         config_dir: config_dir.clone(),
     };
-    let server = closeclaw::admin::AdminServer::new(sock_path, context);
+    let server = closeclaw_admin::AdminServer::new(sock_path, context);
     let handle = tokio::spawn(async move {
         let _ = server.serve().await;
     });
@@ -885,14 +884,24 @@ async fn test_stop_json() {
 
 #[test]
 fn test_pid() {
-    let path = closeclaw::platform::process::pid_file_path(std::path::Path::new("/tmp/test"));
+    let path = closeclaw_platform::process::pid_file_path(std::path::Path::new("/tmp/test"));
     assert!(path.to_str().unwrap().contains("daemon.pid"));
 }
 
 #[test]
 fn test_stop_f() {
-    let m = Cli::command()
-        .try_get_matches_from(["c", "stop", "-f"])
+    // Build an equivalent clap Command to test the stop subcommand's -f flag,
+    // since Cli is defined in the binary crate and not accessible here.
+    let cmd = ClapCommand::new("closeclaw").subcommand(
+        ClapCommand::new("stop").arg(
+            Arg::new("force")
+                .short('f')
+                .long("force")
+                .action(ArgAction::SetTrue),
+        ),
+    );
+    let m = cmd
+        .try_get_matches_from(["closeclaw", "stop", "-f"])
         .unwrap();
     assert!(m.subcommand().unwrap().1.get_flag("force"));
 }
