@@ -16,13 +16,13 @@ const SOCKET_POLL_INTERVAL_MS: u64 = 200;
 /// directory resolution without starting a real daemon.
 pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
-        crate::platform::config::root_dir()?
+        closeclaw_platform::config::root_dir()?
     } else {
         PathBuf::from(config_dir)
     };
     std::fs::create_dir_all(&config_dir)?;
 
-    let pid_file = crate::platform::process::pid_file_path(&config_dir);
+    let pid_file = closeclaw_platform::process::pid_file_path(&config_dir);
 
     Ok((config_dir, pid_file))
 }
@@ -34,7 +34,7 @@ pub async fn handle_run_foreground(config_dir: &str, json: bool) -> Result<()> {
     let (config_dir, pid_file) = prepare_run(config_dir)?;
 
     let pid = std::process::id();
-    crate::platform::process::write_pid_file(&pid_file, pid)?;
+    closeclaw_platform::process::write_pid_file(&pid_file, pid)?;
 
     crate::daemon::Daemon::start(config_dir.to_string_lossy().as_ref())
         .await?
@@ -104,7 +104,7 @@ pub async fn handle_run(config_dir: String, json: bool, foreground: bool) -> Res
     wait_for_socket(&admin_socket, SOCKET_WAIT_TIMEOUT_MS)?;
 
     // Read the PID that the child process wrote to the PID file.
-    let pid = crate::platform::process::read_pid_file(&pid_file)
+    let pid = closeclaw_platform::process::read_pid_file(&pid_file)
         .context("failed to read daemon PID file after spawn")?;
 
     if json {

@@ -446,6 +446,7 @@ dependencies = [
  "closeclaw-im-adapter",
  "closeclaw-llm",
  "closeclaw-permission",
+ "closeclaw-platform",
  "closeclaw-processor-chain",
  "closeclaw-session",
  "closeclaw-skills",
@@ -610,6 +611,17 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "closeclaw-platform"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

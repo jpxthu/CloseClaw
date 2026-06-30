@@ -1,4 +1,4 @@
-use crate::platform::process::{pid_file_path, read_pid_file, send_signal, write_pid_file};
+use crate::process::{pid_file_path, read_pid_file, send_signal, write_pid_file};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use tempfile::TempDir;

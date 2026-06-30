@@ -1,4 +1,4 @@
-use crate::platform::config::{config_dir, root_dir};
+use crate::config::{config_dir, root_dir};
 
 #[test]
 fn test_root_dir_returns_valid_path() {

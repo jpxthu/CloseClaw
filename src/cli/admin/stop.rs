@@ -4,14 +4,14 @@ use super::common::{json_output, StopOutput};
 use anyhow::Result;
 
 pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
-    let config_dir = crate::platform::config::root_dir()?;
-    let p = crate::platform::process::pid_file_path(&config_dir);
-    let pid = crate::platform::process::read_pid_file(&p)
+    let config_dir = closeclaw_platform::config::root_dir()?;
+    let p = closeclaw_platform::process::pid_file_path(&config_dir);
+    let pid = closeclaw_platform::process::read_pid_file(&p)
         .ok_or_else(|| anyhow::anyhow!("PID file not found at {}.", p.display()))?;
     if pid == std::process::id() {
         anyhow::bail!("Refusing to kill self.");
     }
-    crate::platform::process::send_signal(pid, force)?;
+    closeclaw_platform::process::send_signal(pid, force)?;
     let _ = std::fs::remove_file(&p);
     let sig = if force { "KILL" } else { "TERM" };
     if json {

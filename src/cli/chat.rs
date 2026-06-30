@@ -40,7 +40,7 @@ enum ExitReason {
 /// 1. Build a [`Gateway`] with a [`TerminalPlugin`] registered.
 /// 2. Loop: read user input → route through gateway → print response.
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
-    let sender_id = crate::platform::current_uid();
+    let sender_id = closeclaw_platform::current_uid();
     let (gateway, _session_manager) = build_gateway(agent_id).await;
 
     println!("CloseClaw Chat — agent: {}", agent_id);

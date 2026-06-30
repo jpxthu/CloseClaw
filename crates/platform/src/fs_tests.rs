@@ -1,4 +1,4 @@
-use crate::platform::fs::normalize_path;
+use crate::fs::normalize_path;
 use std::path::{Path, PathBuf};
 
 #[test]

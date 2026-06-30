@@ -71,7 +71,7 @@ impl TerminalAdapter {
     pub(crate) fn make_message(&self, content: String) -> NormalizedMessage {
         NormalizedMessage {
             platform: "terminal".to_string(),
-            sender_id: crate::platform::current_uid(),
+            sender_id: closeclaw_platform::current_uid(),
             peer_id: "cli".to_string(),
             content,
             timestamp: current_timestamp(),
