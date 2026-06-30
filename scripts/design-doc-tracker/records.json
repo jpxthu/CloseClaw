@@ -209,9 +209,9 @@
   },
   {
     "path": "docs/design/llm/providers/minimax.md",
-    "commit": "344fa533983dc5c94b9f74074150de97ec54335d",
-    "commit_time": "2026-06-29T23:18:05+08:00",
-    "confirmed_time": "2026-06-29T23:25:20.045255+08:00",
+    "commit": "c66cb1f9296df5cfa93c358f61a3996b805b1707",
+    "commit_time": "2026-06-30T09:18:47+08:00",
+    "confirmed_time": "2026-06-30T09:28:46.061393+08:00",
     "comment": "",
     "blocked_reason": ""
   }
