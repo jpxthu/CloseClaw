@@ -14,7 +14,7 @@ closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
 closeclaw-slash = { path = "../slash" }
 closeclaw-agent = { path = "../agent" }
-closeclaw-admin = { path = "../admin" }
+closeclaw-skills = { path = "../skills" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-llm = { path = "../llm" }
