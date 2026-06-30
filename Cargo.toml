@@ -31,7 +31,6 @@ futures = "0.3"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
 
 # Logging - pinned to older versions
 tracing = "=0.1.43"
@@ -46,12 +45,6 @@ libc = "0.2"
 # Terminal size detection for dynamic width truncation
 terminal_size = "0.4"
 
-# HTTP client (rustls for TLS, no OpenSSL required)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-
-# Async channels
-flume = "=0.11"
-
 # UUID generation
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
@@ -60,31 +53,17 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Regex
 regex = "1.10"
-regex-lite = "0.1"
-
 # Async trait (for IMAdapter)
 async-trait = "0.1"
 
 # Concurrent HashMap (used by AgentRegistry for lock-free reads)
 dashmap = "5"
 
-# Redis client for session persistence
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
-
-# SQLite for session persistence (bundled to avoid system SQLite dependency)
+# SQLite for memory active searcher (bundled to avoid system SQLite dependency)
 rusqlite = { version = "0.31", features = ["bundled"] }
-
-# URL encoding
-url = "2"
-
-# Hashing (for signature validation)
-sha2 = "0.10"
-hex = "0.4"
 
 # File watching (hot reload)
 notify = "6.1"
-notify-debouncer-mini = "0.4"
-
 # Internal crates
 closeclaw-common = { path = "crates/common" }
 closeclaw-config = { path = "crates/config" }
@@ -102,24 +81,8 @@ clap = { version = "4.4", features = ["derive"] }
 # Interactive prompts for setup wizard
 dialoguer = "0.11"
 
-# HTTP server for inbox endpoints
-axum = "0.7"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
-
 # For getting home directory
 dirs = "5"
-
-# Glob pattern matching (for conditional skill activation)
-glob = "0.3"
-async-stream = "0.3.6"
-
-# Tree-sitter for Bash AST parsing
-tree-sitter = "0.24"
-tree-sitter-bash = "0.23"
-
-# Plugin auto-discovery (inventory collects platform entries at compile time)
-inventory = "0.3"
 
 
 [dev-dependencies]
@@ -128,6 +91,9 @@ proptest = "=1.4"
 tempfile = "3.10"
 serial_test = "3.4"
 mockito = "1.2"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # Coverage reporting
 cargo-llvm-cov = "0.6"
 
