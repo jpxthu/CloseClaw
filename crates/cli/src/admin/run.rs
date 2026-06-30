@@ -48,6 +48,11 @@ pub async fn handle_run_foreground(
 ) -> Result<()> {
     let (config_dir, pid_file) = prepare_run(config_dir)?;
 
+    // Write PID file BEFORE running the daemon so integration tests can
+    // find the daemon's PID after startup.
+    let pid = std::process::id();
+    closeclaw_platform::process::write_pid_file(&pid_file, pid)?;
+
     // Run daemon in-process (no subprocess spawn).
     daemon_runner
         .start_and_run(config_dir.to_str().unwrap_or("."))

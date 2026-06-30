@@ -43,15 +43,11 @@ impl MockDaemonRunner {
 
 #[async_trait::async_trait]
 impl DaemonRunner for MockDaemonRunner {
-    async fn start_and_run(&self, config_dir: &str) -> anyhow::Result<()> {
+    async fn start_and_run(&self, _config_dir: &str) -> anyhow::Result<()> {
         self.called.store(true, Ordering::SeqCst);
         if let Some(msg) = &self.fail_msg {
             anyhow::bail!("{}", msg);
         }
-        // Write PID file so handle_run_foreground can read it after we return.
-        let pid_file =
-            closeclaw_platform::process::pid_file_path(&std::path::PathBuf::from(config_dir));
-        closeclaw_platform::process::write_pid_file(&pid_file, std::process::id())?;
         Ok(())
     }
 }
@@ -120,8 +116,8 @@ async fn test_handle_run_foreground_propagates_daemon_runner_error() {
 // ── Test 4: PID file is written correctly in foreground mode ────────────────
 
 /// In foreground mode, after the daemon runs, the PID file should contain the
-/// daemon's PID. We verify this by using a mock that writes the PID file
-/// (simulating real daemon behavior) and then checking the file contents.
+/// current process's PID (written by handle_run_foreground before the daemon
+/// runs). We verify the file exists and contains a valid PID.
 #[tokio::test]
 async fn test_handle_run_foreground_writes_pid_file() {
     let tmp = TempDir::new().unwrap();
@@ -145,7 +141,7 @@ async fn test_handle_run_foreground_writes_pid_file() {
     );
     let pid = closeclaw_platform::process::read_pid_file(&pid_file);
     assert!(pid.is_some(), "PID file should contain a parseable PID");
-    // The PID should match the current process (written by mock).
+    // The PID should match the current process (written by handle_run_foreground).
     assert_eq!(
         pid.unwrap(),
         std::process::id(),
