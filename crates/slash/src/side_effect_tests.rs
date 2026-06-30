@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use crate::slash::handler::{SlashResult, SystemAppendAction};
-use crate::slash::side_effect::{ReplyAction, SideEffectContext};
+use crate::handler::{SlashResult, SystemAppendAction};
+use crate::side_effect::{ReplyAction, SideEffectContext};
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_gateway::{DmScope, GatewayConfig};
 use closeclaw_session::bootstrap::loader::BootstrapMode;

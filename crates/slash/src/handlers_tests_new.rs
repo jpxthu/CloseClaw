@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use crate::slash::context::SlashContext;
-use crate::slash::handler::{SlashHandler, SlashResult};
-use crate::slash::registry::HandlerRegistry;
-use crate::slash::{HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
+use crate::context::SlashContext;
+use crate::handler::{SlashHandler, SlashResult};
+use crate::registry::HandlerRegistry;
+use crate::{HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
 use closeclaw_gateway::session_manager::SessionManager;
 
 // ── Shared helpers ─────────────────────────────────────────────────────────

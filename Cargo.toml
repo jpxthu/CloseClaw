@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway", "crates/skills", "crates/tools", "crates/im_adapter", "crates/processor_chain", "crates/platform", "crates/tasks", "crates/memory"]
+members = ["crates/common", "crates/config", "crates/session", "crates/llm", "crates/permission", "crates/gateway", "crates/skills", "crates/tools", "crates/im_adapter", "crates/processor_chain", "crates/platform", "crates/tasks", "crates/memory", "crates/slash"]
 
 [workspace.package]
 edition = "2021"
@@ -77,6 +77,7 @@ closeclaw-im-adapter = { path = "crates/im_adapter" }
 closeclaw-processor-chain = { path = "crates/processor_chain" }
 closeclaw-platform = { path = "crates/platform" }
 closeclaw-tasks = { path = "crates/tasks" }
+closeclaw-slash = { path = "crates/slash" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

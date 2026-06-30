@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use crate::slash::context::SlashContext;
-use crate::slash::dispatcher::parse_slash;
-use crate::slash::handler::{SlashHandler, SlashResult};
-use crate::slash::registry::HandlerRegistry;
+use crate::context::SlashContext;
+use crate::dispatcher::parse_slash;
+use crate::handler::{SlashHandler, SlashResult};
+use crate::registry::HandlerRegistry;
 
 // ---------------------------------------------------------------------------
 // Mock handlers

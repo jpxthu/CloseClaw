@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::slash::handler::SlashHandler;
+use crate::handler::SlashHandler;
 
 /// Registry that maps command names to their handlers.
 ///

@@ -1,0 +1,29 @@
+[package]
+name = "closeclaw-slash"
+version = "0.1.0"
+edition.workspace = true
+description = "Slash command system for CloseClaw"
+license = "MIT"
+
+[dependencies]
+# Internal crates
+closeclaw-common = { path = "../common" }
+closeclaw-gateway = { path = "../gateway" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-session = { path = "../session" }
+
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+
+# Logging
+tracing = "=0.1.43"
+
+# Error handling
+thiserror = "2.0"
+
+# Async trait
+async-trait = "0.1"
+
+[dev-dependencies]
+tempfile = "3.10"
+closeclaw-config = { path = "../config" }
