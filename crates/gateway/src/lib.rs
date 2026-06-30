@@ -22,6 +22,7 @@ mod session_handler_dispatch;
 mod session_handler_streaming;
 pub mod session_manager;
 pub mod slash_permission;
+pub mod sweeper;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;
 #[cfg(feature = "full-tests")]

@@ -563,6 +563,7 @@ dependencies = [
  "closeclaw-session",
  "futures",
  "hex",
+ "libc",
  "serde",
  "serde_json",
  "serial_test",
