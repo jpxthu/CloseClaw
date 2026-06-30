@@ -74,6 +74,7 @@ closeclaw-tasks = { path = "crates/tasks" }
 closeclaw-slash = { path = "crates/slash" }
 closeclaw-agent = { path = "crates/agent" }
 closeclaw-admin = { path = "crates/admin" }
+closeclaw-system-prompt = { path = "crates/system_prompt" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }

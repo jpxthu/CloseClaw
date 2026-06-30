@@ -454,6 +454,7 @@ dependencies = [
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-slash",
+ "closeclaw-system-prompt",
  "closeclaw-tasks",
  "closeclaw-tools",
  "dialoguer",
