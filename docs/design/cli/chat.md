@@ -74,7 +74,7 @@ Processor Chain 出产的处理后消息 → Gateway 路由
   └── 普通文本 → Session → LLM → ContentBlock[]
   ↓
 Processor Chain 出站
-  ├── DslParser：识别交互 DSL（按钮等终端不支持的类型记录警告、跳过）
+  ├── DslParser：扫描并剥离 DSL 指令行到 metadata（与通用 DslParser 行为一致，不按平台过滤）
   └── RawLog：记录出站到日志
   ↓
 TerminalPlugin 调用 TerminalRenderer 执行渲染
