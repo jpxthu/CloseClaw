@@ -74,10 +74,16 @@ Processor 链在入站方向按 priority 升序执行。链中处理器可操作
 
 ```
 Session → LLM → UnifiedResponse（ContentBlock[]）
-  → Processor 链（DslParser）
-    → ProcessedMessage（DSL 结果写入 metadata["dsl_result"]，ContentBlock[] 透传）
-      → Gateway 记录出站日志 → Renderer.render(content_blocks, dsl_result) → 平台格式 payload
-        → IM Adapter 发送
+  ↓
+Processor 链（DslParser）
+    ↓
+ProcessedMessage（DSL 结果写入 metadata["dsl_result"]，ContentBlock[] 透传）
+    ↓
+Gateway 记录出站日志
+    ↓
+IM Adapter 渲染为平台格式 payload
+    ↓
+IM Adapter 发送
 ```
 
 DslParser 在出站链中遍历 ContentBlock[]，仅处理 Text 块中的 DSL 指令行，Thinking/ToolUse/ToolResult 块透传。解析结果写入 metadata 供 Renderer 使用。
