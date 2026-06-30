@@ -2,8 +2,8 @@
 //!
 //! Complements the inline tests in dreaming.rs with additional edge cases.
 
-use crate::common::test_helpers::TestStorage;
-use crate::memory::miner::MemoryMiner;
+use crate::miner::MemoryMiner;
+use crate::test_helpers::TestStorage;
 use closeclaw_session::persistence::SessionCheckpoint;
 
 // ── Tests ────────────────────────────────────────────────────────────────

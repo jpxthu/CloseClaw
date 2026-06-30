@@ -445,6 +445,7 @@ dependencies = [
  "closeclaw-gateway",
  "closeclaw-im-adapter",
  "closeclaw-llm",
+ "closeclaw-memory",
  "closeclaw-permission",
  "closeclaw-platform",
  "closeclaw-processor-chain",
@@ -463,7 +464,6 @@ dependencies = [
  "proptest",
  "regex",
  "reqwest",
- "rusqlite",
  "serde",
  "serde_json",
  "serial_test",
@@ -589,6 +589,23 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "closeclaw-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "closeclaw-common",
+ "closeclaw-llm",
+ "closeclaw-session",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 

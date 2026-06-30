@@ -3,8 +3,8 @@
 //! Complements the inline tests in dreaming.rs with tests that require
 //! mock PersistenceService interactions.
 
-use crate::common::test_helpers::TestStorage;
-use crate::memory::dreaming::DreamingPipeline;
+use crate::dreaming::DreamingPipeline;
+use crate::test_helpers::TestStorage;
 use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 
 // ── Tests ────────────────────────────────────────────────────────────────

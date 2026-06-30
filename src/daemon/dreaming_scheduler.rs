@@ -12,9 +12,9 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 use tracing::{error, info};
 
-use crate::memory::dreaming::DreamingPipeline;
-use crate::memory::miner::MemoryMiner;
 use closeclaw_config::session::SessionConfigProvider;
+use closeclaw_memory::dreaming::DreamingPipeline;
+use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
 /// Errors that can occur during scheduler operations.
