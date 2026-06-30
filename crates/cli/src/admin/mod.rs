@@ -3,10 +3,15 @@
 mod agent;
 mod common;
 mod config;
+pub mod rpc;
 mod rule;
 mod run;
 mod skill;
 mod stop;
+
+pub use rpc::{
+    admin_socket_path, AdminClient, AdminContext, AdminRequest, AdminResponse, AdminServer,
+};
 
 pub use agent::{handle_agent, handle_agent_with};
 pub use common::{

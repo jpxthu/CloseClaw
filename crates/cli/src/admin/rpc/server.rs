@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::protocol::{AdminRequest, AdminResponse, AgentInfo, SkillInfo};
+use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfo, SkillInfo};
 use closeclaw_agent::config::AgentConfig;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::manager::write_atomically;

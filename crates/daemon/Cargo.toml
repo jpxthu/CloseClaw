@@ -40,7 +40,6 @@ notify = "6.1"
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
 closeclaw-agent = { path = "../agent" }
-closeclaw-admin = { path = "../admin" }
 closeclaw-cli = { path = "../cli" }
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-llm = { path = "../llm" }

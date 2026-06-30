@@ -126,7 +126,7 @@ pub async fn handle_run(
     let _child = cmd.spawn().context("failed to spawn daemon process")?;
 
     // Wait for the admin socket to become available.
-    let admin_socket = closeclaw_admin::client::admin_socket_path(&config_dir_path);
+    let admin_socket = crate::admin::admin_socket_path(&config_dir_path);
     wait_for_socket(&admin_socket, SOCKET_WAIT_TIMEOUT_MS)?;
 
     // Read the PID that the child process wrote to the PID file.

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_skills::DiskSkillRegistry;
 
-use crate::protocol::{AdminRequest, AdminResponse};
-use crate::server::{
+use crate::admin::rpc::protocol::{AdminRequest, AdminResponse};
+use crate::admin::rpc::server::{
     dispatch, dispatch_agent_create, dispatch_agent_info, dispatch_agent_list,
     dispatch_skill_install, dispatch_skill_list, AdminContext,
 };
