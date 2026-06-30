@@ -115,10 +115,39 @@ tests/
 └── fixtures/            # 共享测试数据
 ```
 
+### 代码与文档架构同步
+
+`docs/design/` 是代码的架构蓝图。文档结构和 crate 结构必须保持一一对应：
+
+- **文档定义在哪，代码就实现在哪**：文档说一个类型定义在 `common` 模块，代码中就在 `closeclaw-common` 中找
+- **新增模块必须有对应设计文档**：`crates/<name>/` 必须在 `docs/design/<name>/` 下有对应文档
+- **依赖关系以设计文档为准**：代码中的 crate 依赖图必须与设计文档描述的模块关系一致
+
+### 依赖分层规则
+
+```
+Layer 0: closeclaw-common（共享类型 + 核心 trait，无内部依赖）
+Layer 1: config, platform, tasks（无业务模块依赖）
+Layer 2: llm, session, permission（依赖 common + 下层基础设施）
+Layer 3: 各业务 crate 只依赖 common（通过 trait）+ 下层基础设施
+         ├── processor_chain
+         ├── im_adapter
+         ├── tools
+         ├── skills
+         ├── system_prompt
+         ├── slash
+         └── memory
+Layer 4: agent, gateway（组合层下方）
+Layer 5: daemon（composition root，允许全量依赖）
+```
+
 **依赖规则**：
 - 跨模块共享的类型和 trait 放 `closeclaw-common`
-- 依赖方向：高层 → 低层，禁止逆向
+- 业务 crate 之间禁止横向依赖（如 `processor_chain → im_adapter`），只通过 common 中定义的 trait 交互
+- `closeclaw-common` 只放纯数据结构和 trait 签名，不放业务逻辑
+- 依赖方向单向：高层可依赖低层，禁止逆向
 - 各 crate 内部模块嵌套不超过 4 级目录
+- `daemon` 是唯一的 composition root，负责依赖注入和模块编排
 
 ---
 
