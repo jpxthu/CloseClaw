@@ -1,0 +1,38 @@
+[package]
+name = "closeclaw-processor-chain"
+version = "0.1.0"
+edition.workspace = true
+description = "Inbound/outbound message processor chain for CloseClaw"
+license = "MIT"
+
+[dependencies]
+# Internal crates
+closeclaw-llm = { path = "../llm" }
+closeclaw-gateway = { path = "../gateway" }
+
+# Async runtime
+tokio = { version = "=1.35.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "=0.1.43"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Async trait
+async-trait = "0.1"
+
+# Regex (used by content_normalizer)
+regex = "1.10"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+closeclaw-im-adapter = { path = "../im_adapter" }
+tempfile = "3"
