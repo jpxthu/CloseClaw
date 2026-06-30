@@ -13,7 +13,6 @@
 pub mod compaction;
 #[cfg(test)]
 pub mod compaction_async_tests;
-pub mod llm_caller;
 #[cfg(test)]
 pub mod pending_operations_tests;
 pub mod sweeper;
