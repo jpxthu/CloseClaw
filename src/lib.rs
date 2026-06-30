@@ -17,7 +17,6 @@ pub use closeclaw_system_prompt as system_prompt;
 pub use closeclaw_tasks as tasks;
 
 pub mod bridge;
-pub mod common;
 pub use closeclaw_memory as memory;
 
 use tracing::info;

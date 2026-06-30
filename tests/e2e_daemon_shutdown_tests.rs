@@ -2,8 +2,8 @@
 //!
 //! Covers ShutdownHandle drain state machine scenarios.
 
-use closeclaw::common::test_helpers::write_mandatory_configs;
 use closeclaw::daemon::shutdown::ShutdownHandle;
+use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::time::Duration;
 
 /// Test 1: drain waits until busy_count reaches zero before exiting.
