@@ -11,7 +11,7 @@ pub mod agent;
 pub mod cli;
 pub mod config_reload;
 pub mod daemon;
-pub mod platform;
+pub use closeclaw_platform as platform;
 pub use closeclaw_processor_chain as processor_chain;
 pub mod session;
 pub mod slash;
