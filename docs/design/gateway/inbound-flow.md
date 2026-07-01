@@ -23,7 +23,7 @@ webhook → webhook → webhook → ...（高并发）
     ↓
   ContentNormalizer(30) → 文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去尾空格）
   ↓
-ProcessedMessage { content, metadata { session_key } }
+[ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key }）
   ↓
 [Gateway]
   → SessionManager.resolve(session_key) → 获得 session_id
@@ -71,7 +71,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 **ContentNormalizer（priority 30）**：对消息内容做平台无关的文本标准化。去除控制字符和 ANSI 转义序列，压缩连续空行，去行尾空格。不负责 Markdown 格式处理——URL 补全、代码块语言标签、富文本展开等均由各 IM 插件在解析阶段完成。非文本消息（image/file/audio）跳过标准化，直接透传。
 
-链输出入站 `ProcessedMessage`（`content` 标准化后文本 + `metadata` 含 `session_key`）。ContentNormalizer 保留 metadata 不变，下游 Gateway 从 metadata 取出 session_key。
+链输出入站 [ProcessedMessage](../common/shared-types.md#processedmessage)（`content_blocks` 含标准化后文本 + `metadata` 含 `session_key`）。ContentNormalizer 保留 metadata 不变，下游 Gateway 从 metadata 取出 session_key。
 
 ### 第三步：Gateway 路由
 
