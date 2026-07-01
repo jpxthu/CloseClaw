@@ -146,5 +146,5 @@ Daemon 正常运行，热重载监听器后台运行
 ## 模块关系
 
 - **上游**：daemon（启动时加载配置）、CLI（配置变更命令，含 `config setup` 交互式配置向导）、session（读取会话配置）、agent（提供 Agent 配置文件，Config 启动时扫描加载并合并为 ResolvedAgentConfig）
-- **下游**：无（配置模块不调用其他模块，仅读写文件系统和提供查询接口）
+- **下游**：无（配置模块不调用其他模块，仅读写文件系统和提供查询接口）。**间接消费方**：IM Adapter（入站身份映射时查询 accounts.json 将 sender_id 转为 account_id）
 - **无关**：processor_chain、tools、skills（无调用关系，这些模块通过上层模块间接使用配置）
