@@ -52,21 +52,7 @@ ProcessedMessage { content, metadata { session_key } }
 
 ### 第一步：IM 插件解析
 
-IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`：
-
-| 字段 | 来源 | 说明 |
-|------|------|------|
-| `platform` | 插件内置 | 平台标识，如 `"feishu"` |
-| `sender_id` | webhook payload | 发送者的平台内 ID |
-| `peer_id` | webhook payload | 会话对端（群聊 chat_id 或私聊对方 ID） |
-| `thread_id` | webhook payload | 话题 ID，可选。不参与 session key 计算，仅用于出站定向回复 |
-| `account_id` | 身份映射 | CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。身份映射由 IM 插件在解析阶段完成 |
-| `content` | webhook payload | 消息文本内容 |
-| `timestamp` | IM 插件设置 | 消息发送时间（毫秒级 Unix 时间戳），由 IM 平台提供 |
-
-插件屏蔽了平台差异。Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。
-
-> NormalizedMessage 的完整字段契约由 [IM Adapter 模块](../im_adapter/README.md) 定义（含 message_type、media_refs、quoted_message 等），上表仅列出入站链路中参与处理的关键字段。
+IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`（完整字段定义见 [common 共享类型](../common/shared-types.md)）。插件屏蔽了平台差异，Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。入站链路中参与处理的关键字段为：platform、sender_id、peer_id、thread_id、account_id、content、timestamp。其余字段（message_type、media_refs、quoted_message）由 Gateway 在路由阶段消费。
 
 消息过滤：空 content 消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。
 

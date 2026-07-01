@@ -68,22 +68,9 @@ im_adapter/
 
 渲染和发送拆为两步：渲染结果是数据，发送是副作用。Gateway 在两步之间可插入审计、频率限制等中间件。
 
-NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异：
+NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异。完整字段定义及身份映射规则见 [common 共享类型](../common/shared-types.md)。
 
-| 字段 | 说明 |
-|------|------|
-| `platform` | 平台标识，如 `"feishu"` |
-| `sender_id` | 发送者的平台内 ID |
-| `peer_id` | 会话对端（群聊 chat_id 或私聊对方 ID） |
-| `thread_id` | 话题 ID，可选。不参与 session key 计算，仅用于出站定向回复 |
-| `account_id` | CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。参与 session 路由 |
-| `content` | 消息文本内容 |
-| `message_type` | 消息类型（text / image / file / audio）。非文本类型时 content 可为空 |
-| `media_refs` | 图片/文件/音频的引用列表（key + URL）。由 Adapter 负责下载到本地临时路径 |
-| `quoted_message` | 被引用的消息内容，可选。最多嵌套一层 |
-| `timestamp` | 消息发送时间 |
-
-**身份映射**：`account_id` 由 IM 插件在解析入站消息时填入。映射规则：以 sender_id 为键查询 `config/accounts.json` 中的账户绑定表，找到对应的 CloseClaw 账户 ID。一个账户可绑定多个平台的 sender_id（如飞书 open_id + Telegram user_id 映射为同一个 account_id）。terminal 平台恒为 "owner"，无需查表。详见 [config 模块 accounts.json](../config/README.md)。
+IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段——各平台插件将原生格式转为统一结构，Processor Chain 和 Gateway 下游消费时不感知平台差异。
 
 ### 子功能索引
 
@@ -147,6 +134,6 @@ peer_id 和 thread_id 来源于入站时 IM Adapter 填入 NormalizedMessage 的
 
 ## 模块关系
 
-- **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）
+- **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）、Config（accounts.json：入站解析时查询身份映射表，将 sender_id 转为 account_id）
 - **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）
 - **无关**：Session（IMPlugin 不参与 session 生命周期管理）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）
