@@ -55,7 +55,7 @@ im_adapter/
 
 **入站**：解析 webhook payload 为 NormalizedMessage。消息过滤在解析阶段完成——空内容消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。
 
-**渲染**：接收 ContentBlock[] 和 DSL 解析结果，按平台能力选择输出格式（纯文本或富格式）。渲染是纯数据转换，无副作用。
+**渲染**：接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）和 DSL 解析结果，按平台能力选择输出格式（纯文本或富格式）。渲染是纯数据转换，无副作用。
 
 **发送**：接收 RenderedOutput，封装为平台请求格式，以指定目标（peer_id + thread_id）调用平台发送 API。
 

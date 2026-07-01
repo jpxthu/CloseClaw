@@ -2,7 +2,7 @@
 
 ## 概述
 
-DslParser 在出站方向从 LLM 结构化输出（ContentBlock[]）中识别和解析 DSL 指令。DSL 指令定义消息中的交互元素（按钮、选择器等），格式形如 `::button[label:确认;action:confirm;value:1]`，每行一条。
+DslParser 在出站方向从 LLM 结构化输出（ContentBlock[]，定义见 [common ContentBlock](../common/shared-types.md#contentblock)）中识别和解析 DSL 指令。DSL 指令定义消息中的交互元素（按钮、选择器等），格式形如 `::button[label:确认;action:confirm;value:1]`，每行一条。
 
 ## 架构
 

@@ -2,7 +2,7 @@
 
 ## 概述
 
-TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlock[] 和 DSL 解析结果，将结构化内容转换为 ANSI 格式的 RenderedOutput。渲染是纯数据转换，实际的 stdout 写入由 TerminalPlugin 的 send 方法完成——遵循 IM Adapter 框架「渲染与发送分离」的设计原则。
+TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）和 DSL 解析结果，将结构化内容转换为 ANSI 格式的 RenderedOutput。渲染是纯数据转换，实际的 stdout 写入由 TerminalPlugin 的 send 方法完成——遵循 IM Adapter 框架「渲染与发送分离」的设计原则。
 
 ## 架构
 

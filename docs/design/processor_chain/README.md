@@ -43,7 +43,7 @@ IM Adapter（出站，IM Adapter 模块含 Renderer + Adapter）→ Renderer 完
 
 关键设计：
 - **入站链纯变换**：只做内容计算和 metadata 填充，不管理 session 生命周期、不做路由决策。Session 创建和查找由 Gateway 调用 SessionManager 负责
-- **出站方向 ContentBlock[] 作为传递格式**贯穿 Processor 链和 Renderer，不在链中途转为展示格式
+- **出站方向 ContentBlock[] 作为传递格式**（完整变体定义见 [common ContentBlock](../common/shared-types.md#contentblock)）贯穿 Processor 链和 Renderer，不在链中途转为展示格式
 - **Renderer 不在 Processor 链内**（详见 [IM Adapter 模块](../im_adapter/README.md)），渲染是终结操作，需要路由信息（msg_type），不适合链的"变换传递"语义
 - **入站归一化**产 NormalizedMessage（完整字段定义见 [common 共享类型](../common/shared-types.md)），经 Processor 链清洗和 metadata 填充后交付 Gateway，Gateway 做路由决策后进入 Session
 
