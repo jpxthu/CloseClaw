@@ -18,17 +18,11 @@ ToolRegistrar 定义了每个工具提供模块必须满足的契约：
 
 ```
 Tools 模块启动初始化
-  ↓
-收集所有已注册的 ToolRegistrar 实现者
-  ↓
-按优先级排序
-  ↓
-依次调用每个 Registrar 的注册方法，传入 ToolRegistry
-  ↓
-├── 工具名冲突 → 报告冲突，中断启动
-└── Registrar 内部错误 → 由 Registrar 自行处理（跳过无效工具，不中断其他注册）
-  ↓
-全部注册完成 → ToolRegistry 冻结，进入运行态
+  → 收集所有 ToolRegistrar 实现者
+    → 按优先级排序
+      → 依次调用各 Registrar，向 ToolRegistry 注册工具
+      → 全部注册完成
+        → ToolRegistry 冻结，进入运行态
 ```
 
 ### 四个标准 Registrar
@@ -54,20 +48,15 @@ Tools 模块启动初始化
 
 ```
 系统启动
-  ↓
-Tools 模块收集 ToolRegistrar 实现者
-  ↓
-按优先级排序
-  ↓
-依次调用各 Registrar 的注册方法
-  ├── CoreToolsRegistrar 注册 bash/file_ops/git_ops/meta 分组工具
-  ├── SessionToolsRegistrar 注册 sessions 分组工具
-  ├── SkillsToolsRegistrar 注册 skills/skill_creator 分组工具
-  └── ImAdapterToolsRegistrar 注册 feishu_im/feishu_calendar/feishu_task/feishu_bitable/feishu_doc/feishu_drive/feishu_sheet 分组工具
-  ↓
-ToolRegistry 包含所有已注册工具
-  ↓
-后续索引构建、工具发现、system prompt 注入等流程不变
+  → Tools 模块收集 ToolRegistrar 实现者
+    → 按优先级排序
+      → 依次调用各 Registrar 的注册方法
+        → CoreToolsRegistrar 注册 bash/file_ops/git_ops/meta 分组工具
+        → SessionToolsRegistrar 注册 sessions 分组工具
+        → SkillsToolsRegistrar 注册 skills/skill_creator 分组工具
+        → ImAdapterToolsRegistrar 注册飞书平台各分组工具
+    → ToolRegistry 包含所有已注册工具
+      → 后续流程不变（索引构建、工具发现、system prompt 注入等）
 ```
 
 注册完成后，ToolRegistry 进入冻结态，后续的工具发现、索引构建、权限校验等流程与引入 ToolRegistrar 前完全一致——仅改变了"谁调用注册方法"的编排方式，不改变注册结果。
