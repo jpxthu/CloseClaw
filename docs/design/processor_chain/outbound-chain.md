@@ -26,7 +26,7 @@ ProcessedMessage { content_blocks, metadata }
 Gateway 记录出站日志
   ↓
 IM Adapter 模块
-  → 接收 ContentBlock[] + DslParseResult
+  → 接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）+ DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
   → 按块类型选择渲染策略
   → 输出平台原生格式并发送
 
@@ -66,7 +66,7 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
 ## 模块关系
 
 - **上游**：Session（LLM 对话产出的 ContentBlock[]，经 Gateway 传递进入链，属数据流上游依赖）、SlashDispatcher（斜杠指令回复的 ContentBlock[]）
-- **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费 ContentBlock[] + DslParseResult，渲染为平台格式并发送）
+- **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费 ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)），渲染为平台格式并发送）
 - **链内**：
   - DslParser — 解析 DSL 指令，为渲染提供交互数据
 - **无关**：入站 Processor 链（独立链路，与出站互不干扰）
