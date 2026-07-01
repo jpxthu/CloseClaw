@@ -16,14 +16,11 @@ ToolRegistrar 定义了每个工具提供模块必须满足的契约：
 
 ### Registrar 收集与编排
 
-```
-Tools 模块启动初始化
-  → 收集所有 ToolRegistrar 实现者
-    → 按优先级排序
-      → 依次调用各 Registrar，向 ToolRegistry 注册工具
-      → 全部注册完成
-        → ToolRegistry 冻结，进入运行态
-```
+1. Tools 模块启动初始化
+2. 收集所有 ToolRegistrar 实现者
+3. 按优先级排序
+4. 依次调用各 Registrar，向 ToolRegistry 注册工具
+5. 全部注册完成，ToolRegistry 冻结，进入运行态
 
 ### 四个标准 Registrar
 
@@ -46,18 +43,15 @@ Tools 模块启动初始化
 
 ## 数据流
 
-```
-系统启动
-  → Tools 模块收集 ToolRegistrar 实现者
-    → 按优先级排序
-      → 依次调用各 Registrar 的注册方法
-        → CoreToolsRegistrar 注册 bash/file_ops/git_ops/meta 分组工具
-        → SessionToolsRegistrar 注册 sessions 分组工具
-        → SkillsToolsRegistrar 注册 skills/skill_creator 分组工具
-        → ImAdapterToolsRegistrar 注册飞书平台各分组工具
-    → ToolRegistry 包含所有已注册工具
-      → 后续流程不变（索引构建、工具发现、system prompt 注入等）
-```
+1. 系统启动，Tools 模块收集 ToolRegistrar 实现者
+2. 按优先级排序
+3. 依次调用各 Registrar 的注册方法：
+   - CoreToolsRegistrar 注册 bash/file_ops/git_ops/meta 分组工具
+   - SessionToolsRegistrar 注册 sessions 分组工具
+   - SkillsToolsRegistrar 注册 skills/skill_creator 分组工具
+   - ImAdapterToolsRegistrar 注册飞书平台各分组工具
+4. ToolRegistry 包含所有已注册工具
+5. 后续流程不变（索引构建、工具发现、system prompt 注入等）
 
 注册完成后，ToolRegistry 进入冻结态，后续的工具发现、索引构建、权限校验等流程与引入 ToolRegistrar 前完全一致——仅改变了"谁调用注册方法"的编排方式，不改变注册结果。
 
