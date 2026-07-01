@@ -13,10 +13,12 @@ Session 创建 / 恢复 / Compaction
   →
   System Prompt Builder
        │
-       ├── Bootstrap Loader ── bootstrap 文件（AGENTS.md / SOUL.md 等）
-       ├── ToolRegistry ── 工具分组索引
-       ├── DiskSkillRegistry ── skill 清单
-       └── MEMORY.md ── 长期记忆（MemorySection 来源）
+       │  PromptFragmentProvider（统一 trait，详见 [fragment-provider.md](fragment-provider.md)）
+       │
+       ├── BootstrapFragmentProvider ── bootstrap 文件（AGENTS.md / SOUL.md 等）
+       ├── ToolsFragmentProvider ── 工具分组索引
+       ├── SkillsFragmentProvider ── skill 清单
+       └── MemoryFragmentProvider ── 长期记忆（MemorySection 来源）
        │
        ▼
   ╔════════════════════════╗
@@ -41,6 +43,7 @@ Session 创建 / 恢复 / Compaction
 | [dynamic-layer.md](dynamic-layer.md) | 动态层：每请求即时注入的 ChannelContext / WorkingDirectory / GitStatus（可配置关闭） |
 | [kv-cache.md](kv-cache.md) | 边界标记 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 的位置和语义，作为静态/动态区切分的接口合约 |
 | [appends.md](appends.md) | 追加区：`/system` 指令管理的独立分区，持久化不受压缩影响 |
+| [fragment-provider.md](fragment-provider.md) | PromptFragmentProvider trait：静态层各数据来源的统一抽象接口 |
 
 ## 数据流
 
@@ -88,9 +91,7 @@ Archived session 被访问
 
 ### 下游
 
-- **Bootstrap Loader**：提供 bootstrap 文件内容，按 Minimal/Full 模式加载。
-- **ToolRegistry**：提供 ToolsSection 的分组索引。
-- **DiskSkillRegistry**：按 agent 过滤并提供 skill 列表数据。
+- **PromptFragmentProvider**（[fragment-provider.md](fragment-provider.md)）：System Prompt Builder 通过此 trait 获取各来源的片段。各 Provider 实现分别调用 Bootstrap Loader、ToolRegistry、DiskSkillRegistry 和 MEMORY.md。
 - **Cache Adapter**：接收已切分的静态区和动态区字段，对静态层注入缓存控制参数。详见 [llm/cache-adapter](docs/design/llm/cache-adapter.md)。
 
 ### 无关
