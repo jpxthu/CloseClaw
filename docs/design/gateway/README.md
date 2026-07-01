@@ -70,7 +70,7 @@ Gateway 维护以下运行时注册表：
 
 关键交接：
 - NormalizedMessage：IM Adapter 产出，Processor Chain 消费
-- ProcessedMessage：Processor Chain 产出，Gateway 消费
+- [ProcessedMessage](../common/shared-types.md#processedmessage)：Processor Chain 产出，Gateway 消费
 - ContentBlock[]：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
 - RenderedOutput：Gateway 调用 IM Adapter 渲染产出，由 IM Adapter 内部发送
 - **SideEffectContext**：Gateway 构造，封装 Session 引用和回复通道。传给 SlashResult 让各变体自行完成副作用，Gateway 不穷举变体。回复内容经出站 Processor Chain 发送（详见 [Slash 模块](../slash/README.md)）
@@ -85,7 +85,7 @@ Gateway 维护以下运行时注册表：
 
 ### 入站路径
 
-Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界缓冲，详见下方「消息队列与排队语义」），再由 IM Adapter 解析后进入 Processor Chain。Processor Chain 入站产出 ProcessedMessage 后，Gateway 按以下路径处理：
+Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界缓冲，详见下方「消息队列与排队语义」），再由 IM Adapter 解析后进入 Processor Chain。Processor Chain 入站产出 [ProcessedMessage](../common/shared-types.md#processedmessage) 后，Gateway 按以下路径处理：
 
 - **非文本消息处理**：若消息的 message_type 非 text（image/file/audio），Gateway 直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（错误回复为纯文本不含 DSL 指令且无需按 Session 过滤，跳过 Verbosity 过滤、DslParser 和中间件链），经出站日志记录后由 IM Adapter 渲染发送。流程到此结束。
 

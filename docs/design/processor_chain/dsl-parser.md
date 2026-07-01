@@ -19,9 +19,9 @@ DslParser 在出站链中以最高优先级首先执行：
   ↓
 从 Text 块中移除 DSL 指令行
   ↓
-解析结果写入 ProcessedMessage.metadata["dsl_result"]（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+解析结果写入 [ProcessedMessage](../common/shared-types.md#processedmessage) 的 metadata["dsl_result"]（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
   ↓
-输出：ProcessedMessage（ContentBlock[] 中 Text 块已去 DSL 行，metadata 含解析结果）
+输出：[ProcessedMessage](../common/shared-types.md#processedmessage)（ContentBlock[] 中 Text 块已去 DSL 行，metadata 含解析结果）
 ```
 
 DslParser 只处理 ContentBlock::Text，Thinking、ToolUse、ToolResult 块直接透传到链的下一步。

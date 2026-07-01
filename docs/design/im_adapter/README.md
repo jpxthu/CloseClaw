@@ -101,7 +101,7 @@ IM 平台 webhook
 Processor Chain 入站
   RawLog → SessionRouter → ContentNormalizer
   ↓
-ProcessedMessage → Gateway 路由决策
+[ProcessedMessage](../common/shared-types.md#processedmessage) → Gateway 路由决策
 ```
 
 ### 出站路径
@@ -111,7 +111,7 @@ LLM 输出 ContentBlock[]
   ↓
 Processor Chain 出站（DslParser）
   ↓
-ProcessedMessage { content_blocks, metadata[dsl_result] }
+[ProcessedMessage](../common/shared-types.md#processedmessage)
   ↓
 Gateway 记录出站日志
   ↓
