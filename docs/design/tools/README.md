@@ -162,6 +162,7 @@ LLM 需了解延迟工具详情
 |------|---------|
 | 权限引擎 | 工具执行前校验 |
 | Skill 系统 | SkillTool 桥接 skill 注册表 |
+| System Prompt 静态层 | ToolRegistry 的分组索引数据通过 [ToolsFragmentProvider](../system_prompt/fragment-provider.md)（实现 [PromptFragmentProvider](../system_prompt/fragment-provider.md) trait）注入 system prompt 静态层 ToolsSection |
 
 ### 无关
 

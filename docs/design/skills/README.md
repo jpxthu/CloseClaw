@@ -157,6 +157,6 @@ Agent 决策调用某个 skill
 ## 模块关系
 
 - **上游**：agent 运行时（调度 skill 调用）、system prompt 构建器（注入 skill listing）、session 管理器（启动时加载、关闭时释放）
-- **下游**：文件系统（扫描目录、读取 SKILL.md）、sub-agent 管理（fork 模式下创建隔离子 agent）
+- **下游**：文件系统（扫描目录、读取 SKILL.md）、sub-agent 管理（fork 模式下创建隔离子 agent）、System Prompt 静态层（DiskSkillRegistry 的 skill 列表数据通过 [SkillsFragmentProvider](../system_prompt/fragment-provider.md)（实现 [PromptFragmentProvider](../system_prompt/fragment-provider.md) trait）注入 system prompt 静态层 SkillListingSection）
 - **相关**：权限引擎（agent 运行时在执行 skill 前向权限引擎校验 allowed-tools，skills 模块不直接调用权限引擎）
 - **无关**：processor_chain（skill 不参与消息出站处理）、renderer（skill 不参与平台渲染）
