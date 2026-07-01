@@ -62,13 +62,13 @@ IM Adapter（出站，IM Adapter 模块含 Renderer + Adapter）→ Renderer 完
 ```
 IM webhook → IM Adapter 解析 → NormalizedMessage（platform, sender_id, peer_id, thread_id?, account_id, content, timestamp）
   → Processor 链（RawLog → SessionRouter → ContentNormalizer）
-    → ProcessedMessage（content + metadata { session_key, thread_id }）
+    → [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key }）
       → Gateway → SessionManager.resolve(session_key) → 路由到 Session / SlashDispatcher
 ```
 
 NormalizedMessage 定义见 [common 共享类型](../common/shared-types.md)。IM Adapter 的入站部分负责将自己平台的格式转为此结构。内容块（ContentBlock[]）概念仅在出站方向使用——LLM 输出 UnifiedResponse 时引入，经出站链处理后由 Renderer 渲染。
 
-Processor 链在入站方向按 priority 升序执行。链中处理器可操作 NormalizedMessage 的 content 字段（如 ContentNormalizer 做文本标准化——去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格），也可向 metadata 写入计算结果（如 SessionRouter 写入 session_key）。平台格式转换和清洗由 IM Adapter 在解析阶段完成。链输出 ProcessedMessage（content + metadata），由 Gateway 消费。
+Processor 链在入站方向按 priority 升序执行。链中处理器可操作 NormalizedMessage 的 content 字段（如 ContentNormalizer 做文本标准化——去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格），也可向 metadata 写入计算结果（如 SessionRouter 写入 session_key）。平台格式转换和清洗由 IM Adapter 在解析阶段完成。链输出 [ProcessedMessage](../common/shared-types.md#processedmessage)，由 Gateway 消费。
 
 ### 出站路径
 
@@ -77,7 +77,7 @@ Session → LLM → UnifiedResponse（ContentBlock[]）
   ↓
 Processor 链（DslParser）
     ↓
-ProcessedMessage（DSL 结果写入 metadata["dsl_result"]，ContentBlock[] 透传）
+[ProcessedMessage](../common/shared-types.md#processedmessage)（DSL 结果写入 metadata["dsl_result"]，ContentBlock[] 透传）
     ↓
 Gateway 记录出站日志
     ↓

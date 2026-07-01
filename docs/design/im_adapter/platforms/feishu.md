@@ -86,7 +86,7 @@ Processor Chain 入站处理
 ### 出站路径
 
 ```
-Processor Chain 出站产出 ProcessedMessage
+Processor Chain 出站产出 [ProcessedMessage](../../common/shared-types.md#processedmessage)
   ↓
 Gateway 选择飞书插件
   ↓
