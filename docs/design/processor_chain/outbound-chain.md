@@ -2,7 +2,7 @@
 
 ## 概述
 
-出站 Processor 链在 LLM 生成响应后解析 DSL 指令，完成内容变换后交付渲染。Gateway 从 Session 读取 ContentBlock[] 构造 ProcessedMessage 传入链。
+出站 Processor 链在 LLM 生成响应后解析 DSL 指令，完成内容变换后交付渲染。Gateway 从 Session 读取 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）构造 ProcessedMessage 传入链。
 
 出站链的职责仅限于**内容变换**（提取 DSL 指令），不负责展示格式的生成和出站日志。渲染由 Gateway 协调、委托 IM Adapter 的 Renderer 完成，日志由 Gateway 统一记录。流式出站同样经此链——DslParser 对流式增量文本零开销透传（无 DSL 指令）。
 
