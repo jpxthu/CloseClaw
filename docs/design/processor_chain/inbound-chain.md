@@ -13,16 +13,7 @@ IM 平台消息到达
   ↓
 IM Adapter（入站）— 平台特定解析，产 NormalizedMessage
   ↓
-NormalizedMessage（统一中间结构）
-  ┌─────────────────────────────────┐
-  │ platform    — 来源平台标识       │
-  │ sender_id   — 发送者标识         │
-  │ peer_id     — 会话对端标识       │
-  │ thread_id   — 话题标识（可选）    │
-  │ account_id  — CloseClaw 本地账号标识│
-  │ content     — 消息文本内容        │
-  │ timestamp   — 消息时间           │
-  └─────────────────────────────────┘
+NormalizedMessage（统一中间结构，字段定义见 [common 共享类型](../../common/shared-types.md)）
   ↓
 Processor Chain（按 priority 升序执行，纯变换）
   ├── RawLogProcessor（priority 10）
