@@ -33,7 +33,7 @@ CLI Chat 与飞书、Discord 等 IM 渠道实现同一个 IMPlugin trait，在 G
 - 出站渠道：stdout（无 IM API）
 - 权限：调用者默认为 Owner（单用户），无需鉴权
 
-斜杠指令和普通对话的语义与其他渠道完全一致——同一套 SlashDispatcher 处理，Gateway 按统一规则路由。斜杠指令回复和 LLM 回复均以 ContentBlock[] 形式进入出站链路，经 Processor Chain 处理后渲染发送。
+斜杠指令和普通对话的语义与其他渠道完全一致——同一套 SlashDispatcher 处理，Gateway 按统一规则路由。斜杠指令回复和 LLM 回复均以 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）形式进入出站链路，经 Processor Chain 处理后渲染发送。
 
 ### 跨操作系统
 

@@ -15,7 +15,7 @@ Gateway 由六个职责组成：
 - **出站日志**：出站方向在渲染前统一记录出站消息到日志。批量和流式出站均在 Processor Chain 之后、渲染之前统一记录。
 - **Verbosity 过滤**：出站方向 ContentBlock[] 进入 Processor Chain 之前，按当前 Session 的 Verbosity 等级过滤信息块（详见 [slash 模块 verbose 指令](../slash/verbose.md)）。
 - **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给 SlashDispatcher（其中 Immediate 指令绕过 Session 队列立即执行），否则路由到 Session 进入 LLM 对话流程。
-- **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，IM Adapter 完成 ContentBlock[] 到平台原生格式的渲染。渲染完成后、发送前，Gateway 可插入审计、频率限制等中间件拦截出站消息。发送由 IM Adapter 完成。
+- **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，IM Adapter 完成 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）到平台原生格式的渲染。渲染完成后、发送前，Gateway 可插入审计、频率限制等中间件拦截出站消息。发送由 IM Adapter 完成。
 
 Gateway 维护以下运行时注册表：
 
