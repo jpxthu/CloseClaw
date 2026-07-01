@@ -73,7 +73,7 @@ Gateway 维护以下运行时注册表：
 - [ProcessedMessage](../common/shared-types.md#processedmessage)：Processor Chain 产出，Gateway 消费
 - ContentBlock[]：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
 - RenderedOutput：Gateway 调用 IM Adapter 渲染产出，由 IM Adapter 内部发送
-- **SideEffectContext**：Gateway 构造，封装 Session 引用和回复通道。传给 SlashResult 让各变体自行完成副作用，Gateway 不穷举变体。回复内容经出站 Processor Chain 发送（详见 [Slash 模块](../slash/README.md)）
+- **SideEffectContext**：Gateway 构造，封装 Session 引用和回复通道。传给 [SlashResult](../common/shared-types.md#slashresult) 让各变体自行完成副作用，Gateway 不穷举变体。回复内容经出站 Processor Chain 发送（详见 [Slash 模块](../slash/README.md)）
 
 ### 子功能索引
 
@@ -147,7 +147,7 @@ Gateway 涉及两层排队：
 
 ### 斜杠指令副作用执行
 
-SlashDispatcher 返回 SlashResult 后，Gateway 构造 SideEffectContext（封装 Session 引用和回复通道）并触发 SlashResult 执行。各 SlashResult 变体在其执行逻辑中通过上下文完成对应的 session 操作。Gateway 不穷举变体，副作用逻辑内聚在 slash 模块。
+SlashDispatcher 返回 [SlashResult](../common/shared-types.md#slashresult) 后，Gateway 构造 SideEffectContext（封装 Session 引用和回复通道）并触发 SlashResult 执行。各 SlashResult 变体在其执行逻辑中通过上下文完成对应的 session 操作。Gateway 不穷举变体，副作用逻辑内聚在 slash 模块。
 
 SlashResult 的执行通过上下文的回复通道产出回复内容，Gateway 将回复送入出站 Processor Chain（DslParser）、记录出站日志后由 IM Adapter 渲染发送。详见 [Slash 模块](../slash/README.md)。
 
