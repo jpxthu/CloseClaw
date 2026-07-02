@@ -36,7 +36,7 @@ impl SessionManager {
 
         let overrides = self.prompt_overrides.read().await.clone();
         let prompt = builder
-            .build_prompt(session_id, &agent_id, overrides.as_ref())
+            .build_prompt(session_id, &agent_id, overrides.as_ref(), None)
             .await;
 
         let mut cs = cs.write().await;

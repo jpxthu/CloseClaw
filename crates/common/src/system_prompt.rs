@@ -5,6 +5,8 @@
 
 use async_trait::async_trait;
 
+use crate::bootstrap::BootstrapMode;
+
 /// Overrides for the three-tier priority prompt system.
 ///
 /// When resolving the final system prompt, the caller checks these in order:
@@ -55,6 +57,7 @@ pub trait SystemPromptBuilder: Send + Sync {
         session_id: &str,
         agent_id: &str,
         overrides: Option<&PromptOverrides>,
+        bootstrap_mode_override: Option<BootstrapMode>,
     ) -> String;
 
     /// Invalidate cached prompt sections.

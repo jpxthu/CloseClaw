@@ -9,8 +9,9 @@ use crate::providers::skills::SkillsFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
 use crate::sections::{get_cached_section, put_cached_section, Section};
 use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::BootstrapMode;
 use closeclaw_skills::DiskSkillRegistry;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 /// Re-export the common PromptOverrides type.
@@ -219,6 +220,12 @@ pub struct WorkspaceBuildConfig {
     pub append_section: Option<String>,
     /// Optional AgentRegistry reference for bootstrap mode queries.
     pub agent_registry: Option<Arc<AgentRegistry>>,
+    /// Agent directory — when `Some`, used as the bootstrap file loading path
+    /// (takes priority over `workspace_root`).
+    pub agent_dir: Option<PathBuf>,
+    /// Bootstrap mode override — when `Some`, overrides the mode queried
+    /// from `AgentRegistry`.
+    pub bootstrap_mode_override: Option<BootstrapMode>,
 }
 
 // --- Private helpers -------------------------------------------------------
@@ -235,18 +242,21 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     let root = workspace_root.as_ref();
 
     // Resolve bootstrap mode for FragmentContext.
-    let bootstrap_mode = config.agent_registry.as_ref().and_then(|reg| {
-        config
-            .agent_id
-            .as_deref()
-            .and_then(|id| reg.query_bootstrap_mode(id))
+    // Priority: override value > AgentRegistry query.
+    let bootstrap_mode = config.bootstrap_mode_override.or_else(|| {
+        config.agent_registry.as_ref().and_then(|reg| {
+            config
+                .agent_id
+                .as_deref()
+                .and_then(|id| reg.query_bootstrap_mode(id))
+        })
     });
 
     let ctx = FragmentContext {
         agent_id: config.agent_id.clone(),
         bootstrap_mode,
         workdir: Some(root.to_path_buf()),
-        agent_dir: None,
+        agent_dir: config.agent_dir.clone(),
     };
 
     let agent_registry = config
@@ -385,6 +395,8 @@ mod tests {
             dynamic_sections: vec![],
             append_section: None,
             agent_registry: None,
+            agent_dir: None,
+            bootstrap_mode_override: None,
         };
         assert!(config.agent_registry.is_none());
     }
@@ -422,6 +434,8 @@ mod tests {
             dynamic_sections: vec![],
             append_section: None,
             agent_registry: Some(agent_reg),
+            agent_dir: None,
+            bootstrap_mode_override: None,
         };
         assert!(config.agent_registry.is_some());
         assert_eq!(config.agent_id.as_deref(), Some("test-agent"));
