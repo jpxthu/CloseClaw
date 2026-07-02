@@ -87,8 +87,19 @@ pub(crate) fn format_line(line: &str, ansi: bool) -> String {
 }
 
 /// Check line-level patterns (heading, blockquote, hr).
+///
+/// Heading detection covers h1 through h6: 1-6 `#` characters followed by
+/// a space. 7 or more `#` characters are not a valid markdown heading and
+/// are passed through unchanged.
 pub(crate) fn check_line_pattern(line: &str, ansi: bool) -> Option<String> {
-    if let Some(rest) = line.strip_prefix("# ") {
+    // Match h1-h6: 1-6 '#' characters followed by a space
+    let bytes = line.as_bytes();
+    let mut hash_count = 0;
+    while hash_count < 6 && hash_count < bytes.len() && bytes[hash_count] == b'#' {
+        hash_count += 1;
+    }
+    if hash_count > 0 && hash_count < 7 && hash_count < bytes.len() && bytes[hash_count] == b' ' {
+        let rest = &line[hash_count + 1..];
         return Some(if ansi {
             format!("{}{}{}", BOLD, rest, RESET)
         } else {
@@ -761,7 +772,9 @@ impl TerminalRenderer {
     /// Render a non-text content block to a string.
     pub(crate) fn render_block(&self, block: &ContentBlock) -> String {
         match block {
-            ContentBlock::Text(text) => render_markdown_ansi(text, self.ansi),
+            ContentBlock::Text(text) => {
+                self.truncate_to_width(&render_markdown_ansi(text, self.ansi))
+            }
             ContentBlock::Thinking { thinking: text, .. } => self.render_thinking(text),
             ContentBlock::ToolUse { name, input, .. } => self.render_tool_use(name, input),
             ContentBlock::ToolResult { content, .. } => self.render_tool_result(content),
