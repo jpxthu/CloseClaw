@@ -13,11 +13,13 @@
 
 pub mod builtin;
 pub mod registrar;
+pub mod registrars;
 pub mod registry;
 pub mod security;
 pub mod spawn_validation;
 
 pub use registrar::{ToolRegistrar, ToolRegistrarError};
+pub use registrars::core::CoreToolsRegistrar;
 pub use registry::ToolRegistry;
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 
