@@ -2,6 +2,8 @@
 mod tests {
     use crate::renderer::BOLD;
     use crate::terminal::*;
+    use std::collections::HashMap;
+
     use closeclaw_common::processor::{DslInstruction, DslParseResult};
     use closeclaw_im_adapter::plugin::IMPlugin;
     use closeclaw_im_adapter::NormalizedMessage;
@@ -365,11 +367,13 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let blocks = vec![ContentBlock::Text("Some text".into())];
         let dsl = DslParseResult {
-            clean_content: String::new(),
-            instructions: vec![DslInstruction::Button {
-                label: "Click".to_string(),
-                action: "go".to_string(),
-                value: "ok".to_string(),
+            instructions: vec![DslInstruction {
+                instruction_type: "button".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Click".to_string()),
+                    ("action".to_string(), "go".to_string()),
+                    ("value".to_string(), "ok".to_string()),
+                ]),
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));
@@ -387,18 +391,20 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let blocks = vec![ContentBlock::Text("Reply here".into())];
         let dsl = DslParseResult {
-            clean_content: String::new(),
-            instructions: vec![DslInstruction::Selector {
-                label: "Pick one".to_string(),
-                options: vec!["a".into(), "b".into(), "c".into()],
-                action: "choose".to_string(),
+            instructions: vec![DslInstruction {
+                instruction_type: "selector".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Pick one".to_string()),
+                    ("options".to_string(), "a,b,c".to_string()),
+                    ("action".to_string(), "choose".to_string()),
+                ]),
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));
         let text = output.payload.as_str().unwrap();
         assert!(text.contains("Reply here"));
         assert!(
-            text.contains("[Selector: Pick one (options: a, b, c) (action: choose)]"),
+            text.contains("[Selector: Pick one (options: a,b,c) (action: choose)]"),
             "DSL selector hint should appear in output"
         );
     }
@@ -409,24 +415,29 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let blocks = vec![ContentBlock::Text("Content".into())];
         let dsl = DslParseResult {
-            clean_content: String::new(),
             instructions: vec![
-                DslInstruction::Button {
-                    label: "OK".to_string(),
-                    action: "confirm".to_string(),
-                    value: String::new(),
+                DslInstruction {
+                    instruction_type: "button".to_string(),
+                    params: HashMap::from([
+                        ("label".to_string(), "OK".to_string()),
+                        ("action".to_string(), "confirm".to_string()),
+                        ("value".to_string(), String::new()),
+                    ]),
                 },
-                DslInstruction::Selector {
-                    label: "Mode".to_string(),
-                    options: vec!["fast".into(), "slow".into()],
-                    action: "set_mode".to_string(),
+                DslInstruction {
+                    instruction_type: "selector".to_string(),
+                    params: HashMap::from([
+                        ("label".to_string(), "Mode".to_string()),
+                        ("options".to_string(), "fast,slow".to_string()),
+                        ("action".to_string(), "set_mode".to_string()),
+                    ]),
                 },
             ],
         };
         let output = plugin.render(&blocks, Some(&dsl));
         let text = output.payload.as_str().unwrap();
         assert!(text.contains("[Button: OK (action: confirm)]"));
-        assert!(text.contains("[Selector: Mode (options: fast, slow) (action: set_mode)]"));
+        assert!(text.contains("[Selector: Mode (options: fast,slow) (action: set_mode)]"));
     }
 
     /// Verify DSL hints are wrapped in ANSI dim when ansi=true.
@@ -437,11 +448,13 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(true);
         let blocks = vec![];
         let dsl = DslParseResult {
-            clean_content: String::new(),
-            instructions: vec![DslInstruction::Button {
-                label: "Go".to_string(),
-                action: "start".to_string(),
-                value: String::new(),
+            instructions: vec![DslInstruction {
+                instruction_type: "button".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Go".to_string()),
+                    ("action".to_string(), "start".to_string()),
+                    ("value".to_string(), String::new()),
+                ]),
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));

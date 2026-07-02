@@ -715,12 +715,11 @@ impl TerminalRenderer {
     fn render_dsl(&self, dsl_result: &DslParseResult) -> String {
         let mut lines = Vec::new();
         for inst in &dsl_result.instructions {
-            match inst {
-                closeclaw_common::processor::DslInstruction::Button {
-                    label,
-                    action,
-                    value,
-                } => {
+            match inst.instruction_type.as_str() {
+                "button" => {
+                    let label = inst.params.get("label").map(String::as_str).unwrap_or("");
+                    let action = inst.params.get("action").map(String::as_str).unwrap_or("");
+                    let value = inst.params.get("value").map(String::as_str).unwrap_or("");
                     warn!(
                         label = %label,
                         action = %action,
@@ -729,22 +728,26 @@ impl TerminalRenderer {
                     );
                     lines.push(format!("[Button: {} (action: {})]", label, action));
                 }
-                closeclaw_common::processor::DslInstruction::Selector {
-                    label,
-                    options,
-                    action,
-                } => {
+                "selector" => {
+                    let label = inst.params.get("label").map(String::as_str).unwrap_or("");
+                    let options_str = inst.params.get("options").map(String::as_str).unwrap_or("");
+                    let action = inst.params.get("action").map(String::as_str).unwrap_or("");
                     warn!(
                         label = %label,
-                        options = ?options,
+                        options = %options_str,
                         action = %action,
                         "terminal does not support interactive DSL (Selector), skipped"
                     );
-                    let opts = options.join(", ");
                     lines.push(format!(
                         "[Selector: {} (options: {}) (action: {})]",
-                        label, opts, action
+                        label, options_str, action
                     ));
+                }
+                _ => {
+                    warn!(
+                        instruction_type = %inst.instruction_type,
+                        "unknown DSL instruction type, skipped"
+                    );
                 }
             }
         }

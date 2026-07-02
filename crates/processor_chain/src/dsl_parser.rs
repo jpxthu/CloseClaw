@@ -10,6 +10,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::warn;
 
 use closeclaw_llm::types::ContentBlock;
@@ -21,28 +22,21 @@ use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
 // ---------------------------------------------------------------------------
 
 /// A parsed DSL instruction extracted from markdown.
+///
+/// Flat structure: `instruction_type` identifies the kind of instruction
+/// (e.g. `"button"`, `"selector"`), and `params` holds key-value pairs
+/// parsed from the DSL line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum DslInstruction {
-    /// A clickable button with a label, action identifier, and optional value.
-    Button {
-        label: String,
-        action: String,
-        value: String,
-    },
-    /// A selector with a label, multiple option choices, and an action identifier.
-    Selector {
-        label: String,
-        options: Vec<String>,
-        action: String,
-    },
+pub struct DslInstruction {
+    /// Instruction type identifier (e.g. `"button"`, `"selector"`).
+    pub instruction_type: String,
+    /// Parsed key-value parameters from the DSL line.
+    pub params: HashMap<String, String>,
 }
 
 /// Result of parsing a markdown string for DSL instructions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DslParseResult {
-    /// Markdown content with all DSL lines removed (preserving original line order).
-    pub clean_content: String,
     /// Extracted DSL instructions in the order they appear in the source.
     pub instructions: Vec<DslInstruction>,
 }
@@ -90,16 +84,7 @@ impl DslParser {
             }
         }
 
-        let clean_content = if instructions.is_empty() {
-            content.to_string()
-        } else {
-            clean_lines.join("\n")
-        };
-
-        DslParseResult {
-            clean_content,
-            instructions,
-        }
+        DslParseResult { instructions }
     }
 
     /// Parse DSL instructions from a list of [`ContentBlock`][closeclaw_llm::types::ContentBlock].
@@ -134,17 +119,13 @@ impl DslParser {
     ) -> (DslParseResult, Vec<ContentBlock>) {
         let mut all_instructions: Vec<DslInstruction> = Vec::new();
         let mut updated_blocks: Vec<ContentBlock> = Vec::new();
-        let mut clean_parts: Vec<String> = Vec::new();
 
         for block in blocks {
             match block {
                 ContentBlock::Text(s) => {
                     let result = self.parse(s);
                     all_instructions.extend(result.instructions);
-                    if !result.clean_content.is_empty() {
-                        clean_parts.push(result.clean_content.clone());
-                        updated_blocks.push(ContentBlock::Text(result.clean_content));
-                    }
+                    updated_blocks.push(block.clone());
                 }
                 _ => {
                     updated_blocks.push(block.clone());
@@ -152,10 +133,8 @@ impl DslParser {
             }
         }
 
-        let clean_content = clean_parts.join("\n");
         (
             DslParseResult {
-                clean_content,
                 instructions: all_instructions,
             },
             updated_blocks,
@@ -195,74 +174,57 @@ fn extract_bracket_content(trimmed: &str) -> Option<&str> {
     Some(&trimmed[start..end])
 }
 
-/// Parse a `::button[...]` line into a [`DslInstruction::Button`].
+/// Parse a `::button[...]` line into a [`DslInstruction`] with type "button".
 fn parse_button(trimmed: &str) -> Option<DslInstruction> {
     let inner = extract_bracket_content(trimmed)?;
 
-    let mut label: Option<String> = None;
-    let mut action: Option<String> = None;
-    let mut value: Option<String> = None;
+    let mut params = HashMap::new();
 
     for param in inner.split(';') {
         let param = param.trim();
         if let Some((key, val)) = param.split_once(':') {
             let key = key.trim();
             let val = val.trim();
-            match key {
-                "label" => label = Some(val.to_string()),
-                "action" => action = Some(val.to_string()),
-                "value" => value = Some(val.to_string()),
-                _ => {}
-            }
+            params.insert(key.to_string(), val.to_string());
         }
     }
 
-    let label = label?;
-    let action = action?;
-    let value = value.unwrap_or_default();
+    // label and action are required
+    if !params.contains_key("label") || !params.contains_key("action") {
+        return None;
+    }
+    // default value to empty string if not provided
+    params.entry("value".to_string()).or_default();
 
-    Some(DslInstruction::Button {
-        label,
-        action,
-        value,
+    Some(DslInstruction {
+        instruction_type: "button".to_string(),
+        params,
     })
 }
 
-/// Parse a `::selector[...]` line into a [`DslInstruction::Selector`].
+/// Parse a `::selector[...]` line into a [`DslInstruction`] with type "selector".
 fn parse_selector(trimmed: &str) -> Option<DslInstruction> {
     let inner = extract_bracket_content(trimmed)?;
 
-    let mut label: Option<String> = None;
-    let mut action: Option<String> = None;
-    let mut options: Vec<String> = Vec::new();
+    let mut params = HashMap::new();
 
     for param in inner.split(';') {
         let param = param.trim();
         if let Some((key, val)) = param.split_once(':') {
             let key = key.trim();
             let val = val.trim();
-            match key {
-                "label" => label = Some(val.to_string()),
-                "action" => action = Some(val.to_string()),
-                "options" => {
-                    options = val
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                }
-                _ => {}
-            }
+            params.insert(key.to_string(), val.to_string());
         }
     }
 
-    let label = label?;
-    let action = action?;
+    // label and action are required
+    if !params.contains_key("label") || !params.contains_key("action") {
+        return None;
+    }
 
-    Some(DslInstruction::Selector {
-        label,
-        options,
-        action,
+    Some(DslInstruction {
+        instruction_type: "selector".to_string(),
+        params,
     })
 }
 
@@ -288,11 +250,10 @@ impl MessageProcessor for DslParser {
             self.parse_content_blocks_with_result(&ctx.content_blocks)
         } else {
             let result = self.parse(&ctx.content);
-            // Wrap clean_content as a single Text block when it's non-empty
-            let blocks = if result.clean_content.is_empty() {
+            let blocks = if result.instructions.is_empty() {
                 vec![]
             } else {
-                vec![ContentBlock::Text(result.clean_content.clone())]
+                vec![ContentBlock::Text(ctx.content.clone())]
             };
             (result, blocks)
         };
@@ -304,7 +265,7 @@ impl MessageProcessor for DslParser {
         metadata.insert("dsl_result".to_string(), serde_json::Value::String(json));
 
         Ok(Some(super::ProcessedMessage {
-            content: result.clean_content,
+            content: ctx.content.clone(),
             metadata,
             suppress: false,
             content_blocks: updated_blocks,
@@ -328,7 +289,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert!(result.instructions.is_empty());
-        assert_eq!(result.clean_content, input);
     }
 
     #[test]
@@ -340,13 +300,15 @@ mod tests {
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(
             result.instructions[0],
-            DslInstruction::Button {
-                label: "Click Me".to_string(),
-                action: "navigate".to_string(),
-                value: "/home".to_string(),
+            DslInstruction {
+                instruction_type: "button".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Click Me".to_string()),
+                    ("action".to_string(), "navigate".to_string()),
+                    ("value".to_string(), "/home".to_string()),
+                ]),
             }
         );
-        assert!(result.clean_content.is_empty());
     }
 
     #[test]
@@ -357,15 +319,10 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 2);
-        match &result.instructions[0] {
-            DslInstruction::Button { label, .. } => assert_eq!(label, "Yes"),
-            _ => panic!("Expected Button instruction"),
-        }
-        match &result.instructions[1] {
-            DslInstruction::Button { label, .. } => assert_eq!(label, "No"),
-            _ => panic!("Expected Button instruction"),
-        }
-        assert!(result.clean_content.is_empty());
+        assert_eq!(result.instructions[0].instruction_type, "button");
+        assert_eq!(result.instructions[0].params["label"], "Yes");
+        assert_eq!(result.instructions[1].instruction_type, "button");
+        assert_eq!(result.instructions[1].params["label"], "No");
     }
 
     #[test]
@@ -375,7 +332,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        assert_eq!(result.clean_content, "Hello world\nGoodbye");
     }
 
     #[test]
@@ -385,7 +341,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        assert_eq!(result.clean_content, "Now the content starts here.");
     }
 
     #[test]
@@ -395,7 +350,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        assert_eq!(result.clean_content, "Before\nAfter");
     }
 
     #[test]
@@ -405,7 +359,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        assert_eq!(result.clean_content, "Some text here");
     }
 
     #[test]
@@ -415,18 +368,9 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        match &result.instructions[0] {
-            DslInstruction::Button {
-                label,
-                action,
-                value,
-            } => {
-                assert_eq!(label, "Hello World");
-                assert_eq!(action, "say hello");
-                assert_eq!(value, "greeting");
-            }
-            _ => panic!("Expected Button instruction"),
-        }
+        assert_eq!(result.instructions[0].params["label"], "Hello World");
+        assert_eq!(result.instructions[0].params["action"], "say hello");
+        assert_eq!(result.instructions[0].params["value"], "greeting");
     }
 
     #[test]
@@ -442,7 +386,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 3);
-        assert_eq!(result.clean_content, "Text A\nText B");
     }
 
     // ---------------------------------------------------------------------------
@@ -455,7 +398,6 @@ mod tests {
         let blocks: Vec<ContentBlock> = vec![];
         let result = parser.parse_content_blocks(&blocks);
         assert!(result.instructions.is_empty());
-        assert_eq!(result.clean_content, "");
     }
 
     #[test]
@@ -473,7 +415,6 @@ mod tests {
         ];
         let result = parser.parse_content_blocks(&blocks);
         assert!(result.instructions.is_empty());
-        assert_eq!(result.clean_content, "");
     }
 
     #[test]
@@ -493,7 +434,6 @@ mod tests {
         ];
         let result = parser.parse_content_blocks(&blocks);
         assert!(result.instructions.is_empty());
-        assert_eq!(result.clean_content, "");
     }
 
     #[test]
@@ -505,7 +445,6 @@ mod tests {
         }];
         let result = parser.parse_content_blocks(&blocks);
         assert!(result.instructions.is_empty());
-        assert_eq!(result.clean_content, "");
     }
 
     #[test]
@@ -519,7 +458,6 @@ mod tests {
         ];
         let result = parser.parse_content_blocks(&blocks);
         assert_eq!(result.instructions.len(), 2);
-        assert_eq!(result.clean_content, "Hello\nMiddle");
     }
 
     #[test]
@@ -543,19 +481,10 @@ mod tests {
         ];
         let result = parser.parse_content_blocks(&blocks);
         assert_eq!(result.instructions.len(), 1);
-        match &result.instructions[0] {
-            DslInstruction::Button {
-                label,
-                action,
-                value,
-            } => {
-                assert_eq!(label, "Click");
-                assert_eq!(action, "go");
-                assert_eq!(value, "ok");
-            }
-            _ => panic!("Expected Button instruction"),
-        }
-        assert_eq!(result.clean_content, "");
+        assert_eq!(result.instructions[0].instruction_type, "button");
+        assert_eq!(result.instructions[0].params["label"], "Click");
+        assert_eq!(result.instructions[0].params["action"], "go");
+        assert_eq!(result.instructions[0].params["value"], "ok");
     }
 
     #[test]
@@ -586,13 +515,15 @@ mod tests {
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(
             result.instructions[0],
-            DslInstruction::Selector {
-                label: "Pick color".to_string(),
-                options: vec!["Red".to_string(), "Green".to_string(), "Blue".to_string()],
-                action: "select_color".to_string(),
+            DslInstruction {
+                instruction_type: "selector".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Pick color".to_string()),
+                    ("options".to_string(), "Red,Green,Blue".to_string()),
+                    ("action".to_string(), "select_color".to_string()),
+                ]),
             }
         );
-        assert!(result.clean_content.is_empty());
     }
 
     #[test]
@@ -602,18 +533,9 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        match &result.instructions[0] {
-            DslInstruction::Selector {
-                label,
-                options,
-                action,
-            } => {
-                assert_eq!(label, "Choose");
-                assert!(options.is_empty());
-                assert_eq!(action, "pick");
-            }
-            _ => panic!("Expected Selector instruction"),
-        }
+        assert_eq!(result.instructions[0].params["label"], "Choose");
+        assert_eq!(result.instructions[0].params["options"], "");
+        assert_eq!(result.instructions[0].params["action"], "pick");
     }
 
     #[test]
@@ -623,21 +545,9 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        match &result.instructions[0] {
-            DslInstruction::Selector {
-                label,
-                options,
-                action,
-            } => {
-                assert_eq!(label, "Pick one");
-                assert_eq!(
-                    options,
-                    &vec!["A".to_string(), "B".to_string(), "C".to_string()]
-                );
-                assert_eq!(action, "choose");
-            }
-            _ => panic!("Expected Selector instruction"),
-        }
+        assert_eq!(result.instructions[0].params["label"], "Pick one");
+        assert_eq!(result.instructions[0].params["options"], "A , B , C");
+        assert_eq!(result.instructions[0].params["action"], "choose");
     }
 
     #[test]
@@ -647,7 +557,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        assert_eq!(result.clean_content, "Hello\nWorld");
     }
 
     #[test]
@@ -660,15 +569,8 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 2);
-        assert!(matches!(
-            &result.instructions[0],
-            DslInstruction::Button { .. }
-        ));
-        assert!(matches!(
-            &result.instructions[1],
-            DslInstruction::Selector { .. }
-        ));
-        assert!(result.clean_content.is_empty());
+        assert_eq!(result.instructions[0].instruction_type, "button");
+        assert_eq!(result.instructions[1].instruction_type, "selector");
     }
 
     #[test]
@@ -678,7 +580,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert!(result.instructions.is_empty());
-        assert_eq!(result.clean_content, input);
     }
 
     #[test]
@@ -688,7 +589,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert!(result.instructions.is_empty());
-        assert_eq!(result.clean_content, input);
     }
 
     #[test]
@@ -698,11 +598,6 @@ mod tests {
         let result = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
-        match &result.instructions[0] {
-            DslInstruction::Selector { options, .. } => {
-                assert_eq!(options, &vec!["Only".to_string()]);
-            }
-            _ => panic!("Expected Selector instruction"),
-        }
+        assert_eq!(result.instructions[0].params["options"], "Only");
     }
 }

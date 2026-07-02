@@ -44,16 +44,19 @@ fn test_with_result_mixed_blocks_preserves_non_text() {
 
     // DSL instruction extracted from Text blocks
     assert_eq!(result.instructions.len(), 1);
-    assert_eq!(result.clean_content, "Hello world\nDone");
 
-    // Non-Text blocks preserved, empty Text blocks (DSL-only) dropped
-    assert_eq!(updated_blocks.len(), 5);
+    // All blocks preserved (text blocks kept as-is)
+    assert_eq!(updated_blocks.len(), 6);
     assert!(matches!(&updated_blocks[0], ContentBlock::Text(s) if s == "Hello world"));
     assert!(matches!(&updated_blocks[1], ContentBlock::Thinking { .. }));
-    assert!(matches!(&updated_blocks[2], ContentBlock::ToolUse { .. }));
-    assert!(matches!(&updated_blocks[3], ContentBlock::Text(s) if s == "Done"));
     assert!(matches!(
-        &updated_blocks[4],
+        &updated_blocks[2],
+        ContentBlock::Text(s) if s == "::button[label:A;action:x;value:1]"
+    ));
+    assert!(matches!(&updated_blocks[3], ContentBlock::ToolUse { .. }));
+    assert!(matches!(&updated_blocks[4], ContentBlock::Text(s) if s == "Done"));
+    assert!(matches!(
+        &updated_blocks[5],
         ContentBlock::ToolResult { .. }
     ));
 }
@@ -75,7 +78,7 @@ fn test_with_result_preserves_block_boundaries() {
 }
 
 #[test]
-fn test_with_result_drops_empty_text_blocks() {
+fn test_with_result_dsl_text_blocks_preserved() {
     let parser = DslParser;
     let blocks = vec![
         ContentBlock::Text("::button[label:A;action:x;value:1]".to_string()),
@@ -85,8 +88,8 @@ fn test_with_result_drops_empty_text_blocks() {
     let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
 
     assert_eq!(result.instructions.len(), 2);
-    assert!(updated_blocks.is_empty());
-    assert_eq!(result.clean_content, "");
+    // Text blocks preserved as-is
+    assert_eq!(updated_blocks.len(), 3);
 }
 
 #[test]
@@ -95,7 +98,6 @@ fn test_with_result_empty_input() {
     let blocks: Vec<ContentBlock> = vec![];
     let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
     assert!(result.instructions.is_empty());
-    assert_eq!(result.clean_content, "");
     assert!(updated_blocks.is_empty());
 }
 
@@ -119,7 +121,6 @@ fn test_with_result_only_non_text_blocks() {
     ];
     let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
     assert!(result.instructions.is_empty());
-    assert_eq!(result.clean_content, "");
     assert_eq!(updated_blocks.len(), 3);
 }
 
@@ -143,9 +144,11 @@ async fn test_process_with_content_blocks_non_empty() {
     );
     let result = parser.process(&ctx).await.unwrap().unwrap();
 
-    assert_eq!(result.content, "Hello\nWorld");
+    assert_eq!(result.content, "fallback content");
     assert_eq!(result.content_blocks.len(), 3);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
+    assert!(
+        matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello\n::button[label:X;action:a;value:1]")
+    );
     assert!(matches!(
         &result.content_blocks[1],
         ContentBlock::Thinking { .. }
@@ -162,11 +165,12 @@ async fn test_process_with_empty_content_blocks_falls_back_to_content() {
     );
     let result = parser.process(&ctx).await.unwrap().unwrap();
 
-    assert_eq!(result.content, "Some text\nMore text");
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(
-        matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Some text\nMore text")
+    assert_eq!(
+        result.content,
+        "Some text\n::button[label:A;action:x;value:1]\nMore text"
     );
+    // DSL instructions found → content block created
+    assert_eq!(result.content_blocks.len(), 1);
 }
 
 #[tokio::test]
@@ -176,7 +180,8 @@ async fn test_process_pure_text_no_dsl_matches_pre_refactor() {
     let result = parser.process(&ctx).await.unwrap().unwrap();
 
     assert_eq!(result.content, "Just a normal message");
-    assert_eq!(result.content_blocks.len(), 1);
+    // No DSL → no content blocks
+    assert_eq!(result.content_blocks.len(), 0);
 }
 
 #[tokio::test]
@@ -188,7 +193,7 @@ async fn test_process_content_blocks_takes_priority() {
     );
     let result = parser.process(&ctx).await.unwrap().unwrap();
 
-    assert_eq!(result.content, "Actual content");
+    assert_eq!(result.content, "::button[label:IGNORE;action:x;value:1]");
     let dsl_val = result.metadata.get("dsl_result").unwrap();
     assert!(!dsl_val.to_string().contains("button"));
 }

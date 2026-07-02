@@ -236,7 +236,6 @@ async fn test_plugin_dsl_result_passed_to_render() {
         ReasoningLevel::default(),
     ));
     let dsl_json = serde_json::to_string(&DslParseResult {
-        clean_content: "Clean content".to_string(),
         instructions: vec![],
     })
     .unwrap();
@@ -264,7 +263,7 @@ async fn test_plugin_dsl_result_passed_to_render() {
     let render = plugin.render_called.lock().unwrap().clone();
     let (_, ref dsl) = render.as_ref().expect("render should have been called");
     let dsl = dsl.as_ref().expect("dsl_result should have been passed");
-    assert_eq!(dsl.clean_content, "Clean content");
+    assert!(dsl.instructions.is_empty());
 }
 
 #[tokio::test]
