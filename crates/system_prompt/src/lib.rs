@@ -11,6 +11,7 @@
 pub mod builder;
 pub mod fragment;
 pub mod inject;
+pub mod providers;
 pub mod sections;
 pub mod tools_section;
 pub mod workdir;
@@ -20,6 +21,7 @@ pub use builder::{
 };
 pub use closeclaw_common;
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
+pub use providers::bootstrap::BootstrapFragmentProvider;
 pub use sections::{get_cached_section, invalidate_all_sections, invalidate_section, Section};
 pub use tools_section::build_tools_section;
 pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};
