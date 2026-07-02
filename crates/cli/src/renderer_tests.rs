@@ -139,12 +139,7 @@ fn test_render_single_text_block() {
     let renderer = TerminalRenderer::with_ansi(false);
     let output = renderer.render(&[ContentBlock::Text("hello".into())], None);
     assert_eq!(output.msg_type, "text");
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(text.contains("hello"));
 }
 
@@ -163,12 +158,7 @@ fn test_render_multiple_blocks() {
         ContentBlock::Text("second".into()),
     ];
     let output = renderer.render(&blocks, None);
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(text.contains("first"));
     assert!(text.contains("second"));
 }
@@ -189,12 +179,7 @@ fn test_render_mixed_block_types() {
         },
     ];
     let output = renderer.render(&blocks, None);
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(text.contains("intro"));
     assert!(text.contains("run"));
     assert!(text.contains("hi"));
@@ -212,12 +197,7 @@ fn test_render_with_dsl_button() {
         }],
     };
     let output = renderer.render(&[ContentBlock::Text("body".into())], Some(&dsl));
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(
         text.contains("[Button:"),
         "DSL button should appear in output"
@@ -237,12 +217,7 @@ fn test_render_with_dsl_selector() {
         }],
     };
     let output = renderer.render(&[], Some(&dsl));
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(
         text.contains("[Selector:"),
         "DSL selector should appear in output"
@@ -253,12 +228,7 @@ fn test_render_with_dsl_selector() {
 fn test_render_ansi_strips_codes_when_disabled() {
     let renderer = TerminalRenderer::with_ansi(false);
     let output = renderer.render(&[ContentBlock::Text("**bold**".into())], None);
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(!text.contains(BOLD), "ansi should not contain BOLD escape");
 }
 
@@ -266,12 +236,7 @@ fn test_render_ansi_strips_codes_when_disabled() {
 fn test_render_ansi_contains_codes_when_enabled() {
     let renderer = TerminalRenderer::with_ansi(true);
     let output = renderer.render(&[ContentBlock::Text("**bold**".into())], None);
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(text.contains(BOLD), "ansi should contain BOLD escape");
 }
 
@@ -863,12 +828,7 @@ fn test_dsl_before_content_blocks_button() {
     };
     let blocks = vec![ContentBlock::Text("body text".into())];
     let output = renderer.render(&blocks, Some(&dsl));
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     let dsl_pos = text
         .find("[Button:")
         .expect("DSL button line must be present");
@@ -900,12 +860,7 @@ fn test_dsl_before_content_blocks_selector() {
         ContentBlock::Text("second".into()),
     ];
     let output = renderer.render(&blocks, Some(&dsl));
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     let dsl_pos = text
         .find("[Selector:")
         .expect("DSL selector line must be present");
@@ -933,12 +888,7 @@ fn test_no_dsl_content_blocks_only() {
         },
     ];
     let output = renderer.render(&blocks, None);
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(text.contains("hello"));
     assert!(text.contains("run"));
     assert!(!text.contains("[Button:"));
@@ -955,12 +905,7 @@ fn test_empty_dsl_content_blocks_only() {
     };
     let blocks = vec![ContentBlock::Text("content here".into())];
     let output = renderer.render(&blocks, Some(&dsl));
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(text.contains("content here"));
     assert!(!text.contains("[Button:"));
     assert!(!text.contains("[Selector:"));
@@ -979,13 +924,65 @@ fn test_empty_blocks_with_dsl() {
         }],
     };
     let output = renderer.render(&[], Some(&dsl));
-    let text = output
-        .payload
-        .get("content")
-        .and_then(|c| c.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap();
+    let text = output.payload.as_str().unwrap();
     assert!(text.contains("[Button:"), "DSL button must be present");
     assert!(text.contains("Submit"));
     assert!(text.contains("confirm"));
+}
+
+// ── ToolUse format tests (Step 1.3) ───────────────────────────────────────
+/// ToolUse renders ⚙ tool_name(input) — plain text and ANSI modes.
+#[test]
+fn test_tool_use_format_normal_and_empty() {
+    for ansi in [false, true] {
+        let renderer = TerminalRenderer::with_ansi(ansi);
+        // Normal: JSON input inside parentheses
+        let result = renderer.render_block(&ContentBlock::ToolUse {
+            id: "t1".into(),
+            name: "exec".into(),
+            input: r#"{"cmd":"ls"}"#.into(),
+        });
+        assert!(result.contains("⚙"));
+        assert!(result.contains("exec"));
+        assert!(result.contains(r#"{"cmd":"ls"}"#));
+        assert!(
+            !result.contains("{}"),
+            "should not use bare braces as wrapper"
+        );
+        if ansi {
+            assert!(result.contains(DIM));
+            assert!(result.contains(BOLD));
+            assert!(result.contains(CYAN));
+        }
+        // Empty input: parentheses with empty content
+        let result = renderer.render_block(&ContentBlock::ToolUse {
+            id: "t2".into(),
+            name: "noop".into(),
+            input: String::new(),
+        });
+        let stripped = strip_ansi(&result);
+        assert!(stripped.contains("()"));
+    }
+}
+/// ToolUse with JSON object/array input renders correctly.
+#[test]
+fn test_tool_use_format_json_input() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let result = renderer.render_block(&ContentBlock::ToolUse {
+        id: "t1".into(),
+        name: "write".into(),
+        input: r#"{"path":"/tmp/a.txt","content":"hello"}"#.into(),
+    });
+    assert!(result.contains("⚙"));
+    assert!(result.contains("write"));
+    assert!(result.contains("/tmp/a.txt"));
+    let result = renderer.render_block(&ContentBlock::ToolUse {
+        id: "t2".into(),
+        name: "batch".into(),
+        input: r#"[{"a":1},{"b":2}]"#.into(),
+    });
+    assert!(result.contains("⚙"));
+    assert!(result.contains("batch"));
+    assert!(result.contains(r#"{"a":1}"#));
+    assert!(result.contains(r#"{"b":2}"#));
 }

@@ -189,12 +189,7 @@ mod tests {
         let blocks = vec![ContentBlock::Text("hello world".into())];
         let output = plugin.render(&blocks, None);
         assert_eq!(output.msg_type, "text");
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
+        let text = output.payload.as_str().unwrap();
         assert!(text.contains("hello world"));
     }
 
@@ -203,12 +198,7 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(true);
         let blocks = vec![ContentBlock::Text("**bold**".into())];
         let output = plugin.render(&blocks, None);
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
+        let text = output.payload.as_str().unwrap();
         assert!(text.contains(BOLD));
     }
 
@@ -235,12 +225,7 @@ mod tests {
             },
         ];
         let output = plugin.render(&blocks, None);
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
+        let text = output.payload.as_str().unwrap();
         assert!(text.contains("first"));
         assert!(text.contains("exec"));
         assert!(text.contains("ok"));
@@ -251,9 +236,7 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let output = RenderedOutput {
             msg_type: "text".into(),
-            payload: serde_json::json!({
-                "content": { "text": "test output" }
-            }),
+            payload: serde_json::Value::String("test output".into()),
         };
         let result = plugin.send(&output, "cli", None).await;
         assert!(result.is_ok());
@@ -264,9 +247,7 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let output = RenderedOutput {
             msg_type: "text".into(),
-            payload: serde_json::json!({
-                "content": { "text": "" }
-            }),
+            payload: serde_json::Value::String(String::new()),
         };
         let result = plugin.send(&output, "cli", None).await;
         assert!(result.is_ok());
@@ -299,9 +280,7 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let output = RenderedOutput {
             msg_type: "text".into(),
-            payload: serde_json::json!({
-                "content": { "text": "thread reply" }
-            }),
+            payload: serde_json::Value::String("thread reply".into()),
         };
         let result = plugin.send(&output, "cli", Some("thread_123")).await;
         assert!(result.is_ok());
@@ -394,12 +373,7 @@ mod tests {
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
+        let text = output.payload.as_str().unwrap();
         assert!(text.contains("Some text"));
         assert!(
             text.contains("[Button: Click (action: go)]"),
@@ -421,12 +395,7 @@ mod tests {
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
+        let text = output.payload.as_str().unwrap();
         assert!(text.contains("Reply here"));
         assert!(
             text.contains("[Selector: Pick one (options: a, b, c) (action: choose)]"),
@@ -455,12 +424,7 @@ mod tests {
             ],
         };
         let output = plugin.render(&blocks, Some(&dsl));
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
+        let text = output.payload.as_str().unwrap();
         assert!(text.contains("[Button: OK (action: confirm)]"));
         assert!(text.contains("[Selector: Mode (options: fast, slow) (action: set_mode)]"));
     }
@@ -481,12 +445,7 @@ mod tests {
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap();
+        let text = output.payload.as_str().unwrap();
         assert!(text.contains(DIM));
         assert!(text.contains(RESET));
         assert!(text.contains("[Button: Go (action: start)]"));
