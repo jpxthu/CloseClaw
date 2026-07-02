@@ -7,7 +7,7 @@ use closeclaw_common::AgentConfigLookup;
 use closeclaw_gateway::SessionManager;
 
 use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool};
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
+use crate::registrar::{register_tool, ToolRegistrar, ToolRegistrarError};
 use crate::{SpawnValidator, ToolRegistry};
 
 /// Session tools registrar — registers all tools from the sessions domain.
@@ -53,34 +53,22 @@ impl ToolRegistrar for SessionToolsRegistrar {
                 self.session_manager.clone(),
                 self.agent_config_lookup.clone(),
             ),
+            "SessionToolsRegistrar",
         )
         .await?;
         register_tool(
             registry,
             SessionsSteerTool::new(self.session_manager.clone()),
+            "SessionToolsRegistrar",
         )
         .await?;
         register_tool(
             registry,
             SessionsKillTool::new(self.session_manager.clone()),
+            "SessionToolsRegistrar",
         )
         .await?;
 
         Ok(())
     }
-}
-
-/// Helper: register a single tool, converting `ToolError` into
-/// `ToolRegistrarError`.
-async fn register_tool(
-    registry: &ToolRegistry,
-    tool: impl crate::Tool + 'static,
-) -> Result<(), ToolRegistrarError> {
-    registry.register(tool).await.map_err(|e| match e {
-        crate::ToolError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
-            tool: name,
-            registrar: "SessionToolsRegistrar".to_string(),
-        },
-        other => ToolRegistrarError::Internal(other.to_string()),
-    })
 }

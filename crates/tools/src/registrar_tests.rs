@@ -14,6 +14,7 @@ use async_trait::async_trait;
 
 use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::{Tool, ToolContext, ToolFlags, ToolRegistry};
+use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
 // Dummy helpers
@@ -316,15 +317,11 @@ async fn test_register_all_conflict_detection() {
 
 #[tokio::test]
 async fn test_register_all_priority_ordering() {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
-
-    /// A registrar that records the order in which it was called via an
-    /// atomic counter.
+    /// A registrar that records the order in which it was called.
     struct OrderRecorder {
         name: String,
         priority: u32,
-        counter: Arc<AtomicU32>,
+        order_log: Arc<Mutex<Vec<String>>>,
     }
 
     #[async_trait]
@@ -338,12 +335,12 @@ async fn test_register_all_priority_ordering() {
         }
 
         async fn register(&self, _registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
-            self.counter.fetch_add(1, Ordering::SeqCst);
+            self.order_log.lock().unwrap().push(self.name.clone());
             Ok(())
         }
     }
 
-    let call_order = Arc::new(AtomicU32::new(0));
+    let order_log = Arc::new(Mutex::new(Vec::new()));
     let registry = ToolRegistry::new();
 
     // Pass them in reverse priority order — register_all should sort by priority.
@@ -351,23 +348,38 @@ async fn test_register_all_priority_ordering() {
         Box::new(OrderRecorder {
             name: "HighPriority".to_string(),
             priority: 10,
-            counter: Arc::clone(&call_order),
+            order_log: Arc::clone(&order_log),
         }),
         Box::new(OrderRecorder {
             name: "LowPriority".to_string(),
             priority: 1,
-            counter: Arc::clone(&call_order),
+            order_log: Arc::clone(&order_log),
         }),
         Box::new(OrderRecorder {
             name: "MidPriority".to_string(),
             priority: 5,
-            counter: Arc::clone(&call_order),
+            order_log: Arc::clone(&order_log),
         }),
     ];
 
     registry.register_all(registrars).await.unwrap();
 
-    // We can't directly test call order via atomic (all share same counter),
-    // but we can verify all were called (call_order == 3).
-    assert_eq!(call_order.load(Ordering::SeqCst), 3);
+    let recorded = order_log.lock().unwrap().clone();
+    assert_eq!(
+        recorded.len(),
+        3,
+        "all three registrars must have been called"
+    );
+    assert_eq!(
+        recorded[0], "LowPriority",
+        "priority 1 should be called first"
+    );
+    assert_eq!(
+        recorded[1], "MidPriority",
+        "priority 5 should be called second"
+    );
+    assert_eq!(
+        recorded[2], "HighPriority",
+        "priority 10 should be called third"
+    );
 }

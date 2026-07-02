@@ -14,7 +14,7 @@ use crate::builtin::{
     BashTool, CodingAgentTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
     GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
 };
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
+use crate::registrar::{register_tool, ToolRegistrar, ToolRegistrarError};
 use crate::ToolRegistry;
 
 /// Core tools registrar — registers all tools from the core domain.
@@ -56,22 +56,22 @@ impl ToolRegistrar for CoreToolsRegistrar {
 
     async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
         // file_ops
-        register_tool(registry, ReadTool::new()).await?;
-        register_tool(registry, WriteTool::new()).await?;
-        register_tool(registry, EditTool::new()).await?;
-        register_tool(registry, GrepTool::new()).await?;
-        register_tool(registry, LsTool::new()).await?;
+        register_tool(registry, ReadTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, WriteTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, EditTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, GrepTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, LsTool::new(), "CoreToolsRegistrar").await?;
         // meta
-        register_tool(registry, ToolSearchTool::new()).await?;
-        register_tool(registry, PermissionQueryTool::new()).await?;
+        register_tool(registry, ToolSearchTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, PermissionQueryTool::new(), "CoreToolsRegistrar").await?;
         // git_ops
-        register_tool(registry, GitStatusTool::new()).await?;
-        register_tool(registry, GitLogTool::new()).await?;
-        register_tool(registry, GitCommitTool::new()).await?;
-        register_tool(registry, GitPushTool::new()).await?;
-        register_tool(registry, GitPullTool::new()).await?;
+        register_tool(registry, GitStatusTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, GitLogTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, GitCommitTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, GitPushTool::new(), "CoreToolsRegistrar").await?;
+        register_tool(registry, GitPullTool::new(), "CoreToolsRegistrar").await?;
         // stub (tools-internal, not listed in design doc)
-        register_tool(registry, CodingAgentTool::new()).await?;
+        register_tool(registry, CodingAgentTool::new(), "CoreToolsRegistrar").await?;
         // bash
         register_tool(
             registry,
@@ -81,23 +81,10 @@ impl ToolRegistrar for CoreToolsRegistrar {
                 self.session_manager.clone(),
                 self.config_manager.clone(),
             ),
+            "CoreToolsRegistrar",
         )
         .await?;
 
         Ok(())
     }
-}
-
-/// Helper: register a single tool, converting `ToolError` into `ToolRegistrarError`.
-async fn register_tool(
-    registry: &ToolRegistry,
-    tool: impl crate::Tool + 'static,
-) -> Result<(), ToolRegistrarError> {
-    registry.register(tool).await.map_err(|e| match e {
-        crate::ToolError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
-            tool: name,
-            registrar: "CoreToolsRegistrar".to_string(),
-        },
-        other => ToolRegistrarError::Internal(other.to_string()),
-    })
 }

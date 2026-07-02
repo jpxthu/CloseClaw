@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::ToolRegistry;
+use crate::{Tool, ToolError, ToolRegistry};
 
 /// Error type for tool registration.
 #[derive(Debug, Error)]
@@ -44,4 +44,19 @@ pub trait ToolRegistrar: Send + Sync {
     /// already exists in `registry`. Returns [`ToolRegistrarError::Internal`]
     /// for any other registration failure.
     async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError>;
+}
+
+/// Register a single tool, converting [`ToolError`] into [`ToolRegistrarError`].
+pub(crate) async fn register_tool(
+    registry: &ToolRegistry,
+    tool: impl Tool + 'static,
+    registrar_name: &str,
+) -> Result<(), ToolRegistrarError> {
+    registry.register(tool).await.map_err(|e| match e {
+        ToolError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
+            tool: name,
+            registrar: registrar_name.to_string(),
+        },
+        other => ToolRegistrarError::Internal(other.to_string()),
+    })
 }
