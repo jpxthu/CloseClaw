@@ -2,9 +2,9 @@
 //! and ConfigHotReload during daemon startup.
 
 use crate::config_watcher;
-use closeclaw_agent::spawn::SpawnController;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
+use closeclaw_gateway::SpawnController;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_skills::DiskSkillRegistry;
 use closeclaw_tools::builtin::{register_builtin_tools, BuiltinToolContext};

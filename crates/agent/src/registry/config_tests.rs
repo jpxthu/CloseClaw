@@ -1,7 +1,7 @@
 use crate::config::SubagentsConfig;
 use crate::registry::AgentRegistry;
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
-use closeclaw_session::bootstrap::BootstrapMode;
 
 // Trait imports for AgentLookup / AgentSkillsQuery / AgentToolsConfigQuery / AgentConfigLookup tests
 use closeclaw_common::AgentConfigLookup;

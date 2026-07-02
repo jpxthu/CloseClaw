@@ -77,8 +77,8 @@ pub async fn build_tools_section(
 mod tests {
     use super::*;
     use closeclaw_agent::registry::AgentRegistry;
-    use closeclaw_agent::spawn::SpawnController;
     use closeclaw_config::ConfigManager;
+    use closeclaw_gateway::SpawnController;
     use closeclaw_gateway::{GatewayConfig, SessionManager};
     use closeclaw_permission::engine::engine_eval::PermissionEngine;
     use closeclaw_permission::rules::RuleSetBuilder;

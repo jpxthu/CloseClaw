@@ -12,17 +12,12 @@ path = "src/lib.rs"
 [dependencies]
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
-closeclaw-gateway = { path = "../gateway" }
-closeclaw-permission = { path = "../permission" }
-closeclaw-session = { path = "../session" }
-closeclaw-tools = { path = "../tools" }
 async-trait = "0.1"
 dashmap = "5"
 thiserror = "2.0"
-tokio = { version = "=1.35.0", features = ["full"] }
 tracing = "=0.1.43"
 
 [dev-dependencies]
 tempfile = "3.10"
-closeclaw-llm = { path = "../llm" }
+tokio = { version = "=1.35.0", features = ["full"] }
 serde_json = "1.0"
