@@ -931,12 +931,12 @@ fn test_empty_blocks_with_dsl() {
 }
 
 // ── ToolUse format tests (Step 1.3) ───────────────────────────────────────
-
-/// ToolUse renders as ⚙ tool_name({input}) — plain text and ANSI modes.
+/// ToolUse renders ⚙ tool_name(input) — plain text and ANSI modes.
 #[test]
-fn test_tool_use_format_both_modes() {
+fn test_tool_use_format_normal_and_empty() {
     for ansi in [false, true] {
         let renderer = TerminalRenderer::with_ansi(ansi);
+        // Normal: JSON input inside parentheses
         let result = renderer.render_block(&ContentBlock::ToolUse {
             id: "t1".into(),
             name: "exec".into(),
@@ -944,37 +944,26 @@ fn test_tool_use_format_both_modes() {
         });
         assert!(result.contains("⚙"));
         assert!(result.contains("exec"));
+        assert!(result.contains(r#"{"cmd":"ls"}"#));
         assert!(
-            result.contains(r#"{"cmd":"ls"}"#),
-            "input should be wrapped in braces"
+            !result.contains("{}"),
+            "should not use bare braces as wrapper"
         );
-        assert!(!result.contains("("), "should not use parentheses");
         if ansi {
             assert!(result.contains(DIM));
             assert!(result.contains(BOLD));
             assert!(result.contains(CYAN));
         }
-    }
-}
-
-/// ToolUse with empty input renders as ⚙ tool_name({}) in both modes.
-#[test]
-fn test_tool_use_format_empty_input_both_modes() {
-    for ansi in [false, true] {
-        let renderer = TerminalRenderer::with_ansi(ansi);
+        // Empty input: parentheses with empty content
         let result = renderer.render_block(&ContentBlock::ToolUse {
-            id: "t1".into(),
+            id: "t2".into(),
             name: "noop".into(),
             input: String::new(),
         });
-        assert!(result.contains("⚙"));
-        assert!(result.contains("noop"));
-        // Strip ANSI to verify the bare structure
         let stripped = strip_ansi(&result);
-        assert!(stripped.contains("{}"), "empty input should produce braces");
+        assert!(stripped.contains("()"));
     }
 }
-
 /// ToolUse with JSON object/array input renders correctly.
 #[test]
 fn test_tool_use_format_json_input() {
@@ -987,7 +976,6 @@ fn test_tool_use_format_json_input() {
     assert!(result.contains("⚙"));
     assert!(result.contains("write"));
     assert!(result.contains("/tmp/a.txt"));
-
     let result = renderer.render_block(&ContentBlock::ToolUse {
         id: "t2".into(),
         name: "batch".into(),

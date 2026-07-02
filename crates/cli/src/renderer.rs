@@ -684,16 +684,16 @@ impl TerminalRenderer {
         }
     }
 
-    /// Render a ToolUse block: `⚙ tool_name({input})`.
+    /// Render a ToolUse block: `⚙ tool_name(input)`.
     fn render_tool_use(&self, name: &str, input: &str) -> String {
         let truncated = self.truncate_to_width(input);
         if self.ansi {
             format!(
-                "{}⚙ {}{}{}{}{{{}{}}}{}{}\n",
+                "{}⚙ {}{}{}{}({}{}){}{}\n",
                 DIM, BOLD, CYAN, name, RESET, DIM, truncated, DIM, RESET
             )
         } else {
-            format!("⚙ {}{{{}}}\n", name, truncated)
+            format!("⚙ {}({})\n", name, truncated)
         }
     }
 
