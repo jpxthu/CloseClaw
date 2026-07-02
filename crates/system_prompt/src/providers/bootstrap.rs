@@ -168,6 +168,7 @@ mod tests {
             agent_id: Some("test-agent".into()),
             bootstrap_mode: None,
             workdir: None,
+            agent_dir: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), Some(BootstrapMode::Minimal));
 
@@ -176,6 +177,7 @@ mod tests {
             agent_id: Some("unknown".into()),
             bootstrap_mode: None,
             workdir: None,
+            agent_dir: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), None);
     }

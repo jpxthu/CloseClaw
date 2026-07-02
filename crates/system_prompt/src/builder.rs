@@ -246,6 +246,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
         agent_id: config.agent_id.clone(),
         bootstrap_mode,
         workdir: Some(root.to_path_buf()),
+        agent_dir: None,
     };
 
     let agent_registry = config
