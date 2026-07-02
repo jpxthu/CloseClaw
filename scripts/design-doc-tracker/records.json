@@ -65,9 +65,9 @@
   },
   {
     "path": "docs/design/cli/renderer.md",
-    "commit": "1993be1ca393d1eb6b96ffb6888b92471973a453",
-    "commit_time": "2026-06-30T08:18:30+08:00",
-    "confirmed_time": "2026-06-30T08:23:05.026741+08:00",
+    "commit": "c062b22af491990d64c9f9746488341aba068c10",
+    "commit_time": "2026-07-03T05:48:16+08:00",
+    "confirmed_time": "2026-07-03T05:54:45.728493+08:00",
     "comment": "",
     "blocked_reason": ""
   },
