@@ -4,8 +4,8 @@
 //! code blocks, ANSI helpers, and edge cases.
 
 use crate::renderer::{
-    get_terminal_width, resolve_terminal_width_from, strip_ansi, TerminalRenderer, BOLD, CYAN, DIM,
-    ITALIC,
+    check_line_pattern, get_terminal_width, resolve_terminal_width_from, strip_ansi,
+    TerminalRenderer, BOLD, CYAN, DIM, ITALIC,
 };
 use closeclaw_common::processor::{DslInstruction, DslParseResult};
 use closeclaw_llm::types::ContentBlock;
@@ -621,6 +621,226 @@ fn test_truncation_works_in_plain_text_mode() {
     });
     let stripped = strip_ansi(&result_result);
     assert!(stripped.contains("... (truncated)"));
+}
+
+// ── Heading bold tests (Step 1.1) ──────────────────────────────────────────
+
+/// h1-h6 bold in ANSI mode (each level strips '#' and applies BOLD).
+#[test]
+fn test_heading_bold_ansi_h1_to_h6() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let cases = [
+        ("# Title", "Title"),
+        ("## Sub", "Sub"),
+        ("### Section", "Section"),
+        ("#### Subsection", "Subsection"),
+        ("##### Detail", "Detail"),
+        ("###### Smallest", "Smallest"),
+    ];
+    for (input, expected_content) in cases {
+        let result = renderer.render_block(&ContentBlock::Text(input.into()));
+        assert!(
+            result.contains(expected_content),
+            "h-level heading '{}' should contain '{}'",
+            input,
+            expected_content
+        );
+        assert!(
+            result.contains(BOLD),
+            "h-level heading '{}' should apply BOLD",
+            input
+        );
+        assert!(
+            !result.contains(input),
+            "h-level heading '{}' prefix should be stripped",
+            input
+        );
+    }
+}
+
+/// 7 '#' characters should NOT trigger heading style (not valid markdown).
+#[test]
+fn test_heading_h7_no_bold() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let result = renderer.render_block(&ContentBlock::Text("####### H7".into()));
+    // Should pass through as plain text (not a heading)
+    assert!(result.contains("H7")); // passes through as plain text
+}
+
+/// Empty heading: '# ' with no content after.
+#[test]
+fn test_heading_empty_content() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let result = renderer.render_block(&ContentBlock::Text("# ".into()));
+    // Empty content after '# ' — should still wrap in BOLD
+    assert!(result.contains(BOLD));
+    assert!(!result.contains("# "));
+}
+
+/// No space after '#': '#Title' should not match heading pattern.
+#[test]
+fn test_heading_no_space_after_hash() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let result = renderer.render_block(&ContentBlock::Text("#Title".into()));
+    // Should be treated as plain text, '#Title' appears literally
+    assert!(result.contains("#Title"));
+}
+
+/// Non-ANSI mode: h1/h3 strip '#' prefix, no ANSI codes.
+#[test]
+fn test_heading_no_ansi_h1_and_h3() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let cases = [("# Title", "Title"), ("### Sub", "Sub")];
+    for (input, expected) in cases {
+        let result = renderer.render_block(&ContentBlock::Text(input.into()));
+        assert_eq!(result.trim(), expected);
+        assert!(!result.contains(BOLD));
+    }
+}
+
+/// Regression: blockquote is not affected by heading changes.
+#[test]
+fn test_heading_regression_blockquote() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let result = renderer.render_block(&ContentBlock::Text("> quote".into()));
+    assert!(result.contains("│ quote"));
+    assert!(result.contains(DIM));
+}
+
+/// Regression: hr is not affected by heading changes.
+#[test]
+fn test_heading_regression_hr() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let result = renderer.render_block(&ContentBlock::Text("---".into()));
+    assert!(result.contains("───"));
+    assert!(result.contains(DIM));
+}
+
+/// Regression: plain text lines are not affected by heading changes.
+#[test]
+fn test_heading_regression_plain_text() {
+    let renderer = TerminalRenderer::with_ansi(false);
+    let result = renderer.render_block(&ContentBlock::Text("just text".into()));
+    assert!(result.contains("just text"));
+}
+
+/// check_line_pattern: h2/h6 bold in ANSI, h1/h2 plain in non-ANSI.
+#[test]
+fn test_check_line_pattern_heading_ansi_and_no_ansi() {
+    let r = check_line_pattern("## Heading", true).unwrap();
+    assert!(r.contains(BOLD));
+    assert!(r.contains("Heading"));
+    assert!(!r.contains("## Heading")); // prefix stripped
+
+    let r = check_line_pattern("###### Tiny", true).unwrap();
+    assert!(r.contains(BOLD));
+    assert!(r.contains("Tiny"));
+
+    let r = check_line_pattern("# Title", true).unwrap();
+    assert!(r.contains(BOLD));
+    assert!(r.contains("Title"));
+
+    assert_eq!(check_line_pattern("# Title", false).unwrap(), "Title");
+    assert_eq!(check_line_pattern("## Sub", false).unwrap(), "Sub");
+}
+
+/// check_line_pattern: plain text returns None.
+#[test]
+fn test_check_line_pattern_plain_none() {
+    assert!(check_line_pattern("hello world", true).is_none());
+}
+
+/// check_line_pattern: h1 without trailing space returns None.
+#[test]
+fn test_check_line_pattern_h1_no_space() {
+    assert!(check_line_pattern("#Title", true).is_none());
+}
+
+/// check_line_pattern: h7 returns None.
+#[test]
+fn test_check_line_pattern_h7_none() {
+    assert!(check_line_pattern("####### H7", true).is_none());
+}
+
+/// check_line_pattern: hr returns DIM.
+#[test]
+fn test_check_line_pattern_hr() {
+    let result = check_line_pattern("---", true).unwrap();
+    assert!(result.contains(DIM));
+    assert!(result.contains("───"));
+}
+
+/// check_line_pattern: blockquote returns DIM.
+#[test]
+fn test_check_line_pattern_blockquote() {
+    let result = check_line_pattern("> quote", true).unwrap();
+    assert!(result.contains(DIM));
+    assert!(result.contains("│ quote"));
+}
+
+// ── Text block truncation tests (Step 1.2) ──────────────────────────────
+
+/// Short text is not truncated (both ANSI and non-ANSI).
+#[test]
+fn test_text_block_short_no_truncation() {
+    for ansi in [false, true] {
+        let renderer = TerminalRenderer::with_ansi(ansi);
+        let result = renderer.render_block(&ContentBlock::Text("hello".into()));
+        assert!(result.contains("hello"));
+        assert!(!result.contains("... (truncated)"));
+    }
+}
+
+/// Long text (over terminal width) is truncated (both ANSI and non-ANSI).
+#[test]
+fn test_text_block_over_width_truncated() {
+    for ansi in [false, true] {
+        let renderer = TerminalRenderer::with_ansi(ansi);
+        let long_text = "x".repeat(1000);
+        let result = renderer.render_block(&ContentBlock::Text(long_text));
+        assert!(result.contains("... (truncated)"));
+    }
+}
+
+/// Text at terminal width - 1 is not truncated (boundary).
+#[test]
+fn test_text_block_at_width_no_truncation() {
+    let width = get_terminal_width();
+    let renderer = TerminalRenderer::with_ansi(false);
+    // Use width - 1 chars: rendered output includes trailing \n,
+    // so total is width chars which equals (not exceeds) width.
+    let text_below: String = "a".repeat(width - 1);
+    let result = renderer.render_block(&ContentBlock::Text(text_below));
+    assert!(!result.contains("... (truncated)"));
+}
+
+/// Text exceeding terminal width is truncated (boundary).
+#[test]
+fn test_text_block_over_width_truncation() {
+    let width = get_terminal_width();
+    let renderer = TerminalRenderer::with_ansi(false);
+    let over_text: String = "b".repeat(width + 1);
+    let result = renderer.render_block(&ContentBlock::Text(over_text));
+    assert!(result.contains("... (truncated)"));
+}
+
+/// Markdown formatted text: heading rendered before truncation.
+#[test]
+fn test_text_block_heading_truncated() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let long_heading = format!("# {}", "h".repeat(1000));
+    let result = renderer.render_block(&ContentBlock::Text(long_heading));
+    assert!(result.contains(BOLD)); // heading styling applied
+    assert!(result.contains("... (truncated)")); // then truncated
+}
+
+/// Markdown formatted text: code block rendered before truncation.
+#[test]
+fn test_text_block_code_block_truncated() {
+    let renderer = TerminalRenderer::with_ansi(true);
+    let long_code = format!("```rust\n{}```", "c".repeat(1000));
+    let result = renderer.render_block(&ContentBlock::Text(long_code));
+    assert!(result.contains("... (truncated)"));
 }
 
 // ── DSL rendering order tests ───────────────────────────────────────────────
