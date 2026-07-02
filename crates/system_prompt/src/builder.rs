@@ -7,10 +7,8 @@ use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::providers::memory::MemoryFragmentProvider;
 use crate::providers::skills::SkillsFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
-use crate::sections::{get_cached_section, put_cached_section, read_file_section, Section};
-use crate::tools_section::build_tools_section;
+use crate::sections::{get_cached_section, put_cached_section, Section};
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_session::bootstrap::loader::load_bootstrap_files;
 use closeclaw_skills::DiskSkillRegistry;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -21,7 +19,7 @@ pub use closeclaw_common::system_prompt::PromptOverrides;
 /// Default system prompt fallback
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
 
-use closeclaw_tools::{ToolContext, ToolRegistry};
+use closeclaw_tools::ToolRegistry;
 
 // ---------------------------------------------------------------------------
 // PromptBuilder: Provider-driven prompt assembly
@@ -100,7 +98,11 @@ impl PromptBuilder {
             }
 
             if let Some(fragment) = provider.generate(ctx).await {
-                let rendered = format!("{}\n{}\n", fragment.title, fragment.content);
+                let rendered = if fragment.title.is_empty() {
+                    format!("{}\n", fragment.content)
+                } else {
+                    format!("{}\n{}\n", fragment.title, fragment.content)
+                };
                 // Cache the rendered fragment.
                 if let Some(key) = provider.cache_key(ctx) {
                     put_cached_section(&key, rendered.clone(), None);
@@ -198,22 +200,13 @@ fn append_append_section(base: String, append: Option<String>) -> String {
 // ---------------------------------------------------------------------------
 
 /// Configuration for `build_from_workspace`.
-pub struct WorkspaceBuildConfig<'a> {
-    /// Bootstrap files as (filename, content) pairs, in display order.
-    /// Provided by `load_bootstrap_files`.
-    ///
-    /// When empty and `agent_registry` + `agent_id` are set, the builder
-    /// queries the AgentRegistry for the bootstrap mode and loads files
-    /// automatically (design-doc query path).
-    pub bootstrap_files: Vec<(String, String)>,
+pub struct WorkspaceBuildConfig {
     /// Tool registry for generating the ToolsSection.
-    pub tool_registry: Option<&'a ToolRegistry>,
-    /// Tool context for tool section rendering.
-    pub tool_ctx: &'a ToolContext,
+    pub tool_registry: Option<Arc<ToolRegistry>>,
     /// Skill registry for generating SkillListingSection.
     pub skill_registry: Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
     /// Agent ID for skill listing filtering.
-    pub agent_id: Option<&'a str>,
+    pub agent_id: Option<String>,
     /// Agent-level tool whitelist from config (`tools` field).
     pub agent_tools: Option<Vec<String>>,
     /// Agent-level tool blacklist from config (`disallowedTools` field).
@@ -224,75 +217,11 @@ pub struct WorkspaceBuildConfig<'a> {
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
     pub append_section: Option<String>,
-    /// Optional AgentRegistry reference for direct bootstrap mode queries.
+    /// Optional AgentRegistry reference for bootstrap mode queries.
     pub agent_registry: Option<Arc<AgentRegistry>>,
 }
 
 // --- Private helpers -------------------------------------------------------
-
-/// Build the RoleSection from bootstrap files.
-///
-/// Filters out `MEMORY.md` entries (handled separately by the
-/// MemorySection path), concatenates the remaining bootstrap file
-/// contents, and pushes a `RoleSection` if any content exists.
-fn build_role_section(sections: &mut Vec<Section>, bootstrap_files: &[(String, String)]) {
-    let role: String = bootstrap_files
-        .iter()
-        .filter(|(n, _)| n != "MEMORY.md")
-        .map(|(_, c)| c.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    if !role.is_empty() {
-        sections.push(Section::RoleSection(role));
-    }
-}
-
-fn push_skill_listing_section(
-    sections: &mut Vec<Section>,
-    skill_registry: &Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
-    agent_id: Option<&str>,
-    agent_skills: Option<&[String]>,
-) {
-    let Some(lock) = skill_registry else {
-        return;
-    };
-    let Ok(g) = lock.read() else {
-        return;
-    };
-    let Some(reg) = g.as_ref() else {
-        return;
-    };
-    let listing = reg.generate_listing(agent_id, agent_skills);
-    if !listing.is_empty() {
-        sections.push(Section::SkillListingSection(listing));
-    }
-}
-
-/// Resolve bootstrap files: use pre-loaded files, or query AgentRegistry
-/// for the bootstrap mode and load them on the fly.
-fn resolve_bootstrap_files(
-    root: &Path,
-    config: &WorkspaceBuildConfig<'_>,
-) -> Vec<(String, String)> {
-    if !config.bootstrap_files.is_empty() {
-        return config.bootstrap_files.clone();
-    }
-    let Some(registry) = config.agent_registry.as_ref() else {
-        return config.bootstrap_files.clone();
-    };
-    let Some(agent_id) = config.agent_id else {
-        return config.bootstrap_files.clone();
-    };
-    registry
-        .query_bootstrap_mode(agent_id)
-        .map(|mode| {
-            load_bootstrap_files(root, mode)
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
-        })
-        .unwrap_or_else(|| config.bootstrap_files.clone())
-}
 
 /// Build a system prompt from a workspace directory.
 ///
@@ -301,51 +230,65 @@ fn resolve_bootstrap_files(
 /// The public signature and return value are unchanged.
 pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
-    config: WorkspaceBuildConfig<'_>,
+    config: WorkspaceBuildConfig,
 ) -> String {
     let root = workspace_root.as_ref();
 
-    // Resolve bootstrap files for the legacy RoleSection path.
-    let resolved_bootstrap_files = resolve_bootstrap_files(root, &config);
+    // Resolve bootstrap mode for FragmentContext.
+    let bootstrap_mode = config.agent_registry.as_ref().and_then(|reg| {
+        config
+            .agent_id
+            .as_deref()
+            .and_then(|id| reg.query_bootstrap_mode(id))
+    });
 
-    // Build using the legacy Section-based path.
-    let mut sections: Vec<Section> = Vec::new();
-    build_role_section(&mut sections, &resolved_bootstrap_files);
+    let ctx = FragmentContext {
+        agent_id: config.agent_id.clone(),
+        bootstrap_mode,
+        workdir: Some(root.to_path_buf()),
+    };
 
-    // MemorySection — skip if workspace_root is missing/empty
-    if root.exists() && root.is_dir() {
-        let memory_path = root.join("MEMORY.md");
-        if let Some((content, _)) = read_file_section(&memory_path) {
-            if !content.is_empty() {
-                sections.push(Section::MemorySection(content));
-            }
-        }
-    }
+    let agent_registry = config
+        .agent_registry
+        .unwrap_or_else(|| Arc::new(AgentRegistry::new()));
+    let tool_registry = config
+        .tool_registry
+        .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
+    let skill_registry = config
+        .skill_registry
+        .unwrap_or_else(|| Arc::new(RwLock::new(None)));
 
-    // ToolsSection — real content when registry available
-    if let Some(reg) = config.tool_registry {
-        sections.push(
-            build_tools_section(
-                reg,
-                config.tool_ctx,
-                config.agent_tools.clone(),
-                config.agent_disallowed_tools.clone(),
-            )
-            .await,
-        );
-    } else {
-        sections.push(Section::ToolsSection(String::new()));
-    }
-
-    // SkillListingSection
-    push_skill_listing_section(
-        &mut sections,
-        &config.skill_registry,
-        config.agent_id,
-        config.agent_skills.as_deref(),
+    let builder = PromptBuilder::new(
+        agent_registry,
+        tool_registry,
+        skill_registry,
+        config.agent_tools,
+        config.agent_disallowed_tools,
+        config.agent_skills,
     );
-    sections.extend(config.dynamic_sections);
-    build_system_prompt(sections, config.append_section)
+
+    let static_layer = builder.build(&ctx).await;
+
+    // Render dynamic sections (not cached, always rebuilt).
+    let dynamic_rendered: Vec<String> = config
+        .dynamic_sections
+        .into_iter()
+        .map(render_section)
+        .collect();
+
+    let mut all_parts = Vec::new();
+    if static_layer != DEFAULT_PROMPT {
+        all_parts.push(static_layer);
+    }
+    all_parts.extend(dynamic_rendered);
+
+    let base = if all_parts.is_empty() {
+        DEFAULT_PROMPT.to_string()
+    } else {
+        all_parts.join("\n")
+    };
+
+    append_append_section(base, config.append_section)
 }
 
 #[cfg(test)]
@@ -431,17 +374,8 @@ mod tests {
 
     #[test]
     fn test_workspace_build_config_has_agent_registry_field() {
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-        };
         let config = WorkspaceBuildConfig {
-            bootstrap_files: vec![],
             tool_registry: None,
-            tool_ctx: &ctx,
             skill_registry: None,
             agent_id: None,
             agent_tools: None,
@@ -477,19 +411,10 @@ mod tests {
             source: ConfigSource::User,
         }]);
 
-        let ctx = ToolContext {
-            agent_id: "test-agent".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-        };
         let config = WorkspaceBuildConfig {
-            bootstrap_files: vec![],
             tool_registry: None,
-            tool_ctx: &ctx,
             skill_registry: None,
-            agent_id: Some("test-agent"),
+            agent_id: Some("test-agent".to_string()),
             agent_tools: None,
             agent_disallowed_tools: None,
             agent_skills: None,
@@ -498,7 +423,7 @@ mod tests {
             agent_registry: Some(agent_reg),
         };
         assert!(config.agent_registry.is_some());
-        assert_eq!(config.agent_id, Some("test-agent"));
+        assert_eq!(config.agent_id.as_deref(), Some("test-agent"));
     }
 
     #[test]

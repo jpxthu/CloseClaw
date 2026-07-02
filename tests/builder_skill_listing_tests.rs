@@ -5,7 +5,6 @@ use closeclaw::system_prompt::sections::invalidate_all_sections;
 use closeclaw_skills::disk::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
 use closeclaw_skills::disk::DiskSkill;
 use closeclaw_skills::DiskSkillRegistry;
-use closeclaw_tools::ToolContext;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -43,22 +42,12 @@ async fn test_build_from_workspace_skill_listing_injected() {
     let registry = DiskSkillRegistry::new(vec![skill]);
     let registry_arc = Arc::new(RwLock::new(Some(registry)));
 
-    let tool_ctx = ToolContext {
-        agent_id: "test".to_string(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-    };
-
     let result = build_from_workspace(
         dir.path(),
         WorkspaceBuildConfig {
-            bootstrap_files: vec![],
             tool_registry: None,
-            tool_ctx: &tool_ctx,
             skill_registry: Some(registry_arc),
-            agent_id: Some("eda"),
+            agent_id: Some("eda".to_string()),
             agent_tools: None,
             agent_disallowed_tools: None,
             agent_skills: None,
@@ -95,20 +84,10 @@ async fn test_build_from_workspace_no_skill_info_no_section() {
     std::fs::write(dir.path().join("SOUL.md"), "test soul").unwrap();
     std::fs::write(dir.path().join("MEMORY.md"), "test memory").unwrap();
 
-    let tool_ctx = ToolContext {
-        agent_id: "test".to_string(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-    };
-
     let result = build_from_workspace(
         dir.path(),
         WorkspaceBuildConfig {
-            bootstrap_files: vec![],
             tool_registry: None,
-            tool_ctx: &tool_ctx,
             skill_registry: None,
             agent_id: None,
             agent_tools: None,
@@ -136,22 +115,12 @@ async fn test_build_from_workspace_empty_listing_no_section() {
     let registry = DiskSkillRegistry::new(vec![]);
     let registry_arc = Arc::new(RwLock::new(Some(registry)));
 
-    let tool_ctx = ToolContext {
-        agent_id: "test".to_string(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-    };
-
     let result = build_from_workspace(
         dir.path(),
         WorkspaceBuildConfig {
-            bootstrap_files: vec![],
             tool_registry: None,
-            tool_ctx: &tool_ctx,
             skill_registry: Some(registry_arc),
-            agent_id: Some("eda"),
+            agent_id: Some("eda".to_string()),
             agent_tools: None,
             agent_disallowed_tools: None,
             agent_skills: None,
@@ -178,22 +147,12 @@ async fn test_build_from_workspace_skill_section_not_duplicated() {
     let registry = DiskSkillRegistry::new(vec![skill]);
     let registry_arc = Arc::new(RwLock::new(Some(registry)));
 
-    let tool_ctx = ToolContext {
-        agent_id: "test".to_string(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-    };
-
     let result = build_from_workspace(
         dir.path(),
         WorkspaceBuildConfig {
-            bootstrap_files: vec![],
             tool_registry: None,
-            tool_ctx: &tool_ctx,
             skill_registry: Some(registry_arc),
-            agent_id: Some("eda"),
+            agent_id: Some("eda".to_string()),
             agent_tools: None,
             agent_disallowed_tools: None,
             agent_skills: None,

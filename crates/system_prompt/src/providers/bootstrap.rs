@@ -59,18 +59,19 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
             .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let content: String = entries
-            .iter()
-            .map(|(_, c)| c.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        if content.is_empty() {
+        if entries.is_empty() {
             return None;
         }
 
+        // Each bootstrap file gets its own `## filename` header.
+        let content: String = entries
+            .iter()
+            .map(|(name, body)| format!("## {}\n{}", name, body))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
         Some(PromptFragment {
-            title: "## Role".to_string(),
+            title: String::new(),
             section_type: SectionType::Bootstrap,
             content,
         })
@@ -80,15 +81,13 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
         let workdir = ctx.workdir.as_ref()?;
         let mode = self.resolve_mode(ctx)?;
 
-        let files = load_bootstrap_files(workdir, mode).ok()?;
-
-        // Build a cache key from file modification times. If any mtime cannot
-        // be read we fall back to a "no-cache" sentinel.
+        // Build a cache key from file modification times without loading
+        // the full file contents — just iterate the known file list for
+        // this bootstrap mode.
+        let file_names = closeclaw_session::bootstrap::loader::bootstrap_file_list(mode);
         let mut key_parts: Vec<String> = Vec::new();
-        let mut names: Vec<&String> = files.keys().collect();
-        names.sort();
 
-        for name in names {
+        for name in file_names {
             let path = workdir.join(name);
             match std::fs::metadata(&path) {
                 Ok(meta) => {
@@ -98,8 +97,12 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
                         meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
                     ));
                 }
-                Err(_) => return None,
+                Err(_) => continue,
             }
+        }
+
+        if key_parts.is_empty() {
+            return None;
         }
 
         Some(format!("bootstrap:{}", key_parts.join("|")))
@@ -215,9 +218,10 @@ mod tests {
             ..Default::default()
         };
         let fragment = provider.generate(&ctx).await.unwrap();
-        assert_eq!(fragment.title, "## Role");
+        assert!(fragment.title.is_empty());
         assert_eq!(fragment.section_type, SectionType::Bootstrap);
-        assert_eq!(fragment.content, "# Agent Config\nHello");
+        assert!(fragment.content.starts_with("## AGENTS.md\n"));
+        assert!(fragment.content.contains("# Agent Config\nHello"));
     }
 
     #[tokio::test]
@@ -237,9 +241,12 @@ mod tests {
         };
         let fragment = provider.generate(&ctx).await.unwrap();
         // Files sorted by name: AGENTS.md, IDENTITY.md, SOUL.md
-        assert!(fragment.content.starts_with("agents content"));
-        assert!(fragment.content.contains("identity content"));
-        assert!(fragment.content.ends_with("soul content"));
+        // Each file gets its own ## header.
+        assert!(fragment.content.starts_with("## AGENTS.md\nagents content"));
+        assert!(fragment
+            .content
+            .contains("## IDENTITY.md\nidentity content"));
+        assert!(fragment.content.contains("## SOUL.md\nsoul content"));
         assert_eq!(fragment.content.matches("\n\n").count(), 2);
     }
 

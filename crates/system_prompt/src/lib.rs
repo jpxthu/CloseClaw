@@ -19,7 +19,6 @@ pub mod workdir;
 pub use builder::{
     build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
 };
-pub use closeclaw_common;
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use providers::bootstrap::BootstrapFragmentProvider;
 pub use providers::memory::MemoryFragmentProvider;
