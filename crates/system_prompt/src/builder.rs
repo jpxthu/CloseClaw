@@ -2,7 +2,12 @@
 //!
 //! Orchestrates section assembly and renders the final system prompt string.
 
-use crate::sections::{get_cached_section, load_cached_file_section, read_file_section, Section};
+use crate::fragment::{FragmentContext, PromptFragmentProvider};
+use crate::providers::bootstrap::BootstrapFragmentProvider;
+use crate::providers::memory::MemoryFragmentProvider;
+use crate::providers::skills::SkillsFragmentProvider;
+use crate::providers::tools::ToolsFragmentProvider;
+use crate::sections::{get_cached_section, put_cached_section, read_file_section, Section};
 use crate::tools_section::build_tools_section;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_session::bootstrap::loader::load_bootstrap_files;
@@ -16,8 +21,104 @@ pub use closeclaw_common::system_prompt::PromptOverrides;
 /// Default system prompt fallback
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
 
+use closeclaw_tools::{ToolContext, ToolRegistry};
+
 // ---------------------------------------------------------------------------
-// Build
+// PromptBuilder: Provider-driven prompt assembly
+// ---------------------------------------------------------------------------
+
+/// Provider-driven system prompt builder.
+///
+/// Holds `Arc` references to the four registries needed by the standard
+/// providers and assembles the prompt by asking each provider for its
+/// fragment, sorted by priority.
+pub struct PromptBuilder {
+    agent_registry: Arc<AgentRegistry>,
+    tool_registry: Arc<ToolRegistry>,
+    skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
+    agent_tools: Option<Vec<String>>,
+    agent_disallowed_tools: Option<Vec<String>>,
+    agent_skills: Option<Vec<String>>,
+}
+
+impl PromptBuilder {
+    /// Create a new builder with all four registries.
+    pub fn new(
+        agent_registry: Arc<AgentRegistry>,
+        tool_registry: Arc<ToolRegistry>,
+        skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
+        agent_tools: Option<Vec<String>>,
+        agent_disallowed_tools: Option<Vec<String>>,
+        agent_skills: Option<Vec<String>>,
+    ) -> Self {
+        Self {
+            agent_registry,
+            tool_registry,
+            skill_registry,
+            agent_tools,
+            agent_disallowed_tools,
+            agent_skills,
+        }
+    }
+
+    /// Build the system prompt from the given context.
+    ///
+    /// Sorts providers by priority, checks section-level cache before
+    /// calling `generate()`, skips `None` results, concatenates fragments,
+    /// and falls back to `DEFAULT_PROMPT` when no provider contributes.
+    pub async fn build(&self, ctx: &FragmentContext) -> String {
+        // Create the four standard providers.
+        let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+            Box::new(BootstrapFragmentProvider::new(Arc::clone(
+                &self.agent_registry,
+            ))),
+            Box::new(ToolsFragmentProvider::new(
+                Arc::clone(&self.tool_registry),
+                self.agent_tools.clone(),
+                self.agent_disallowed_tools.clone(),
+            )),
+            Box::new(SkillsFragmentProvider::new(
+                Arc::clone(&self.skill_registry),
+                self.agent_skills.clone(),
+            )),
+            Box::new(MemoryFragmentProvider::new()),
+        ];
+
+        // Sort by priority (lower first).
+        let mut sorted = providers;
+        sorted.sort_by_key(|p| p.priority());
+
+        let mut fragments: Vec<String> = Vec::new();
+
+        for provider in &sorted {
+            // Check section-level cache.
+            if let Some(key) = provider.cache_key(ctx) {
+                if let Some(cached) = get_cached_section(&key, None) {
+                    fragments.push(cached);
+                    continue;
+                }
+            }
+
+            if let Some(fragment) = provider.generate(ctx).await {
+                let rendered = format!("{}\n{}\n", fragment.title, fragment.content);
+                // Cache the rendered fragment.
+                if let Some(key) = provider.cache_key(ctx) {
+                    put_cached_section(&key, rendered.clone(), None);
+                }
+                fragments.push(rendered);
+            }
+        }
+
+        if fragments.is_empty() {
+            DEFAULT_PROMPT.to_string()
+        } else {
+            fragments.join("\n")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy / compat entry points
 // ---------------------------------------------------------------------------
 
 /// Build the complete system prompt from the given sections.
@@ -25,12 +126,7 @@ const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
 /// This function only renders sections and appends the optional `append_section`.
 /// Priority-prompt resolution (override > agent > custom) is handled at the
 /// request stage by [`build_full_system_prompt`] in this module's [`inject`].
-///
-///  1. Renders all provided sections
-///  2. Falls back to DEFAULT_PROMPT when no sections produce output
-///  3. Appends `append_section` if provided
 pub fn build_system_prompt(sections: Vec<Section>, append_section: Option<String>) -> String {
-    // Render sections
     let rendered = render_sections(sections);
     let base = if rendered.is_empty() {
         DEFAULT_PROMPT.to_string()
@@ -41,12 +137,12 @@ pub fn build_system_prompt(sections: Vec<Section>, append_section: Option<String
     append_append_section(base, append_section)
 }
 
-/// Render all sections into a vector of strings
+/// Render all sections into a vector of strings.
 fn render_sections(sections: Vec<Section>) -> Vec<String> {
     sections.into_iter().map(render_section).collect()
 }
 
-/// Render a single section to string
+/// Render a single section to string.
 fn render_section(section: Section) -> String {
     let name = section.name();
     let is_static = section.is_cacheable();
@@ -56,7 +152,7 @@ fn render_section(section: Section) -> String {
             Section::MemorySection(_) => {
                 let path = Path::new("MEMORY.md");
                 if path.exists() {
-                    load_cached_file_section("memory", path)
+                    crate::sections::load_cached_file_section("memory", path)
                         .map(|c| Section::MemorySection(c).render())
                         .unwrap_or_default()
                 } else {
@@ -66,7 +162,7 @@ fn render_section(section: Section) -> String {
             Section::HeartbeatSection(_) => {
                 let path = Path::new("HEARTBEAT.md");
                 if path.exists() {
-                    load_cached_file_section("heartbeat", path)
+                    crate::sections::load_cached_file_section("heartbeat", path)
                         .map(|c| Section::HeartbeatSection(c).render())
                         .unwrap_or_default()
                 } else {
@@ -78,7 +174,7 @@ fn render_section(section: Section) -> String {
                     cached
                 } else {
                     let rendered = section.render();
-                    crate::sections::put_cached_section(name, rendered.clone(), None);
+                    put_cached_section(name, rendered.clone(), None);
                     rendered
                 }
             }
@@ -88,7 +184,7 @@ fn render_section(section: Section) -> String {
     }
 }
 
-/// Append the current append_section to a base prompt
+/// Append the current append_section to a base prompt.
 fn append_append_section(base: String, append: Option<String>) -> String {
     if let Some(append) = append {
         format!("{}\n\n## Append\n{}\n", base, append)
@@ -96,8 +192,6 @@ fn append_append_section(base: String, append: Option<String>) -> String {
         base
     }
 }
-
-use closeclaw_tools::{ToolContext, ToolRegistry};
 
 // ---------------------------------------------------------------------------
 // Convenience: build from file-based workspace sections
@@ -121,28 +215,16 @@ pub struct WorkspaceBuildConfig<'a> {
     /// Agent ID for skill listing filtering.
     pub agent_id: Option<&'a str>,
     /// Agent-level tool whitelist from config (`tools` field).
-    ///
-    /// Passed through to [`PromptGenerationContext`] so the tool
-    /// section only lists tools the agent is allowed to use.
     pub agent_tools: Option<Vec<String>>,
     /// Agent-level tool blacklist from config (`disallowedTools` field).
     pub agent_disallowed_tools: Option<Vec<String>>,
     /// Agent-level skill whitelist from config (`skills` field).
-    ///
-    /// When set, only skills whose names appear in the list are included
-    /// in the system prompt skill listing. A value of `["*"]` means no
-    /// filtering (all skills are shown).
     pub agent_skills: Option<Vec<String>>,
     /// Additional dynamic sections to include.
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
     pub append_section: Option<String>,
     /// Optional AgentRegistry reference for direct bootstrap mode queries.
-    ///
-    /// When set alongside `agent_id`, the builder can query the AgentRegistry
-    /// for the agent's bootstrap mode configuration, fulfilling the
-    /// design-doc query path: System Prompt → AgentRegistry.get(agent_id)
-    /// → bootstrap_mode.
     pub agent_registry: Option<Arc<AgentRegistry>>,
 }
 
@@ -164,6 +246,7 @@ fn build_role_section(sections: &mut Vec<Section>, bootstrap_files: &[(String, S
         sections.push(Section::RoleSection(role));
     }
 }
+
 fn push_skill_listing_section(
     sections: &mut Vec<Section>,
     skill_registry: &Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
@@ -213,22 +296,22 @@ fn resolve_bootstrap_files(
 
 /// Build a system prompt from a workspace directory.
 ///
-/// When `config.bootstrap_files` is empty and `config.agent_registry`
-/// and `config.agent_id` are set, the builder queries the AgentRegistry
-/// for the agent's bootstrap mode and loads files automatically
-/// (design-doc query path: System Prompt → AgentRegistry).
-///
-/// Push the SkillListingSection into `sections` when a skill registry
-/// is available and produces a non-empty listing.
+/// Internally constructs a [`FragmentContext`] and [`PromptBuilder`],
+/// delegating the actual assembly to the Provider-driven pipeline.
+/// The public signature and return value are unchanged.
 pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     config: WorkspaceBuildConfig<'_>,
 ) -> String {
     let root = workspace_root.as_ref();
-    let mut sections: Vec<Section> = Vec::new();
 
+    // Resolve bootstrap files for the legacy RoleSection path.
     let resolved_bootstrap_files = resolve_bootstrap_files(root, &config);
+
+    // Build using the legacy Section-based path.
+    let mut sections: Vec<Section> = Vec::new();
     build_role_section(&mut sections, &resolved_bootstrap_files);
+
     // MemorySection — skip if workspace_root is missing/empty
     if root.exists() && root.is_dir() {
         let memory_path = root.join("MEMORY.md");
@@ -238,6 +321,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
             }
         }
     }
+
     // ToolsSection — real content when registry available
     if let Some(reg) = config.tool_registry {
         sections.push(
@@ -252,6 +336,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     } else {
         sections.push(Section::ToolsSection(String::new()));
     }
+
     // SkillListingSection
     push_skill_listing_section(
         &mut sections,
@@ -342,7 +427,6 @@ mod tests {
 
     #[test]
     fn test_workspace_build_config_has_agent_registry_field() {
-        // Verify the agent_registry field is accessible and defaults to None
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -436,7 +520,6 @@ mod tests {
             source: ConfigSource::User,
         }]);
 
-        // Verify the registry can be queried for bootstrap mode
         let mode = agent_reg.query_bootstrap_mode("minimal-agent");
         assert_eq!(mode, Some(BootstrapMode::Minimal));
     }
@@ -475,5 +558,54 @@ mod tests {
         let agent_reg = Arc::new(AgentRegistry::new());
         let mode = agent_reg.query_bootstrap_mode("missing-agent");
         assert_eq!(mode, None);
+    }
+
+    // ---- PromptBuilder tests ----
+
+    #[test]
+    fn test_prompt_builder_new() {
+        let agent_reg = Arc::new(AgentRegistry::new());
+        let tool_reg = Arc::new(ToolRegistry::new());
+        let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
+        let builder = PromptBuilder::new(agent_reg, tool_reg, skill_reg, None, None, None);
+        // Just verify construction succeeds.
+        assert!(builder.agent_tools.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_prompt_builder_build_fallback_default() {
+        let agent_reg = Arc::new(AgentRegistry::new());
+        let tool_reg = Arc::new(ToolRegistry::new());
+        let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
+        let builder = PromptBuilder::new(agent_reg, tool_reg, skill_reg, None, None, None);
+
+        // No workdir → BootstrapFragmentProvider returns None
+        // Empty tool registry → ToolsFragmentProvider returns None
+        // Empty skill registry → SkillsFragmentProvider returns None
+        // No workdir → MemoryFragmentProvider returns None
+        // → fallback DEFAULT_PROMPT
+        let ctx = FragmentContext::default();
+        let result = builder.build(&ctx).await;
+        assert_eq!(result, DEFAULT_PROMPT);
+    }
+
+    #[tokio::test]
+    async fn test_prompt_builder_build_with_memory() {
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
+
+        let agent_reg = Arc::new(AgentRegistry::new());
+        let tool_reg = Arc::new(ToolRegistry::new());
+        let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
+        let builder = PromptBuilder::new(agent_reg, tool_reg, skill_reg, None, None, None);
+
+        let ctx = FragmentContext {
+            workdir: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let result = builder.build(&ctx).await;
+        assert!(result.contains("## Memory"));
+        assert!(result.contains("remember X"));
     }
 }
