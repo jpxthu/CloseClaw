@@ -349,6 +349,10 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
 }
 
 #[cfg(test)]
+#[path = "builder_tests.rs"]
+mod builder_tests;
+
+#[cfg(test)]
 mod tests {
     use super::super::sections::Section;
     use super::*;
