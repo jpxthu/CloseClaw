@@ -72,6 +72,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/common/core-traits.md",
+    "commit": "1451955a8cfbdd74ea2d6466f2e766943c46d7ea",
+    "commit_time": "2026-07-03T06:38:50+08:00",
+    "confirmed_time": "2026-07-03T06:44:57.998362+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/config/README.md",
     "commit": "117e37938f346bf4c9283d07863b7de8c4c38d17",
     "commit_time": "2026-06-22T13:36:48+08:00",
