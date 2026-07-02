@@ -262,13 +262,15 @@ impl MessageProcessor for DslParser {
             .map_err(|e| ProcessError::processor_failed("DslParser", e))?;
 
         let mut metadata = ctx.metadata.clone();
-        metadata.insert("dsl_result".to_string(), serde_json::Value::String(json));
+        metadata.insert("dsl_result".to_string(), json);
 
         Ok(Some(super::ProcessedMessage {
-            content: ctx.content.clone(),
+            content_blocks: if updated_blocks.is_empty() {
+                vec![ContentBlock::Text(ctx.content.clone())]
+            } else {
+                updated_blocks
+            },
             metadata,
-            suppress: false,
-            content_blocks: updated_blocks,
         }))
     }
 }

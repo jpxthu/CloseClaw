@@ -28,7 +28,7 @@ async fn test_terminal_session_key_computed() {
     let key = result
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
     // Key format: {timestamp_ms}-{sha256_hex}
@@ -62,16 +62,8 @@ async fn test_deterministic_key() {
     let ctx = make_ctx(raw);
     let r1 = router.process(&ctx).await.unwrap().unwrap();
     let r2 = router.process(&ctx).await.unwrap().unwrap();
-    let k1 = r1
-        .metadata
-        .get("session_key")
-        .and_then(|v| v.as_str())
-        .unwrap();
-    let k2 = r2
-        .metadata
-        .get("session_key")
-        .and_then(|v| v.as_str())
-        .unwrap();
+    let k1 = r1.metadata.get("session_key").map(|s| s.as_str()).unwrap();
+    let k2 = r2.metadata.get("session_key").map(|s| s.as_str()).unwrap();
 
     // Key format: {timestamp_ms}-{sha256_hex}
     // Timestamp prefix uses system time so it may differ between calls.
@@ -108,7 +100,7 @@ async fn test_missing_peer_id_yields_empty_key() {
     let key = result
         .metadata
         .get("session_key")
-        .map(|v| v.as_str().unwrap_or(""))
+        .map(|s| s.as_str())
         .unwrap_or("");
     assert!(key.is_empty(), "missing peer_id should yield empty key");
 }
@@ -161,10 +153,8 @@ async fn test_metadata_preserves_upstream() {
         account_id: None,
     };
     let mut ctx = make_ctx(raw);
-    ctx.metadata.insert(
-        "existing_key".to_string(),
-        serde_json::json!("existing_value"),
-    );
+    ctx.metadata
+        .insert("existing_key".to_string(), "existing_value".to_string());
     let result = router.process(&ctx).await.unwrap().unwrap();
     assert_eq!(
         result.metadata.get("existing_key").unwrap(),
@@ -225,7 +215,7 @@ async fn test_system_time_used_for_session_key() {
         .unwrap()
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap()
         .to_string();
 
@@ -273,7 +263,7 @@ async fn test_per_account_channel_peer_uses_system_time() {
         .unwrap()
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap()
         .to_string();
 
@@ -330,7 +320,7 @@ async fn test_different_account_ids_produce_different_session_keys() {
         .unwrap()
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap()
         .to_string();
     let key_b = router
@@ -340,7 +330,7 @@ async fn test_different_account_ids_produce_different_session_keys() {
         .unwrap()
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap()
         .to_string();
 
@@ -393,7 +383,7 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         .unwrap()
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap()
         .to_string();
     let key_some = router
@@ -403,7 +393,7 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         .unwrap()
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap()
         .to_string();
 
@@ -428,15 +418,13 @@ async fn test_account_id_read_from_raw_message() {
     };
     let mut ctx = make_ctx(raw);
     // Even if metadata has a different account_id, RawMessage should win
-    ctx.metadata.insert(
-        "account_id".to_string(),
-        serde_json::json!("metadata_account"),
-    );
+    ctx.metadata
+        .insert("account_id".to_string(), "metadata_account".to_string());
     let result = router.process(&ctx).await.unwrap().unwrap();
     let key = result
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap();
     assert!(!key.is_empty(), "session_key should be set");
     // Verify key hash differs from one computed with "metadata_account"
@@ -454,7 +442,7 @@ async fn test_account_id_read_from_raw_message() {
     let key_meta = result_meta
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap();
     // They should differ because account_id comes from RawMessage
     assert_ne!(

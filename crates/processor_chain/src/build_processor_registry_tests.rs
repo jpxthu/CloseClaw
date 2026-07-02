@@ -96,12 +96,12 @@ async fn test_dm_scope_passed_to_session_router() {
     let key_sender = result_sender
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap();
     let key_default = result_default
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .unwrap();
 
     // Session keys must differ because routing fields differ by scope
@@ -131,7 +131,8 @@ async fn test_priority_sorting_inbound() {
     // ContentNormalizer strips trailing whitespace (not leading).
     // Input: "  hello   world  " → Output: "  hello   world"
     assert_eq!(
-        result.content, "  hello   world",
+        result.text_content(),
+        Some("  hello   world"),
         "ContentNormalizer (priority 30) must run after SessionRouter (priority 20)"
     );
 }
@@ -145,15 +146,15 @@ async fn test_priority_sorting_outbound() {
     let registry = build_processor_registry(&config);
 
     let llm_output = ProcessedMessage {
-        content: "test output".to_string(),
-        metadata: serde_json::Map::new(),
-        suppress: false,
-        content_blocks: vec![],
+        content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+            "test output".to_string(),
+        )],
+        metadata: std::collections::HashMap::new(),
     };
     let result = registry.process_outbound(llm_output).await.unwrap();
 
     // Outbound chain should pass content through (DslParser doesn't modify
     // plain text, OutboundRawLogProcessor logs without changing content)
-    assert_eq!(result.content, "test output");
-    assert!(!result.suppress);
+    assert_eq!(result.text_content(), Some("test output"));
+    assert!(!result.content_blocks.is_empty());
 }

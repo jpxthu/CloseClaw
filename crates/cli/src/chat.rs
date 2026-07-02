@@ -372,11 +372,11 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
         };
         let processed = gateway.process_inbound_chain(&input).await;
 
-        if processed.suppress {
+        if processed.content_blocks.is_empty() {
             continue;
         }
 
-        let trimmed = processed.content.trim();
+        let trimmed = processed.text_content().unwrap_or("").trim();
 
         if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
             println!("Goodbye!");

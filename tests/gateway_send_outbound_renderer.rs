@@ -47,18 +47,18 @@ impl MessageProcessor for MockOutboundProcessor {
         &self,
         _ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, closeclaw::processor_chain::error::ProcessError> {
-        let mut metadata = serde_json::Map::new();
+        if self.output_suppress {
+            return Ok(None);
+        }
+        let mut metadata = std::collections::HashMap::new();
         if let Some(ref json) = self.dsl_result_json {
-            metadata.insert(
-                "dsl_result".to_string(),
-                serde_json::Value::String(json.clone()),
-            );
+            metadata.insert("dsl_result".to_string(), json.clone());
         }
         Ok(Some(ProcessedMessage {
-            content: self.output_content.clone(),
+            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                self.output_content.clone(),
+            )],
             metadata,
-            suppress: self.output_suppress,
-            content_blocks: vec![],
         }))
     }
 }

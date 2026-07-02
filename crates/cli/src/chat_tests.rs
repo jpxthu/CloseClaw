@@ -235,12 +235,7 @@ impl closeclaw_processor_chain::MessageProcessor for SuppressProcessor {
         &self,
         _ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        Ok(Some(ProcessedMessage {
-            content: String::new(),
-            metadata: serde_json::Map::new(),
-            suppress: true,
-            content_blocks: vec![],
-        }))
+        Ok(None)
     }
 }
 
@@ -285,8 +280,8 @@ async fn test_process_inbound_chain_cleans_control_characters() {
         })
         .await;
 
-    assert_eq!(processed.content, "helloworld");
-    assert!(!processed.suppress);
+    assert_eq!(processed.text_content(), Some("helloworld"));
+    assert!(!processed.content_blocks.is_empty());
 }
 
 #[tokio::test]
@@ -307,7 +302,10 @@ async fn test_process_inbound_chain_suppress_message() {
         })
         .await;
 
-    assert!(processed.suppress, "expected suppress flag to be set");
+    assert!(
+        processed.content_blocks.is_empty(),
+        "expected empty content_blocks (suppress)"
+    );
 }
 
 #[tokio::test]
@@ -328,7 +326,7 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
                 account_id: None,
             })
             .await;
-        assert_eq!(processed.content.trim(), *cmd);
+        assert_eq!(processed.text_content().unwrap_or(""), *cmd);
     }
 }
 
@@ -466,7 +464,7 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
         })
         .await;
 
-    assert!(!processed.suppress);
+    assert!(!processed.content_blocks.is_empty());
     // The peer_id "cli" is passed as the third arg to process_inbound_chain.
     // This is the correct value per design doc: peer_id = "cli".
     assert_eq!(

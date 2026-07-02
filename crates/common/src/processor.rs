@@ -174,26 +174,28 @@ pub struct RawMessage {
 /// Produced after either the inbound or outbound chain completes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessedMessage {
-    /// Final message content after all processors in the chain ran.
-    pub content: String,
-    /// Metadata accumulated across all processors.
-    pub metadata: serde_json::Map<String, serde_json::Value>,
-    /// Whether the message should be suppressed entirely.
-    pub suppress: bool,
-    /// Structured content blocks carried from the outbound chain.
+    /// Structured content blocks carried from the chain.
     #[serde(default)]
     pub content_blocks: Vec<ContentBlock>,
+    /// Metadata accumulated across all processors.
+    pub metadata: HashMap<String, String>,
 }
 
 impl ProcessedMessage {
     /// Creates a default processed message from raw content.
     pub fn from_raw_content(content: String) -> Self {
         Self {
-            content,
-            metadata: serde_json::Map::new(),
-            suppress: false,
-            content_blocks: vec![],
+            content_blocks: vec![ContentBlock::Text(content)],
+            metadata: HashMap::new(),
         }
+    }
+
+    /// Returns the first text content block's text, if present.
+    pub fn text_content(&self) -> Option<&str> {
+        self.content_blocks.iter().find_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
     }
 }
 

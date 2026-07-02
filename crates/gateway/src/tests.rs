@@ -98,18 +98,15 @@ impl IMPlugin for MockPlugin {
 /// ensuring `resolve_session_from_message` can match the existing session.
 fn make_processed_msg(msg: &Message, channel: &str) -> ProcessedMessage {
     let session_key = DmScope::default().compute_session_key(channel, msg, None, msg.timestamp);
-    let mut metadata = serde_json::Map::new();
-    metadata.insert("session_key".into(), serde_json::Value::String(session_key));
-    metadata.insert("peer_id".into(), serde_json::Value::String(msg.to.clone()));
-    metadata.insert(
-        "sender_id".into(),
-        serde_json::Value::String(msg.from.clone()),
-    );
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("session_key".to_string(), session_key);
+    metadata.insert("peer_id".to_string(), msg.to.clone());
+    metadata.insert("sender_id".to_string(), msg.from.clone());
     ProcessedMessage {
-        content: msg.content.clone(),
+        content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+            msg.content.clone(),
+        )],
         metadata,
-        suppress: false,
-        content_blocks: vec![],
     }
 }
 
