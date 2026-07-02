@@ -32,8 +32,10 @@ mod rebuild;
 mod resolve;
 mod session_helpers;
 mod spawn;
+pub mod spawn_controller;
 pub mod stop;
 pub use spawn::{ChildSessionInfo, SpawnMode};
+pub use spawn_controller::SpawnController;
 /// SessionManager holds all session state previously belonging to Gateway.
 /// It provides find_or_create to lookup or create a session by channel + message.
 pub struct SessionManager {
@@ -620,6 +622,12 @@ mod graceful_stop_tests;
 // mod resolve_tests;  // DISABLED: imports from full-tests only modules
 #[cfg(test)]
 mod spawn_cascade_tests;
+#[cfg(test)]
+mod spawn_controller_budget_tests;
+#[cfg(test)]
+mod spawn_controller_permission_tests;
+#[cfg(test)]
+mod spawn_controller_tests;
 #[cfg(test)]
 mod spawn_tree_tests;
 // #[cfg(test)]

@@ -8,18 +8,19 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::config::{ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig};
-use crate::spawn::{SpawnController, SpawnError};
+use closeclaw_common::{ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
-use closeclaw_gateway::{DmScope, GatewayConfig, Message, SessionManager};
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
+use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
+use crate::{DmScope, GatewayConfig, Message, SessionManager};
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::rules::RuleSetBuilder;
+
 // ---------------------------------------------------------------------------
-// Helpers (duplicated from spawn_tests.rs to keep modules self-contained)
+// Helpers (duplicated from spawn_controller_tests.rs to keep modules self-contained)
 // ---------------------------------------------------------------------------
 
 fn test_config() -> GatewayConfig {
