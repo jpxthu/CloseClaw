@@ -355,7 +355,7 @@ impl Daemon {
             dreaming_rx,
         );
         // Create SpawnController as an independent component (depends on AgentRegistry).
-        let spawn_controller = Arc::new(closeclaw_agent::spawn::SpawnController::new(
+        let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
             Arc::clone(config_manager),
             Arc::clone(session_manager),
             Arc::clone(permission_engine),

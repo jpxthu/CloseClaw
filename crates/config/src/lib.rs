@@ -14,6 +14,7 @@ pub mod manager_reload;
 pub mod migration;
 pub mod providers;
 pub mod session;
+pub mod spawn_validation;
 pub mod validators;
 
 /// Type alias for a section validator function.
@@ -38,3 +39,4 @@ pub use providers::{
 pub use session::{
     JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfig, SessionConfigProvider,
 };
+pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};

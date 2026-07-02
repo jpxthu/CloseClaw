@@ -1,13 +1,18 @@
-//! Spawn control — validates spawn requests against agent configuration.
+//! SpawnController — validates spawn requests against agent configuration.
+//!
+//! Migrated from `closeclaw-agent` (Step 1.2) to enforce the design doc
+//! architecture boundary: agent crate is pure configuration, SpawnController
+//! lives in the gateway (Session) crate.
 
 use closeclaw_config::agents::ResolvedAgentConfig;
 use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_helpers::collect_chain_deny_subjects;
 use closeclaw_permission::engine::engine_helpers::collect_chain_effective_permissions;
 use std::sync::Arc;
 use thiserror::Error;
+
+use super::SessionManager;
 
 /// Result of a successful spawn validation, containing the resolved
 /// target config and the effective max spawn depth for the child.
@@ -342,36 +347,49 @@ impl SpawnController {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SpawnValidator — bridge to closeclaw_tools trait
+// SpawnValidator — bridge to closeclaw_config trait
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl closeclaw_tools::SpawnValidator for SpawnController {
+impl closeclaw_config::spawn_validation::SpawnValidator for SpawnController {
     async fn validate_spawn(
         &self,
         parent_session_id: &str,
         target_agent_id: Option<&str>,
-    ) -> Result<closeclaw_tools::SpawnValidationResult, closeclaw_tools::SpawnError> {
+    ) -> Result<
+        closeclaw_config::spawn_validation::SpawnValidationResult,
+        closeclaw_config::spawn_validation::SpawnError,
+    > {
         let result = self
             .validate(parent_session_id, target_agent_id)
             .await
             .map_err(|e| match e {
                 SpawnError::DepthExceeded { current, max } => {
-                    closeclaw_tools::SpawnError::DepthExceeded { current, max }
+                    closeclaw_config::spawn_validation::SpawnError::DepthExceeded { current, max }
                 }
                 SpawnError::MaxChildrenReached { current, max } => {
-                    closeclaw_tools::SpawnError::MaxChildrenReached { current, max }
+                    closeclaw_config::spawn_validation::SpawnError::MaxChildrenReached {
+                        current,
+                        max,
+                    }
                 }
                 SpawnError::AgentNotAllowed { agent_id } => {
-                    closeclaw_tools::SpawnError::AgentNotAllowed { agent_id }
+                    closeclaw_config::spawn_validation::SpawnError::AgentNotAllowed { agent_id }
                 }
-                SpawnError::AgentIdRequired => closeclaw_tools::SpawnError::AgentIdRequired,
-                SpawnError::ConfigNotFound(id) => closeclaw_tools::SpawnError::ConfigNotFound(id),
+                SpawnError::AgentIdRequired => {
+                    closeclaw_config::spawn_validation::SpawnError::AgentIdRequired
+                }
+                SpawnError::ConfigNotFound(id) => {
+                    closeclaw_config::spawn_validation::SpawnError::ConfigNotFound(id)
+                }
                 SpawnError::PermissionDenied { agent_id, reason } => {
-                    closeclaw_tools::SpawnError::PermissionDenied { agent_id, reason }
+                    closeclaw_config::spawn_validation::SpawnError::PermissionDenied {
+                        agent_id,
+                        reason,
+                    }
                 }
             })?;
-        Ok(closeclaw_tools::SpawnValidationResult {
+        Ok(closeclaw_config::spawn_validation::SpawnValidationResult {
             config: result.config,
             effective_max_spawn_depth: result.effective_max_spawn_depth,
         })

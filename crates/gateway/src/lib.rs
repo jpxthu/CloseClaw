@@ -47,7 +47,7 @@ use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use session_handler::{HandleResult, SessionMessageHandler};
-pub use session_manager::SessionManager;
+pub use session_manager::{SessionManager, SpawnController};
 
 /// Gateway - routes messages between IM plugins and agents
 pub struct Gateway {
