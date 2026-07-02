@@ -623,6 +623,8 @@ mod graceful_stop_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
 #[cfg(test)]
+mod spawn_controller_boundary_tests;
+#[cfg(test)]
 mod spawn_controller_budget_tests;
 #[cfg(test)]
 mod spawn_controller_permission_tests;
