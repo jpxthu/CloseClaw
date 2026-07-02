@@ -5,3 +5,6 @@
 
 pub mod active_searcher;
 pub mod active_searcher_llm;
+
+#[cfg(test)]
+mod active_searcher_llm_tests;
