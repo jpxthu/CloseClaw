@@ -309,17 +309,14 @@ impl SessionMessageHandler {
 
         tokio::spawn(async move {
             // Load agent config for active-searcher configuration.
-            let (agent_model, memory_override) = match sm_clone.get_agent_config(&aid_clone).await {
-                Some(cfg) => (
-                    cfg.model.clone(),
-                    cfg.memory.as_ref().and_then(|m| m.active_searcher.clone()),
-                ),
+            let (agent_model, memory_config) = match sm_clone.get_agent_config(&aid_clone).await {
+                Some(cfg) => (cfg.model.clone(), cfg.memory.clone()),
                 None => (None, None),
             };
 
             let config = ActiveSearcherConfig::from_agent_config(
                 agent_model.as_deref(),
-                memory_override.as_ref(),
+                memory_config.as_ref(),
             );
             let model = config.model.clone();
 

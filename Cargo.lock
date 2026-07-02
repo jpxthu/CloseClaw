@@ -601,6 +601,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-llm",
+ "closeclaw-memory",
  "closeclaw-permission",
  "closeclaw-session",
  "futures",
