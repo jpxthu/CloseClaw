@@ -155,7 +155,7 @@ mod tests {
             closeclaw_session::bootstrap::BootstrapMode::Minimal,
             closeclaw_session::persistence::ReasoningLevel::default(),
         ));
-        let spawn_controller = Arc::new(closeclaw_agent::spawn::SpawnController::new(
+        let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
             Arc::clone(&cfg_mgr),
             Arc::clone(&session_manager),
             permission_engine.clone(),
