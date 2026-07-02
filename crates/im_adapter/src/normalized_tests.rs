@@ -61,8 +61,7 @@ fn test_deserialize_all_defaults_present() {
     assert!(msg.media_refs.is_empty());
     assert!(msg.quoted_message.is_none());
     assert!(msg.thread_id.is_none());
-    assert!(msg.account_id.is_none());
-    assert_eq!(msg.card_action, None);
+    assert!(msg.account_id.is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -89,8 +88,7 @@ fn test_roundtrip_message_type_non_default() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: None,
-        card_action: None,
+        account_id: String::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -147,8 +145,7 @@ fn test_roundtrip_message_with_media_refs() {
         ],
         quoted_message: None,
         thread_id: None,
-        account_id: None,
-        card_action: None,
+        account_id: String::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -225,8 +222,7 @@ fn test_roundtrip_message_with_quoted() {
             sender_id: Some("orig_sender".into()),
         }),
         thread_id: None,
-        account_id: None,
-        card_action: None,
+        account_id: String::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -257,8 +253,7 @@ fn test_roundtrip_all_new_fields_populated() {
             sender_id: Some("ou_other".into()),
         }),
         thread_id: Some("omt_123".into()),
-        account_id: Some("tenant_999".into()),
-        card_action: None,
+        account_id: "tenant_999".into(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -271,7 +266,7 @@ fn test_roundtrip_all_new_fields_populated() {
     assert_eq!(q.content, "check this out");
     assert_eq!(q.sender_id.as_deref(), Some("ou_other"));
     assert_eq!(back.thread_id.as_deref(), Some("omt_123"));
-    assert_eq!(back.account_id.as_deref(), Some("tenant_999"));
+    assert_eq!(back.account_id, "tenant_999");
 }
 
 // ---------------------------------------------------------------------------
@@ -286,14 +281,12 @@ fn test_backward_compat_old_json_without_new_fields() {
         "peer_id": "tg_chat",
         "content": "legacy message",
         "timestamp": 1234567890,
-        "thread_id": null,
-        "account_id": null
+        "thread_id": null
     });
     let msg: NormalizedMessage = serde_json::from_value(json).expect("backward compat failed");
     assert_eq!(msg.message_type, "text");
     assert!(msg.media_refs.is_empty());
     assert!(msg.quoted_message.is_none());
-    assert!(msg.card_action.is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -312,8 +305,7 @@ fn test_normalized_message_debug_contains_key_fields() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: None,
-        card_action: None,
+        account_id: String::new(),
     };
     let debug = format!("{:?}", msg);
     assert!(debug.contains("NormalizedMessage"));
@@ -342,8 +334,7 @@ fn test_normalized_message_clone() {
             sender_id: Some("qsid".into()),
         }),
         thread_id: Some("t".into()),
-        account_id: Some("a".into()),
-        card_action: None,
+        account_id: "a".into(),
     };
     let cloned = msg.clone();
     assert_eq!(cloned.platform, msg.platform);

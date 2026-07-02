@@ -45,8 +45,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         assert_eq!(msg.platform, "terminal");
         assert_eq!(msg.peer_id, "cli");
@@ -65,11 +64,10 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         assert!(msg.thread_id.is_none());
-        assert!(msg.account_id.is_none());
+        assert!(msg.account_id.is_empty());
     }
 
     #[test]
@@ -84,8 +82,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         // Timestamp is a valid Unix timestamp (after 2023)
         assert!(msg.timestamp > 1_672_531_200_000);
@@ -103,8 +100,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         let deserialized: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -124,8 +120,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         assert!(msg.content.is_empty());
     }
@@ -142,8 +137,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         let lines: Vec<&str> = msg.content.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -323,7 +317,7 @@ mod tests {
     fn test_make_message_account_id_is_owner() {
         let adapter = TerminalAdapter::new();
         let msg = adapter.make_message("hello world".to_string());
-        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+        assert_eq!(msg.account_id, "owner");
     }
 
     /// Empty content still receives the correct account_id.
@@ -331,7 +325,7 @@ mod tests {
     fn test_make_message_empty_content_account_id() {
         let adapter = TerminalAdapter::new();
         let msg = adapter.make_message(String::new());
-        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+        assert_eq!(msg.account_id, "owner");
     }
 
     /// make_message preserves platform, peer_id, sender_id, and message_type.
@@ -355,7 +349,7 @@ mod tests {
         let adapter = TerminalAdapter::new();
         let msg = adapter.make_message("line1\nline2\nline3".to_string());
         assert_eq!(msg.content, "line1\nline2\nline3");
-        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+        assert_eq!(msg.account_id, "owner");
     }
 
     // DSL rendering tests — plugin-level
