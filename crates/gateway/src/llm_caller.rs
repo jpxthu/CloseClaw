@@ -11,6 +11,7 @@ use std::task::{Context, Poll};
 use futures::{Stream, StreamExt};
 
 use closeclaw_llm::client::UnifiedChatClient;
+use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
 use closeclaw_llm::streaming::{StreamDone, StreamingSink};
 use closeclaw_llm::types::{
     ContentDelta, InternalMessage, InternalRequest, StreamEvent, UnifiedResponse,
@@ -28,16 +29,31 @@ pub async fn call_llm(
     client: &closeclaw_llm::unified_fallback::UnifiedFallbackClient,
     content: &str,
     _meta: &crate::session_handler::MessageMetadata,
-    _session_manager: &Arc<SessionManager>,
-    _session_id: &str,
+    session_manager: &Arc<SessionManager>,
+    session_id: &str,
 ) -> Result<UnifiedResponse, LLMError> {
+    let mut messages = vec![InternalMessage {
+        role: "user".to_string(),
+        content: content.to_string(),
+        tool_call_id: None,
+    }];
+
+    // Consume memory_injection slot if present.
+    if let Some(injection) = consume_memory_injection(session_manager, session_id).await {
+        let tool_msg = memory_injection_to_message(&injection);
+        match injection.position_mode {
+            InjectionPosition::AfterCurrent => {
+                messages.push(tool_msg);
+            }
+            InjectionPosition::BeforeNext => {
+                messages.insert(0, tool_msg);
+            }
+        }
+    }
+
     let request = InternalRequest {
         model: String::new(), // fallback client picks the model
-        messages: vec![InternalMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-            tool_call_id: None,
-        }],
+        messages,
         temperature: 0.7,
         max_tokens: None,
         stream: false,
@@ -62,8 +78,8 @@ pub async fn call_llm_streaming(
     client: &UnifiedChatClient,
     content: &str,
     _meta: &crate::session_handler::MessageMetadata,
-    _session_manager: &Arc<SessionManager>,
-    _session_id: &str,
+    session_manager: &Arc<SessionManager>,
+    session_id: &str,
 ) -> Result<
     (
         Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>,
@@ -71,13 +87,28 @@ pub async fn call_llm_streaming(
     ),
     LLMError,
 > {
+    let mut messages = vec![InternalMessage {
+        role: "user".to_string(),
+        content: content.to_string(),
+        tool_call_id: None,
+    }];
+
+    // Consume memory_injection slot if present.
+    if let Some(injection) = consume_memory_injection(session_manager, session_id).await {
+        let tool_msg = memory_injection_to_message(&injection);
+        match injection.position_mode {
+            InjectionPosition::AfterCurrent => {
+                messages.push(tool_msg);
+            }
+            InjectionPosition::BeforeNext => {
+                messages.insert(0, tool_msg);
+            }
+        }
+    }
+
     let request = InternalRequest {
         model: String::new(),
-        messages: vec![InternalMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-            tool_call_id: None,
-        }],
+        messages,
         temperature: 0.7,
         max_tokens: None,
         stream: true,
@@ -98,6 +129,28 @@ pub async fn call_llm_streaming(
         },
     );
     Ok((Box::pin(mapped), None))
+}
+
+/// Consume the `memory_injection` slot from the given session.
+///
+/// Returns the injection if the session exists and the slot was populated.
+/// The slot is cleared (one-shot consumption) regardless of the result.
+async fn consume_memory_injection(
+    session_manager: &Arc<SessionManager>,
+    session_id: &str,
+) -> Option<MemoryInjection> {
+    let cs = session_manager.get_conversation_session(session_id).await?;
+    let cs = cs.read().await;
+    cs.take_memory_injection()
+}
+
+/// Convert a [`MemoryInjection`] into a tool-role [`InternalMessage`].
+fn memory_injection_to_message(injection: &MemoryInjection) -> InternalMessage {
+    InternalMessage {
+        role: "tool".to_string(),
+        content: injection.content.clone(),
+        tool_call_id: None,
+    }
 }
 
 /// Stream adapter that forwards text deltas to a [`StreamingSink`].
