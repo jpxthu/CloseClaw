@@ -2,8 +2,10 @@
 //!
 //! 支持注册、查询、列表操作，内部使用 `tokio::sync::RwLock` 保证并发安全。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
+use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::{PromptGenerationContext, Tool, ToolContext, ToolDescriptor, ToolError};
 
 use closeclaw_common::AgentToolsConfigQuery;
@@ -51,6 +53,8 @@ pub struct ToolRegistry {
     pub(crate) tools: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn Tool>>>,
     /// Optional reference to an agent tools config query for direct config queries.
     agent_tools_query: OnceLock<Arc<dyn AgentToolsConfigQuery>>,
+    /// When `true`, no further registrations are accepted.
+    frozen: AtomicBool,
 }
 
 impl std::fmt::Debug for ToolRegistry {
@@ -156,6 +160,7 @@ impl ToolRegistry {
         Self {
             tools: tokio::sync::RwLock::new(std::collections::HashMap::new()),
             agent_tools_query: OnceLock::new(),
+            frozen: AtomicBool::new(false),
         }
     }
 
@@ -165,6 +170,9 @@ impl ToolRegistry {
     /// Returns [`ToolError::AlreadyRegistered`] if a tool with the same name
     /// is already present.
     pub async fn register<T: Tool + 'static>(&self, tool: T) -> Result<(), ToolError> {
+        if self.frozen.load(Ordering::Acquire) {
+            return Err(ToolError::Frozen);
+        }
         let name = tool.name().to_string();
         let mut guard = self.tools.write().await;
         if guard.contains_key(&name) {
@@ -172,6 +180,41 @@ impl ToolRegistry {
         }
         guard.insert(name, Arc::new(tool));
         Ok(())
+    }
+
+    /// Register all tools from the given registrars, sorted by priority.
+    ///
+    /// After all registrars have been called successfully, the registry is
+    /// frozen — subsequent calls to [`register`](Self::register) will return
+    /// [`ToolError::Frozen`].
+    ///
+    /// # Errors
+    /// Returns [`ToolRegistrarError::Conflict`] if a tool name collision is
+    /// detected between registrars.
+    pub async fn register_all(
+        &self,
+        registrars: Vec<Box<dyn ToolRegistrar>>,
+    ) -> Result<(), ToolRegistrarError> {
+        if self.frozen.load(Ordering::Acquire) {
+            return Err(ToolRegistrarError::Internal(
+                "registry is already frozen".to_string(),
+            ));
+        }
+
+        let mut sorted = registrars;
+        sorted.sort_by_key(|r| r.priority());
+
+        for registrar in &sorted {
+            registrar.register(self).await?;
+        }
+
+        self.frozen.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    /// Returns whether the registry is frozen.
+    pub fn is_frozen(&self) -> bool {
+        self.frozen.load(Ordering::Acquire)
     }
 
     /// Returns all registered tool descriptors, filtered by `ctx`.

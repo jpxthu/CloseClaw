@@ -7,8 +7,9 @@ use closeclaw_gateway::SessionManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_skills::DiskSkillRegistry;
-use closeclaw_tools::builtin::{register_builtin_tools, BuiltinToolContext};
-use closeclaw_tools::ToolRegistry;
+use closeclaw_tools::{
+    CoreToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
+};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -127,24 +128,41 @@ fn init_config_hot_reload(
     }
 }
 
-/// Register builtin tools using the provided SpawnController.
+/// Register builtin tools via the Registrar pattern.
+///
+/// Constructs all four standard registrars, collects them into a
+/// `Vec<Box<dyn ToolRegistrar>>`, and calls
+/// [`ToolRegistry::register_all`] to register everything and freeze
+/// the registry.
 async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
     let task_manager = Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
-    let builtin_ctx = Arc::new(BuiltinToolContext {
-        config_manager: Arc::clone(ctx.config_manager),
-        agent_tools_query: Arc::clone(ctx.agent_registry)
-            as Arc<dyn closeclaw_common::AgentToolsConfigQuery>,
-        agent_config_lookup: Arc::clone(ctx.agent_registry)
-            as Arc<dyn closeclaw_common::AgentConfigLookup>,
-        disk_registry: Arc::clone(disk_reg),
-        permission_engine: Arc::clone(ctx.permission_engine),
-        spawn_validator: Arc::clone(&ctx.spawn_controller)
-            as Arc<dyn closeclaw_tools::SpawnValidator>,
-        session_manager: Arc::clone(ctx.session_manager),
-        task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
-    });
-    register_builtin_tools(ctx.tool_registry, builtin_ctx).await;
-    for tool in closeclaw_im_adapter::platforms::feishu::tools::create_feishu_tools() {
-        ctx.tool_registry.register(tool).await.ok();
+
+    let core_registrar = CoreToolsRegistrar::new(
+        Arc::clone(ctx.permission_engine),
+        task_manager as Arc<dyn closeclaw_common::TaskManager>,
+        Arc::clone(ctx.session_manager),
+        Arc::clone(ctx.config_manager),
+    );
+    let session_registrar = SessionToolsRegistrar::new(
+        Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
+        Arc::clone(ctx.session_manager),
+        Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_common::AgentConfigLookup>,
+    );
+    let skills_registrar = SkillsToolsRegistrar::new(
+        Arc::clone(disk_reg),
+        Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
+        Arc::clone(ctx.session_manager),
+    );
+    let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
+
+    let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
+        Box::new(core_registrar),
+        Box::new(session_registrar),
+        Box::new(skills_registrar),
+        Box::new(im_adapter_registrar),
+    ];
+
+    if let Err(e) = ctx.tool_registry.register_all(registrars).await {
+        tracing::error!(error = %e, "failed to register builtin tools via registrars");
     }
 }
