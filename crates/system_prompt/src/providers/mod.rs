@@ -5,3 +5,6 @@
 //! and their non-empty outputs are concatenated by the Builder.
 
 pub mod bootstrap;
+pub mod memory;
+pub mod skills;
+pub mod tools;

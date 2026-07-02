@@ -22,6 +22,9 @@ pub use builder::{
 pub use closeclaw_common;
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use providers::bootstrap::BootstrapFragmentProvider;
+pub use providers::memory::MemoryFragmentProvider;
+pub use providers::skills::SkillsFragmentProvider;
+pub use providers::tools::ToolsFragmentProvider;
 pub use sections::{get_cached_section, invalidate_all_sections, invalidate_section, Section};
 pub use tools_section::build_tools_section;
 pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};
