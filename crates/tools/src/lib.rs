@@ -12,10 +12,12 @@
 //! - Tool = LLM 可调用能力
 
 pub mod builtin;
+pub mod registrar;
 pub mod registry;
 pub mod security;
 pub mod spawn_validation;
 
+pub use registrar::{ToolRegistrar, ToolRegistrarError};
 pub use registry::ToolRegistry;
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 
@@ -145,6 +147,9 @@ pub enum ToolError {
 
     #[error("tool `{0}` already registered")]
     AlreadyRegistered(String),
+
+    #[error("tool registry is frozen — no further registrations accepted")]
+    Frozen,
 
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
