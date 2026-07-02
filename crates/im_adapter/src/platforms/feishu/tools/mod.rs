@@ -12,14 +12,15 @@ pub mod task;
 #[cfg(test)]
 mod tools_tests;
 
-use bitable::FeishuBitableTool;
-use calendar::FeishuCalendarTool;
 use closeclaw_tools::Tool;
-use doc::FeishuDocTool;
-use drive::FeishuDriveTool;
-use im::FeishuImTool;
-use sheet::FeishuSheetTool;
-use task::FeishuTaskTool;
+
+pub use bitable::FeishuBitableTool;
+pub use calendar::FeishuCalendarTool;
+pub use doc::FeishuDocTool;
+pub use drive::FeishuDriveTool;
+pub use im::FeishuImTool;
+pub use sheet::FeishuSheetTool;
+pub use task::FeishuTaskTool;
 
 /// Create all Feishu tool instances.
 ///
