@@ -12,6 +12,7 @@ fn test_fragment_context_default() {
     assert!(ctx.agent_id.is_none());
     assert!(ctx.bootstrap_mode.is_none());
     assert!(ctx.workdir.is_none());
+    assert!(ctx.agent_dir.is_none());
 }
 
 #[test]

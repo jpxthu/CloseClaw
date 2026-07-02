@@ -416,4 +416,110 @@ mod tests {
         assert!(key.is_some());
         assert!(key.unwrap().starts_with("bootstrap:AGENTS.md:"));
     }
+
+    // --- bootstrap_mode_override tests ---
+
+    #[test]
+    fn test_resolve_mode_override_takes_priority_over_registry() {
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+
+        // Registry says Full, but ctx.bootstrap_mode overrides to Minimal.
+        let reg = Arc::new(AgentRegistry::new());
+        reg.populate(vec![ResolvedAgentConfig {
+            id: "test-agent".into(),
+            name: "test-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Full,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            memory: None,
+            source: ConfigSource::User,
+        }]);
+
+        let provider = BootstrapFragmentProvider::new(reg);
+
+        // ctx.bootstrap_mode = Some(Minimal) overrides registry Full.
+        let ctx = FragmentContext {
+            agent_id: Some("test-agent".into()),
+            bootstrap_mode: Some(BootstrapMode::Minimal),
+            ..Default::default()
+        };
+        assert_eq!(provider.resolve_mode(&ctx), Some(BootstrapMode::Minimal));
+    }
+
+    #[test]
+    fn test_resolve_mode_none_falls_back_to_registry() {
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+
+        let reg = Arc::new(AgentRegistry::new());
+        reg.populate(vec![ResolvedAgentConfig {
+            id: "test-agent".into(),
+            name: "test-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Full,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            memory: None,
+            source: ConfigSource::User,
+        }]);
+
+        let provider = BootstrapFragmentProvider::new(reg);
+
+        // ctx.bootstrap_mode = None → fallback to registry → Full.
+        let ctx = FragmentContext {
+            agent_id: Some("test-agent".into()),
+            bootstrap_mode: None,
+            ..Default::default()
+        };
+        assert_eq!(provider.resolve_mode(&ctx), Some(BootstrapMode::Full));
+    }
+
+    #[tokio::test]
+    async fn test_generate_uses_override_mode_for_file_loading() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Minimal mode expects AGENTS.md.
+        fs::write(tmp.path().join("AGENTS.md"), "minimal content").unwrap();
+
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+
+        // Registry says Full, but override forces Minimal.
+        let reg = Arc::new(AgentRegistry::new());
+        reg.populate(vec![ResolvedAgentConfig {
+            id: "test-agent".into(),
+            name: "test-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Full,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            memory: None,
+            source: ConfigSource::User,
+        }]);
+
+        let provider = BootstrapFragmentProvider::new(reg);
+
+        let ctx = FragmentContext {
+            agent_id: Some("test-agent".into()),
+            bootstrap_mode: Some(BootstrapMode::Minimal),
+            workdir: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        let fragment = provider.generate(&ctx).await.unwrap();
+        assert!(fragment.content.contains("minimal content"));
+    }
 }

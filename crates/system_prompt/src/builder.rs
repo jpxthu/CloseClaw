@@ -552,4 +552,126 @@ mod tests {
         assert!(result.contains("## Memory"));
         assert!(result.contains("remember X"));
     }
+
+    // ---- bootstrap_mode_override tests ----
+
+    #[tokio::test]
+    async fn test_build_from_workspace_override_mode_overrides_registry() {
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        // BOOTSTRAP.md is only loaded in Full mode, not Minimal.
+        std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
+        std::fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
+
+        let agent_reg = Arc::new(AgentRegistry::new());
+        agent_reg.populate(vec![ResolvedAgentConfig {
+            id: "test-agent".into(),
+            name: "test-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Full,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            memory: None,
+            source: ConfigSource::User,
+        }]);
+
+        let config = WorkspaceBuildConfig {
+            tool_registry: None,
+            skill_registry: None,
+            agent_id: Some("test-agent".into()),
+            agent_tools: None,
+            agent_disallowed_tools: None,
+            agent_skills: None,
+            dynamic_sections: vec![],
+            append_section: None,
+            agent_registry: Some(agent_reg),
+            agent_dir: None,
+            bootstrap_mode_override: Some(BootstrapMode::Minimal),
+        };
+
+        let result = build_from_workspace(tmp.path(), config).await;
+        // Override forces Minimal → BOOTSTRAP.md excluded.
+        assert!(!result.contains("bootstrap only in full"));
+        assert!(result.contains("agents content"));
+    }
+
+    #[tokio::test]
+    async fn test_build_from_workspace_no_override_uses_registry() {
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        // BOOTSTRAP.md is only loaded in Full mode.
+        std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
+        std::fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
+
+        let agent_reg = Arc::new(AgentRegistry::new());
+        agent_reg.populate(vec![ResolvedAgentConfig {
+            id: "test-agent".into(),
+            name: "test-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Full,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            memory: None,
+            source: ConfigSource::User,
+        }]);
+
+        let config = WorkspaceBuildConfig {
+            tool_registry: None,
+            skill_registry: None,
+            agent_id: Some("test-agent".into()),
+            agent_tools: None,
+            agent_disallowed_tools: None,
+            agent_skills: None,
+            dynamic_sections: vec![],
+            append_section: None,
+            agent_registry: Some(agent_reg),
+            agent_dir: None,
+            bootstrap_mode_override: None,
+        };
+
+        let result = build_from_workspace(tmp.path(), config).await;
+        // No override → registry Full → BOOTSTRAP.md included.
+        assert!(result.contains("bootstrap only in full"));
+    }
+
+    #[tokio::test]
+    async fn test_build_from_workspace_agent_dir_preferred() {
+        crate::sections::invalidate_all_sections();
+        let workdir_tmp = tempfile::tempdir().unwrap();
+        let agent_tmp = tempfile::tempdir().unwrap();
+        std::fs::write(workdir_tmp.path().join("AGENTS.md"), "from workdir").unwrap();
+        std::fs::write(agent_tmp.path().join("AGENTS.md"), "from agent_dir").unwrap();
+
+        let config = WorkspaceBuildConfig {
+            tool_registry: None,
+            skill_registry: None,
+            agent_id: None,
+            agent_tools: None,
+            agent_disallowed_tools: None,
+            agent_skills: None,
+            dynamic_sections: vec![],
+            append_section: None,
+            agent_registry: None,
+            agent_dir: Some(agent_tmp.path().to_path_buf()),
+            bootstrap_mode_override: Some(BootstrapMode::Minimal),
+        };
+
+        let result = build_from_workspace(workdir_tmp.path(), config).await;
+        assert!(result.contains("from agent_dir"));
+        assert!(!result.contains("from workdir"));
+    }
 }
