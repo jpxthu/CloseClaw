@@ -179,12 +179,7 @@ impl IMPlugin for TerminalPlugin {
         _peer_id: &str,
         _thread_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let text = output.payload.as_str().unwrap_or("");
 
         let mut stdout = io::stdout();
         Write::write_all(&mut stdout, text.as_bytes())

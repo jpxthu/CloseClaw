@@ -684,7 +684,7 @@ impl TerminalRenderer {
         }
     }
 
-    /// Render a ToolUse block: `⚙ tool_name(args)`.
+    /// Render a ToolUse block: `⚙ tool_name(input)`.
     fn render_tool_use(&self, name: &str, input: &str) -> String {
         let truncated = self.truncate_to_width(input);
         if self.ansi {
@@ -811,11 +811,7 @@ impl TerminalRenderer {
         } else {
             strip_ansi(&output_text)
         };
-        let payload = serde_json::json!({
-            "content": {
-                "text": text
-            }
-        });
+        let payload = serde_json::Value::String(text);
 
         RenderedOutput {
             msg_type: "text".into(),
