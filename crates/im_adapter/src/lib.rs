@@ -15,10 +15,12 @@ pub mod plugin_tests;
 pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
+pub mod tool_registrar;
 
 pub use error::AdapterError;
 pub use normalized::NormalizedMessage;
 pub use plugin::{IMPlugin, RenderedOutput};
+pub use tool_registrar::ImAdapterToolsRegistrar;
 
 use async_trait::async_trait;
 use closeclaw_gateway::Message;

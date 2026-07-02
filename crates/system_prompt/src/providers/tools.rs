@@ -130,7 +130,7 @@ mod tests {
         let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(closeclaw_skills::DiskSkillRegistry::new(vec![]));
 
-        // Register builtin tools so there's content to render.
+        // Register tools via the new Registrar pattern.
         let permission_engine = Arc::new(
             closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
                 closeclaw_permission::rules::RuleSetBuilder::new()
@@ -163,19 +163,25 @@ mod tests {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
 
         let task_manager = Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
-        let builtin_ctx = Arc::new(closeclaw_tools::builtin::BuiltinToolContext {
-            config_manager: cfg_mgr,
-            agent_tools_query: agent_registry.clone()
-                as Arc<dyn closeclaw_common::AgentToolsConfigQuery>,
-            agent_config_lookup: agent_registry.clone()
-                as Arc<dyn closeclaw_common::AgentConfigLookup>,
-            disk_registry,
-            permission_engine,
-            spawn_validator: spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
-            session_manager,
-            task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
-        });
-        closeclaw_tools::builtin::register_builtin_tools(&registry, builtin_ctx).await;
+        let registrars: Vec<Box<dyn closeclaw_tools::ToolRegistrar>> = vec![
+            Box::new(closeclaw_tools::CoreToolsRegistrar::new(
+                permission_engine,
+                task_manager as Arc<dyn closeclaw_common::TaskManager>,
+                session_manager.clone(),
+                cfg_mgr.clone(),
+            )),
+            Box::new(closeclaw_tools::SessionToolsRegistrar::new(
+                spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
+                session_manager.clone(),
+                agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
+            )),
+            Box::new(closeclaw_tools::SkillsToolsRegistrar::new(
+                disk_registry,
+                spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
+                session_manager,
+            )),
+        ];
+        registry.register_all(registrars).await.unwrap();
 
         let provider = ToolsFragmentProvider::new(registry, None, None);
         let ctx = FragmentContext::default();

@@ -1,5 +1,5 @@
 use super::*;
-use closeclaw_tools::{Tool, ToolContext, ToolRegistry};
+use closeclaw_tools::{Tool, ToolContext, ToolRegistrar, ToolRegistry};
 
 fn make_ctx() -> ToolContext {
     ToolContext {
@@ -155,7 +155,10 @@ fn test_feishu_sheet_tool_flags() {
 #[tokio::test]
 async fn test_register_tools_populates_registry() {
     let registry = ToolRegistry::new();
-    register_tools(&registry).await;
+    crate::ImAdapterToolsRegistrar::new()
+        .register(&registry)
+        .await
+        .unwrap();
 
     // Registry should contain exactly 7 tools
     let ctx = make_ctx();
@@ -189,10 +192,18 @@ async fn test_register_tools_populates_registry() {
 #[tokio::test]
 async fn test_register_tools_no_duplicates() {
     let registry = ToolRegistry::new();
-    register_tools(&registry).await;
+    crate::ImAdapterToolsRegistrar::new()
+        .register(&registry)
+        .await
+        .unwrap();
 
-    // Calling register_tools again should hit AlreadyRegistered errors
-    // (silently ignored via .ok()) but the count should stay at 7
-    register_tools(&registry).await;
+    // Registering again should return Conflict error (tool already registered)
+    let result = crate::ImAdapterToolsRegistrar::new()
+        .register(&registry)
+        .await;
+    assert!(
+        result.is_err(),
+        "expected conflict on duplicate registration"
+    );
     assert_eq!(registry.len_for_test().await, 7);
 }
