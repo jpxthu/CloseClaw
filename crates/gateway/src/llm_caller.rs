@@ -135,7 +135,7 @@ pub async fn call_llm_streaming(
 ///
 /// Returns the injection if the session exists and the slot was populated.
 /// The slot is cleared (one-shot consumption) regardless of the result.
-async fn consume_memory_injection(
+pub(crate) async fn consume_memory_injection(
     session_manager: &Arc<SessionManager>,
     session_id: &str,
 ) -> Option<MemoryInjection> {
@@ -145,7 +145,7 @@ async fn consume_memory_injection(
 }
 
 /// Convert a [`MemoryInjection`] into a tool-role [`InternalMessage`].
-fn memory_injection_to_message(injection: &MemoryInjection) -> InternalMessage {
+pub(crate) fn memory_injection_to_message(injection: &MemoryInjection) -> InternalMessage {
     InternalMessage {
         role: "tool".to_string(),
         content: injection.content.clone(),
