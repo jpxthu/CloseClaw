@@ -10,9 +10,13 @@ pub trait LlmCaller: Send + Sync {
     async fn complete(&self, prompt: &str) -> Result<String, ActiveSearcherError>;
 }
 
-/// Check whether the given agent_id should trigger the active searcher.
+/// Session roles that should NOT trigger the active-searcher.
+const EXCLUDED_ROLES: &[&str] = &["memory-miner", "dreaming"];
+
+/// Check whether the given role should trigger the active searcher.
 ///
-/// Returns `false` for agents that are excluded (e.g. memory-miner, dreaming).
-pub fn should_trigger_role(agent_id: &str) -> bool {
-    !agent_id.starts_with("memory-miner") && !agent_id.starts_with("dreaming")
+/// Returns `false` for roles that are excluded (e.g. memory-miner, dreaming)
+/// to avoid circular memory writes.
+pub fn should_trigger_role(role: &str) -> bool {
+    !EXCLUDED_ROLES.contains(&role)
 }
