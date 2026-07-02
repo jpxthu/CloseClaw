@@ -313,7 +313,7 @@ impl SessionManager {
             .await?;
 
         // 3. Determine bootstrap_mode
-        let _bootstrap_mode = if light_context {
+        let bootstrap_mode = if light_context {
             BootstrapMode::Minimal
         } else {
             config.bootstrap_mode
@@ -324,7 +324,12 @@ impl SessionManager {
         let prompt = if let Some(builder) = self.system_prompt_builder.read().await.clone() {
             let overrides = self.prompt_overrides.read().await.clone();
             builder
-                .build_prompt(&child_session_id, &agent_id, overrides.as_ref())
+                .build_prompt(
+                    &child_session_id,
+                    &agent_id,
+                    overrides.as_ref(),
+                    Some(bootstrap_mode),
+                )
                 .await
         } else {
             String::new()

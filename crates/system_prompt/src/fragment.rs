@@ -15,6 +15,10 @@ pub struct FragmentContext {
     /// Working directory of the agent — used by [`BootstrapFragmentProvider`]
     /// to locate bootstrap files. When `None`, bootstrap section is skipped.
     pub workdir: Option<PathBuf>,
+    /// Agent directory — used by [`BootstrapFragmentProvider`] to locate
+    /// bootstrap files. When `Some`, takes priority over [`workdir`](Self::workdir).
+    /// When `None`, falls back to `workdir`.
+    pub agent_dir: Option<PathBuf>,
 }
 
 /// Section type classification for a prompt fragment.

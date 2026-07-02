@@ -54,6 +54,8 @@ async fn test_build_from_workspace_skill_listing_injected() {
             dynamic_sections: vec![],
             append_section: None,
             agent_registry: None,
+            agent_dir: None,
+            bootstrap_mode_override: None,
         },
     )
     .await;
@@ -96,6 +98,8 @@ async fn test_build_from_workspace_no_skill_info_no_section() {
             dynamic_sections: vec![],
             append_section: None,
             agent_registry: None,
+            agent_dir: None,
+            bootstrap_mode_override: None,
         },
     )
     .await;
@@ -127,6 +131,8 @@ async fn test_build_from_workspace_empty_listing_no_section() {
             dynamic_sections: vec![],
             append_section: None,
             agent_registry: None,
+            agent_dir: None,
+            bootstrap_mode_override: None,
         },
     )
     .await;
@@ -159,6 +165,8 @@ async fn test_build_from_workspace_skill_section_not_duplicated() {
             dynamic_sections: vec![],
             append_section: None,
             agent_registry: None,
+            agent_dir: None,
+            bootstrap_mode_override: None,
         },
     )
     .await;

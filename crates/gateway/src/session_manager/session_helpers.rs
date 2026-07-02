@@ -43,7 +43,9 @@ pub(super) async fn build_session_system_prompt(
     agent_id: &str,
     overrides: Option<&closeclaw_common::PromptOverrides>,
 ) -> String {
-    builder.build_prompt(session_id, agent_id, overrides).await
+    builder
+        .build_prompt(session_id, agent_id, overrides, None)
+        .await
 }
 
 /// Compute the workdir path for a new session.
