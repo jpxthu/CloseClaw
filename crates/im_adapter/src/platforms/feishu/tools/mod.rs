@@ -14,6 +14,9 @@ pub mod task;
 #[cfg(test)]
 mod tools_tests;
 
+#[cfg(test)]
+mod registrar_tests;
+
 pub use bitable::FeishuBitableTool;
 pub use calendar::FeishuCalendarTool;
 pub use doc::FeishuDocTool;

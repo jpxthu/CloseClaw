@@ -86,7 +86,9 @@ mod tests {
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
-    use closeclaw_tools::builtin::{register_builtin_tools, BuiltinToolContext};
+    use closeclaw_tools::{
+        CoreToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar,
+    };
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -134,27 +136,33 @@ mod tests {
         (spawn_controller, session_manager, cfg_mgr, agent_registry)
     }
 
-    fn make_builtin_ctx(
+    fn make_registrars(
         disk_registry: Arc<DiskSkillRegistry>,
         permission_engine: Arc<PermissionEngine>,
         spawn_controller: Arc<SpawnController>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
         agent_registry: Arc<AgentRegistry>,
-    ) -> Arc<BuiltinToolContext> {
+    ) -> Vec<Box<dyn ToolRegistrar>> {
         let task_manager = Arc::new(BackgroundTaskManager::new());
-        Arc::new(BuiltinToolContext {
-            config_manager,
-            agent_tools_query: agent_registry.clone()
-                as Arc<dyn closeclaw_common::AgentToolsConfigQuery>,
-            agent_config_lookup: agent_registry.clone()
-                as Arc<dyn closeclaw_common::AgentConfigLookup>,
-            disk_registry,
-            permission_engine,
-            spawn_validator: spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
-            session_manager,
-            task_manager: task_manager as Arc<dyn closeclaw_common::TaskManager>,
-        })
+        vec![
+            Box::new(CoreToolsRegistrar::new(
+                permission_engine,
+                task_manager as Arc<dyn closeclaw_common::TaskManager>,
+                session_manager.clone(),
+                config_manager,
+            )),
+            Box::new(SessionToolsRegistrar::new(
+                spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
+                session_manager.clone(),
+                agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
+            )),
+            Box::new(SkillsToolsRegistrar::new(
+                disk_registry,
+                spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
+                session_manager,
+            )),
+        ]
     }
 
     #[tokio::test]
@@ -162,18 +170,17 @@ mod tests {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
-        register_builtin_tools(
-            &registry,
-            make_builtin_ctx(
+        registry
+            .register_all(make_registrars(
                 disk_registry,
                 test_permission_engine(),
                 spawn_controller,
                 session_manager,
                 config_manager,
                 agent_registry,
-            ),
-        )
-        .await;
+            ))
+            .await
+            .unwrap();
         let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -193,18 +200,17 @@ mod tests {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
-        register_builtin_tools(
-            &registry,
-            make_builtin_ctx(
+        registry
+            .register_all(make_registrars(
                 disk_registry,
                 test_permission_engine(),
                 spawn_controller,
                 session_manager,
                 config_manager,
                 agent_registry,
-            ),
-        )
-        .await;
+            ))
+            .await
+            .unwrap();
         let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -230,18 +236,17 @@ mod tests {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
-        register_builtin_tools(
-            &registry,
-            make_builtin_ctx(
+        registry
+            .register_all(make_registrars(
                 disk_registry,
                 test_permission_engine(),
                 spawn_controller,
                 session_manager,
                 config_manager,
                 agent_registry,
-            ),
-        )
-        .await;
+            ))
+            .await
+            .unwrap();
         let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -277,18 +282,17 @@ mod tests {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
-        register_builtin_tools(
-            &registry,
-            make_builtin_ctx(
+        registry
+            .register_all(make_registrars(
                 disk_registry,
                 test_permission_engine(),
                 spawn_controller,
                 session_manager,
                 config_manager,
                 agent_registry,
-            ),
-        )
-        .await;
+            ))
+            .await
+            .unwrap();
         let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -335,18 +339,17 @@ mod tests {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
-        register_builtin_tools(
-            &registry,
-            make_builtin_ctx(
+        registry
+            .register_all(make_registrars(
                 disk_registry,
                 test_permission_engine(),
                 spawn_controller,
                 session_manager,
                 config_manager,
                 agent_registry,
-            ),
-        )
-        .await;
+            ))
+            .await
+            .unwrap();
         let ctx = closeclaw_tools::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,

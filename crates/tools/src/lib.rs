@@ -312,6 +312,9 @@ impl Tool for Box<dyn Tool> {
 mod prompt_generation_tests;
 
 #[cfg(test)]
+mod registrar_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
