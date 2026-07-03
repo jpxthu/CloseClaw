@@ -33,7 +33,6 @@ pub mod task_manager;
 pub mod test_helpers;
 pub mod tool_registry;
 pub mod verbosity;
-pub mod workdir_context;
 
 pub use agent_config::{
     ActionPermission, ActiveSearcherOverride, AgentConfig, AgentPermissions, MemoryConfig,
@@ -78,4 +77,3 @@ pub use system_prompt::{PromptOverrides, SystemPromptBuilder, WorkspaceBuildConf
 pub use task_manager::{BackgroundTask, BackgroundTaskError, TaskManager, TaskState};
 pub use tool_registry::{ToolDescriptor, ToolFlags, ToolRegistryQuery};
 pub use verbosity::VerbosityLevel;
-pub use workdir_context::{build_git_status_for, build_workdir_context, WorkdirContext};

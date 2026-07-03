@@ -13,8 +13,8 @@
 use std::sync::Arc;
 
 use crate::builtin::BashTool;
+use crate::WorkdirContext;
 use crate::{PromptGenerationContext, Tool};
-use closeclaw_common::WorkdirContext;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
