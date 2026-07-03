@@ -85,7 +85,7 @@
     "commit_time": "",
     "confirmed_time": "2026-07-03T12:22:49.202328+08:00",
     "comment": "",
-    "blocked_reason": "Doc internal contradiction: Verbosity filter diagram contradicts text (diagram shows DslParser before Verbosity filter, text says DslParser only processes post-filter blocks). SlashResult::Exec documented as executing commands with Permission check, code only formats reply text."
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/config/README.md",
@@ -177,11 +177,11 @@
   },
   {
     "path": "docs/design/llm/model-discovery.md",
-    "commit": "9fc9ebced947150360ab8a93e88825d8630232eb",
-    "commit_time": "2026-06-28T15:19:46+08:00",
-    "confirmed_time": "2026-06-26T17:55:59.491929+08:00",
+    "commit": "e12a1036e2cbd4672c28d3e6b20f63c449caf9e2",
+    "commit_time": "2026-07-03T14:52:07+08:00",
+    "confirmed_time": "2026-07-03T14:59:56.096791+08:00",
     "comment": "",
-    "blocked_reason": "F2b found doc issues: (1) default_temperature field optionality not documented; (2) retry count mismatch (code=4, doc=3); (3) backoff ceiling mismatch (code=8s, doc=4s); (4) knowledge fill-vs-override semantic ambiguity."
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/protocol-mapping.md",
