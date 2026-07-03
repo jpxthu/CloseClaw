@@ -1,4 +1,5 @@
 use super::*;
+use crate::outbound_raw_log::OutboundRawLogProcessor;
 use crate::processor_chain::context::MessageContext;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use tempfile::TempDir;

@@ -46,11 +46,11 @@ async fn test_default_config_no_raw_log() {
         2,
         "default config should have 2 inbound processors"
     );
-    // Outbound: VerbosityFilter (5) + DslParser (10) = 2
+    // Outbound: DslParser (10) = 1
     assert_eq!(
         registry.outbound_len(),
-        2,
-        "default config should have 2 outbound processors"
+        1,
+        "default config should have 1 outbound processor (DslParser)"
     );
 }
 
@@ -71,8 +71,8 @@ async fn test_config_with_raw_log_dir() {
     );
     assert_eq!(
         registry.outbound_len(),
-        3,
-        "config with raw_log_dir should have 3 outbound processors"
+        1,
+        "config with raw_log_dir should have 1 outbound processor (DslParser)"
     );
 }
 
@@ -139,8 +139,7 @@ async fn test_priority_sorting_inbound() {
     );
 }
 
-/// Verify that the outbound chain executes in priority order:
-/// VerbosityFilter(5) → DslParser(10) → OutboundRawLogProcessor(20) (when raw_log_dir is set).
+/// Verify that the outbound chain contains only DslParser.
 #[tokio::test]
 async fn test_priority_sorting_outbound() {
     let tmp = tempfile::tempdir().unwrap();
@@ -155,8 +154,7 @@ async fn test_priority_sorting_outbound() {
     };
     let result = registry.process_outbound(llm_output).await.unwrap();
 
-    // Outbound chain should pass content through (DslParser doesn't modify
-    // plain text, OutboundRawLogProcessor logs without changing content)
+    // Outbound chain has only DslParser — plain text passes through unchanged
     assert_eq!(result.text_content(), Some("test output"));
     assert!(!result.content_blocks.is_empty());
 }
