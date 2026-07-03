@@ -1,6 +1,7 @@
 //! Unit tests for NormalizedMessage and related IM plugin types.
 
 use crate::im_plugin::{MediaRef, MessageType, NormalizedMessage};
+use serde_json;
 
 fn make_normalized(account_id: &str) -> NormalizedMessage {
     NormalizedMessage {
@@ -15,6 +16,14 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         thread_id: None,
         account_id: account_id.into(),
     }
+}
+
+/// Helper: assert MessageType serializes to expected JSON and deserializes back.
+fn assert_mt_roundtrip(mt: &MessageType, expected_json: &str) {
+    let json = serde_json::to_string(mt).unwrap();
+    assert_eq!(json, expected_json, "serialization mismatch for {:?}", mt);
+    let de: MessageType = serde_json::from_str(&json).unwrap();
+    assert_eq!(mt, &de, "deserialization round-trip failed for {:?}", mt);
 }
 
 #[test]
@@ -77,6 +86,54 @@ fn test_normalized_quoted_message_roundtrip() {
     let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
     let q = de.quoted_message.unwrap();
     assert_eq!(q, "quoted text");
+}
+
+// ---- MessageType serialization round-trip tests ----
+
+#[test]
+fn test_message_type_text_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Text, r#""text""#);
+}
+
+#[test]
+fn test_message_type_image_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Image, r#""image""#);
+}
+
+#[test]
+fn test_message_type_file_roundtrip() {
+    assert_mt_roundtrip(&MessageType::File, r#""file""#);
+}
+
+#[test]
+fn test_message_type_audio_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Audio, r#""audio""#);
+}
+
+#[test]
+fn test_message_type_other_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Other("video".into()), r#""video""#);
+}
+
+#[test]
+fn test_message_type_deserialize_unknown_string() {
+    let mt: MessageType = serde_json::from_str(r#""unknown_type""#).unwrap();
+    assert_eq!(mt, MessageType::Other("unknown_type".into()));
+}
+
+#[test]
+fn test_message_type_default_is_text() {
+    let mt = MessageType::default();
+    assert_eq!(mt, MessageType::Text);
+}
+
+#[test]
+fn test_message_type_in_normalized_message_roundtrip() {
+    let mut msg = make_normalized("a");
+    msg.message_type = MessageType::Audio;
+    let json = serde_json::to_string(&msg).unwrap();
+    let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(de.message_type, MessageType::Audio);
 }
 
 #[test]
