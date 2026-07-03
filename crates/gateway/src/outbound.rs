@@ -467,12 +467,10 @@ impl Gateway {
             }
             StreamEvent::MessageEnd { usage, .. } => {
                 let mut out = plugin.flush_stream();
-                let render_blocks = std::mem::take(&mut out.render_blocks);
+                // Non-text render_blocks were already sent in BlockEnd;
+                // discard them here to avoid duplicate sends.
+                out.render_blocks.clear();
                 dispatch_text(plugin, chat_id, thread_id, out, state).await?;
-                for block in render_blocks {
-                    send_render_block(plugin, chat_id, thread_id, &block, middlewares).await?;
-                    state.content_blocks.push(block);
-                }
                 if let Some(u) = usage {
                     state.usage = u;
                 }
