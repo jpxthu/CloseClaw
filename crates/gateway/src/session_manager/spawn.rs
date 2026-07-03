@@ -348,7 +348,7 @@ impl SessionManager {
         let model = model_override
             .map(String::from)
             .or(parent_subagents_model.map(String::from))
-            .or(config.model.clone())
+            .or(config.model.as_ref().map(|m| m.primary.clone()))
             .unwrap_or_else(|| "default".to_string());
 
         // 5a. Wire child into parent's cancel-token tree (Step 1.5).
