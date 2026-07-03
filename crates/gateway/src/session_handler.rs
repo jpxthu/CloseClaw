@@ -12,7 +12,7 @@
 use super::Gateway;
 use crate::llm_caller::execute_compact;
 use crate::session_manager::SessionManager;
-use closeclaw_common::shutdown::ShutdownHandle;
+use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::types::ContentBlock;

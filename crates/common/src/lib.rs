@@ -22,8 +22,6 @@ pub mod processor_tests;
 pub mod session_lookup;
 pub mod session_types;
 pub mod shutdown;
-#[cfg(test)]
-pub mod shutdown_tests;
 pub mod skill_registry;
 pub mod slash_router;
 #[cfg(test)]
@@ -68,7 +66,7 @@ pub use processor::{
 };
 pub use session_lookup::{PendingMessage, SessionLookup};
 pub use session_types::{AgentRole, ReasoningLevel};
-pub use shutdown::{DrainStatus, ShutdownHandle, ShutdownMode, ShutdownSignal, ShutdownState};
+pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
 pub use skill_registry::SkillRegistryQuery;
 pub use slash_router::{
     parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashDispatcherTrait, SlashHandler,
