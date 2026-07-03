@@ -129,11 +129,11 @@
   },
   {
     "path": "docs/design/im_adapter/README.md",
-    "commit": "9fc9ebced947150360ab8a93e88825d8630232eb",
-    "commit_time": "2026-06-28T15:19:46+08:00",
-    "confirmed_time": "2026-06-26T02:54:54.436593+08:00",
+    "commit": "5a724c8040ad7a3e5f626a5fa1be3117ce825889",
+    "commit_time": "2026-07-03T09:15:00+08:00",
+    "confirmed_time": "2026-07-03T09:17:44.062893+08:00",
     "comment": "",
-    "blocked_reason": "文档声称可通过配置文件控制各平台启用/禁用，但代码仅通过环境变量判断，不存在配置文件级启停机制。设计目标与实现矛盾。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
