@@ -1,5 +1,6 @@
 use crate::context::SlashContext;
 use crate::side_effect::SideEffectContext;
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -45,30 +46,44 @@ impl SlashResult {
     pub async fn execute(&self, ctx: &SideEffectContext) {
         match self {
             SlashResult::Reply(text) => {
-                ctx.reply(text.clone()).await;
+                ctx.reply(vec![ContentBlock::Text(text.clone())]).await;
             }
             SlashResult::Compact { instruction } => {
                 ctx.trigger_compact(instruction.clone()).await;
             }
             SlashResult::Exec { command } => {
-                ctx.reply(format!("命令已提交审批：/{command}")).await;
+                ctx.reply(vec![ContentBlock::Text(format!(
+                    "命令已提交审批：/{command}"
+                ))])
+                .await;
             }
             SlashResult::SetReasoning { level } => {
                 if let Some(cs) = ctx.get_conversation_session().await {
                     cs.write().await.set_reasoning_level(*level);
-                    ctx.reply(format!("推理深度已设置为 {:?}", level)).await;
+                    ctx.reply(vec![ContentBlock::Text(format!(
+                        "推理深度已设置为 {:?}",
+                        level
+                    ))])
+                    .await;
                 } else {
-                    ctx.reply("当前会话未激活，无法设置推理深度".to_owned())
-                        .await;
+                    ctx.reply(vec![ContentBlock::Text(
+                        "当前会话未激活，无法设置推理深度".to_owned(),
+                    )])
+                    .await;
                 }
             }
             SlashResult::SetVerbosity { level } => {
                 if let Some(cs) = ctx.get_conversation_session().await {
                     cs.write().await.set_verbosity_level(*level);
-                    ctx.reply(format!("输出详细度已设置为 {level}")).await;
+                    ctx.reply(vec![ContentBlock::Text(format!(
+                        "输出详细度已设置为 {level}"
+                    ))])
+                    .await;
                 } else {
-                    ctx.reply("当前会话未激活，无法设置输出详细度".to_owned())
-                        .await;
+                    ctx.reply(vec![ContentBlock::Text(
+                        "当前会话未激活，无法设置输出详细度".to_owned(),
+                    )])
+                    .await;
                 }
             }
             SlashResult::SystemAppend { action } => {

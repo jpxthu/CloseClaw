@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
     parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashHandler, SlashRouter,
 };
@@ -182,6 +183,38 @@ impl Gateway {
         }
     }
 
+    /// Route a slash reply through the outbound Processor Chain.
+    ///
+    /// ContentBlock[] from [`ReplyAction::Reply`] is sent through the same
+    /// outbound pipeline as LLM responses: Verbosity filtering → DslParser →
+    /// outbound logging → IM Adapter rendering.
+    ///
+    /// Falls back to plain-text `send_reply` when the outbound chain is
+    /// unavailable (e.g. no plugin registered in tests).
+    async fn route_slash_reply(&self, session_id: &str, channel: &str, blocks: Vec<ContentBlock>) {
+        let raw_output = blocks
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        if let Err(e) = self
+            .send_outbound(session_id, channel, &raw_output, blocks)
+            .await
+        {
+            tracing::debug!(
+                session_id,
+                channel,
+                error = %e,
+                "slash reply outbound failed, falling back to send_reply"
+            );
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply(raw_output).await;
+            }
+        }
+    }
+
     /// Invoke the handler with a constructed `SlashContext`, then route the
     /// returned `SlashResult` to the appropriate side effect.
     ///
@@ -227,10 +260,8 @@ impl Gateway {
 
         while let Some(action) = reply_rx.recv().await {
             match action {
-                ReplyAction::Reply(text) => {
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        sh.send_reply(text).await;
-                    }
+                ReplyAction::Reply(blocks) => {
+                    self.route_slash_reply(session_id, channel, blocks).await;
                 }
                 ReplyAction::TriggerCompact { instruction } => {
                     if let Some(sh) = self.session_handler.as_ref() {

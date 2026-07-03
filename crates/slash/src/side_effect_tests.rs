@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::handler::{SlashResult, SystemAppendAction};
 use crate::side_effect::{ReplyAction, SideEffectContext};
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_gateway::{DmScope, GatewayConfig};
 use closeclaw_session::bootstrap::loader::BootstrapMode;
@@ -50,6 +51,16 @@ async fn execute_and_collect(result: SlashResult) -> Vec<ReplyAction> {
     actions
 }
 
+/// Extract the first `ContentBlock::Text` string from a `Vec<ContentBlock>`.
+fn first_text(blocks: &[ContentBlock]) -> String {
+    for b in blocks {
+        if let ContentBlock::Text(t) = b {
+            return t.clone();
+        }
+    }
+    panic!("no ContentBlock::Text found in blocks: {blocks:?}");
+}
+
 // ---------------------------------------------------------------------------
 // SideEffectContext tests
 // ---------------------------------------------------------------------------
@@ -64,10 +75,11 @@ async fn test_side_effect_context_construction() {
 #[tokio::test]
 async fn test_side_effect_context_reply() {
     let (ctx, mut rx) = make_ctx();
-    ctx.reply("hello".to_owned()).await;
+    ctx.reply(vec![ContentBlock::Text("hello".to_owned())])
+        .await;
     let action = rx.recv().await.expect("reply action expected");
     match action {
-        ReplyAction::Reply(text) => assert_eq!(text, "hello"),
+        ReplyAction::Reply(blocks) => assert_eq!(first_text(&blocks), "hello"),
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -115,7 +127,7 @@ async fn test_execute_reply() {
     let actions = execute_and_collect(SlashResult::Reply("hi there".to_owned())).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => assert_eq!(text, "hi there"),
+        ReplyAction::Reply(blocks) => assert_eq!(first_text(blocks), "hi there"),
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -162,7 +174,8 @@ async fn test_execute_exec() {
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => {
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(blocks);
             assert!(text.contains("rm -rf /tmp/test"), "got: {text}");
             assert!(text.contains("已提交审批"), "got: {text}");
         }
@@ -182,7 +195,8 @@ async fn test_execute_set_reasoning_no_session() {
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => {
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(blocks);
             assert!(
                 text.contains("当前会话未激活"),
                 "expected no-session message, got: {text}"
@@ -204,7 +218,8 @@ async fn test_execute_set_verbosity_no_session() {
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => {
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(blocks);
             assert!(
                 text.contains("当前会话未激活"),
                 "expected no-session message, got: {text}"
@@ -254,7 +269,8 @@ async fn test_execute_system_append_add_no_session() {
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => {
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(blocks);
             assert!(
                 text.contains("当前会话未激活"),
                 "expected no-session message, got: {text}"
@@ -272,7 +288,8 @@ async fn test_execute_system_append_clear_no_session() {
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => {
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(blocks);
             assert!(
                 text.contains("当前会话未激活"),
                 "expected no-session message, got: {text}"
@@ -292,7 +309,8 @@ async fn test_execute_new_session() {
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => {
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(blocks);
             assert!(
                 text.contains("已创建新 session"),
                 "expected new-session message, got: {text}"
@@ -312,7 +330,8 @@ async fn test_execute_stop_no_session() {
     let actions = execute_and_collect(result).await;
     assert_eq!(actions.len(), 1);
     match &actions[0] {
-        ReplyAction::Reply(text) => {
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(blocks);
             assert!(
                 text.contains("当前会话未激活"),
                 "expected no-session message, got: {text}"
@@ -329,7 +348,10 @@ async fn test_execute_stop_no_session() {
 #[test]
 fn test_reply_action_debug() {
     // Ensure Debug is implemented and doesn't panic.
-    let _ = format!("{:?}", ReplyAction::Reply("x".to_owned()));
+    let _ = format!(
+        "{:?}",
+        ReplyAction::Reply(vec![ContentBlock::Text("x".to_owned())])
+    );
     let _ = format!("{:?}", ReplyAction::TriggerCompact { instruction: None });
     let _ = format!("{:?}", ReplyAction::Nothing);
 }
@@ -368,7 +390,10 @@ async fn test_execute_set_reasoning_with_session() {
     drop(ctx);
     let action = rx.recv().await.expect("reply action");
     match action {
-        ReplyAction::Reply(text) => assert!(text.contains("推理深度已设置为"), "got: {text}"),
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(&blocks);
+            assert!(text.contains("推理深度已设置为"), "got: {text}");
+        }
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -383,7 +408,10 @@ async fn test_execute_set_verbosity_with_session() {
     drop(ctx);
     let action = rx.recv().await.expect("reply action");
     match action {
-        ReplyAction::Reply(text) => assert!(text.contains("输出详细度已设置为"), "got: {text}"),
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(&blocks);
+            assert!(text.contains("输出详细度已设置为"), "got: {text}");
+        }
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -398,7 +426,10 @@ async fn test_execute_system_append_add_with_session() {
     drop(ctx);
     let action = rx.recv().await.expect("reply action");
     match action {
-        ReplyAction::Reply(text) => assert!(text.contains("已追加指令"), "got: {text}"),
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(&blocks);
+            assert!(text.contains("已追加指令"), "got: {text}");
+        }
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -413,7 +444,10 @@ async fn test_execute_system_append_clear_with_session() {
     drop(ctx);
     let action = rx.recv().await.expect("reply action");
     match action {
-        ReplyAction::Reply(text) => assert!(text.contains("已清除"), "got: {text}"),
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(&blocks);
+            assert!(text.contains("已清除"), "got: {text}");
+        }
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -426,7 +460,67 @@ async fn test_execute_stop_with_session_not_busy() {
     drop(ctx);
     let action = rx.recv().await.expect("reply action");
     match action {
-        ReplyAction::Reply(text) => assert!(text.contains("已停止当前任务"), "got: {text}"),
+        ReplyAction::Reply(blocks) => {
+            let text = first_text(&blocks);
+            assert!(text.contains("已停止当前任务"), "got: {text}");
+        }
         other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContentBlock[] verification (Step 1.3)
+// ---------------------------------------------------------------------------
+
+/// Verify that ReplyAction::Reply carries Vec<ContentBlock> (not String).
+#[test]
+fn test_reply_action_reply_is_vec_content_block() {
+    let blocks = vec![
+        ContentBlock::Text("line1".to_owned()),
+        ContentBlock::Text("line2".to_owned()),
+    ];
+    let action = ReplyAction::Reply(blocks.clone());
+    match action {
+        ReplyAction::Reply(b) => {
+            assert_eq!(b.len(), 2);
+            assert_eq!(first_text(&b), "line1");
+            assert!(matches!(&b[1], ContentBlock::Text(s) if s == "line2"));
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// Execute a Reply slash command and verify the reply carries
+/// a single ContentBlock::Text inside the Vec.
+#[tokio::test]
+async fn test_execute_reply_content_block_text() {
+    let actions = execute_and_collect(SlashResult::Reply("test reply".to_owned())).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(matches!(&blocks[0], ContentBlock::Text(s) if s == "test reply"));
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// Verify that ReplyAction::Reply handles empty content blocks.
+#[test]
+fn test_reply_action_empty_blocks() {
+    let action = ReplyAction::Reply(vec![]);
+    match action {
+        ReplyAction::Reply(b) => assert!(b.is_empty()),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// Verify that ReplyAction::Nothing produces no side effects.
+#[test]
+fn test_reply_action_nothing() {
+    let action = ReplyAction::Nothing;
+    match action {
+        ReplyAction::Nothing => {}
+        other => panic!("expected Nothing, got {other:?}"),
     }
 }
