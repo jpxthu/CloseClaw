@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use closeclaw_common::AgentConfigLookup;
 use closeclaw_gateway::SessionManager;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool};
 use crate::registrar::{register_tool, ToolRegistrar, ToolRegistrarError};
@@ -18,6 +19,7 @@ pub struct SessionToolsRegistrar {
     spawn_validator: Arc<dyn SpawnValidator>,
     session_manager: Arc<SessionManager>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
+    permission_engine: Arc<PermissionEngine>,
 }
 
 impl SessionToolsRegistrar {
@@ -26,11 +28,13 @@ impl SessionToolsRegistrar {
         spawn_validator: Arc<dyn SpawnValidator>,
         session_manager: Arc<SessionManager>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
+        permission_engine: Arc<PermissionEngine>,
     ) -> Self {
         Self {
             spawn_validator,
             session_manager,
             agent_config_lookup,
+            permission_engine,
         }
     }
 }
@@ -58,13 +62,13 @@ impl ToolRegistrar for SessionToolsRegistrar {
         .await?;
         register_tool(
             registry,
-            SessionsSteerTool::new(self.session_manager.clone()),
+            SessionsSteerTool::new(self.session_manager.clone(), self.permission_engine.clone()),
             "SessionToolsRegistrar",
         )
         .await?;
         register_tool(
             registry,
-            SessionsKillTool::new(self.session_manager.clone()),
+            SessionsKillTool::new(self.session_manager.clone(), self.permission_engine.clone()),
             "SessionToolsRegistrar",
         )
         .await?;

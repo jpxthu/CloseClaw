@@ -147,7 +147,7 @@ mod tests {
         let task_manager = Arc::new(BackgroundTaskManager::new());
         vec![
             Box::new(CoreToolsRegistrar::new(
-                permission_engine,
+                permission_engine.clone(),
                 task_manager as Arc<dyn closeclaw_common::TaskManager>,
                 session_manager.clone(),
                 config_manager,
@@ -156,6 +156,7 @@ mod tests {
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager.clone(),
                 agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
+                permission_engine,
             )),
             Box::new(SkillsToolsRegistrar::new(
                 disk_registry,
