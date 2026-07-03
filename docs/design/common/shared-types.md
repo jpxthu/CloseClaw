@@ -69,7 +69,7 @@ ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
 
 DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中，供下游 Renderer 消费。DslInstruction 是单条 DSL 指令的结构化表示。
 
-DSL 指令是消息中的交互元素（按钮、选择器等），每条为一行，格式为 `::type[key1:value1;key2:value2;...]`。DslParser 遍历 ContentBlock::Text 逐行扫描，匹配 DSL 格式的行解析为 DslInstruction，从 Text 块中移除 DSL 行后与其他 ContentBlock 一并传递。DslParser 仅处理 Text 变体，其余变体透传。
+DSL 指令是消息中的交互元素（按钮、选择器等），每条为一行，格式为 `::type[key1:value1;key2:value2;...]`。例如 `::button[label:确认;action:confirm;value:1]` 和 `::selector[label:选颜色;options:红,蓝;action:pick]`。DslParser 遍历 ContentBlock::Text 逐行扫描，匹配 DSL 格式的行解析为 DslInstruction，从 Text 块中移除 DSL 行后与其他 ContentBlock 一并传递。DslParser 仅处理 Text 变体，其余变体透传。
 
 **DslInstruction 结构**：
 
@@ -120,7 +120,7 @@ SlashResult 共 10 种变体：
 
 **SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于模式切换、会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
 
-**与 ContentBlock[] 的关系**：SlashResult 各变体在执行中通过 SideEffectContext 的回复通道产出 ContentBlock[]，进入出站 Processor Chain——与 LLM 的 UnifiedResponse 走同一条出站处理路径（Verbosity 过滤 → DslParser → 出站日志 → IM Adapter 渲染发送）。
+**与 ContentBlock[] 的关系**：SlashResult 各变体在执行中通过 SideEffectContext 的回复通道产出 ContentBlock[]，进入出站 Processor Chain——与 LLM 的 UnifiedResponse 走同一条出站处理路径（VerbosityFilter → DslParser → OutboundRawLog → IM Adapter 渲染发送）。
 
 ## 数据流
 
@@ -149,13 +149,9 @@ LLM UnifiedResponse / SlashResult 变体
   ↓
 ContentBlock[] 进入出站处理链路
   ↓
-[Verbosity 过滤] — 按 Session 当前 Verbosity 等级逐块过滤
-  ↓
-[Processor Chain 出站: DslParser] — 遍历 Text 块解析 DSL 指令，其余块透传
+[Processor Chain 出站: VerbosityFilter → DslParser → OutboundRawLog]
   ↓
 ProcessedMessage { content_blocks, metadata[dsl_result] }
-  ↓
-[Gateway: 出站日志]
   ↓
 [IM Adapter 渲染] — 按块类型选择渲染策略，输出平台原生格式
   ├─ 批量模式：一次性渲染全部 ContentBlock[]
@@ -177,7 +173,7 @@ DslParseResult 的流动嵌入在 ContentBlock[] 的出站路径中：
 ```
 ContentBlock[]（来自 LLM UnifiedResponse / SlashResult）
   ↓
-[Verbosity 过滤] — 按 Session 当前 Verbosity 等级逐块过滤，DslParseResult 不含被过滤块中的指令
+[Processor Chain 出站: VerbosityFilter] — 按 Session Verbosity 等级逐块过滤
   ↓
 DslParser 遍历 Text 块，逐行扫描 DSL
   ├── 匹配 DSL 行 → 解析为 DslInstruction → 加入 instructions 列表 → 从 Text 块中移除该行
@@ -214,7 +210,7 @@ Gateway — 从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 
 出站方向：
 
 ```
-ContentBlock[]（LLM 产出 / SlashResult 变体）→ Verbosity 过滤 → Processor Chain 出站（DslParser）
+ContentBlock[]（LLM 产出 / SlashResult 变体）→ Processor Chain 出站（VerbosityFilter → DslParser）
   ↓
 ProcessedMessage {
   content_blocks: [去 DSL 后的 ContentBlock[]],
@@ -251,8 +247,8 @@ SlashResult 的生命周期：Handler 返回 → Gateway 构造 SideEffectContex
 ### ContentBlock
 
 - **生产者**：Session（LLM 对话产出 UnifiedResponse，含 ContentBlock[]）、SlashDispatcher（斜杠指令回复以 SlashResult 变体产出 ContentBlock[]）
-- **消费者**：Gateway（Verbosity 过滤）→ Processor Chain 出站（DslParser 解析 DSL）→ Gateway（出站日志记录）→ IM Adapter（按块类型渲染为平台原生格式并发送）
-- **无关**：IM Adapter 入站链（入站方向产 NormalizedMessage，不涉及 ContentBlock[]）、Session 生命周期管理（不直接操作 ContentBlock[]，仅通过 Gateway 间接消费）、LLM Provider（LLM 调用产出 ContentBlock[]，但不参与 ContentBlock 的结构定义和处理流程）
+- **消费者**：Processor Chain 出站（VerbosityFilter → DslParser → OutboundRawLog）→ IM Adapter（按块类型渲染为平台原生格式并发送）
+- **无关**：IM Adapter 入站链（入站方向产 NormalizedMessage，不涉及 ContentBlock[]）、Session 生命周期管理（不直接操作 ContentBlock[]，仅通过 Gateway 间接消费）、LLM Provider（LLM 调用产出 ContentBlock[]，但不参与 ContentBlock 的结构定义和处理流程）、[Gateway](../gateway/README.md)（Gateway 编排 Processor Chain 调度，不直接执行内容过滤/解析）
 
 ### DslParseResult / DslInstruction
 
