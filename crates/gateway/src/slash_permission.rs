@@ -252,9 +252,11 @@ impl Gateway {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
+        let perm_engine = self.permission_engine.read().await.clone();
         let executor: Arc<dyn SlashEffectExecutor> = Arc::new(GatewaySlashExecutor {
             session_manager: Arc::clone(&self.session_manager),
             session_handler: self.session_handler.clone(),
+            permission_engine: perm_engine,
         });
         let side_effect_ctx = SideEffectContext::new(
             session_id.to_owned(),
@@ -293,6 +295,7 @@ impl Gateway {
 struct GatewaySlashExecutor {
     session_manager: Arc<SessionManager>,
     session_handler: Option<Arc<SessionMessageHandler>>,
+    permission_engine: Option<Arc<PermissionEngine>>,
 }
 
 #[async_trait::async_trait]
@@ -392,5 +395,68 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             return;
         };
         cs.write().await.set_verbosity_level(level);
+    }
+
+    async fn execute_exec(
+        &self,
+        _session_id: &str,
+        agent_id: &str,
+        command: &str,
+    ) -> Vec<ContentBlock> {
+        let command = command.trim();
+        if command.is_empty() {
+            return vec![ContentBlock::Text("用法：/exec <command>".to_owned())];
+        }
+
+        // Permission evaluation: CommandExec request body.
+        let Some(engine) = self.permission_engine.as_ref() else {
+            return vec![ContentBlock::Text("无权限：权限引擎未配置".to_owned())];
+        };
+        let caller = Caller {
+            user_id: "owner".to_owned(),
+            agent: agent_id.to_owned(),
+            creator_id: String::new(),
+        };
+        let parts: Vec<String> = shlex::split(command).unwrap_or_else(|| vec![command.to_owned()]);
+        let cmd = parts.first().cloned().unwrap_or_default();
+        let args = parts[1..].to_vec();
+        let request = PermissionRequest::WithCaller {
+            caller,
+            request: PermissionRequestBody::CommandExec {
+                agent: agent_id.to_owned(),
+                cmd: cmd.clone(),
+                args: args.clone(),
+            },
+        };
+        let response = engine.evaluate(request, None);
+
+        if let PermissionResponse::Denied { reason, .. } = response {
+            return vec![ContentBlock::Text(format!("无权限：{reason}",))];
+        }
+
+        // Execute the command.
+        let result = tokio::process::Command::new(&cmd)
+            .args(&args)
+            .output()
+            .await;
+        match result {
+            Ok(output) => {
+                let mut parts = Vec::new();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stdout.is_empty() {
+                    parts.push(ContentBlock::Text(stdout.to_string()));
+                }
+                if !stderr.is_empty() {
+                    parts.push(ContentBlock::Text(format!("[stderr] {stderr}")));
+                }
+                if parts.is_empty() {
+                    let code = output.status.code().unwrap_or(-1);
+                    parts.push(ContentBlock::Text(format!("命令执行完成，退出码：{code}",)));
+                }
+                parts
+            }
+            Err(e) => vec![ContentBlock::Text(format!("命令执行失败：{e}"))],
+        }
     }
 }
