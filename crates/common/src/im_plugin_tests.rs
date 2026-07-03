@@ -1,6 +1,6 @@
 //! Unit tests for NormalizedMessage and related IM plugin types.
 
-use crate::im_plugin::{MediaRef, NormalizedMessage, QuotedMessage};
+use crate::im_plugin::{MediaRef, MessageType, NormalizedMessage, QuotedMessage};
 
 fn make_normalized(account_id: &str) -> NormalizedMessage {
     NormalizedMessage {
@@ -9,7 +9,7 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         peer_id: "oc_chat".into(),
         content: "hello".into(),
         timestamp: 1700000000000,
-        message_type: "text".into(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -46,13 +46,13 @@ fn test_normalized_message_type_defaults_to_text() {
         "timestamp": 0
     }"#;
     let msg: NormalizedMessage = serde_json::from_str(json).unwrap();
-    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.message_type, MessageType::Text);
 }
 
 #[test]
 fn test_normalized_roundtrip() {
     let mut msg = make_normalized("tenant_42");
-    msg.message_type = "image".into();
+    msg.message_type = MessageType::Image;
     msg.media_refs = vec![MediaRef {
         key: "file_abc".into(),
         url: "https://example.com/file_abc".into(),
@@ -62,7 +62,7 @@ fn test_normalized_roundtrip() {
     let json = serde_json::to_string(&msg).unwrap();
     let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(de.account_id, "tenant_42");
-    assert_eq!(de.message_type, "image");
+    assert_eq!(de.message_type, MessageType::Image);
     assert_eq!(de.media_refs.len(), 1);
     assert_eq!(de.media_refs[0].key, "file_abc");
     assert_eq!(de.thread_id.as_deref(), Some("t_99"));

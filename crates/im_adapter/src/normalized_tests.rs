@@ -7,7 +7,7 @@
 //! - MediaRef and QuotedMessage independent roundtrip
 //! - edge cases: empty media_refs, quoted_message None vs present
 
-use closeclaw_common::{MediaRef, NormalizedMessage, QuotedMessage};
+use closeclaw_common::{MediaRef, MessageType, NormalizedMessage, QuotedMessage};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,7 +31,7 @@ fn make_minimal_json() -> serde_json::Value {
 fn test_deserialize_defaults_message_type() {
     let json = make_minimal_json();
     let msg: NormalizedMessage = serde_json::from_value(json).expect("deserialization failed");
-    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.message_type, MessageType::Text);
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn test_deserialize_all_defaults_present() {
     assert_eq!(msg.peer_id, "oc_xyz");
     assert_eq!(msg.content, "hi");
     assert_eq!(msg.timestamp, 1000);
-    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.message_type, MessageType::Text);
     assert!(msg.media_refs.is_empty());
     assert!(msg.quoted_message.is_none());
     assert!(msg.thread_id.is_none());
@@ -73,7 +73,7 @@ fn test_deserialize_explicit_message_type() {
     let mut json = make_minimal_json();
     json["message_type"] = serde_json::json!("image");
     let msg: NormalizedMessage = serde_json::from_value(json).expect("deserialization failed");
-    assert_eq!(msg.message_type, "image");
+    assert_eq!(msg.message_type, MessageType::Image);
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn test_roundtrip_message_type_non_default() {
         peer_id: "p".into(),
         content: String::new(),
         timestamp: 0,
-        message_type: "file".into(),
+        message_type: MessageType::File,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -92,7 +92,7 @@ fn test_roundtrip_message_type_non_default() {
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
-    assert_eq!(back.message_type, "file");
+    assert_eq!(back.message_type, MessageType::File);
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ fn test_roundtrip_message_with_media_refs() {
         peer_id: "p".into(),
         content: String::new(),
         timestamp: 0,
-        message_type: "image".into(),
+        message_type: MessageType::Image,
         media_refs: vec![
             MediaRef {
                 key: "k1".into(),
@@ -215,7 +215,7 @@ fn test_roundtrip_message_with_quoted() {
         peer_id: "p".into(),
         content: "my reply".into(),
         timestamp: 42,
-        message_type: "text".into(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: Some(QuotedMessage {
             content: "original".into(),
@@ -243,7 +243,7 @@ fn test_roundtrip_all_new_fields_populated() {
         peer_id: "oc_group".into(),
         content: "replied with image".into(),
         timestamp: 1_700_000_000_000,
-        message_type: "image".into(),
+        message_type: MessageType::Image,
         media_refs: vec![MediaRef {
             key: "img_key_001".into(),
             url: "https://cdn.feishu.cn/img.png".into(),
@@ -258,7 +258,7 @@ fn test_roundtrip_all_new_fields_populated() {
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
 
-    assert_eq!(back.message_type, "image");
+    assert_eq!(back.message_type, MessageType::Image);
     assert_eq!(back.media_refs.len(), 1);
     assert_eq!(back.media_refs[0].key, "img_key_001");
     assert_eq!(back.media_refs[0].url, "https://cdn.feishu.cn/img.png");
@@ -284,7 +284,7 @@ fn test_backward_compat_old_json_without_new_fields() {
         "thread_id": null
     });
     let msg: NormalizedMessage = serde_json::from_value(json).expect("backward compat failed");
-    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.message_type, MessageType::Text);
     assert!(msg.media_refs.is_empty());
     assert!(msg.quoted_message.is_none());
 }
@@ -301,7 +301,7 @@ fn test_normalized_message_debug_contains_key_fields() {
         peer_id: "p".into(),
         content: "c".into(),
         timestamp: 0,
-        message_type: "text".into(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -324,7 +324,7 @@ fn test_normalized_message_clone() {
         peer_id: "p".into(),
         content: "c".into(),
         timestamp: 0,
-        message_type: "image".into(),
+        message_type: MessageType::Image,
         media_refs: vec![MediaRef {
             key: "k".into(),
             url: "u".into(),

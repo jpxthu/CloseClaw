@@ -8,6 +8,69 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
+// MessageType
+// ---------------------------------------------------------------------------
+
+/// Normalized message type, matching the four variants defined in
+/// `docs/design/common/shared-types.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MessageType {
+    /// Plain text message.
+    Text,
+    /// Image message.
+    Image,
+    /// File message.
+    File,
+    /// Audio message.
+    Audio,
+    /// Catch-all for platform-specific types not in the normalized set.
+    Other(String),
+}
+
+impl Serialize for MessageType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            MessageType::Text => serializer.serialize_str("text"),
+            MessageType::Image => serializer.serialize_str("image"),
+            MessageType::File => serializer.serialize_str("file"),
+            MessageType::Audio => serializer.serialize_str("audio"),
+            MessageType::Other(s) => serializer.serialize_str(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MessageType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(MessageType::from(s.as_str()))
+    }
+}
+
+impl Default for MessageType {
+    fn default() -> Self {
+        MessageType::Text
+    }
+}
+
+impl From<&str> for MessageType {
+    fn from(s: &str) -> Self {
+        match s {
+            "text" => MessageType::Text,
+            "image" => MessageType::Image,
+            "file" => MessageType::File,
+            "audio" => MessageType::Audio,
+            other => MessageType::Other(other.to_string()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AdapterError
 // ---------------------------------------------------------------------------
 
@@ -85,11 +148,11 @@ pub struct NormalizedMessage {
     /// Message send time as a Unix timestamp (milliseconds since epoch).
     pub timestamp: i64,
 
-    /// Message type (`"text"`, `"image"`, `"file"`, `"audio"`, etc.).
+    /// Message type.
     ///
-    /// Defaults to `"text"` when the platform does not specify a type.
-    #[serde(default = "default_message_type")]
-    pub message_type: String,
+    /// Defaults to [`MessageType::Text`] when the platform does not specify a type.
+    #[serde(default)]
+    pub message_type: MessageType,
 
     /// Media attachment references (images, files, audio).
     #[serde(default)]
@@ -105,10 +168,6 @@ pub struct NormalizedMessage {
     /// Tenant/account identifier for multi-tenant session isolation.
     #[serde(default)]
     pub account_id: String,
-}
-
-fn default_message_type() -> String {
-    "text".to_string()
 }
 
 // ---------------------------------------------------------------------------
