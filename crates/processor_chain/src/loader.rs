@@ -11,6 +11,7 @@ use serde::Deserialize;
 use super::content_normalizer::ContentNormalizer;
 use super::dsl_parser::DslParser;
 use super::error::ProcessError;
+use super::outbound_raw_log::OutboundRawLogProcessor;
 use super::processor::MessageProcessor;
 use super::raw_log_processor::{RawLogConfig, RawLogProcessor};
 use super::registry::ProcessorRegistry;
@@ -55,6 +56,19 @@ pub enum ProcessorConfig {
     /// [`DslParser`](super::dsl_parser::DslParser) — outbound processor that
     /// parses `::button[...]` DSL instructions and stores them in metadata.
     DslParser,
+    /// [`OutboundRawLogProcessor`](super::outbound_raw_log::OutboundRawLogProcessor)
+    /// — logs outbound messages to a JSON file.
+    OutboundRawLog {
+        /// Whether to write log files regardless of log level (default: `false`).
+        #[serde(default)]
+        enabled: bool,
+        /// Directory to write log files into (default: `/tmp/processor_chain_logs`).
+        #[serde(default = "default_log_dir")]
+        dir: PathBuf,
+        /// Number of days to retain log files (default: `7`).
+        #[serde(default = "default_retention_days")]
+        retention_days: u32,
+    },
 }
 
 fn default_log_dir() -> PathBuf {
@@ -113,6 +127,15 @@ impl ProcessorChainLoader {
             }
             ProcessorConfig::ContentNormalizer => Ok(std::sync::Arc::new(ContentNormalizer::new())),
             ProcessorConfig::DslParser => Ok(std::sync::Arc::new(DslParser)),
+            ProcessorConfig::OutboundRawLog {
+                enabled,
+                dir,
+                retention_days,
+            } => {
+                let cfg = RawLogConfig::new(*enabled, dir.clone(), *retention_days);
+                let processor = OutboundRawLogProcessor::new(cfg);
+                Ok(std::sync::Arc::new(processor))
+            }
         }
     }
 }
@@ -232,5 +255,76 @@ mod tests {
             ProcessorConfig::DslParser => {}
             _ => panic!("expected DslParser variant"),
         }
+    }
+
+    #[test]
+    fn test_outbound_raw_log_deserialization() {
+        let json =
+            r#"{"type":"outbound_raw_log","enabled":true,"dir":"/tmp/out","retention_days":3}"#;
+        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
+        match config {
+            ProcessorConfig::OutboundRawLog {
+                enabled,
+                dir,
+                retention_days,
+            } => {
+                assert!(enabled);
+                assert_eq!(dir, PathBuf::from("/tmp/out"));
+                assert_eq!(retention_days, 3);
+            }
+            _ => panic!("expected OutboundRawLog variant"),
+        }
+    }
+
+    #[test]
+    fn test_outbound_raw_log_defaults() {
+        let json = r#"{"type":"outbound_raw_log"}"#;
+        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
+        match config {
+            ProcessorConfig::OutboundRawLog {
+                enabled,
+                dir,
+                retention_days,
+            } => {
+                assert!(!enabled);
+                assert_eq!(dir, PathBuf::from("/tmp/processor_chain_logs"));
+                assert_eq!(retention_days, 7);
+            }
+            _ => panic!("expected OutboundRawLog variant"),
+        }
+    }
+
+    #[test]
+    fn test_load_outbound_raw_log_processor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = ProcessorChainConfig {
+            inbound: vec![],
+            outbound: vec![ProcessorConfig::OutboundRawLog {
+                enabled: true,
+                dir: tmp.path().to_path_buf(),
+                retention_days: 5,
+            }],
+        };
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.outbound_len(), 1);
+    }
+
+    #[test]
+    fn test_load_outbound_raw_log_with_others() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = ProcessorChainConfig {
+            inbound: vec![ProcessorConfig::ContentNormalizer],
+            outbound: vec![
+                ProcessorConfig::DslParser,
+                ProcessorConfig::OutboundRawLog {
+                    enabled: false,
+                    dir: tmp.path().to_path_buf(),
+                    retention_days: 14,
+                },
+            ],
+        };
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.inbound_len(), 1);
+        assert_eq!(registry.outbound_len(), 2);
     }
 }
