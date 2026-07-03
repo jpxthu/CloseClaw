@@ -13,7 +13,7 @@ webhook → webhook → webhook → ...（高并发）
   有界缓冲 → 满则拒 + 回复"服务繁忙"。重启清空，消息由 IM 平台 webhook 重试补偿
   ↓
 [IM 插件]
-  平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, timestamp }
+  平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, message_type, media_refs, timestamp }
   ↓
 [Processor Chain 入站]
   RawLog(10)        → 日志记录 → 透传
@@ -26,7 +26,7 @@ webhook → webhook → webhook → ...（高并发）
 [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key }）
   ↓
 [Gateway]
-  → SessionManager.resolve(session_key) → 获得 session_id
+  → SessionManager 执行 resolve（传入 session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id
   → message_type 非 text（image/file/audio）？
     ├─ 是 → 构造错误回复 ContentBlock[] → 简化出站（跳过 Verbosity/DslParser/中间件，经日志→渲染→发送）
     └─ 否（text）→ content 以 / 开头？
@@ -52,9 +52,9 @@ webhook → webhook → webhook → ...（高并发）
 
 ### 第一步：IM 插件解析
 
-IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`（完整字段定义见 [common 共享类型](../common/shared-types.md)）。插件屏蔽了平台差异，Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。入站链路中参与处理的关键字段为：platform、sender_id、peer_id、thread_id、account_id、content、timestamp。其余字段（message_type、media_refs、quoted_message）由 Gateway 在路由阶段消费。
+IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`（完整字段定义见 [common 共享类型](../common/shared-types.md)）。插件屏蔽了平台差异，Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。入站链路中参与处理的关键字段为：platform、sender_id、peer_id、thread_id?、account_id、content、message_type、timestamp。message_type 由 ContentNormalizer（非文本跳过标准化）和 Gateway（非文本拦截）消费。media_refs 当前在入站链路无实际消费者，为多模态支持预留。完整产品逻辑待后续设计。
 
-消息过滤：空 content 消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。
+消息过滤：text 类型空 content 消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。
 
 ### 第二步：Processor Chain 处理
 
@@ -77,7 +77,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 Gateway 从 metadata 取出 `session_key`。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败，请重试"，消息不进入 LLM。
 
-非空时，调用 `SessionManager.resolve(session_key)` 获得 `session_id`。
+非空时，Gateway 将 session_key 和消息路由字段（platform, sender_id, peer_id, account_id）传给 SessionManager，由 SessionManager 内部提取稳定路由键做 session 查找/创建，获得 `session_id`。
 
 获得 session_id 后，Gateway 先检查消息的 message_type——若为非文本（image/file/audio），直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（跳过 Verbosity/DslParser/中间件，经出站日志后渲染发送），不过 Session 和 LLM。流程到此结束。
 
