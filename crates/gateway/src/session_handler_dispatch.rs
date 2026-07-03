@@ -271,7 +271,7 @@ async fn load_agent_config_with_context_turns(
                 .as_ref()
                 .and_then(|m| serde_json::to_value(m).ok());
             let ctx_turns = closeclaw_session::active_searcher::extract_context_turns(&mem_json);
-            (cfg.model, mem_json, ctx_turns)
+            (cfg.model.map(|m| m.primary), mem_json, ctx_turns)
         }
         None => (None, None, 10),
     }

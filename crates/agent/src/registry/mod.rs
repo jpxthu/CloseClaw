@@ -4,6 +4,7 @@
 //! populated once at startup (or reloaded at runtime) and exposes read-only
 //! queries. All runtime state (processes, lifecycle) lives elsewhere.
 
+use closeclaw_common::agent_config::ModelSpec;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::ResolvedAgentConfig;
 use dashmap::DashMap;
@@ -87,7 +88,7 @@ pub fn create_registry() -> SharedAgentRegistry {
 
 #[async_trait::async_trait]
 impl closeclaw_common::agent_lookup::AgentLookup for AgentRegistry {
-    async fn get_agent_model(&self, agent_id: &str) -> Option<String> {
+    async fn get_agent_model(&self, agent_id: &str) -> Option<ModelSpec> {
         self.get(agent_id).and_then(|cfg| cfg.model.clone())
     }
 

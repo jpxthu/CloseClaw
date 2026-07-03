@@ -8,7 +8,7 @@
 use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
-use closeclaw_common::agent_config::SubagentsConfig;
+use closeclaw_common::agent_config::{ModelSpec, SubagentsConfig};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_llm::session::{ChatSession, ConversationSession, SessionMessage};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
@@ -23,7 +23,7 @@ pub(super) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
         id: id.to_string(),
         name: id.to_string(),
         parent_id: None,
-        model: Some("test-model".to_string()),
+        model: Some(ModelSpec::single("test-model")),
         workspace,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
+use closeclaw_common::agent_config::ModelSpec;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use tempfile::TempDir;
 #[test]
@@ -126,7 +127,7 @@ fn test_agent_config_new_fields_defaults() {
     assert!(config.model.is_none());
     assert!(config.workspace.is_none());
     assert!(config.agent_dir.is_none());
-    assert_eq!(config.bootstrap_mode, BootstrapMode::Full);
+    assert_eq!(config.bootstrap_mode, None);
     assert_eq!(config.skills, vec!["*"]);
     assert_eq!(config.tools, vec!["*"]);
     assert!(config.disallowed_tools.is_empty());
@@ -140,20 +141,20 @@ fn test_agent_config_new_fields_roundtrip() {
     let config = AgentConfig {
         id: "test-agent".to_string(),
         name: Some("Test".to_string()),
-        model: Some("gpt-4o".to_string()),
+        model: Some(ModelSpec::single("gpt-4o")),
         workspace: Some(workspace_path.to_str().unwrap().to_string()),
         agent_dir: Some(agent_dir_path.to_str().unwrap().to_string()),
-        bootstrap_mode: BootstrapMode::Minimal,
+        bootstrap_mode: Some(BootstrapMode::Minimal),
         skills: vec!["skill-a".to_string(), "skill-b".to_string()],
         tools: vec!["read".to_string(), "write".to_string()],
         disallowed_tools: vec!["exec".to_string()],
         subagents: SubagentsConfig {
             allow_agents: vec!["agent-1".to_string()],
-            require_agent_id: true,
-            max_spawn_depth: 3,
-            max_children: 10,
+            require_agent_id: Some(true),
+            max_spawn_depth: Some(3),
+            max_children: Some(10),
             default_child_agent: Some("child-agent".to_string()),
-            model: Some("claude-3".to_string()),
+            model: Some(ModelSpec::single("claude-3")),
         },
         ..Default::default()
     };
@@ -161,7 +162,7 @@ fn test_agent_config_new_fields_roundtrip() {
     let json = serde_json::to_string(&config).unwrap();
     let deserialized: AgentConfig = serde_json::from_str(&json).unwrap();
 
-    assert_eq!(deserialized.model, Some("gpt-4o".to_string()));
+    assert_eq!(deserialized.model, Some(ModelSpec::single("gpt-4o")));
     assert_eq!(
         deserialized.workspace,
         Some(workspace_path.to_str().unwrap().to_string())
@@ -170,19 +171,22 @@ fn test_agent_config_new_fields_roundtrip() {
         deserialized.agent_dir,
         Some(agent_dir_path.to_str().unwrap().to_string())
     );
-    assert_eq!(deserialized.bootstrap_mode, BootstrapMode::Minimal);
+    assert_eq!(deserialized.bootstrap_mode, Some(BootstrapMode::Minimal));
     assert_eq!(deserialized.skills, vec!["skill-a", "skill-b"]);
     assert_eq!(deserialized.tools, vec!["read", "write"]);
     assert_eq!(deserialized.disallowed_tools, vec!["exec"]);
     assert_eq!(deserialized.subagents.allow_agents, vec!["agent-1"]);
-    assert!(deserialized.subagents.require_agent_id);
-    assert_eq!(deserialized.subagents.max_spawn_depth, 3);
-    assert_eq!(deserialized.subagents.max_children, 10);
+    assert_eq!(deserialized.subagents.require_agent_id, Some(true));
+    assert_eq!(deserialized.subagents.max_spawn_depth, Some(3));
+    assert_eq!(deserialized.subagents.max_children, Some(10));
     assert_eq!(
         deserialized.subagents.default_child_agent,
         Some("child-agent".to_string())
     );
-    assert_eq!(deserialized.subagents.model, Some("claude-3".to_string()));
+    assert_eq!(
+        deserialized.subagents.model,
+        Some(ModelSpec::single("claude-3"))
+    );
 }
 
 #[test]
@@ -190,9 +194,9 @@ fn test_subagents_config_defaults() {
     let config = SubagentsConfig::default();
 
     assert_eq!(config.allow_agents, vec!["*"]);
-    assert!(!config.require_agent_id);
-    assert_eq!(config.max_spawn_depth, 1);
-    assert_eq!(config.max_children, 5);
+    assert_eq!(config.require_agent_id, None);
+    assert_eq!(config.max_spawn_depth, None);
+    assert_eq!(config.max_children, None);
     assert!(config.default_child_agent.is_none());
     assert!(config.model.is_none());
 }
@@ -223,13 +227,13 @@ fn test_agent_config_json_with_new_fields() {
 
     assert_eq!(config.id, "from-json");
     assert_eq!(config.name, Some("Json Agent".to_string()));
-    assert_eq!(config.model, Some("deepseek-v3".to_string()));
+    assert_eq!(config.model, Some(ModelSpec::single("deepseek-v3")));
     assert_eq!(config.workspace, Some("/home/user/project".to_string()));
     assert_eq!(
         config.agent_dir,
         Some("/home/user/.agents/my-agent".to_string())
     );
-    assert_eq!(config.bootstrap_mode, BootstrapMode::Minimal);
+    assert_eq!(config.bootstrap_mode, Some(BootstrapMode::Minimal));
     assert_eq!(config.skills, vec!["coding", "search"]);
     assert_eq!(config.tools, vec!["read", "write", "exec"]);
     assert_eq!(config.disallowed_tools, vec!["web_search"]);
@@ -237,14 +241,17 @@ fn test_agent_config_json_with_new_fields() {
         config.subagents.allow_agents,
         vec!["coding-agent", "review-agent"]
     );
-    assert!(config.subagents.require_agent_id);
-    assert_eq!(config.subagents.max_spawn_depth, 2);
-    assert_eq!(config.subagents.max_children, 8);
+    assert_eq!(config.subagents.require_agent_id, Some(true));
+    assert_eq!(config.subagents.max_spawn_depth, Some(2));
+    assert_eq!(config.subagents.max_children, Some(8));
     assert_eq!(
         config.subagents.default_child_agent,
         Some("coding-agent".to_string())
     );
-    assert_eq!(config.subagents.model, Some("gpt-4o-mini".to_string()));
+    assert_eq!(
+        config.subagents.model,
+        Some(ModelSpec::single("gpt-4o-mini"))
+    );
 }
 
 #[test]
@@ -274,10 +281,13 @@ fn test_agent_config_camel_case_parse() {
     assert_eq!(config.id, "code-reviewer");
     assert_eq!(config.name, Some("代码审查助手".to_string()));
     assert_eq!(config.parent_id, None);
-    assert_eq!(config.model, Some("deepseek/deepseek-chat".to_string()));
+    assert_eq!(
+        config.model,
+        Some(ModelSpec::single("deepseek/deepseek-chat"))
+    );
     assert_eq!(config.workspace, None);
     assert_eq!(config.agent_dir, None);
-    assert_eq!(config.bootstrap_mode, BootstrapMode::Minimal);
+    assert_eq!(config.bootstrap_mode, Some(BootstrapMode::Minimal));
     assert_eq!(config.skills, vec!["code-review"]);
     assert_eq!(
         config.tools,
@@ -285,9 +295,9 @@ fn test_agent_config_camel_case_parse() {
     );
     assert!(config.disallowed_tools.is_empty());
     assert!(config.subagents.allow_agents.is_empty());
-    assert!(!config.subagents.require_agent_id);
-    assert_eq!(config.subagents.max_spawn_depth, 0);
-    assert_eq!(config.subagents.max_children, 0);
+    assert_eq!(config.subagents.require_agent_id, None);
+    assert_eq!(config.subagents.max_spawn_depth, Some(0));
+    assert_eq!(config.subagents.max_children, Some(0));
     assert_eq!(config.subagents.default_child_agent, None);
     assert_eq!(config.subagents.model, None);
 }
@@ -389,7 +399,7 @@ fn test_agent_config_ignores_removed_fields() {
     let config: AgentConfig = serde_json::from_str(json).unwrap();
     assert_eq!(config.id, "legacy-agent");
     assert_eq!(config.name, Some("Legacy Agent".to_string()));
-    assert_eq!(config.model, Some("gpt-4o".to_string()));
+    assert_eq!(config.model, Some(ModelSpec::single("gpt-4o")));
 
     // Ensure removed fields are NOT present on the struct.
     // (Compile-time check: these fields don't exist on AgentConfig.)
@@ -541,7 +551,7 @@ fn test_resolved_config_no_permissions_field() {
     // Verify merge path also works without a permissions field (no panic).
     let project = AgentConfig {
         id: "test-agent".to_string(),
-        model: Some("gpt-4o".to_string()),
+        model: Some(ModelSpec::single("gpt-4o")),
         ..Default::default()
     };
     let user = AgentConfig {
@@ -603,5 +613,250 @@ fn test_merge_allow_agents_empty_project_falls_back_to_user() {
         resolved.subagents.allow_agents,
         vec!["agent-a"],
         "empty project allow_agents should fall back to user allow_agents"
+    );
+}
+
+// =====================================================================
+// Gap 1 — ModelSpec parsing tests
+// =====================================================================
+
+#[test]
+fn test_model_spec_string_format_parses_to_single() {
+    let json = r#"{"id": "a", "model": "gpt-4o"}"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_model_spec_object_format_with_fallback() {
+    let json = r#"{
+        "id": "a",
+        "model": {"primary": "gpt-4o", "fallback": ["claude-3", "gemini"]}
+    }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        config.model,
+        Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["claude-3".to_string(), "gemini".to_string()]
+        ))
+    );
+}
+
+#[test]
+fn test_model_spec_object_format_empty_fallback() {
+    let json = r#"{
+        "id": "a",
+        "model": {"primary": "gpt-4o", "fallback": []}
+    }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_model_spec_object_format_missing_fallback() {
+    let json = r#"{
+        "id": "a",
+        "model": {"primary": "gpt-4o"}
+    }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_model_spec_object_format_missing_primary_is_error() {
+    let json = r#"{
+        "id": "a",
+        "model": {"fallback": ["claude-3"]}
+    }"#;
+    let result = serde_json::from_str::<AgentConfig>(json);
+    assert!(result.is_err(), "missing primary field should cause error");
+}
+
+#[test]
+fn test_model_spec_subagents_string_format() {
+    let json = r#"{
+        "id": "a",
+        "subagents": {"model": "claude-3"}
+    }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.subagents.model, Some(ModelSpec::single("claude-3")));
+}
+
+#[test]
+fn test_model_spec_subagents_object_format() {
+    let json = r#"{
+        "id": "a",
+        "subagents": {
+            "model": {"primary": "gpt-4o", "fallback": ["deepseek"]}
+        }
+    }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        config.subagents.model,
+        Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["deepseek".to_string()]
+        ))
+    );
+}
+
+#[test]
+fn test_model_spec_roundtrip_string() {
+    let config = AgentConfig {
+        id: "roundtrip".to_string(),
+        model: Some(ModelSpec::single("gpt-4o")),
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: AgentConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_model_spec_roundtrip_with_fallback() {
+    let config = AgentConfig {
+        id: "roundtrip".to_string(),
+        model: Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["claude-3".to_string()],
+        )),
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: AgentConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        parsed.model,
+        Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["claude-3".to_string()]
+        ))
+    );
+}
+
+// =====================================================================
+// Gap 1 — ModelSpec merge semantics
+// =====================================================================
+
+#[test]
+fn test_merge_model_project_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("gpt-4o")),
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("claude-3")),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(resolved.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_merge_model_project_with_fallback_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["claude-3".to_string()],
+        )),
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("deepseek")),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.model,
+        Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["claude-3".to_string()]
+        ))
+    );
+}
+
+#[test]
+fn test_merge_model_project_none_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: None,
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("claude-3")),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(resolved.model, Some(ModelSpec::single("claude-3")));
+}
+
+#[test]
+fn test_merge_model_both_none() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: None,
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: None,
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(resolved.model, None);
+}
+
+#[test]
+fn test_merge_subagents_model_project_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: Some(ModelSpec::single("gpt-4o")),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: Some(ModelSpec::with_fallback(
+                "claude-3",
+                vec!["gemini".to_string()],
+            )),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(resolved.subagents.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_merge_subagents_model_project_none_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: Some(ModelSpec::single("claude-3")),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(
+        resolved.subagents.model,
+        Some(ModelSpec::single("claude-3"))
     );
 }

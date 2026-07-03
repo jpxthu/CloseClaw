@@ -11,6 +11,7 @@ use tokio::net::{UnixListener, UnixStream};
 use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfo, SkillInfo};
 use closeclaw_agent::config::AgentConfig;
 use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::agent_config::ModelSpec;
 use closeclaw_config::manager::write_atomically;
 use closeclaw_config::ConfigManager;
 use closeclaw_skills::DiskSkillRegistry;
@@ -137,7 +138,7 @@ pub(crate) fn dispatch_agent_list(context: &AdminContext) -> AdminResponse {
         .map(|entry| AgentInfo {
             id: entry.key().clone(),
             name: entry.name.clone(),
-            model: entry.model.clone(),
+            model: entry.model.as_ref().map(|m| m.primary.clone()),
         })
         .collect();
     AdminResponse::AgentListResult { agents }
@@ -149,7 +150,7 @@ pub(crate) fn dispatch_agent_info(name: &str, context: &AdminContext) -> AdminRe
         Some(entry) => AdminResponse::AgentInfoResult {
             id: entry.id.clone(),
             name: entry.name.clone(),
-            model: entry.model.clone(),
+            model: entry.model.as_ref().map(|m| m.primary.clone()),
             skills: entry.skills.clone(),
         },
         None => AdminResponse::Error {
@@ -187,7 +188,7 @@ async fn create_agent_dir_and_config(
         })?;
     let config = AgentConfig {
         id: name.to_string(),
-        model,
+        model: model.map(ModelSpec::single),
         ..AgentConfig::default()
     };
     let config_path = agent_dir.join("config.json");

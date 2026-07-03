@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::agent_config::SubagentsConfig;
+use closeclaw_common::agent_config::{ModelSpec, SubagentsConfig};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -67,7 +67,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         id: id.to_string(),
         name: id.to_string(),
         parent_id: None,
-        model: Some("test-model".to_string()),
+        model: Some(ModelSpec::single("test-model")),
         workspace: None,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
@@ -156,7 +156,7 @@ async fn test_validate_passes() {
 
     // Parent uses max_spawn_depth=2 so child_depth=1 passes the depth check.
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 2;
+    parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
     // Target agent exists in the agents map.
     let child = make_agent("child", SubagentsConfig::default());
@@ -190,7 +190,7 @@ async fn test_validate_depth_exceeded() {
 
     // max_spawn_depth=0 forces the depth check to fail.
     let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = 0;
+    sub.max_spawn_depth = Some(0);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -226,8 +226,8 @@ async fn test_validate_max_children() {
     // max_children=1 with 1 already-registered child → at the limit.
     // max_spawn_depth=2 so depth check passes before concurrency check.
     let mut sub = SubagentsConfig::default();
-    sub.max_children = 1;
-    sub.max_spawn_depth = 2;
+    sub.max_children = Some(1);
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -264,7 +264,7 @@ async fn test_validate_agent_not_allowed() {
     // max_spawn_depth=2 so depth check passes before whitelist check.
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec!["allowed-agent".to_string()];
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -297,7 +297,7 @@ async fn test_validate_require_agent_id() {
 
     // require_agent_id=true and no default_child_agent → passing None must fail.
     let mut sub = SubagentsConfig::default();
-    sub.require_agent_id = true;
+    sub.require_agent_id = Some(true);
     sub.default_child_agent = None;
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
@@ -330,7 +330,7 @@ async fn test_validate_wildcard_allow() {
     // Explicit "*" wildcard in allow_agents — any target should be permitted.
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec!["*".to_string()];
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     // Pick a non-default, otherwise-unrestricted target id.
     let target = make_agent("any-arbitrary-agent", SubagentsConfig::default());
@@ -367,11 +367,11 @@ async fn test_validate_cascade_parent_depth1_child_depth2() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 1;
+    parent_sub.max_spawn_depth = Some(1);
     let parent = make_agent("parent", parent_sub);
 
     let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = 2;
+    child_sub.max_spawn_depth = Some(2);
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -400,11 +400,11 @@ async fn test_validate_cascade_parent_depth2_child_depth2() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 2;
+    parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
 
     let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = 2;
+    child_sub.max_spawn_depth = Some(2);
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -434,11 +434,11 @@ async fn test_validate_cascade_parent_depth3_child_depth1() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 3;
+    parent_sub.max_spawn_depth = Some(3);
     let parent = make_agent("parent", parent_sub);
 
     let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = 1;
+    child_sub.max_spawn_depth = Some(1);
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -466,7 +466,7 @@ async fn test_validate_cascade_unknown_target_config_not_found() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 2;
+    parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
     inject_agents(&cm, vec![("parent", parent)]);
     // NOTE: "unknown-child" is NOT injected → target_config = None
@@ -498,11 +498,11 @@ async fn test_validate_cascade_parent_depth5_child_depth1() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 5;
+    parent_sub.max_spawn_depth = Some(5);
     let parent = make_agent("parent", parent_sub);
 
     let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = 1;
+    child_sub.max_spawn_depth = Some(1);
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -528,11 +528,11 @@ async fn test_validate_cascade_parent_depth5_child_depth3() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 5;
+    parent_sub.max_spawn_depth = Some(5);
     let parent = make_agent("parent", parent_sub);
 
     let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = 3;
+    child_sub.max_spawn_depth = Some(3);
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -558,11 +558,11 @@ async fn test_validate_cascade_parent_depth0_child_depth5() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 0;
+    parent_sub.max_spawn_depth = Some(0);
     let parent = make_agent("parent", parent_sub);
 
     let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = 5;
+    child_sub.max_spawn_depth = Some(5);
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -595,7 +595,7 @@ async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 1;
+    parent_sub.max_spawn_depth = Some(1);
     let parent = make_agent("parent", parent_sub);
     // "child" has default max_spawn_depth=1
     let child = make_agent("child", SubagentsConfig::default());
@@ -628,8 +628,8 @@ async fn test_validate_depth_before_agent_id_required() {
     // max_spawn_depth=0 (depth check will reject) AND require_agent_id=true
     // (would also reject if depth check didn't run first).
     let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = 0;
-    sub.require_agent_id = true;
+    sub.max_spawn_depth = Some(0);
+    sub.require_agent_id = Some(true);
     sub.default_child_agent = None;
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
@@ -808,7 +808,7 @@ async fn test_validate_default_child_agent_blocked_by_whitelist() {
     let mut sub = SubagentsConfig::default();
     sub.default_child_agent = Some("fallback-child".to_string());
     sub.allow_agents = vec!["allowed-agent".to_string()];
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let fallback_child = make_agent("fallback-child", SubagentsConfig::default());
     inject_agents(
@@ -845,7 +845,7 @@ async fn test_validate_default_child_agent_allowed_by_whitelist() {
     let mut sub = SubagentsConfig::default();
     sub.default_child_agent = Some("allowed-child".to_string());
     sub.allow_agents = vec!["allowed-child".to_string()];
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let allowed_child = make_agent("allowed-child", SubagentsConfig::default());
     inject_agents(

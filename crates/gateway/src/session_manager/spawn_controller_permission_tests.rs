@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use closeclaw_common::agent_config::{
-    ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig,
+    ActionPermission, AgentPermissions, ModelSpec, PermissionLimits, SubagentsConfig,
 };
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
@@ -59,7 +59,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         id: id.to_string(),
         name: id.to_string(),
         parent_id: None,
-        model: Some("test-model".to_string()),
+        model: Some(ModelSpec::single("test-model")),
         workspace: None,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
@@ -132,7 +132,7 @@ async fn test_validate_permission_denied_child_fully_denied() {
 
     // Parent: all permissions allowed; depth budget allows child creation.
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 2;
+    parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
     // Child: all permissions denied.
     let child = make_agent("child", SubagentsConfig::default());
@@ -190,7 +190,7 @@ async fn test_validate_permission_denied_parent_denies_all() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 2;
+    parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
     let child = make_agent("child", SubagentsConfig::default());
 
@@ -248,7 +248,7 @@ async fn test_validate_permission_allowed_partial_overlap() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 2;
+    parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
     let child = make_agent("child", SubagentsConfig::default());
 
@@ -287,7 +287,7 @@ async fn test_validate_no_permissions_configured() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = 2;
+    parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
     let child = make_agent("child", SubagentsConfig::default());
 
