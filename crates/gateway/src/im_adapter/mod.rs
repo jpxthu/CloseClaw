@@ -1,6 +1,6 @@
-//! IM adapter types re-exported from closeclaw_common for gateway tests.
+//! IM adapter types re-exported from closeclaw_im_adapter for gateway tests.
 
 pub mod streaming {
     #[allow(unused_imports)]
-    pub use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
+    pub use closeclaw_im_adapter::streaming::{DefaultStreamingRenderer, StreamingRenderer};
 }
