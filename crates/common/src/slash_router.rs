@@ -7,6 +7,8 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::processor::ContentBlock;
+
 /// Parse a slash command from raw content.
 ///
 /// Returns `Some((command, args))` where `command` is without the
@@ -84,8 +86,10 @@ pub enum SystemAppendAction {
 /// Action produced by `SlashResult::execute` for the Gateway to dispatch.
 #[derive(Debug)]
 pub enum ReplyAction {
-    /// Send a text reply to the user.
-    Reply(String),
+    /// Send a content-block reply to the user (routed through outbound
+    /// Processor Chain: Verbosity filtering → DslParser → outbound logging
+    /// → IM Adapter rendering).
+    Reply(Vec<ContentBlock>),
     /// Trigger manual compaction.
     TriggerCompact { instruction: Option<String> },
     /// No action needed.
@@ -127,24 +131,40 @@ impl SideEffectContext {
             reply_tx,
         }
     }
+
+    /// Send a content-block reply to the user.
+    ///
+    /// The reply is wrapped in [`ReplyAction::Reply`] and delivered through
+    /// the outbound Processor Chain (Verbosity filtering → DslParser →
+    /// outbound logging → IM Adapter rendering).
+    pub async fn reply(&self, blocks: Vec<ContentBlock>) {
+        let _ = self.reply_tx.send(ReplyAction::Reply(blocks)).await;
+    }
 }
 
 impl SlashResult {
     /// Execute this result, producing [`ReplyAction`]s on the context's reply channel.
     pub async fn execute(&self, ctx: &SideEffectContext) {
         let action = match self {
-            SlashResult::Reply(text) => ReplyAction::Reply(text.clone()),
-            SlashResult::SetMode(mode) => ReplyAction::Reply(format!("Mode set to: {}", mode)),
+            SlashResult::Reply(text) => ReplyAction::Reply(vec![ContentBlock::Text(text.clone())]),
+            SlashResult::SetMode(mode) => {
+                ReplyAction::Reply(vec![ContentBlock::Text(format!("Mode set to: {}", mode))])
+            }
             SlashResult::NewSession => ReplyAction::Nothing,
             SlashResult::Stop => ReplyAction::Nothing,
             SlashResult::Compact { instruction } => ReplyAction::TriggerCompact {
                 instruction: instruction.clone(),
             },
             SlashResult::SystemAppend { action: _ } => ReplyAction::Nothing,
-            SlashResult::Exec { command } => ReplyAction::Reply(format!("Exec: {}", command)),
+            SlashResult::Exec { command } => {
+                ReplyAction::Reply(vec![ContentBlock::Text(format!("Exec: {}", command))])
+            }
             SlashResult::SetReasoning { .. } => ReplyAction::Nothing,
             SlashResult::SetVerbosity { .. } => ReplyAction::Nothing,
-            SlashResult::Unknown(cmd) => ReplyAction::Reply(format!("Unknown command: /{}", cmd)),
+            SlashResult::Unknown(cmd) => ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                "Unknown command: /{}",
+                cmd
+            ))]),
         };
         let _ = ctx.reply_tx.send(action).await;
     }
