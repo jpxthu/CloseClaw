@@ -58,11 +58,15 @@ pub(crate) fn build_concept_extraction_prompt(
     format!(
         "You are a concept extraction assistant. \
          Extract the key concepts from the conversation that would be useful \
-         for searching a memory database. Concepts should be specific entities, \
-         topics, or themes (not generic words like 'the', 'and', 'is').\n\n\
+         for searching a memory database. Cover three dimensions:\
+         1. Action types — operations, tasks, or activities being performed.\
+         2. Entities/objects — people, tools, files, or resources involved.\
+         3. Scenario characteristics — context themes, settings, or conditions.\
+         Avoid generic words like 'the', 'and', 'is'.\n\n\
          Context:\n{ctx}\n\
          Current message: {current_message}\n\n\
-         Return a JSON array of concept strings. Example: [\"Alice\", \"project deadline\", \"meeting\"]\n\
+         Return a JSON array of concept strings. \
+         Example: [\"debugging session\", \"Alice\", \"memory-miner\", \"late night\"]\n\
          Return ONLY the JSON array, nothing else."
     )
 }
