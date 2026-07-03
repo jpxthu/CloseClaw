@@ -4,8 +4,8 @@
 //! configuration (processor registry, slash dispatcher, session handler) and
 //! that the TerminalAdapter quit/exit detection logic works correctly.
 
+use closeclaw_common::NormalizedMessage;
 use closeclaw_gateway::{GatewayConfig, InboundChainInput, SessionManager};
-use closeclaw_im_adapter::NormalizedMessage;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
@@ -210,8 +210,8 @@ fn test_stop_detection() {
 // ── Inbound Processor Chain integration tests ─────────────────────────────
 
 use async_trait::async_trait;
+use closeclaw_common::ProcessedMessage;
 use closeclaw_processor_chain::content_normalizer::ContentNormalizer;
-use closeclaw_processor_chain::context::ProcessedMessage;
 use closeclaw_processor_chain::{MessageContext, ProcessError, ProcessorRegistry};
 
 /// A mock processor that suppresses messages (for testing suppress behavior).

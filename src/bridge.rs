@@ -6,8 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::slash::{
-    context::SlashContext as MainSlashContext,
-    handler::{SlashHandler as MainSlashHandler, SlashResult as MainSlashResult},
+    context::SlashContext as MainSlashContext, handler::SlashHandler as MainSlashHandler,
     SlashDispatcher,
 };
 use closeclaw_daemon::shutdown::ShutdownHandle as DaemonShutdownHandle;
@@ -26,41 +25,6 @@ fn convert_slash_context(ctx: &closeclaw_common::slash_router::SlashContext) -> 
         sender_id: ctx.sender_id.clone(),
         session_id: ctx.session_id.clone(),
         channel: ctx.channel.clone(),
-    }
-}
-
-fn convert_slash_result(result: MainSlashResult) -> closeclaw_common::slash_router::SlashResult {
-    match result {
-        MainSlashResult::Reply(s) => closeclaw_common::slash_router::SlashResult::Reply(s),
-        MainSlashResult::SetMode(s) => closeclaw_common::slash_router::SlashResult::SetMode(s),
-        MainSlashResult::NewSession => closeclaw_common::slash_router::SlashResult::NewSession,
-        MainSlashResult::Stop => closeclaw_common::slash_router::SlashResult::Stop,
-        MainSlashResult::Compact { instruction } => {
-            closeclaw_common::slash_router::SlashResult::Compact { instruction }
-        }
-        MainSlashResult::SystemAppend { action } => {
-            let common_action = match action {
-                crate::slash::handler::SystemAppendAction::Add(s) => {
-                    closeclaw_common::slash_router::SystemAppendAction::Add(s)
-                }
-                crate::slash::handler::SystemAppendAction::Clear => {
-                    closeclaw_common::slash_router::SystemAppendAction::Clear
-                }
-            };
-            closeclaw_common::slash_router::SlashResult::SystemAppend {
-                action: common_action,
-            }
-        }
-        MainSlashResult::Exec { command } => {
-            closeclaw_common::slash_router::SlashResult::Exec { command }
-        }
-        MainSlashResult::SetReasoning { level } => {
-            closeclaw_common::slash_router::SlashResult::SetReasoning { level }
-        }
-        MainSlashResult::SetVerbosity { level } => {
-            closeclaw_common::slash_router::SlashResult::SetVerbosity { level }
-        }
-        MainSlashResult::Unknown(s) => closeclaw_common::slash_router::SlashResult::Unknown(s),
     }
 }
 
@@ -93,8 +57,7 @@ impl closeclaw_common::slash_router::SlashHandler for SlashHandlerAdapter {
         ctx: &closeclaw_common::slash_router::SlashContext,
     ) -> closeclaw_common::slash_router::SlashResult {
         let main_ctx = convert_slash_context(ctx);
-        let result = self.inner.handle(args, &main_ctx).await;
-        convert_slash_result(result)
+        self.inner.handle(args, &main_ctx).await
     }
 }
 
@@ -106,8 +69,7 @@ impl closeclaw_common::slash_router::SlashRouter for SlashDispatcherWrapper {
         ctx: &closeclaw_common::slash_router::SlashContext,
     ) -> Option<closeclaw_common::slash_router::SlashResult> {
         let main_ctx = convert_slash_context(ctx);
-        let result = self.0.dispatch(content, &main_ctx).await;
-        Some(convert_slash_result(result))
+        Some(self.0.dispatch(content, &main_ctx).await)
     }
 
     fn is_immediate(&self, command: &str) -> bool {
@@ -260,35 +222,6 @@ fn convert_common_adapter_error(
     }
 }
 
-fn convert_main_to_common_normalized(
-    m: closeclaw_im_adapter::normalized::NormalizedMessage,
-) -> closeclaw_common::im_plugin::NormalizedMessage {
-    closeclaw_common::im_plugin::NormalizedMessage {
-        platform: m.platform,
-        sender_id: m.sender_id,
-        peer_id: m.peer_id,
-        content: m.content,
-        timestamp: m.timestamp,
-        message_type: m.message_type,
-        media_refs: m
-            .media_refs
-            .into_iter()
-            .map(|r| closeclaw_common::im_plugin::MediaRef {
-                key: r.key,
-                url: r.url,
-            })
-            .collect(),
-        quoted_message: m
-            .quoted_message
-            .map(|q| closeclaw_common::im_plugin::QuotedMessage {
-                content: q.content,
-                sender_id: q.sender_id,
-            }),
-        thread_id: m.thread_id,
-        account_id: m.account_id,
-    }
-}
-
 fn convert_common_to_main_rendered(
     output: &closeclaw_common::im_plugin::RenderedOutput,
 ) -> closeclaw_im_adapter::plugin::RenderedOutput {
@@ -323,7 +256,6 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
         self.inner
             .parse_inbound(payload)
             .await
-            .map(|opt| opt.map(convert_main_to_common_normalized))
             .map_err(convert_common_adapter_error)
     }
 
