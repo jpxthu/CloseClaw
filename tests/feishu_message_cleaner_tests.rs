@@ -10,12 +10,12 @@
 //! NOTE: These tests were adapted from the old `im::processor` module
 //! (Step 1.4). The old `clean_feishu_message` function was removed along
 //! with the legacy processor chain. These tests now use the new
-//! `processor_chain::ProcessorRegistry` API. Some tests may need further
-//! adaptation in Step 1.5.
+//! `processor_chain::ProcessorRegistry` API. Step 1.5 removed `RawMessage`
+//! in favour of `NormalizedMessage`; this file has been updated accordingly.
 
 use std::path::PathBuf;
 
-use closeclaw::processor_chain::context::RawMessage;
+use closeclaw::processor_chain::NormalizedMessage;
 use closeclaw::processor_chain::ProcessorRegistry;
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ fn load_raw_fixture(filename: &str) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 
-fn webhook_to_raw_message(webhook: &serde_json::Value) -> RawMessage {
+fn webhook_to_normalized_message(webhook: &serde_json::Value) -> NormalizedMessage {
     let content = webhook
         .get("message")
         .and_then(|m| m.get("content"))
@@ -58,14 +58,17 @@ fn webhook_to_raw_message(webhook: &serde_json::Value) -> RawMessage {
         .unwrap_or("")
         .to_string();
 
-    RawMessage {
+    NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id,
         peer_id,
         content,
-        timestamp: chrono::Utc::now(),
-        message_id,
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: message_id,
     }
 }
 
@@ -79,12 +82,12 @@ macro_rules! define_tests {
             #[tokio::test]
             async fn $name() {
                 let raw = load_raw_fixture($input);
-                let raw_msg = webhook_to_raw_message(&raw);
+                let msg = webhook_to_normalized_message(&raw);
                 let registry = ProcessorRegistry::new();
                 // NOTE: The registry is empty by default in the new chain.
                 // Processor registration happens at a higher level.
-                // This test verifies the raw message conversion works.
-                let result = registry.process_inbound(raw_msg).await.unwrap();
+                // This test verifies the normalized message conversion works.
+                let result = registry.process_inbound(msg).await.unwrap();
                 // Basic sanity: text content is non-empty
                 let text = result.text_content().unwrap_or("");
                 assert!(!text.is_empty(),
