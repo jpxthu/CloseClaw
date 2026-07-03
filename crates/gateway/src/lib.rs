@@ -829,25 +829,7 @@ impl Gateway {
     /// Runs the inbound processor chain on a [`RawMessage`] built from `input`.
     /// Falls back to raw content on registry absence or processor error.
     pub async fn process_inbound_chain(&self, input: &InboundChainInput) -> ProcessedMessage {
-        let mut extra_meta = std::collections::HashMap::new();
-        if let Some(ref thread_id) = input.thread_id {
-            extra_meta.insert("thread_id".to_string(), thread_id.clone());
-        }
-        // Propagate message_type, media_refs, and quoted_message to Gateway.
-        // These are not consumed by the Processor Chain but must reach
-        // handle_inbound_message for future non-text message handling.
-        extra_meta.insert(
-            "message_type".to_string(),
-            serde_json::to_string(&input.message_type).unwrap_or_else(|_| "text".to_string()),
-        );
-        extra_meta.insert(
-            "media_refs".to_string(),
-            serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
-        );
-        if let Some(ref quoted) = input.quoted_message {
-            extra_meta.insert("quoted_message".to_string(), quoted.clone());
-        }
-
+        let extra_meta = build_extra_metadata(input);
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
             return ProcessedMessage {
@@ -887,6 +869,29 @@ impl Gateway {
             }
         }
     }
+}
+
+/// Build extra metadata map from inbound chain input fields.
+///
+/// Propagates `thread_id`, `message_type`, `media_refs`, and
+/// `quoted_message` so they are available downstream in the Gateway.
+fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<String, String> {
+    let mut meta = std::collections::HashMap::new();
+    if let Some(ref thread_id) = input.thread_id {
+        meta.insert("thread_id".to_string(), thread_id.clone());
+    }
+    meta.insert(
+        "message_type".to_string(),
+        serde_json::to_string(&input.message_type).unwrap_or_else(|_| "text".to_string()),
+    );
+    meta.insert(
+        "media_refs".to_string(),
+        serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
+    );
+    if let Some(ref quoted) = input.quoted_message {
+        meta.insert("quoted_message".to_string(), quoted.clone());
+    }
+    meta
 }
 
 #[cfg(test)]
