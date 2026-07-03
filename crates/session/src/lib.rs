@@ -4,6 +4,7 @@
 //! closeclaw crate. It provides persistence, checkpoint management,
 //! bootstrap, storage, and recovery functionality for agent sessions.
 
+pub mod active_searcher;
 pub mod bootstrap;
 pub mod checkpoint_manager;
 pub mod compaction;
