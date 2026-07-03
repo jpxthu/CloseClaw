@@ -1,14 +1,18 @@
 //! Processor chain types and trait.
 //!
-//! Defines the shared types ([`ProcessedMessage`], [`RawMessage`],
-//! [`DslParseResult`], [`ProcessError`]) and the [`ProcessorChain`]
+//! Defines the shared types ([`ProcessedMessage`], [`DslParseResult`],
+//! [`ProcessError`]) and the [`ProcessorChain`]
 //! trait used by the gateway to run inbound/outbound message processing.
+//!
+//! The inbound chain accepts [`NormalizedMessage`](crate::im_plugin::NormalizedMessage)
+//! directly — no intermediate `RawMessage` wrapper.
 
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::im_plugin::NormalizedMessage;
 
 // ---------------------------------------------------------------------------
 // ContentBlock (shared definition)
@@ -64,6 +68,14 @@ pub enum ContentBlockType {
     Thinking,
     /// Tool use invocation block.
     ToolUse,
+    /// Tool result block.
+    ToolResult,
+    /// Image content block.
+    Image,
+    /// Audio content block.
+    Audio,
+    /// File content block.
+    File,
 }
 
 /// Content delta for streaming responses.
@@ -83,6 +95,14 @@ pub enum ContentDelta {
     ToolUseName { name: String },
     /// Tool use input chunk delta.
     ToolUseInputChunk { input: String },
+    /// Tool result text delta.
+    ToolResultText { text: String },
+    /// Image reference delta (resource identifier + URL).
+    ImageRef { url: String },
+    /// Audio reference delta (resource identifier + URL).
+    AudioRef { url: String },
+    /// File reference delta (resource identifier + URL).
+    FileRef { url: String },
 }
 
 /// Stream event emitted during streaming responses.
@@ -136,33 +156,6 @@ pub struct UnifiedResponse {
     pub usage: UnifiedUsage,
     /// Reason why the response finished (e.g., "stop", "length").
     pub finish_reason: Option<String>,
-}
-
-// ---------------------------------------------------------------------------
-// RawMessage
-// ---------------------------------------------------------------------------
-
-/// A raw incoming message before any processing.
-///
-/// This is the input to the inbound processor chain.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RawMessage {
-    /// Sender platform (e.g., "feishu", "wecom", "terminal").
-    pub platform: String,
-    /// Sender user ID on the platform.
-    pub sender_id: String,
-    /// Peer / endpoint identifier (e.g., chat_id for DMs, "cli" for terminal).
-    #[serde(default)]
-    pub peer_id: String,
-    /// Raw message content.
-    pub content: String,
-    /// Timestamp when the message was received.
-    pub timestamp: DateTime<Utc>,
-    /// Message ID assigned by the platform.
-    pub message_id: String,
-    /// Optional account ID filled by IM Adapter via identity mapping.
-    #[serde(default)]
-    pub account_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -355,8 +348,11 @@ impl ProcessError {
 /// on the processor chain internals.
 #[async_trait]
 pub trait ProcessorChain: Send + Sync {
-    /// Process an inbound raw message through the inbound chain.
-    async fn process_inbound(&self, raw: RawMessage) -> Result<ProcessedMessage, ProcessError>;
+    /// Process an inbound normalized message through the inbound chain.
+    async fn process_inbound(
+        &self,
+        msg: NormalizedMessage,
+    ) -> Result<ProcessedMessage, ProcessError>;
 
     /// Process an outbound message through the outbound chain.
     async fn process_outbound(

@@ -1,29 +1,32 @@
 use super::*;
-use crate::processor_chain::context::RawMessage;
+use closeclaw_common::im_plugin::NormalizedMessage;
 
 fn make_router(dm_scope: DmScope) -> SessionRouter {
     SessionRouter::new(dm_scope)
 }
 
-fn make_ctx(raw: RawMessage) -> MessageContext {
-    MessageContext::from_raw(raw)
+fn make_ctx(msg: NormalizedMessage) -> MessageContext {
+    MessageContext::from_normalized(msg)
 }
 
 #[tokio::test]
 async fn test_terminal_session_key_computed() {
     let router = make_router(DmScope::PerChannelPeer);
     let before_ms = chrono::Utc::now().timestamp_millis();
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "1000".to_string(),
         peer_id: "cli".to_string(),
         content: "hello".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_1".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
-    let ctx = make_ctx(raw);
+    let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
     let key = result
         .metadata
@@ -50,16 +53,19 @@ async fn test_terminal_session_key_computed() {
 #[tokio::test]
 async fn test_deterministic_key() {
     let router = make_router(DmScope::PerAccountChannelPeer);
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_abc".to_string(),
         peer_id: "oc_xyz".to_string(),
         content: "hi".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_d".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let ctx = make_ctx(raw);
+    let ctx = make_ctx(msg);
     let r1 = router.process(&ctx).await.unwrap().unwrap();
     let r2 = router.process(&ctx).await.unwrap().unwrap();
     let k1 = r1.metadata.get("session_key").map(|s| s.as_str()).unwrap();
@@ -86,16 +92,19 @@ async fn test_deterministic_key() {
 #[tokio::test]
 async fn test_missing_peer_id_yields_empty_key() {
     let router = make_router(DmScope::PerChannelPeer);
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "u1".to_string(),
         peer_id: String::new(),
         content: "hi".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_e".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let ctx = make_ctx(raw);
+    let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
     let key = result
         .metadata
@@ -109,16 +118,19 @@ async fn test_missing_peer_id_yields_empty_key() {
 async fn test_dm_scope_affects_key() {
     let r1 = make_router(DmScope::PerPeer);
     let r2 = make_router(DmScope::PerChannelPeer);
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "discord".to_string(),
         sender_id: "user_1".to_string(),
         peer_id: "dm_42".to_string(),
         content: "test".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_f".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let ctx = make_ctx(raw);
+    let ctx = make_ctx(msg);
     let k1 = r1
         .process(&ctx)
         .await
@@ -143,16 +155,19 @@ async fn test_dm_scope_affects_key() {
 #[tokio::test]
 async fn test_metadata_preserves_upstream() {
     let router = make_router(DmScope::PerChannelPeer);
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "1000".to_string(),
         peer_id: "cli".to_string(),
         content: "hi".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_g".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let mut ctx = make_ctx(raw);
+    let mut ctx = make_ctx(msg);
     ctx.metadata
         .insert("existing_key".to_string(), "existing_value".to_string());
     let result = router.process(&ctx).await.unwrap().unwrap();
@@ -167,18 +182,21 @@ async fn test_metadata_preserves_upstream() {
 }
 
 #[tokio::test]
-async fn test_fallback_when_no_initial_raw() {
+async fn test_fallback_when_no_initial_normalized() {
     let router = make_router(DmScope::PerChannelPeer);
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: String::new(),
         sender_id: String::new(),
         peer_id: String::new(),
         content: String::new(),
-        timestamp: chrono::Utc::now(),
-        message_id: String::new(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let ctx = MessageContext::from_raw(raw);
+    let ctx = MessageContext::from_normalized(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
     // No initial_raw → fallback raw with empty fields → empty session_key
     assert!(
@@ -193,20 +211,21 @@ async fn test_system_time_used_for_session_key() {
     let router = make_router(DmScope::PerChannelPeer);
     let before_ms = chrono::Utc::now().timestamp_millis();
 
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_abc".to_string(),
         peer_id: "oc_xyz".to_string(),
         content: "msg1".to_string(),
         // Message timestamp is in the past — should NOT be used
-        timestamp: chrono::DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc),
-        message_id: "msg_c1".to_string(),
-        account_id: None,
+        timestamp: 1_577_836_800_000,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
-    let ctx = make_ctx(raw);
+    let ctx = make_ctx(msg);
 
     let key = router
         .process(&ctx)
@@ -241,20 +260,21 @@ async fn test_per_account_channel_peer_uses_system_time() {
     let router = make_router(DmScope::PerAccountChannelPeer);
     let before_ms = chrono::Utc::now().timestamp_millis();
 
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "discord".to_string(),
         sender_id: "user_99".to_string(),
         peer_id: "dm_1".to_string(),
         content: "test".to_string(),
         // Past message timestamp — should NOT appear in session_key
-        timestamp: chrono::DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc),
-        message_id: "msg_s1".to_string(),
-        account_id: None,
+        timestamp: 1_577_836_800_000,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
-    let ctx = make_ctx(raw);
+    let ctx = make_ctx(msg);
 
     let key = router
         .process(&ctx)
@@ -291,27 +311,33 @@ async fn test_different_account_ids_produce_different_session_keys() {
     // Different account_id values must produce different session_key hashes
     let router = make_router(DmScope::PerAccountChannelPeer);
 
-    let raw_a = RawMessage {
+    let msg_a = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
         peer_id: "oc_group".to_string(),
         content: "msg".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_acct_a".to_string(),
-        account_id: Some("account_1".to_string()),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "account_1".to_string(),
     };
-    let raw_b = RawMessage {
+    let msg_b = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
         peer_id: "oc_group".to_string(),
         content: "msg".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_acct_b".to_string(),
-        account_id: Some("account_2".to_string()),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "account_2".to_string(),
     };
 
-    let ctx_a = make_ctx(raw_a);
-    let ctx_b = make_ctx(raw_b);
+    let ctx_a = make_ctx(msg_a);
+    let ctx_b = make_ctx(msg_b);
 
     let key_a = router
         .process(&ctx_a)
@@ -354,27 +380,33 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
     // account_id=None vs account_id=Some(...) must produce different keys
     let router = make_router(DmScope::PerAccountChannelPeer);
 
-    let raw_none = RawMessage {
+    let msg_none = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
         peer_id: "oc_group".to_string(),
         content: "msg".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_n1".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let raw_some = RawMessage {
+    let msg_some = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
         peer_id: "oc_group".to_string(),
         content: "msg".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_s1".to_string(),
-        account_id: Some("tenant_x".to_string()),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "tenant_x".to_string(),
     };
 
-    let ctx_none = make_ctx(raw_none);
-    let ctx_some = make_ctx(raw_some);
+    let ctx_none = make_ctx(msg_none);
+    let ctx_some = make_ctx(msg_some);
 
     let key_none = router
         .process(&ctx_none)
@@ -407,17 +439,20 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
 async fn test_account_id_read_from_raw_message() {
     // Verify account_id is read from RawMessage, not from ctx.metadata
     let router = make_router(DmScope::PerAccountChannelPeer);
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
         peer_id: "oc_group".to_string(),
         content: "hi".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_a1".to_string(),
-        account_id: Some("tenant_42".to_string()),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "tenant_42".to_string(),
     };
-    let mut ctx = make_ctx(raw);
-    // Even if metadata has a different account_id, RawMessage should win
+    let mut ctx = make_ctx(msg);
+    // Even if metadata has a different account_id, NormalizedMessage should win
     ctx.metadata
         .insert("account_id".to_string(), "metadata_account".to_string());
     let result = router.process(&ctx).await.unwrap().unwrap();
@@ -428,25 +463,28 @@ async fn test_account_id_read_from_raw_message() {
         .unwrap();
     assert!(!key.is_empty(), "session_key should be set");
     // Verify key hash differs from one computed with "metadata_account"
-    let raw_meta = RawMessage {
+    let msg_meta = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
         peer_id: "oc_group".to_string(),
         content: "hi".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_a2".to_string(),
-        account_id: Some("metadata_account".to_string()),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "metadata_account".to_string(),
     };
-    let ctx_meta = make_ctx(raw_meta);
+    let ctx_meta = make_ctx(msg_meta);
     let result_meta = router.process(&ctx_meta).await.unwrap().unwrap();
     let key_meta = result_meta
         .metadata
         .get("session_key")
         .map(|s| s.as_str())
         .unwrap();
-    // They should differ because account_id comes from RawMessage
+    // They should differ because account_id comes from NormalizedMessage
     assert_ne!(
         key, key_meta,
-        "account_id should be read from RawMessage, not metadata"
+        "account_id should be read from NormalizedMessage, not metadata"
     );
 }

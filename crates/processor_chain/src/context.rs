@@ -1,45 +1,20 @@
 //! Message context, processed message, and raw message types.
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_llm::types::ContentBlock;
 
 /// Result type alias for processor chain operations.
 pub type Result<T> = std::result::Result<T, super::error::ProcessError>;
 
-/// A raw incoming message before any processing.
-///
-/// This is the input to the inbound processor chain.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RawMessage {
-    /// Sender platform (e.g., "feishu", "wecom", "terminal").
-    pub platform: String,
-    /// Sender user ID on the platform.
-    pub sender_id: String,
-    /// Peer / endpoint identifier (e.g., chat_id for DMs, "cli" for terminal).
-    ///
-    /// Participates in session key computation via [`SessionRouter`].
-    #[serde(default)]
-    pub peer_id: String,
-    /// Raw message content.
-    pub content: String,
-    /// Timestamp when the message was received.
-    pub timestamp: DateTime<Utc>,
-    /// Message ID assigned by the platform.
-    pub message_id: String,
-    /// Optional account ID filled by IM Adapter via identity mapping.
-    #[serde(default)]
-    pub account_id: Option<String>,
-}
-
 /// Metadata for logging a raw message snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawMessageLog {
-    /// Snapshot of the raw message at this log entry.
-    pub raw: RawMessage,
-    /// Timestamp when this snapshot was taken.
-    pub logged_at: DateTime<Utc>,
+    /// Snapshot of the normalized message at this log entry.
+    pub raw: NormalizedMessage,
+    /// Timestamp when this snapshot was taken (Unix millis).
+    pub logged_at: i64,
     /// Processor that produced this snapshot (if any).
     pub processor_name: Option<String>,
 }
@@ -65,16 +40,16 @@ pub struct MessageContext {
 }
 
 impl MessageContext {
-    /// Creates a new context from a raw message.
-    pub fn from_raw(raw: RawMessage) -> Self {
-        let logged_at = Utc::now();
+    /// Creates a new context from a normalized message.
+    pub fn from_normalized(msg: NormalizedMessage) -> Self {
+        let logged_at = chrono::Utc::now().timestamp_millis();
         let raw_log = RawMessageLog {
-            raw: raw.clone(),
+            raw: msg.clone(),
             logged_at,
             processor_name: None,
         };
         Self {
-            content: raw.content,
+            content: msg.content,
             raw_message_log: vec![raw_log],
             metadata: std::collections::HashMap::new(),
             skip: false,
@@ -82,8 +57,8 @@ impl MessageContext {
         }
     }
 
-    /// Returns a reference to the initial raw message.
-    pub fn initial_raw(&self) -> Option<&RawMessage> {
+    /// Returns a reference to the initial normalized message.
+    pub fn initial_normalized(&self) -> Option<&NormalizedMessage> {
         self.raw_message_log.first().map(|l| &l.raw)
     }
 }
@@ -93,21 +68,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_message_context_from_raw() {
-        let raw = RawMessage {
+    fn test_message_context_from_normalized() {
+        let msg = NormalizedMessage {
             platform: "feishu".to_string(),
             sender_id: "user_1".to_string(),
             peer_id: "chat_1".to_string(),
             content: "hello".to_string(),
-            timestamp: Utc::now(),
-            message_id: "msg_1".to_string(),
-            account_id: None,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
+            thread_id: None,
+            account_id: String::new(),
         };
-        let ctx = MessageContext::from_raw(raw.clone());
+        let ctx = MessageContext::from_normalized(msg.clone());
         assert_eq!(ctx.content, "hello");
         assert!(!ctx.skip);
         assert_eq!(ctx.metadata.len(), 0);
         assert_eq!(ctx.raw_message_log.len(), 1);
-        assert_eq!(ctx.initial_raw(), Some(&raw));
+        let initial = ctx.initial_normalized().unwrap();
+        assert_eq!(initial.platform, msg.platform);
+        assert_eq!(initial.sender_id, msg.sender_id);
+        assert_eq!(initial.peer_id, msg.peer_id);
+        assert_eq!(initial.content, msg.content);
+        assert_eq!(initial.timestamp, msg.timestamp);
+        assert_eq!(initial.account_id, msg.account_id);
     }
 }

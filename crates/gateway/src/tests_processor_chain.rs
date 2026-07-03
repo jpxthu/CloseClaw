@@ -569,21 +569,20 @@ async fn test_content_normalizer_does_not_strip_platform_residue() {
     use closeclaw_common::processor::processor::MessageProcessor;
 
     let processor = closeclaw_common::processor::content_normalizer::ContentNormalizer::new();
-    let raw = closeclaw_common::processor::RawMessage {
+    let msg = closeclaw_common::im_plugin::NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "user1".to_string(),
         peer_id: "chat1".to_string(),
         // Content with platform-specific <at> tags
         content: r#"Hello <at user_id="u123">Alice</at>, welcome!"#.to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_at".to_string(),
-        account_id: None,
-        thread_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
         quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let ctx = closeclaw_common::processor::MessageContext::from_raw(raw);
+    let ctx = closeclaw_common::processor::MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     // <at> tags should be preserved (not converted to @Alice)
     assert!(

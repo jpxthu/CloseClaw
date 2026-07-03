@@ -1,11 +1,9 @@
 //! Tests for [`build_processor_registry`].
 
 use crate::processor_chain::build_processor_registry;
-use crate::processor_chain::context::RawMessage;
 use crate::ProcessedMessage;
+use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_gateway::{DmScope, GatewayConfig};
-
-use chrono::Utc;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -20,15 +18,18 @@ fn make_config(raw_log_dir: Option<std::path::PathBuf>, dm_scope: DmScope) -> Ga
     }
 }
 
-fn make_raw_message() -> RawMessage {
-    RawMessage {
+fn make_normalized_message() -> NormalizedMessage {
+    NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "user_1".to_string(),
         peer_id: "peer_1".to_string(),
         content: "  hello   world  ".to_string(),
-        timestamp: Utc::now(),
-        message_id: "msg_1".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     }
 }
 
@@ -81,7 +82,7 @@ async fn test_config_with_raw_log_dir() {
 /// confirming the parameter is correctly forwarded to SessionRouter.
 #[tokio::test]
 async fn test_dm_scope_passed_to_session_router() {
-    let raw = make_raw_message();
+    let msg = make_normalized_message();
 
     // Build registry with PerChannelSender scope
     let config_sender = make_config(None, DmScope::PerChannelSender);
@@ -91,8 +92,8 @@ async fn test_dm_scope_passed_to_session_router() {
     let config_default = make_config(None, DmScope::PerAccountChannelPeer);
     let registry_default = build_processor_registry(&config_default);
 
-    let result_sender = registry_sender.process_inbound(raw.clone()).await.unwrap();
-    let result_default = registry_default.process_inbound(raw).await.unwrap();
+    let result_sender = registry_sender.process_inbound(msg.clone()).await.unwrap();
+    let result_default = registry_default.process_inbound(msg).await.unwrap();
 
     let key_sender = result_sender
         .metadata
@@ -126,8 +127,8 @@ async fn test_priority_sorting_inbound() {
     let config = make_config(None, DmScope::default());
     let registry = build_processor_registry(&config);
 
-    let raw = make_raw_message(); // "  hello   world  "
-    let result = registry.process_inbound(raw).await.unwrap();
+    let msg = make_normalized_message(); // "  hello   world  "
+    let result = registry.process_inbound(msg).await.unwrap();
 
     // ContentNormalizer strips trailing whitespace (not leading).
     // Input: "  hello   world  " → Output: "  hello   world"

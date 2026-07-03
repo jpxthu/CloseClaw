@@ -13,6 +13,9 @@ pub mod identity;
 pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
+pub mod middleware;
+#[cfg(test)]
+pub mod middleware_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
@@ -23,6 +26,8 @@ pub mod shutdown;
 pub mod shutdown_tests;
 pub mod skill_registry;
 pub mod slash_router;
+#[cfg(test)]
+pub mod slash_router_tests;
 pub mod storage_provider;
 pub mod streaming;
 #[cfg(test)]
@@ -58,9 +63,10 @@ pub use im_plugin::{
     AdapterError, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage, RenderedOutput,
     StreamingOutput,
 };
+pub use middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
-    ProcessedMessage, ProcessorChain, RawMessage, StreamEvent, UnifiedResponse, UnifiedUsage,
+    ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
 pub use session_lookup::{PendingMessage, SessionLookup};
 pub use session_types::{AgentRole, ReasoningLevel};

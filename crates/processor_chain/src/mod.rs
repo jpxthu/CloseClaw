@@ -6,8 +6,8 @@
 //! - [`MessageProcessor`] — trait for message processors
 //! - [`MessageContext`] — context carried through the chain
 //! - [`ProcessedMessage`] — output after the chain finishes
-//! - [`RawMessage`] — input to the inbound chain
-//! - [`RawMessageLog`] — snapshot of raw message at each processing step
+//! - [`NormalizedMessage`] (from common) — input to the inbound chain
+//! - [`RawMessageLog`] — snapshot of normalized message at each processing step
 //! - [`ProcessError`] — error types
 
 #[cfg(test)]
@@ -34,8 +34,9 @@ pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
 pub use registry::ProcessorRegistry;
 pub use session_router::SessionRouter;
 
+pub use closeclaw_common::im_plugin::NormalizedMessage;
 pub use closeclaw_common::processor::{DslInstruction, DslParseResult, ProcessedMessage};
-pub use context::{MessageContext, RawMessage, RawMessageLog};
+pub use context::{MessageContext, RawMessageLog};
 pub use error::ProcessError;
 pub use processor::{MessageProcessor, ProcessPhase};
 

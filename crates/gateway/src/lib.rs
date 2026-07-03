@@ -38,8 +38,8 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
-use closeclaw_common::processor::{ProcessedMessage, RawMessage};
 use closeclaw_common::slash_router::SlashRouter;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
@@ -76,6 +76,8 @@ pub struct Gateway {
     self_ref: std::sync::Mutex<Option<Arc<Gateway>>>,
     /// Shutdown handle for busy-count tracking during drain.
     shutdown_handle: std::sync::Mutex<Option<Arc<closeclaw_common::shutdown::ShutdownHandle>>>,
+    /// Outbound middleware chain, run between render and send.
+    outbound_middlewares: std::sync::RwLock<Vec<Arc<dyn closeclaw_common::OutboundMiddleware>>>,
 }
 
 impl Gateway {
@@ -94,6 +96,7 @@ impl Gateway {
             inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
+            outbound_middlewares: std::sync::RwLock::new(Vec::new()),
         }
     }
 
@@ -116,6 +119,7 @@ impl Gateway {
             inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
+            outbound_middlewares: std::sync::RwLock::new(Vec::new()),
         }
     }
 
@@ -153,6 +157,23 @@ impl Gateway {
         if let Ok(mut slot) = self.shutdown_handle.lock() {
             *slot = Some(handle);
         }
+    }
+
+    /// Register an outbound middleware.
+    ///
+    /// Middlewares run in insertion order between [`IMPlugin::render`]
+    /// and [`IMPlugin::send`] on every outbound message.
+    pub fn add_outbound_middleware(&self, mw: Arc<dyn closeclaw_common::OutboundMiddleware>) {
+        if let Ok(mut mws) = self.outbound_middlewares.write() {
+            mws.push(mw);
+        }
+    }
+
+    /// Return the current outbound middleware chain (snapshot).
+    pub(crate) async fn get_outbound_middlewares(
+        &self,
+    ) -> Vec<Arc<dyn closeclaw_common::OutboundMiddleware>> {
+        self.outbound_middlewares.read().unwrap().clone()
     }
 
     // set_slash_dispatcher, set_permission_engine, and set_approval_flow
@@ -826,7 +847,7 @@ impl Gateway {
         }
     }
 
-    /// Runs the inbound processor chain on a [`RawMessage`] built from `input`.
+    /// Runs the inbound processor chain on a [`NormalizedMessage`] built from `input`.
     /// Falls back to raw content on registry absence or processor error.
     pub async fn process_inbound_chain(&self, input: &InboundChainInput) -> ProcessedMessage {
         let extra_meta = build_extra_metadata(input);
@@ -840,20 +861,20 @@ impl Gateway {
             };
         };
 
-        let timestamp = chrono::DateTime::from_timestamp_millis(input.timestamp_ms)
-            .unwrap_or_else(chrono::Utc::now);
-
-        let raw = RawMessage {
+        let normalized = closeclaw_common::im_plugin::NormalizedMessage {
             platform: input.platform.to_string(),
             sender_id: input.sender_id.to_string(),
             peer_id: input.peer_id.to_string(),
             content: input.content.to_string(),
-            timestamp,
-            message_id: input.message_id.to_string(),
-            account_id: input.account_id.clone(),
+            timestamp: input.timestamp_ms,
+            message_type: input.message_type.clone(),
+            media_refs: input.media_refs.clone(),
+            quoted_message: input.quoted_message.clone(),
+            thread_id: input.thread_id.clone(),
+            account_id: input.account_id.clone().unwrap_or_default(),
         };
 
-        match registry.process_inbound(raw).await {
+        match registry.process_inbound(normalized).await {
             Ok(mut processed) => {
                 processed.metadata.extend(extra_meta);
                 processed

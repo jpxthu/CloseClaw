@@ -6,27 +6,31 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 
 use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use crate::processor_chain::registry::ProcessorRegistry;
-use crate::processor_chain::RawMessage;
 use crate::ProcessedMessage;
+use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_llm::types::ContentBlock;
+
+use crate::content_normalizer::ContentNormalizer;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn make_raw(content: &str) -> RawMessage {
-    RawMessage {
+fn make_normalized(content: &str) -> NormalizedMessage {
+    NormalizedMessage {
         platform: "test".to_string(),
         sender_id: "user_1".to_string(),
         peer_id: String::new(),
         content: content.to_string(),
-        timestamp: Utc::now(),
-        message_id: "msg_1".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     }
 }
 
@@ -107,8 +111,8 @@ impl MessageProcessor for TestProc {
 #[tokio::test]
 async fn test_inbound_bypass() {
     let registry = ProcessorRegistry::new();
-    let raw = make_raw("hello world");
-    let result = registry.process_inbound(raw.clone()).await.unwrap();
+    let msg = make_normalized("hello world");
+    let result = registry.process_inbound(msg).await.unwrap();
 
     assert_eq!(result.text_content(), Some("hello world"));
     assert!(!result.content_blocks.is_empty());
@@ -144,7 +148,10 @@ async fn test_inbound_priority_ascending() {
     registry.register(p_5.clone());
     registry.register(p_20.clone());
 
-    let result = registry.process_inbound(make_raw("orig")).await.unwrap();
+    let result = registry
+        .process_inbound(make_normalized("orig"))
+        .await
+        .unwrap();
 
     assert_eq!(c5.load(Ordering::SeqCst), 1, "p_5 should be called once");
     assert_eq!(c10.load(Ordering::SeqCst), 1, "p_10 should be called once");
@@ -165,7 +172,7 @@ async fn test_inbound_chained_override() {
     registry.register(p3);
 
     let result = registry
-        .process_inbound(make_raw("original"))
+        .process_inbound(make_normalized("original"))
         .await
         .unwrap();
 
@@ -244,7 +251,7 @@ async fn test_inbound_error_propagates() {
     registry.register(failing);
 
     let err = registry
-        .process_inbound(make_raw("hello"))
+        .process_inbound(make_normalized("hello"))
         .await
         .unwrap_err();
     match err {
@@ -295,7 +302,10 @@ async fn test_skip_halts_inbound_chain() {
     registry.register(p2_skip);
     registry.register(p3.clone());
 
-    registry.process_inbound(make_raw("hello")).await.unwrap();
+    registry
+        .process_inbound(make_normalized("hello"))
+        .await
+        .unwrap();
 
     assert_eq!(c1.load(Ordering::SeqCst), 1, "p1 should be called");
     assert_eq!(c3.load(Ordering::SeqCst), 0, "p3 should NOT run after skip");
@@ -323,7 +333,10 @@ async fn test_suppress_halts_inbound_chain() {
     registry.register(p2_suppress);
     registry.register(p3.clone());
 
-    let result = registry.process_inbound(make_raw("hello")).await.unwrap();
+    let result = registry
+        .process_inbound(make_normalized("hello"))
+        .await
+        .unwrap();
 
     assert!(result.content_blocks.is_empty());
     assert_eq!(c1.load(Ordering::SeqCst), 1, "p1 should be called");
@@ -363,7 +376,10 @@ async fn test_metadata_merged_across_chain() {
     registry.register(p2);
     registry.register(p3);
 
-    let result = registry.process_inbound(make_raw("orig")).await.unwrap();
+    let result = registry
+        .process_inbound(make_normalized("orig"))
+        .await
+        .unwrap();
 
     assert_eq!(result.text_content(), Some("p3"));
     assert_eq!(
@@ -374,4 +390,128 @@ async fn test_metadata_merged_across_chain() {
         result.metadata.get("key3").map(|s| s.as_str()),
         Some("value3")
     );
+}
+
+// ── NormalizedMessage → ProcessorChain end-to-end inbound ────────────────────
+// Verifies that NormalizedMessage is passed directly into ProcessorChain
+// (no RawMessage intermediary) and that the inbound chain produces the
+// expected ProcessedMessage output.
+
+#[tokio::test]
+async fn test_normalized_message_directly_into_processor_chain() {
+    // Build a registry with a single test processor.
+    let (proc, counter) = TestProc::inbound("normalizer", 10);
+    let mut registry = ProcessorRegistry::new();
+    registry.register(proc);
+
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user1".to_string(),
+        peer_id: "oc_chat1".to_string(),
+        content: "hello from normalized".to_string(),
+        timestamp: 1700000000000,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "acct_1".to_string(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(result.text_content(), Some("normalizer"));
+}
+
+#[tokio::test]
+async fn test_normalized_message_empty_content() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "owner".to_string(),
+        peer_id: String::new(),
+        content: String::new(),
+        timestamp: 0,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "owner".to_string(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+    // Empty content stays empty after normalization.
+    assert_eq!(result.text_content(), Some(""));
+    assert!(!result.content_blocks.is_empty());
+}
+
+#[tokio::test]
+async fn test_normalized_message_with_special_characters() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_1".to_string(),
+        peer_id: "oc_1".to_string(),
+        content: "hello\x1b[31mworld\x1b[0m\r\nextra  ".to_string(),
+        timestamp: 1700000000000,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+    // ANSI stripped, trailing whitespace trimmed, \r removed.
+    let text = result.text_content().unwrap();
+    assert!(!text.contains("\x1b"));
+    assert!(
+        !text.ends_with(' '),
+        "trailing whitespace should be trimmed"
+    );
+}
+
+#[tokio::test]
+async fn test_normalized_message_timestamp_is_i64_millis() {
+    let msg = NormalizedMessage {
+        platform: "test".to_string(),
+        sender_id: "s".to_string(),
+        peer_id: "p".to_string(),
+        content: "x".to_string(),
+        timestamp: 1700000000123,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
+    };
+    // Verify timestamp is i64 milliseconds (not DateTime<Utc>).
+    assert!(msg.timestamp > 1_000_000_000_000);
+}
+
+#[tokio::test]
+async fn test_normalized_message_passthrough_no_processors() {
+    // When no processors are registered, NormalizedMessage content
+    // is wrapped directly into a ProcessedMessage.
+    let registry = ProcessorRegistry::new();
+    let msg = NormalizedMessage {
+        platform: "test".to_string(),
+        sender_id: "s".to_string(),
+        peer_id: "p".to_string(),
+        content: "direct passthrough".to_string(),
+        timestamp: 0,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+    assert_eq!(result.text_content(), Some("direct passthrough"));
+    assert!(result.metadata.is_empty());
 }

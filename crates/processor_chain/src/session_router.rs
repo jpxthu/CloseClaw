@@ -11,7 +11,7 @@
 //! The scope can be overridden via the [`DmScope`] configuration.
 //!
 //! This processor is channel-agnostic — it works for any platform that
-//! populates `RawMessage` correctly (terminal, feishu, discord, …).
+//! populates `NormalizedMessage` correctly (terminal, feishu, discord, …).
 
 use async_trait::async_trait;
 
@@ -86,23 +86,29 @@ impl MessageProcessor for SessionRouter {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        let raw = ctx
-            .initial_raw()
-            .cloned()
-            .unwrap_or_else(|| super::context::RawMessage {
+        let msg = ctx.initial_normalized().cloned().unwrap_or_else(|| {
+            closeclaw_common::im_plugin::NormalizedMessage {
                 platform: String::new(),
                 sender_id: String::new(),
                 peer_id: String::new(),
                 content: ctx.content.clone(),
-                timestamp: chrono::Utc::now(),
-                message_id: String::new(),
-                account_id: None,
-            });
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                message_type: Default::default(),
+                media_refs: Vec::new(),
+                quoted_message: None,
+                thread_id: None,
+                account_id: String::new(),
+            }
+        });
 
-        let platform = raw.platform;
-        let sender_id = raw.sender_id;
-        let peer_id = raw.peer_id;
-        let account_id = raw.account_id;
+        let platform = msg.platform;
+        let sender_id = msg.sender_id;
+        let peer_id = msg.peer_id;
+        let account_id = if msg.account_id.is_empty() {
+            None
+        } else {
+            Some(msg.account_id.clone())
+        };
 
         // Use system time instead of message timestamp to align with design doc:
         // "timestamp_ms 为当前系统时间的毫秒级时间戳"

@@ -8,11 +8,13 @@
 //! the new `processor_chain` SessionRouter does not reject group chats
 //! (design doc requirement: "SessionRouter 不区分私聊和群聊").
 //!
+//! Step 1.5 removed `RawMessage`; this file now uses `NormalizedMessage`.
+//!
 //! Run with: `cargo test --test im_inbound_e2e_tests`
 
 use std::path::PathBuf;
 
-use closeclaw::processor_chain::context::RawMessage;
+use closeclaw::processor_chain::NormalizedMessage;
 use closeclaw::processor_chain::ProcessorRegistry;
 
 // ---------------------------------------------------------------------------
@@ -28,7 +30,7 @@ fn load_raw_fixture(filename: &str) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 
-fn webhook_to_raw_message(webhook: &serde_json::Value) -> RawMessage {
+fn webhook_to_normalized_message(webhook: &serde_json::Value) -> NormalizedMessage {
     let content = webhook
         .get("message")
         .and_then(|m| m.get("content"))
@@ -55,14 +57,17 @@ fn webhook_to_raw_message(webhook: &serde_json::Value) -> RawMessage {
         .unwrap_or("")
         .to_string();
 
-    RawMessage {
+    NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id,
         peer_id,
         content,
-        timestamp: chrono::Utc::now(),
-        message_id,
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: message_id,
     }
 }
 
@@ -76,10 +81,10 @@ fn webhook_to_raw_message(webhook: &serde_json::Value) -> RawMessage {
 async fn test_p2p_dm_full_chain() {
     let registry = ProcessorRegistry::new();
     let raw = load_raw_fixture("im-message-receive_v1-no-event-id-2026-04-26T18-53-09-967Z.json");
-    let raw_msg = webhook_to_raw_message(&raw);
+    let msg = webhook_to_normalized_message(&raw);
 
     let result = registry
-        .process_inbound(raw_msg)
+        .process_inbound(msg)
         .await
         .expect("p2p chain should succeed");
 

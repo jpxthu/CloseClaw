@@ -1,6 +1,6 @@
 //! Raw message logger processor.
 //!
-//! Writes incoming [`RawMessage`] to a JSON file for audit and debugging purposes.
+//! Writes incoming [`NormalizedMessage`] to a JSON file for audit and debugging purposes.
 //!
 //! # Conditional execution
 //!
@@ -113,16 +113,17 @@ impl RawLogProcessor {
         }
     }
 
-    /// Writes `raw` to a JSON file under `self.config.dir`.
-    async fn write_log(&self, raw: &super::context::RawMessage) -> std::io::Result<()> {
-        let timestamp_millis = raw.timestamp.timestamp_millis();
-        let filename = format!(
-            "{}_{}_{}.json",
-            raw.platform, timestamp_millis, raw.message_id
-        );
+    /// Writes `msg` to a JSON file under `self.config.dir`.
+    ///
+    /// Filename format: `{platform}_{timestamp_millis}.json`
+    async fn write_log(
+        &self,
+        msg: &closeclaw_common::im_plugin::NormalizedMessage,
+    ) -> std::io::Result<()> {
+        let filename = format!("{}_{}.json", msg.platform, msg.timestamp);
         let path = self.config.dir.join(&filename);
 
-        let json = serde_json::to_string_pretty(raw)
+        let json = serde_json::to_string_pretty(msg)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
         fs::write(&path, json).await?;
@@ -154,7 +155,7 @@ impl MessageProcessor for RawLogProcessor {
         }
 
         let raw = ctx
-            .initial_raw()
+            .initial_normalized()
             .ok_or_else(|| ProcessError::invalid_message("no initial raw message in context"))?;
 
         self.write_log(raw)
@@ -170,27 +171,29 @@ impl MessageProcessor for RawLogProcessor {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
     use tempfile::TempDir;
 
     use super::*;
     use crate::processor_chain::context::MessageContext;
-    use crate::processor_chain::context::RawMessage;
+    use closeclaw_common::im_plugin::NormalizedMessage;
 
-    fn make_raw(platform: &str, message_id: &str) -> RawMessage {
-        RawMessage {
+    fn make_normalized(platform: &str) -> NormalizedMessage {
+        NormalizedMessage {
             platform: platform.to_string(),
             sender_id: "sender_1".to_string(),
             peer_id: String::new(),
             content: "hello".to_string(),
-            timestamp: Utc::now(),
-            message_id: message_id.to_string(),
-            account_id: None,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
+            thread_id: None,
+            account_id: String::new(),
         }
     }
 
-    fn make_ctx(raw: RawMessage) -> MessageContext {
-        MessageContext::from_raw(raw)
+    fn make_ctx(msg: NormalizedMessage) -> MessageContext {
+        MessageContext::from_normalized(msg)
     }
 
     #[tokio::test]
@@ -199,8 +202,8 @@ mod tests {
         let config = RawLogConfig::new(false, tmp.path().to_path_buf(), 7);
         let processor = RawLogProcessor::new(config).unwrap();
 
-        let raw = make_raw("feishu", "msg_1");
-        let ctx = make_ctx(raw);
+        let msg = make_normalized("feishu");
+        let ctx = make_ctx(msg);
 
         let result = processor.process(&ctx).await.unwrap();
         assert!(result.is_none());
@@ -212,8 +215,8 @@ mod tests {
         let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
         let processor = RawLogProcessor::new(config).unwrap();
 
-        let raw = make_raw("feishu", "msg_42");
-        let ctx = make_ctx(raw.clone());
+        let msg = make_normalized("feishu");
+        let ctx = make_ctx(msg.clone());
 
         let result = processor.process(&ctx).await.unwrap();
         assert!(result.is_some());
@@ -222,9 +225,8 @@ mod tests {
         assert_eq!(files.len(), 1);
 
         let content = std::fs::read_to_string(files[0].path()).unwrap();
-        let parsed: RawMessage = serde_json::from_str(&content).unwrap();
+        let parsed: NormalizedMessage = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed.platform, "feishu");
-        assert_eq!(parsed.message_id, "msg_42");
         assert_eq!(parsed.content, "hello");
     }
 
@@ -234,16 +236,20 @@ mod tests {
         let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
         let processor = RawLogProcessor::new(config.clone()).unwrap();
 
-        let raw = RawMessage {
+        let ts = chrono::Utc::now().timestamp_millis();
+        let msg = NormalizedMessage {
             platform: "wecom".to_string(),
             sender_id: "sender_1".to_string(),
             peer_id: String::new(),
             content: "hello".to_string(),
-            timestamp: Utc::now(),
-            message_id: "msg_99".to_string(),
-            account_id: None,
+            timestamp: ts,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
+            thread_id: None,
+            account_id: String::new(),
         };
-        let ctx = make_ctx(raw);
+        let ctx = make_ctx(msg);
 
         processor.process(&ctx).await.unwrap();
 
@@ -253,18 +259,17 @@ mod tests {
         let name = entries[0].file_name();
         let name_str = name.to_string_lossy();
         assert!(name_str.starts_with("wecom_"), "filename: {name_str}");
-        assert!(name_str.ends_with("_msg_99.json"), "filename: {name_str}");
+        assert!(name_str.ends_with(".json"), "filename: {name_str}");
 
-        // filename format: {platform}_{timestamp_millis}_{message_id}.json
+        // filename format: {platform}_{timestamp_millis}.json
         let stem = Path::new(name_str.as_ref())
             .file_stem()
             .unwrap()
             .to_str()
             .unwrap();
-        let parts: Vec<&str> = stem.splitn(3, '_').collect();
-        assert_eq!(parts.len(), 3, "expected 3 segments: {stem}");
+        let parts: Vec<&str> = stem.splitn(2, '_').collect();
+        assert_eq!(parts.len(), 2, "expected 2 segments: {stem}");
         assert_eq!(parts[0], "wecom");
-        assert_eq!(parts[2], "msg_99");
         parts[1].parse::<i64>().unwrap();
     }
 
@@ -273,19 +278,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().to_path_buf();
 
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
         // Write a "stale" file directly — timestamp in filename is 100 days ago
-        let stale_time = Utc::now()
-            .checked_sub_signed(chrono::Duration::days(100))
-            .unwrap();
-        let stale_ts = stale_time.timestamp_millis();
+        let stale_ts = now_ms - 100 * 86_400_000;
         let stale_name = format!("feishu_{stale_ts}_stale_msg.json");
         std::fs::write(dir.join(&stale_name), "{}").unwrap();
 
         // Write a "fresh" file directly — timestamp in filename is 1 day ago
-        let fresh_time = Utc::now()
-            .checked_sub_signed(chrono::Duration::days(1))
-            .unwrap();
-        let fresh_ts = fresh_time.timestamp_millis();
+        let fresh_ts = now_ms - 1 * 86_400_000;
         let fresh_name = format!("feishu_{fresh_ts}_fresh_msg.json");
         std::fs::write(dir.join(&fresh_name), "{}").unwrap();
 

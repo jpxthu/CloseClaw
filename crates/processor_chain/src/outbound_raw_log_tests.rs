@@ -1,19 +1,22 @@
 use super::*;
-use crate::processor_chain::context::{MessageContext, RawMessage};
-use chrono::Utc;
+use crate::processor_chain::context::MessageContext;
+use closeclaw_common::im_plugin::NormalizedMessage;
 use tempfile::TempDir;
 
-fn make_ctx(content: &str, channel: &str, message_id: &str) -> MessageContext {
-    let raw = RawMessage {
+fn make_ctx(content: &str, channel: &str) -> MessageContext {
+    let msg = NormalizedMessage {
         platform: channel.to_string(),
         sender_id: "sender_1".to_string(),
         peer_id: String::new(),
         content: content.to_string(),
-        timestamp: Utc::now(),
-        message_id: message_id.to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let mut ctx = MessageContext::from_raw(raw);
+    let mut ctx = MessageContext::from_normalized(msg);
     ctx.metadata
         .insert("channel".to_string(), channel.to_string());
     ctx
@@ -35,7 +38,7 @@ async fn test_bypass_when_disabled_and_no_debug() {
     let config = RawLogConfig::new(false, tmp.path().to_path_buf(), 7);
     let processor = OutboundRawLogProcessor::new(config);
 
-    let ctx = make_ctx("hello", "terminal", "msg_1");
+    let ctx = make_ctx("hello", "terminal");
     let result = processor.process(&ctx).await.unwrap();
     assert!(result.is_none());
 }
@@ -46,7 +49,7 @@ async fn test_write_file_when_enabled() {
     let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
     let processor = OutboundRawLogProcessor::new(config);
 
-    let ctx = make_ctx("hi there", "feishu", "msg_42");
+    let ctx = make_ctx("hi there", "feishu");
     let result = processor.process(&ctx).await.unwrap();
     assert!(result.is_some());
 
@@ -75,7 +78,7 @@ async fn test_write_file_with_message_id_metadata() {
     let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
     let processor = OutboundRawLogProcessor::new(config);
 
-    let mut ctx = make_ctx("hi there", "feishu", "msg_42");
+    let mut ctx = make_ctx("hi there", "feishu");
     ctx.metadata
         .insert("message_id".to_string(), "msg_42".to_string());
     let result = processor.process(&ctx).await.unwrap();
@@ -101,19 +104,22 @@ async fn test_outbound_and_independent_from_inbound() {
     let inbound = super::super::raw_log_processor::RawLogProcessor::new(config.clone()).unwrap();
     let outbound = OutboundRawLogProcessor::new(config);
 
-    let raw = RawMessage {
+    let msg = NormalizedMessage {
         platform: "wecom".to_string(),
         sender_id: "s".to_string(),
         peer_id: String::new(),
         content: "hello".to_string(),
-        timestamp: Utc::now(),
-        message_id: "msg_99".to_string(),
-        account_id: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
     };
-    let inbound_ctx = MessageContext::from_raw(raw.clone());
+    let inbound_ctx = MessageContext::from_normalized(msg);
     inbound.process(&inbound_ctx).await.unwrap();
 
-    let mut outbound_ctx = make_ctx("reply", "wecom", "msg_99");
+    let mut outbound_ctx = make_ctx("reply", "wecom");
     outbound_ctx
         .metadata
         .insert("message_id".to_string(), "msg_99".to_string());
@@ -142,7 +148,7 @@ async fn test_preserves_content_and_blocks() {
     let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
     let processor = OutboundRawLogProcessor::new(config);
 
-    let mut ctx = make_ctx("output text", "terminal", "msg_5");
+    let mut ctx = make_ctx("output text", "terminal");
     ctx.metadata
         .insert("session_key".to_string(), "sess_1".to_string());
     // Set content_blocks since the OutboundRawLogProcessor passes them through

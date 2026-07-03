@@ -2,11 +2,12 @@
 
 use std::sync::Arc;
 
-use super::context::{MessageContext, RawMessage};
+use super::context::MessageContext;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::ProcessedMessage;
 use async_trait::async_trait;
+use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_llm::types::ContentBlock;
 
 /// Registry holding inbound and outbound processor chains.
@@ -52,18 +53,21 @@ impl ProcessorRegistry {
         self.outbound.len()
     }
 
-    /// Drives the inbound processor chain on `raw`.
+    /// Drives the inbound processor chain on `msg`.
     ///
     /// Processors are sorted by ascending [`priority`](MessageProcessor::priority) before
     /// execution. When a processor returns `Ok(Some(msg))` its result becomes the input for
-    /// the next processor. If the chain is empty the `raw` message is converted directly to
+    /// the next processor. If the chain is empty the message content is converted directly to
     /// a [`ProcessedMessage`] (bypass).
-    pub async fn process_inbound(&self, raw: RawMessage) -> Result<ProcessedMessage, ProcessError> {
+    pub async fn process_inbound(
+        &self,
+        msg: NormalizedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
         if self.inbound.is_empty() {
-            return Ok(ProcessedMessage::from_raw_content(raw.content));
+            return Ok(ProcessedMessage::from_raw_content(msg.content));
         }
 
-        let mut ctx = MessageContext::from_raw(raw);
+        let mut ctx = MessageContext::from_normalized(msg);
 
         let mut sorted = self.inbound.clone();
         sorted.sort_by_key(|p| p.priority());
@@ -113,18 +117,21 @@ impl ProcessorRegistry {
             return Ok(llm_output);
         }
 
-        // Build a synthetic RawMessage so we can reuse MessageContext::from_raw.
+        // Build a synthetic NormalizedMessage so we can reuse MessageContext::from_normalized.
         let content = llm_output.text_content().unwrap_or("").to_string();
-        let synthetic_raw = RawMessage {
+        let synthetic = NormalizedMessage {
             platform: String::new(),
             sender_id: String::new(),
             peer_id: String::new(),
             content,
-            timestamp: chrono::Utc::now(),
-            message_id: String::new(),
-            account_id: None,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
+            thread_id: None,
+            account_id: String::new(),
         };
-        let mut ctx = MessageContext::from_raw(synthetic_raw);
+        let mut ctx = MessageContext::from_normalized(synthetic);
         ctx.metadata = llm_output.metadata.clone();
         ctx.content_blocks = llm_output.content_blocks.clone();
 
@@ -191,21 +198,12 @@ fn convert_process_error(e: ProcessError) -> closeclaw_common::processor::Proces
 impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
     async fn process_inbound(
         &self,
-        raw: closeclaw_common::processor::RawMessage,
+        msg: NormalizedMessage,
     ) -> Result<
         closeclaw_common::processor::ProcessedMessage,
         closeclaw_common::processor::ProcessError,
     > {
-        let main_raw = RawMessage {
-            platform: raw.platform,
-            sender_id: raw.sender_id,
-            peer_id: raw.peer_id,
-            content: raw.content,
-            timestamp: raw.timestamp,
-            message_id: raw.message_id,
-            account_id: raw.account_id,
-        };
-        self.process_inbound(main_raw)
+        self.process_inbound(msg)
             .await
             .map(convert_processed_message)
             .map_err(convert_process_error)
