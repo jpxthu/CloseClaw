@@ -415,6 +415,22 @@ impl Gateway {
             self.process_stream_event(&ctx, event, &mut state).await?;
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
+
+        // Post-stream: run accumulated content_blocks through the complete
+        // processor chain (VerbosityFilter → DslParser → OutboundRawLog).
+        // Real-time per-block verbosity filtering above is kept as an
+        // incremental optimization; the final result comes from the chain.
+        let processed = self
+            .process_or_bypass(
+                "",
+                state.content_blocks,
+                channel,
+                session_id,
+                verbosity_level,
+            )
+            .await?;
+        state.content_blocks = processed.content_blocks;
+
         Ok(StreamState::into_result(state))
     }
 
