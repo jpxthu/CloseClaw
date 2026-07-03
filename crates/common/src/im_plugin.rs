@@ -13,9 +13,10 @@ use serde::{Deserialize, Serialize};
 
 /// Normalized message type, matching the four variants defined in
 /// `docs/design/common/shared-types.md`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum MessageType {
     /// Plain text message.
+    #[default]
     Text,
     /// Image message.
     Image,
@@ -49,12 +50,6 @@ impl<'de> Deserialize<'de> for MessageType {
     {
         let s = String::deserialize(deserializer)?;
         Ok(MessageType::from(s.as_str()))
-    }
-}
-
-impl Default for MessageType {
-    fn default() -> Self {
-        MessageType::Text
     }
 }
 
