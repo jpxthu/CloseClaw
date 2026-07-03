@@ -64,6 +64,14 @@ pub enum ContentBlockType {
     Thinking,
     /// Tool use invocation block.
     ToolUse,
+    /// Tool result block.
+    ToolResult,
+    /// Image content block.
+    Image,
+    /// Audio content block.
+    Audio,
+    /// File content block.
+    File,
 }
 
 /// Content delta for streaming responses.
@@ -83,6 +91,14 @@ pub enum ContentDelta {
     ToolUseName { name: String },
     /// Tool use input chunk delta.
     ToolUseInputChunk { input: String },
+    /// Tool result text delta.
+    ToolResultText { text: String },
+    /// Image reference delta (resource identifier + URL).
+    ImageRef { url: String },
+    /// Audio reference delta (resource identifier + URL).
+    AudioRef { url: String },
+    /// File reference delta (resource identifier + URL).
+    FileRef { url: String },
 }
 
 /// Stream event emitted during streaming responses.

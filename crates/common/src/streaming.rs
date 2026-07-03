@@ -78,7 +78,13 @@ impl DefaultStreamingRenderer {
         self.current_block_index = Some(index);
         match block_type {
             ContentBlockType::Text => self.line_buffer.reset(),
-            ContentBlockType::Thinking | ContentBlockType::ToolUse => {
+            ContentBlockType::Thinking
+            | ContentBlockType::ToolUse
+            | ContentBlockType::ToolResult => {
+                self.current_acc = Some(BlockAccumulator::default());
+            }
+            // Image/Audio/File: not streamed, complete blocks arrive at once.
+            ContentBlockType::Image | ContentBlockType::Audio | ContentBlockType::File => {
                 self.current_acc = Some(BlockAccumulator::default());
             }
         }
@@ -96,7 +102,12 @@ impl DefaultStreamingRenderer {
                     route_line(&remaining, out);
                 }
             }
-            ContentBlockType::Thinking | ContentBlockType::ToolUse => {
+            ContentBlockType::Thinking
+            | ContentBlockType::ToolUse
+            | ContentBlockType::ToolResult
+            | ContentBlockType::Image
+            | ContentBlockType::Audio
+            | ContentBlockType::File => {
                 if let Some(acc) = self.current_acc.take() {
                     out.render_blocks.push(acc.into_block(block_type));
                 }
@@ -132,6 +143,24 @@ impl StreamingRenderer for DefaultStreamingRenderer {
                 ContentDelta::ToolUseId { id } => self.handle_tool_id(id),
                 ContentDelta::ToolUseName { name } => self.handle_tool_name(name),
                 ContentDelta::ToolUseInputChunk { input } => self.handle_tool_input(&input),
+                ContentDelta::ToolResultText { text } => {
+                    self.handle_thinking_delta(&text);
+                }
+                ContentDelta::ImageRef { url } => {
+                    if let Some(acc) = self.current_acc.as_mut() {
+                        acc.text = url;
+                    }
+                }
+                ContentDelta::AudioRef { url } => {
+                    if let Some(acc) = self.current_acc.as_mut() {
+                        acc.text = url;
+                    }
+                }
+                ContentDelta::FileRef { url } => {
+                    if let Some(acc) = self.current_acc.as_mut() {
+                        acc.text = url;
+                    }
+                }
             },
             StreamEvent::BlockEnd { index, block_type } => {
                 self.handle_block_end(index, block_type, &mut out);
@@ -269,6 +298,13 @@ impl BlockAccumulator {
                 name: self.tool_name.unwrap_or_default(),
                 input: self.tool_input,
             },
+            ContentBlockType::ToolResult => ContentBlock::ToolResult {
+                tool_call_id: self.tool_id.unwrap_or_default(),
+                content: self.text,
+            },
+            ContentBlockType::Image => ContentBlock::Image(self.text),
+            ContentBlockType::Audio => ContentBlock::Audio(self.text),
+            ContentBlockType::File => ContentBlock::File(self.text),
             ContentBlockType::Text => ContentBlock::Text(self.text),
         }
     }
