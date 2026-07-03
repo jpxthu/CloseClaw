@@ -15,6 +15,8 @@ use crate::ProcessedMessage;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_llm::types::ContentBlock;
 
+use crate::content_normalizer::ContentNormalizer;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn make_normalized(content: &str) -> NormalizedMessage {
@@ -388,4 +390,128 @@ async fn test_metadata_merged_across_chain() {
         result.metadata.get("key3").map(|s| s.as_str()),
         Some("value3")
     );
+}
+
+// ── NormalizedMessage → ProcessorChain end-to-end inbound ────────────────────
+// Verifies that NormalizedMessage is passed directly into ProcessorChain
+// (no RawMessage intermediary) and that the inbound chain produces the
+// expected ProcessedMessage output.
+
+#[tokio::test]
+async fn test_normalized_message_directly_into_processor_chain() {
+    // Build a registry with a single test processor.
+    let (proc, counter) = TestProc::inbound("normalizer", 10);
+    let mut registry = ProcessorRegistry::new();
+    registry.register(proc);
+
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user1".to_string(),
+        peer_id: "oc_chat1".to_string(),
+        content: "hello from normalized".to_string(),
+        timestamp: 1700000000000,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "acct_1".to_string(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(result.text_content(), Some("normalizer"));
+}
+
+#[tokio::test]
+async fn test_normalized_message_empty_content() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+
+    let msg = NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "owner".to_string(),
+        peer_id: String::new(),
+        content: String::new(),
+        timestamp: 0,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: "owner".to_string(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+    // Empty content stays empty after normalization.
+    assert_eq!(result.text_content(), Some(""));
+    assert!(!result.content_blocks.is_empty());
+}
+
+#[tokio::test]
+async fn test_normalized_message_with_special_characters() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_1".to_string(),
+        peer_id: "oc_1".to_string(),
+        content: "hello\x1b[31mworld\x1b[0m\r\nextra  ".to_string(),
+        timestamp: 1700000000000,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+    // ANSI stripped, trailing whitespace trimmed, \r removed.
+    let text = result.text_content().unwrap();
+    assert!(!text.contains("\x1b"));
+    assert!(
+        !text.ends_with(' '),
+        "trailing whitespace should be trimmed"
+    );
+}
+
+#[tokio::test]
+async fn test_normalized_message_timestamp_is_i64_millis() {
+    let msg = NormalizedMessage {
+        platform: "test".to_string(),
+        sender_id: "s".to_string(),
+        peer_id: "p".to_string(),
+        content: "x".to_string(),
+        timestamp: 1700000000123,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
+    };
+    // Verify timestamp is i64 milliseconds (not DateTime<Utc>).
+    assert!(msg.timestamp > 1_000_000_000_000);
+}
+
+#[tokio::test]
+async fn test_normalized_message_passthrough_no_processors() {
+    // When no processors are registered, NormalizedMessage content
+    // is wrapped directly into a ProcessedMessage.
+    let registry = ProcessorRegistry::new();
+    let msg = NormalizedMessage {
+        platform: "test".to_string(),
+        sender_id: "s".to_string(),
+        peer_id: "p".to_string(),
+        content: "direct passthrough".to_string(),
+        timestamp: 0,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
+    };
+
+    let result = registry.process_inbound(msg).await.unwrap();
+    assert_eq!(result.text_content(), Some("direct passthrough"));
+    assert!(result.metadata.is_empty());
 }

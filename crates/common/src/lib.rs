@@ -14,6 +14,8 @@ pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
 pub mod middleware;
+#[cfg(test)]
+pub mod middleware_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
@@ -24,6 +26,8 @@ pub mod shutdown;
 pub mod shutdown_tests;
 pub mod skill_registry;
 pub mod slash_router;
+#[cfg(test)]
+pub mod slash_router_tests;
 pub mod storage_provider;
 pub mod streaming;
 #[cfg(test)]
