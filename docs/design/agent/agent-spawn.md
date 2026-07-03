@@ -16,7 +16,7 @@ Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn =
 LLM 调用 sessions_spawn(agentId, task, ...)
   ↓
 Session 模块读取父 agent 配置中的 subagents 参数（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
-  ① depth 检查：父 agent.maxSpawnDepth = 0 → 拒绝（配置级硬禁止。子 agent 实际能力见 Depth 追踪）
+  ① depth 检查：父 agent 有效预算 ≤ 0 → 拒绝（预算见 Depth 追踪节）
   ② 并发检查：活跃子 session 数 >= 父 agent.subagents.maxChildren → 拒绝
   ③ agentId 解析：spawn 未传 agentId 时自动回退到父 agent 配置的 `defaultChildAgent`
   ④ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
