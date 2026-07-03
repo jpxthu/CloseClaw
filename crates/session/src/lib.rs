@@ -15,6 +15,8 @@ pub mod storage;
 pub mod workspace;
 
 #[cfg(test)]
+mod active_searcher_tests;
+#[cfg(test)]
 mod compaction_tests;
 #[cfg(test)]
 mod persistence_tests;
