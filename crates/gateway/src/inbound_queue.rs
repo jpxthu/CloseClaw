@@ -136,7 +136,7 @@ pub(crate) fn start_inbound_consumer(
                 content: normalized.content.clone(),
                 message_id: String::new(), // message_id not in NormalizedMessage; empty for now
                 timestamp_ms: normalized.timestamp,
-                account_id: normalized.account_id.clone(),
+                account_id: Some(normalized.account_id.clone()),
             };
             let processed = gateway.process_inbound_chain(&input).await;
 
@@ -211,7 +211,7 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
                 content: normalized.content.clone(),
                 message_id: String::new(),
                 timestamp_ms: normalized.timestamp,
-                account_id: normalized.account_id.clone(),
+                account_id: Some(normalized.account_id.clone()),
             };
             let processed = gateway.process_inbound_chain(&input).await;
             gateway

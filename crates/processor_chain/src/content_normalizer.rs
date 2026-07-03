@@ -15,6 +15,7 @@ use crate::processor_chain::context::{MessageContext, ProcessedMessage};
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use async_trait::async_trait;
+use closeclaw_llm::types::ContentBlock;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -130,10 +131,8 @@ impl MessageProcessor for ContentNormalizer {
         normalized = trim_trailing_whitespace(&normalized);
 
         Ok(Some(ProcessedMessage {
-            content: normalized,
-            metadata: serde_json::Map::new(),
-            suppress: false,
-            content_blocks: vec![],
+            content_blocks: vec![ContentBlock::Text(normalized)],
+            metadata: std::collections::HashMap::new(),
         }))
     }
 }

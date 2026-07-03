@@ -79,8 +79,7 @@ impl TerminalAdapter {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: Some("owner".to_string()),
-            card_action: None,
+            account_id: "owner".to_string(),
         }
     }
 }

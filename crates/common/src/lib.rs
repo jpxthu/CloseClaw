@@ -11,7 +11,11 @@ pub mod gateway_stop;
 pub mod gateway_types;
 pub mod identity;
 pub mod im_plugin;
+#[cfg(test)]
+pub mod im_plugin_tests;
 pub mod processor;
+#[cfg(test)]
+pub mod processor_tests;
 pub mod session_lookup;
 pub mod session_types;
 pub mod shutdown;

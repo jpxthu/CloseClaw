@@ -84,5 +84,6 @@ async fn test_p2p_dm_full_chain() {
         .expect("p2p chain should succeed");
 
     // Empty registry returns raw content as-is (bypass mode).
-    assert!(!result.content.is_empty(), "content should not be empty");
+    let text = result.text_content().unwrap_or("");
+    assert!(!text.is_empty(), "text content should not be empty");
 }

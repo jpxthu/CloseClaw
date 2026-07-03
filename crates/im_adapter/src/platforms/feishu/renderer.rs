@@ -273,16 +273,15 @@ fn render_buttons(instructions: &[DslInstruction]) -> Vec<CardElement> {
     if instructions.is_empty() {
         return Vec::new();
     }
-    let has_primary = instructions
-        .iter()
-        .any(|i| matches!(i, DslInstruction::Button { .. }));
+    let has_primary = instructions.iter().any(|i| i.instruction_type == "button");
     let mut actions = Vec::new();
     let mut seen = false;
 
     for inst in instructions {
-        let DslInstruction::Button { label, .. } = inst else {
+        if inst.instruction_type != "button" {
             continue;
-        };
+        }
+        let label = inst.params.get("label").cloned().unwrap_or_default();
         let bt = if has_primary && !seen {
             seen = true;
             "primary"
@@ -293,7 +292,7 @@ fn render_buttons(instructions: &[DslInstruction]) -> Vec<CardElement> {
             tag: "button".into(),
             text: CardText {
                 tag: "plain_text".into(),
-                content: label.clone(),
+                content: label,
             },
             action_type: bt.into(),
             url: None,

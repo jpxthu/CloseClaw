@@ -40,11 +40,14 @@ impl MessageProcessor for MockOutboundProcessor {
         &self,
         _ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, closeclaw::processor_chain::error::ProcessError> {
+        if self.output_suppress {
+            return Ok(None);
+        }
         Ok(Some(ProcessedMessage {
-            content: self.output_content.clone(),
-            metadata: serde_json::Map::new(),
-            suppress: self.output_suppress,
-            content_blocks: vec![],
+            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                self.output_content.clone(),
+            )],
+            metadata: std::collections::HashMap::new(),
         }))
     }
 }
@@ -103,8 +106,7 @@ impl IMPlugin for TrackingPlugin {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         }))
     }
 

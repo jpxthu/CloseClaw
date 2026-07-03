@@ -368,15 +368,15 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
             content: message.content,
             message_id,
             timestamp_ms: message.timestamp,
-            account_id: message.account_id,
+            account_id: Some(message.account_id),
         };
         let processed = gateway.process_inbound_chain(&input).await;
 
-        if processed.suppress {
+        if processed.content_blocks.is_empty() {
             continue;
         }
 
-        let trimmed = processed.content.trim();
+        let trimmed = processed.text_content().unwrap_or("").trim();
 
         if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
             println!("Goodbye!");

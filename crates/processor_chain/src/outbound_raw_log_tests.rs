@@ -14,10 +14,8 @@ fn make_ctx(content: &str, channel: &str, message_id: &str) -> MessageContext {
         account_id: None,
     };
     let mut ctx = MessageContext::from_raw(raw);
-    ctx.metadata.insert(
-        "channel".to_string(),
-        serde_json::Value::String(channel.to_string()),
-    );
+    ctx.metadata
+        .insert("channel".to_string(), channel.to_string());
     ctx
 }
 
@@ -78,10 +76,8 @@ async fn test_write_file_with_message_id_metadata() {
     let processor = OutboundRawLogProcessor::new(config);
 
     let mut ctx = make_ctx("hi there", "feishu", "msg_42");
-    ctx.metadata.insert(
-        "message_id".to_string(),
-        serde_json::Value::String("msg_42".to_string()),
-    );
+    ctx.metadata
+        .insert("message_id".to_string(), "msg_42".to_string());
     let result = processor.process(&ctx).await.unwrap();
     assert!(result.is_some());
 
@@ -118,10 +114,9 @@ async fn test_outbound_and_independent_from_inbound() {
     inbound.process(&inbound_ctx).await.unwrap();
 
     let mut outbound_ctx = make_ctx("reply", "wecom", "msg_99");
-    outbound_ctx.metadata.insert(
-        "message_id".to_string(),
-        serde_json::Value::String("msg_99".to_string()),
-    );
+    outbound_ctx
+        .metadata
+        .insert("message_id".to_string(), "msg_99".to_string());
     outbound.process(&outbound_ctx).await.unwrap();
 
     let files: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().collect();
@@ -148,16 +143,18 @@ async fn test_preserves_content_and_blocks() {
     let processor = OutboundRawLogProcessor::new(config);
 
     let mut ctx = make_ctx("output text", "terminal", "msg_5");
-    ctx.metadata.insert(
-        "session_key".to_string(),
-        serde_json::Value::String("sess_1".to_string()),
-    );
+    ctx.metadata
+        .insert("session_key".to_string(), "sess_1".to_string());
+    // Set content_blocks since the OutboundRawLogProcessor passes them through
+    ctx.content_blocks = vec![closeclaw_llm::types::ContentBlock::Text(
+        "output text".to_string(),
+    )];
 
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    assert_eq!(result.content, "output text");
+    assert_eq!(result.text_content(), Some("output text"));
     assert_eq!(
-        result.metadata.get("session_key").and_then(|v| v.as_str()),
+        result.metadata.get("session_key").map(|s| s.as_str()),
         Some("sess_1")
     );
-    assert!(result.content_blocks.is_empty());
+    assert_eq!(result.content_blocks.len(), 1);
 }

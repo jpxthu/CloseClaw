@@ -190,10 +190,8 @@ impl MessageProcessor for OutboundTraceProcessor {
             .expect("trace lock poisoned")
             .extend(ctx.content_blocks.iter().cloned());
         Ok(Some(ProcessedMessage {
-            content: ctx.content.clone(),
-            metadata: ctx.metadata.clone(),
-            suppress: false,
             content_blocks: ctx.content_blocks.clone(),
+            metadata: ctx.metadata.clone(),
         }))
     }
 }

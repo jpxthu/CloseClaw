@@ -264,7 +264,6 @@ fn convert_to_common_normalized(
             }),
         thread_id: m.thread_id,
         account_id: m.account_id,
-        card_action: m.card_action,
     }
 }
 
@@ -321,7 +320,7 @@ impl IMPlugin for FeishuPlugin {
             if let Some(resolver) = self.identity_resolver() {
                 m.account_id = resolver
                     .resolve(&m.platform, &m.sender_id)
-                    .or_else(|| m.account_id.take());
+                    .unwrap_or(std::mem::take(&mut m.account_id));
             }
         }
         Ok(msg)

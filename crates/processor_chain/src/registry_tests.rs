@@ -1,6 +1,7 @@
 //! Tests for [`ProcessorRegistry`] — kept in a separate file to respect the
 //! ≤ 500-line limit per source file.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -12,6 +13,7 @@ use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use crate::processor_chain::registry::ProcessorRegistry;
 use crate::processor_chain::RawMessage;
+use closeclaw_llm::types::ContentBlock;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +35,7 @@ struct TestProc {
     phase: ProcessPhase,
     priority: u8,
     call_counter: Arc<AtomicUsize>,
-    metadata_kv: Option<(String, serde_json::Value)>,
+    metadata_kv: Option<(String, String)>,
     suppress: bool,
     skip: bool,
 }
@@ -85,18 +87,16 @@ impl MessageProcessor for TestProc {
         _ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
         self.call_counter.fetch_add(1, Ordering::SeqCst);
-        if self.skip {
+        if self.skip || self.suppress {
             return Ok(None);
         }
-        let mut metadata = serde_json::Map::new();
+        let mut metadata = HashMap::new();
         if let Some((ref k, ref v)) = self.metadata_kv {
             metadata.insert(k.clone(), v.clone());
         }
         Ok(Some(ProcessedMessage {
-            content: self.name.clone(),
+            content_blocks: vec![ContentBlock::Text(self.name.clone())],
             metadata,
-            suppress: self.suppress,
-            content_blocks: vec![],
         }))
     }
 }
@@ -109,8 +109,8 @@ async fn test_inbound_bypass() {
     let raw = make_raw("hello world");
     let result = registry.process_inbound(raw.clone()).await.unwrap();
 
-    assert_eq!(result.content, raw.content);
-    assert!(!result.suppress);
+    assert_eq!(result.text_content(), Some("hello world"));
+    assert!(!result.content_blocks.is_empty());
     assert_eq!(result.metadata.len(), 0);
 }
 
@@ -120,15 +120,13 @@ async fn test_inbound_bypass() {
 async fn test_outbound_bypass() {
     let registry = ProcessorRegistry::new();
     let llm_out = ProcessedMessage {
-        content: "llm said hello".to_string(),
-        metadata: serde_json::Map::new(),
-        suppress: false,
-        content_blocks: vec![],
+        content_blocks: vec![ContentBlock::Text("llm said hello".to_string())],
+        metadata: HashMap::new(),
     };
     let result = registry.process_outbound(llm_out.clone()).await.unwrap();
 
-    assert_eq!(result.content, llm_out.content);
-    assert!(!result.suppress);
+    assert_eq!(result.text_content(), Some("llm said hello"));
+    assert!(!result.content_blocks.is_empty());
     assert_eq!(result.metadata.len(), 0);
 }
 
@@ -149,7 +147,7 @@ async fn test_inbound_priority_ascending() {
 
     assert_eq!(c5.load(Ordering::SeqCst), 1, "p_5 should be called once");
     assert_eq!(c10.load(Ordering::SeqCst), 1, "p_10 should be called once");
-    assert_eq!(result.content, "p_20");
+    assert_eq!(result.text_content(), Some("p_20"));
 }
 
 // ── chained processors: latter overrides former ───────────────────────────────
@@ -170,7 +168,7 @@ async fn test_inbound_chained_override() {
         .await
         .unwrap();
 
-    assert_eq!(result.content, "p3");
+    assert_eq!(result.text_content(), Some("p3"));
 }
 
 #[tokio::test]
@@ -184,15 +182,13 @@ async fn test_outbound_chained_override() {
 
     let result = registry
         .process_outbound(ProcessedMessage {
-            content: "llm".to_string(),
-            metadata: serde_json::Map::new(),
-            suppress: false,
-            content_blocks: vec![],
+            content_blocks: vec![ContentBlock::Text("llm".to_string())],
+            metadata: HashMap::new(),
         })
         .await
         .unwrap();
 
-    assert_eq!(result.content, "o2");
+    assert_eq!(result.text_content(), Some("o2"));
 }
 
 // ── error propagation ────────────────────────────────────────────────────────
@@ -264,10 +260,8 @@ async fn test_outbound_error_propagates() {
 
     let err = registry
         .process_outbound(ProcessedMessage {
-            content: "llm".to_string(),
-            metadata: serde_json::Map::new(),
-            suppress: false,
-            content_blocks: vec![],
+            content_blocks: vec![ContentBlock::Text("llm".to_string())],
+            metadata: HashMap::new(),
         })
         .await
         .unwrap_err();
@@ -330,7 +324,7 @@ async fn test_suppress_halts_inbound_chain() {
 
     let result = registry.process_inbound(make_raw("hello")).await.unwrap();
 
-    assert!(result.suppress);
+    assert!(result.content_blocks.is_empty());
     assert_eq!(c1.load(Ordering::SeqCst), 1, "p1 should be called");
     assert_eq!(
         c3.load(Ordering::SeqCst),
@@ -349,7 +343,7 @@ async fn test_metadata_merged_across_chain() {
         phase: ProcessPhase::Inbound,
         priority: 2,
         call_counter: Arc::new(AtomicUsize::new(0)),
-        metadata_kv: Some(("key2".to_string(), serde_json::json!("value2"))),
+        metadata_kv: Some(("key2".to_string(), "value2".to_string())),
         suppress: false,
         skip: false,
     });
@@ -358,7 +352,7 @@ async fn test_metadata_merged_across_chain() {
         phase: ProcessPhase::Inbound,
         priority: 3,
         call_counter: Arc::new(AtomicUsize::new(0)),
-        metadata_kv: Some(("key3".to_string(), serde_json::json!("value3"))),
+        metadata_kv: Some(("key3".to_string(), "value3".to_string())),
         suppress: false,
         skip: false,
     });
@@ -370,13 +364,13 @@ async fn test_metadata_merged_across_chain() {
 
     let result = registry.process_inbound(make_raw("orig")).await.unwrap();
 
-    assert_eq!(result.content, "p3");
+    assert_eq!(result.text_content(), Some("p3"));
     assert_eq!(
-        result.metadata.get("key2").and_then(|v| v.as_str()),
+        result.metadata.get("key2").map(|s| s.as_str()),
         Some("value2")
     );
     assert_eq!(
-        result.metadata.get("key3").and_then(|v| v.as_str()),
+        result.metadata.get("key3").map(|s| s.as_str()),
         Some("value3")
     );
 }

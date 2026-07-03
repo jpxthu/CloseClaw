@@ -6,6 +6,7 @@ use super::context::{MessageContext, ProcessedMessage, RawMessage};
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use async_trait::async_trait;
+use closeclaw_llm::types::ContentBlock;
 
 /// Registry holding inbound and outbound processor chains.
 ///
@@ -72,13 +73,10 @@ impl ProcessorRegistry {
             }
             match processor.process(&ctx).await? {
                 Some(out) => {
-                    ctx.content = out.content;
+                    ctx.content = out.text_content().unwrap_or("").to_string();
                     ctx.content_blocks = out.content_blocks;
                     for (k, v) in out.metadata {
                         ctx.metadata.insert(k, v);
-                    }
-                    if out.suppress {
-                        ctx.skip = true;
                     }
                 }
                 None => {
@@ -90,10 +88,14 @@ impl ProcessorRegistry {
         }
 
         Ok(ProcessedMessage {
-            content: ctx.content,
+            content_blocks: if ctx.skip {
+                vec![]
+            } else if ctx.content_blocks.is_empty() {
+                vec![ContentBlock::Text(ctx.content)]
+            } else {
+                ctx.content_blocks
+            },
             metadata: ctx.metadata,
-            suppress: ctx.skip,
-            content_blocks: ctx.content_blocks,
         })
     }
 
@@ -111,11 +113,12 @@ impl ProcessorRegistry {
         }
 
         // Build a synthetic RawMessage so we can reuse MessageContext::from_raw.
+        let content = llm_output.text_content().unwrap_or("").to_string();
         let synthetic_raw = RawMessage {
             platform: String::new(),
             sender_id: String::new(),
             peer_id: String::new(),
-            content: llm_output.content.clone(),
+            content,
             timestamp: chrono::Utc::now(),
             message_id: String::new(),
             account_id: None,
@@ -123,9 +126,6 @@ impl ProcessorRegistry {
         let mut ctx = MessageContext::from_raw(synthetic_raw);
         ctx.metadata = llm_output.metadata.clone();
         ctx.content_blocks = llm_output.content_blocks.clone();
-        if llm_output.suppress {
-            ctx.skip = true;
-        }
 
         let mut sorted = self.outbound.clone();
         sorted.sort_by_key(|p| p.priority());
@@ -136,13 +136,10 @@ impl ProcessorRegistry {
             }
             match processor.process(&ctx).await? {
                 Some(out) => {
-                    ctx.content = out.content;
+                    ctx.content = out.text_content().unwrap_or("").to_string();
                     ctx.content_blocks = out.content_blocks;
                     for (k, v) in out.metadata {
                         ctx.metadata.insert(k, v);
-                    }
-                    if out.suppress {
-                        ctx.skip = true;
                     }
                 }
                 None => {
@@ -154,10 +151,14 @@ impl ProcessorRegistry {
         }
 
         Ok(ProcessedMessage {
-            content: ctx.content,
+            content_blocks: if ctx.skip {
+                vec![]
+            } else if ctx.content_blocks.is_empty() {
+                vec![ContentBlock::Text(ctx.content)]
+            } else {
+                ctx.content_blocks
+            },
             metadata: ctx.metadata,
-            suppress: ctx.skip,
-            content_blocks: ctx.content_blocks,
         })
     }
 }
@@ -168,10 +169,8 @@ impl ProcessorRegistry {
 
 fn convert_processed_message(m: ProcessedMessage) -> closeclaw_common::processor::ProcessedMessage {
     closeclaw_common::processor::ProcessedMessage {
-        content: m.content,
-        metadata: m.metadata,
-        suppress: m.suppress,
         content_blocks: m.content_blocks,
+        metadata: m.metadata,
     }
 }
 
@@ -219,10 +218,8 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
         closeclaw_common::processor::ProcessError,
     > {
         let main_msg = ProcessedMessage {
-            content: msg.content,
-            metadata: msg.metadata,
-            suppress: msg.suppress,
             content_blocks: msg.content_blocks,
+            metadata: msg.metadata,
         };
         self.process_outbound(main_msg)
             .await

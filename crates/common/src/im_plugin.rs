@@ -102,15 +102,9 @@ pub struct NormalizedMessage {
     /// support threads; does **not** participate in session key calculation.
     pub thread_id: Option<String>,
 
-    /// Optional tenant/account identifier for multi-tenant session isolation.
-    pub account_id: Option<String>,
-
-    /// Whether this message is a card action (e.g. button click).
-    ///
-    /// `Some(true)` when the inbound event is a card action trigger;
-    /// `None` (default) for regular text messages.
+    /// Tenant/account identifier for multi-tenant session isolation.
     #[serde(default)]
-    pub card_action: Option<bool>,
+    pub account_id: String,
 }
 
 fn default_message_type() -> String {

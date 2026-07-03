@@ -197,7 +197,6 @@ fn convert_main_to_common_normalized(
             }),
         thread_id: m.thread_id,
         account_id: m.account_id,
-        card_action: m.card_action,
     }
 }
 

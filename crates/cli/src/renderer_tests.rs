@@ -7,6 +7,8 @@ use crate::renderer::{
     check_line_pattern, get_terminal_width, resolve_terminal_width_from, strip_ansi,
     TerminalRenderer, BOLD, CYAN, DIM, ITALIC,
 };
+use std::collections::HashMap;
+
 use closeclaw_common::processor::{DslInstruction, DslParseResult};
 use closeclaw_llm::types::ContentBlock;
 
@@ -189,11 +191,13 @@ fn test_render_mixed_block_types() {
 fn test_render_with_dsl_button() {
     let renderer = TerminalRenderer::with_ansi(false);
     let dsl = DslParseResult {
-        clean_content: String::new(),
-        instructions: vec![DslInstruction::Button {
-            label: "Click".into(),
-            action: "go".into(),
-            value: "ok".into(),
+        instructions: vec![DslInstruction {
+            instruction_type: "button".to_string(),
+            params: HashMap::from([
+                ("label".to_string(), "Click".to_string()),
+                ("action".to_string(), "go".to_string()),
+                ("value".to_string(), "ok".to_string()),
+            ]),
         }],
     };
     let output = renderer.render(&[ContentBlock::Text("body".into())], Some(&dsl));
@@ -209,11 +213,13 @@ fn test_render_with_dsl_button() {
 fn test_render_with_dsl_selector() {
     let renderer = TerminalRenderer::with_ansi(false);
     let dsl = DslParseResult {
-        clean_content: String::new(),
-        instructions: vec![DslInstruction::Selector {
-            label: "Pick one".into(),
-            options: vec!["a".into(), "b".into()],
-            action: "select".into(),
+        instructions: vec![DslInstruction {
+            instruction_type: "selector".to_string(),
+            params: HashMap::from([
+                ("label".to_string(), "Pick one".to_string()),
+                ("options".to_string(), "a,b".to_string()),
+                ("action".to_string(), "select".to_string()),
+            ]),
         }],
     };
     let output = renderer.render(&[], Some(&dsl));
@@ -819,11 +825,13 @@ fn test_text_block_code_block_truncated() {
 fn test_dsl_before_content_blocks_button() {
     let renderer = TerminalRenderer::with_ansi(false);
     let dsl = DslParseResult {
-        clean_content: String::new(),
-        instructions: vec![DslInstruction::Button {
-            label: "Go".into(),
-            action: "navigate".into(),
-            value: "url".into(),
+        instructions: vec![DslInstruction {
+            instruction_type: "button".to_string(),
+            params: HashMap::from([
+                ("label".to_string(), "Go".to_string()),
+                ("action".to_string(), "navigate".to_string()),
+                ("value".to_string(), "url".to_string()),
+            ]),
         }],
     };
     let blocks = vec![ContentBlock::Text("body text".into())];
@@ -848,11 +856,13 @@ fn test_dsl_before_content_blocks_button() {
 fn test_dsl_before_content_blocks_selector() {
     let renderer = TerminalRenderer::with_ansi(false);
     let dsl = DslParseResult {
-        clean_content: String::new(),
-        instructions: vec![DslInstruction::Selector {
-            label: "Pick".into(),
-            options: vec!["x".into(), "y".into()],
-            action: "choose".into(),
+        instructions: vec![DslInstruction {
+            instruction_type: "selector".to_string(),
+            params: HashMap::from([
+                ("label".to_string(), "Pick".to_string()),
+                ("options".to_string(), "x,y".to_string()),
+                ("action".to_string(), "choose".to_string()),
+            ]),
         }],
     };
     let blocks = vec![
@@ -900,7 +910,6 @@ fn test_no_dsl_content_blocks_only() {
 fn test_empty_dsl_content_blocks_only() {
     let renderer = TerminalRenderer::with_ansi(false);
     let dsl = DslParseResult {
-        clean_content: String::new(),
         instructions: vec![],
     };
     let blocks = vec![ContentBlock::Text("content here".into())];
@@ -916,11 +925,13 @@ fn test_empty_dsl_content_blocks_only() {
 fn test_empty_blocks_with_dsl() {
     let renderer = TerminalRenderer::with_ansi(false);
     let dsl = DslParseResult {
-        clean_content: String::new(),
-        instructions: vec![DslInstruction::Button {
-            label: "Submit".into(),
-            action: "confirm".into(),
-            value: "yes".into(),
+        instructions: vec![DslInstruction {
+            instruction_type: "button".to_string(),
+            params: HashMap::from([
+                ("label".to_string(), "Submit".to_string()),
+                ("action".to_string(), "confirm".to_string()),
+                ("value".to_string(), "yes".to_string()),
+            ]),
         }],
     };
     let output = renderer.render(&[], Some(&dsl));

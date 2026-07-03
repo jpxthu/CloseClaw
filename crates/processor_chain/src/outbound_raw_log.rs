@@ -48,12 +48,11 @@ impl OutboundRawLogProcessor {
         let platform = snapshot
             .metadata
             .get("channel")
-            .and_then(|v| v.as_str())
+            .map(|s| s.as_str())
             .unwrap_or("unknown");
         let message_id = snapshot
             .metadata
             .get("message_id")
-            .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("out-{}", timestamp_millis));
         let filename = format!(
@@ -78,7 +77,7 @@ struct OutboundSnapshot {
     /// Summaries of structured content blocks.
     content_blocks_summary: Vec<String>,
     /// Processor metadata.
-    metadata: serde_json::Map<String, serde_json::Value>,
+    metadata: std::collections::HashMap<String, String>,
 }
 
 #[async_trait]
@@ -111,10 +110,8 @@ impl MessageProcessor for OutboundRawLogProcessor {
             .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
 
         Ok(Some(ProcessedMessage {
-            content: ctx.content.clone(),
-            metadata: ctx.metadata.clone(),
-            suppress: false,
             content_blocks: ctx.content_blocks.clone(),
+            metadata: ctx.metadata.clone(),
         }))
     }
 }

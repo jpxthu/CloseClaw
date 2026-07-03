@@ -21,6 +21,7 @@ use super::context::MessageContext;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::ProcessedMessage;
+use closeclaw_llm::types::ContentBlock;
 
 /// Inbound processor that computes and attaches a `session_key` to the
 /// message metadata.
@@ -116,23 +117,15 @@ impl MessageProcessor for SessionRouter {
 
         let mut metadata = ctx.metadata.clone();
         if !session_key.is_empty() {
-            metadata.insert(
-                "session_key".to_string(),
-                serde_json::Value::String(session_key),
-            );
+            metadata.insert("session_key".to_string(), session_key);
         }
-        metadata.insert("platform".to_string(), serde_json::Value::String(platform));
-        metadata.insert(
-            "sender_id".to_string(),
-            serde_json::Value::String(sender_id),
-        );
-        metadata.insert("peer_id".to_string(), serde_json::Value::String(peer_id));
+        metadata.insert("platform".to_string(), platform);
+        metadata.insert("sender_id".to_string(), sender_id);
+        metadata.insert("peer_id".to_string(), peer_id);
 
         Ok(Some(ProcessedMessage {
-            content: ctx.content.clone(),
+            content_blocks: vec![ContentBlock::Text(ctx.content.clone())],
             metadata,
-            suppress: false,
-            content_blocks: vec![],
         }))
     }
 }
