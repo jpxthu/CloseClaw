@@ -238,5 +238,13 @@
     "confirmed_time": "2026-06-30T09:28:46.061393+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/memory/active-searcher.md",
+    "commit": "9b9a8e6727806bf4e43da0db0bd52cc8f3c8a993",
+    "commit_time": "2026-07-04T02:38:13+08:00",
+    "confirmed_time": "2026-07-04T02:49:02.633272+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
