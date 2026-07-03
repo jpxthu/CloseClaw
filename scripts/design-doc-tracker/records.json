@@ -1,9 +1,9 @@
 [
   {
     "path": "docs/design/agent/README.md",
-    "commit": "f356f0d8ddab3b8284442ef401980db06293dbe6",
-    "commit_time": "2026-07-03T03:42:25+08:00",
-    "confirmed_time": "2026-07-03T03:53:06.443050+08:00",
+    "commit": "866e28c8ae85e758b68812c99ee8278d7b85a173",
+    "commit_time": "2026-07-04T04:26:27+08:00",
+    "confirmed_time": "2026-07-04T04:35:42.932037+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -77,7 +77,7 @@
     "commit_time": "",
     "confirmed_time": "2026-07-03T21:37:01.496401+08:00",
     "comment": "",
-    "blocked_reason": "设计文档严重偏离代码实际：README称无可执行逻辑但代码含大量业务函数；仅列2子文件实际35+源文件；core-traits索引的trait不存在且仅索引2个实际20+个；shared-types定义6个类型实际40+"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/common/core-traits.md",
