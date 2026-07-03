@@ -405,7 +405,7 @@ impl Gateway {
             channel: channel.to_string(),
             timestamp: chrono::Utc::now().timestamp(),
             metadata: std::collections::HashMap::new(),
-            thread_id: None,
+            thread_id: processed.metadata.get("thread_id").cloned(),
         };
 
         self.session_manager
@@ -829,13 +829,14 @@ impl Gateway {
     /// Runs the inbound processor chain on a [`RawMessage`] built from `input`.
     /// Falls back to raw content on registry absence or processor error.
     pub async fn process_inbound_chain(&self, input: &InboundChainInput) -> ProcessedMessage {
+        let extra_meta = build_extra_metadata(input);
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
             return ProcessedMessage {
                 content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
                     input.content.to_string(),
                 )],
-                metadata: std::collections::HashMap::new(),
+                metadata: extra_meta,
             };
         };
 
@@ -853,20 +854,48 @@ impl Gateway {
         };
 
         match registry.process_inbound(raw).await {
-            Ok(processed) => processed,
+            Ok(mut processed) => {
+                processed.metadata.extend(extra_meta);
+                processed
+            }
             Err(e) => {
                 tracing::warn!(?e, "processor chain failed, falling back to raw content");
                 ProcessedMessage {
                     content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
                         input.content.to_string(),
                     )],
-                    metadata: std::collections::HashMap::new(),
+                    metadata: extra_meta,
                 }
             }
         }
     }
 }
 
+/// Build extra metadata map from inbound chain input fields.
+///
+/// Propagates `thread_id`, `message_type`, `media_refs`, and
+/// `quoted_message` so they are available downstream in the Gateway.
+fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<String, String> {
+    let mut meta = std::collections::HashMap::new();
+    if let Some(ref thread_id) = input.thread_id {
+        meta.insert("thread_id".to_string(), thread_id.clone());
+    }
+    meta.insert(
+        "message_type".to_string(),
+        serde_json::to_string(&input.message_type).unwrap_or_else(|_| "text".to_string()),
+    );
+    meta.insert(
+        "media_refs".to_string(),
+        serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
+    );
+    if let Some(ref quoted) = input.quoted_message {
+        meta.insert("quoted_message".to_string(), quoted.clone());
+    }
+    meta
+}
+
+#[cfg(test)]
+pub mod inbound_chain_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
