@@ -22,12 +22,8 @@ use closeclaw_llm::Message as ChatMessage;
 use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService,
 };
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-
-type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
 use super::OutputTx;
 
@@ -275,227 +271,16 @@ impl SessionMessageHandler {
         .await
     }
 }
-// ── Active-searcher trigger ──
-impl SessionMessageHandler {
-    /// Spawn a background active-searcher task for the current message.
-    ///
-    /// Delegates to [`ActiveSearcherRunner::trigger`] from the session
-    /// crate, which manages the background task lifecycle (JoinHandle)
-    /// and configurable timeout. Skips if:
-    /// - The agent_id is excluded (memory-miner, dreaming)
-    ///
-    /// The `memory_db_path` is passed through to the runner; if unset,
-    /// the runner returns without spawning.
-    pub(super) fn maybe_spawn_active_searcher(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-        content: &str,
-        message_role: &str,
-    ) {
-        use crate::memory::active_searcher_llm::should_trigger_role;
-        use closeclaw_session::active_searcher::{ActiveSearcherRunner, SessionMessageSnapshot};
-
-        if !should_trigger_role(agent_id) {
-            return;
-        }
-
-        let sm = Arc::clone(&self.session_manager);
-        let ufc = Arc::clone(&self.unified_fallback_client);
-
-        // Closure: load agent config, serialize memory to JSON for cross-crate decoupling.
-        let get_agent_config = {
-            let sm = Arc::clone(&sm);
-            move |aid: String|
-                -> BoxFuture<
-                    Result<(Option<String>, Option<serde_json::Value>), String>,
-                > {
-                let sm = Arc::clone(&sm);
-                Box::pin(async move {
-                    match sm.get_agent_config(&aid).await {
-                        Some(cfg) => {
-                            let mem_json = cfg
-                                .memory
-                                .as_ref()
-                                .and_then(|m| serde_json::to_value(m).ok());
-                            Ok((cfg.model, mem_json))
-                        }
-                        None => Err("agent not found".to_string()),
-                    }
-                })
-            }
-        };
-
-        // Closure: gather context messages as snapshots.
-        let get_context_messages = {
-            let sm = Arc::clone(&sm);
-            move |sid: String| -> BoxFuture<(Vec<SessionMessageSnapshot>, usize)> {
-                let sm = Arc::clone(&sm);
-                Box::pin(async move {
-                    if let Some(cs) = sm.get_conversation_session(&sid).await {
-                        let cs_read = cs.read().await;
-                        let msgs = ChatSession::messages(&*cs_read);
-                        let n = 20; // generous default; runner config overrides at search time
-                        let start = if msgs.len() > n { msgs.len() - n } else { 0 };
-                        let snapshots: Vec<SessionMessageSnapshot> = msgs[start..]
-                            .iter()
-                            .map(|m| SessionMessageSnapshot {
-                                role: m.role.clone(),
-                                content: flatten_content_blocks(&m.content_blocks),
-                            })
-                            .collect();
-                        (snapshots, n)
-                    } else {
-                        (Vec::new(), 20)
-                    }
-                })
-            }
-        };
-
-        // Closure: get already-injected event IDs for dedup.
-        let get_injected_event_ids = {
-            let sm = Arc::clone(&sm);
-            move |sid: String| -> BoxFuture<std::collections::HashSet<i64>> {
-                let sm = Arc::clone(&sm);
-                Box::pin(async move {
-                    if let Some(cs) = sm.get_conversation_session(&sid).await {
-                        let cs_read = cs.read().await;
-                        let slot = cs_read
-                            .memory_injection_arc()
-                            .lock()
-                            .expect("memory_injection lock poisoned");
-                        slot.as_ref()
-                            .map(|inj| inj.injected_event_ids.clone())
-                            .unwrap_or_default()
-                    } else {
-                        std::collections::HashSet::new()
-                    }
-                })
-            }
-        };
-
-        // Closure: write memory injection into the session slot.
-        let set_memory_injection = {
-            let sm = Arc::clone(&sm);
-            move |sid: String,
-                  content: String,
-                  position: String,
-                  event_ids: Vec<i64>|
-                  -> BoxFuture<()> {
-                let sm = Arc::clone(&sm);
-                Box::pin(async move {
-                    if let Some(cs) = sm.get_conversation_session(&sid).await {
-                        let pos_mode = match position.as_str() {
-                            "before_next" => closeclaw_llm::session::InjectionPosition::BeforeNext,
-                            _ => closeclaw_llm::session::InjectionPosition::AfterCurrent,
-                        };
-                        let injection = closeclaw_llm::session::MemoryInjection {
-                            content,
-                            position_mode: pos_mode,
-                            injected_event_ids: event_ids.into_iter().collect(),
-                        };
-                        cs.read().await.set_memory_injection(injection);
-                    }
-                })
-            }
-        };
-
-        // Closure: execute the active-searcher pipeline.
-        let run_searcher = {
-            let ufc = Arc::clone(&ufc);
-            move |db_path: String,
-                  agent_id: String,
-                  role: String,
-                  content: String,
-                  model: String,
-                  context_messages: Vec<SessionMessageSnapshot>,
-                  injected_ids: std::collections::HashSet<i64>,
-                  memory_config: serde_json::Value|
-                  -> BoxFuture<Option<(String, String, Vec<i64>)>> {
-                let ufc = Arc::clone(&ufc);
-                Box::pin(async move {
-                    use crate::memory::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
-
-                    // Convert snapshots back to LLM SessionMessages.
-                    let llm_messages: Vec<closeclaw_llm::session::SessionMessage> =
-                        context_messages
-                            .into_iter()
-                            .map(|m| closeclaw_llm::session::SessionMessage {
-                                role: m.role,
-                                content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
-                                    m.content,
-                                )],
-                                timestamp: chrono::Utc::now(),
-                            })
-                            .collect();
-
-                    // Deserialize memory config from JSON.
-                    let mem_cfg: Option<closeclaw_common::agent_config::MemoryConfig> =
-                        serde_json::from_value(memory_config).ok();
-
-                    let config =
-                        ActiveSearcherConfig::from_agent_config(Some(&model), mem_cfg.as_ref());
-                    let searcher =
-                        ActiveSearcher::new(std::path::PathBuf::from(&db_path), config.clone());
-                    let caller = FallbackLlmCaller {
-                        client: ufc,
-                        model: config.model.clone(),
-                    };
-
-                    if let Some(injection) = searcher
-                        .run(
-                            &agent_id,
-                            &role,
-                            &content,
-                            &llm_messages,
-                            &injected_ids,
-                            &caller,
-                        )
-                        .await
-                    {
-                        let pos_str = match injection.position_mode {
-                            closeclaw_llm::session::InjectionPosition::BeforeNext => {
-                                "before_next".to_string()
-                            }
-                            closeclaw_llm::session::InjectionPosition::AfterCurrent => {
-                                "after_current".to_string()
-                            }
-                        };
-                        let event_ids: Vec<i64> =
-                            injection.injected_event_ids.iter().copied().collect();
-                        Some((injection.content, pos_str, event_ids))
-                    } else {
-                        None
-                    }
-                })
-            }
-        };
-
-        ActiveSearcherRunner::trigger(
-            session_id,
-            agent_id,
-            content,
-            message_role,
-            &self.memory_db_path,
-            get_agent_config,
-            get_context_messages,
-            get_injected_event_ids,
-            set_memory_injection,
-            run_searcher,
-        );
-    }
-}
 
 /// LlmCaller adapter for `UnifiedFallbackClient`.
 ///
 /// Wraps the unified fallback client so it can be used as a trait object
 /// by the active-searcher pipeline.
-#[allow(dead_code)]
-struct FallbackLlmCaller {
+pub(crate) struct FallbackLlmCaller {
     #[allow(dead_code)]
-    client: Arc<UnifiedFallbackClient>,
+    pub(crate) client: Arc<UnifiedFallbackClient>,
     #[allow(dead_code)]
-    model: String,
+    pub(crate) model: String,
 }
 
 #[async_trait::async_trait]
@@ -546,7 +331,7 @@ impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
     }
 }
 // ── Compaction helpers ──
-fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
+pub(crate) fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
     blocks
         .iter()
         .map(|b| match b {
