@@ -1,5 +1,6 @@
 //! Shared data types for the gateway crate.
 
+use closeclaw_common::im_plugin::{MediaRef, MessageType};
 use closeclaw_llm::types::ContentBlock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -137,7 +138,7 @@ pub struct Session {
     pub depth: u32,
 }
 
-/// Groups inbound message fields into a single struct (≤ 6 params).
+/// Groups inbound message fields into a single struct.
 #[derive(Debug, Clone)]
 pub struct InboundChainInput {
     pub platform: String,
@@ -147,6 +148,14 @@ pub struct InboundChainInput {
     pub message_id: String,
     pub timestamp_ms: i64,
     pub account_id: Option<String>,
+    /// Thread/topic ID for threaded replies (optional).
+    pub thread_id: Option<String>,
+    /// Message type (text, image, file, audio).
+    pub message_type: MessageType,
+    /// Media attachment references.
+    pub media_refs: Vec<MediaRef>,
+    /// Quoted/replied-to message content, if present.
+    pub quoted_message: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -137,6 +137,10 @@ pub(crate) fn start_inbound_consumer(
                 message_id: String::new(), // message_id not in NormalizedMessage; empty for now
                 timestamp_ms: normalized.timestamp,
                 account_id: Some(normalized.account_id.clone()),
+                thread_id: normalized.thread_id.clone(),
+                message_type: normalized.message_type.clone(),
+                media_refs: normalized.media_refs.clone(),
+                quoted_message: normalized.quoted_message.clone(),
             };
             let processed = gateway.process_inbound_chain(&input).await;
 
@@ -212,6 +216,10 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
                 message_id: String::new(),
                 timestamp_ms: normalized.timestamp,
                 account_id: Some(normalized.account_id.clone()),
+                thread_id: normalized.thread_id.clone(),
+                message_type: normalized.message_type.clone(),
+                media_refs: normalized.media_refs.clone(),
+                quoted_message: normalized.quoted_message.clone(),
             };
             let processed = gateway.process_inbound_chain(&input).await;
             gateway

@@ -277,6 +277,10 @@ async fn test_process_inbound_chain_cleans_control_characters() {
             message_id: "msg-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
 
@@ -299,6 +303,10 @@ async fn test_process_inbound_chain_suppress_message() {
             message_id: "msg-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
 
@@ -324,6 +332,10 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
                 message_id: "msg-1".into(),
                 timestamp_ms: 0,
                 account_id: None,
+                thread_id: None,
+                message_type: Default::default(),
+                media_refs: Vec::new(),
+                quoted_message: None,
             })
             .await;
         assert_eq!(processed.text_content().unwrap_or(""), *cmd);
@@ -461,6 +473,10 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
             message_id: "msg-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
 
@@ -489,6 +505,10 @@ fn normalized_to_inbound(msg: &NormalizedMessage) -> InboundChainInput {
         message_id,
         timestamp_ms: msg.timestamp,
         account_id: Some(msg.account_id.clone()),
+        thread_id: msg.thread_id.clone(),
+        message_type: msg.message_type.clone(),
+        media_refs: msg.media_refs.clone(),
+        quoted_message: msg.quoted_message.clone(),
     }
 }
 
