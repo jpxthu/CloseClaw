@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_llm::session::ChatSession;
 
@@ -13,8 +14,10 @@ use closeclaw_llm::session::ChatSession;
 /// for the Gateway to dispatch.
 #[derive(Debug)]
 pub enum ReplyAction {
-    /// Send a text reply to the user.
-    Reply(String),
+    /// Send a content-block reply to the user (routed through outbound
+    /// Processor Chain: Verbosity filtering → DslParser → outbound logging
+    /// → IM Adapter rendering).
+    Reply(Vec<ContentBlock>),
     /// Trigger manual compaction (Gateway delegates to session_handler).
     TriggerCompact { instruction: Option<String> },
     /// No action needed.
@@ -51,9 +54,13 @@ impl SideEffectContext {
         }
     }
 
-    /// Send a text reply to the user.
-    pub async fn reply(&self, text: String) {
-        let _ = self.reply_tx.send(ReplyAction::Reply(text)).await;
+    /// Send a content-block reply to the user.
+    ///
+    /// The reply is wrapped in [`ReplyAction::Reply`] and delivered through
+    /// the outbound Processor Chain (Verbosity filtering → DslParser →
+    /// outbound logging → IM Adapter rendering).
+    pub async fn reply(&self, blocks: Vec<ContentBlock>) {
+        let _ = self.reply_tx.send(ReplyAction::Reply(blocks)).await;
     }
 
     /// Trigger manual compaction.
@@ -85,18 +92,30 @@ pub(crate) async fn execute_system_append(
             if let Some(cs) = ctx.get_conversation_session().await {
                 let mut session = cs.write().await;
                 let index = session.add_system_append(content.clone());
-                ctx.reply(format!("已追加指令（序号 {index}）")).await;
+                ctx.reply(vec![ContentBlock::Text(format!(
+                    "已追加指令（序号 {index}）"
+                ))])
+                .await;
             } else {
-                ctx.reply("当前会话未激活，无法追加指令".to_owned()).await;
+                ctx.reply(vec![ContentBlock::Text(
+                    "当前会话未激活，无法追加指令".to_owned(),
+                )])
+                .await;
             }
         }
         SystemAppendAction::Clear => {
             if let Some(cs) = ctx.get_conversation_session().await {
                 let mut session = cs.write().await;
                 let count = session.clear_system_appends();
-                ctx.reply(format!("已清除 {count} 条追加指令")).await;
+                ctx.reply(vec![ContentBlock::Text(format!(
+                    "已清除 {count} 条追加指令"
+                ))])
+                .await;
             } else {
-                ctx.reply("当前会话未激活，无法清除指令".to_owned()).await;
+                ctx.reply(vec![ContentBlock::Text(
+                    "当前会话未激活，无法清除指令".to_owned(),
+                )])
+                .await;
             }
         }
     }
@@ -113,8 +132,10 @@ pub(crate) async fn execute_new_session(ctx: &SideEffectContext) {
         .session_manager
         .force_new_for_channel(&ctx.channel, &agent_id)
         .await;
-    ctx.reply(format!("已创建新 session：{new_session_id}"))
-        .await;
+    ctx.reply(vec![ContentBlock::Text(format!(
+        "已创建新 session：{new_session_id}"
+    ))])
+    .await;
 }
 
 /// Execute side effects for [`SlashResult::Stop`](super::SlashResult::Stop).
@@ -124,7 +145,8 @@ pub(crate) async fn execute_stop(ctx: &SideEffectContext) {
         .get_conversation_session(&ctx.session_id)
         .await
     else {
-        ctx.reply("当前会话未激活".to_owned()).await;
+        ctx.reply(vec![ContentBlock::Text("当前会话未激活".to_owned())])
+            .await;
         return;
     };
     let busy = {
@@ -148,5 +170,6 @@ pub(crate) async fn execute_stop(ctx: &SideEffectContext) {
             child_cs.cancel_token.cancel();
         }
     }
-    ctx.reply("已停止当前任务".to_owned()).await;
+    ctx.reply(vec![ContentBlock::Text("已停止当前任务".to_owned())])
+        .await;
 }
