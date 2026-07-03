@@ -20,6 +20,9 @@ pub use validation::validate_agents_config;
 mod directory_tests;
 
 #[cfg(test)]
+mod resolved_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

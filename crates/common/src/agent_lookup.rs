@@ -3,6 +3,7 @@
 //! Provides an interface for querying agent configuration without
 //! requiring a direct dependency on the agent crate.
 
+use crate::agent_config::ModelSpec;
 use async_trait::async_trait;
 
 /// Trait for looking up agent configuration and registry data.
@@ -13,9 +14,9 @@ use async_trait::async_trait;
 pub trait AgentLookup: Send + Sync {
     /// Look up an agent's model configuration by agent ID.
     ///
-    /// Returns `Some(model_name)` if the agent has a configured model,
+    /// Returns `Some(model_spec)` if the agent has a configured model,
     /// or `None` if not found or no model configured.
-    async fn get_agent_model(&self, agent_id: &str) -> Option<String>;
+    async fn get_agent_model(&self, agent_id: &str) -> Option<ModelSpec>;
 
     /// Check if an agent ID is valid (exists in the registry).
     async fn agent_exists(&self, agent_id: &str) -> bool;

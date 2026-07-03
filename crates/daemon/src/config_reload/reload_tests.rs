@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod reload_tests {
     use crate::config_reload::reload::{
-        dispatch_change, filename_to_section, is_agents_path, ConfigReloadManager, DEFAULT_DEBOUNCE,
+        dispatch_change, extract_agent_id_from_permissions_path, filename_to_section,
+        is_agents_path, is_permissions_path, ConfigReloadManager, DEFAULT_DEBOUNCE,
     };
     use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_config::manager::{ConfigManager, ConfigSection};
@@ -93,6 +94,9 @@ mod reload_tests {
     fn test_is_agents_path() {
         assert!(is_agents_path(Path::new("/config/agents/test.json")));
         assert!(is_agents_path(Path::new("/config\\agents\\test.json")));
+        assert!(is_agents_path(Path::new(
+            "/config/agents/alpha/permissions.json"
+        )));
         assert!(!is_agents_path(Path::new("/config/models.json")));
     }
 
@@ -623,5 +627,187 @@ mod reload_tests {
             agents.contains(&"alpha".to_string()),
             "AgentRegistry should contain alpha after reload"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.3 — permissions.json independent hot-reload tests
+    // ------------------------------------------------------------------
+
+    /// is_permissions_path matches permissions.json and rejects
+    /// other filenames.
+    #[test]
+    fn test_is_permissions_path() {
+        assert!(is_permissions_path(Path::new(
+            "/config/agents/alpha/permissions.json"
+        )));
+        assert!(is_permissions_path(Path::new(
+            "/config/agents/beta/permissions.json"
+        )));
+        assert!(!is_permissions_path(Path::new(
+            "/config/agents/alpha/config.json"
+        )));
+        assert!(!is_permissions_path(Path::new("/config/models.json")));
+    }
+
+    /// extract_agent_id_from_permissions_path returns the agent ID
+    /// when the parent directory contains a config.json.
+    #[test]
+    fn test_extract_agent_id_from_permissions_path() {
+        let d = TempDir::new().unwrap();
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let agents_dir = root_dir.join("agents").join("gamma");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(agents_dir.join("config.json"), r#"{"id":"gamma"}"#).unwrap();
+        let perm_path = agents_dir.join("permissions.json");
+        assert_eq!(
+            extract_agent_id_from_permissions_path(&perm_path),
+            Some("gamma".to_string())
+        );
+    }
+
+    /// extract_agent_id_from_permissions_path returns None when
+    /// the parent directory has no config.json.
+    #[test]
+    fn test_extract_agent_id_no_config_json() {
+        let d = TempDir::new().unwrap();
+        let agents_dir = d.path().join("agents").join("ghost");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        let perm_path = agents_dir.join("permissions.json");
+        assert_eq!(extract_agent_id_from_permissions_path(&perm_path), None);
+    }
+
+    /// dispatch_change routes permissions.json to the lightweight
+    /// reload path (not full agent reload).
+    #[test]
+    fn test_dispatch_permissions_change_is_lightweight() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        // agents/ is at root level (parent of config_dir)
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let agents_dir = root_dir.join("agents").join("delta");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("config.json"),
+            r#"{"id":"delta","name":"Delta"}"#,
+        )
+        .unwrap();
+        let perms_path = agents_dir.join("permissions.json");
+        std::fs::write(&perms_path, r#"{"agent_id":"delta","permissions":{}}"#).unwrap();
+
+        // Also set up agents.json so agent loads correctly
+        let agents_json = d.path().join("agents.json");
+        std::fs::write(&agents_json, r#"{"agents":["delta"]}"#).unwrap();
+
+        // Load agents first so permissions cache is populated
+        cm.load_agents(None).unwrap();
+        let before = cm.agent_permissions();
+        assert!(before.contains_key("delta"));
+
+        // Update permissions.json with new content (ActionPermission struct format)
+        std::fs::write(
+            &perms_path,
+            r#"{"agent_id":"delta","permissions":{"read":{"allowed":true}}}"#,
+        )
+        .unwrap();
+
+        // dispatch_change should route to reload_permissions_with_log
+        dispatch_change(&perms_path, &mgr);
+
+        // Permissions cache should be updated
+        let after = cm.agent_permissions();
+        let delta_perms = after
+            .get("delta")
+            .expect("delta should be in permissions cache");
+        let read_perm = delta_perms.permissions.get("read");
+        assert!(read_perm.is_some(), "read permission should exist");
+        assert!(
+            read_perm.unwrap().allowed,
+            "read permission should be allowed"
+        );
+    }
+
+    /// permissions reload failure does not corrupt agent config cache.
+    #[test]
+    fn test_permissions_reload_fault_isolation() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        // agents/ is at root level (parent of config_dir)
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let agents_dir = root_dir.join("agents").join("epsilon");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("config.json"),
+            r#"{"id":"epsilon","name":"Epsilon"}"#,
+        )
+        .unwrap();
+        let perms_path = agents_dir.join("permissions.json");
+        std::fs::write(&perms_path, r#"{"agent_id":"epsilon","permissions":{}}"#).unwrap();
+
+        let agents_json = d.path().join("agents.json");
+        std::fs::write(&agents_json, r#"{"agents":["epsilon"]}"#).unwrap();
+
+        // Load agents so cache is populated
+        cm.load_agents(None).unwrap();
+        let before = cm.agent_permissions();
+        assert!(before.contains_key("epsilon"));
+
+        // Write invalid JSON to permissions.json
+        std::fs::write(&perms_path, "not valid json{{").unwrap();
+
+        // dispatch_change should attempt reload, fail, and restore
+        dispatch_change(&perms_path, &mgr);
+
+        // Permissions cache should still contain old valid value
+        let after = cm.agent_permissions();
+        assert!(
+            after.contains_key("epsilon"),
+            "epsilon permissions should be preserved after failed reload"
+        );
+        // Agent config should be unchanged
+        assert!(
+            cm.agents().contains_key("epsilon"),
+            "agent config should be unaffected by permissions failure"
+        );
+    }
+
+    /// config.json change triggers full agent reload (not permissions-only).
+    #[test]
+    fn test_dispatch_config_change_triggers_full_reload() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        // agents/ is at root level (parent of config_dir)
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let agents_dir = root_dir.join("agents").join("zeta");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        std::fs::write(
+            agents_dir.join("config.json"),
+            r#"{"id":"zeta","name":"Zeta"}"#,
+        )
+        .unwrap();
+        let perms_path = agents_dir.join("permissions.json");
+        std::fs::write(&perms_path, r#"{"agent_id":"zeta","permissions":{}}"#).unwrap();
+        let agents_json = d.path().join("agents.json");
+        std::fs::write(&agents_json, r#"{"agents":["zeta"]}"#).unwrap();
+
+        cm.load_agents(None).unwrap();
+
+        // Modify config.json — should trigger full agent reload
+        let config_path = agents_dir.join("config.json");
+        std::fs::write(&config_path, r#"{"id":"zeta","name":"Zeta Updated"}"#).unwrap();
+
+        dispatch_change(&config_path, &mgr);
+
+        // Agent config should reflect the update
+        let agents = cm.agents();
+        assert!(agents.contains_key("zeta"));
     }
 }

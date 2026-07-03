@@ -261,6 +261,50 @@ impl ConfigReloadManager {
         let configs: Vec<_> = self.config_manager.agents().into_values().collect();
         self.agent_registry.reload(configs);
     }
+
+    /// Reload permissions for a single agent without triggering a
+    /// full agent config reload.
+    ///
+    /// Snapshots current permissions, backs up the file, and
+    /// reloads from disk. On failure, restores the previous state
+    /// and rolls back the file (fault isolation).
+    fn reload_permissions_with_log(&self, path: &Path) {
+        let Some(agent_id) = extract_agent_id_from_permissions_path(path) else {
+            warn!(
+                path = %path.display(),
+                "cannot determine agent_id from permissions path, skipping reload"
+            );
+            return;
+        };
+
+        info!(
+            agent_id = %agent_id,
+            path = %path.display(),
+            "permissions change detected, reloading"
+        );
+
+        let old_permissions = self.config_manager.agent_permissions();
+        let _ = self.config_manager.backup_manager().backup(path);
+
+        match self.config_manager.reload_permissions_for_agent(&agent_id) {
+            Ok(()) => {
+                tracing::debug!(
+                    agent_id = %agent_id,
+                    "permissions reload succeeded"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    agent_id = %agent_id,
+                    "failed to reload permissions, restoring previous state"
+                );
+                self.config_manager
+                    .restore_agents(self.config_manager.agents(), old_permissions);
+                let _ = self.config_manager.backup_manager().rollback(path);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +489,30 @@ fn is_agents_path(path: &Path) -> bool {
     s.contains("/agents/") || s.contains("\\agents\\")
 }
 
+/// Determine whether a path is a `permissions.json` file.
+fn is_permissions_path(path: &Path) -> bool {
+    path.file_name()
+        .map(|n| n == "permissions.json")
+        .unwrap_or(false)
+}
+
+/// Extract agent_id from a permissions.json path.
+///
+/// Walks up the path to find a directory containing both
+/// `config.json` (confirming it is an agent dir) and a
+/// `permissions.json` sibling, then returns the directory name.
+fn extract_agent_id_from_permissions_path(path: &Path) -> Option<String> {
+    let parent = path.parent()?;
+    // Verify this is an agent directory
+    if !parent.join("config.json").exists() {
+        return None;
+    }
+    parent
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+}
+
 /// Map a config filename to its `ConfigSection`, if applicable.
 fn filename_to_section(filename: &str) -> Option<ConfigSection> {
     match filename {
@@ -462,7 +530,17 @@ fn filename_to_section(filename: &str) -> Option<ConfigSection> {
 ///
 /// This delegates to `ConfigReloadManager` methods, which drive the
 /// reload orchestration per the design doc (ConfigReloadManager → ConfigManager → SessionManager).
+///
+/// `permissions.json` changes are routed to a dedicated lightweight
+/// reload path that only updates the affected agent's permissions
+/// cache, without triggering a full agent config reload.
 fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
+    // permissions.json → lightweight permissions-only reload
+    if is_agents_path(path) && is_permissions_path(path) {
+        manager.reload_permissions_with_log(path);
+        return;
+    }
+
     // Agent-related changes → full agent reload + registry sync
     if is_agents_path(path) {
         manager.reload_agents_with_log(path);

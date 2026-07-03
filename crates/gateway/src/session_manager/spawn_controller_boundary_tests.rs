@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::agent_config::SubagentsConfig;
+use closeclaw_common::agent_config::{ModelSpec, SubagentsConfig};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -58,7 +58,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         id: id.to_string(),
         name: id.to_string(),
         parent_id: None,
-        model: Some("test-model".to_string()),
+        model: Some(ModelSpec::single("test-model")),
         workspace: None,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
@@ -135,7 +135,7 @@ async fn test_validate_empty_allow_agents_blocks_target() {
 
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec![]; // explicitly empty
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -167,9 +167,9 @@ async fn test_validate_empty_allow_agents_no_target_requires_id() {
 
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec![];
-    sub.require_agent_id = false;
+    sub.require_agent_id = Some(false);
     sub.default_child_agent = None;
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
 
@@ -230,9 +230,9 @@ async fn test_validate_require_agent_id_false_no_target_no_default() {
         SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
 
     let mut sub = SubagentsConfig::default();
-    sub.require_agent_id = false;
+    sub.require_agent_id = Some(false);
     sub.default_child_agent = None;
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
 
@@ -264,7 +264,7 @@ async fn test_validate_default_max_children_boundary() {
 
     // Parent with default max_children=5 and max_spawn_depth=2.
     let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = 2;
+    sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);

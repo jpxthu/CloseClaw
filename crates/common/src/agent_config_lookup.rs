@@ -3,6 +3,7 @@
 //! Provides an interface for looking up agent configurations without
 //! requiring a direct dependency on the concrete `AgentRegistry`.
 
+use crate::agent_config::ModelSpec;
 use async_trait::async_trait;
 
 /// Minimal agent config info needed by tools.
@@ -13,7 +14,7 @@ use async_trait::async_trait;
 #[derive(Debug, Clone, Default)]
 pub struct AgentConfigInfo {
     /// Agent's configured subagents model override, if any.
-    pub subagents_model: Option<String>,
+    pub subagents_model: Option<ModelSpec>,
 }
 
 /// Trait for looking up agent configuration.

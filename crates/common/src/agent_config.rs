@@ -3,8 +3,11 @@
 //!
 //! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
 
+use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::path::Path;
 
 use crate::bootstrap::BootstrapMode;
@@ -26,7 +29,7 @@ pub struct AgentConfig {
     pub parent_id: Option<String>,
     /// Default LLM model for this agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<ModelSpec>,
     /// Working directory path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
@@ -34,8 +37,8 @@ pub struct AgentConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_dir: Option<String>,
     /// Bootstrap file loading mode.
-    #[serde(default = "default_bootstrap_mode")]
-    pub bootstrap_mode: BootstrapMode,
+    #[serde(default)]
+    pub bootstrap_mode: Option<BootstrapMode>,
     /// Available skill names; `["*"]` means all skills are available.
     #[serde(default = "default_all")]
     pub skills: Vec<String>,
@@ -57,10 +60,6 @@ fn default_all() -> Vec<String> {
     vec!["*".to_string()]
 }
 
-fn default_bootstrap_mode() -> BootstrapMode {
-    BootstrapMode::Full
-}
-
 /// Sub-agent spawn control configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,40 +69,138 @@ pub struct SubagentsConfig {
     pub allow_agents: Vec<String>,
     /// Whether agentId must be explicitly specified when spawning.
     #[serde(default)]
-    pub require_agent_id: bool,
+    pub require_agent_id: Option<bool>,
     /// Maximum nested spawn depth.
-    #[serde(default = "default_max_spawn_depth")]
-    pub max_spawn_depth: u32,
+    #[serde(default)]
+    pub max_spawn_depth: Option<u32>,
     /// Maximum concurrent active child sessions.
-    #[serde(default = "default_max_children")]
-    pub max_children: u32,
+    #[serde(default)]
+    pub max_children: Option<u32>,
     /// Default child agent ID (used when spawn omits agentId).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_child_agent: Option<String>,
     /// Model override for child agents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<ModelSpec>,
 }
 
 impl Default for SubagentsConfig {
     fn default() -> Self {
         Self {
             allow_agents: default_all(),
-            require_agent_id: false,
-            max_spawn_depth: default_max_spawn_depth(),
-            max_children: default_max_children(),
+            require_agent_id: None,
+            max_spawn_depth: None,
+            max_children: None,
             default_child_agent: None,
             model: None,
         }
     }
 }
 
-fn default_max_spawn_depth() -> u32 {
-    1
+/// Agent model specification with optional fallback list.
+///
+/// Supports two JSON formats for backward compatibility:
+/// - String: `"gpt-4o"` → single model, no fallback
+/// - Object: `{"primary": "gpt-4o", "fallback": ["claude-3"]}` → with fallback list
+///
+/// The primary model is always the first to try. Fallback models are tried
+/// in order if the primary is unavailable; actual fallback logic lives in
+/// the LLM layer (`unified_fallback.rs`), not here.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ModelSpec {
+    pub primary: String,
+    pub fallback: Vec<String>,
 }
 
-fn default_max_children() -> u32 {
-    5
+impl ModelSpec {
+    /// Create a ModelSpec with a single primary model and no fallbacks.
+    pub fn single(model: impl Into<String>) -> Self {
+        Self {
+            primary: model.into(),
+            fallback: Vec::new(),
+        }
+    }
+
+    /// Create a ModelSpec with a primary model and a list of fallbacks.
+    pub fn with_fallback(primary: impl Into<String>, fallback: Vec<String>) -> Self {
+        Self {
+            primary: primary.into(),
+            fallback,
+        }
+    }
+}
+
+impl fmt::Display for ModelSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.primary)
+    }
+}
+
+impl Serialize for ModelSpec {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if self.fallback.is_empty() {
+            serializer.serialize_str(&self.primary)
+        } else {
+            let mut state = serializer.serialize_struct("ModelSpec", 2)?;
+            state.serialize_field("primary", &self.primary)?;
+            state.serialize_field("fallback", &self.fallback)?;
+            state.end()
+        }
+    }
+}
+
+struct ModelSpecVisitor;
+
+impl<'de> Visitor<'de> for ModelSpecVisitor {
+    type Value = ModelSpec;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a model name string or {primary, fallback} object")
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<ModelSpec, E> {
+        Ok(ModelSpec::single(value))
+    }
+
+    fn visit_string<E: de::Error>(self, value: String) -> Result<ModelSpec, E> {
+        Ok(ModelSpec::single(value))
+    }
+
+    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<ModelSpec, M::Error> {
+        let mut primary = None;
+        let mut fallback = None;
+
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "primary" => {
+                    if primary.is_some() {
+                        return Err(de::Error::duplicate_field("primary"));
+                    }
+                    primary = Some(map.next_value()?);
+                }
+                "fallback" => {
+                    if fallback.is_some() {
+                        return Err(de::Error::duplicate_field("fallback"));
+                    }
+                    fallback = Some(map.next_value()?);
+                }
+                _ => {
+                    let _ = map.next_value::<de::IgnoredAny>()?;
+                }
+            }
+        }
+
+        let primary = primary.ok_or_else(|| de::Error::missing_field("primary"))?;
+        let fallback = fallback.unwrap_or_default();
+
+        Ok(ModelSpec { primary, fallback })
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelSpec {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(ModelSpecVisitor)
+    }
 }
 
 impl Default for AgentConfig {
@@ -115,7 +212,7 @@ impl Default for AgentConfig {
             model: None,
             workspace: None,
             agent_dir: None,
-            bootstrap_mode: default_bootstrap_mode(),
+            bootstrap_mode: None,
             skills: default_all(),
             tools: default_all(),
             disallowed_tools: Vec::new(),

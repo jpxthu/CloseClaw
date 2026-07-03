@@ -149,7 +149,7 @@ impl SpawnController {
         target_config: Option<&ResolvedAgentConfig>,
     ) -> Result<u32, SpawnError> {
         let child_max_depth = target_config
-            .map(|c| c.subagents.max_spawn_depth)
+            .and_then(|c| c.subagents.max_spawn_depth)
             .unwrap_or(1);
         let effective_max = child_max_depth.min(parent_effective_budget.saturating_sub(1));
         Ok(effective_max)
@@ -244,7 +244,7 @@ impl SpawnController {
             let agents = self.config_manager.agents();
             agents
                 .get(parent_agent_id)
-                .map(|pc| pc.subagents.max_spawn_depth)
+                .and_then(|pc| pc.subagents.max_spawn_depth)
                 .unwrap_or(1u32)
         };
 
@@ -276,9 +276,9 @@ impl SpawnController {
             Some(pc) => {
                 let sc = &pc.subagents;
                 ParentSpawnConfig {
-                    max_children: sc.max_children,
+                    max_children: sc.max_children.unwrap_or(5),
                     allow_agents: sc.allow_agents.clone(),
-                    require_agent_id: sc.require_agent_id,
+                    require_agent_id: sc.require_agent_id.unwrap_or(false),
                 }
             }
             None => ParentSpawnConfig {

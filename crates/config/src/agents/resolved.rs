@@ -25,7 +25,7 @@
 use std::path::PathBuf;
 
 use crate::ConfigError;
-use closeclaw_common::agent_config::{AgentConfig, SubagentsConfig};
+use closeclaw_common::agent_config::{AgentConfig, ModelSpec, SubagentsConfig};
 use closeclaw_common::BootstrapMode;
 
 /// Configuration source level.
@@ -61,7 +61,7 @@ pub struct ResolvedAgentConfig {
     pub id: String,
     pub name: String,
     pub parent_id: Option<String>,
-    pub model: Option<String>,
+    pub model: Option<ModelSpec>,
     pub workspace: Option<PathBuf>,
     pub agent_dir: Option<PathBuf>,
     pub bootstrap_mode: BootstrapMode,
@@ -148,7 +148,7 @@ impl ResolvedAgentConfig {
             model: config.model,
             workspace: config.workspace.map(PathBuf::from),
             agent_dir: config.agent_dir.map(PathBuf::from),
-            bootstrap_mode: config.bootstrap_mode,
+            bootstrap_mode: config.bootstrap_mode.unwrap_or(BootstrapMode::Full),
             skills: config.skills,
             tools: config.tools,
             disallowed_tools: config.disallowed_tools,
@@ -200,11 +200,10 @@ impl ResolvedAgentConfig {
                 .agent_dir
                 .map(PathBuf::from)
                 .or_else(|| user.agent_dir.map(PathBuf::from)),
-            bootstrap_mode: if project.bootstrap_mode != BootstrapMode::Full {
-                project.bootstrap_mode
-            } else {
-                user.bootstrap_mode
-            },
+            bootstrap_mode: project
+                .bootstrap_mode
+                .or(user.bootstrap_mode)
+                .unwrap_or(BootstrapMode::Full),
             skills: override_if_non_empty(project.skills, user.skills),
             tools: override_if_non_empty(project.tools, user.tools),
             disallowed_tools: override_if_non_empty(
@@ -231,28 +230,28 @@ impl TryFrom<AgentConfig> for ResolvedAgentConfig {
     }
 }
 
-// Defaults that mirror `SubagentsConfig::default()` in
-// `crate::agent::config`. Used to detect whether a project-level value
-// explicitly overrode the user-level value during field-level merging.
-const SUBAGENT_DEFAULT_MAX_SPAWN_DEPTH: u32 = 1;
-const SUBAGENT_DEFAULT_MAX_CHILDREN: u32 = 5;
+/// Default subagent values used when neither project nor user config
+/// specifies a value (both `None`).
+const DEFAULT_MAX_SPAWN_DEPTH: u32 = 1;
+const DEFAULT_MAX_CHILDREN: u32 = 5;
 
 /// Field-level merge for [`SubagentsConfig`]; mirrors the rules used in
 /// [`ResolvedAgentConfig::merge`].
+///
+/// For `Option<T>` fields: project's `Some` wins, otherwise user's `Some`,
+/// otherwise the field's default value.
 fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> SubagentsConfig {
     SubagentsConfig {
         allow_agents: override_if_non_empty(project.allow_agents, user.allow_agents),
-        require_agent_id: project.require_agent_id || user.require_agent_id,
-        max_spawn_depth: if project.max_spawn_depth != SUBAGENT_DEFAULT_MAX_SPAWN_DEPTH {
-            project.max_spawn_depth
-        } else {
-            user.max_spawn_depth
-        },
-        max_children: if project.max_children != SUBAGENT_DEFAULT_MAX_CHILDREN {
-            project.max_children
-        } else {
-            user.max_children
-        },
+        require_agent_id: project.require_agent_id.or(user.require_agent_id),
+        max_spawn_depth: project
+            .max_spawn_depth
+            .or(user.max_spawn_depth)
+            .or(Some(DEFAULT_MAX_SPAWN_DEPTH)),
+        max_children: project
+            .max_children
+            .or(user.max_children)
+            .or(Some(DEFAULT_MAX_CHILDREN)),
         default_child_agent: project.default_child_agent.or(user.default_child_agent),
         model: project.model.or(user.model),
     }

@@ -257,12 +257,13 @@ impl Tool for SessionsSpawnTool {
         // Look up the parent agent's subagents.model config
         // (used as priority level 2 in the model priority chain).
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
-        let parent_subagents_model = match &parent_agent_id {
+        let parent_subagents_model: Option<String> = match &parent_agent_id {
             Some(id) => self
                 .agent_config_lookup
                 .lookup_agent_config(id)
                 .await
-                .and_then(|c| c.subagents_model),
+                .and_then(|c| c.subagents_model)
+                .map(|m| m.primary),
             None => None,
         };
         let parent_depth = self

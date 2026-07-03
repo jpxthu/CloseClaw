@@ -1,5 +1,6 @@
 use crate::config::SubagentsConfig;
 use crate::registry::AgentRegistry;
+use closeclaw_common::agent_config::ModelSpec;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 
@@ -345,11 +346,11 @@ fn test_concurrent_query_bootstrap_mode() {
 async fn test_agent_lookup_get_agent_model() {
     let registry = AgentRegistry::new();
     let mut cfg = make_config("agent-model");
-    cfg.model = Some("gpt-4o".to_string());
+    cfg.model = Some(ModelSpec::single("gpt-4o"));
     registry.populate(vec![cfg]);
 
     let model = registry.get_agent_model("agent-model").await;
-    assert_eq!(model, Some("gpt-4o".to_string()));
+    assert_eq!(model, Some(ModelSpec::single("gpt-4o")));
 }
 
 #[tokio::test]
@@ -531,14 +532,17 @@ async fn test_agent_tools_query_empty_disallowed_is_none() {
 async fn test_agent_config_lookup_with_model() {
     let registry = AgentRegistry::new();
     let mut subagents = SubagentsConfig::default();
-    subagents.model = Some("claude-3".to_string());
+    subagents.model = Some(ModelSpec::single("claude-3"));
     let mut cfg = make_config("config-lookup");
     cfg.subagents = subagents;
     registry.populate(vec![cfg]);
 
     let info = registry.lookup_agent_config("config-lookup").await;
     assert!(info.is_some());
-    assert_eq!(info.unwrap().subagents_model, Some("claude-3".to_string()));
+    assert_eq!(
+        info.unwrap().subagents_model,
+        Some(ModelSpec::single("claude-3"))
+    );
 }
 
 #[tokio::test]
