@@ -164,8 +164,8 @@ async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<Moc
         is_shutting_down: std::sync::atomic::AtomicBool::new(true),
         is_forceful: std::sync::atomic::AtomicBool::new(is_forceful),
     });
-    let handle = Arc::new(closeclaw_common::shutdown::ShutdownHandle::new(
-        mock.clone() as Arc<dyn closeclaw_common::shutdown::ShutdownSignal>,
+    let handle = Arc::new(crate::shutdown_handle::ShutdownHandle::new(
+        mock.clone() as Arc<dyn closeclaw_common::shutdown::ShutdownSignal>
     ));
     mgr.set_shutdown_handle(handle).await;
     mock

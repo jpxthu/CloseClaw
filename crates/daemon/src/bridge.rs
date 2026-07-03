@@ -15,14 +15,14 @@ use closeclaw_slash::SlashDispatcher;
 // ShutdownHandle conversion
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Create a `closeclaw_common::shutdown::ShutdownHandle` from the daemon's
+/// Create a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
 /// `ShutdownHandle`.
 pub fn common_shutdown_handle(
     daemon_handle: &DaemonShutdownHandle,
-) -> Arc<closeclaw_common::shutdown::ShutdownHandle> {
-    Arc::new(closeclaw_common::shutdown::ShutdownHandle::new(Arc::new(
-        daemon_handle.clone(),
-    )))
+) -> Arc<closeclaw_gateway::shutdown_handle::ShutdownHandle> {
+    Arc::new(closeclaw_gateway::shutdown_handle::ShutdownHandle::new(
+        Arc::new(daemon_handle.clone()),
+    ))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

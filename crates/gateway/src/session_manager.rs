@@ -5,7 +5,9 @@
 
 use crate::{DmScope, GatewayConfig, Message, Session};
 use closeclaw_common::processor::ProcessError;
-use closeclaw_common::shutdown::{ShutdownHandle, ShutdownMode};
+use closeclaw_common::shutdown::ShutdownMode;
+
+use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
     PromptOverrides, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
