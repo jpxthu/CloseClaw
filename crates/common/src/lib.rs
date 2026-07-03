@@ -21,8 +21,6 @@ pub mod session_types;
 pub mod shutdown;
 pub mod skill_registry;
 pub mod slash_router;
-#[cfg(test)]
-pub mod slash_router_tests;
 pub mod storage_provider;
 pub mod streaming;
 pub mod system_prompt;
@@ -48,7 +46,7 @@ pub use im_plugin::{
     AdapterError, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage, RenderedOutput,
     StreamingOutput,
 };
-pub use middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
+pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,

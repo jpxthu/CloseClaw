@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use super::slash_execute::execute_slash_result;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
     ReplyAction, SideEffectContext, SlashContext, SlashEffectExecutor, SlashHandler, SlashRouter,
@@ -278,15 +279,15 @@ impl Gateway {
             session_handler: self.session_handler.clone(),
             permission_engine: perm_engine,
         });
-        let side_effect_ctx = SideEffectContext::new(
-            session_id.to_owned(),
-            channel.to_owned(),
-            session_mgr,
+        let side_effect_ctx = SideEffectContext {
+            session_id: session_id.to_owned(),
+            channel: channel.to_owned(),
+            session_manager: session_mgr,
             reply_tx,
             executor,
-        );
+        };
 
-        result.execute(&side_effect_ctx).await;
+        execute_slash_result(&result, &side_effect_ctx).await;
         drop(side_effect_ctx);
 
         while let Some(action) = reply_rx.recv().await {
