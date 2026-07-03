@@ -4,7 +4,6 @@ pub mod handler;
 pub mod handlers;
 pub mod handlers_session;
 pub mod registry;
-pub mod side_effect;
 
 pub use closeclaw_common::slash_router::SideEffectContext;
 pub use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};

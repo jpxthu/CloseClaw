@@ -272,9 +272,8 @@ impl Gateway {
                 ReplyAction::Reply(blocks) => {
                     self.route_slash_reply(session_id, channel, blocks).await;
                 }
-                ReplyAction::TriggerCompact { instruction } => {
-                    // Compact is already handled by the executor; no-op here.
-                    let _ = instruction;
+                ReplyAction::TriggerCompact { .. } => {
+                    // Compact is already handled by the executor; no-op.
                 }
                 ReplyAction::Nothing => {}
             }
@@ -305,6 +304,8 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .await;
         if let Some(cs) = cs {
             cs.read().await.stop(false).await;
+        } else if let Some(sh) = self.session_handler.as_ref() {
+            sh.send_reply("session 不存在，无法停止".to_owned()).await;
         }
     }
 
@@ -338,6 +339,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .get_conversation_session(session_id)
             .await;
         let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法执行系统指令".to_owned())
+                    .await;
+            }
             return;
         };
         let mut cs = cs.write().await;
@@ -361,6 +366,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .get_conversation_session(session_id)
             .await;
         let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置推理深度".to_owned())
+                    .await;
+            }
             return;
         };
         cs.write().await.set_reasoning_level(level);
@@ -376,6 +385,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .get_conversation_session(session_id)
             .await;
         let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置输出详细度".to_owned())
+                    .await;
+            }
             return;
         };
         cs.write().await.set_verbosity_level(level);

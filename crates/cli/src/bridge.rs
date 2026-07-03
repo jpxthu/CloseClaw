@@ -5,58 +5,38 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use closeclaw_slash::{
-    context::SlashContext as MainSlashContext, handler::SlashHandler as MainSlashHandler,
-    SlashDispatcher,
-};
+use closeclaw_slash::SlashDispatcher;
 
 /// Newtype wrapper around `SlashDispatcher` to satisfy the orphan rule
 /// when implementing `closeclaw_common::slash_router::SlashRouter`.
 pub struct SlashDispatcherWrapper(pub SlashDispatcher);
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SlashRouter
-// ═══════════════════════════════════════════════════════════════════════════
-
-fn convert_slash_context(ctx: &closeclaw_common::slash_router::SlashContext) -> MainSlashContext {
-    MainSlashContext {
-        command: ctx.command.clone(),
-        sender_id: ctx.sender_id.clone(),
-        session_id: ctx.session_id.clone(),
-        channel: ctx.channel.clone(),
-    }
-}
-
-/// Adapter wrapping a closeclaw-slash `SlashHandler` to implement the common `SlashHandler` trait.
-struct SlashHandlerAdapter {
-    inner: Arc<dyn MainSlashHandler>,
+/// Thin wrapper converting `Arc<dyn SlashHandler>` to `Box<dyn SlashHandler>`
+/// for the common `SlashRouter` trait.
+struct SlashHandlerBox {
+    inner: Arc<dyn closeclaw_common::slash_router::SlashHandler>,
 }
 
 #[async_trait]
-impl closeclaw_common::slash_router::SlashHandler for SlashHandlerAdapter {
+impl closeclaw_common::slash_router::SlashHandler for SlashHandlerBox {
     fn commands(&self) -> &[&str] {
         self.inner.commands()
     }
-
     fn description(&self) -> &str {
         self.inner.description()
     }
-
     fn immediate(&self, cmd: &str) -> bool {
         self.inner.immediate(cmd)
     }
-
     fn requires_permission(&self) -> bool {
         self.inner.requires_permission()
     }
-
     async fn handle(
         &self,
         args: &str,
         ctx: &closeclaw_common::slash_router::SlashContext,
     ) -> closeclaw_common::slash_router::SlashResult {
-        let main_ctx = convert_slash_context(ctx);
-        self.inner.handle(args, &main_ctx).await
+        self.inner.handle(args, ctx).await
     }
 }
 
@@ -67,8 +47,7 @@ impl closeclaw_common::slash_router::SlashRouter for SlashDispatcherWrapper {
         content: &str,
         ctx: &closeclaw_common::slash_router::SlashContext,
     ) -> Option<closeclaw_common::slash_router::SlashResult> {
-        let main_ctx = convert_slash_context(ctx);
-        Some(self.0.dispatch(content, &main_ctx).await)
+        Some(self.0.dispatch(content, ctx).await)
     }
 
     fn is_immediate(&self, command: &str) -> bool {
@@ -80,7 +59,7 @@ impl closeclaw_common::slash_router::SlashRouter for SlashDispatcherWrapper {
         command: &str,
     ) -> Option<Box<dyn closeclaw_common::slash_router::SlashHandler>> {
         self.0.get_handler(command).map(|h| {
-            Box::new(SlashHandlerAdapter { inner: h })
+            Box::new(SlashHandlerBox { inner: h })
                 as Box<dyn closeclaw_common::slash_router::SlashHandler>
         })
     }

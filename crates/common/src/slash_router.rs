@@ -188,56 +188,85 @@ impl SlashResult {
     /// SystemAppend, SetReasoning, SetVerbosity), the executor trait is
     /// called to perform the actual work.
     pub async fn execute(&self, ctx: &SideEffectContext) {
-        let action = match self {
-            SlashResult::Reply(text) => ReplyAction::Reply(vec![ContentBlock::Text(text.clone())]),
+        let mut actions = Vec::new();
+        match self {
+            SlashResult::Reply(text) => {
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(text.clone())]));
+            }
             SlashResult::SetMode(mode) => {
-                ReplyAction::Reply(vec![ContentBlock::Text(format!("Mode set to: {}", mode))])
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                    "Mode set to: {}",
+                    mode
+                ))]));
             }
             SlashResult::NewSession => {
                 ctx.executor
                     .execute_new_session(&ctx.session_id, &ctx.channel)
                     .await;
-                ReplyAction::Nothing
+                ctx.reply(vec![ContentBlock::Text("已创建新 session".into())])
+                    .await;
             }
             SlashResult::Stop => {
                 ctx.executor.execute_stop(&ctx.session_id).await;
-                ReplyAction::Nothing
+                ctx.reply(vec![ContentBlock::Text("已停止当前任务".into())])
+                    .await;
             }
             SlashResult::Compact { instruction } => {
                 ctx.executor
                     .execute_compact(&ctx.session_id, instruction.clone())
                     .await;
-                ReplyAction::TriggerCompact {
-                    instruction: instruction.clone(),
-                }
             }
             SlashResult::SystemAppend { action } => {
                 ctx.executor
                     .execute_system_append(&ctx.session_id, action)
                     .await;
-                ReplyAction::Nothing
+                match action {
+                    SystemAppendAction::Add(_) => {
+                        ctx.reply(vec![ContentBlock::Text("已追加指令".into())])
+                            .await;
+                    }
+                    SystemAppendAction::Clear => {
+                        ctx.reply(vec![ContentBlock::Text("已清除追加指令".into())])
+                            .await;
+                    }
+                }
             }
             SlashResult::Exec { command } => {
-                ReplyAction::Reply(vec![ContentBlock::Text(format!("Exec: {}", command))])
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                    "Exec: {}",
+                    command
+                ))]));
             }
             SlashResult::SetReasoning { level } => {
                 ctx.executor
                     .execute_set_reasoning(&ctx.session_id, level.clone())
                     .await;
-                ReplyAction::Nothing
+                ctx.reply(vec![ContentBlock::Text(format!(
+                    "推理深度已设置为 {}",
+                    level
+                ))])
+                .await;
             }
             SlashResult::SetVerbosity { level } => {
                 ctx.executor
                     .execute_set_verbosity(&ctx.session_id, level.clone())
                     .await;
-                ReplyAction::Nothing
+                ctx.reply(vec![ContentBlock::Text(format!(
+                    "输出详细度已设置为 {}",
+                    level
+                ))])
+                .await;
             }
-            SlashResult::Unknown(cmd) => ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                "Unknown command: /{}",
-                cmd
-            ))]),
-        };
-        let _ = ctx.reply_tx.send(action).await;
+            SlashResult::Unknown(cmd) => {
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                    "Unknown command: /{}",
+                    cmd
+                ))]));
+            }
+        }
+        for action in actions {
+            let _ = ctx.reply_tx.send(action).await;
+        }
     }
 }
 
