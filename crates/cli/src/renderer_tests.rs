@@ -114,24 +114,23 @@ fn test_render_block_tool_result_ansi() {
 }
 
 #[test]
-fn test_render_block_image_placeholder() {
+fn test_render_block_media_placeholders() {
     let renderer = TerminalRenderer::with_ansi(false);
-    let result = renderer.render_block(&ContentBlock::Image("photo.png".into()));
-    assert!(result.contains("[image: photo.png]"));
-}
-
-#[test]
-fn test_render_block_audio_placeholder() {
-    let renderer = TerminalRenderer::with_ansi(false);
-    let result = renderer.render_block(&ContentBlock::Audio("voice.wav".into()));
-    assert!(result.contains("[audio: voice.wav]"));
-}
-
-#[test]
-fn test_render_block_file_placeholder() {
-    let renderer = TerminalRenderer::with_ansi(false);
-    let result = renderer.render_block(&ContentBlock::File("doc.pdf".into()));
-    assert!(result.contains("[file: doc.pdf]"));
+    let r = renderer.render_block(&ContentBlock::Image {
+        name: "photo.png".into(),
+        url: String::new(),
+    });
+    assert!(r.contains("[image: photo.png]"));
+    let r = renderer.render_block(&ContentBlock::Audio {
+        name: "voice.wav".into(),
+        url: String::new(),
+    });
+    assert!(r.contains("[audio: voice.wav]"));
+    let r = renderer.render_block(&ContentBlock::File {
+        name: "doc.pdf".into(),
+        url: String::new(),
+    });
+    assert!(r.contains("[file: doc.pdf]"));
 }
 
 // ── render() tests ──────────────────────────────────────────────────────────

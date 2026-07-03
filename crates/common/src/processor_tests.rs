@@ -143,7 +143,10 @@ fn test_processed_message_from_raw_content() {
 #[test]
 fn test_processed_message_text_content_none_for_non_text() {
     let msg = ProcessedMessage {
-        content_blocks: vec![ContentBlock::Image("img.png".into())],
+        content_blocks: vec![ContentBlock::Image {
+            name: "img.png".into(),
+            url: "https://example.com/img.png".into(),
+        }],
         metadata: HashMap::new(),
     };
     assert!(msg.text_content().is_none());
@@ -153,7 +156,10 @@ fn test_processed_message_text_content_none_for_non_text() {
 fn test_processed_message_text_content_first_text_wins() {
     let msg = ProcessedMessage {
         content_blocks: vec![
-            ContentBlock::Image("img.png".into()),
+            ContentBlock::Image {
+                name: "img.png".into(),
+                url: "https://example.com/img.png".into(),
+            },
             ContentBlock::Text("found it".into()),
         ],
         metadata: HashMap::new(),
@@ -327,26 +333,53 @@ fn test_content_block_tool_result_roundtrip() {
 
 #[test]
 fn test_content_block_image_roundtrip() {
-    let block = ContentBlock::Image("photo.jpg".into());
+    let block = ContentBlock::Image {
+        name: "photo.jpg".into(),
+        url: "https://example.com/photo.jpg".into(),
+    };
     let json = serde_json::to_string(&block).unwrap();
     let de: ContentBlock = serde_json::from_str(&json).unwrap();
-    assert_eq!(de, ContentBlock::Image("photo.jpg".into()));
+    assert_eq!(
+        de,
+        ContentBlock::Image {
+            name: "photo.jpg".into(),
+            url: "https://example.com/photo.jpg".into(),
+        }
+    );
 }
 
 #[test]
 fn test_content_block_audio_roundtrip() {
-    let block = ContentBlock::Audio("voice.mp3".into());
+    let block = ContentBlock::Audio {
+        name: "voice.mp3".into(),
+        url: "https://example.com/voice.mp3".into(),
+    };
     let json = serde_json::to_string(&block).unwrap();
     let de: ContentBlock = serde_json::from_str(&json).unwrap();
-    assert_eq!(de, ContentBlock::Audio("voice.mp3".into()));
+    assert_eq!(
+        de,
+        ContentBlock::Audio {
+            name: "voice.mp3".into(),
+            url: "https://example.com/voice.mp3".into(),
+        }
+    );
 }
 
 #[test]
 fn test_content_block_file_roundtrip() {
-    let block = ContentBlock::File("report.pdf".into());
+    let block = ContentBlock::File {
+        name: "report.pdf".into(),
+        url: "https://example.com/report.pdf".into(),
+    };
     let json = serde_json::to_string(&block).unwrap();
     let de: ContentBlock = serde_json::from_str(&json).unwrap();
-    assert_eq!(de, ContentBlock::File("report.pdf".into()));
+    assert_eq!(
+        de,
+        ContentBlock::File {
+            name: "report.pdf".into(),
+            url: "https://example.com/report.pdf".into(),
+        }
+    );
 }
 
 #[test]
@@ -366,9 +399,18 @@ fn test_content_block_all_seven_variants_serde() {
             tool_call_id: "1".into(),
             content: "ok".into(),
         },
-        ContentBlock::Image("img".into()),
-        ContentBlock::Audio("aud".into()),
-        ContentBlock::File("f".into()),
+        ContentBlock::Image {
+            name: "img".into(),
+            url: "https://example.com/img".into(),
+        },
+        ContentBlock::Audio {
+            name: "aud".into(),
+            url: "https://example.com/aud".into(),
+        },
+        ContentBlock::File {
+            name: "f".into(),
+            url: "https://example.com/f".into(),
+        },
     ];
     for block in &blocks {
         let json = serde_json::to_string(block).unwrap();

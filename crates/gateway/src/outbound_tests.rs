@@ -245,7 +245,10 @@ fn test_batch_off_keeps_only_text() {
             name: "t".into(),
             input: "{}".into(),
         },
-        ContentBlock::Image("img".into()),
+        ContentBlock::Image {
+            name: "img".into(),
+            url: "https://example.com/img.png".into(),
+        },
     ];
     let result = filter_by_verbosity(blocks, VerbosityLevel::Off);
     assert_eq!(result.len(), 1);
