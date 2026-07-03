@@ -4,7 +4,6 @@ pub mod agent_lookup;
 pub mod agent_skills_query;
 pub mod agent_tools_config_query;
 pub mod bootstrap;
-pub mod communication;
 pub mod compaction;
 pub mod gateway_spawn;
 pub mod gateway_stop;
@@ -39,9 +38,6 @@ pub use agent_lookup::AgentLookup;
 pub use agent_skills_query::AgentSkillsQuery;
 pub use agent_tools_config_query::{AgentToolsConfig, AgentToolsConfigQuery};
 pub use bootstrap::BootstrapMode;
-pub use communication::{
-    check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
-};
 pub use compaction::CompactConfig;
 pub use gateway_spawn::{ChildSessionInfo, SpawnMode};
 pub use gateway_stop::{StopProgress, StopResult};
