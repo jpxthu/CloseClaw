@@ -9,49 +9,14 @@
 //! in [`MessageContext`] metadata under the `"dsl_result"` key.
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::warn;
 
 use closeclaw_llm::types::ContentBlock;
 
+use closeclaw_common::processor::{DslInstruction, DslParseResult};
+
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
-
-// ---------------------------------------------------------------------------
-// DSL data types
-// ---------------------------------------------------------------------------
-
-/// A parsed DSL instruction extracted from markdown.
-///
-/// Flat structure: `instruction_type` identifies the kind of instruction
-/// (e.g. `"button"`, `"selector"`), and `params` holds key-value pairs
-/// parsed from the DSL line.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DslInstruction {
-    /// Instruction type identifier (e.g. `"button"`, `"selector"`).
-    pub instruction_type: String,
-    /// Parsed key-value parameters from the DSL line.
-    pub params: HashMap<String, String>,
-}
-
-/// Result of parsing a markdown string for DSL instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DslParseResult {
-    /// Extracted DSL instructions in the order they appear in the source.
-    pub instructions: Vec<DslInstruction>,
-}
-
-impl DslParseResult {
-    /// Construct a [`DslParseResult`] from a slice of
-    /// [`ContentBlock`][closeclaw_llm::types::ContentBlock].
-    ///
-    /// Only [`ContentBlock::Text`] variants are processed; [`ContentBlock::Thinking`],
-    /// [`ContentBlock::ToolUse`], and [`ContentBlock::ToolResult`] are skipped.
-    /// Internally delegates to [`DslParser::parse_content_blocks()`].
-    pub fn from_content_blocks(blocks: &[ContentBlock]) -> Self {
-        DslParser.parse_content_blocks(blocks)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // DslParser
@@ -250,17 +215,18 @@ impl MessageProcessor for DslParser {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<super::ProcessedMessage>, ProcessError> {
-        let (result, updated_blocks) = if !ctx.content_blocks.is_empty() {
-            self.parse_content_blocks_with_result(&ctx.content_blocks)
-        } else {
-            let (result, clean_text) = self.parse(&ctx.content);
-            let blocks = if clean_text.is_empty() {
-                vec![]
+        let (result, updated_blocks): (DslParseResult, Vec<ContentBlock>) =
+            if !ctx.content_blocks.is_empty() {
+                self.parse_content_blocks_with_result(&ctx.content_blocks)
             } else {
-                vec![ContentBlock::Text(clean_text)]
+                let (result, clean_text) = self.parse(&ctx.content);
+                let blocks = if clean_text.is_empty() {
+                    vec![]
+                } else {
+                    vec![ContentBlock::Text(clean_text)]
+                };
+                (result, blocks)
             };
-            (result, blocks)
-        };
 
         let json = serde_json::to_string(&result)
             .map_err(|e| ProcessError::processor_failed("DslParser", e))?;

@@ -18,9 +18,9 @@ mod tests {
     use crate::plugin::{IMPlugin, RenderedOutput};
     use crate::streaming::DefaultStreamingRenderer;
     use crate::AdapterError;
-    use crate::NormalizedMessage;
     use async_trait::async_trait;
     use closeclaw_common::processor::{ContentBlock, ContentDelta, StreamEvent};
+    use closeclaw_common::NormalizedMessage;
     use std::sync::Arc;
 
     // =========================================================================

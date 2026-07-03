@@ -11,9 +11,10 @@
 //! URL completion, and code block language hints are handled by each IM
 //! plugin during parsing, not by this processor.
 
-use crate::processor_chain::context::{MessageContext, ProcessedMessage};
+use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
+use crate::ProcessedMessage;
 use async_trait::async_trait;
 use closeclaw_llm::types::ContentBlock;
 use std::sync::LazyLock;

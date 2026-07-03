@@ -5,8 +5,8 @@ mod tests {
     use std::collections::HashMap;
 
     use closeclaw_common::processor::{DslInstruction, DslParseResult};
+    use closeclaw_common::NormalizedMessage;
     use closeclaw_im_adapter::plugin::IMPlugin;
-    use closeclaw_im_adapter::NormalizedMessage;
     use closeclaw_im_adapter::RenderedOutput;
     use closeclaw_llm::types::ContentBlock;
 

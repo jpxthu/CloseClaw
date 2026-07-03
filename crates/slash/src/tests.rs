@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::dispatcher::parse_slash;
-use crate::handler::{SlashHandler, SlashResult};
+use crate::handler::SlashHandler;
 use crate::registry::HandlerRegistry;
 use crate::ExecHandler;
+use closeclaw_common::slash_router::SlashResult;
 
 // ---------------------------------------------------------------------------
 // Mock handlers

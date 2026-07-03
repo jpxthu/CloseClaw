@@ -11,7 +11,7 @@ pub mod renderer;
 pub mod tools;
 
 use crate::error::AdapterError;
-use crate::normalized::{add_code_block_language_hint, normalize_urls, NormalizedMessage};
+use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::plugin::{IMPlugin, RenderedOutput};
 use crate::streaming::DefaultStreamingRenderer;
 use crate::IMAdapter;
@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use closeclaw_common::identity::{ConfigIdentityResolver, IdentityResolver};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::NormalizedMessage;
 use closeclaw_gateway::Message;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -150,7 +151,6 @@ impl closeclaw_common::IMPlugin for GatewayPluginWrapper {
         self.0
             .parse_inbound(payload)
             .await
-            .map(|opt| opt.map(convert_to_common_normalized))
             .map_err(convert_to_common_error)
     }
 
@@ -235,35 +235,6 @@ fn convert_to_common_error(e: AdapterError) -> closeclaw_common::im_plugin::Adap
         AdapterError::MediaDownloadFailed(s) => {
             closeclaw_common::im_plugin::AdapterError::SendFailed(s)
         }
-    }
-}
-
-fn convert_to_common_normalized(
-    m: NormalizedMessage,
-) -> closeclaw_common::im_plugin::NormalizedMessage {
-    closeclaw_common::im_plugin::NormalizedMessage {
-        platform: m.platform,
-        sender_id: m.sender_id,
-        peer_id: m.peer_id,
-        content: m.content,
-        timestamp: m.timestamp,
-        message_type: m.message_type,
-        media_refs: m
-            .media_refs
-            .into_iter()
-            .map(|r| closeclaw_common::im_plugin::MediaRef {
-                key: r.key,
-                url: r.url,
-            })
-            .collect(),
-        quoted_message: m
-            .quoted_message
-            .map(|q| closeclaw_common::im_plugin::QuotedMessage {
-                content: q.content,
-                sender_id: q.sender_id,
-            }),
-        thread_id: m.thread_id,
-        account_id: m.account_id,
     }
 }
 

@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 use closeclaw_common::processor::DslParseResult;
-use closeclaw_im_adapter::normalized::NormalizedMessage;
+use closeclaw_common::NormalizedMessage;
 use closeclaw_im_adapter::plugin::{IMPlugin, RenderedOutput};
 use closeclaw_im_adapter::AdapterError;
 use closeclaw_llm::types::ContentBlock;

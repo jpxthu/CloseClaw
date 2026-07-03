@@ -4,14 +4,14 @@ pub mod handler;
 pub mod handlers;
 pub mod handlers_session;
 pub mod registry;
-pub mod side_effect;
 
+pub use closeclaw_common::slash_router::SideEffectContext;
+pub use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 pub use context::SlashContext;
 pub use dispatcher::{parse_slash, SlashDispatcher};
-pub use handler::{SlashHandler, SlashResult};
+pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
-pub use side_effect::SideEffectContext;
 
 #[cfg(test)]
 mod tests;
@@ -27,6 +27,3 @@ mod handlers_tests_legacy;
 
 #[cfg(test)]
 mod handlers_tests_system;
-
-#[cfg(test)]
-mod side_effect_tests;
