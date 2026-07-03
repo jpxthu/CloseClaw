@@ -62,10 +62,10 @@ SessionRouter 不区分私聊和群聊。会话粒度由 IM Adapter 通过 peer_
 ## 数据流
 
 ```
-IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, timestamp }
+IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, message_type, media_refs, timestamp }
   → RawLogProcessor：记录原始内容到日志 → 透传（保留所有字段）
     → SessionRouter：计算 session_key（算法见上文 session_key 算法节）→ 写入 metadata.session_key
-      → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）。非文本消息跳过标准化，直接透传 content
+      → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）。非文本消息（由 message_type 判断）跳过标准化，直接透传 content
         → [ProcessedMessage](../common/shared-types.md#processedmessage)
           → Gateway
             → 调用 SessionManager.resolve()，SessionManager 从消息路由字段提取稳定路由键做查找 → 获得 session_id
