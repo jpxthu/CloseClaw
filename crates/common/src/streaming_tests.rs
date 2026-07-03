@@ -330,3 +330,80 @@ fn test_thinking_signature_overwrites_across_deltas() {
         other => panic!("expected Thinking block, got {:?}", other),
     }
 }
+
+// ── ImageRef / AudioRef / FileRef name vs url ──────────────────────────────
+
+#[test]
+fn test_image_ref_name_and_url_independent() {
+    use super::streaming::*;
+    use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::Image));
+    r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::ImageRef {
+            name: "photo.jpg".to_string(),
+            url: "https://cdn.example.com/photo.jpg".to_string(),
+        },
+    });
+    let out = r.handle_event(block_end(0, ContentBlockType::Image));
+    assert_eq!(out.render_blocks.len(), 1);
+    match &out.render_blocks[0] {
+        ContentBlock::Image { name, url } => {
+            assert_eq!(name, "photo.jpg");
+            assert_eq!(url, "https://cdn.example.com/photo.jpg");
+        }
+        other => panic!("expected Image block, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_audio_ref_name_and_url_independent() {
+    use super::streaming::*;
+    use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::Audio));
+    r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::AudioRef {
+            name: "recording.wav".to_string(),
+            url: "https://cdn.example.com/recording.wav".to_string(),
+        },
+    });
+    let out = r.handle_event(block_end(0, ContentBlockType::Audio));
+    assert_eq!(out.render_blocks.len(), 1);
+    match &out.render_blocks[0] {
+        ContentBlock::Audio { name, url } => {
+            assert_eq!(name, "recording.wav");
+            assert_eq!(url, "https://cdn.example.com/recording.wav");
+        }
+        other => panic!("expected Audio block, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_file_ref_name_and_url_independent() {
+    use super::streaming::*;
+    use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::File));
+    r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::FileRef {
+            name: "report.pdf".to_string(),
+            url: "https://cdn.example.com/report.pdf".to_string(),
+        },
+    });
+    let out = r.handle_event(block_end(0, ContentBlockType::File));
+    assert_eq!(out.render_blocks.len(), 1);
+    match &out.render_blocks[0] {
+        ContentBlock::File { name, url } => {
+            assert_eq!(name, "report.pdf");
+            assert_eq!(url, "https://cdn.example.com/report.pdf");
+        }
+        other => panic!("expected File block, got {:?}", other),
+    }
+}

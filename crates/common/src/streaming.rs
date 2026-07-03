@@ -146,19 +146,22 @@ impl StreamingRenderer for DefaultStreamingRenderer {
                 ContentDelta::ToolResultText { text } => {
                     self.handle_thinking_delta(&text);
                 }
-                ContentDelta::ImageRef { url } => {
+                ContentDelta::ImageRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
-                        acc.text = url;
+                        acc.name = Some(name);
+                        acc.url = Some(url);
                     }
                 }
-                ContentDelta::AudioRef { url } => {
+                ContentDelta::AudioRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
-                        acc.text = url;
+                        acc.name = Some(name);
+                        acc.url = Some(url);
                     }
                 }
-                ContentDelta::FileRef { url } => {
+                ContentDelta::FileRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
-                        acc.text = url;
+                        acc.name = Some(name);
+                        acc.url = Some(url);
                     }
                 }
             },
@@ -280,6 +283,8 @@ fn count_trailing_backticks(s: &str) -> usize {
 #[derive(Default)]
 struct BlockAccumulator {
     text: String,
+    name: Option<String>,
+    url: Option<String>,
     signature: Option<String>,
     tool_id: Option<String>,
     tool_name: Option<String>,
@@ -302,9 +307,18 @@ impl BlockAccumulator {
                 tool_call_id: self.tool_id.unwrap_or_default(),
                 content: self.text,
             },
-            ContentBlockType::Image => ContentBlock::Image(self.text),
-            ContentBlockType::Audio => ContentBlock::Audio(self.text),
-            ContentBlockType::File => ContentBlock::File(self.text),
+            ContentBlockType::Image => ContentBlock::Image {
+                name: self.name.unwrap_or_default(),
+                url: self.url.unwrap_or_default(),
+            },
+            ContentBlockType::Audio => ContentBlock::Audio {
+                name: self.name.unwrap_or_default(),
+                url: self.url.unwrap_or_default(),
+            },
+            ContentBlockType::File => ContentBlock::File {
+                name: self.name.unwrap_or_default(),
+                url: self.url.unwrap_or_default(),
+            },
             ContentBlockType::Text => ContentBlock::Text(self.text),
         }
     }

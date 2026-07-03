@@ -174,9 +174,9 @@ impl ChatSession for ConversationSession {
                     ContentBlock::ToolUse { name, input, .. } => {
                         vec![format!("[tool:{}] {}", name, input)]
                     }
-                    ContentBlock::Image(name) => vec![format!("[image: {}]", name)],
-                    ContentBlock::Audio(name) => vec![format!("[audio: {}]", name)],
-                    ContentBlock::File(name) => vec![format!("[file: {}]", name)],
+                    ContentBlock::Image { name, .. } => vec![format!("[image: {}]", name)],
+                    ContentBlock::Audio { name, .. } => vec![format!("[audio: {}]", name)],
+                    ContentBlock::File { name, .. } => vec![format!("[file: {}]", name)],
                     _ => vec![],
                 })
                 .collect::<Vec<_>>()
