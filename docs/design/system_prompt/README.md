@@ -91,7 +91,7 @@ Archived session 被访问
 
 ### 下游
 
-- **PromptFragmentProvider**（[fragment-provider.md](fragment-provider.md)）：System Prompt Builder 通过此 trait 获取各来源的片段。各 Provider 实现分别调用 Bootstrap Loader、ToolRegistry、DiskSkillRegistry 和 MEMORY.md。
+- **PromptFragmentProvider**（定义见 [common/core-traits](../common/core-traits.md#promptfragmentprovider)）：System Prompt Builder 通过此 trait 获取各来源的片段。各 Provider 实现分别调用 Bootstrap Loader、ToolRegistry、DiskSkillRegistry 和 MEMORY.md。
 - **Cache Adapter**：接收已切分的静态区和动态区字段，对静态层注入缓存控制参数。详见 [llm/cache-adapter](docs/design/llm/cache-adapter.md)。
 
 ### 无关

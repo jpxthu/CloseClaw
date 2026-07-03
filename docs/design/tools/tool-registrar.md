@@ -2,7 +2,7 @@
 
 ## 概述
 
-ToolRegistrar 是工具注册能力的统一 trait，抽象各模块"我能注册工具"的接口契约。Tools 模块通过收集已注册的 Registrar 并依次调用其注册方法完成全局工具编排，不再硬编码各模块的特定接口。
+ToolRegistrar 是工具注册能力的统一 trait，定义在 [common 模块](../common/core-traits.md#toolregistrar)。抽象各模块"我能注册工具"的接口契约。Tools 模块通过收集已注册的 Registrar 并依次调用其注册方法完成全局工具编排，不再硬编码各模块的特定接口。
 
 ## 架构
 
@@ -31,11 +31,9 @@ ToolRegistrar 的完整接口定义见 [core-traits](../common/core-traits.md#to
 
 ### 错误处理
 
-注册阶段的错误策略：
+注册阶段的错误策略与 ToolRegistrar 接口契约一致（见 [core-traits](../common/core-traits.md#toolregistrar)）。补充规则：
 
-- 工具名冲突：报告冲突工具名和双方 Registrar，中断启动
-- 单个 Registrar 内部错误：由 Registrar 自行处理（跳过无效工具并记录警告，不中断其他工具注册），但若 Registrar 整体注册失败则报告错误
-- 优先级重复：允许多个 Registrar 使用相同优先级，同等优先级下注册顺序不保证
+- **优先级重复**：允许多个 Registrar 使用相同优先级，同等优先级下注册顺序不保证
 
 ## 数据流
 
