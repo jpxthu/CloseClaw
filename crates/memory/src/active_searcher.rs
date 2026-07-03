@@ -57,7 +57,7 @@ impl Default for ActiveSearcherConfig {
             max_summary_chars: 2000,
             min_entity_hits: 1,
             top_k_events: 10,
-            context_turns: 3,
+            context_turns: 10,
             model: String::new(),
         }
     }
@@ -125,7 +125,7 @@ impl ActiveSearcherConfig {
                 .unwrap_or(2000),
             min_entity_hits: override_as.and_then(|o| o.min_entity_hits).unwrap_or(1),
             top_k_events: override_as.and_then(|o| o.top_k_events).unwrap_or(10),
-            context_turns: override_as.and_then(|o| o.context_turns).unwrap_or(3),
+            context_turns: override_as.and_then(|o| o.context_turns).unwrap_or(10),
             model: override_as
                 .and_then(|o| o.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))
