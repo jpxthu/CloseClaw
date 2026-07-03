@@ -418,3 +418,170 @@ fn test_content_block_all_seven_variants_serde() {
         assert_eq!(format!("{:?}", block), format!("{:?}", de));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Image / Audio / File: exact serialization format & field correctness
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_content_block_image_serialization_format() {
+    let block = ContentBlock::Image {
+        name: "photo.jpg".into(),
+        url: "https://example.com/photo.jpg".into(),
+    };
+    let json = serde_json::to_string(&block).unwrap();
+    assert_eq!(
+        json,
+        r#"{"type":"image","content":{"name":"photo.jpg","url":"https://example.com/photo.jpg"}}"#
+    );
+}
+
+#[test]
+fn test_content_block_audio_serialization_format() {
+    let block = ContentBlock::Audio {
+        name: "voice.mp3".into(),
+        url: "https://example.com/voice.mp3".into(),
+    };
+    let json = serde_json::to_string(&block).unwrap();
+    assert_eq!(
+        json,
+        r#"{"type":"audio","content":{"name":"voice.mp3","url":"https://example.com/voice.mp3"}}"#
+    );
+}
+
+#[test]
+fn test_content_block_file_serialization_format() {
+    let block = ContentBlock::File {
+        name: "report.pdf".into(),
+        url: "https://example.com/report.pdf".into(),
+    };
+    let json = serde_json::to_string(&block).unwrap();
+    assert_eq!(
+        json,
+        r#"{"type":"file","content":{"name":"report.pdf","url":"https://example.com/report.pdf"}}"#
+    );
+}
+
+#[test]
+fn test_content_block_image_deserialize_from_exact_json() {
+    let json = r#"{"type":"image","content":{"name":"screenshot.png","url":"https://cdn.example.com/screenshot.png"}}"#;
+    let block: ContentBlock = serde_json::from_str(json).unwrap();
+    match block {
+        ContentBlock::Image { name, url } => {
+            assert_eq!(name, "screenshot.png");
+            assert_eq!(url, "https://cdn.example.com/screenshot.png");
+        }
+        other => panic!("expected Image, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_content_block_audio_deserialize_from_exact_json() {
+    let json = r#"{"type":"audio","content":{"name":"recording.wav","url":"https://cdn.example.com/recording.wav"}}"#;
+    let block: ContentBlock = serde_json::from_str(json).unwrap();
+    match block {
+        ContentBlock::Audio { name, url } => {
+            assert_eq!(name, "recording.wav");
+            assert_eq!(url, "https://cdn.example.com/recording.wav");
+        }
+        other => panic!("expected Audio, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_content_block_file_deserialize_from_exact_json() {
+    let json =
+        r#"{"type":"file","content":{"name":"data.csv","url":"https://cdn.example.com/data.csv"}}"#;
+    let block: ContentBlock = serde_json::from_str(json).unwrap();
+    match block {
+        ContentBlock::File { name, url } => {
+            assert_eq!(name, "data.csv");
+            assert_eq!(url, "https://cdn.example.com/data.csv");
+        }
+        other => panic!("expected File, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_content_block_image_name_url_independent() {
+    // name and url can differ: name is a local identifier, url is the remote access path
+    let block = ContentBlock::Image {
+        name: "local_key".into(),
+        url: "https://storage.example.com/remote/path/img.jpg".into(),
+    };
+    let json = serde_json::to_string(&block).unwrap();
+    let de: ContentBlock = serde_json::from_str(&json).unwrap();
+    match de {
+        ContentBlock::Image { name, url } => {
+            assert_eq!(name, "local_key");
+            assert_eq!(url, "https://storage.example.com/remote/path/img.jpg");
+        }
+        other => panic!("expected Image, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_content_block_audio_name_url_independent() {
+    let block = ContentBlock::Audio {
+        name: "memo_key".into(),
+        url: "https://storage.example.com/remote/aud.mp3".into(),
+    };
+    let json = serde_json::to_string(&block).unwrap();
+    let de: ContentBlock = serde_json::from_str(&json).unwrap();
+    match de {
+        ContentBlock::Audio { name, url } => {
+            assert_eq!(name, "memo_key");
+            assert_eq!(url, "https://storage.example.com/remote/aud.mp3");
+        }
+        other => panic!("expected Audio, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_content_block_file_name_url_independent() {
+    let block = ContentBlock::File {
+        name: "doc_ref".into(),
+        url: "https://storage.example.com/remote/doc.pdf".into(),
+    };
+    let json = serde_json::to_string(&block).unwrap();
+    let de: ContentBlock = serde_json::from_str(&json).unwrap();
+    match de {
+        ContentBlock::File { name, url } => {
+            assert_eq!(name, "doc_ref");
+            assert_eq!(url, "https://storage.example.com/remote/doc.pdf");
+        }
+        other => panic!("expected File, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_content_block_image_deserialize_missing_url_fails() {
+    // url is required; missing it should fail
+    let json = r#"{"type":"image","content":{"name":"x"}}"#;
+    assert!(serde_json::from_str::<ContentBlock>(json).is_err());
+}
+
+#[test]
+fn test_content_block_audio_deserialize_missing_name_fails() {
+    // name is required; missing it should fail
+    let json = r#"{"type":"audio","content":{"url":"https://x.com/a.mp3"}}"#;
+    assert!(serde_json::from_str::<ContentBlock>(json).is_err());
+}
+
+#[test]
+fn test_content_block_file_empty_fields() {
+    // Empty name and url are still valid strings
+    let block = ContentBlock::File {
+        name: String::new(),
+        url: String::new(),
+    };
+    let json = serde_json::to_string(&block).unwrap();
+    let de: ContentBlock = serde_json::from_str(&json).unwrap();
+    match de {
+        ContentBlock::File { name, url } => {
+            assert!(name.is_empty());
+            assert!(url.is_empty());
+        }
+        other => panic!("expected File, got {:?}", other),
+    }
+}
