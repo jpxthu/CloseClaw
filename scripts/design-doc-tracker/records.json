@@ -72,6 +72,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/common/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-03T21:22:27.356053+08:00",
+    "comment": "",
+    "blocked_reason": "PromptFragmentProvider and ToolRegistrar cannot be re-exported from common due to circular dependency"
+  },
+  {
     "path": "docs/design/common/core-traits.md",
     "commit": "fb174fc5878c35cc686ff0c6a21d6272ae1d02ad",
     "commit_time": "2026-07-03T17:20:35+08:00",
