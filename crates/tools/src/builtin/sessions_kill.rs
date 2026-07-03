@@ -2,6 +2,10 @@
 
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_gateway::SessionManager;
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_types::{
+    PermissionRequest, PermissionRequestBody, PermissionResponse,
+};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -13,12 +17,19 @@ use std::sync::Arc;
 /// Works on any mode (run / session) children owned by the calling parent.
 pub struct SessionsKillTool {
     session_manager: Arc<SessionManager>,
+    permission_engine: Arc<PermissionEngine>,
 }
 
 impl SessionsKillTool {
     /// Create a new `SessionsKillTool` with the given dependencies.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<SessionManager>,
+        permission_engine: Arc<PermissionEngine>,
+    ) -> Self {
+        Self {
+            session_manager,
+            permission_engine,
+        }
     }
 }
 
@@ -49,12 +60,12 @@ impl Tool for SessionsKillTool {
         json!({
             "type": "object",
             "properties": {
-                "childId": {
+                "sessionId": {
                     "type": "string",
                     "description": "The session ID of the child session to kill"
                 }
             },
-            "required": ["childId"]
+            "required": ["sessionId"]
         })
     }
 
@@ -68,9 +79,11 @@ impl Tool for SessionsKillTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // 1. Extract parameters
         let child_id = args
-            .get("childId")
+            .get("sessionId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolCallError::InvalidArgs("missing required field 'childId'".into()))?;
+            .ok_or_else(|| {
+                ToolCallError::InvalidArgs("missing required field 'sessionId'".into())
+            })?;
 
         // 2. Get parent session_id from context
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
@@ -78,7 +91,8 @@ impl Tool for SessionsKillTool {
         })?;
 
         // 3. Validate ownership
-        self.session_manager
+        let info = self
+            .session_manager
             .validate_child_ownership(parent_session_id, child_id)
             .await
             .ok_or_else(|| {
@@ -87,13 +101,26 @@ impl Tool for SessionsKillTool {
                 )
             })?;
 
-        // 4. Kill the child session
+        // 4. Cross-Agent permission check
+        let request = PermissionRequest::Bare(PermissionRequestBody::InterAgentMsg {
+            from: ctx.agent_id.clone(),
+            to: info.agent_id.clone(),
+        });
+        let response = self.permission_engine.evaluate(request, None);
+        if let PermissionResponse::Denied { reason, .. } = response {
+            return Err(ToolCallError::ExecutionFailed(format!(
+                "inter-agent communication denied: {}",
+                reason
+            )));
+        }
+
+        // 5. Kill the child session
         self.session_manager
             .kill_child(parent_session_id, child_id)
             .await
             .map_err(ToolCallError::ExecutionFailed)?;
 
-        // 5. Return result
+        // 6. Return result
         Ok(ToolResult {
             data: json!({
                 "child_id": child_id,

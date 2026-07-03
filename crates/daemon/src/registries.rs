@@ -147,6 +147,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_common::AgentConfigLookup>,
+        Arc::clone(ctx.permission_engine),
     );
     let skills_registrar = SkillsToolsRegistrar::new(
         Arc::clone(disk_reg),

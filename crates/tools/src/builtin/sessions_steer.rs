@@ -1,7 +1,11 @@
 //! Built-in sessions_steer tool — injects a new task into a persistent child session.
 
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
-use closeclaw_gateway::SessionManager;
+use closeclaw_gateway::{session_manager::SpawnMode, SessionManager};
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_types::{
+    PermissionRequest, PermissionRequestBody, PermissionResponse,
+};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -13,12 +17,19 @@ use std::sync::Arc;
 /// Only works on `mode=session` children owned by the calling parent.
 pub struct SessionsSteerTool {
     session_manager: Arc<SessionManager>,
+    permission_engine: Arc<PermissionEngine>,
 }
 
 impl SessionsSteerTool {
     /// Create a new `SessionsSteerTool` with the given dependencies.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<SessionManager>,
+        permission_engine: Arc<PermissionEngine>,
+    ) -> Self {
+        Self {
+            session_manager,
+            permission_engine,
+        }
     }
 }
 
@@ -48,7 +59,7 @@ impl Tool for SessionsSteerTool {
         json!({
             "type": "object",
             "properties": {
-                "childId": {
+                "sessionId": {
                     "type": "string",
                     "description": "The session ID of the child session to steer"
                 },
@@ -57,7 +68,7 @@ impl Tool for SessionsSteerTool {
                     "description": "The new task to inject into the child session"
                 }
             },
-            "required": ["childId", "task"]
+            "required": ["sessionId", "task"]
         })
     }
 
@@ -71,9 +82,11 @@ impl Tool for SessionsSteerTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // 1. Extract parameters
         let child_id = args
-            .get("childId")
+            .get("sessionId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolCallError::InvalidArgs("missing required field 'childId'".into()))?;
+            .ok_or_else(|| {
+                ToolCallError::InvalidArgs("missing required field 'sessionId'".into())
+            })?;
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
@@ -85,7 +98,8 @@ impl Tool for SessionsSteerTool {
         })?;
 
         // 3. Validate ownership
-        self.session_manager
+        let info = self
+            .session_manager
             .validate_child_ownership(parent_session_id, child_id)
             .await
             .ok_or_else(|| {
@@ -94,13 +108,33 @@ impl Tool for SessionsSteerTool {
                 )
             })?;
 
-        // 4. Steer the child session
+        // 4. Check mode — steer only works on persistent (mode=session) children
+        if info.mode != SpawnMode::Session {
+            return Err(ToolCallError::ExecutionFailed(
+                "steer is only allowed on mode=session children".into(),
+            ));
+        }
+
+        // 5. Cross-Agent permission check
+        let request = PermissionRequest::Bare(PermissionRequestBody::InterAgentMsg {
+            from: ctx.agent_id.clone(),
+            to: info.agent_id.clone(),
+        });
+        let response = self.permission_engine.evaluate(request, None);
+        if let PermissionResponse::Denied { reason, .. } = response {
+            return Err(ToolCallError::ExecutionFailed(format!(
+                "inter-agent communication denied: {}",
+                reason
+            )));
+        }
+
+        // 6. Steer the child session
         self.session_manager
             .steer_child(child_id, task)
             .await
             .map_err(ToolCallError::ExecutionFailed)?;
 
-        // 5. Return result
+        // 7. Return result
         Ok(ToolResult {
             data: json!({
                 "child_id": child_id,
