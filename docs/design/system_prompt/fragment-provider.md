@@ -2,7 +2,7 @@
 
 ## 概述
 
-PromptFragmentProvider 是系统提示词片段提供者的统一 trait，将静态层各数据来源（bootstrap 文件、ToolRegistry、DiskSkillRegistry、MEMORY.md）抽象为一致的接口。System Prompt Builder 通过收集已注册的 Provider 并依次调用，组装静态层内容，不再硬编码各来源的特定接口。
+PromptFragmentProvider 是系统提示词片段提供者的统一 trait，定义在 [common 模块](../common/core-traits.md#promptfragmentprovider)。将静态层各数据来源（bootstrap 文件、ToolRegistry、DiskSkillRegistry、MEMORY.md）抽象为一致的接口。System Prompt Builder 通过收集已注册的 Provider 并依次调用，组装静态层内容，不再硬编码各来源的特定接口。
 
 ## 架构
 
@@ -12,19 +12,11 @@ PromptFragmentProvider 的完整接口定义见 [core-traits](../common/core-tra
 
 ### FragmentContext
 
-Builder 在构建时提供的上下文，传递给每个 Provider：
-
-- **agent 标识**：Skills 按此过滤可见 skill
-- **bootstrap 模式**：精简或完整模式，Bootstrap 按此选择文件集合
-- **工作目录**：agent 工作目录路径，Bootstrap 按此查找 bootstrap 文件
+Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [shared-types](../common/shared-types.md#fragmentcontext)。
 
 ### PromptFragment
 
-单个 Provider 产出的片段，包含三个要素：
-
-- **Section 标题**：如 `## AGENTS.md`、`## Available Skills`
-- **Section 类型**：bootstrap 文件、工具列表、skill 清单、长期记忆
-- **内容**：渲染完成的文本
+单个 Provider 产出的片段。定义见 [shared-types](../common/shared-types.md#promptfragment)。
 
 ### Provider 注册与 Builder 组装
 
@@ -96,9 +88,7 @@ SessionManager 触发构建
 
 ### 兜底
 
-所有 Provider 均返回 None（无任何内容产出）时，使用默认 prompt：「You are CloseClaw, a helpful AI assistant.」。
-
-无 workspace 目录时，BootstrapFragmentProvider 返回 None，静态层仅含 ToolsSection 和 SkillListingSection。
+兜底规则与 PromptFragmentProvider 接口契约一致（见 [core-traits](../common/core-traits.md#promptfragmentprovider)）。所有 Provider 均返回空时使用默认 prompt，无 workspace 目录时静态层仅含工具和 skill 片段。
 
 ## 模块关系
 
