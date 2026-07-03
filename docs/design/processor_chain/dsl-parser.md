@@ -2,11 +2,11 @@
 
 ## 概述
 
-DslParser 在出站方向从 LLM 结构化输出（ContentBlock[]，定义见 [common ContentBlock](../common/shared-types.md#contentblock)）中识别和解析 DSL 指令。DSL 指令定义消息中的交互元素（按钮、选择器等），格式形如 `::button[label:确认;action:confirm;value:1]`，每行一条。
+DslParser 在出站方向从 LLM 结构化输出（ContentBlock[]，定义见 [common ContentBlock](../common/shared-types.md#contentblock)）中识别和解析 DSL 指令。DSL 指令定义消息中的交互元素（按钮、选择器等），每行一条，支持两种格式：`::button[label:X;action:Y;value:Z]` 和 `::selector[label:X;options:A,B;action:Y]`。
 
 ## 架构
 
-DslParser 在出站链中以最高优先级首先执行：
+DslParser 在出站链中紧接 VerbosityFilter 之后执行（priority 10）：
 
 ```
 输入：ContentBlock[]（LLM 结构化输出，仅处理 Text 块）
@@ -33,7 +33,7 @@ ContentBlock[]（来自 LLM UnifiedResponse）
   → Processor 链按 priority 调度 DslParser
     → 遍历 ContentBlock[]：
         ├── Text 块 → 逐行扫描
-        │     ├── 匹配 DSL 语法 → 解析为结构化指令 → 从 Text 中移除该行
+        │     ├── 匹配 DSL 语法 → 解析为结构化指令（button / selector）→ 从 Text 中移除该行
         │     └── 非 DSL 行 → 保留在 Text 块中
         ├── Thinking 块 → 透传
         ├── ToolUse 块 → 透传

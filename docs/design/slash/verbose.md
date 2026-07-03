@@ -6,7 +6,7 @@
 
 ## 架构
 
-Verbosity 是出站链路上的过滤开关，在回复内容进入出站 Processor Chain 之前执行。Agent 照常工作——LLM 按设定的推理深度执行推理、按需调用工具、Plan 工作流按规则运转——但 verbosity 过滤根据展示等级决定哪些内容块进入后续出站链路。
+Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，priority 5），在回复内容进入 DSL 解析之前执行过滤。Agent 照常工作——LLM 按设定的推理深度执行推理、按需调用工具、Plan 工作流按规则运转——但 VerbosityFilter 根据展示等级决定哪些内容块进入后续出站链路。
 
 三个等级：
 
@@ -47,7 +47,7 @@ Gateway 将等级写入 Session
 - **查询**（无参数）：读取 Session 当前展示等级 → 回复当前等级
 - **设置**（带等级参数）：解析等级 → 将等级写入 Session 存储
 
-出站过滤链路（Verbosity 过滤位于回复内容进入出站 Processor Chain 之前）：
+出站过滤链路（VerbosityFilter 是出站 Processor Chain 的第一个 Processor，priority 5）：
 
 ```
 Agent 回复内容（含思考块、工具调用块、文本块）
@@ -55,11 +55,11 @@ Agent 回复内容（含思考块、工具调用块、文本块）
 读取 Session 存储的展示等级，按等级过滤：
   ├── full → 不过滤，全部内容块通过
   ├── normal → 移除 Thinking 内容块，保留工具调用和文本
-  └── off → 仅保留最终文本回复，移除所有其他内容块
+  └── off → 仅保留 Text 块，移除 Thinking/ToolUse/ToolResult
   ↓
-过滤后内容进入出站 Processor Chain
+过滤后内容继续进入 Processor Chain 后续处理
   ↓
-Processor Chain 处理（DslParser）
+Processor Chain 处理（DslParser → OutboundRawLog）
   ↓
 Gateway 记录出站日志
   ↓
@@ -69,5 +69,5 @@ Gateway 记录出站日志
 ## 模块关系
 
 - **上游**：Gateway 通过 Dispatcher 路由到 VerbosHandler 处理指令
-- **下游**：Session 模块（存储和读取展示等级）；出站 Processor Chain（展示等级在回复内容进入后续处理链之前执行过滤）
+- **下游**：Session 模块（存储和读取展示等级）；出站 Processor Chain（VerbosityFilter 作为链的第一个 Processor 执行过滤，过滤后内容进入 DslParser → OutboundRawLog）
 - **无关**：LLM 模块（Verbosity 是纯客户端过滤，不改变 API 参数）、Plan 模式切换（独立的行为控制）、Streaming 路径（过滤逻辑在 Processor Chain 入口统一执行，与流式/非流式无关）
