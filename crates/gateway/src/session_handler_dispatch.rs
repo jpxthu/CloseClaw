@@ -33,6 +33,10 @@ struct SearcherTriggerDeps {
     session_manager: Arc<SessionManager>,
     unified_fallback_client: Arc<UnifiedFallbackClient>,
     memory_db_path: Option<std::path::PathBuf>,
+    /// Pre-loaded agent model (avoids redundant config load in closures).
+    agent_model: Option<String>,
+    /// Pre-loaded memory config JSON (avoids redundant config load).
+    memory_config: Option<serde_json::Value>,
 }
 
 type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'static>>;
@@ -40,90 +44,79 @@ type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send
 /// Return type for the `get_agent_config` closure.
 type AgentConfigResult = Result<(Option<String>, Option<serde_json::Value>), String>;
 
+type GetAgentConfig = Box<dyn Fn(String) -> BoxFuture<AgentConfigResult> + Send + Sync>;
+type Snapshot = closeclaw_session::active_searcher::SessionMessageSnapshot;
+type GetContextMessages = Box<dyn Fn(String) -> BoxFuture<(Vec<Snapshot>, usize)> + Send + Sync>;
+type GetInjectedEventIds =
+    Box<dyn Fn(String) -> BoxFuture<std::collections::HashSet<i64>> + Send + Sync>;
+type SetMemoryInjection = Box<
+    dyn Fn(String, String, String, std::collections::HashSet<i64>) -> BoxFuture<()> + Send + Sync,
+>;
+
+type RunSearcher = Box<
+    dyn Fn(
+            closeclaw_session::active_searcher::SearcherInput,
+        ) -> BoxFuture<Option<(String, String, std::collections::HashSet<i64>)>>
+        + Send
+        + Sync,
+>;
+
+// ── Closure builders ───────────────────────────────────────────────
+
 impl SearcherTriggerDeps {
-    /// Trigger an active-searcher background task for the given message.
+    /// Build a closure that loads agent config from the session manager.
     ///
-    /// Contains the same closure setup as
-    /// `SessionMessageHandler::maybe_spawn_active_searcher` but takes
-    /// dependencies explicitly so it can be called from within a
-    /// `tokio::spawn` task.
-    fn trigger(&self, session_id: &str, agent_id: &str, content: &str, message_role: &str) {
-        use crate::memory::active_searcher_llm::should_trigger_role;
-        use closeclaw_session::active_searcher::{ActiveSearcherRunner, SessionMessageSnapshot};
+    /// Returns the pre-loaded config values (model, memory_config) that
+    /// were passed into [`SearcherTriggerDeps`], avoiding a redundant
+    /// config load inside the session crate.
+    fn build_get_agent_config(&self) -> GetAgentConfig {
+        let model = self.agent_model.clone();
+        let mem_cfg = self.memory_config.clone();
+        Box::new(move |_aid: String| -> BoxFuture<AgentConfigResult> {
+            let model = model.clone();
+            let mem_cfg = mem_cfg.clone();
+            Box::pin(async move { Ok((model, mem_cfg)) })
+        })
+    }
 
-        if !should_trigger_role(agent_id) {
-            return;
-        }
-
+    /// Build a closure that gathers context messages for a session.
+    ///
+    /// `context_turns` is passed from the caller (already extracted
+    /// from the pre-loaded memory config) to avoid redundant config
+    /// deserialization.
+    fn build_get_context_messages(&self, context_turns: usize) -> GetContextMessages {
         let sm = Arc::clone(&self.session_manager);
-        let ufc = Arc::clone(&self.unified_fallback_client);
-
-        // Closure: load agent config, serialize memory to JSON for
-        // cross-crate decoupling.
-        let get_agent_config = {
+        Box::new(move |sid: String| -> BoxFuture<(Vec<Snapshot>, usize)> {
             let sm = Arc::clone(&sm);
-            move |aid: String| -> BoxFuture<AgentConfigResult> {
-                let sm = Arc::clone(&sm);
-                Box::pin(async move {
-                    match sm.get_agent_config(&aid).await {
-                        Some(cfg) => {
-                            let mem_json = cfg
-                                .memory
-                                .as_ref()
-                                .and_then(|m| serde_json::to_value(m).ok());
-                            Ok((cfg.model, mem_json))
-                        }
-                        None => Err("agent not found".to_string()),
-                    }
-                })
-            }
-        };
-
-        // Closure: gather context messages as snapshots.
-        let get_context_messages = {
-            let sm = Arc::clone(&sm);
-            let agent_id_for_ctx = agent_id.to_string();
-            move |sid: String| -> BoxFuture<(Vec<SessionMessageSnapshot>, usize)> {
-                let sm = Arc::clone(&sm);
-                let aid = agent_id_for_ctx.clone();
-                Box::pin(async move {
-                    // Extract context_turns from memory config.
-                    let ctx_turns = if let Some(cfg) = sm.get_agent_config(&aid).await {
-                        let mem_json = cfg
-                            .memory
-                            .as_ref()
-                            .and_then(|m| serde_json::to_value(m).ok());
-                        closeclaw_session::active_searcher::extract_context_turns(&mem_json)
+            let ctx_turns = context_turns;
+            Box::pin(async move {
+                if let Some(cs) = sm.get_conversation_session(&sid).await {
+                    let cs_read = cs.read().await;
+                    let msgs = ChatSession::messages(&*cs_read);
+                    let start = if msgs.len() > ctx_turns {
+                        msgs.len() - ctx_turns
                     } else {
-                        10
+                        0
                     };
+                    let snapshots: Vec<Snapshot> = msgs[start..]
+                        .iter()
+                        .map(|m| Snapshot {
+                            role: m.role.clone(),
+                            content: flatten_content_blocks(&m.content_blocks),
+                        })
+                        .collect();
+                    (snapshots, ctx_turns)
+                } else {
+                    (Vec::new(), ctx_turns)
+                }
+            })
+        })
+    }
 
-                    if let Some(cs) = sm.get_conversation_session(&sid).await {
-                        let cs_read = cs.read().await;
-                        let msgs = ChatSession::messages(&*cs_read);
-                        let start = if msgs.len() > ctx_turns {
-                            msgs.len() - ctx_turns
-                        } else {
-                            0
-                        };
-                        let snapshots: Vec<SessionMessageSnapshot> = msgs[start..]
-                            .iter()
-                            .map(|m| SessionMessageSnapshot {
-                                role: m.role.clone(),
-                                content: flatten_content_blocks(&m.content_blocks),
-                            })
-                            .collect();
-                        (snapshots, ctx_turns)
-                    } else {
-                        (Vec::new(), ctx_turns)
-                    }
-                })
-            }
-        };
-
-        // Closure: get already-injected event IDs for dedup.
-        let get_injected_event_ids = {
-            let sm = Arc::clone(&sm);
+    /// Build a closure that fetches already-injected event IDs for dedup.
+    fn build_get_injected_event_ids(&self) -> GetInjectedEventIds {
+        let sm = Arc::clone(&self.session_manager);
+        Box::new(
             move |sid: String| -> BoxFuture<std::collections::HashSet<i64>> {
                 let sm = Arc::clone(&sm);
                 Box::pin(async move {
@@ -140,16 +133,22 @@ impl SearcherTriggerDeps {
                         std::collections::HashSet::new()
                     }
                 })
-            }
-        };
+            },
+        )
+    }
+}
 
-        // Closure: write memory injection into the session slot.
-        let set_memory_injection = {
-            let sm = Arc::clone(&sm);
+// ── Write/execute closure builders ─────────────────────────────────
+
+impl SearcherTriggerDeps {
+    /// Build a closure that writes a memory injection into the session slot.
+    fn build_set_memory_injection(&self) -> SetMemoryInjection {
+        let sm = Arc::clone(&self.session_manager);
+        Box::new(
             move |sid: String,
                   content: String,
                   position: String,
-                  event_ids: Vec<i64>|
+                  event_ids: std::collections::HashSet<i64>|
                   -> BoxFuture<()> {
                 let sm = Arc::clone(&sm);
                 Box::pin(async move {
@@ -161,92 +160,154 @@ impl SearcherTriggerDeps {
                         let injection = closeclaw_llm::session::MemoryInjection {
                             content,
                             position_mode: pos_mode,
-                            injected_event_ids: event_ids.into_iter().collect(),
+                            injected_event_ids: event_ids,
                         };
                         cs.read().await.set_memory_injection(injection);
                     }
                 })
-            }
-        };
+            },
+        )
+    }
 
-        // Closure: execute the active-searcher pipeline.
-        let run_searcher = {
-            let ufc = Arc::clone(&ufc);
-            move |db_path: String,
-                  agent_id: String,
-                  role: String,
-                  content: String,
-                  model: String,
-                  context_messages: Vec<SessionMessageSnapshot>,
-                  injected_ids: std::collections::HashSet<i64>,
-                  memory_config: serde_json::Value|
-                  -> BoxFuture<Option<(String, String, Vec<i64>)>> {
+    /// Build a closure that executes the active-searcher pipeline.
+    fn build_run_searcher(&self) -> RunSearcher {
+        let ufc = Arc::clone(&self.unified_fallback_client);
+        Box::new(
+            move |input: closeclaw_session::active_searcher::SearcherInput| -> BoxFuture<
+                Option<(String, String, std::collections::HashSet<i64>)>,
+            > {
                 let ufc = Arc::clone(&ufc);
                 Box::pin(async move {
-                    use crate::memory::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
-
-                    let llm_messages: Vec<closeclaw_llm::session::SessionMessage> =
-                        context_messages
-                            .into_iter()
-                            .map(|m| closeclaw_llm::session::SessionMessage {
-                                role: m.role,
-                                content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
-                                    m.content,
-                                )],
-                                timestamp: chrono::Utc::now(),
-                            })
-                            .collect();
-
-                    let mem_cfg: Option<closeclaw_common::agent_config::MemoryConfig> =
-                        serde_json::from_value(memory_config).ok();
-
-                    let config =
-                        ActiveSearcherConfig::from_agent_config(Some(&model), mem_cfg.as_ref());
-                    let searcher =
-                        ActiveSearcher::new(std::path::PathBuf::from(&db_path), config.clone());
-                    let caller = FallbackLlmCaller {
-                        client: ufc,
-                        model: config.model.clone(),
-                    };
-
-                    if let Some(injection) = searcher
-                        .run(
-                            &agent_id,
-                            &role,
-                            &content,
-                            &llm_messages,
-                            &injected_ids,
-                            &caller,
-                        )
-                        .await
-                    {
-                        let pos_str = match injection.position_mode {
-                            closeclaw_llm::session::InjectionPosition::BeforeNext => {
-                                "before_next".to_string()
-                            }
-                            closeclaw_llm::session::InjectionPosition::AfterCurrent => {
-                                "after_current".to_string()
-                            }
-                        };
-                        let event_ids: Vec<i64> =
-                            injection.injected_event_ids.iter().copied().collect();
-                        Some((injection.content, pos_str, event_ids))
-                    } else {
-                        None
-                    }
+                    run_searcher_pipeline(input, &ufc).await
                 })
-            }
-        };
+            },
+        )
+    }
+}
+
+// ── build_run_searcher helpers ─────────────────────────────────────
+
+/// Convert session message snapshots to LLM session messages.
+fn convert_to_llm_messages(snapshots: &[Snapshot]) -> Vec<closeclaw_llm::session::SessionMessage> {
+    snapshots
+        .iter()
+        .map(|m| closeclaw_llm::session::SessionMessage {
+            role: m.role.clone(),
+            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(m.content.clone())],
+            timestamp: chrono::Utc::now(),
+        })
+        .collect()
+}
+
+/// Deserialize the memory config JSON into a strongly-typed struct.
+fn deserialize_memory_config(
+    memory_config: &serde_json::Value,
+) -> Option<closeclaw_common::agent_config::MemoryConfig> {
+    serde_json::from_value(memory_config.clone()).ok()
+}
+
+/// Build the active-searcher config from model and memory config.
+fn build_searcher_config(
+    model: &str,
+    mem_cfg: &Option<closeclaw_common::agent_config::MemoryConfig>,
+) -> crate::memory::active_searcher::ActiveSearcherConfig {
+    use crate::memory::active_searcher::ActiveSearcherConfig;
+    ActiveSearcherConfig::from_agent_config(Some(model), mem_cfg.as_ref())
+}
+
+/// Build the LLM caller for the searcher pipeline.
+fn build_llm_caller(ufc: &Arc<UnifiedFallbackClient>, model: &str) -> FallbackLlmCaller {
+    FallbackLlmCaller {
+        client: Arc::clone(ufc),
+        model: model.to_string(),
+    }
+}
+
+/// Execute the searcher pipeline and convert the result.
+async fn run_searcher_pipeline(
+    input: closeclaw_session::active_searcher::SearcherInput,
+    ufc: &Arc<UnifiedFallbackClient>,
+) -> Option<(String, String, std::collections::HashSet<i64>)> {
+    use crate::memory::active_searcher::ActiveSearcher;
+    let llm_messages = convert_to_llm_messages(&input.context_messages);
+    let mem_cfg = deserialize_memory_config(&input.memory_config);
+    let config = build_searcher_config(&input.model, &mem_cfg);
+    let caller = build_llm_caller(ufc, &config.model);
+    let searcher = ActiveSearcher::new(std::path::PathBuf::from(&input.db_path), config.clone());
+
+    let injection = searcher
+        .run(
+            &input.agent_id,
+            &input.role,
+            &input.content,
+            &llm_messages,
+            &input.injected_ids,
+            &caller,
+        )
+        .await?;
+
+    let pos_str = match injection.position_mode {
+        closeclaw_llm::session::InjectionPosition::BeforeNext => "before_next".to_string(),
+        closeclaw_llm::session::InjectionPosition::AfterCurrent => "after_current".to_string(),
+    };
+    Some((injection.content, pos_str, injection.injected_event_ids))
+}
+
+// ── Config loading helper ──────────────────────────────────────────
+
+/// Load agent config and extract `context_turns` from memory config.
+///
+/// Returns `(model, memory_config, context_turns)`. The caller
+/// pre-loads once and passes values to `trigger()`, eliminating
+/// redundant config loads inside closure builders.
+async fn load_agent_config_with_context_turns(
+    session_manager: &SessionManager,
+    agent_id: &str,
+) -> (Option<String>, Option<serde_json::Value>, usize) {
+    match session_manager.get_agent_config(agent_id).await {
+        Some(cfg) => {
+            let mem_json = cfg
+                .memory
+                .as_ref()
+                .and_then(|m| serde_json::to_value(m).ok());
+            let ctx_turns = closeclaw_session::active_searcher::extract_context_turns(&mem_json);
+            (cfg.model, mem_json, ctx_turns)
+        }
+        None => (None, None, 10),
+    }
+}
+
+// ── Trigger assembly ───────────────────────────────────────────────
+
+impl SearcherTriggerDeps {
+    /// Trigger an active-searcher background task for the given message.
+    ///
+    /// Pre-loaded `agent_model`, `memory_config`, and `context_turns`
+    /// are used by closure builders to avoid redundant config loads
+    /// inside the session crate.
+    fn trigger(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        content: &str,
+        message_role: &str,
+        context_turns: usize,
+    ) {
+        use crate::memory::active_searcher_llm::should_trigger_role;
+
+        if !should_trigger_role(agent_id) {
+            return;
+        }
 
         let deps = closeclaw_session::active_searcher::SearcherDependencies {
-            get_agent_config: Box::new(get_agent_config),
-            get_context_messages: Box::new(get_context_messages),
-            get_injected_event_ids: Box::new(get_injected_event_ids),
-            set_memory_injection: Box::new(set_memory_injection),
-            run_searcher: Box::new(run_searcher),
+            get_agent_config: self.build_get_agent_config(),
+            get_context_messages: self.build_get_context_messages(context_turns),
+            get_injected_event_ids: self.build_get_injected_event_ids(),
+            set_memory_injection: self.build_set_memory_injection(),
+            run_searcher: self.build_run_searcher(),
         };
 
-        ActiveSearcherRunner::trigger(
+        closeclaw_session::active_searcher::spawn_active_searcher(
             session_id,
             agent_id,
             content,
@@ -299,16 +360,24 @@ impl SessionMessageHandler {
         self.set_busy(session_id, true).await;
 
         // ── Trigger active-searcher (best-effort, non-blocking) ────
-        // Look up the agent_id for role-based exclusion, then spawn a
-        // background searcher that writes results to the
-        // memory_injection slot for the next turn to consume.
+        // Pre-load agent config once for both user and assistant
+        // triggers, avoiding redundant config loads inside closures.
         let searcher_deps = SearcherTriggerDeps {
             session_manager: Arc::clone(&self.session_manager),
             unified_fallback_client: Arc::clone(&self.unified_fallback_client),
             memory_db_path: self.memory_db_path.clone(),
+            agent_model: None,
+            memory_config: None,
         };
         if let Some(agent_id) = self.session_manager.get_chat_id(session_id).await {
-            searcher_deps.trigger(session_id, &agent_id, &content, "user");
+            let (model, mem_cfg, ctx_turns) =
+                load_agent_config_with_context_turns(&self.session_manager, &agent_id).await;
+            let deps = SearcherTriggerDeps {
+                agent_model: model,
+                memory_config: mem_cfg,
+                ..searcher_deps.clone()
+            };
+            deps.trigger(session_id, &agent_id, &content, "user", ctx_turns);
         }
 
         let session_id = session_id.to_string();
@@ -392,7 +461,20 @@ impl SessionMessageHandler {
             // trigger active-searcher with role "assistant" so it
             // writes to the BeforeNext slot for the next user turn.
             if let Some(agent_id) = sm.get_chat_id(&session_id).await {
-                searcher_deps.trigger(&session_id, &agent_id, &assistant_text, "assistant");
+                let (model, mem_cfg, ctx_turns) =
+                    load_agent_config_with_context_turns(&sm, &agent_id).await;
+                let deps = SearcherTriggerDeps {
+                    agent_model: model,
+                    memory_config: mem_cfg,
+                    ..searcher_deps.clone()
+                };
+                deps.trigger(
+                    &session_id,
+                    &agent_id,
+                    &assistant_text,
+                    "assistant",
+                    ctx_turns,
+                );
             }
 
             // Decrement busy count after response sent + pending

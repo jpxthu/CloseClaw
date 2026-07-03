@@ -12,7 +12,6 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use tokio::task::JoinHandle;
 
 /// Pinned boxed future type used by dependency closures.
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
@@ -48,23 +47,34 @@ type GetInjectedEventIds = Box<dyn Fn(String) -> BoxFuture<HashSet<i64>> + Send 
 
 /// Async closure: writes a memory injection into the session slot.
 type SetMemoryInjection =
-    Box<dyn Fn(String, String, String, Vec<i64>) -> BoxFuture<()> + Send + Sync>;
+    Box<dyn Fn(String, String, String, HashSet<i64>) -> BoxFuture<()> + Send + Sync>;
+
+/// Consolidated input for the active-searcher pipeline closure.
+///
+/// Groups the scattered parameters that the `run_searcher` closure
+/// needs, keeping its signature within the project's parameter limit.
+pub struct SearcherInput {
+    /// Path to the SQLite database for entity search.
+    pub db_path: String,
+    /// ID of the agent owning this session.
+    pub agent_id: String,
+    /// Role of the triggering message (`"user"` or `"assistant"`).
+    pub role: String,
+    /// The message content that triggered the search.
+    pub content: String,
+    /// Agent model name.
+    pub model: String,
+    /// Context messages for the search.
+    pub context_messages: Vec<SessionMessageSnapshot>,
+    /// Already-injected event IDs (for dedup).
+    pub injected_ids: HashSet<i64>,
+    /// Memory config from the agent config.
+    pub memory_config: serde_json::Value,
+}
 
 /// Async closure: executes the full active-searcher pipeline.
-type RunSearcher = Box<
-    dyn Fn(
-            String,
-            String,
-            String,
-            String,
-            String,
-            Vec<SessionMessageSnapshot>,
-            HashSet<i64>,
-            serde_json::Value,
-        ) -> BoxFuture<Option<(String, String, Vec<i64>)>>
-        + Send
-        + Sync,
->;
+type RunSearcher =
+    Box<dyn Fn(SearcherInput) -> BoxFuture<Option<(String, String, HashSet<i64>)>> + Send + Sync>;
 
 /// All external dependencies needed by [`ActiveSearcherRunner::trigger`].
 ///
@@ -102,84 +112,45 @@ struct SearchContext {
 
 // ── ActiveSearcherRunner ────────────────────────────────────────────────
 
-/// Active-searcher runner with lifecycle management.
+/// Spawn a background active-searcher task for the given message.
 ///
-/// Wraps a `JoinHandle` so callers can track or cancel the background
-/// searcher task. Created via [`ActiveSearcherRunner::trigger`].
-pub struct ActiveSearcherRunner {
-    /// Handle to the spawned background task, if any.
-    handle: Option<JoinHandle<()>>,
-}
+/// This is a fire-and-forget function: the background task runs
+/// independently and is not tracked by the caller. If `memory_db_path`
+/// is `None`, the task is not spawned.
+///
+/// # Arguments
+///
+/// * `session_id` – ID of the conversation session.
+/// * `agent_id` – ID of the agent owning this session.
+/// * `content` – The message content that triggered the search.
+/// * `message_role` – Role of the message (`"user"` or `"assistant"`).
+/// * `memory_db_path` – Path to the SQLite database for entity search.
+/// * `deps` – All async dependency closures bundled together.
+pub fn spawn_active_searcher(
+    session_id: &str,
+    agent_id: &str,
+    content: &str,
+    message_role: &str,
+    memory_db_path: &Option<PathBuf>,
+    deps: SearcherDependencies,
+) {
+    let Some(ref db_path) = *memory_db_path else {
+        return;
+    };
 
-impl ActiveSearcherRunner {
-    /// Spawn a background active-searcher task for the given message.
-    ///
-    /// # Arguments
-    ///
-    /// * `session_id` – ID of the conversation session.
-    /// * `agent_id` – ID of the agent owning this session.
-    /// * `content` – The message content that triggered the search.
-    /// * `message_role` – Role of the message (`"user"` or `"assistant"`).
-    /// * `memory_db_path` – Path to the SQLite database for entity search.
-    /// * `deps` – All async dependency closures bundled together.
-    ///
-    /// # Returns
-    ///
-    /// An [`ActiveSearcherRunner`] with a tracked `JoinHandle`. If
-    /// `memory_db_path` is `None`, the handle is `None` and the task
-    /// is not spawned.
-    pub fn trigger(
-        session_id: &str,
-        agent_id: &str,
-        content: &str,
-        message_role: &str,
-        memory_db_path: &Option<PathBuf>,
-        deps: SearcherDependencies,
-    ) -> Self {
-        let Some(ref db_path) = *memory_db_path else {
-            return Self { handle: None };
-        };
-
-        let handle = spawn_search_task(
-            session_id,
-            agent_id,
-            content,
-            message_role,
-            db_path.clone(),
-            deps,
-        );
-        Self {
-            handle: Some(handle),
-        }
-    }
-
-    /// Cancel the background task if it is still running.
-    pub fn cancel(&self) {
-        if let Some(ref h) = self.handle {
-            h.abort();
-        }
-    }
-
-    /// Returns `true` if the background task handle exists.
-    pub fn is_running(&self) -> bool {
-        self.handle.is_some()
-    }
-
-    /// Consume the runner and await the background task.
-    ///
-    /// Returns `Ok(())` if the task completed successfully, or an error
-    /// if the task panicked or was cancelled.
-    pub async fn join(self) -> Result<(), tokio::task::JoinError> {
-        match self.handle {
-            Some(h) => h.await,
-            None => Ok(()),
-        }
-    }
+    spawn_search_task(
+        session_id,
+        agent_id,
+        content,
+        message_role,
+        db_path.clone(),
+        deps,
+    );
 }
 
 // ── Helper functions ────────────────────────────────────────────────────
 
-/// Spawn the background search task. Returns the `JoinHandle`.
+/// Spawn the background search task.
 fn spawn_search_task(
     session_id: &str,
     agent_id: &str,
@@ -187,7 +158,7 @@ fn spawn_search_task(
     message_role: &str,
     db_path: PathBuf,
     deps: SearcherDependencies,
-) -> JoinHandle<()> {
+) {
     let sid = session_id.to_string();
     let aid = agent_id.to_string();
     let content = content.to_string();
@@ -219,7 +190,7 @@ fn spawn_search_task(
         let result = run_search_pipeline(&deps, &db_path, &aid, &role, &content, &ctx).await;
 
         handle_search_result(&deps, &sid, result).await;
-    })
+    });
 }
 
 /// Load agent config; returns `Ok((model, memory_config))`.
@@ -254,21 +225,21 @@ async fn run_search_pipeline(
     role: &str,
     content: &str,
     ctx: &SearchContext,
-) -> Option<(String, String, Vec<i64>)> {
+) -> Option<(String, String, HashSet<i64>)> {
     let timeout_duration = std::time::Duration::from_millis(extract_timeout_ms(&ctx.memory_config));
 
     let result = tokio::time::timeout(
         timeout_duration,
-        (deps.run_searcher)(
-            db_path.to_string_lossy().to_string(),
-            agent_id.to_string(),
-            role.to_string(),
-            content.to_string(),
-            ctx.agent_model.clone().unwrap_or_default(),
-            ctx.context_messages.clone(),
-            ctx.injected_ids.clone(),
-            ctx.memory_config.clone().unwrap_or(serde_json::Value::Null),
-        ),
+        (deps.run_searcher)(SearcherInput {
+            db_path: db_path.to_string_lossy().to_string(),
+            agent_id: agent_id.to_string(),
+            role: role.to_string(),
+            content: content.to_string(),
+            model: ctx.agent_model.clone().unwrap_or_default(),
+            context_messages: ctx.context_messages.clone(),
+            injected_ids: ctx.injected_ids.clone(),
+            memory_config: ctx.memory_config.clone().unwrap_or(serde_json::Value::Null),
+        }),
     )
     .await;
 
@@ -288,7 +259,7 @@ async fn run_search_pipeline(
 async fn handle_search_result(
     deps: &SearcherDependencies,
     session_id: &str,
-    result: Option<(String, String, Vec<i64>)>,
+    result: Option<(String, String, HashSet<i64>)>,
 ) {
     match result {
         Some((inj_content, inj_position, inj_event_ids)) => {

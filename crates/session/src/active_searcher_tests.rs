@@ -8,7 +8,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::active_searcher::{
-        ActiveSearcherRunner, SearcherDependencies, SessionMessageSnapshot,
+        spawn_active_searcher, SearcherDependencies, SearcherInput, SessionMessageSnapshot,
     };
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -32,22 +32,13 @@ mod tests {
                 |_sid: String| -> BoxFuture<HashSet<i64>> { Box::pin(async { HashSet::new() }) },
             ),
             set_memory_injection: Box::new(
-                |_sid: String, _content: String, _position: String, _event_ids: Vec<i64>| {
+                |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
                     Box::pin(async {})
                 },
             ),
-            run_searcher: Box::new(
-                |_db: String,
-                 _aid: String,
-                 _role: String,
-                 _content: String,
-                 _model: String,
-                 _ctx: Vec<SessionMessageSnapshot>,
-                 _ids: HashSet<i64>,
-                 _cfg: serde_json::Value| {
-                    Box::pin(async { None })
-                },
-            ),
+            run_searcher: Box::new(|_input: SearcherInput| {
+                Box::pin(async { None })
+            }),
         }
     }
 
@@ -55,30 +46,51 @@ mod tests {
 
     #[tokio::test]
     async fn test_no_spawn_when_db_path_none() {
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &None, noop_deps());
+        // With memory_db_path = None, spawn_active_searcher is a no-op.
+        // We verify by confirming the injected flag was never set.
+        let injection_called: Arc<tokio::sync::Mutex<bool>> =
+            Arc::new(tokio::sync::Mutex::new(false));
+        let called = Arc::clone(&injection_called);
+        let mut deps = noop_deps();
+        deps.run_searcher = Box::new(move |_input: SearcherInput| {
+            let called = Arc::clone(&called);
+            Box::pin(async move {
+                *called.lock().await = true;
+                None
+            })
+        });
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &None, deps);
+        // Give a brief moment (shouldn't be needed since no spawn happens).
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(
-            !runner.is_running(),
+            !*injection_called.lock().await,
             "should not spawn task when memory_db_path is None"
         );
-        let result: Result<(), _> = runner.join().await;
-        assert!(result.is_ok());
     }
 
-    // ── Test: memory_db_path set → task spawned ─────────────────────
+    // ── Test: memory_db_path set → task spawns and runs ─────────────
 
     #[tokio::test]
     async fn test_spawn_when_db_path_set() {
         let db = PathBuf::from("/tmp/test.db");
-        let runner =
-            ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), noop_deps());
+        let task_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
+        let ran = Arc::clone(&task_ran);
+        let mut deps = noop_deps();
+        deps.run_searcher = Box::new(move |_input: SearcherInput| {
+            let ran = Arc::clone(&ran);
+            Box::pin(async move {
+                *ran.lock().await = true;
+                None
+            })
+        });
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        // Wait for the spawned task to complete.
+        tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(
-            runner.is_running(),
-            "should spawn task when memory_db_path is Some"
-        );
-        let result: Result<(), _> = runner.join().await;
-        assert!(
-            result.is_ok(),
-            "background task should complete without error"
+            *task_ran.lock().await,
+            "background task should have run when memory_db_path is Some"
         );
     }
 
@@ -102,7 +114,7 @@ mod tests {
             move |sid: String,
                   content: String,
                   position: String,
-                  _event_ids: Vec<i64>|
+                  _event_ids: HashSet<i64>|
                   -> BoxFuture<()> {
                 let seen = Arc::clone(&seen);
                 Box::pin(async move {
@@ -112,32 +124,19 @@ mod tests {
                 })
             },
         );
-        deps.run_searcher = Box::new(
-            |_db: String,
-             _aid: String,
-             role: String,
-             _content: String,
-             _model: String,
-             _ctx: Vec<SessionMessageSnapshot>,
-             _ids: HashSet<i64>,
-             _cfg: serde_json::Value| {
-                assert_eq!(role, "user");
-                Box::pin(async move {
-                    Some((
-                        "user-search-result".to_string(),
-                        "after_current".to_string(),
-                        vec![],
-                    ))
-                })
-            },
-        );
+        deps.run_searcher = Box::new(|input: SearcherInput| {
+            assert_eq!(input.role, "user");
+            Box::pin(async move {
+                Some((
+                    "user-search-result".to_string(),
+                    "after_current".to_string(),
+                    HashSet::new(),
+                ))
+            })
+        });
 
-        let runner =
-            ActiveSearcherRunner::trigger(session_id, agent_id, "hello", "user", &Some(db), deps);
-
-        assert!(runner.is_running());
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        spawn_active_searcher(session_id, agent_id, "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let pos = seen_position.lock().await;
         assert_eq!(
@@ -167,7 +166,7 @@ mod tests {
             move |sid: String,
                   content: String,
                   position: String,
-                  _event_ids: Vec<i64>|
+                  _event_ids: HashSet<i64>|
                   -> BoxFuture<()> {
                 let seen = Arc::clone(&seen);
                 Box::pin(async move {
@@ -177,27 +176,22 @@ mod tests {
                 })
             },
         );
-        deps.run_searcher = Box::new(
-            |_db: String,
-             _aid: String,
-             role: String,
-             _content: String,
-             _model: String,
-             _ctx: Vec<SessionMessageSnapshot>,
-             _ids: HashSet<i64>,
-             _cfg: serde_json::Value| {
-                assert_eq!(role, "assistant");
-                Box::pin(async move {
-                    Some((
-                        "assistant-search-result".to_string(),
-                        "before_next".to_string(),
-                        vec![1, 2, 3],
-                    ))
-                })
-            },
-        );
+        deps.run_searcher = Box::new(|input: SearcherInput| {
+            assert_eq!(input.role, "assistant");
+            Box::pin(async move {
+                let mut ids = HashSet::new();
+                ids.insert(1);
+                ids.insert(2);
+                ids.insert(3);
+                Some((
+                    "assistant-search-result".to_string(),
+                    "before_next".to_string(),
+                    ids,
+                ))
+            })
+        });
 
-        let runner = ActiveSearcherRunner::trigger(
+        spawn_active_searcher(
             session_id,
             agent_id,
             "my response",
@@ -205,10 +199,7 @@ mod tests {
             &Some(db),
             deps,
         );
-
-        assert!(runner.is_running());
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let pos = seen_position.lock().await;
         assert_eq!(
@@ -223,40 +214,35 @@ mod tests {
     #[tokio::test]
     async fn test_graceful_degradation_on_agent_config_error() {
         let db = PathBuf::from("/tmp/test.db");
+        let task_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
 
+        let ran = Arc::clone(&task_ran);
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
             Result<(Option<String>, Option<serde_json::Value>), String>,
         > { Box::pin(async { Err("agent not found".to_string()) }) });
         deps.set_memory_injection = Box::new(
-            |_sid: String, _content: String, _position: String, _event_ids: Vec<i64>| {
+            |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
                 Box::pin(async {
                     panic!("set_injection should not be called when agent config fails");
                 })
             },
         );
-        deps.run_searcher = Box::new(
-            |_db: String,
-             _aid: String,
-             _role: String,
-             _content: String,
-             _model: String,
-             _ctx: Vec<SessionMessageSnapshot>,
-             _ids: HashSet<i64>,
-             _cfg: serde_json::Value| {
-                Box::pin(async {
-                    panic!("run_searcher should not be called when agent config fails");
-                })
-            },
-        );
+        deps.run_searcher = Box::new(move |_input: SearcherInput| {
+            let ran = Arc::clone(&ran);
+            Box::pin(async move {
+                *ran.lock().await = true;
+                panic!("run_searcher should not be called when agent config fails");
+            })
+        });
 
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), deps);
-
-        // Task was spawned but should exit early due to config error.
-        assert!(runner.is_running());
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
         // If we reach here without panicking, graceful degradation works.
+        assert!(
+            !*task_ran.lock().await,
+            "run_searcher should not be called when config loading fails"
+        );
     }
 
     // ── Test: search returns None → no injection ────────────────────
@@ -270,28 +256,17 @@ mod tests {
         let called = Arc::clone(&injection_called);
         let mut deps = noop_deps();
         deps.set_memory_injection = Box::new(
-            move |_sid: String, _content: String, _position: String, _event_ids: Vec<i64>| {
+            move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
                 let called = Arc::clone(&called);
                 Box::pin(async move {
                     *called.lock().await = true;
                 })
             },
         );
-        deps.run_searcher = Box::new(
-            |_db: String,
-             _aid: String,
-             _role: String,
-             _content: String,
-             _model: String,
-             _ctx: Vec<SessionMessageSnapshot>,
-             _ids: HashSet<i64>,
-             _cfg: serde_json::Value| { Box::pin(async { None }) },
-        );
+        deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), deps);
-
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         assert!(
             !*injection_called.lock().await,
@@ -299,83 +274,45 @@ mod tests {
         );
     }
 
-    // ── Test: cancel aborts the task ────────────────────────────────
-
-    #[tokio::test]
-    async fn test_cancel_aborts_task() {
-        let db = PathBuf::from("/tmp/test.db");
-
-        let mut deps = noop_deps();
-        deps.run_searcher = Box::new(
-            |_db: String,
-             _aid: String,
-             _role: String,
-             _content: String,
-             _model: String,
-             _ctx: Vec<SessionMessageSnapshot>,
-             _ids: HashSet<i64>,
-             _cfg: serde_json::Value| {
-                Box::pin(async {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
-                    Some(("r".to_string(), "after_current".to_string(), vec![]))
-                })
-            },
-        );
-
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), deps);
-
-        assert!(runner.is_running());
-        runner.cancel();
-
-        // After cancel, join should return a JoinError (task was aborted).
-        let result: Result<(), _> = runner.join().await;
-        assert!(result.is_err(), "cancelled task should return JoinError");
-    }
-
     // ── Test: run_searcher returns event IDs → they are forwarded ───
 
     #[tokio::test]
     async fn test_event_ids_forwarded_to_injection() {
         let db = PathBuf::from("/tmp/test.db");
-        let seen_ids: Arc<tokio::sync::Mutex<Vec<i64>>> =
-            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let seen_ids: Arc<tokio::sync::Mutex<HashSet<i64>>> =
+            Arc::new(tokio::sync::Mutex::new(HashSet::new()));
 
         let ids_ref = Arc::clone(&seen_ids);
         let mut deps = noop_deps();
         deps.set_memory_injection = Box::new(
-            move |_sid: String, _content: String, _position: String, event_ids: Vec<i64>| {
+            move |_sid: String,
+                  _content: String,
+                  _position: String,
+                  event_ids: HashSet<i64>|
+                  -> BoxFuture<()> {
                 let ids_ref = Arc::clone(&ids_ref);
                 Box::pin(async move {
                     *ids_ref.lock().await = event_ids;
                 })
             },
         );
-        deps.run_searcher = Box::new(
-            |_db: String,
-             _aid: String,
-             _role: String,
-             _content: String,
-             _model: String,
-             _ctx: Vec<SessionMessageSnapshot>,
-             _ids: HashSet<i64>,
-             _cfg: serde_json::Value| {
-                Box::pin(async {
-                    Some((
-                        "summary".to_string(),
-                        "after_current".to_string(),
-                        vec![42, 99, 100],
-                    ))
-                })
-            },
-        );
+        deps.run_searcher = Box::new(|_input: SearcherInput| {
+            Box::pin(async {
+                let mut ids = HashSet::new();
+                ids.insert(42);
+                ids.insert(99);
+                ids.insert(100);
+                Some(("summary".to_string(), "after_current".to_string(), ids))
+            })
+        });
 
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), deps);
-
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ids = seen_ids.lock().await;
-        assert_eq!(*ids, vec![42, 99, 100]);
+        assert!(ids.contains(&42));
+        assert!(ids.contains(&99));
+        assert!(ids.contains(&100));
     }
 
     // ── Test: context messages are passed through ───────────────────
@@ -403,27 +340,16 @@ mod tests {
                 Box::pin(async move { (msgs, 20) })
             },
         );
-        deps.run_searcher = Box::new(
-            move |_db: String,
-                  _aid: String,
-                  _role: String,
-                  _content: String,
-                  _model: String,
-                  context: Vec<SessionMessageSnapshot>,
-                  _ids: HashSet<i64>,
-                  _cfg: serde_json::Value| {
-                let ctx_ref = Arc::clone(&ctx_ref);
-                Box::pin(async move {
-                    *ctx_ref.lock().await = context;
-                    Some(("r".to_string(), "after_current".to_string(), vec![]))
-                })
-            },
-        );
+        deps.run_searcher = Box::new(move |input: SearcherInput| {
+            let ctx_ref = Arc::clone(&ctx_ref);
+            Box::pin(async move {
+                *ctx_ref.lock().await = input.context_messages;
+                Some(("r".to_string(), "after_current".to_string(), HashSet::new()))
+            })
+        });
 
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), deps);
-
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ctx = seen_ctx.lock().await;
         assert_eq!(ctx.len(), 2);
@@ -449,27 +375,16 @@ mod tests {
             ids.insert(20);
             Box::pin(async move { ids })
         });
-        deps.run_searcher = Box::new(
-            move |_db: String,
-                  _aid: String,
-                  _role: String,
-                  _content: String,
-                  _model: String,
-                  _ctx: Vec<SessionMessageSnapshot>,
-                  injected_ids: HashSet<i64>,
-                  _cfg: serde_json::Value| {
-                let ids_ref = Arc::clone(&ids_ref);
-                Box::pin(async move {
-                    *ids_ref.lock().await = injected_ids;
-                    Some(("r".to_string(), "after_current".to_string(), vec![]))
-                })
-            },
-        );
+        deps.run_searcher = Box::new(move |input: SearcherInput| {
+            let ids_ref = Arc::clone(&ids_ref);
+            Box::pin(async move {
+                *ids_ref.lock().await = input.injected_ids;
+                Some(("r".to_string(), "after_current".to_string(), HashSet::new()))
+            })
+        });
 
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), deps);
-
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ids = seen_ids.lock().await;
         assert!(ids.contains(&10));
@@ -497,7 +412,7 @@ mod tests {
             Box::pin(async move { Ok((Some("m".to_string()), Some(cfg))) })
         });
         deps.set_memory_injection = Box::new(
-            move |_sid: String, _content: String, _position: String, _event_ids: Vec<i64>| {
+            move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
                 let called = Arc::clone(&called);
                 Box::pin(async move {
                     *called.lock().await = true;
@@ -505,26 +420,15 @@ mod tests {
             },
         );
         // Searcher sleeps longer than the timeout.
-        deps.run_searcher = Box::new(
-            |_db: String,
-             _aid: String,
-             _role: String,
-             _content: String,
-             _model: String,
-             _ctx: Vec<SessionMessageSnapshot>,
-             _ids: HashSet<i64>,
-             _cfg: serde_json::Value| {
-                Box::pin(async {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
-                    Some(("r".to_string(), "after_current".to_string(), vec![]))
-                })
-            },
-        );
+        deps.run_searcher = Box::new(|_input: SearcherInput| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Some(("r".to_string(), "after_current".to_string(), HashSet::new()))
+            })
+        });
 
-        let runner = ActiveSearcherRunner::trigger("s1", "a1", "hello", "user", &Some(db), deps);
-
-        let result: Result<(), _> = runner.join().await;
-        result.unwrap();
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Injection should NOT have been called because the searcher timed out.
         assert!(
