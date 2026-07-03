@@ -239,7 +239,7 @@ impl SlashResult {
             }
             SlashResult::SetReasoning { level } => {
                 ctx.executor
-                    .execute_set_reasoning(&ctx.session_id, level.clone())
+                    .execute_set_reasoning(&ctx.session_id, *level)
                     .await;
                 ctx.reply(vec![ContentBlock::Text(format!(
                     "推理深度已设置为 {}",
@@ -249,7 +249,7 @@ impl SlashResult {
             }
             SlashResult::SetVerbosity { level } => {
                 ctx.executor
-                    .execute_set_verbosity(&ctx.session_id, level.clone())
+                    .execute_set_verbosity(&ctx.session_id, *level)
                     .await;
                 ctx.reply(vec![ContentBlock::Text(format!(
                     "输出详细度已设置为 {}",
