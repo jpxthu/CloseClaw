@@ -398,15 +398,13 @@ impl Gateway {
         let mut state = StreamState::new(verbosity_level);
         while let Some(event_result) = stream.next().await {
             let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-            self.process_stream_event(
+            let ctx = StreamContext {
                 plugin,
-                &chat_id,
-                thread_id.as_deref(),
-                event,
-                &mut state,
-                &middlewares,
-            )
-            .await?;
+                chat_id: &chat_id,
+                thread_id: thread_id.as_deref(),
+                middlewares: &middlewares,
+            };
+            self.process_stream_event(&ctx, event, &mut state).await?;
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
         Ok(StreamState::into_result(state))
@@ -419,39 +417,25 @@ impl Gateway {
     /// within the 50-line function body limit.
     async fn process_stream_event(
         &self,
-        plugin: &std::sync::Arc<dyn IMPlugin>,
-        chat_id: &str,
-        thread_id: Option<&str>,
+        ctx: &StreamContext<'_>,
         event: StreamEvent,
         state: &mut StreamState,
-        middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
     ) -> Result<(), GatewayError> {
         match event {
             StreamEvent::BlockDelta { index, delta } => {
-                self.handle_block_delta(plugin, chat_id, thread_id, index, delta, state)
-                    .await?;
+                self.handle_block_delta(ctx, index, delta, state).await?;
             }
             StreamEvent::BlockEnd { block_type, .. } => {
-                self.handle_block_end(
-                    plugin,
-                    chat_id,
-                    thread_id,
-                    event,
-                    block_type,
-                    state,
-                    middlewares,
-                )
-                .await?;
+                self.handle_block_end(ctx, event, block_type, state).await?;
             }
             StreamEvent::MessageEnd { usage, .. } => {
-                self.handle_message_end(plugin, chat_id, thread_id, usage, state)
-                    .await?;
+                self.handle_message_end(ctx, usage, state).await?;
             }
             StreamEvent::Error { message } => {
                 return Err(GatewayError::OutboundError(message));
             }
             StreamEvent::BlockStart { .. } => {
-                plugin.handle_stream_event(event);
+                ctx.plugin.handle_stream_event(event);
             }
         }
         Ok(())
@@ -461,19 +445,19 @@ impl Gateway {
     /// dispatch any completed text lines.
     async fn handle_block_delta(
         &self,
-        plugin: &std::sync::Arc<dyn IMPlugin>,
-        chat_id: &str,
-        thread_id: Option<&str>,
+        ctx: &StreamContext<'_>,
         index: usize,
         delta: ContentDelta,
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
         let is_text_delta = matches!(delta, ContentDelta::Text { .. });
-        let out = plugin.handle_stream_event(StreamEvent::BlockDelta { index, delta });
+        let out = ctx
+            .plugin
+            .handle_stream_event(StreamEvent::BlockDelta { index, delta });
         // Text blocks are never filtered by verbosity — only Thinking and
         // other non-Text blocks are filtered at BlockEnd.
         if is_text_delta {
-            dispatch_text(plugin, chat_id, thread_id, out, state).await?;
+            dispatch_text(ctx, out, state).await?;
         }
         Ok(())
     }
@@ -482,13 +466,10 @@ impl Gateway {
     /// filtering, send non-text render blocks, and dispatch remaining text.
     async fn handle_block_end(
         &self,
-        plugin: &std::sync::Arc<dyn IMPlugin>,
-        chat_id: &str,
-        thread_id: Option<&str>,
+        ctx: &StreamContext<'_>,
         event: StreamEvent,
         block_type: ContentBlockType,
         state: &mut StreamState,
-        middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
     ) -> Result<(), GatewayError> {
         // Per-block verbosity filtering for non-Text blocks.
         let should_filter = block_type != ContentBlockType::Text
@@ -502,35 +483,33 @@ impl Gateway {
         if should_filter {
             // Still delegate to plugin so internal state is updated,
             // but discard output (no render, no send, no accumulate).
-            plugin.handle_stream_event(event);
+            ctx.plugin.handle_stream_event(event);
             return Ok(());
         }
-        let mut out = plugin.handle_stream_event(event);
+        let mut out = ctx.plugin.handle_stream_event(event);
         if block_type != ContentBlockType::Text {
             let render_blocks = std::mem::take(&mut out.render_blocks);
             for block in render_blocks {
-                send_render_block(plugin, chat_id, thread_id, &block, middlewares).await?;
+                send_render_block(ctx, &block).await?;
                 state.content_blocks.push(block);
             }
         }
-        dispatch_text(plugin, chat_id, thread_id, out, state).await
+        dispatch_text(ctx, out, state).await
     }
 
     /// Handle a [`StreamEvent::MessageEnd`]: flush the stream and update
     /// token usage. Non-text render blocks were already sent at BlockEnd.
     async fn handle_message_end(
         &self,
-        plugin: &std::sync::Arc<dyn IMPlugin>,
-        chat_id: &str,
-        thread_id: Option<&str>,
+        ctx: &StreamContext<'_>,
         usage: Option<UnifiedUsage>,
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
-        let mut out = plugin.flush_stream();
+        let mut out = ctx.plugin.flush_stream();
         // Non-text render_blocks were already sent in BlockEnd;
         // discard them here to avoid duplicate sends.
         out.render_blocks.clear();
-        dispatch_text(plugin, chat_id, thread_id, out, state).await?;
+        dispatch_text(ctx, out, state).await?;
         if let Some(u) = usage {
             state.usage = u;
         }
@@ -541,6 +520,15 @@ impl Gateway {
 // ---------------------------------------------------------------------------
 // Streaming outbound helpers
 // ---------------------------------------------------------------------------
+
+/// Bundles the streaming outbound context passed to `process_stream_event` and
+/// its sub-handlers. Keeps parameter counts ≤6 (CONTRIBUTING.md limit).
+struct StreamContext<'a> {
+    plugin: &'a std::sync::Arc<dyn IMPlugin>,
+    chat_id: &'a str,
+    thread_id: Option<&'a str>,
+    middlewares: &'a [std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
+}
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
 struct StreamState {
@@ -576,49 +564,43 @@ impl StreamState {
 
 /// Send any text messages from `out` into `state`.
 async fn dispatch_text(
-    plugin: &std::sync::Arc<dyn IMPlugin>,
-    chat_id: &str,
-    thread_id: Option<&str>,
+    ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        send_text(plugin, chat_id, thread_id, &text).await?;
+        send_text(ctx, &text).await?;
         state.content_blocks.push(ContentBlock::Text(text));
     }
     Ok(())
 }
 
 /// Construct a text [`RenderedOutput`] and dispatch via `plugin.send`.
-async fn send_text(
-    plugin: &std::sync::Arc<dyn IMPlugin>,
-    chat_id: &str,
-    thread_id: Option<&str>,
-    text: &str,
-) -> Result<(), GatewayError> {
+async fn send_text(ctx: &StreamContext<'_>, text: &str) -> Result<(), GatewayError> {
     let rendered = RenderedOutput {
         msg_type: "text".to_string(),
         payload: serde_json::json!({ "content": { "text": text } }),
     };
-    plugin.send(&rendered, chat_id, thread_id).await?;
+    ctx.plugin
+        .send(&rendered, ctx.chat_id, ctx.thread_id)
+        .await?;
     Ok(())
 }
 
 /// Call `plugin.render(&[block], None)`, run outbound middleware, and dispatch via `plugin.send`.
 async fn send_render_block(
-    plugin: &std::sync::Arc<dyn IMPlugin>,
-    chat_id: &str,
-    thread_id: Option<&str>,
+    ctx: &StreamContext<'_>,
     block: &ContentBlock,
-    middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
 ) -> Result<(), GatewayError> {
-    let mut rendered = plugin.render(std::slice::from_ref(block), None);
-    if !middlewares.is_empty() {
-        rendered = run_middleware_chain(middlewares, rendered)
+    let mut rendered = ctx.plugin.render(std::slice::from_ref(block), None);
+    if !ctx.middlewares.is_empty() {
+        rendered = run_middleware_chain(ctx.middlewares, rendered)
             .await
             .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
     }
-    plugin.send(&rendered, chat_id, thread_id).await?;
+    ctx.plugin
+        .send(&rendered, ctx.chat_id, ctx.thread_id)
+        .await?;
     Ok(())
 }
 
