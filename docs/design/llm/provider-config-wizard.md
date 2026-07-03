@@ -22,7 +22,7 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 ### FetchModels
 
-通过模型发现子系统获取可用模型列表。模型发现先查本地缓存（TTL 1 小时），缓存未命中时调用供应商 /models API（超时 10 秒），API 不可用时回退到内置知识库。展示的模型列表包含是否为推理模型、上下文窗口、最大输出 token 等信息。
+通过模型发现子系统获取可用模型列表。模型发现调用供应商 /models API（超时 10 秒），API 不可用时回退到内置知识库。展示的模型列表包含是否为推理模型、上下文窗口、最大输出 token、推荐协议等信息。
 
 ### SelectModels
 
@@ -52,11 +52,9 @@ SelectProvider → InputCredential → FetchModels → SelectModels → Confirm 
 
 ```
 用户启动向导 → 选择供应商 → 输入凭据（不回显）
-  → 模型发现：查本地缓存
-    → 命中：直接展示模型列表
-    → 未命中：调用 /models API（10s 超时）
-      → 成功：解析并写入缓存 → 展示
-      → 失败/超时：回退内置知识库 → 展示（标注回退来源）
+  → 模型发现：调用 /models API（10s 超时）
+    → 成功：解析并展示模型列表
+    → 失败/超时：回退内置知识库 → 展示（标注回退来源）
   → 用户选择模型 → 确认配置
   → 写入 models.json（合并已有配置）
   → 写入 credentials 文件（凭据独立存储）
