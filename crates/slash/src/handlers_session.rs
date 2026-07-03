@@ -5,7 +5,8 @@
 use std::sync::Arc;
 
 use crate::context::SlashContext;
-use crate::handler::{SlashHandler, SlashResult};
+use crate::handler::SlashHandler;
+use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_gateway::SessionManager;
 use closeclaw_llm::session::{ChatSession, ConversationSession};

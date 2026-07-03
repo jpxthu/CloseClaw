@@ -11,11 +11,11 @@
 
 use crate::code_block::{parse_content_segments, ContentSegment};
 use crate::error::AdapterError;
-use crate::normalized::NormalizedMessage;
 use crate::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRenderer};
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
+use closeclaw_common::NormalizedMessage;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 

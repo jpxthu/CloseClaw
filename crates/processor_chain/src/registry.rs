@@ -2,9 +2,10 @@
 
 use std::sync::Arc;
 
-use super::context::{MessageContext, ProcessedMessage, RawMessage};
+use super::context::{MessageContext, RawMessage};
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
+use super::ProcessedMessage;
 use async_trait::async_trait;
 use closeclaw_llm::types::ContentBlock;
 
@@ -59,7 +60,7 @@ impl ProcessorRegistry {
     /// a [`ProcessedMessage`] (bypass).
     pub async fn process_inbound(&self, raw: RawMessage) -> Result<ProcessedMessage, ProcessError> {
         if self.inbound.is_empty() {
-            return Ok(ProcessedMessage::from_raw(raw));
+            return Ok(ProcessedMessage::from_raw_content(raw.content));
         }
 
         let mut ctx = MessageContext::from_raw(raw);

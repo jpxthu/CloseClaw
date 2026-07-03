@@ -8,11 +8,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 
-use crate::processor_chain::context::{MessageContext, ProcessedMessage};
+use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use crate::processor_chain::registry::ProcessorRegistry;
 use crate::processor_chain::RawMessage;
+use crate::ProcessedMessage;
 use closeclaw_llm::types::ContentBlock;
 
 // ── helpers ──────────────────────────────────────────────────────────────────

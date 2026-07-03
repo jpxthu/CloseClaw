@@ -7,7 +7,7 @@
 //! - MediaRef and QuotedMessage independent roundtrip
 //! - edge cases: empty media_refs, quoted_message None vs present
 
-use crate::normalized::{MediaRef, NormalizedMessage, QuotedMessage};
+use closeclaw_common::{MediaRef, NormalizedMessage, QuotedMessage};
 
 // ---------------------------------------------------------------------------
 // Helpers

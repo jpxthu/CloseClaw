@@ -101,10 +101,45 @@ pub enum ReplyAction {
 /// Implemented by `SlashDispatcher` in the slash crate; used by the
 /// gateway to dispatch commands without a direct dependency on the
 /// slash module.
+/// Executor trait for slash command side effects.
+///
+/// Implemented by the Gateway, which has access to the full
+/// `SessionManager` and `SessionMessageHandler`. This trait breaks
+/// the circular dependency: common defines the interface, gateway
+/// provides the implementation.
+#[async_trait]
+pub trait SlashEffectExecutor: Send + Sync {
+    /// Stop the current LLM turn for the session.
+    async fn execute_stop(&self, session_id: &str);
+
+    /// Create a new session for the given channel.
+    async fn execute_new_session(&self, session_id: &str, channel: &str);
+
+    /// Trigger context compaction with an optional custom instruction.
+    async fn execute_compact(&self, session_id: &str, instruction: Option<String>);
+
+    /// Apply a system prompt append/clear action.
+    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction);
+
+    /// Set the reasoning level for the session.
+    async fn execute_set_reasoning(
+        &self,
+        session_id: &str,
+        level: crate::session_types::ReasoningLevel,
+    );
+
+    /// Set the verbosity level for the session.
+    async fn execute_set_verbosity(
+        &self,
+        session_id: &str,
+        level: crate::verbosity::VerbosityLevel,
+    );
+}
+
 /// Context passed to `SlashResult::execute` for side-effect dispatch.
 ///
-/// Carries session/channel identity and a reply channel so that
-/// `execute` can produce [`ReplyAction`]s for the Gateway to consume.
+/// Carries session/channel identity, a reply channel, and an executor
+/// so that `execute` can produce [`ReplyAction`]s for the Gateway to consume.
 pub struct SideEffectContext {
     /// Session ID where the slash command was invoked.
     pub session_id: String,
@@ -114,6 +149,8 @@ pub struct SideEffectContext {
     pub session_manager: Arc<dyn crate::SessionLookup>,
     /// Sender for [`ReplyAction`]s produced by `execute`.
     pub reply_tx: mpsc::Sender<ReplyAction>,
+    /// Executor for slash command side effects.
+    pub executor: Arc<dyn SlashEffectExecutor>,
 }
 
 impl SideEffectContext {
@@ -123,12 +160,14 @@ impl SideEffectContext {
         channel: String,
         session_manager: Arc<dyn crate::SessionLookup>,
         reply_tx: mpsc::Sender<ReplyAction>,
+        executor: Arc<dyn SlashEffectExecutor>,
     ) -> Self {
         Self {
             session_id,
             channel,
             session_manager,
             reply_tx,
+            executor,
         }
     }
 
@@ -144,29 +183,90 @@ impl SideEffectContext {
 
 impl SlashResult {
     /// Execute this result, producing [`ReplyAction`]s on the context's reply channel.
+    ///
+    /// For variants that require side effects (Stop, NewSession, Compact,
+    /// SystemAppend, SetReasoning, SetVerbosity), the executor trait is
+    /// called to perform the actual work.
     pub async fn execute(&self, ctx: &SideEffectContext) {
-        let action = match self {
-            SlashResult::Reply(text) => ReplyAction::Reply(vec![ContentBlock::Text(text.clone())]),
+        let mut actions = Vec::new();
+        match self {
+            SlashResult::Reply(text) => {
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(text.clone())]));
+            }
             SlashResult::SetMode(mode) => {
-                ReplyAction::Reply(vec![ContentBlock::Text(format!("Mode set to: {}", mode))])
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                    "Mode set to: {}",
+                    mode
+                ))]));
             }
-            SlashResult::NewSession => ReplyAction::Nothing,
-            SlashResult::Stop => ReplyAction::Nothing,
-            SlashResult::Compact { instruction } => ReplyAction::TriggerCompact {
-                instruction: instruction.clone(),
-            },
-            SlashResult::SystemAppend { action: _ } => ReplyAction::Nothing,
+            SlashResult::NewSession => {
+                ctx.executor
+                    .execute_new_session(&ctx.session_id, &ctx.channel)
+                    .await;
+                ctx.reply(vec![ContentBlock::Text("已创建新 session".into())])
+                    .await;
+            }
+            SlashResult::Stop => {
+                ctx.executor.execute_stop(&ctx.session_id).await;
+                ctx.reply(vec![ContentBlock::Text("已停止当前任务".into())])
+                    .await;
+            }
+            SlashResult::Compact { instruction } => {
+                ctx.executor
+                    .execute_compact(&ctx.session_id, instruction.clone())
+                    .await;
+            }
+            SlashResult::SystemAppend { action } => {
+                ctx.executor
+                    .execute_system_append(&ctx.session_id, action)
+                    .await;
+                match action {
+                    SystemAppendAction::Add(_) => {
+                        ctx.reply(vec![ContentBlock::Text("已追加指令".into())])
+                            .await;
+                    }
+                    SystemAppendAction::Clear => {
+                        ctx.reply(vec![ContentBlock::Text("已清除追加指令".into())])
+                            .await;
+                    }
+                }
+            }
             SlashResult::Exec { command } => {
-                ReplyAction::Reply(vec![ContentBlock::Text(format!("Exec: {}", command))])
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                    "Exec: {}",
+                    command
+                ))]));
             }
-            SlashResult::SetReasoning { .. } => ReplyAction::Nothing,
-            SlashResult::SetVerbosity { .. } => ReplyAction::Nothing,
-            SlashResult::Unknown(cmd) => ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                "Unknown command: /{}",
-                cmd
-            ))]),
-        };
-        let _ = ctx.reply_tx.send(action).await;
+            SlashResult::SetReasoning { level } => {
+                ctx.executor
+                    .execute_set_reasoning(&ctx.session_id, level.clone())
+                    .await;
+                ctx.reply(vec![ContentBlock::Text(format!(
+                    "推理深度已设置为 {}",
+                    level
+                ))])
+                .await;
+            }
+            SlashResult::SetVerbosity { level } => {
+                ctx.executor
+                    .execute_set_verbosity(&ctx.session_id, level.clone())
+                    .await;
+                ctx.reply(vec![ContentBlock::Text(format!(
+                    "输出详细度已设置为 {}",
+                    level
+                ))])
+                .await;
+            }
+            SlashResult::Unknown(cmd) => {
+                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                    "Unknown command: /{}",
+                    cmd
+                ))]));
+            }
+        }
+        for action in actions {
+            let _ = ctx.reply_tx.send(action).await;
+        }
     }
 }
 

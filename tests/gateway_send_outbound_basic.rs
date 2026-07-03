@@ -7,10 +7,8 @@ use closeclaw::processor_chain::{
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
+use closeclaw_im_adapter::AdapterError as LocalAdapterError;
 use closeclaw_im_adapter::IMAdapter;
-use closeclaw_im_adapter::{
-    AdapterError as LocalAdapterError, NormalizedMessage as LocalNormalizedMessage,
-};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -357,7 +355,7 @@ async fn test_feishu_adapter_send_card_json_default() {
         async fn handle_webhook(
             &self,
             _: &[u8],
-        ) -> Result<Option<LocalNormalizedMessage>, LocalAdapterError> {
+        ) -> Result<Option<closeclaw_common::NormalizedMessage>, LocalAdapterError> {
             Err(LocalAdapterError::InvalidPayload("x".into()))
         }
         async fn send_message(

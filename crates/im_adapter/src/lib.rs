@@ -18,7 +18,6 @@ pub mod streaming_tests;
 pub mod tool_registrar;
 
 pub use error::AdapterError;
-pub use normalized::NormalizedMessage;
 pub use plugin::{IMPlugin, RenderedOutput};
 pub use tool_registrar::ImAdapterToolsRegistrar;
 
@@ -39,7 +38,7 @@ pub trait IMAdapter: Send + Sync {
     async fn handle_webhook(
         &self,
         payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError>;
+    ) -> Result<Option<closeclaw_common::NormalizedMessage>, AdapterError>;
 
     /// Send message to IM platform.
     ///

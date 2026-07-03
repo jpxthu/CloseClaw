@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
-    parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashHandler, SlashRouter,
+    parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashEffectExecutor, SlashHandler,
+    SlashRouter, SystemAppendAction,
 };
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
@@ -16,7 +17,9 @@ use closeclaw_permission::engine::engine_types::{
 };
 use closeclaw_session::persistence::PendingMessage;
 
-use super::{Gateway, HandleResult};
+use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
+use closeclaw_llm::session::ConversationSession;
+use tokio::sync::RwLock;
 
 impl Gateway {
     /// Install the slash command dispatcher.
@@ -218,8 +221,9 @@ impl Gateway {
     /// Invoke the handler with a constructed `SlashContext`, then route the
     /// returned `SlashResult` to the appropriate side effect.
     ///
-    /// Constructs a [`SideEffectContext`] and calls [`SlashResult::execute`],
-    /// then dispatches the produced [`ReplyAction`]s through the session handler.
+    /// Constructs a [`SideEffectContext`] with a [`GatewaySlashExecutor`]
+    /// and calls [`SlashResult::execute`], then dispatches the produced
+    /// [`ReplyAction`]s through the session handler.
     async fn execute_and_route(
         &self,
         handler: &dyn SlashHandler,
@@ -248,11 +252,16 @@ impl Gateway {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
+        let executor: Arc<dyn SlashEffectExecutor> = Arc::new(GatewaySlashExecutor {
+            session_manager: Arc::clone(&self.session_manager),
+            session_handler: self.session_handler.clone(),
+        });
         let side_effect_ctx = SideEffectContext::new(
             session_id.to_owned(),
             channel.to_owned(),
             session_mgr,
             reply_tx,
+            executor,
         );
 
         result.execute(&side_effect_ctx).await;
@@ -263,19 +272,125 @@ impl Gateway {
                 ReplyAction::Reply(blocks) => {
                     self.route_slash_reply(session_id, channel, blocks).await;
                 }
-                ReplyAction::TriggerCompact { instruction } => {
-                    if let Some(sh) = self.session_handler.as_ref() {
-                        let compact_cmd = match &instruction {
-                            Some(inst) => format!("/compact {}", inst),
-                            None => "/compact".to_string(),
-                        };
-                        sh.handle_compact_command(session_id, &compact_cmd).await;
-                    }
+                ReplyAction::TriggerCompact { .. } => {
+                    // Compact is already handled by the executor; no-op.
                 }
                 ReplyAction::Nothing => {}
             }
         }
 
         Some(HandleResult::SlashHandled)
+    }
+}
+
+// ── SlashEffectExecutor implementation ──────────────────────────────────
+
+/// Gateway-side implementation of [`SlashEffectExecutor`].
+///
+/// Bridges the common trait to the Gateway's concrete
+/// `SessionManager` and `SessionMessageHandler` for performing
+/// slash command side effects.
+struct GatewaySlashExecutor {
+    session_manager: Arc<SessionManager>,
+    session_handler: Option<Arc<SessionMessageHandler>>,
+}
+
+#[async_trait::async_trait]
+impl SlashEffectExecutor for GatewaySlashExecutor {
+    async fn execute_stop(&self, session_id: &str) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        if let Some(cs) = cs {
+            cs.read().await.stop(false).await;
+        } else if let Some(sh) = self.session_handler.as_ref() {
+            sh.send_reply("session 不存在，无法停止".to_owned()).await;
+        }
+    }
+
+    async fn execute_new_session(&self, _session_id: &str, channel: &str) {
+        // force_new_for_channel creates a fresh session for the channel and
+        // updates the channel→session mapping so subsequent messages route to it.
+        let agent_id = self
+            .session_manager
+            .get_chat_id(_session_id)
+            .await
+            .unwrap_or_default();
+        let _new_id = self
+            .session_manager
+            .force_new_for_channel(channel, &agent_id)
+            .await;
+    }
+
+    async fn execute_compact(&self, session_id: &str, instruction: Option<String>) {
+        if let Some(sh) = self.session_handler.as_ref() {
+            let compact_cmd = match &instruction {
+                Some(inst) => format!("/compact {}", inst),
+                None => "/compact".to_string(),
+            };
+            sh.handle_compact_command(session_id, &compact_cmd).await;
+        }
+    }
+
+    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法执行系统指令".to_owned())
+                    .await;
+            }
+            return;
+        };
+        let mut cs = cs.write().await;
+        match action {
+            SystemAppendAction::Add(text) => {
+                cs.add_system_append(text.clone());
+            }
+            SystemAppendAction::Clear => {
+                cs.clear_system_appends();
+            }
+        }
+    }
+
+    async fn execute_set_reasoning(
+        &self,
+        session_id: &str,
+        level: closeclaw_session::persistence::ReasoningLevel,
+    ) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置推理深度".to_owned())
+                    .await;
+            }
+            return;
+        };
+        cs.write().await.set_reasoning_level(level);
+    }
+
+    async fn execute_set_verbosity(
+        &self,
+        session_id: &str,
+        level: closeclaw_common::VerbosityLevel,
+    ) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置输出详细度".to_owned())
+                    .await;
+            }
+            return;
+        };
+        cs.write().await.set_verbosity_level(level);
     }
 }

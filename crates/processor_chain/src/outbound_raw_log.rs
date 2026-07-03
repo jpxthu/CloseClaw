@@ -8,10 +8,11 @@ use async_trait::async_trait;
 use tokio::fs;
 use tracing::level_enabled;
 
-use super::context::{MessageContext, ProcessedMessage};
+use super::context::MessageContext;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::raw_log_processor::RawLogConfig;
+use super::ProcessedMessage;
 
 /// Processor that writes outbound messages to a JSON log file.
 ///

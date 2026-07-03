@@ -4,12 +4,13 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::dispatcher::SlashDispatcher;
-use crate::handler::{SlashHandler, SlashResult, SystemAppendAction};
+use crate::handler::SlashHandler;
 use crate::handlers::{
     ClearHandler, CompactHandler, HelpHandler, ReasoningHandler, SystemHandler, WorkdirHandler,
 };
 use crate::registry::HandlerRegistry;
 use crate::VerboseHandler;
+use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_common::VerbosityLevel;
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_session::persistence::ReasoningLevel;

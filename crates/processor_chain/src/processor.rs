@@ -1,7 +1,8 @@
 //! Core trait and phase enumeration for message processors.
 
-use super::context::{MessageContext, ProcessedMessage};
+use super::context::MessageContext;
 use super::error::ProcessError;
+use super::ProcessedMessage;
 use async_trait::async_trait;
 
 /// Processing phase — determines which chain a processor belongs to.

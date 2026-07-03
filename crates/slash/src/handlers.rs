@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::context::SlashContext;
-use crate::handler::{SlashHandler, SlashResult, SystemAppendAction};
+use crate::handler::SlashHandler;
 use crate::registry::HandlerRegistry;
 use closeclaw_common::build_git_status_for;
+use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_gateway::SessionManager;
 use closeclaw_session::persistence::ReasoningLevel;
 

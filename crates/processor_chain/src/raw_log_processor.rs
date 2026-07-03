@@ -25,9 +25,10 @@ use async_trait::async_trait;
 use tokio::fs;
 use tracing::level_enabled;
 
-use super::context::{MessageContext, ProcessedMessage};
+use super::context::MessageContext;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
+use super::ProcessedMessage;
 use closeclaw_llm::types::ContentBlock;
 
 /// Configuration for [`RawLogProcessor`].
