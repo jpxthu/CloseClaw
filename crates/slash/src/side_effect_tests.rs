@@ -467,3 +467,60 @@ async fn test_execute_stop_with_session_not_busy() {
         other => panic!("expected Reply, got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// ContentBlock[] verification (Step 1.3)
+// ---------------------------------------------------------------------------
+
+/// Verify that ReplyAction::Reply carries Vec<ContentBlock> (not String).
+#[test]
+fn test_reply_action_reply_is_vec_content_block() {
+    let blocks = vec![
+        ContentBlock::Text("line1".to_owned()),
+        ContentBlock::Text("line2".to_owned()),
+    ];
+    let action = ReplyAction::Reply(blocks.clone());
+    match action {
+        ReplyAction::Reply(b) => {
+            assert_eq!(b.len(), 2);
+            assert_eq!(first_text(&b), "line1");
+            assert!(matches!(&b[1], ContentBlock::Text(s) if s == "line2"));
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// Execute a Reply slash command and verify the reply carries
+/// a single ContentBlock::Text inside the Vec.
+#[tokio::test]
+async fn test_execute_reply_content_block_text() {
+    let actions = execute_and_collect(SlashResult::Reply("test reply".to_owned())).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(matches!(&blocks[0], ContentBlock::Text(s) if s == "test reply"));
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// Verify that ReplyAction::Reply handles empty content blocks.
+#[test]
+fn test_reply_action_empty_blocks() {
+    let action = ReplyAction::Reply(vec![]);
+    match action {
+        ReplyAction::Reply(b) => assert!(b.is_empty()),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// Verify that ReplyAction::Nothing produces no side effects.
+#[test]
+fn test_reply_action_nothing() {
+    let action = ReplyAction::Nothing;
+    match action {
+        ReplyAction::Nothing => {}
+        other => panic!("expected Nothing, got {other:?}"),
+    }
+}

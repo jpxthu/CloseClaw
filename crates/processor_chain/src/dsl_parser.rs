@@ -606,4 +606,83 @@ mod tests {
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(result.instructions[0].params["options"], "Only");
     }
+
+    // -----------------------------------------------------------------------
+    // Boundary / edge-case tests (Step 1.3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_whitespace_only_text_block_dropped() {
+        let parser = DslParser;
+        // A text block that is only whitespace — after DSL strip (no DSL here),
+        // the clean_text is whitespace which is non-empty, so the block is kept.
+        // This verifies the parser does NOT panic on whitespace-only input.
+        let blocks = vec![ContentBlock::Text("   \n  \n".to_string())];
+        let (_, updated) = parser.parse_content_blocks_with_result(&blocks);
+        assert_eq!(updated.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_malformed_dsl_not_parsed() {
+        let parser = DslParser;
+        // Malformed DSL lines that do NOT match the ::button[...] or
+        // ::selector[...] pattern should be treated as regular text.
+        let input = "::button[label:X]"; // missing required 'action' param
+        let (result, clean) = parser.parse(input);
+        assert!(result.instructions.is_empty());
+        assert_eq!(clean, input);
+
+        let input2 = "::unknown[label:X;action:a]"; // unknown type
+        let (result2, clean2) = parser.parse(input2);
+        assert!(result2.instructions.is_empty());
+        assert_eq!(clean2, input2);
+
+        let input3 = "::button"; // truncated, no brackets
+        let (result3, clean3) = parser.parse(input3);
+        assert!(result3.instructions.is_empty());
+        assert_eq!(clean3, input3);
+
+        let input4 = "::button[]"; // empty brackets
+        let (result4, clean4) = parser.parse(input4);
+        assert!(result4.instructions.is_empty());
+        assert_eq!(clean4, input4);
+    }
+
+    #[test]
+    fn test_parse_empty_content() {
+        let parser = DslParser;
+        let (result, clean) = parser.parse("");
+        assert!(result.instructions.is_empty());
+        assert_eq!(clean, "");
+    }
+
+    #[test]
+    fn test_parse_content_blocks_whitespace_only_all_dropped() {
+        let parser = DslParser;
+        // Multiple whitespace-only text blocks — each produces non-empty
+        // clean_text (whitespace), so they are kept. This tests that
+        // parse_content_blocks_with_result handles the edge case.
+        let blocks = vec![
+            ContentBlock::Text("  ".to_string()),
+            ContentBlock::Text("  ".to_string()),
+        ];
+        let (result, updated) = parser.parse_content_blocks_with_result(&blocks);
+        assert!(result.instructions.is_empty());
+        assert_eq!(updated.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_dsl_instruction_ordering() {
+        let parser = DslParser;
+        // Verify instructions preserve source order.
+        let input = "::button[label:A;action:1;value:x]\n::selector[label:B;action:2]\n::button[label:C;action:3;value:y]";
+        let (result, _clean) = parser.parse(input);
+        assert_eq!(result.instructions.len(), 3);
+        assert_eq!(result.instructions[0].instruction_type, "button");
+        assert_eq!(result.instructions[0].params["label"], "A");
+        assert_eq!(result.instructions[1].instruction_type, "selector");
+        assert_eq!(result.instructions[1].params["label"], "B");
+        assert_eq!(result.instructions[2].instruction_type, "button");
+        assert_eq!(result.instructions[2].params["label"], "C");
+    }
 }

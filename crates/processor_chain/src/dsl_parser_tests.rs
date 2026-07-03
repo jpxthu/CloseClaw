@@ -302,3 +302,70 @@ fn test_parse_clean_text_all_dsl() {
     assert_eq!(result.instructions.len(), 2);
     assert_eq!(clean, "");
 }
+
+// ---------------------------------------------------------------------------
+// Boundary / edge-case tests (Step 1.3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_with_result_whitespace_only_text_preserved() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text("  \n  ".to_string())];
+    let (_, updated) = parser.parse_content_blocks_with_result(&blocks);
+    // Whitespace-only text is non-empty → preserved.
+    assert_eq!(updated.len(), 1);
+}
+
+#[test]
+fn test_with_result_mixed_dsl_and_whitespace_only() {
+    let parser = DslParser;
+    let blocks = vec![
+        ContentBlock::Text("Hello".to_string()),
+        ContentBlock::Text("::button[label:A;action:x;value:1]".to_string()),
+        ContentBlock::Text("  ".to_string()), // whitespace only
+        ContentBlock::Text("World".to_string()),
+    ];
+    let (result, updated) = parser.parse_content_blocks_with_result(&blocks);
+    assert_eq!(result.instructions.len(), 1);
+    // DSL block dropped (empty after strip), whitespace block preserved.
+    assert_eq!(updated.len(), 3);
+    assert!(matches!(&updated[0], ContentBlock::Text(s) if s == "Hello"));
+    assert!(matches!(&updated[1], ContentBlock::Text(s) if s == "  "));
+    assert!(matches!(&updated[2], ContentBlock::Text(s) if s == "World"));
+}
+
+#[tokio::test]
+async fn test_process_whitespace_only_content_blocks() {
+    let parser = DslParser;
+    let ctx = make_ctx("fallback", vec![ContentBlock::Text("  \n  ".to_string())]);
+    let result = parser.process(&ctx).await.unwrap().unwrap();
+    // Whitespace-only content_blocks → no DSL → original kept.
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "  \n  "));
+}
+
+#[tokio::test]
+async fn test_process_empty_string_content_blocks() {
+    let parser = DslParser;
+    let ctx = make_ctx("fallback", vec![ContentBlock::Text("".to_string())]);
+    let result = parser.process(&ctx).await.unwrap().unwrap();
+    // Empty string content_blocks → empty after strip → falls back to ctx.content.
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "fallback"));
+}
+
+#[test]
+fn test_with_result_instruction_ordering_preserved() {
+    let parser = DslParser;
+    let blocks = vec![
+        ContentBlock::Text("::button[label:A;action:1;value:x]\n::selector[label:B;action:2]\n::button[label:C;action:3;value:y]".to_string()),
+    ];
+    let (result, _) = parser.parse_content_blocks_with_result(&blocks);
+    assert_eq!(result.instructions.len(), 3);
+    assert_eq!(result.instructions[0].instruction_type, "button");
+    assert_eq!(result.instructions[0].params["label"], "A");
+    assert_eq!(result.instructions[1].instruction_type, "selector");
+    assert_eq!(result.instructions[1].params["label"], "B");
+    assert_eq!(result.instructions[2].instruction_type, "button");
+    assert_eq!(result.instructions[2].params["label"], "C");
+}
