@@ -2,13 +2,13 @@
 //!
 //! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
 
+pub use closeclaw_common::agent_config::{
+    ActionPermission, ActiveSearcherOverride, AgentConfig, AgentPermissions, MemoryConfig,
+    PermissionLimits, SubagentsConfig,
+};
 pub use closeclaw_common::BootstrapMode;
 pub use closeclaw_common::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig,
-};
-pub use closeclaw_common::{
-    ActionPermission, ActiveSearcherOverride, AgentConfig, AgentPermissions, MemoryConfig,
-    PermissionLimits, SubagentsConfig,
 };
 
 #[cfg(test)]

@@ -34,10 +34,6 @@ pub mod test_helpers;
 pub mod tool_registry;
 pub mod verbosity;
 
-pub use agent_config::{
-    ActionPermission, ActiveSearcherOverride, AgentConfig, AgentPermissions, MemoryConfig,
-    PermissionLimits, SubagentsConfig,
-};
 pub use agent_config_lookup::{AgentConfigInfo, AgentConfigLookup};
 pub use agent_lookup::AgentLookup;
 pub use agent_skills_query::AgentSkillsQuery;

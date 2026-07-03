@@ -25,8 +25,8 @@
 use std::path::PathBuf;
 
 use crate::ConfigError;
+use closeclaw_common::agent_config::{AgentConfig, SubagentsConfig};
 use closeclaw_common::BootstrapMode;
-use closeclaw_common::{AgentConfig, SubagentsConfig};
 
 /// Configuration source level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +69,7 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
-    pub memory: Option<closeclaw_common::MemoryConfig>,
+    pub memory: Option<closeclaw_common::agent_config::MemoryConfig>,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }

@@ -8,7 +8,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use closeclaw_common::{ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig};
+use closeclaw_common::agent_config::{
+    ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig,
+};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::bootstrap::BootstrapMode;

@@ -8,7 +8,8 @@ use super::engine_eval::PermissionEngine;
 use super::engine_helpers::{collect_chain_deny_subjects, collect_chain_effective_permissions};
 use super::engine_risk::assess_risk_level;
 use super::engine_types::{PermissionRequest, PermissionResponse};
-use closeclaw_common::{AgentPermissions, SessionLookup};
+use closeclaw_common::agent_config::AgentPermissions;
+use closeclaw_common::SessionLookup;
 use std::collections::HashMap;
 use tracing::info;
 
