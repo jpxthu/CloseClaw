@@ -85,9 +85,10 @@ macro_rules! define_tests {
                 // Processor registration happens at a higher level.
                 // This test verifies the raw message conversion works.
                 let result = registry.process_inbound(raw_msg).await.unwrap();
-                // Basic sanity: content is non-empty
-                assert!(!result.content.is_empty(),
-                    "content should not be empty for {}", $input);
+                // Basic sanity: text content is non-empty
+                let text = result.text_content().unwrap_or("");
+                assert!(!text.is_empty(),
+                    "text content should not be empty for {}", $input);
             }
         )*
     }

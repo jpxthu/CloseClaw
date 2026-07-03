@@ -106,8 +106,7 @@ impl IMPlugin for TrackingPlugin {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         }))
     }
 

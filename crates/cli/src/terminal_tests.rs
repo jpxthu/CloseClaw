@@ -340,7 +340,6 @@ mod tests {
         assert!(msg.media_refs.is_empty());
         assert!(msg.quoted_message.is_none());
         assert!(msg.thread_id.is_none());
-        assert!(msg.card_action.is_none());
     }
 
     /// Multiline content is preserved correctly.
