@@ -13,8 +13,6 @@ pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
 pub mod middleware;
-#[cfg(test)]
-pub mod middleware_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
