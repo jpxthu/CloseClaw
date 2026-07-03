@@ -18,6 +18,12 @@ Owner（User ID 固定为 `"owner"`，系统的最高权限身份）在权限评
                   ∩ 当前 User 权限
 ```
 
+交集计算是字段级的：
+- **commands**：取交集（双方都有的命令才保留）
+- **paths**：取交集（双方都有的路径才保留）
+- **timeout_ms**：取 min（继承最严格的超时限制）
+- 任一维度缺失视为 deny（没有显式允许即拒绝）
+
 沿 spawn 链路，该规则递归应用：父 agent 的"实际权限"本身也是由其自身配置与更上层父 agent 权限的交集决定。最终形成从根到叶的权限收敛链。
 
 ### 约束规则
@@ -69,10 +75,9 @@ Owner（User ID 固定为 `"owner"`，系统的最高权限身份）在权限评
   2. 沿 spawn 链路，收集链路中所有父 agent 的实际权限
   3. 计算交集：Agent 链路权限 = A 的配置权限 ∩ 链路中所有父 agent 的实际权限
   4. 同时评估 User U 的权限规则
-  5. 最终结果 = Agent 链路权限 ∩ User 权限
-      - 双方都 Allow → Allow → 放行给调用方，继续执行
-      - 任一方 Deny → Deny → 进入步骤 6
-      - Owner（User ID = "owner"）→ 跳过 User 维度，仅评估 Agent 维度
+  5. 最终结果 = Agent 链路权限 ∩ User 权限（Owner 跳过 User 维度，仅评估 Agent 维度）
+     - All 维度 Allow → Allow → 放行给调用方，继续执行
+     - 任一维度 Deny → Deny → 进入步骤 6
   6. 额外 Deny 检查：链路中父 agent 传入的 Deny 主体约束中匹配到 caller → 立即 Deny
   7. 子 agent 被 Deny → 返回 PermissionDenied 错误给调用方；
      当前操作为子 agent spawn 时不阻塞整个 spawn 流程，仅拒绝当前操作的执行
@@ -113,6 +118,10 @@ Workspace 路径授权是独立于操作权限的强制机制：每个 Agent-Use
 | 模块 | 调用关系 |
 |------|---------|
 | — | Agent 权限模块不直接调用其他模块。权限评估由 Permission Engine 独立完成，Agent 模块仅定义权限规则和继承方式 |
+
+### 共享类型
+
+权限基线规则结构定义见 [agent-config.md](agent-config.md) § 权限配置；权限评估接口由 Permission Engine 提供，Agent 模块仅定义规则和继承语义。
 
 ### 无关
 
