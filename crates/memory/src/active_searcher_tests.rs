@@ -789,7 +789,7 @@ fn test_active_searcher_config_defaults() {
     assert_eq!(config.max_summary_chars, 2000);
     assert_eq!(config.min_entity_hits, 1);
     assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 3);
+    assert_eq!(config.context_turns, 10);
     assert_eq!(config.model, "");
 }
 
@@ -844,7 +844,7 @@ fn test_from_agent_config_partial_override() {
     assert_eq!(config.max_summary_chars, 2000);
     assert_eq!(config.min_entity_hits, 1);
     assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 3);
+    assert_eq!(config.context_turns, 10);
 }
 
 /// No override (None) + agent_model → model uses agent global model, other fields use defaults.
@@ -857,7 +857,7 @@ fn test_from_agent_config_no_override() {
     assert_eq!(config.max_summary_chars, 2000);
     assert_eq!(config.min_entity_hits, 1);
     assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 3);
+    assert_eq!(config.context_turns, 10);
 }
 
 /// No agent_model + no override → model is empty string.
@@ -870,7 +870,7 @@ fn test_from_agent_config_no_agent_model_no_override() {
     assert_eq!(config.max_summary_chars, 2000);
     assert_eq!(config.min_entity_hits, 1);
     assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 3);
+    assert_eq!(config.context_turns, 10);
 }
 
 /// Override model takes priority over agent global model.
@@ -892,4 +892,57 @@ fn test_from_agent_config_override_overrides_agent_model() {
 
     assert_eq!(config.model, "override-model");
     assert_eq!(config.timeout_ms, 5000);
+}
+
+// ── Concept extraction prompt dimension tests ─────────────────────────
+
+use crate::active_searcher_llm::build_concept_extraction_prompt;
+use chrono::Utc;
+use closeclaw_llm::session::SessionMessage;
+use closeclaw_llm::types::ContentBlock;
+
+/// Verify the concept extraction prompt covers all three dimensions
+/// defined in the design doc: action types, entities/objects,
+/// and scenario characteristics.
+#[test]
+fn test_concept_extraction_prompt_covers_three_dimensions() {
+    let messages = vec![SessionMessage {
+        role: "user".into(),
+        content_blocks: vec![ContentBlock::Text("hello".into())],
+        timestamp: Utc::now(),
+    }];
+    let prompt = build_concept_extraction_prompt(&messages, "test message");
+
+    // Dimension 1: Action types
+    assert!(
+        prompt.to_lowercase().contains("action"),
+        "prompt should mention action types"
+    );
+    // Dimension 2: Entities/objects
+    assert!(
+        prompt.to_lowercase().contains("entit") || prompt.to_lowercase().contains("object"),
+        "prompt should mention entities or objects"
+    );
+    // Dimension 3: Scenario characteristics
+    assert!(
+        prompt.to_lowercase().contains("scenario")
+            || prompt.to_lowercase().contains("context")
+            || prompt.to_lowercase().contains("characteristic"),
+        "prompt should mention scenario characteristics or context"
+    );
+}
+
+/// Verify the prompt includes the current message and context.
+#[test]
+fn test_concept_extraction_prompt_includes_message_content() {
+    let messages = vec![SessionMessage {
+        role: "assistant".into(),
+        content_blocks: vec![ContentBlock::Text("context info".into())],
+        timestamp: Utc::now(),
+    }];
+    let prompt = build_concept_extraction_prompt(&messages, "current msg");
+
+    assert!(prompt.contains("context info"));
+    assert!(prompt.contains("current msg"));
+    assert!(prompt.contains("assistant: context info"));
 }
