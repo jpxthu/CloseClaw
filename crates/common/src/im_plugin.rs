@@ -110,19 +110,6 @@ pub struct MediaRef {
 }
 
 // ---------------------------------------------------------------------------
-// QuotedMessage
-// ---------------------------------------------------------------------------
-
-/// Quoted/replied-to message embedded in an inbound message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuotedMessage {
-    /// Text content of the quoted message.
-    pub content: String,
-    /// Sender ID of the quoted message, if available.
-    pub sender_id: Option<String>,
-}
-
-// ---------------------------------------------------------------------------
 // NormalizedMessage
 // ---------------------------------------------------------------------------
 
@@ -158,8 +145,8 @@ pub struct NormalizedMessage {
     #[serde(default)]
     pub media_refs: Vec<MediaRef>,
 
-    /// Quoted/replied-to message, if present. At most one level of nesting.
-    pub quoted_message: Option<QuotedMessage>,
+    /// Quoted/replied-to message content, if present. At most one level of nesting.
+    pub quoted_message: Option<String>,
 
     /// Optional thread/topic ID. Used for threaded replies on platforms that
     /// support threads; does **not** participate in session key calculation.

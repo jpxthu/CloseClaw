@@ -1,6 +1,6 @@
 //! Unit tests for NormalizedMessage and related IM plugin types.
 
-use crate::im_plugin::{MediaRef, MessageType, NormalizedMessage, QuotedMessage};
+use crate::im_plugin::{MediaRef, MessageType, NormalizedMessage};
 
 fn make_normalized(account_id: &str) -> NormalizedMessage {
     NormalizedMessage {
@@ -71,16 +71,12 @@ fn test_normalized_roundtrip() {
 #[test]
 fn test_normalized_quoted_message_roundtrip() {
     let mut msg = make_normalized("a");
-    msg.quoted_message = Some(QuotedMessage {
-        content: "quoted text".into(),
-        sender_id: Some("ou_sender".into()),
-    });
+    msg.quoted_message = Some("quoted text".into());
 
     let json = serde_json::to_string(&msg).unwrap();
     let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
     let q = de.quoted_message.unwrap();
-    assert_eq!(q.content, "quoted text");
-    assert_eq!(q.sender_id.as_deref(), Some("ou_sender"));
+    assert_eq!(q, "quoted text");
 }
 
 #[test]

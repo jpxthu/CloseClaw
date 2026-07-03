@@ -55,8 +55,8 @@ pub use gateway_types::{
 };
 pub use identity::{ConfigIdentityResolver, IdentityMapping, IdentityResolver};
 pub use im_plugin::{
-    AdapterError, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage, QuotedMessage,
-    RenderedOutput, StreamingOutput,
+    AdapterError, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage, RenderedOutput,
+    StreamingOutput,
 };
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
