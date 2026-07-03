@@ -365,15 +365,6 @@ impl Gateway {
         // Resolve thread_id from session checkpoint for outbound thread routing.
         let thread_id = self.session_manager.get_thread_id(session_id).await;
 
-        let mut state = StreamState::new();
-        while let Some(event_result) = stream.next().await {
-            let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-            self.process_stream_event(plugin, &chat_id, thread_id.as_deref(), event, &mut state)
-                .await?;
-        }
-        tracing::debug!(session_id, channel, "streaming outbound complete");
-
-        // Apply verbosity filtering on accumulated content blocks.
         let verbosity_level = if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
@@ -383,8 +374,13 @@ impl Gateway {
         } else {
             VerbosityLevel::default()
         };
-        state.content_blocks = filter_by_verbosity(state.content_blocks, verbosity_level);
-
+        let mut state = StreamState::new(verbosity_level);
+        while let Some(event_result) = stream.next().await {
+            let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+            self.process_stream_event(plugin, &chat_id, thread_id.as_deref(), event, &mut state)
+                .await?;
+        }
+        tracing::debug!(session_id, channel, "streaming outbound complete");
         Ok(StreamState::into_result(state))
     }
 
@@ -407,11 +403,29 @@ impl Gateway {
                 let out = plugin.handle_stream_event(StreamEvent::BlockDelta { index, delta });
                 // For Text deltas, the renderer may emit completed text lines;
                 // non-Text deltas only update internal state.
+                // Note: Text blocks are never filtered by verbosity — only
+                // Thinking and other non-Text blocks are filtered at BlockEnd.
                 if is_text_delta {
                     dispatch_text(plugin, chat_id, thread_id, out, state).await?;
                 }
             }
             StreamEvent::BlockEnd { block_type, .. } => {
+                // Per-block verbosity filtering for non-Text blocks: skip
+                // render/send/accumulate when the block should be hidden.
+                let should_filter = block_type != ContentBlockType::Text
+                    && match state.verbosity_level {
+                        VerbosityLevel::Normal => {
+                            matches!(block_type, ContentBlockType::Thinking)
+                        }
+                        VerbosityLevel::Off => true,
+                        VerbosityLevel::Full => false,
+                    };
+                if should_filter {
+                    // Still delegate to plugin so internal state is updated,
+                    // but discard output (no render, no send, no accumulate).
+                    plugin.handle_stream_event(event);
+                    return Ok(());
+                }
                 let mut out = plugin.handle_stream_event(event);
                 if block_type != ContentBlockType::Text {
                     let render_blocks = std::mem::take(&mut out.render_blocks);
@@ -453,10 +467,12 @@ impl Gateway {
 struct StreamState {
     content_blocks: Vec<ContentBlock>,
     usage: UnifiedUsage,
+    /// Verbosity level resolved once per stream; drives per-block filtering.
+    verbosity_level: VerbosityLevel,
 }
 
 impl StreamState {
-    fn new() -> Self {
+    fn new(verbosity_level: VerbosityLevel) -> Self {
         Self {
             content_blocks: Vec::new(),
             usage: UnifiedUsage {
@@ -467,6 +483,7 @@ impl StreamState {
                 cache_read_tokens: None,
                 cache_write_tokens: None,
             },
+            verbosity_level,
         }
     }
 
