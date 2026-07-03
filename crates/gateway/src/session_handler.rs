@@ -271,117 +271,16 @@ impl SessionMessageHandler {
         .await
     }
 }
-// ── Active-searcher trigger ──
-impl SessionMessageHandler {
-    /// Spawn a background active-searcher task for the current message.
-    ///
-    /// Runs asynchronously and writes results to the session's
-    /// `memory_injection` slot. Skips if:
-    /// - `memory_db_path` is not set
-    /// - The agent_id is excluded (memory-miner, dreaming)
-    pub(super) fn maybe_spawn_active_searcher(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-        content: &str,
-        message_role: &str,
-    ) {
-        use crate::memory::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
-        use crate::memory::active_searcher_llm::should_trigger_role;
-
-        let Some(ref db_path) = self.memory_db_path else {
-            return;
-        };
-        if !should_trigger_role(agent_id) {
-            return;
-        }
-
-        let sm = Arc::clone(&self.session_manager);
-        let sid = session_id.to_string();
-        let aid = agent_id.to_string();
-        let content = content.to_string();
-        let db_path = db_path.clone();
-        let ufc = Arc::clone(&self.unified_fallback_client);
-        let role = message_role.to_string();
-
-        let sm_clone = Arc::clone(&self.session_manager);
-        let aid_clone = aid.clone();
-
-        tokio::spawn(async move {
-            // Load agent config for active-searcher configuration.
-            let (agent_model, memory_config) = match sm_clone.get_agent_config(&aid_clone).await {
-                Some(cfg) => (cfg.model.clone(), cfg.memory.clone()),
-                None => (None, None),
-            };
-
-            let config = ActiveSearcherConfig::from_agent_config(
-                agent_model.as_deref(),
-                memory_config.as_ref(),
-            );
-            let model = config.model.clone();
-
-            // Build an LlmCaller wrapper around UnifiedFallbackClient.
-            let caller = FallbackLlmCaller { client: ufc, model };
-
-            let searcher = ActiveSearcher::new(&db_path, config);
-
-            // Gather context: last N messages from the session.
-            let context_messages = if let Some(cs) = sm.get_conversation_session(&sid).await {
-                let cs_read = cs.read().await;
-                let msgs = ChatSession::messages(&*cs_read);
-                let n = searcher.config().context_turns;
-                if msgs.len() > n {
-                    msgs[msgs.len() - n..].to_vec()
-                } else {
-                    msgs.to_vec()
-                }
-            } else {
-                Vec::new()
-            };
-
-            // Gather injected event IDs for dedup.
-            let injected_ids = if let Some(cs) = sm.get_conversation_session(&sid).await {
-                let cs_read = cs.read().await;
-                let slot = cs_read
-                    .memory_injection_arc()
-                    .lock()
-                    .expect("memory_injection lock poisoned");
-                slot.as_ref()
-                    .map(|inj| inj.injected_event_ids.clone())
-                    .unwrap_or_default()
-            } else {
-                std::collections::HashSet::new()
-            };
-
-            if let Some(injection) = searcher
-                .run(
-                    &aid,
-                    &role,
-                    &content,
-                    &context_messages,
-                    &injected_ids,
-                    &caller,
-                )
-                .await
-            {
-                if let Some(cs) = sm.get_conversation_session(&sid).await {
-                    cs.read().await.set_memory_injection(injection);
-                }
-            }
-        });
-    }
-}
 
 /// LlmCaller adapter for `UnifiedFallbackClient`.
 ///
 /// Wraps the unified fallback client so it can be used as a trait object
 /// by the active-searcher pipeline.
-#[allow(dead_code)]
-struct FallbackLlmCaller {
+pub(crate) struct FallbackLlmCaller {
     #[allow(dead_code)]
-    client: Arc<UnifiedFallbackClient>,
+    pub(crate) client: Arc<UnifiedFallbackClient>,
     #[allow(dead_code)]
-    model: String,
+    pub(crate) model: String,
 }
 
 #[async_trait::async_trait]
@@ -432,7 +331,7 @@ impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
     }
 }
 // ── Compaction helpers ──
-fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
+pub(crate) fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
     blocks
         .iter()
         .map(|b| match b {
