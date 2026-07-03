@@ -21,13 +21,20 @@ pub mod dsl_parser;
 mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
+#[cfg(test)]
+mod outbound_chain_tests;
 pub mod outbound_raw_log;
+#[cfg(test)]
+mod outbound_raw_log_tests;
 pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
 #[cfg(test)]
 mod registry_tests;
 pub mod session_router;
+pub mod verbosity_filter;
+#[cfg(test)]
+mod verbosity_filter_tests;
 
 pub use dsl_parser::DslParser;
 pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
@@ -90,6 +97,9 @@ pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
         let processor = OutboundRawLogProcessor::new(raw_log_config);
         registry.register(Arc::new(processor));
     }
+
+    // Outbound: VerbosityFilter (priority 5 — runs before DslParser)
+    registry.register(Arc::new(verbosity_filter::VerbosityFilter));
 
     // Outbound: DslParser (priority 10)
     registry.register(Arc::new(DslParser));

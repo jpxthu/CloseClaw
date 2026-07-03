@@ -80,12 +80,13 @@ impl Gateway {
     /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
     /// 2. Resolve the [`IMPlugin`](super::im::IMPlugin) registered for `channel`
     ///    through `self.plugins`.
-    /// 3. Apply verbosity filtering on `content_blocks` **before** the processor
-    ///    chain (as required by design doc: "ContentBlock[] 进入 Processor Chain
-    ///    之前，按当前 Session 的 Verbosity 等级过滤信息块").
+    /// 3. Resolve the session's [`VerbosityLevel`] and inject it into the
+    ///    processor chain metadata (key `"verbosity_level"`).
+    ///    [`VerbosityFilter`](closeclaw_processor_chain::verbosity_filter::VerbosityFilter)
+    ///    reads this value to filter `content_blocks` inside the chain.
     /// 4. Run the processor chain (if `processor_registry` is configured) to
     ///    produce a [`ProcessedMessage`]; otherwise bypass with a synthetic
-    ///    `ProcessedMessage` wrapping the filtered input.
+    ///    `ProcessedMessage` wrapping the input.
     /// 5. Honor `processed.suppress` — return `Ok(())` without sending.
     /// 6. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
     ///    as a JSON-encoded string by the DSL processor).
@@ -115,7 +116,7 @@ impl Gateway {
             .await
             .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
 
-        // 2. Apply verbosity filtering BEFORE processor chain.
+        // 2. Resolve verbosity level and inject into processor chain metadata.
         let verbosity_level = if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
@@ -125,11 +126,16 @@ impl Gateway {
         } else {
             VerbosityLevel::default()
         };
-        let filtered_blocks = filter_by_verbosity(content_blocks, verbosity_level);
 
         // 3. Run processor chain (or bypass) and honor suppress.
         let processed = self
-            .process_or_bypass(raw_output, filtered_blocks, channel, session_id)
+            .process_or_bypass(
+                raw_output,
+                content_blocks,
+                channel,
+                session_id,
+                verbosity_level,
+            )
             .await?;
         if processed.content_blocks.is_empty() {
             return Ok(());
@@ -230,6 +236,7 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         channel: &str,
         session_id: &str,
+        verbosity_level: VerbosityLevel,
     ) -> Result<ProcessedMessage, GatewayError> {
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
@@ -246,6 +253,7 @@ impl Gateway {
         let mut meta = std::collections::HashMap::new();
         meta.insert("channel".to_string(), channel.to_string());
         meta.insert("session_id".to_string(), session_id.to_string());
+        meta.insert("verbosity_level".to_string(), verbosity_level.to_string());
         let input = ProcessedMessage {
             content_blocks,
             metadata: meta,
@@ -330,7 +338,7 @@ impl Gateway {
 
         // Run the outbound processor chain (DslParser → RawLog).
         let processed = self
-            .process_or_bypass(raw_output, vec![], channel, "")
+            .process_or_bypass(raw_output, vec![], channel, "", VerbosityLevel::default())
             .await?;
         if processed.content_blocks.is_empty() {
             return Ok(());
@@ -407,6 +415,22 @@ impl Gateway {
             self.process_stream_event(&ctx, event, &mut state).await?;
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
+
+        // Post-stream: run accumulated content_blocks through the complete
+        // processor chain (VerbosityFilter → DslParser → OutboundRawLog).
+        // Real-time per-block verbosity filtering above is kept as an
+        // incremental optimization; the final result comes from the chain.
+        let processed = self
+            .process_or_bypass(
+                "",
+                state.content_blocks,
+                channel,
+                session_id,
+                verbosity_level,
+            )
+            .await?;
+        state.content_blocks = processed.content_blocks;
+
         Ok(StreamState::into_result(state))
     }
 
@@ -613,6 +637,7 @@ async fn send_render_block(
 /// - [`VerbosityLevel::Full`]: no filtering, all blocks are kept.
 /// - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks.
 /// - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks.
+#[allow(dead_code)]
 pub(crate) fn filter_by_verbosity(
     blocks: Vec<ContentBlock>,
     level: VerbosityLevel,

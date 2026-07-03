@@ -46,11 +46,11 @@ async fn test_default_config_no_raw_log() {
         2,
         "default config should have 2 inbound processors"
     );
-    // Outbound: DslParser (10) = 1
+    // Outbound: VerbosityFilter (5) + DslParser (10) = 2
     assert_eq!(
         registry.outbound_len(),
-        1,
-        "default config should have 1 outbound processor"
+        2,
+        "default config should have 2 outbound processors"
     );
 }
 
@@ -63,7 +63,7 @@ async fn test_config_with_raw_log_dir() {
     let registry = build_processor_registry(&config);
 
     // Inbound: RawLogProcessor (10) + SessionRouter (20) + ContentNormalizer (30) = 3
-    // Outbound: DslParser (10) + OutboundRawLogProcessor (20) = 2
+    // Outbound: VerbosityFilter (5) + DslParser (10) + OutboundRawLogProcessor (20) = 3
     assert_eq!(
         registry.inbound_len(),
         3,
@@ -71,8 +71,8 @@ async fn test_config_with_raw_log_dir() {
     );
     assert_eq!(
         registry.outbound_len(),
-        2,
-        "config with raw_log_dir should have 2 outbound processors"
+        3,
+        "config with raw_log_dir should have 3 outbound processors"
     );
 }
 
@@ -140,7 +140,7 @@ async fn test_priority_sorting_inbound() {
 }
 
 /// Verify that the outbound chain executes in priority order:
-/// DslParser(10) → OutboundRawLogProcessor(20) (when raw_log_dir is set).
+/// VerbosityFilter(5) → DslParser(10) → OutboundRawLogProcessor(20) (when raw_log_dir is set).
 #[tokio::test]
 async fn test_priority_sorting_outbound() {
     let tmp = tempfile::tempdir().unwrap();
