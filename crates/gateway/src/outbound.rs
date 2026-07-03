@@ -7,7 +7,7 @@ use super::{Gateway, GatewayError, Message};
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
-use closeclaw_common::middleware::run_middleware_chain;
+
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::{
@@ -539,6 +539,25 @@ impl Gateway {
         }
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Outbound middleware chain
+// ---------------------------------------------------------------------------
+
+/// Run a chain of outbound middlewares on a rendered output.
+///
+/// Processes `rendered` through each middleware in order. If any middleware
+/// returns an error, the chain short-circuits and the error is propagated.
+async fn run_middleware_chain(
+    middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
+    rendered: RenderedOutput,
+) -> Result<RenderedOutput, closeclaw_common::MiddlewareError> {
+    let mut current = rendered;
+    for mw in middlewares {
+        current = mw.process(&current).await?;
+    }
+    Ok(current)
 }
 
 // ---------------------------------------------------------------------------
