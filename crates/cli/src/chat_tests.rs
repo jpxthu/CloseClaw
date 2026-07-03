@@ -4,7 +4,7 @@
 //! configuration (processor registry, slash dispatcher, session handler) and
 //! that the TerminalAdapter quit/exit detection logic works correctly.
 
-use closeclaw_common::NormalizedMessage;
+use closeclaw_common::{MessageType, NormalizedMessage};
 use closeclaw_gateway::{GatewayConfig, InboundChainInput, SessionManager};
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -501,7 +501,7 @@ fn test_normalized_to_inbound_platform() {
         peer_id: "cli".to_string(),
         content: "hello".to_string(),
         timestamp: 1_700_000_000_000,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -520,7 +520,7 @@ fn test_normalized_to_inbound_peer_id() {
         peer_id: "cli".to_string(),
         content: "hello".to_string(),
         timestamp: 1_700_000_000_000,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -539,7 +539,7 @@ fn test_normalized_to_inbound_sender_id() {
         peer_id: "cli".to_string(),
         content: "hello".to_string(),
         timestamp: 1_700_000_000_000,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -559,7 +559,7 @@ fn test_normalized_to_inbound_timestamp() {
         peer_id: "cli".to_string(),
         content: "hello".to_string(),
         timestamp: ts,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -578,7 +578,7 @@ fn test_normalized_to_inbound_account_id_present() {
         peer_id: "cli".to_string(),
         content: "hello".to_string(),
         timestamp: 1_700_000_000_000,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -597,7 +597,7 @@ fn test_normalized_to_inbound_account_id_empty() {
         peer_id: "cli".to_string(),
         content: "hello".to_string(),
         timestamp: 1_700_000_000_000,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -616,7 +616,7 @@ fn test_normalized_to_inbound_content_preserved() {
         peer_id: "cli".to_string(),
         content: "line1\nline2".to_string(),
         timestamp: 1_700_000_000_000,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
@@ -635,7 +635,7 @@ fn test_normalized_to_inbound_message_id_format() {
         peer_id: "cli".to_string(),
         content: "hi".to_string(),
         timestamp: 42,
-        message_type: "text".to_string(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,

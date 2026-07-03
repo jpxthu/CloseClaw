@@ -1,6 +1,7 @@
 //! Unit tests for NormalizedMessage and related IM plugin types.
 
-use crate::im_plugin::{MediaRef, NormalizedMessage, QuotedMessage};
+use crate::im_plugin::{MediaRef, MessageType, NormalizedMessage};
+use serde_json;
 
 fn make_normalized(account_id: &str) -> NormalizedMessage {
     NormalizedMessage {
@@ -9,12 +10,20 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         peer_id: "oc_chat".into(),
         content: "hello".into(),
         timestamp: 1700000000000,
-        message_type: "text".into(),
+        message_type: MessageType::Text,
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
         account_id: account_id.into(),
     }
+}
+
+/// Helper: assert MessageType serializes to expected JSON and deserializes back.
+fn assert_mt_roundtrip(mt: &MessageType, expected_json: &str) {
+    let json = serde_json::to_string(mt).unwrap();
+    assert_eq!(json, expected_json, "serialization mismatch for {:?}", mt);
+    let de: MessageType = serde_json::from_str(&json).unwrap();
+    assert_eq!(mt, &de, "deserialization round-trip failed for {:?}", mt);
 }
 
 #[test]
@@ -46,13 +55,13 @@ fn test_normalized_message_type_defaults_to_text() {
         "timestamp": 0
     }"#;
     let msg: NormalizedMessage = serde_json::from_str(json).unwrap();
-    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.message_type, MessageType::Text);
 }
 
 #[test]
 fn test_normalized_roundtrip() {
     let mut msg = make_normalized("tenant_42");
-    msg.message_type = "image".into();
+    msg.message_type = MessageType::Image;
     msg.media_refs = vec![MediaRef {
         key: "file_abc".into(),
         url: "https://example.com/file_abc".into(),
@@ -62,7 +71,7 @@ fn test_normalized_roundtrip() {
     let json = serde_json::to_string(&msg).unwrap();
     let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(de.account_id, "tenant_42");
-    assert_eq!(de.message_type, "image");
+    assert_eq!(de.message_type, MessageType::Image);
     assert_eq!(de.media_refs.len(), 1);
     assert_eq!(de.media_refs[0].key, "file_abc");
     assert_eq!(de.thread_id.as_deref(), Some("t_99"));
@@ -71,16 +80,60 @@ fn test_normalized_roundtrip() {
 #[test]
 fn test_normalized_quoted_message_roundtrip() {
     let mut msg = make_normalized("a");
-    msg.quoted_message = Some(QuotedMessage {
-        content: "quoted text".into(),
-        sender_id: Some("ou_sender".into()),
-    });
+    msg.quoted_message = Some("quoted text".into());
 
     let json = serde_json::to_string(&msg).unwrap();
     let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
     let q = de.quoted_message.unwrap();
-    assert_eq!(q.content, "quoted text");
-    assert_eq!(q.sender_id.as_deref(), Some("ou_sender"));
+    assert_eq!(q, "quoted text");
+}
+
+// ---- MessageType serialization round-trip tests ----
+
+#[test]
+fn test_message_type_text_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Text, r#""text""#);
+}
+
+#[test]
+fn test_message_type_image_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Image, r#""image""#);
+}
+
+#[test]
+fn test_message_type_file_roundtrip() {
+    assert_mt_roundtrip(&MessageType::File, r#""file""#);
+}
+
+#[test]
+fn test_message_type_audio_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Audio, r#""audio""#);
+}
+
+#[test]
+fn test_message_type_other_roundtrip() {
+    assert_mt_roundtrip(&MessageType::Other("video".into()), r#""video""#);
+}
+
+#[test]
+fn test_message_type_deserialize_unknown_string() {
+    let mt: MessageType = serde_json::from_str(r#""unknown_type""#).unwrap();
+    assert_eq!(mt, MessageType::Other("unknown_type".into()));
+}
+
+#[test]
+fn test_message_type_default_is_text() {
+    let mt = MessageType::default();
+    assert_eq!(mt, MessageType::Text);
+}
+
+#[test]
+fn test_message_type_in_normalized_message_roundtrip() {
+    let mut msg = make_normalized("a");
+    msg.message_type = MessageType::Audio;
+    let json = serde_json::to_string(&msg).unwrap();
+    let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(de.message_type, MessageType::Audio);
 }
 
 #[test]

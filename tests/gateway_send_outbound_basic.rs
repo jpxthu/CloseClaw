@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
-use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
+use closeclaw_common::im_plugin::{
+    AdapterError, IMPlugin, MessageType, NormalizedMessage, RenderedOutput,
+};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
 use closeclaw_im_adapter::AdapterError as LocalAdapterError;
@@ -100,7 +102,7 @@ impl IMPlugin for TrackingPlugin {
             peer_id: "chat_1".to_string(),
             content: "hi".to_string(),
             timestamp: 0,
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
