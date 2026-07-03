@@ -9,7 +9,7 @@ mod resolved;
 mod types;
 mod validation;
 
-pub use closeclaw_common::AgentConfig;
+pub use closeclaw_common::agent_config::AgentConfig;
 pub use directory::AgentDirectoryProvider;
 pub use provider::AgentsConfigProvider;
 pub use resolved::{ConfigSource, ResolvedAgentConfig};

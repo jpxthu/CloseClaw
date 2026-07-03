@@ -10,6 +10,7 @@ full-tests = []
 
 [dependencies]
 # Internal crates
+closeclaw-agent = { path = "../agent" }
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
 closeclaw-session = { path = "../session" }

@@ -1,7 +1,7 @@
 //! Tests for `AgentDirectoryProvider`.
 
 use super::*;
-use closeclaw_common::{ActionPermission, PermissionLimits};
+use closeclaw_common::agent_config::{ActionPermission, PermissionLimits};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 

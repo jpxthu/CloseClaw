@@ -19,7 +19,7 @@ use crate::stats::RunningStats;
 use crate::streaming::StreamingSink;
 use crate::turn::TurnCounter;
 use crate::types::{ContentBlock, UnifiedUsage};
-use closeclaw_common::CommunicationConfig;
+use closeclaw_agent::communication::CommunicationConfig;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_session::persistence::ReasoningLevel;
 

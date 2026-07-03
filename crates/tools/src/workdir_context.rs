@@ -1,7 +1,7 @@
 //! WorkdirContext — working directory context for tools.
 //!
-//! Moved here to decouple the tools crate from the main crate's
-//! `system_prompt::workdir` module.
+//! Provides working directory context (git status, branch, etc.)
+//! consumed by [`ToolContext`] and [`PromptGenerationContext`].
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

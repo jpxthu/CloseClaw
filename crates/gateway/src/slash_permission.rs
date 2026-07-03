@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
-    parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashEffectExecutor, SlashHandler,
-    SlashRouter, SystemAppendAction,
+    ReplyAction, SideEffectContext, SlashContext, SlashEffectExecutor, SlashHandler, SlashRouter,
+    SystemAppendAction,
 };
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
@@ -20,6 +20,26 @@ use closeclaw_session::persistence::PendingMessage;
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
 use closeclaw_llm::session::ConversationSession;
 use tokio::sync::RwLock;
+
+/// Parse a slash command from raw content.
+///
+/// Returns `Some((command, args))` where `command` is without the
+/// leading `/` and `args` is the remainder. Returns `None` if the
+/// content does not start with `/`.
+fn parse_slash(content: &str) -> Option<(&str, &str)> {
+    let trimmed = content.trim();
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+    let without_slash = &trimmed[1..];
+    let (cmd, args) = without_slash
+        .split_once(char::is_whitespace)
+        .unwrap_or((without_slash, ""));
+    if cmd.is_empty() {
+        return None;
+    }
+    Some((cmd, args.trim_start()))
+}
 
 impl Gateway {
     /// Install the slash command dispatcher.

@@ -9,6 +9,7 @@ mod agent_loader_tests;
 pub mod agents;
 pub mod backup;
 pub mod events;
+pub mod identity;
 pub mod manager;
 pub mod manager_reload;
 pub mod migration;

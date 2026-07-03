@@ -9,26 +9,6 @@ use tokio::sync::mpsc;
 
 use crate::processor::ContentBlock;
 
-/// Parse a slash command from raw content.
-///
-/// Returns `Some((command, args))` where `command` is without the
-/// leading `/` and `args` is the remainder. Returns `None` if the
-/// content does not start with `/`.
-pub fn parse_slash(content: &str) -> Option<(&str, &str)> {
-    let trimmed = content.trim();
-    if !trimmed.starts_with('/') {
-        return None;
-    }
-    let without_slash = &trimmed[1..];
-    let (cmd, args) = without_slash
-        .split_once(char::is_whitespace)
-        .unwrap_or((without_slash, ""));
-    if cmd.is_empty() {
-        return None;
-    }
-    Some((cmd, args.trim_start()))
-}
-
 /// Execution context for a slash command invocation.
 #[derive(Debug, Clone)]
 pub struct SlashContext {

@@ -40,7 +40,7 @@ impl ToolsFragmentProvider {
     fn tool_context(ctx: &FragmentContext) -> ToolContext {
         let workdir = ctx.workdir.as_ref().map(|p| {
             let path_str = p.to_string_lossy().to_string();
-            closeclaw_common::build_workdir_context(&path_str)
+            closeclaw_tools::build_workdir_context(&path_str)
         });
         ToolContext {
             agent_id: ctx.agent_id.clone().unwrap_or_default(),

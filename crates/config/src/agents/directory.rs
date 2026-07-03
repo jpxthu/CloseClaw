@@ -11,7 +11,7 @@ use tracing::warn;
 
 use crate::agents::resolved::{ConfigSource, ResolvedAgentConfig};
 use crate::ConfigError;
-use closeclaw_common::{AgentConfig, AgentPermissions};
+use closeclaw_common::agent_config::{AgentConfig, AgentPermissions};
 
 /// Loads agent configurations from user-level and optional project-level
 /// directories, filtered by a registration list.

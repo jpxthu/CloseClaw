@@ -6,8 +6,9 @@ use super::*;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use axum::{extract::Query, routing::post, Json, Router};
-use closeclaw_common::identity::{ConfigIdentityResolver, IdentityMapping};
 use closeclaw_common::MessageType;
+use closeclaw_config::identity::ConfigIdentityResolver;
+use closeclaw_config::identity::IdentityMapping;
 use std::collections::HashMap as StdHashMap;
 
 use tempfile::TempDir;

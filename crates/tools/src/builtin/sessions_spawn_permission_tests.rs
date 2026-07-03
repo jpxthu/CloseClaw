@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use closeclaw_common::{ActionPermission, AgentPermissions, PermissionLimits};
+use closeclaw_common::agent_config::{ActionPermission, AgentPermissions, PermissionLimits};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_spawn::SpawnPermissionError;
 use closeclaw_permission::rules::RuleSetBuilder;
