@@ -219,7 +219,7 @@ active-searcher 写入槽位（tool role 摘要 + 位置模式）
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap/tools/skills 的组装。
 - **LLM Provider**：ConversationSession 构建 API 请求发送给 provider；stop 时通过 cancel token 取消进行中的请求。
-- **ToolRegistry**：通过 ToolRegistrar trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表和 skill 列表。
+- **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表和 skill 列表。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：Session 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）。工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
