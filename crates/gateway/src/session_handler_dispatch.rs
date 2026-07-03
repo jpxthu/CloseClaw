@@ -82,14 +82,30 @@ impl SearcherTriggerDeps {
         // Closure: gather context messages as snapshots.
         let get_context_messages = {
             let sm = Arc::clone(&sm);
+            let agent_id_for_ctx = agent_id.to_string();
             move |sid: String| -> BoxFuture<(Vec<SessionMessageSnapshot>, usize)> {
                 let sm = Arc::clone(&sm);
+                let aid = agent_id_for_ctx.clone();
                 Box::pin(async move {
+                    // Extract context_turns from memory config.
+                    let ctx_turns = if let Some(cfg) = sm.get_agent_config(&aid).await {
+                        let mem_json = cfg
+                            .memory
+                            .as_ref()
+                            .and_then(|m| serde_json::to_value(m).ok());
+                        closeclaw_session::active_searcher::extract_context_turns(&mem_json)
+                    } else {
+                        10
+                    };
+
                     if let Some(cs) = sm.get_conversation_session(&sid).await {
                         let cs_read = cs.read().await;
                         let msgs = ChatSession::messages(&*cs_read);
-                        let n = 20;
-                        let start = if msgs.len() > n { msgs.len() - n } else { 0 };
+                        let start = if msgs.len() > ctx_turns {
+                            msgs.len() - ctx_turns
+                        } else {
+                            0
+                        };
                         let snapshots: Vec<SessionMessageSnapshot> = msgs[start..]
                             .iter()
                             .map(|m| SessionMessageSnapshot {
@@ -97,9 +113,9 @@ impl SearcherTriggerDeps {
                                 content: flatten_content_blocks(&m.content_blocks),
                             })
                             .collect();
-                        (snapshots, n)
+                        (snapshots, ctx_turns)
                     } else {
-                        (Vec::new(), 20)
+                        (Vec::new(), ctx_turns)
                     }
                 })
             }
@@ -222,17 +238,21 @@ impl SearcherTriggerDeps {
             }
         };
 
+        let deps = closeclaw_session::active_searcher::SearcherDependencies {
+            get_agent_config: Box::new(get_agent_config),
+            get_context_messages: Box::new(get_context_messages),
+            get_injected_event_ids: Box::new(get_injected_event_ids),
+            set_memory_injection: Box::new(set_memory_injection),
+            run_searcher: Box::new(run_searcher),
+        };
+
         ActiveSearcherRunner::trigger(
             session_id,
             agent_id,
             content,
             message_role,
             &self.memory_db_path,
-            get_agent_config,
-            get_context_messages,
-            get_injected_event_ids,
-            set_memory_injection,
-            run_searcher,
+            deps,
         );
     }
 }
