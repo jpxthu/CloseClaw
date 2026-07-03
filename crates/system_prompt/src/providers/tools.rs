@@ -165,7 +165,7 @@ mod tests {
         let task_manager = Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
         let registrars: Vec<Box<dyn closeclaw_tools::ToolRegistrar>> = vec![
             Box::new(closeclaw_tools::CoreToolsRegistrar::new(
-                permission_engine,
+                permission_engine.clone(),
                 task_manager as Arc<dyn closeclaw_common::TaskManager>,
                 session_manager.clone(),
                 cfg_mgr.clone(),
@@ -174,6 +174,7 @@ mod tests {
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager.clone(),
                 agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
+                permission_engine,
             )),
             Box::new(closeclaw_tools::SkillsToolsRegistrar::new(
                 disk_registry,
