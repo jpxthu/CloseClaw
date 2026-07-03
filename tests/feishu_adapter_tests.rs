@@ -86,13 +86,11 @@ async fn test_handle_webhook_empty_text() {
         "schema":"2.0","header":{"event_id":"e2","event_type":"x","create_time":"0","token":"t","app_id":"a"},
         "event":{"sender":{"sender_id":{"open_id":"ou_x"},"sender_type":"user"},"content":"{\"other\":\"data\"}","chat_id":"oc_y","message_type":"text"}
     });
-    let msg = adapter
+    let result = adapter
         .handle_webhook(&serde_json::to_vec(&payload).unwrap())
         .await
-        .unwrap()
-        .expect("expected Some(message)");
-    assert_eq!(msg.content, "");
-    assert_eq!(msg.account_id.as_str(), "ou_x");
+        .unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
