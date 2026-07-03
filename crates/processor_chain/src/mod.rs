@@ -21,7 +21,11 @@ pub mod dsl_parser;
 mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
+#[cfg(test)]
+mod outbound_chain_tests;
 pub mod outbound_raw_log;
+#[cfg(test)]
+mod outbound_raw_log_tests;
 pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
