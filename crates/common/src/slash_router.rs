@@ -134,6 +134,18 @@ pub trait SlashEffectExecutor: Send + Sync {
         session_id: &str,
         level: crate::verbosity::VerbosityLevel,
     );
+
+    /// Execute a shell command for the given agent.
+    ///
+    /// The implementation evaluates command-level permissions via the
+    /// permission engine, then runs the command and returns output as
+    /// `ContentBlock::Text`. Returns a rejection message on permission denial.
+    async fn execute_exec(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        command: &str,
+    ) -> Vec<ContentBlock>;
 }
 
 /// Context passed to `SlashResult::execute` for side-effect dispatch.
@@ -232,10 +244,16 @@ impl SlashResult {
                 }
             }
             SlashResult::Exec { command } => {
-                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                    "Exec: {}",
-                    command
-                ))]));
+                let agent_id = ctx
+                    .session_manager
+                    .get_chat_id(&ctx.session_id)
+                    .await
+                    .unwrap_or_default();
+                let blocks = ctx
+                    .executor
+                    .execute_exec(&ctx.session_id, &agent_id, command)
+                    .await;
+                actions.push(ReplyAction::Reply(blocks));
             }
             SlashResult::SetReasoning { level } => {
                 ctx.executor

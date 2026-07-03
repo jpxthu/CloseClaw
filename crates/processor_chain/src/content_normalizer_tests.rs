@@ -1,6 +1,7 @@
 use super::*;
-use crate::processor_chain::context::{MessageContext, RawMessage};
+use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::processor::MessageProcessor;
+use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_im_adapter::normalized::{add_code_block_language_hint, normalize_urls};
 
 // -------------------------------------------------------------------------
@@ -77,19 +78,26 @@ fn test_strip_control_chars_mixed() {
 // ContentNormalizer process()
 // -------------------------------------------------------------------------
 
-#[tokio::test]
-async fn test_process_plain_text() {
-    let processor = ContentNormalizer::new();
-    let raw = RawMessage {
+fn make_normalized(content: &str) -> NormalizedMessage {
+    NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "user_1".to_string(),
         peer_id: "cli".to_string(),
-        content: "hello world".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_1".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+        content: content.to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
+        thread_id: None,
+        account_id: String::new(),
+    }
+}
+
+#[tokio::test]
+async fn test_process_plain_text() {
+    let processor = ContentNormalizer::new();
+    let msg = make_normalized("hello world");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap();
     assert!(result.is_some());
     let out = result.unwrap();
@@ -99,16 +107,8 @@ async fn test_process_plain_text() {
 #[tokio::test]
 async fn test_process_normalizes_empty_lines() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "hello\n\n\n\nworld  ".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_2".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("hello\n\n\n\nworld  ");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("hello\n\nworld"));
 }
@@ -116,16 +116,8 @@ async fn test_process_normalizes_empty_lines() {
 #[tokio::test]
 async fn test_process_strips_ansi() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "\x1b[31mError:\x1b[0m something went wrong".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_3".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("\x1b[31mError:\x1b[0m something went wrong");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("Error: something went wrong"));
 }
@@ -133,16 +125,8 @@ async fn test_process_strips_ansi() {
 #[tokio::test]
 async fn test_process_strips_control_chars() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "hello\x00\x01\x02world".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_4".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("hello\x00\x01\x02world");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("helloworld"));
 }
@@ -150,16 +134,8 @@ async fn test_process_strips_control_chars() {
 #[tokio::test]
 async fn test_process_preserves_newlines_and_tabs() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "line1\nline2\ttab".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_5".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("line1\nline2\ttab");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("line1\nline2\ttab"));
 }
@@ -167,16 +143,8 @@ async fn test_process_preserves_newlines_and_tabs() {
 #[tokio::test]
 async fn test_process_does_not_normalize_urls() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "visit www.example.com today".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_url".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("visit www.example.com today");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("visit www.example.com today"));
 }
@@ -184,16 +152,8 @@ async fn test_process_does_not_normalize_urls() {
 #[tokio::test]
 async fn test_process_does_not_normalize_bare_domain() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "go to google.com/path please".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_url2".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("go to google.com/path please");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("go to google.com/path please"));
 }
@@ -201,16 +161,8 @@ async fn test_process_does_not_normalize_bare_domain() {
 #[tokio::test]
 async fn test_process_does_not_add_code_block_language_hint() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "```\ncode here\n```".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_code".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("```\ncode here\n```");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("```\ncode here\n```"));
     assert!(!result.text_content().unwrap().contains("```text"));
@@ -219,16 +171,8 @@ async fn test_process_does_not_add_code_block_language_hint() {
 #[tokio::test]
 async fn test_process_combined_url_and_code_block_unchanged() {
     let processor = ContentNormalizer::new();
-    let raw = RawMessage {
-        platform: "terminal".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "cli".to_string(),
-        content: "see www.example.com and ```\nfn main() {}\n```".to_string(),
-        timestamp: chrono::Utc::now(),
-        message_id: "msg_combo".to_string(),
-        account_id: None,
-    };
-    let ctx = MessageContext::from_raw(raw);
+    let msg = make_normalized("see www.example.com and ```\nfn main() {}\n```");
+    let ctx = MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(
         result.text_content(),

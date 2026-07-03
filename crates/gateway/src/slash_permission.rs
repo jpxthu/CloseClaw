@@ -252,9 +252,11 @@ impl Gateway {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
+        let perm_engine = self.permission_engine.read().await.clone();
         let executor: Arc<dyn SlashEffectExecutor> = Arc::new(GatewaySlashExecutor {
             session_manager: Arc::clone(&self.session_manager),
             session_handler: self.session_handler.clone(),
+            permission_engine: perm_engine,
         });
         let side_effect_ctx = SideEffectContext::new(
             session_id.to_owned(),
@@ -293,6 +295,7 @@ impl Gateway {
 struct GatewaySlashExecutor {
     session_manager: Arc<SessionManager>,
     session_handler: Option<Arc<SessionMessageHandler>>,
+    permission_engine: Option<Arc<PermissionEngine>>,
 }
 
 #[async_trait::async_trait]
@@ -392,5 +395,87 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             return;
         };
         cs.write().await.set_verbosity_level(level);
+    }
+
+    async fn execute_exec(
+        &self,
+        _session_id: &str,
+        agent_id: &str,
+        command: &str,
+    ) -> Vec<ContentBlock> {
+        let command = command.trim();
+        if command.is_empty() {
+            return vec![ContentBlock::Text("用法：/exec <command>".to_owned())];
+        }
+
+        let parts: Vec<String> = shlex::split(command).unwrap_or_else(|| vec![command.to_owned()]);
+        let cmd = parts.first().cloned().unwrap_or_default();
+        let args = parts[1..].to_vec();
+
+        match self.check_command_permission(agent_id, &cmd, &args).await {
+            Ok(()) => self.run_command(&cmd, &args).await,
+            Err(blocks) => blocks,
+        }
+    }
+}
+
+// ── GatewaySlashExecutor inherent methods ──────────────────────────────
+
+impl GatewaySlashExecutor {
+    /// Check permission for a command execution request.
+    /// Returns `Ok(())` if allowed, or `Err(blocks)` with a denial message.
+    async fn check_command_permission(
+        &self,
+        agent_id: &str,
+        cmd: &str,
+        args: &[String],
+    ) -> Result<(), Vec<ContentBlock>> {
+        let Some(engine) = self.permission_engine.as_ref() else {
+            return Err(vec![ContentBlock::Text(
+                "无权限：权限引擎未配置".to_owned(),
+            )]);
+        };
+        let caller = Caller {
+            user_id: "owner".to_owned(),
+            agent: agent_id.to_owned(),
+            creator_id: String::new(),
+        };
+        let request = PermissionRequest::WithCaller {
+            caller,
+            request: PermissionRequestBody::CommandExec {
+                agent: agent_id.to_owned(),
+                cmd: cmd.to_owned(),
+                args: args.to_vec(),
+            },
+        };
+        let response = engine.evaluate(request, None);
+        if let PermissionResponse::Denied { reason, .. } = response {
+            return Err(vec![ContentBlock::Text(format!("无权限：{reason}"))]);
+        }
+        Ok(())
+    }
+
+    /// Execute a command and format stdout/stderr into ContentBlocks.
+    async fn run_command(&self, cmd: &str, args: &[String]) -> Vec<ContentBlock> {
+        let result = tokio::process::Command::new(cmd).args(args).output().await;
+        match result {
+            Ok(output) => {
+                let mut blocks = Vec::new();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stdout.is_empty() {
+                    blocks.push(ContentBlock::Text(stdout.to_string()));
+                }
+                if !stderr.is_empty() {
+                    blocks.push(ContentBlock::Text(format!("[stderr] {stderr}")));
+                }
+                if blocks.is_empty() {
+                    let code = output.status.code().unwrap_or(-1);
+                    blocks.push(ContentBlock::Text(format!("命令执行完成，退出码：{code}")));
+                }
+                blocks
+            }
+            Err(e) => vec![ContentBlock::Text(format!("命令执行失败：{e}"))],
+        }
     }
 }
