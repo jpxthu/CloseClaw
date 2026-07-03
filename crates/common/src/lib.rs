@@ -68,8 +68,8 @@ pub use session_types::{AgentRole, ReasoningLevel};
 pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
 pub use skill_registry::SkillRegistryQuery;
 pub use slash_router::{
-    parse_slash, ReplyAction, SideEffectContext, SlashContext, SlashDispatcherTrait, SlashHandler,
-    SlashResult, SlashRouter, SystemAppendAction,
+    ReplyAction, SideEffectContext, SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult,
+    SlashRouter, SystemAppendAction,
 };
 
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
