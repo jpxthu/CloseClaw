@@ -68,7 +68,7 @@ impl DslParser {
     ///
     /// If no DSL lines are found, `instructions` is empty and `clean_content`
     /// equals the original `content`.
-    pub fn parse(&self, content: &str) -> DslParseResult {
+    pub fn parse(&self, content: &str) -> (DslParseResult, String) {
         let mut instructions: Vec<DslInstruction> = Vec::new();
         let mut clean_lines: Vec<&str> = Vec::new();
 
@@ -84,7 +84,8 @@ impl DslParser {
             }
         }
 
-        DslParseResult { instructions }
+        let clean_text = clean_lines.join("\n");
+        (DslParseResult { instructions }, clean_text)
     }
 
     /// Parse DSL instructions from a list of [`ContentBlock`][closeclaw_llm::types::ContentBlock].
@@ -104,7 +105,8 @@ impl DslParser {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        self.parse(&text)
+        let (result, _clean) = self.parse(&text);
+        result
     }
 
     /// Parse DSL from `ContentBlock` list, returning both the merged [`DslParseResult`]
@@ -123,9 +125,11 @@ impl DslParser {
         for block in blocks {
             match block {
                 ContentBlock::Text(s) => {
-                    let result = self.parse(s);
+                    let (result, clean_text) = self.parse(s);
                     all_instructions.extend(result.instructions);
-                    updated_blocks.push(block.clone());
+                    if !clean_text.is_empty() {
+                        updated_blocks.push(ContentBlock::Text(clean_text));
+                    }
                 }
                 _ => {
                     updated_blocks.push(block.clone());
@@ -249,11 +253,11 @@ impl MessageProcessor for DslParser {
         let (result, updated_blocks) = if !ctx.content_blocks.is_empty() {
             self.parse_content_blocks_with_result(&ctx.content_blocks)
         } else {
-            let result = self.parse(&ctx.content);
-            let blocks = if result.instructions.is_empty() {
+            let (result, clean_text) = self.parse(&ctx.content);
+            let blocks = if clean_text.is_empty() {
                 vec![]
             } else {
-                vec![ContentBlock::Text(ctx.content.clone())]
+                vec![ContentBlock::Text(clean_text)]
             };
             (result, blocks)
         };
@@ -288,7 +292,7 @@ mod tests {
     fn test_no_dsl() {
         let parser = DslParser;
         let input = "Hello, this is a normal message without any DSL.";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert!(result.instructions.is_empty());
     }
@@ -297,7 +301,7 @@ mod tests {
     fn test_single_dsl() {
         let parser = DslParser;
         let input = "::button[label:Click Me;action:navigate;value:/home]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(
@@ -318,7 +322,7 @@ mod tests {
         let parser = DslParser;
         let input =
             "::button[label:Yes;action:confirm;value:1]\n::button[label:No;action:cancel;value:0]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 2);
         assert_eq!(result.instructions[0].instruction_type, "button");
@@ -331,7 +335,7 @@ mod tests {
     fn test_dsl_mixed_with_text() {
         let parser = DslParser;
         let input = "Hello world\n::button[label:OK;action:submit;value:yes]\nGoodbye";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
     }
@@ -340,7 +344,7 @@ mod tests {
     fn test_dsl_at_first_line() {
         let parser = DslParser;
         let input = "::button[label:Start;action:begin;value:]\nNow the content starts here.";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
     }
@@ -349,7 +353,7 @@ mod tests {
     fn test_dsl_at_middle() {
         let parser = DslParser;
         let input = "Before\n::button[label:Middle;action:go;value:x]\nAfter";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
     }
@@ -358,7 +362,7 @@ mod tests {
     fn test_dsl_at_last_line() {
         let parser = DslParser;
         let input = "Some text here\n::button[label:End;action:finish;value:done]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
     }
@@ -367,7 +371,7 @@ mod tests {
     fn test_dsl_param_with_spaces() {
         let parser = DslParser;
         let input = "::button[label: Hello World ;action: say hello ;value: greeting ]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(result.instructions[0].params["label"], "Hello World");
@@ -385,7 +389,7 @@ mod tests {
             "Text B\n",
             "::button[label:C;action:3;value:z]",
         );
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 3);
     }
@@ -512,7 +516,7 @@ mod tests {
     fn test_single_selector() {
         let parser = DslParser;
         let input = "::selector[label:Pick color;options:Red,Green,Blue;action:select_color]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(
@@ -532,7 +536,7 @@ mod tests {
     fn test_selector_empty_options() {
         let parser = DslParser;
         let input = "::selector[label:Choose;options:;action:pick]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(result.instructions[0].params["label"], "Choose");
@@ -544,7 +548,7 @@ mod tests {
     fn test_selector_with_spaces() {
         let parser = DslParser;
         let input = "::selector[label: Pick one ;options: A , B , C ;action: choose ]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(result.instructions[0].params["label"], "Pick one");
@@ -556,7 +560,7 @@ mod tests {
     fn test_selector_mixed_with_text() {
         let parser = DslParser;
         let input = "Hello\n::selector[label:Pick;options:X,Y;action:go]\nWorld";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
     }
@@ -568,7 +572,7 @@ mod tests {
             "::button[label:Yes;action:confirm;value:1]\n",
             "::selector[label:Pick;options:A,B;action:choose]",
         );
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 2);
         assert_eq!(result.instructions[0].instruction_type, "button");
@@ -579,7 +583,7 @@ mod tests {
     fn test_selector_missing_label() {
         let parser = DslParser;
         let input = "::selector[options:A,B;action:go]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert!(result.instructions.is_empty());
     }
@@ -588,7 +592,7 @@ mod tests {
     fn test_selector_missing_action() {
         let parser = DslParser;
         let input = "::selector[label:Pick;options:A,B]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert!(result.instructions.is_empty());
     }
@@ -597,7 +601,7 @@ mod tests {
     fn test_selector_single_option() {
         let parser = DslParser;
         let input = "::selector[label:Only one;options:Only;action:single]";
-        let result = parser.parse(input);
+        let (result, _clean) = parser.parse(input);
 
         assert_eq!(result.instructions.len(), 1);
         assert_eq!(result.instructions[0].params["options"], "Only");

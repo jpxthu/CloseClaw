@@ -45,18 +45,14 @@ fn test_with_result_mixed_blocks_preserves_non_text() {
     // DSL instruction extracted from Text blocks
     assert_eq!(result.instructions.len(), 1);
 
-    // All blocks preserved (text blocks kept as-is)
-    assert_eq!(updated_blocks.len(), 6);
+    // DSL-only Text block is dropped after cleaning (DSL stripped → empty)
+    assert_eq!(updated_blocks.len(), 5);
     assert!(matches!(&updated_blocks[0], ContentBlock::Text(s) if s == "Hello world"));
     assert!(matches!(&updated_blocks[1], ContentBlock::Thinking { .. }));
+    assert!(matches!(&updated_blocks[2], ContentBlock::ToolUse { .. }));
+    assert!(matches!(&updated_blocks[3], ContentBlock::Text(s) if s == "Done"));
     assert!(matches!(
-        &updated_blocks[2],
-        ContentBlock::Text(s) if s == "::button[label:A;action:x;value:1]"
-    ));
-    assert!(matches!(&updated_blocks[3], ContentBlock::ToolUse { .. }));
-    assert!(matches!(&updated_blocks[4], ContentBlock::Text(s) if s == "Done"));
-    assert!(matches!(
-        &updated_blocks[5],
+        &updated_blocks[4],
         ContentBlock::ToolResult { .. }
     ));
 }
@@ -88,8 +84,8 @@ fn test_with_result_dsl_text_blocks_preserved() {
     let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
 
     assert_eq!(result.instructions.len(), 2);
-    // Text blocks preserved as-is
-    assert_eq!(updated_blocks.len(), 3);
+    // DSL-only Text blocks are dropped after cleaning (empty after stripping DSL)
+    assert_eq!(updated_blocks.len(), 0);
 }
 
 #[test]
@@ -145,10 +141,9 @@ async fn test_process_with_content_blocks_non_empty() {
     let result = parser.process(&ctx).await.unwrap().unwrap();
 
     // When content_blocks is provided, DslParser processes them
+    // DSL lines are removed from Text blocks
     assert_eq!(result.content_blocks.len(), 3);
-    assert!(
-        matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello\n::button[label:X;action:a;value:1]")
-    );
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
     assert!(matches!(
         &result.content_blocks[1],
         ContentBlock::Thinking { .. }
@@ -165,10 +160,8 @@ async fn test_process_with_empty_content_blocks_falls_back_to_content() {
     );
     let result = parser.process(&ctx).await.unwrap().unwrap();
 
-    assert_eq!(
-        result.text_content(),
-        Some("Some text\n::button[label:A;action:x;value:1]\nMore text")
-    );
+    // DSL lines are cleaned from content
+    assert_eq!(result.text_content(), Some("Some text\nMore text"));
     // DSL instructions found → content block created
     assert_eq!(result.content_blocks.len(), 1);
 }
@@ -199,4 +192,113 @@ async fn test_process_content_blocks_takes_priority() {
     assert_eq!(result.text_content(), Some("Actual content"));
     let dsl_val = result.metadata.get("dsl_result").unwrap();
     assert!(!dsl_val.contains("button"));
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.3: DSL line removal from Text blocks
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_dsl_lines_removed_from_text_block() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text(
+        "Hello\n::button[label:X;action:a;value:1]\nWorld".to_string(),
+    )];
+    let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
+
+    assert_eq!(result.instructions.len(), 1);
+    assert_eq!(updated_blocks.len(), 1);
+    assert!(matches!(
+        &updated_blocks[0],
+        ContentBlock::Text(s) if s == "Hello\nWorld"
+    ));
+}
+
+#[test]
+fn test_non_text_blocks_pass_through() {
+    let parser = DslParser;
+    let blocks = vec![
+        ContentBlock::Thinking {
+            thinking: "think".to_string(),
+            signature: None,
+        },
+        ContentBlock::ToolUse {
+            id: "c1".to_string(),
+            name: "fn".to_string(),
+            input: "{}".to_string(),
+        },
+    ];
+    let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
+
+    assert!(result.instructions.is_empty());
+    assert_eq!(updated_blocks.len(), 2);
+    assert!(matches!(&updated_blocks[0], ContentBlock::Thinking { .. }));
+    assert!(matches!(&updated_blocks[1], ContentBlock::ToolUse { .. }));
+}
+
+#[test]
+fn test_empty_text_block_after_dsl_strip_is_dropped() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text(
+        "::button[label:A;action:x;value:1]".to_string(),
+    )];
+    let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
+
+    assert_eq!(result.instructions.len(), 1);
+    // DSL-only block → cleaned text is empty → dropped
+    assert!(updated_blocks.is_empty());
+}
+
+#[test]
+fn test_empty_string_text_block_is_dropped() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text(String::new())];
+    let (_, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
+
+    // Empty string → clean_lines is empty → clean_text is empty → dropped
+    assert!(updated_blocks.is_empty());
+}
+
+#[test]
+fn test_multiple_dsl_lines_in_single_text_block() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text(
+        "::button[label:A;action:x;value:1]\nSome text\n::button[label:B;action:y;value:2]"
+            .to_string(),
+    )];
+    let (result, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
+
+    assert_eq!(result.instructions.len(), 2);
+    assert_eq!(updated_blocks.len(), 1);
+    assert!(matches!(&updated_blocks[0], ContentBlock::Text(s) if s == "Some text"));
+}
+
+#[test]
+fn test_text_block_without_dsl_is_kept_intact() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text("No DSL here".to_string())];
+    let (_, updated_blocks) = parser.parse_content_blocks_with_result(&blocks);
+
+    assert_eq!(updated_blocks.len(), 1);
+    assert!(matches!(&updated_blocks[0], ContentBlock::Text(s) if s == "No DSL here"));
+}
+
+#[test]
+fn test_parse_clean_text_removes_dsl() {
+    let parser = DslParser;
+    let input = "Hello\n::button[label:X;action:a;value:1]\nWorld";
+    let (result, clean) = parser.parse(input);
+
+    assert_eq!(result.instructions.len(), 1);
+    assert_eq!(clean, "Hello\nWorld");
+}
+
+#[test]
+fn test_parse_clean_text_all_dsl() {
+    let parser = DslParser;
+    let input = "::button[label:X;action:a;value:1]\n::selector[label:Y;action:b;options:A,B]";
+    let (result, clean) = parser.parse(input);
+
+    assert_eq!(result.instructions.len(), 2);
+    assert_eq!(clean, "");
 }
