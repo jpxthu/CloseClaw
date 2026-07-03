@@ -249,13 +249,13 @@ pub(crate) fn dispatch_blocks(
             ContentBlock::ToolResult { content, .. } => {
                 elements.push(render_tool_result_block(content));
             }
-            ContentBlock::Image(name) => {
+            ContentBlock::Image { name, .. } => {
                 elements.extend(to_elements(&format!("[image: {name}]")));
             }
-            ContentBlock::Audio(name) => {
+            ContentBlock::Audio { name, .. } => {
                 elements.extend(to_elements(&format!("[audio: {name}]")));
             }
-            ContentBlock::File(name) => {
+            ContentBlock::File { name, .. } => {
                 elements.extend(to_elements(&format!("[file: {name}]")));
             }
         }

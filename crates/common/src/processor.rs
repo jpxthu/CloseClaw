@@ -50,12 +50,27 @@ pub enum ContentBlock {
         /// Result content returned by the tool.
         content: String,
     },
-    /// Image content block (file name or identifier).
-    Image(String),
-    /// Audio content block (file name or identifier).
-    Audio(String),
-    /// File content block (file name or identifier).
-    File(String),
+    /// Image reference block with a resource identifier and access URL.
+    Image {
+        /// Resource identifier (e.g. file name or key).
+        name: String,
+        /// Access URL for the image resource.
+        url: String,
+    },
+    /// Audio reference block with a resource identifier and access URL.
+    Audio {
+        /// Resource identifier (e.g. file name or key).
+        name: String,
+        /// Access URL for the audio resource.
+        url: String,
+    },
+    /// File reference block with a resource identifier and access URL.
+    File {
+        /// Resource identifier (e.g. file name or key).
+        name: String,
+        /// Access URL for the file resource.
+        url: String,
+    },
 }
 
 /// Content block type classification.
@@ -98,11 +113,11 @@ pub enum ContentDelta {
     /// Tool result text delta.
     ToolResultText { text: String },
     /// Image reference delta (resource identifier + URL).
-    ImageRef { url: String },
+    ImageRef { name: String, url: String },
     /// Audio reference delta (resource identifier + URL).
-    AudioRef { url: String },
+    AudioRef { name: String, url: String },
     /// File reference delta (resource identifier + URL).
-    FileRef { url: String },
+    FileRef { name: String, url: String },
 }
 
 /// Stream event emitted during streaming responses.

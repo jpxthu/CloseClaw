@@ -781,9 +781,9 @@ impl TerminalRenderer {
             ContentBlock::Thinking { thinking: text, .. } => self.render_thinking(text),
             ContentBlock::ToolUse { name, input, .. } => self.render_tool_use(name, input),
             ContentBlock::ToolResult { content, .. } => self.render_tool_result(content),
-            ContentBlock::Image(name) => self.render_placeholder("image", name),
-            ContentBlock::Audio(name) => self.render_placeholder("audio", name),
-            ContentBlock::File(name) => self.render_placeholder("file", name),
+            ContentBlock::Image { name, .. } => self.render_placeholder("image", name),
+            ContentBlock::Audio { name, .. } => self.render_placeholder("audio", name),
+            ContentBlock::File { name, .. } => self.render_placeholder("file", name),
         }
     }
 
