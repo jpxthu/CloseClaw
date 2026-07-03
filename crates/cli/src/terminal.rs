@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 use closeclaw_common::processor::DslParseResult;
-use closeclaw_common::NormalizedMessage;
+use closeclaw_common::{MessageType, NormalizedMessage};
 use closeclaw_im_adapter::plugin::{IMPlugin, RenderedOutput};
 use closeclaw_im_adapter::AdapterError;
 use closeclaw_llm::types::ContentBlock;
@@ -75,7 +75,7 @@ impl TerminalAdapter {
             peer_id: "cli".to_string(),
             content,
             timestamp: current_timestamp(),
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,

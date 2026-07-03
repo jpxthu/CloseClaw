@@ -3,7 +3,7 @@
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
-use closeclaw_common::{MediaRef, NormalizedMessage};
+use closeclaw_common::{MediaRef, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -449,7 +449,7 @@ impl FeishuAdapter {
                     peer_id: metadata.get("chat_id").cloned().unwrap_or_default(),
                     content: "/__card_action:forceful_shutdown".to_string(),
                     timestamp: chrono::Utc::now().timestamp_millis(),
-                    message_type: "text".to_string(),
+                    message_type: MessageType::Text,
                     media_refs: vec![],
                     quoted_message: None,
                     thread_id: None,
@@ -551,7 +551,7 @@ impl FeishuAdapter {
             peer_id: event.event.chat_id,
             content: text,
             timestamp: chrono::Utc::now().timestamp_millis(),
-            message_type: event.event.message_type,
+            message_type: MessageType::from(event.event.message_type.as_str()),
             media_refs,
             quoted_message: None,
             thread_id,

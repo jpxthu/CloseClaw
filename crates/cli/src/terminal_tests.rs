@@ -5,7 +5,7 @@ mod tests {
     use std::collections::HashMap;
 
     use closeclaw_common::processor::{DslInstruction, DslParseResult};
-    use closeclaw_common::NormalizedMessage;
+    use closeclaw_common::{MessageType, NormalizedMessage};
     use closeclaw_im_adapter::plugin::IMPlugin;
     use closeclaw_im_adapter::RenderedOutput;
     use closeclaw_llm::types::ContentBlock;
@@ -41,7 +41,7 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "hello".to_string(),
             timestamp: 1_700_000_000_000,
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
@@ -60,7 +60,7 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "test".to_string(),
             timestamp: 1_700_000_000_000,
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
@@ -78,7 +78,7 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "test".to_string(),
             timestamp: 1_700_000_000_000,
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
@@ -96,7 +96,7 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "hello\nworld".to_string(),
             timestamp: 1_700_000_000_000,
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
@@ -116,7 +116,7 @@ mod tests {
             peer_id: "cli".to_string(),
             content: String::new(),
             timestamp: 1_700_000_000_000,
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
@@ -133,7 +133,7 @@ mod tests {
             peer_id: "cli".to_string(),
             content: "line1\nline2\nline3".to_string(),
             timestamp: 1_700_000_000_000,
-            message_type: "text".to_string(),
+            message_type: MessageType::Text,
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
@@ -336,7 +336,7 @@ mod tests {
         assert_eq!(msg.platform, "terminal");
         assert_eq!(msg.peer_id, "cli");
         assert_eq!(msg.sender_id, closeclaw_platform::current_uid());
-        assert_eq!(msg.message_type, "text");
+        assert_eq!(msg.message_type, MessageType::Text);
         assert!(msg.media_refs.is_empty());
         assert!(msg.quoted_message.is_none());
         assert!(msg.thread_id.is_none());

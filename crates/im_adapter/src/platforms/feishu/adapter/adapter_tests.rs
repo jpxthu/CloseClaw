@@ -7,6 +7,7 @@ use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use axum::{extract::Query, routing::post, Json, Router};
 use closeclaw_common::identity::{ConfigIdentityResolver, IdentityMapping};
+use closeclaw_common::MessageType;
 use std::collections::HashMap as StdHashMap;
 
 use tempfile::TempDir;
@@ -360,7 +361,7 @@ async fn test_parse_message_event_text_type() {
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "hello");
-    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.message_type, MessageType::Text);
     assert!(msg.media_refs.is_empty());
 }
 
@@ -374,7 +375,7 @@ async fn test_parse_message_event_post_type() {
     let event = make_message_event("post", &content.to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "T\nbody");
-    assert_eq!(msg.message_type, "post");
+    assert_eq!(msg.message_type, MessageType::Other("post".to_string()));
     assert!(msg.media_refs.is_empty());
 }
 
@@ -387,7 +388,7 @@ async fn test_parse_message_event_image_graceful_degradation() {
         Some("om_msg_001"),
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "image");
+    assert_eq!(msg.message_type, MessageType::Image);
     assert!(msg.media_refs.is_empty(), "download should fail gracefully");
     assert!(msg.content.is_empty());
 }
@@ -401,7 +402,7 @@ async fn test_parse_message_event_file_graceful_degradation() {
         Some("om_msg_002"),
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "file");
+    assert_eq!(msg.message_type, MessageType::File);
     assert!(msg.media_refs.is_empty(), "download should fail gracefully");
     assert_eq!(msg.content, "report.pdf");
 }
@@ -415,7 +416,7 @@ async fn test_parse_message_event_audio_graceful_degradation() {
         Some("om_msg_003"),
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "audio");
+    assert_eq!(msg.message_type, MessageType::Audio);
     assert!(msg.media_refs.is_empty(), "download should fail gracefully");
     assert!(msg.content.is_empty());
 }
@@ -540,7 +541,7 @@ async fn test_handle_webhook_card_action_forceful_shutdown() {
     let msg = result.expect("expected Some(NormalizedMessage) for forceful_shutdown");
     assert_eq!(msg.sender_id, "ou_operator");
     assert_eq!(msg.content, "/__card_action:forceful_shutdown");
-    assert_eq!(msg.message_type, "text");
+    assert_eq!(msg.message_type, MessageType::Text);
     assert_eq!(msg.platform, "feishu");
     assert_eq!(msg.peer_id, "oc_chat123");
     assert_eq!(msg.account_id, "ou_operator");
@@ -615,7 +616,7 @@ async fn test_parse_inbound_text_type() {
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let normalized = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    assert_eq!(normalized.message_type, "text");
+    assert_eq!(normalized.message_type, MessageType::Text);
     assert_eq!(normalized.content, "hi");
 }
 
@@ -629,7 +630,10 @@ async fn test_parse_inbound_post_type() {
     });
     let payload = make_webhook_payload("post", &content.to_string());
     let normalized = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    assert_eq!(normalized.message_type, "post");
+    assert_eq!(
+        normalized.message_type,
+        MessageType::Other("post".to_string())
+    );
     assert_eq!(normalized.content, "Post\nbody");
 }
 
@@ -642,7 +646,7 @@ async fn test_parse_inbound_image_graceful_degradation() {
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
     );
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "image");
+    assert_eq!(msg.message_type, MessageType::Image);
     assert!(msg.media_refs.is_empty(), "download should fail gracefully");
 }
 
@@ -661,7 +665,7 @@ async fn test_parse_image_message_success() {
         Some("om_img_001"),
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "image");
+    assert_eq!(msg.message_type, MessageType::Image);
     assert_eq!(msg.content, "");
     assert_eq!(msg.media_refs.len(), 1);
     assert_eq!(msg.media_refs[0].key, "img_test_123");
@@ -680,7 +684,7 @@ async fn test_parse_file_message_success() {
         Some("om_file_002"),
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "file");
+    assert_eq!(msg.message_type, MessageType::File);
     assert_eq!(msg.content, "report.pdf");
     assert_eq!(msg.media_refs.len(), 1);
     assert_eq!(msg.media_refs[0].key, "file_xyz_789");
@@ -699,7 +703,7 @@ async fn test_parse_audio_message_success() {
         Some("om_audio_003"),
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "audio");
+    assert_eq!(msg.message_type, MessageType::Audio);
     assert!(msg.content.is_empty());
     assert_eq!(msg.media_refs.len(), 1);
     assert_eq!(msg.media_refs[0].key, "audio_abc_456");
@@ -716,7 +720,7 @@ async fn test_download_media_failure_graceful_degradation() {
         Some("om_fail_001"),
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, "image");
+    assert_eq!(msg.message_type, MessageType::Image);
     assert!(
         msg.media_refs.is_empty(),
         "media_refs should be empty on download failure"
