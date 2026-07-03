@@ -63,7 +63,7 @@ pub enum SystemAppendAction {
     Clear,
 }
 
-/// Action produced by `SlashResult::execute` for the Gateway to dispatch.
+/// Action produced by execute_slash_result for the Gateway to dispatch.
 #[derive(Debug)]
 pub enum ReplyAction {
     /// Send a content-block reply to the user (routed through outbound
@@ -128,10 +128,10 @@ pub trait SlashEffectExecutor: Send + Sync {
     ) -> Vec<ContentBlock>;
 }
 
-/// Context passed to `SlashResult::execute` for side-effect dispatch.
+/// Context for slash command side-effect dispatch.
 ///
 /// Carries session/channel identity, a reply channel, and an executor
-/// so that `execute` can produce [`ReplyAction`]s for the Gateway to consume.
+/// for the Gateway to dispatch side effects.
 pub struct SideEffectContext {
     /// Session ID where the slash command was invoked.
     pub session_id: String,
@@ -139,133 +139,10 @@ pub struct SideEffectContext {
     pub channel: String,
     /// Session manager for state queries.
     pub session_manager: Arc<dyn crate::SessionLookup>,
-    /// Sender for [`ReplyAction`]s produced by `execute`.
+    /// Sender for [`ReplyAction`]s.
     pub reply_tx: mpsc::Sender<ReplyAction>,
     /// Executor for slash command side effects.
     pub executor: Arc<dyn SlashEffectExecutor>,
-}
-
-impl SideEffectContext {
-    /// Create a new side-effect context.
-    pub fn new(
-        session_id: String,
-        channel: String,
-        session_manager: Arc<dyn crate::SessionLookup>,
-        reply_tx: mpsc::Sender<ReplyAction>,
-        executor: Arc<dyn SlashEffectExecutor>,
-    ) -> Self {
-        Self {
-            session_id,
-            channel,
-            session_manager,
-            reply_tx,
-            executor,
-        }
-    }
-
-    /// Send a content-block reply to the user.
-    ///
-    /// The reply is wrapped in [`ReplyAction::Reply`] and delivered through
-    /// the outbound Processor Chain (Verbosity filtering → DslParser →
-    /// outbound logging → IM Adapter rendering).
-    pub async fn reply(&self, blocks: Vec<ContentBlock>) {
-        let _ = self.reply_tx.send(ReplyAction::Reply(blocks)).await;
-    }
-}
-
-impl SlashResult {
-    /// Execute this result, producing [`ReplyAction`]s on the context's reply channel.
-    ///
-    /// For variants that require side effects (Stop, NewSession, Compact,
-    /// SystemAppend, SetReasoning, SetVerbosity), the executor trait is
-    /// called to perform the actual work.
-    pub async fn execute(&self, ctx: &SideEffectContext) {
-        let mut actions = Vec::new();
-        match self {
-            SlashResult::Reply(text) => {
-                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(text.clone())]));
-            }
-            SlashResult::SetMode(mode) => {
-                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                    "Mode set to: {}",
-                    mode
-                ))]));
-            }
-            SlashResult::NewSession => {
-                ctx.executor
-                    .execute_new_session(&ctx.session_id, &ctx.channel)
-                    .await;
-                ctx.reply(vec![ContentBlock::Text("已创建新 session".into())])
-                    .await;
-            }
-            SlashResult::Stop => {
-                ctx.executor.execute_stop(&ctx.session_id).await;
-                ctx.reply(vec![ContentBlock::Text("已停止当前任务".into())])
-                    .await;
-            }
-            SlashResult::Compact { instruction } => {
-                ctx.executor
-                    .execute_compact(&ctx.session_id, instruction.clone())
-                    .await;
-            }
-            SlashResult::SystemAppend { action } => {
-                ctx.executor
-                    .execute_system_append(&ctx.session_id, action)
-                    .await;
-                match action {
-                    SystemAppendAction::Add(_) => {
-                        ctx.reply(vec![ContentBlock::Text("已追加指令".into())])
-                            .await;
-                    }
-                    SystemAppendAction::Clear => {
-                        ctx.reply(vec![ContentBlock::Text("已清除追加指令".into())])
-                            .await;
-                    }
-                }
-            }
-            SlashResult::Exec { command } => {
-                let agent_id = ctx
-                    .session_manager
-                    .get_chat_id(&ctx.session_id)
-                    .await
-                    .unwrap_or_default();
-                let blocks = ctx
-                    .executor
-                    .execute_exec(&ctx.session_id, &agent_id, command)
-                    .await;
-                actions.push(ReplyAction::Reply(blocks));
-            }
-            SlashResult::SetReasoning { level } => {
-                ctx.executor
-                    .execute_set_reasoning(&ctx.session_id, *level)
-                    .await;
-                ctx.reply(vec![ContentBlock::Text(format!(
-                    "推理深度已设置为 {}",
-                    level
-                ))])
-                .await;
-            }
-            SlashResult::SetVerbosity { level } => {
-                ctx.executor
-                    .execute_set_verbosity(&ctx.session_id, *level)
-                    .await;
-                ctx.reply(vec![ContentBlock::Text(format!(
-                    "输出详细度已设置为 {}",
-                    level
-                ))])
-                .await;
-            }
-            SlashResult::Unknown(cmd) => {
-                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                    "Unknown command: /{}",
-                    cmd
-                ))]));
-            }
-        }
-        for action in actions {
-            let _ = ctx.reply_tx.send(action).await;
-        }
-    }
 }
 
 /// Trait for routing slash commands to handlers.
