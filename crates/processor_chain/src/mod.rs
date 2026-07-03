@@ -29,12 +29,13 @@ pub mod registry;
 mod registry_tests;
 pub mod session_router;
 
-pub use dsl_parser::{DslInstruction, DslParseResult, DslParser};
+pub use dsl_parser::DslParser;
 pub use loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
 pub use registry::ProcessorRegistry;
 pub use session_router::SessionRouter;
 
-pub use context::{MessageContext, ProcessedMessage, RawMessage, RawMessageLog};
+pub use closeclaw_common::processor::{DslInstruction, DslParseResult, ProcessedMessage};
+pub use context::{MessageContext, RawMessage, RawMessageLog};
 pub use error::ProcessError;
 pub use processor::{MessageProcessor, ProcessPhase};
 

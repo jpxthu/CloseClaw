@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 
-use crate::processor_chain::context::{MessageContext, ProcessedMessage, RawMessage};
+use crate::processor_chain::context::{MessageContext, RawMessage};
 
 #[test]
 fn test_message_context_content_blocks_default_empty() {
@@ -30,7 +30,8 @@ fn test_processed_message_content_blocks_from_raw() {
         message_id: "msg_1".to_string(),
         account_id: None,
     };
-    let processed = ProcessedMessage::from_raw(raw);
+    let ctx = MessageContext::from_raw(raw);
+    let processed = closeclaw_common::processor::ProcessedMessage::from_raw_content(ctx.content);
     assert_eq!(processed.content_blocks.len(), 1);
     assert_eq!(processed.text_content(), Some("hello"));
 }

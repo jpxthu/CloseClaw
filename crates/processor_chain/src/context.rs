@@ -88,38 +88,6 @@ impl MessageContext {
     }
 }
 
-/// The result of running the full processor chain.
-///
-/// Produced after either the inbound or outbound chain completes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessedMessage {
-    /// Structured content blocks carried from the chain.
-    #[serde(default)]
-    pub content_blocks: Vec<ContentBlock>,
-    /// Metadata accumulated across all processors.
-    pub metadata: std::collections::HashMap<String, String>,
-}
-
-impl ProcessedMessage {
-    /// Creates a default processed message from a raw message.
-    ///
-    /// This is used when the processor chain is empty (bypass).
-    pub fn from_raw(raw: RawMessage) -> Self {
-        Self {
-            content_blocks: vec![ContentBlock::Text(raw.content)],
-            metadata: std::collections::HashMap::new(),
-        }
-    }
-
-    /// Returns the first text content block's text, if present.
-    pub fn text_content(&self) -> Option<&str> {
-        self.content_blocks.iter().find_map(|b| match b {
-            ContentBlock::Text(t) => Some(t.as_str()),
-            _ => None,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,22 +109,5 @@ mod tests {
         assert_eq!(ctx.metadata.len(), 0);
         assert_eq!(ctx.raw_message_log.len(), 1);
         assert_eq!(ctx.initial_raw(), Some(&raw));
-    }
-
-    #[test]
-    fn test_processed_message_from_raw() {
-        let raw = RawMessage {
-            platform: "feishu".to_string(),
-            sender_id: "user_1".to_string(),
-            peer_id: "chat_1".to_string(),
-            content: "hello".to_string(),
-            timestamp: Utc::now(),
-            message_id: "msg_1".to_string(),
-            account_id: None,
-        };
-        let processed = ProcessedMessage::from_raw(raw);
-        assert_eq!(processed.text_content(), Some("hello"));
-        assert!(processed.content_blocks.len() == 1);
-        assert_eq!(processed.metadata.len(), 0);
     }
 }
