@@ -295,7 +295,7 @@ impl SearcherTriggerDeps {
     ) {
         use crate::memory::active_searcher_llm::should_trigger_role;
 
-        if !should_trigger_role(agent_id) {
+        if !should_trigger_role(message_role) {
             return;
         }
 
