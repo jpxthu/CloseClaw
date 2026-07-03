@@ -8,12 +8,7 @@ PromptFragmentProvider 是系统提示词片段提供者的统一 trait，将静
 
 ### Trait 接口
 
-PromptFragmentProvider 定义了每个片段提供者必须满足的契约：
-
-- **标识**：Provider 的唯一名称，用于注册和日志
-- **优先级**：数值越小越靠前，决定片段在静态层中的排列顺序
-- **片段生成**：根据上下文产出 PromptFragment。无内容时返回空（文件缺失、agent 无可见 skill 等），Builder 自动跳过
-- **缓存键**：Section 级缓存的标识。不可缓存时返回空。文件型 Provider 基于文件修改时间生成键，注册表型 Provider 由各自注册表管理失效
+PromptFragmentProvider 的完整接口定义见 [core-traits](../common/core-traits.md#promptfragmentprovider)。本文档聚焦 system_prompt 模块对 Provider 的编排逻辑。
 
 ### FragmentContext
 
