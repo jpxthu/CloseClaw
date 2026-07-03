@@ -113,11 +113,11 @@ pub enum ContentDelta {
     /// Tool result text delta.
     ToolResultText { text: String },
     /// Image reference delta (resource identifier + URL).
-    ImageRef { url: String },
+    ImageRef { name: String, url: String },
     /// Audio reference delta (resource identifier + URL).
-    AudioRef { url: String },
+    AudioRef { name: String, url: String },
     /// File reference delta (resource identifier + URL).
-    FileRef { url: String },
+    FileRef { name: String, url: String },
 }
 
 /// Stream event emitted during streaming responses.

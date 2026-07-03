@@ -142,6 +142,8 @@ fn route_line(line: &str, out: &mut StreamingOutput) {
 struct BlockAccumulator {
     /// Concatenated text content (used for Thinking).
     text: String,
+    /// Resource identifier for media reference blocks (Image/Audio/File).
+    name: Option<String>,
     /// URL for media reference blocks (Image/Audio/File).
     url: Option<String>,
     /// Tool call id (for ToolUse).
@@ -170,15 +172,15 @@ impl BlockAccumulator {
                 content: self.text,
             },
             ContentBlockType::Image => ContentBlock::Image {
-                name: self.url.clone().unwrap_or_default(),
+                name: self.name.unwrap_or_default(),
                 url: self.url.unwrap_or_default(),
             },
             ContentBlockType::Audio => ContentBlock::Audio {
-                name: self.url.clone().unwrap_or_default(),
+                name: self.name.unwrap_or_default(),
                 url: self.url.unwrap_or_default(),
             },
             ContentBlockType::File => ContentBlock::File {
-                name: self.url.clone().unwrap_or_default(),
+                name: self.name.unwrap_or_default(),
                 url: self.url.unwrap_or_default(),
             },
             ContentBlockType::Text => ContentBlock::Text(self.text),
@@ -317,18 +319,21 @@ impl StreamingRenderer for DefaultStreamingRenderer {
                 ContentDelta::ToolResultText { text } => {
                     self.handle_thinking_delta(&text);
                 }
-                ContentDelta::ImageRef { url } => {
+                ContentDelta::ImageRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
+                        acc.name = Some(name);
                         acc.url = Some(url);
                     }
                 }
-                ContentDelta::AudioRef { url } => {
+                ContentDelta::AudioRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
+                        acc.name = Some(name);
                         acc.url = Some(url);
                     }
                 }
-                ContentDelta::FileRef { url } => {
+                ContentDelta::FileRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
+                        acc.name = Some(name);
                         acc.url = Some(url);
                     }
                 }

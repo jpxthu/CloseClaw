@@ -146,18 +146,21 @@ impl StreamingRenderer for DefaultStreamingRenderer {
                 ContentDelta::ToolResultText { text } => {
                     self.handle_thinking_delta(&text);
                 }
-                ContentDelta::ImageRef { url } => {
+                ContentDelta::ImageRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
+                        acc.name = Some(name);
                         acc.url = Some(url);
                     }
                 }
-                ContentDelta::AudioRef { url } => {
+                ContentDelta::AudioRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
+                        acc.name = Some(name);
                         acc.url = Some(url);
                     }
                 }
-                ContentDelta::FileRef { url } => {
+                ContentDelta::FileRef { name, url } => {
                     if let Some(acc) = self.current_acc.as_mut() {
+                        acc.name = Some(name);
                         acc.url = Some(url);
                     }
                 }
@@ -280,6 +283,7 @@ fn count_trailing_backticks(s: &str) -> usize {
 #[derive(Default)]
 struct BlockAccumulator {
     text: String,
+    name: Option<String>,
     url: Option<String>,
     signature: Option<String>,
     tool_id: Option<String>,
@@ -304,15 +308,15 @@ impl BlockAccumulator {
                 content: self.text,
             },
             ContentBlockType::Image => ContentBlock::Image {
-                name: self.url.clone().unwrap_or_default(),
+                name: self.name.unwrap_or_default(),
                 url: self.url.unwrap_or_default(),
             },
             ContentBlockType::Audio => ContentBlock::Audio {
-                name: self.url.clone().unwrap_or_default(),
+                name: self.name.unwrap_or_default(),
                 url: self.url.unwrap_or_default(),
             },
             ContentBlockType::File => ContentBlock::File {
-                name: self.url.clone().unwrap_or_default(),
+                name: self.name.unwrap_or_default(),
                 url: self.url.unwrap_or_default(),
             },
             ContentBlockType::Text => ContentBlock::Text(self.text),
