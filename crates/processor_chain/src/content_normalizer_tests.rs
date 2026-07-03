@@ -51,7 +51,6 @@ fn test_strip_control_chars_control_chars_0x01_to_0x08() {
 
 #[test]
 fn test_strip_control_chars_control_chars_0x0b_0x0c() {
-    // 0x0B (vertical tab) and 0x0C (form feed) should be stripped
     let input = "a\x0Bb\x0Cc";
     assert_eq!(strip_control_chars(input), "abc");
 }
@@ -94,7 +93,7 @@ async fn test_process_plain_text() {
     let result = processor.process(&ctx).await.unwrap();
     assert!(result.is_some());
     let out = result.unwrap();
-    assert_eq!(out.content, "hello world");
+    assert_eq!(out.text_content(), Some("hello world"));
 }
 
 #[tokio::test]
@@ -111,7 +110,7 @@ async fn test_process_normalizes_empty_lines() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    assert_eq!(result.content, "hello\n\nworld");
+    assert_eq!(result.text_content(), Some("hello\n\nworld"));
 }
 
 #[tokio::test]
@@ -128,7 +127,7 @@ async fn test_process_strips_ansi() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    assert_eq!(result.content, "Error: something went wrong");
+    assert_eq!(result.text_content(), Some("Error: something went wrong"));
 }
 
 #[tokio::test]
@@ -145,7 +144,7 @@ async fn test_process_strips_control_chars() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    assert_eq!(result.content, "helloworld");
+    assert_eq!(result.text_content(), Some("helloworld"));
 }
 
 #[tokio::test]
@@ -162,13 +161,8 @@ async fn test_process_preserves_newlines_and_tabs() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    assert_eq!(result.content, "line1\nline2\ttab");
+    assert_eq!(result.text_content(), Some("line1\nline2\ttab"));
 }
-
-// -----------------------------------------------------------------------
-// ContentNormalizer does NOT normalize URLs or add code block language hints
-// (these are handled by IM Adapter layer during parsing)
-// -----------------------------------------------------------------------
 
 #[tokio::test]
 async fn test_process_does_not_normalize_urls() {
@@ -184,8 +178,7 @@ async fn test_process_does_not_normalize_urls() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    // ContentNormalizer should NOT add https:// prefix
-    assert_eq!(result.content, "visit www.example.com today");
+    assert_eq!(result.text_content(), Some("visit www.example.com today"));
 }
 
 #[tokio::test]
@@ -202,7 +195,7 @@ async fn test_process_does_not_normalize_bare_domain() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    assert_eq!(result.content, "go to google.com/path please");
+    assert_eq!(result.text_content(), Some("go to google.com/path please"));
 }
 
 #[tokio::test]
@@ -219,9 +212,8 @@ async fn test_process_does_not_add_code_block_language_hint() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    // ContentNormalizer should NOT add ```text language hint
-    assert_eq!(result.content, "```\ncode here\n```");
-    assert!(!result.content.contains("```text"));
+    assert_eq!(result.text_content(), Some("```\ncode here\n```"));
+    assert!(!result.text_content().unwrap().contains("```text"));
 }
 
 #[tokio::test]
@@ -238,10 +230,9 @@ async fn test_process_combined_url_and_code_block_unchanged() {
     };
     let ctx = MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    // Neither URL nor code block should be modified
     assert_eq!(
-        result.content,
-        "see www.example.com and ```\nfn main() {}\n```"
+        result.text_content(),
+        Some("see www.example.com and ```\nfn main() {}\n```")
     );
 }
 
@@ -399,7 +390,6 @@ fn test_strip_platform_residue_emoji_name() {
 
 #[test]
 fn test_strip_platform_residue_at_in_other_context() {
-    // An @ that is NOT inside an <at> tag should be left alone
     let input = "email user@example.com or ping <at user_id=\"u1\">Alice</at>";
     assert_eq!(
         strip_platform_residue(input),
@@ -415,7 +405,6 @@ fn test_strip_platform_residue_only_at_tag() {
 
 #[test]
 fn test_strip_platform_residue_nested_xml_like_surrounding() {
-    // <at> tag embedded in other XML-like text — the regex should still match
     let input = r#"<root><at user_id="u1">Alice</at></root>"#;
     assert_eq!(strip_platform_residue(input), "<root>@Alice</root>");
 }

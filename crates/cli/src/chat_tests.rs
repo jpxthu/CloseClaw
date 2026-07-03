@@ -235,12 +235,7 @@ impl closeclaw_processor_chain::MessageProcessor for SuppressProcessor {
         &self,
         _ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        Ok(Some(ProcessedMessage {
-            content: String::new(),
-            metadata: serde_json::Map::new(),
-            suppress: true,
-            content_blocks: vec![],
-        }))
+        Ok(None)
     }
 }
 
@@ -285,8 +280,8 @@ async fn test_process_inbound_chain_cleans_control_characters() {
         })
         .await;
 
-    assert_eq!(processed.content, "helloworld");
-    assert!(!processed.suppress);
+    assert_eq!(processed.text_content(), Some("helloworld"));
+    assert!(!processed.content_blocks.is_empty());
 }
 
 #[tokio::test]
@@ -307,7 +302,10 @@ async fn test_process_inbound_chain_suppress_message() {
         })
         .await;
 
-    assert!(processed.suppress, "expected suppress flag to be set");
+    assert!(
+        processed.content_blocks.is_empty(),
+        "expected empty content_blocks (suppress)"
+    );
 }
 
 #[tokio::test]
@@ -328,7 +326,7 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
                 account_id: None,
             })
             .await;
-        assert_eq!(processed.content.trim(), *cmd);
+        assert_eq!(processed.text_content().unwrap_or(""), *cmd);
     }
 }
 
@@ -466,7 +464,7 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
         })
         .await;
 
-    assert!(!processed.suppress);
+    assert!(!processed.content_blocks.is_empty());
     // The peer_id "cli" is passed as the third arg to process_inbound_chain.
     // This is the correct value per design doc: peer_id = "cli".
     assert_eq!(
@@ -490,7 +488,7 @@ fn normalized_to_inbound(msg: &NormalizedMessage) -> InboundChainInput {
         content: msg.content.clone(),
         message_id,
         timestamp_ms: msg.timestamp,
-        account_id: msg.account_id.clone(),
+        account_id: Some(msg.account_id.clone()),
     }
 }
 
@@ -507,8 +505,7 @@ fn test_normalized_to_inbound_platform() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: Some("owner".to_string()),
-        card_action: None,
+        account_id: "owner".to_string(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.platform, "terminal");
@@ -527,8 +524,7 @@ fn test_normalized_to_inbound_peer_id() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: Some("owner".to_string()),
-        card_action: None,
+        account_id: "owner".to_string(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.peer_id, "cli");
@@ -547,8 +543,7 @@ fn test_normalized_to_inbound_sender_id() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: Some("owner".to_string()),
-        card_action: None,
+        account_id: "owner".to_string(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.sender_id, "custom-sender-42");
@@ -568,8 +563,7 @@ fn test_normalized_to_inbound_timestamp() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: Some("owner".to_string()),
-        card_action: None,
+        account_id: "owner".to_string(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.timestamp_ms, ts);
@@ -577,7 +571,7 @@ fn test_normalized_to_inbound_timestamp() {
 
 /// Verify that account_id Some("owner") flows through.
 #[test]
-fn test_normalized_to_inbound_account_id_some() {
+fn test_normalized_to_inbound_account_id_present() {
     let msg = NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "1000".to_string(),
@@ -588,16 +582,15 @@ fn test_normalized_to_inbound_account_id_some() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: Some("owner".to_string()),
-        card_action: None,
+        account_id: "owner".to_string(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.account_id.as_deref(), Some("owner"));
 }
 
-/// Verify that account_id None flows through.
+/// Verify that empty account_id maps to Some("") in InboundChainInput.
 #[test]
-fn test_normalized_to_inbound_account_id_none() {
+fn test_normalized_to_inbound_account_id_empty() {
     let msg = NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "1000".to_string(),
@@ -608,11 +601,10 @@ fn test_normalized_to_inbound_account_id_none() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: None,
-        card_action: None,
+        account_id: String::new(),
     };
     let input = normalized_to_inbound(&msg);
-    assert!(input.account_id.is_none());
+    assert_eq!(input.account_id.as_deref(), Some(""));
 }
 
 /// Verify that content is preserved exactly.
@@ -628,8 +620,7 @@ fn test_normalized_to_inbound_content_preserved() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: Some("owner".to_string()),
-        card_action: None,
+        account_id: "owner".to_string(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.content, "line1\nline2");
@@ -648,8 +639,7 @@ fn test_normalized_to_inbound_message_id_format() {
         media_refs: vec![],
         quoted_message: None,
         thread_id: None,
-        account_id: None,
-        card_action: None,
+        account_id: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.message_id, "cli-u99-42");

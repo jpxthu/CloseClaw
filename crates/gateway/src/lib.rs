@@ -257,7 +257,7 @@ impl Gateway {
                 let peer_id = processed
                     .metadata
                     .get("peer_id")
-                    .and_then(|v| v.as_str())
+                    .map(|s| s.as_str())
                     .unwrap_or("");
                 if !peer_id.is_empty() {
                     let err_msg = Message {
@@ -276,7 +276,7 @@ impl Gateway {
             }
         };
 
-        let content = processed.content;
+        let content = processed.text_content().unwrap_or("").to_string();
 
         // ── Card action interception ─────────────────────────────────
         // Must run before the approval command check so that Feishu card
@@ -374,7 +374,7 @@ impl Gateway {
         let session_key = processed
             .metadata
             .get("session_key")
-            .and_then(|v| v.as_str())
+            .map(|s| s.as_str())
             .unwrap_or("");
 
         if session_key.is_empty() {
@@ -388,20 +388,20 @@ impl Gateway {
         let peer_id = processed
             .metadata
             .get("peer_id")
-            .and_then(|v| v.as_str())
+            .map(|s| s.as_str())
             .unwrap_or("")
             .to_string();
         let sender_id = processed
             .metadata
             .get("sender_id")
-            .and_then(|v| v.as_str())
+            .map(|s| s.as_str())
             .unwrap_or("")
             .to_string();
         let message = Message {
             id: String::new(),
             from: sender_id,
             to: peer_id,
-            content: processed.content.clone(),
+            content: processed.text_content().unwrap_or("").to_string(),
             channel: channel.to_string(),
             timestamp: chrono::Utc::now().timestamp(),
             metadata: std::collections::HashMap::new(),
@@ -832,10 +832,10 @@ impl Gateway {
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
             return ProcessedMessage {
-                content: input.content.to_string(),
-                metadata: serde_json::Map::new(),
-                suppress: false,
-                content_blocks: vec![],
+                content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                    input.content.to_string(),
+                )],
+                metadata: std::collections::HashMap::new(),
             };
         };
 
@@ -857,10 +857,10 @@ impl Gateway {
             Err(e) => {
                 tracing::warn!(?e, "processor chain failed, falling back to raw content");
                 ProcessedMessage {
-                    content: input.content.to_string(),
-                    metadata: serde_json::Map::new(),
-                    suppress: false,
-                    content_blocks: vec![],
+                    content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                        input.content.to_string(),
+                    )],
+                    metadata: std::collections::HashMap::new(),
                 }
             }
         }

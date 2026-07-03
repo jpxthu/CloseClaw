@@ -130,40 +130,36 @@ impl Gateway {
         let processed = self
             .process_or_bypass(raw_output, filtered_blocks, channel, session_id)
             .await?;
-        if processed.suppress {
+        if processed.content_blocks.is_empty() {
             return Ok(());
         }
 
-        let blocks = processed.content_blocks;
+        let blocks = &processed.content_blocks;
 
         // 4. Extract dsl_result (serialized as a JSON string by DslParser).
         let dsl_result: Option<DslParseResult> = processed
             .metadata
             .get("dsl_result")
-            .and_then(|v| v.as_str())
             .and_then(|s| serde_json::from_str(s).ok());
 
-        // 5. Render via the plugin; fall back to a single Text block when
-        // content_blocks is empty.
-        let rendered = {
-            let owned_fallback;
-            let render_blocks: &[ContentBlock] = if blocks.is_empty() {
-                owned_fallback = vec![ContentBlock::Text(processed.content.clone())];
-                &owned_fallback
-            } else {
-                &blocks
-            };
-            plugin.render(render_blocks, dsl_result.as_ref())
-        };
+        // 5. Render via the plugin.
+        let rendered = plugin.render(blocks, dsl_result.as_ref());
 
         // 6. Resolve thread_id from session checkpoint.
         let thread_id = self.session_manager.get_thread_id(session_id).await;
 
         // 7. Dispatch by msg_type and persist checkpoint on success.
+        let fallback_text = blocks
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .unwrap_or("");
         self.dispatch_and_persist(DispatchCtx {
             plugin: &plugin,
             rendered: &rendered,
-            fallback_text: &processed.content,
+            fallback_text,
             session_id,
             channel,
             chat_id,
@@ -218,34 +214,29 @@ impl Gateway {
     /// a synthetic [`ProcessedMessage`] wrapping the raw input.
     async fn process_or_bypass(
         &self,
-        raw_output: &str,
+        _raw_output: &str,
         content_blocks: Vec<ContentBlock>,
         channel: &str,
         session_id: &str,
     ) -> Result<ProcessedMessage, GatewayError> {
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
+            let blocks = if content_blocks.is_empty() {
+                vec![ContentBlock::Text(_raw_output.to_string())]
+            } else {
+                content_blocks
+            };
             return Ok(ProcessedMessage {
-                content: raw_output.to_string(),
-                metadata: serde_json::Map::new(),
-                suppress: false,
-                content_blocks,
+                content_blocks: blocks,
+                metadata: std::collections::HashMap::new(),
             });
         };
-        let mut meta = serde_json::Map::new();
-        meta.insert(
-            "channel".to_string(),
-            serde_json::Value::String(channel.to_string()),
-        );
-        meta.insert(
-            "session_id".to_string(),
-            serde_json::Value::String(session_id.to_string()),
-        );
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("channel".to_string(), channel.to_string());
+        meta.insert("session_id".to_string(), session_id.to_string());
         let input = ProcessedMessage {
-            content: raw_output.to_string(),
-            metadata: meta,
-            suppress: false,
             content_blocks,
+            metadata: meta,
         };
         registry
             .process_outbound(input)
@@ -329,7 +320,7 @@ impl Gateway {
         let processed = self
             .process_or_bypass(raw_output, vec![], channel, "")
             .await?;
-        if processed.suppress {
+        if processed.content_blocks.is_empty() {
             return Ok(());
         }
 
@@ -337,16 +328,10 @@ impl Gateway {
         let dsl_result: Option<DslParseResult> = processed
             .metadata
             .get("dsl_result")
-            .and_then(|v| v.as_str())
             .and_then(|s| serde_json::from_str(s).ok());
 
         // Render via the plugin.
-        let render_blocks = if processed.content_blocks.is_empty() {
-            vec![ContentBlock::Text(processed.content.clone())]
-        } else {
-            processed.content_blocks
-        };
-        let rendered = plugin.render(&render_blocks, dsl_result.as_ref());
+        let rendered = plugin.render(&processed.content_blocks, dsl_result.as_ref());
 
         // Dispatch via plugin.send.
         plugin.send(&rendered, chat_id, None).await?;

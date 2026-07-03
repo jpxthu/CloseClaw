@@ -2,6 +2,8 @@
 mod tests {
     use crate::renderer::BOLD;
     use crate::terminal::*;
+    use std::collections::HashMap;
+
     use closeclaw_common::processor::{DslInstruction, DslParseResult};
     use closeclaw_im_adapter::plugin::IMPlugin;
     use closeclaw_im_adapter::NormalizedMessage;
@@ -43,8 +45,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         assert_eq!(msg.platform, "terminal");
         assert_eq!(msg.peer_id, "cli");
@@ -63,11 +64,10 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         assert!(msg.thread_id.is_none());
-        assert!(msg.account_id.is_none());
+        assert!(msg.account_id.is_empty());
     }
 
     #[test]
@@ -82,8 +82,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         // Timestamp is a valid Unix timestamp (after 2023)
         assert!(msg.timestamp > 1_672_531_200_000);
@@ -101,8 +100,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         let deserialized: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -122,8 +120,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         assert!(msg.content.is_empty());
     }
@@ -140,8 +137,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
         let lines: Vec<&str> = msg.content.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -321,7 +317,7 @@ mod tests {
     fn test_make_message_account_id_is_owner() {
         let adapter = TerminalAdapter::new();
         let msg = adapter.make_message("hello world".to_string());
-        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+        assert_eq!(msg.account_id, "owner");
     }
 
     /// Empty content still receives the correct account_id.
@@ -329,7 +325,7 @@ mod tests {
     fn test_make_message_empty_content_account_id() {
         let adapter = TerminalAdapter::new();
         let msg = adapter.make_message(String::new());
-        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+        assert_eq!(msg.account_id, "owner");
     }
 
     /// make_message preserves platform, peer_id, sender_id, and message_type.
@@ -344,7 +340,6 @@ mod tests {
         assert!(msg.media_refs.is_empty());
         assert!(msg.quoted_message.is_none());
         assert!(msg.thread_id.is_none());
-        assert!(msg.card_action.is_none());
     }
 
     /// Multiline content is preserved correctly.
@@ -353,7 +348,7 @@ mod tests {
         let adapter = TerminalAdapter::new();
         let msg = adapter.make_message("line1\nline2\nline3".to_string());
         assert_eq!(msg.content, "line1\nline2\nline3");
-        assert_eq!(msg.account_id.as_deref(), Some("owner"));
+        assert_eq!(msg.account_id, "owner");
     }
 
     // DSL rendering tests — plugin-level
@@ -365,11 +360,13 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let blocks = vec![ContentBlock::Text("Some text".into())];
         let dsl = DslParseResult {
-            clean_content: String::new(),
-            instructions: vec![DslInstruction::Button {
-                label: "Click".to_string(),
-                action: "go".to_string(),
-                value: "ok".to_string(),
+            instructions: vec![DslInstruction {
+                instruction_type: "button".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Click".to_string()),
+                    ("action".to_string(), "go".to_string()),
+                    ("value".to_string(), "ok".to_string()),
+                ]),
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));
@@ -387,18 +384,20 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let blocks = vec![ContentBlock::Text("Reply here".into())];
         let dsl = DslParseResult {
-            clean_content: String::new(),
-            instructions: vec![DslInstruction::Selector {
-                label: "Pick one".to_string(),
-                options: vec!["a".into(), "b".into(), "c".into()],
-                action: "choose".to_string(),
+            instructions: vec![DslInstruction {
+                instruction_type: "selector".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Pick one".to_string()),
+                    ("options".to_string(), "a,b,c".to_string()),
+                    ("action".to_string(), "choose".to_string()),
+                ]),
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));
         let text = output.payload.as_str().unwrap();
         assert!(text.contains("Reply here"));
         assert!(
-            text.contains("[Selector: Pick one (options: a, b, c) (action: choose)]"),
+            text.contains("[Selector: Pick one (options: a,b,c) (action: choose)]"),
             "DSL selector hint should appear in output"
         );
     }
@@ -409,24 +408,29 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(false);
         let blocks = vec![ContentBlock::Text("Content".into())];
         let dsl = DslParseResult {
-            clean_content: String::new(),
             instructions: vec![
-                DslInstruction::Button {
-                    label: "OK".to_string(),
-                    action: "confirm".to_string(),
-                    value: String::new(),
+                DslInstruction {
+                    instruction_type: "button".to_string(),
+                    params: HashMap::from([
+                        ("label".to_string(), "OK".to_string()),
+                        ("action".to_string(), "confirm".to_string()),
+                        ("value".to_string(), String::new()),
+                    ]),
                 },
-                DslInstruction::Selector {
-                    label: "Mode".to_string(),
-                    options: vec!["fast".into(), "slow".into()],
-                    action: "set_mode".to_string(),
+                DslInstruction {
+                    instruction_type: "selector".to_string(),
+                    params: HashMap::from([
+                        ("label".to_string(), "Mode".to_string()),
+                        ("options".to_string(), "fast,slow".to_string()),
+                        ("action".to_string(), "set_mode".to_string()),
+                    ]),
                 },
             ],
         };
         let output = plugin.render(&blocks, Some(&dsl));
         let text = output.payload.as_str().unwrap();
         assert!(text.contains("[Button: OK (action: confirm)]"));
-        assert!(text.contains("[Selector: Mode (options: fast, slow) (action: set_mode)]"));
+        assert!(text.contains("[Selector: Mode (options: fast,slow) (action: set_mode)]"));
     }
 
     /// Verify DSL hints are wrapped in ANSI dim when ansi=true.
@@ -437,11 +441,13 @@ mod tests {
         let plugin = TerminalPlugin::with_ansi(true);
         let blocks = vec![];
         let dsl = DslParseResult {
-            clean_content: String::new(),
-            instructions: vec![DslInstruction::Button {
-                label: "Go".to_string(),
-                action: "start".to_string(),
-                value: String::new(),
+            instructions: vec![DslInstruction {
+                instruction_type: "button".to_string(),
+                params: HashMap::from([
+                    ("label".to_string(), "Go".to_string()),
+                    ("action".to_string(), "start".to_string()),
+                    ("value".to_string(), String::new()),
+                ]),
             }],
         };
         let output = plugin.render(&blocks, Some(&dsl));

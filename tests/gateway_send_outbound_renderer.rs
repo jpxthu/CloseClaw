@@ -47,18 +47,18 @@ impl MessageProcessor for MockOutboundProcessor {
         &self,
         _ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, closeclaw::processor_chain::error::ProcessError> {
-        let mut metadata = serde_json::Map::new();
+        if self.output_suppress {
+            return Ok(None);
+        }
+        let mut metadata = std::collections::HashMap::new();
         if let Some(ref json) = self.dsl_result_json {
-            metadata.insert(
-                "dsl_result".to_string(),
-                serde_json::Value::String(json.clone()),
-            );
+            metadata.insert("dsl_result".to_string(), json.clone());
         }
         Ok(Some(ProcessedMessage {
-            content: self.output_content.clone(),
+            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                self.output_content.clone(),
+            )],
             metadata,
-            suppress: self.output_suppress,
-            content_blocks: vec![],
         }))
     }
 }
@@ -236,7 +236,6 @@ async fn test_plugin_dsl_result_passed_to_render() {
         ReasoningLevel::default(),
     ));
     let dsl_json = serde_json::to_string(&DslParseResult {
-        clean_content: "Clean content".to_string(),
         instructions: vec![],
     })
     .unwrap();
@@ -264,7 +263,7 @@ async fn test_plugin_dsl_result_passed_to_render() {
     let render = plugin.render_called.lock().unwrap().clone();
     let (_, ref dsl) = render.as_ref().expect("render should have been called");
     let dsl = dsl.as_ref().expect("dsl_result should have been passed");
-    assert_eq!(dsl.clean_content, "Clean content");
+    assert!(dsl.instructions.is_empty());
 }
 
 #[tokio::test]

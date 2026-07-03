@@ -50,16 +50,13 @@ impl MessageProcessor for TraceProcessor {
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
         let mut meta = ctx.metadata.clone();
-        let prev = meta.get("trace").and_then(|v| v.as_str()).unwrap_or("");
-        meta.insert(
-            "trace".to_string(),
-            serde_json::json!(format!("{prev}/{}", self.tag)),
-        );
+        let prev = meta.get("trace").map(|s| s.as_str()).unwrap_or("");
+        meta.insert("trace".to_string(), format!("{prev}/{}", self.tag));
         Ok(Some(ProcessedMessage {
-            content: ctx.content.clone(),
+            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                ctx.content.clone(),
+            )],
             metadata: meta,
-            suppress: false,
-            content_blocks: vec![],
         }))
     }
 }
@@ -294,15 +291,12 @@ async fn test_processor_chain_metadata_merge() {
             ctx: &MessageContext,
         ) -> Result<Option<ProcessedMessage>, ProcessError> {
             let mut meta = ctx.metadata.clone();
-            meta.insert(
-                "injected_key".to_string(),
-                serde_json::json!("injected_value"),
-            );
+            meta.insert("injected_key".to_string(), "injected_value".to_string());
             Ok(Some(ProcessedMessage {
-                content: ctx.content.clone(),
+                content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                    ctx.content.clone(),
+                )],
                 metadata: meta,
-                suppress: false,
-                content_blocks: vec![],
             }))
         }
     }
@@ -394,12 +388,7 @@ impl MessageProcessor for SuppressTestProcessor {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        Ok(Some(ProcessedMessage {
-            content: ctx.content.clone(),
-            metadata: ctx.metadata.clone(),
-            suppress: true,
-            content_blocks: vec![],
-        }))
+        Ok(None)
     }
 }
 
@@ -421,8 +410,8 @@ async fn test_process_inbound_chain_no_registry() {
             account_id: None,
         })
         .await;
-    assert_eq!(result.content, "hello world");
-    assert!(!result.suppress);
+    assert_eq!(result.text_content(), Some("hello world"));
+    assert!(!result.content_blocks.is_empty());
     assert!(result.metadata.is_empty());
 }
 
@@ -458,8 +447,8 @@ async fn test_process_inbound_chain_with_normalizer() {
         })
         .await;
     // ANSI stripped, control char stripped, plain text remains.
-    assert_eq!(result.content, "helloworld");
-    assert!(!result.suppress);
+    assert_eq!(result.text_content(), Some("helloworld"));
+    assert!(!result.content_blocks.is_empty());
 }
 
 /// SessionRouter in the chain computes and attaches `session_key` to metadata.
@@ -490,10 +479,10 @@ async fn test_process_inbound_chain_with_session_router() {
             account_id: None,
         })
         .await;
-    assert_eq!(result.content, "hi");
+    assert_eq!(result.text_content(), Some("hi"));
     // SessionRouter injects session_key with real timestamp.
     // Verify the key has the expected format: {ts_ms}-{sha256_hex}
-    let key = result.metadata.get("session_key").and_then(|v| v.as_str());
+    let key = result.metadata.get("session_key").map(|s| s.as_str());
     let key = key.expect("session_key should be set");
     let hash_part = SessionManager::strip_timestamp_from_session_key(key);
     assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
@@ -538,7 +527,7 @@ async fn test_process_inbound_chain_uses_system_time() {
     let key = result
         .metadata
         .get("session_key")
-        .and_then(|v| v.as_str())
+        .map(|s| s.as_str())
         .expect("session_key should be set");
 
     // Key prefix must be between before_ms and after_ms (system time), not 1700000000123
@@ -578,9 +567,9 @@ async fn test_content_normalizer_does_not_strip_platform_residue() {
     let result = processor.process(&ctx).await.unwrap().unwrap();
     // <at> tags should be preserved (not converted to @Alice)
     assert!(
-        result.content.contains("<at user_id="),
-        "ContentNormalizer should not strip platform residue, got: {}",
-        result.content
+        result.text_content().unwrap_or("").contains("<at user_id="),
+        "ContentNormalizer should not strip platform residue, got: {:?}",
+        result.content_blocks
     );
 }
 
@@ -637,8 +626,8 @@ async fn test_process_inbound_chain_processor_error() {
         })
         .await;
     // Fallback to original content.
-    assert_eq!(result.content, "original");
-    assert!(!result.suppress);
+    assert_eq!(result.text_content(), Some("original"));
+    assert!(!result.content_blocks.is_empty());
     assert!(result.metadata.is_empty());
 }
 
@@ -671,11 +660,11 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
         })
         .await;
 
-    assert_eq!(result.content, "helloworld!");
-    assert!(!result.suppress);
+    assert_eq!(result.text_content(), Some("helloworld!"));
+    assert!(!result.content_blocks.is_empty());
 
     // SessionRouter uses real timestamp — verify key format.
-    let key = result.metadata.get("session_key").and_then(|v| v.as_str());
+    let key = result.metadata.get("session_key").map(|s| s.as_str());
     let key = key.expect("session_key should be set");
     let hash_part = SessionManager::strip_timestamp_from_session_key(key);
     assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
@@ -712,8 +701,8 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
         })
         .await;
 
-    assert_eq!(processed.content, "what is the weather");
-    assert!(!processed.suppress);
+    assert_eq!(processed.text_content(), Some("what is the weather"));
+    assert!(!processed.content_blocks.is_empty());
 
     let handle_result = gw
         .handle_inbound_message(processed, Some("user1"), "terminal")
@@ -747,6 +736,8 @@ async fn test_e2e_suppress_flag_propagates_through_chain() {
             account_id: None,
         })
         .await;
-    assert!(result.suppress, "suppress flag should propagate");
-    assert_eq!(result.content, "hello");
+    assert!(
+        result.content_blocks.is_empty(),
+        "suppress should produce empty content_blocks"
+    );
 }

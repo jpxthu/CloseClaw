@@ -4,6 +4,8 @@
 //! [`DslParseResult`], [`ProcessError`]) and the [`ProcessorChain`]
 //! trait used by the gateway to run inbound/outbound message processing.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -172,26 +174,28 @@ pub struct RawMessage {
 /// Produced after either the inbound or outbound chain completes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessedMessage {
-    /// Final message content after all processors in the chain ran.
-    pub content: String,
-    /// Metadata accumulated across all processors.
-    pub metadata: serde_json::Map<String, serde_json::Value>,
-    /// Whether the message should be suppressed entirely.
-    pub suppress: bool,
-    /// Structured content blocks carried from the outbound chain.
+    /// Structured content blocks carried from the chain.
     #[serde(default)]
     pub content_blocks: Vec<ContentBlock>,
+    /// Metadata accumulated across all processors.
+    pub metadata: HashMap<String, String>,
 }
 
 impl ProcessedMessage {
     /// Creates a default processed message from raw content.
     pub fn from_raw_content(content: String) -> Self {
         Self {
-            content,
-            metadata: serde_json::Map::new(),
-            suppress: false,
-            content_blocks: vec![],
+            content_blocks: vec![ContentBlock::Text(content)],
+            metadata: HashMap::new(),
         }
+    }
+
+    /// Returns the first text content block's text, if present.
+    pub fn text_content(&self) -> Option<&str> {
+        self.content_blocks.iter().find_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
     }
 }
 
@@ -200,28 +204,21 @@ impl ProcessedMessage {
 // ---------------------------------------------------------------------------
 
 /// A parsed DSL instruction extracted from markdown.
+///
+/// Flat structure: `instruction_type` identifies the kind of instruction
+/// (e.g. `"button"`, `"selector"`), and `params` holds key-value pairs
+/// parsed from the DSL line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum DslInstruction {
-    /// A clickable button with a label, action identifier, and optional value.
-    Button {
-        label: String,
-        action: String,
-        value: String,
-    },
-    /// A selector with a label, multiple option choices, and an action identifier.
-    Selector {
-        label: String,
-        options: Vec<String>,
-        action: String,
-    },
+pub struct DslInstruction {
+    /// Instruction type identifier (e.g. `"button"`, `"selector"`).
+    pub instruction_type: String,
+    /// Parsed key-value parameters from the DSL line.
+    pub params: HashMap<String, String>,
 }
 
 /// Result of parsing a markdown string for DSL instructions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DslParseResult {
-    /// Markdown content with all DSL lines removed.
-    pub clean_content: String,
     /// Extracted DSL instructions in the order they appear.
     pub instructions: Vec<DslInstruction>,
 }

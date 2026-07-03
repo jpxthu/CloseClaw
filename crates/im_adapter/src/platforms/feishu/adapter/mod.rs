@@ -453,8 +453,7 @@ impl FeishuAdapter {
                     media_refs: vec![],
                     quoted_message: None,
                     thread_id: None,
-                    account_id: metadata.get("account_id").cloned(),
-                    card_action: Some(true),
+                    account_id: card_event.operator.open_id.clone(),
                 }))
             }
             _ => Ok(None),
@@ -556,8 +555,7 @@ impl FeishuAdapter {
             media_refs,
             quoted_message: None,
             thread_id,
-            account_id: Some(sender_open_id),
-            card_action: None,
+            account_id: sender_open_id,
         }))
     }
 }

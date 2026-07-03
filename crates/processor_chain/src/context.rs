@@ -55,7 +55,7 @@ pub struct MessageContext {
     /// Per-processor result log, newest last.
     pub raw_message_log: Vec<RawMessageLog>,
     /// Arbitrary key-value metadata injected by processors.
-    pub metadata: serde_json::Map<String, serde_json::Value>,
+    pub metadata: std::collections::HashMap<String, String>,
     /// Whether the message has been flagged to skip further processing.
     pub skip: bool,
     /// Structured content blocks (e.g., Text, Thinking, ToolUse, ToolResult).
@@ -76,7 +76,7 @@ impl MessageContext {
         Self {
             content: raw.content,
             raw_message_log: vec![raw_log],
-            metadata: serde_json::Map::new(),
+            metadata: std::collections::HashMap::new(),
             skip: false,
             content_blocks: vec![],
         }
@@ -93,15 +93,11 @@ impl MessageContext {
 /// Produced after either the inbound or outbound chain completes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessedMessage {
-    /// Final message content after all processors in the chain ran.
-    pub content: String,
-    /// Metadata accumulated across all processors.
-    pub metadata: serde_json::Map<String, serde_json::Value>,
-    /// Whether the message should be suppressed entirely.
-    pub suppress: bool,
-    /// Structured content blocks carried from the outbound chain.
+    /// Structured content blocks carried from the chain.
     #[serde(default)]
     pub content_blocks: Vec<ContentBlock>,
+    /// Metadata accumulated across all processors.
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 impl ProcessedMessage {
@@ -110,11 +106,17 @@ impl ProcessedMessage {
     /// This is used when the processor chain is empty (bypass).
     pub fn from_raw(raw: RawMessage) -> Self {
         Self {
-            content: raw.content,
-            metadata: serde_json::Map::new(),
-            suppress: false,
-            content_blocks: vec![],
+            content_blocks: vec![ContentBlock::Text(raw.content)],
+            metadata: std::collections::HashMap::new(),
         }
+    }
+
+    /// Returns the first text content block's text, if present.
+    pub fn text_content(&self) -> Option<&str> {
+        self.content_blocks.iter().find_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
     }
 }
 
@@ -153,8 +155,8 @@ mod tests {
             account_id: None,
         };
         let processed = ProcessedMessage::from_raw(raw);
-        assert_eq!(processed.content, "hello");
-        assert!(!processed.suppress);
+        assert_eq!(processed.text_content(), Some("hello"));
+        assert!(processed.content_blocks.len() == 1);
         assert_eq!(processed.metadata.len(), 0);
     }
 }

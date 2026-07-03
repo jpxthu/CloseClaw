@@ -182,14 +182,8 @@ pub struct NormalizedMessage {
     pub thread_id: Option<String>,
 
     /// Optional tenant/account identifier for multi-tenant session isolation.
-    pub account_id: Option<String>,
-
-    /// Whether this message is a card action (e.g. button click).
-    ///
-    /// `Some(true)` when the inbound event is a card action trigger;
-    /// `None` (default) for regular text messages.
     #[serde(default)]
-    pub card_action: Option<bool>,
+    pub account_id: String,
 }
 
 #[cfg(test)]
@@ -208,8 +202,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: Some("omt_thread789".to_string()),
-            account_id: Some("tenant_001".to_string()),
-            card_action: None,
+            account_id: "tenant_001".to_string(),
         };
 
         let json = serde_json::to_string(&msg).expect("serialization failed");
@@ -225,8 +218,7 @@ mod tests {
         assert!(deserialized.media_refs.is_empty());
         assert!(deserialized.quoted_message.is_none());
         assert_eq!(deserialized.thread_id.as_deref(), Some("omt_thread789"));
-        assert_eq!(deserialized.account_id.as_deref(), Some("tenant_001"));
-        assert_eq!(deserialized.card_action, None);
+        assert_eq!(deserialized.account_id, "tenant_001");
     }
 
     #[test]
@@ -241,8 +233,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
 
         let json = serde_json::to_string(&msg).expect("serialization failed");
@@ -258,8 +249,7 @@ mod tests {
         assert!(deserialized.media_refs.is_empty());
         assert!(deserialized.quoted_message.is_none());
         assert!(deserialized.thread_id.is_none());
-        assert!(deserialized.account_id.is_none());
-        assert_eq!(deserialized.card_action, None);
+        assert!(deserialized.account_id.is_empty());
     }
 
     #[test]
@@ -274,8 +264,7 @@ mod tests {
             media_refs: vec![],
             quoted_message: None,
             thread_id: None,
-            account_id: None,
-            card_action: None,
+            account_id: String::new(),
         };
 
         let json = serde_json::to_value(&msg).expect("serialization to value failed");
@@ -291,7 +280,6 @@ mod tests {
         assert!(obj.contains_key("quoted_message"));
         assert!(obj.contains_key("thread_id"));
         assert!(obj.contains_key("account_id"));
-        assert!(obj.contains_key("card_action"));
-        assert_eq!(obj.len(), 11);
+        assert_eq!(obj.len(), 10);
     }
 }

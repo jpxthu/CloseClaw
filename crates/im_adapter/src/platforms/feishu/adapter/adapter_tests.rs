@@ -425,7 +425,7 @@ async fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.account_id.as_deref(), Some("ou_sender"));
+    assert_eq!(msg.account_id, "ou_sender");
 }
 
 #[tokio::test]
@@ -541,10 +541,9 @@ async fn test_handle_webhook_card_action_forceful_shutdown() {
     assert_eq!(msg.sender_id, "ou_operator");
     assert_eq!(msg.content, "/__card_action:forceful_shutdown");
     assert_eq!(msg.message_type, "text");
-    assert_eq!(msg.card_action, Some(true));
     assert_eq!(msg.platform, "feishu");
     assert_eq!(msg.peer_id, "oc_chat123");
-    assert_eq!(msg.account_id.as_deref(), Some("ou_operator"));
+    assert_eq!(msg.account_id, "ou_operator");
 }
 
 #[tokio::test]
@@ -744,7 +743,7 @@ async fn test_parse_inbound_with_identity_mapping() {
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    assert_eq!(msg.account_id.as_deref(), Some("mapped_user"));
+    assert_eq!(msg.account_id, "mapped_user");
     assert_eq!(msg.sender_id, "ou_sender");
 }
 
@@ -761,7 +760,7 @@ async fn test_parse_inbound_without_mapping_fallback() {
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     // No matching mapping → fallback to sender_open_id
-    assert_eq!(msg.account_id.as_deref(), Some("ou_sender"));
+    assert_eq!(msg.account_id, "ou_sender");
 }
 
 #[tokio::test]
@@ -771,5 +770,5 @@ async fn test_parse_inbound_no_resolver_fallback() {
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     // No resolver at all → fallback to sender_open_id
-    assert_eq!(msg.account_id.as_deref(), Some("ou_sender"));
+    assert_eq!(msg.account_id, "ou_sender");
 }

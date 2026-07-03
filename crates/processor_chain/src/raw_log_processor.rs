@@ -28,6 +28,7 @@ use tracing::level_enabled;
 use super::context::{MessageContext, ProcessedMessage};
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
+use closeclaw_llm::types::ContentBlock;
 
 /// Configuration for [`RawLogProcessor`].
 #[derive(Debug, Clone)]
@@ -160,10 +161,8 @@ impl MessageProcessor for RawLogProcessor {
             .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
 
         Ok(Some(ProcessedMessage {
-            content: ctx.content.clone(),
+            content_blocks: vec![ContentBlock::Text(ctx.content.clone())],
             metadata: ctx.metadata.clone(),
-            suppress: false,
-            content_blocks: vec![],
         }))
     }
 }
