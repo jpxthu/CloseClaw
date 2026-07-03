@@ -923,6 +923,8 @@ pub mod session_handler_dynamic_tests;
 #[cfg(test)]
 pub mod session_handler_tests;
 #[cfg(test)]
+pub mod shutdown_handle_tests;
+#[cfg(test)]
 pub mod shutdown_phase_tests;
 #[cfg(feature = "full-tests")]
 pub mod step1_5_tests;
