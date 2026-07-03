@@ -62,7 +62,7 @@ pub use im_plugin::{
 pub use middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
-    ProcessedMessage, ProcessorChain, RawMessage, StreamEvent, UnifiedResponse, UnifiedUsage,
+    ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
 pub use session_lookup::{PendingMessage, SessionLookup};
 pub use session_types::{AgentRole, ReasoningLevel};
