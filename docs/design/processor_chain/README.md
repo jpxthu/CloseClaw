@@ -63,7 +63,7 @@ IM Adapter（出站，IM Adapter 模块含 Renderer + Adapter）→ Renderer 完
 ### 入站路径
 
 ```
-IM webhook → IM Adapter 解析 → NormalizedMessage（platform, sender_id, peer_id, thread_id?, account_id, content, timestamp）
+IM webhook → IM Adapter 解析 → NormalizedMessage（platform, sender_id, peer_id, thread_id?, account_id, content, message_type, media_refs, timestamp）
   → Processor 链（RawLog → SessionRouter → ContentNormalizer）
     → [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key }）
       → Gateway → SessionManager.resolve(稳定路由键) → 路由到 Session / SlashDispatcher
