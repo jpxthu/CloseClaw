@@ -50,12 +50,27 @@ pub enum ContentBlock {
         /// Result content returned by the tool.
         content: String,
     },
-    /// Image content block (file name or identifier).
-    Image(String),
-    /// Audio content block (file name or identifier).
-    Audio(String),
-    /// File content block (file name or identifier).
-    File(String),
+    /// Image reference block with a resource identifier and access URL.
+    Image {
+        /// Resource identifier (e.g. file name or key).
+        name: String,
+        /// Access URL for the image resource.
+        url: String,
+    },
+    /// Audio reference block with a resource identifier and access URL.
+    Audio {
+        /// Resource identifier (e.g. file name or key).
+        name: String,
+        /// Access URL for the audio resource.
+        url: String,
+    },
+    /// File reference block with a resource identifier and access URL.
+    File {
+        /// Resource identifier (e.g. file name or key).
+        name: String,
+        /// Access URL for the file resource.
+        url: String,
+    },
 }
 
 /// Content block type classification.
