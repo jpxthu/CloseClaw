@@ -408,6 +408,10 @@ async fn test_process_inbound_chain_no_registry() {
             message_id: "msg-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
     assert_eq!(result.text_content(), Some("hello world"));
@@ -444,6 +448,10 @@ async fn test_process_inbound_chain_with_normalizer() {
             message_id: "msg-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
     // ANSI stripped, control char stripped, plain text remains.
@@ -477,6 +485,10 @@ async fn test_process_inbound_chain_with_session_router() {
             message_id: "msg-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
     assert_eq!(result.text_content(), Some("hi"));
@@ -520,6 +532,10 @@ async fn test_process_inbound_chain_uses_system_time() {
             message_id: "msg-ts".into(),
             timestamp_ms: 1_700_000_000_123, // past timestamp — should NOT be used
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
     let after_ms = chrono::Utc::now().timestamp_millis();
@@ -562,6 +578,10 @@ async fn test_content_normalizer_does_not_strip_platform_residue() {
         timestamp: chrono::Utc::now(),
         message_id: "msg_at".to_string(),
         account_id: None,
+        thread_id: None,
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        quoted_message: None,
     };
     let ctx = closeclaw_common::processor::MessageContext::from_raw(raw);
     let result = processor.process(&ctx).await.unwrap().unwrap();
@@ -623,6 +643,10 @@ async fn test_process_inbound_chain_processor_error() {
             message_id: "msg-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
     // Fallback to original content.
@@ -657,6 +681,10 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
             message_id: "msg-e2e-1".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
 
@@ -698,6 +726,10 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
             message_id: "msg-e2e-2".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
 
@@ -734,6 +766,10 @@ async fn test_e2e_suppress_flag_propagates_through_chain() {
             message_id: "msg-e2e-4".into(),
             timestamp_ms: 0,
             account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         })
         .await;
     assert!(

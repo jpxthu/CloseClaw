@@ -369,6 +369,10 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
             message_id,
             timestamp_ms: message.timestamp,
             account_id: Some(message.account_id),
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            quoted_message: None,
         };
         let processed = gateway.process_inbound_chain(&input).await;
 
