@@ -889,6 +889,8 @@ impl Gateway {
     }
 }
 
+#[cfg(test)]
+pub mod inbound_chain_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
