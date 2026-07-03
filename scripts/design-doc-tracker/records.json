@@ -75,9 +75,9 @@
     "path": "docs/design/common/README.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-03T21:22:27.356053+08:00",
+    "confirmed_time": "2026-07-03T21:37:01.496401+08:00",
     "comment": "",
-    "blocked_reason": "PromptFragmentProvider and ToolRegistrar cannot be re-exported from common due to circular dependency"
+    "blocked_reason": "设计文档严重偏离代码实际：README称无可执行逻辑但代码含大量业务函数；仅列2子文件实际35+源文件；core-traits索引的trait不存在且仅索引2个实际20+个；shared-types定义6个类型实际40+"
   },
   {
     "path": "docs/design/common/core-traits.md",
