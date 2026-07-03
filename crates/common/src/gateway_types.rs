@@ -6,7 +6,6 @@
 
 use crate::im_plugin::{MediaRef, MessageType};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -52,35 +51,6 @@ pub enum DmScope {
     /// different agents sharing the same channel naturally stay isolated
     /// without embedding `agent_id` in the key.
     PerChannelSender,
-}
-
-impl DmScope {
-    /// Compute a session key for the given context.
-    ///
-    /// Format: `{timestamp_ms}-{sha256_hex(routing_fields)}`
-    /// where `routing_fields` varies by scope variant.
-    pub fn compute_session_key(
-        &self,
-        channel: &str,
-        message: &Message,
-        account_id: Option<&str>,
-        timestamp_ms: i64,
-    ) -> String {
-        let routing_fields = match self {
-            DmScope::Main => format!("{}:{}", channel, message.to),
-            DmScope::PerPeer => format!("{}:{}", message.from, message.to),
-            DmScope::PerChannelPeer => {
-                format!("{}:{}:{}", channel, message.from, message.to)
-            }
-            DmScope::PerAccountChannelPeer => {
-                let acc = account_id.unwrap_or("default");
-                format!("{}:{}:{}:{}", channel, message.from, message.to, acc)
-            }
-            DmScope::PerChannelSender => format!("{}:{}", channel, message.from),
-        };
-        let hash = Sha256::digest(routing_fields.as_bytes());
-        format!("{}-{:x}", timestamp_ms, hash)
-    }
 }
 
 // ---------------------------------------------------------------------------

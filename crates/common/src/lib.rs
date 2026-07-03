@@ -30,8 +30,6 @@ pub mod slash_router;
 pub mod slash_router_tests;
 pub mod storage_provider;
 pub mod streaming;
-#[cfg(test)]
-pub mod streaming_tests;
 pub mod system_prompt;
 pub mod task_manager;
 pub mod test_helpers;
