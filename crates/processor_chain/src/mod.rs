@@ -21,6 +21,9 @@ pub mod dsl_parser;
 mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
+pub mod middleware;
+#[cfg(test)]
+mod middleware_tests;
 #[cfg(test)]
 mod outbound_chain_tests;
 pub mod outbound_raw_log;
@@ -45,6 +48,7 @@ pub use closeclaw_common::im_plugin::NormalizedMessage;
 pub use closeclaw_common::processor::{DslInstruction, DslParseResult, ProcessedMessage};
 pub use context::{MessageContext, RawMessageLog};
 pub use error::ProcessError;
+pub use middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
 pub use processor::{MessageProcessor, ProcessPhase};
 
 use std::sync::Arc;

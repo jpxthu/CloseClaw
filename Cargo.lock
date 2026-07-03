@@ -628,6 +628,7 @@ dependencies = [
  "axum",
  "chrono",
  "closeclaw-common",
+ "closeclaw-config",
  "closeclaw-gateway",
  "closeclaw-llm",
  "closeclaw-tools",

@@ -53,7 +53,7 @@ pub use gateway_types::{
     DmScope, GatewayConfig, GatewayError, HandleResult, InboundChainInput, InboundRequest, Message,
     Session,
 };
-pub use identity::{ConfigIdentityResolver, IdentityMapping, IdentityResolver};
+pub use identity::IdentityResolver;
 pub use im_plugin::{
     AdapterError, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage, RenderedOutput,
     StreamingOutput,
