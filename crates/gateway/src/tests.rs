@@ -630,7 +630,7 @@ async fn test_feishu_session_isolation() {
 
 // ── Shutdown alignment tests (Step 1.1–1.2) ──────────────────────────────
 
-use closeclaw_common::shutdown::ShutdownHandle;
+use crate::shutdown_handle::ShutdownHandle;
 
 /// Helper: create a gateway with a shutdown handle wired in.
 async fn setup_with_shutdown(

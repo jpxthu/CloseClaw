@@ -13,14 +13,14 @@ use closeclaw_session::persistence::{
 };
 
 /// Duplicate of `crate::bridge::common_shutdown_handle` for daemon-crate tests.
-/// Creates a `closeclaw_common::shutdown::ShutdownHandle` from the daemon's
+/// Creates a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
 /// `ShutdownHandle`.
 pub fn common_shutdown_handle(
     daemon_handle: &crate::shutdown::ShutdownHandle,
-) -> Arc<closeclaw_common::shutdown::ShutdownHandle> {
-    Arc::new(closeclaw_common::shutdown::ShutdownHandle::new(Arc::new(
-        daemon_handle.clone(),
-    )))
+) -> Arc<closeclaw_gateway::shutdown_handle::ShutdownHandle> {
+    Arc::new(closeclaw_gateway::shutdown_handle::ShutdownHandle::new(
+        Arc::new(daemon_handle.clone()),
+    ))
 }
 
 /// Write the 5 mandatory config files (models.json, channels.json,

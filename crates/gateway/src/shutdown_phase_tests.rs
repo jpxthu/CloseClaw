@@ -8,7 +8,9 @@
 use crate::{DmScope, GatewayConfig, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_common::shutdown::{DrainStatus, ShutdownHandle, ShutdownSignal, ShutdownState};
+use closeclaw_common::shutdown::{DrainStatus, ShutdownSignal, ShutdownState};
+
+use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel};
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -147,15 +147,15 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
 // DaemonShutdownMode is now a re-export of closeclaw_common::ShutdownMode,
 // so no conversion is needed.
 
-/// Create a `closeclaw_common::shutdown::ShutdownHandle` from the daemon's
+/// Create a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
 /// `ShutdownHandle`. The common handle wraps the daemon's handle as a
 /// `dyn ShutdownSignal`.
 pub fn common_shutdown_handle(
     daemon_handle: &DaemonShutdownHandle,
-) -> Arc<closeclaw_common::shutdown::ShutdownHandle> {
-    Arc::new(closeclaw_common::shutdown::ShutdownHandle::new(Arc::new(
-        daemon_handle.clone(),
-    )))
+) -> Arc<closeclaw_gateway::shutdown_handle::ShutdownHandle> {
+    Arc::new(closeclaw_gateway::shutdown_handle::ShutdownHandle::new(
+        Arc::new(daemon_handle.clone()),
+    ))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

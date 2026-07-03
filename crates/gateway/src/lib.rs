@@ -21,6 +21,7 @@ mod session_handler_announce;
 mod session_handler_dispatch;
 mod session_handler_streaming;
 pub mod session_manager;
+pub mod shutdown_handle;
 pub mod slash_permission;
 pub mod sweeper;
 #[cfg(test)]
@@ -40,6 +41,7 @@ use tokio::sync::{mpsc, RwLock};
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
+use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::slash_router::SlashRouter;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
@@ -48,6 +50,7 @@ use closeclaw_session::persistence::PersistenceService;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
+pub use shutdown_handle::ShutdownHandle;
 
 /// Gateway - routes messages between IM plugins and agents
 pub struct Gateway {
@@ -75,7 +78,7 @@ pub struct Gateway {
     /// path in that case.
     self_ref: std::sync::Mutex<Option<Arc<Gateway>>>,
     /// Shutdown handle for busy-count tracking during drain.
-    shutdown_handle: std::sync::Mutex<Option<Arc<closeclaw_common::shutdown::ShutdownHandle>>>,
+    shutdown_handle: std::sync::Mutex<Option<Arc<ShutdownHandle>>>,
     /// Outbound middleware chain, run between render and send.
     outbound_middlewares: std::sync::RwLock<Vec<Arc<dyn closeclaw_common::OutboundMiddleware>>>,
 }
@@ -153,7 +156,7 @@ impl Gateway {
     }
 
     /// Set the shutdown handle for busy-count tracking during drain.
-    pub fn set_shutdown_handle(&self, handle: Arc<closeclaw_common::shutdown::ShutdownHandle>) {
+    pub fn set_shutdown_handle(&self, handle: Arc<ShutdownHandle>) {
         if let Ok(mut slot) = self.shutdown_handle.lock() {
             *slot = Some(handle);
         }
@@ -209,9 +212,7 @@ impl Gateway {
     }
 
     /// Get a clone of the shutdown handle, if set.
-    pub(crate) fn get_shutdown_handle(
-        &self,
-    ) -> Option<Arc<closeclaw_common::shutdown::ShutdownHandle>> {
+    pub(crate) fn get_shutdown_handle(&self) -> Option<Arc<ShutdownHandle>> {
         self.shutdown_handle.lock().ok().and_then(|s| s.clone())
     }
 
@@ -443,7 +444,7 @@ impl Gateway {
     /// Flush all active sessions to persistence (proxied to SessionManager).
     pub async fn flush_all_sessions(
         &self,
-        mode: closeclaw_common::shutdown::ShutdownMode,
+        mode: ShutdownMode,
     ) -> Result<usize, closeclaw_session::persistence::PersistenceError> {
         self.session_manager.flush_all(mode).await
     }
@@ -639,10 +640,7 @@ impl Gateway {
     ///
     /// When `mode` is [`ShutdownMode::Forceful`], the header changes to
     /// indicate forced shutdown and the action buttons are omitted.
-    pub async fn send_shutdown_progress_card(
-        &self,
-        mode: closeclaw_common::shutdown::ShutdownMode,
-    ) {
+    pub async fn send_shutdown_progress_card(&self, mode: ShutdownMode) {
         use closeclaw_llm::session_state::LlmState;
 
         let sessions = self.session_manager.get_all_sessions().await;
@@ -718,7 +716,7 @@ impl Gateway {
 
         // Action buttons (only in graceful mode)
         let mut elements = session_elements;
-        if mode == closeclaw_common::shutdown::ShutdownMode::Graceful {
+        if mode == ShutdownMode::Graceful {
             elements.push(json!({
                 "tag": "action",
                 "actions": [
@@ -744,7 +742,7 @@ impl Gateway {
             }));
         }
 
-        let header_title = if mode == closeclaw_common::shutdown::ShutdownMode::Graceful {
+        let header_title = if mode == ShutdownMode::Graceful {
             "\u{23f3} \u{6b63}\u{5728}\u{4f18}\u{96c5}\u{5173}\u{95ed}..."
         } else {
             "\u{26a0}\u{fe0f} \u{5f3a}\u{5236}\u{5173}\u{95ed}\u{4e2d}..."
@@ -757,7 +755,7 @@ impl Gateway {
                     "tag": "plain_text",
                     "content": header_title
                 }),
-                "template": if mode == closeclaw_common::shutdown::ShutdownMode::Graceful { "blue" } else { "red" }
+                "template": if mode == ShutdownMode::Graceful { "blue" } else { "red" }
             }),
             "elements": elements
         });
