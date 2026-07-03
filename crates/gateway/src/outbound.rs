@@ -7,6 +7,7 @@ use super::{Gateway, GatewayError, Message};
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
+use closeclaw_common::middleware::run_middleware_chain;
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::{
@@ -175,11 +176,22 @@ impl Gateway {
     /// - `"interactive"`: call `plugin.send` directly, build a [`Message`]
     ///   from the serialized payload for checkpointing.
     /// - any other: return [`GatewayError::OutboundError`].
+    ///
+    /// Before sending, the rendered output is passed through the registered
+    /// outbound middleware chain (see [`OutboundMiddleware`]).
     async fn dispatch_and_persist(&self, ctx: DispatchCtx<'_>) -> Result<(), GatewayError> {
-        match ctx.rendered.msg_type.as_str() {
+        // Run outbound middleware chain (render → middleware → send).
+        let middlewares = self.get_outbound_middlewares().await;
+        let rendered = if middlewares.is_empty() {
+            ctx.rendered.clone()
+        } else {
+            run_middleware_chain(&middlewares, ctx.rendered.clone())
+                .await
+                .map_err(|e| GatewayError::OutboundError(e.to_string()))?
+        };
+        match rendered.msg_type.as_str() {
             "text" => {
-                let text = ctx
-                    .rendered
+                let text = rendered
                     .payload
                     .get("content")
                     .and_then(|v| v.get("text"))
@@ -188,16 +200,16 @@ impl Gateway {
                     .to_string();
                 let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id.clone(), text);
                 ctx.plugin
-                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+                    .send(&rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
                 self.persist_outbound_checkpoint(ctx.session_id, &msg).await;
                 Ok(())
             }
             "interactive" => {
-                let payload_str = serde_json::to_string(&ctx.rendered.payload)
-                    .unwrap_or_else(|_| "{}".to_string());
+                let payload_str =
+                    serde_json::to_string(&rendered.payload).unwrap_or_else(|_| "{}".to_string());
                 ctx.plugin
-                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+                    .send(&rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
                 let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id, payload_str);
                 self.persist_outbound_checkpoint(ctx.session_id, &msg).await;
@@ -205,7 +217,7 @@ impl Gateway {
             }
             _ => Err(GatewayError::OutboundError(format!(
                 "unknown msg_type: {}",
-                ctx.rendered.msg_type
+                rendered.msg_type
             ))),
         }
     }
@@ -331,7 +343,15 @@ impl Gateway {
             .and_then(|s| serde_json::from_str(s).ok());
 
         // Render via the plugin.
-        let rendered = plugin.render(&processed.content_blocks, dsl_result.as_ref());
+        let mut rendered = plugin.render(&processed.content_blocks, dsl_result.as_ref());
+
+        // Run outbound middleware chain (render → middleware → send).
+        let middlewares = self.get_outbound_middlewares().await;
+        if !middlewares.is_empty() {
+            rendered = run_middleware_chain(&middlewares, rendered)
+                .await
+                .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+        }
 
         // Dispatch via plugin.send.
         plugin.send(&rendered, chat_id, None).await?;
@@ -374,11 +394,19 @@ impl Gateway {
         } else {
             VerbosityLevel::default()
         };
+        let middlewares = self.get_outbound_middlewares().await;
         let mut state = StreamState::new(verbosity_level);
         while let Some(event_result) = stream.next().await {
             let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-            self.process_stream_event(plugin, &chat_id, thread_id.as_deref(), event, &mut state)
-                .await?;
+            self.process_stream_event(
+                plugin,
+                &chat_id,
+                thread_id.as_deref(),
+                event,
+                &mut state,
+                &middlewares,
+            )
+            .await?;
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
         Ok(StreamState::into_result(state))
@@ -395,6 +423,7 @@ impl Gateway {
         thread_id: Option<&str>,
         event: StreamEvent,
         state: &mut StreamState,
+        middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
     ) -> Result<(), GatewayError> {
         match event {
             StreamEvent::BlockDelta { index, delta } => {
@@ -430,7 +459,7 @@ impl Gateway {
                 if block_type != ContentBlockType::Text {
                     let render_blocks = std::mem::take(&mut out.render_blocks);
                     for block in render_blocks {
-                        send_render_block(plugin, chat_id, thread_id, &block).await?;
+                        send_render_block(plugin, chat_id, thread_id, &block, middlewares).await?;
                         state.content_blocks.push(block);
                     }
                 }
@@ -441,7 +470,7 @@ impl Gateway {
                 let render_blocks = std::mem::take(&mut out.render_blocks);
                 dispatch_text(plugin, chat_id, thread_id, out, state).await?;
                 for block in render_blocks {
-                    send_render_block(plugin, chat_id, thread_id, &block).await?;
+                    send_render_block(plugin, chat_id, thread_id, &block, middlewares).await?;
                     state.content_blocks.push(block);
                 }
                 if let Some(u) = usage {
@@ -525,14 +554,20 @@ async fn send_text(
     Ok(())
 }
 
-/// Call `plugin.render(&[block], None)` and dispatch via `plugin.send`.
+/// Call `plugin.render(&[block], None)`, run outbound middleware, and dispatch via `plugin.send`.
 async fn send_render_block(
     plugin: &std::sync::Arc<dyn IMPlugin>,
     chat_id: &str,
     thread_id: Option<&str>,
     block: &ContentBlock,
+    middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
 ) -> Result<(), GatewayError> {
-    let rendered = plugin.render(std::slice::from_ref(block), None);
+    let mut rendered = plugin.render(std::slice::from_ref(block), None);
+    if !middlewares.is_empty() {
+        rendered = run_middleware_chain(middlewares, rendered)
+            .await
+            .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+    }
     plugin.send(&rendered, chat_id, thread_id).await?;
     Ok(())
 }

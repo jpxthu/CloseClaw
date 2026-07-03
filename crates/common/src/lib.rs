@@ -13,6 +13,7 @@ pub mod identity;
 pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
+pub mod middleware;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
@@ -58,6 +59,7 @@ pub use im_plugin::{
     AdapterError, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage, RenderedOutput,
     StreamingOutput,
 };
+pub use middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, RawMessage, StreamEvent, UnifiedResponse, UnifiedUsage,

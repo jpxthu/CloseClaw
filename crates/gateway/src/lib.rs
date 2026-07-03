@@ -76,6 +76,8 @@ pub struct Gateway {
     self_ref: std::sync::Mutex<Option<Arc<Gateway>>>,
     /// Shutdown handle for busy-count tracking during drain.
     shutdown_handle: std::sync::Mutex<Option<Arc<closeclaw_common::shutdown::ShutdownHandle>>>,
+    /// Outbound middleware chain, run between render and send.
+    outbound_middlewares: std::sync::RwLock<Vec<Arc<dyn closeclaw_common::OutboundMiddleware>>>,
 }
 
 impl Gateway {
@@ -94,6 +96,7 @@ impl Gateway {
             inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
+            outbound_middlewares: std::sync::RwLock::new(Vec::new()),
         }
     }
 
@@ -116,6 +119,7 @@ impl Gateway {
             inbound_tx: std::sync::Mutex::new(None),
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
+            outbound_middlewares: std::sync::RwLock::new(Vec::new()),
         }
     }
 
@@ -153,6 +157,23 @@ impl Gateway {
         if let Ok(mut slot) = self.shutdown_handle.lock() {
             *slot = Some(handle);
         }
+    }
+
+    /// Register an outbound middleware.
+    ///
+    /// Middlewares run in insertion order between [`IMPlugin::render`]
+    /// and [`IMPlugin::send`] on every outbound message.
+    pub fn add_outbound_middleware(&self, mw: Arc<dyn closeclaw_common::OutboundMiddleware>) {
+        if let Ok(mut mws) = self.outbound_middlewares.write() {
+            mws.push(mw);
+        }
+    }
+
+    /// Return the current outbound middleware chain (snapshot).
+    pub(crate) async fn get_outbound_middlewares(
+        &self,
+    ) -> Vec<Arc<dyn closeclaw_common::OutboundMiddleware>> {
+        self.outbound_middlewares.read().unwrap().clone()
     }
 
     // set_slash_dispatcher, set_permission_engine, and set_approval_flow
