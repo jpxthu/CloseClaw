@@ -833,6 +833,20 @@ impl Gateway {
         if let Some(ref thread_id) = input.thread_id {
             extra_meta.insert("thread_id".to_string(), thread_id.clone());
         }
+        // Propagate message_type, media_refs, and quoted_message to Gateway.
+        // These are not consumed by the Processor Chain but must reach
+        // handle_inbound_message for future non-text message handling.
+        extra_meta.insert(
+            "message_type".to_string(),
+            serde_json::to_string(&input.message_type).unwrap_or_else(|_| "text".to_string()),
+        );
+        extra_meta.insert(
+            "media_refs".to_string(),
+            serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
+        );
+        if let Some(ref quoted) = input.quoted_message {
+            extra_meta.insert("quoted_message".to_string(), quoted.clone());
+        }
 
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
